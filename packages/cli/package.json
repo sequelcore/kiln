@@ -15,11 +15,13 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "schemas",
     "verifiers",
     "README.md"
   ],
   "scripts": {
     "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
+    "config:schema:generate": "bun scripts/generate-project-config-artifacts.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=dot --silent=passed-only && bun run test:model-gateway-projection-lock:bun",
     "test:model-gateway-projection-lock:bun": "bun tests/config/global-native-projection-lock.bun.ts",
@@ -57,11 +59,11 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex-sdk": "0.147.0",
     "@opencode-ai/sdk": "1.18.18",
+    "@sinclair/typebox": "0.34.52",
     "smol-toml": "^1.6.1",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
-    "@sinclair/typebox": "0.34.52",
     "yaml": "^2.8.2"
   }
 }

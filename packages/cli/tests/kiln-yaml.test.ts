@@ -119,7 +119,56 @@ describe("readKilnYaml", () => {
     );
 
     expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
-      /qualityGates\[0\].*coverageThreshold.*unknown|unsupported.*coverageThreshold/i,
+      /\/qualityGates\/0\/coverageThreshold: unknown field/u,
+    );
+  });
+
+  it("rejects malformed nested values with a stable field path", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      [
+        "version: '1'",
+        "permissions:",
+        "  tools:",
+        "    - tool: read",
+        "      action: maybe",
+      ].join("\n"),
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      /Invalid project config at \/permissions\/tools\/0\/action/u,
+    );
+  });
+
+  it("rejects whitespace-only quality-gate names at the structural boundary", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      [
+        "version: '1'",
+        "qualityGates:",
+        "  - name: '   '",
+        "    command: bun test",
+      ].join("\n"),
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      /Invalid project config at \/qualityGates\/0\/name/u,
+    );
+  });
+
+  it("rejects unknown nested fields with the running build identity", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      [
+        "version: '1'",
+        "permissions:",
+        "  sandbox: read-only",
+        "  mystery: true",
+      ].join("\n"),
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      /Invalid project config at \/permissions\/mystery: unknown field\. Validated by kiln .+ at .+;/u,
     );
   });
 

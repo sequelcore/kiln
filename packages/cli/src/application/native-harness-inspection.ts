@@ -7,6 +7,7 @@ import {
   type KilnConfigStatusSnapshot,
   type KilnResolvedWorkGovernancePolicy,
 } from "@kilnai/gateway-contracts";
+import { publicEffectiveConfigValue } from "./effective-config-projection.js";
 import { readConfigStatusSnapshot, type ReadConfigStatusOptions } from "./config-status.js";
 import {
   discoverNativeHarnessProjectRoot,
@@ -163,7 +164,10 @@ export function createNativeHarnessInspectionService(
     const currentTime = now().getTime();
     if (observedAt > currentTime + MAX_FUTURE_CLOCK_SKEW_MS) return { diagnostic: diagnosticFor("KILN_EVIDENCE_FUTURE") };
     if (currentTime - observedAt > MAX_EVIDENCE_AGE_MS) return { diagnostic: diagnosticFor("KILN_EVIDENCE_STALE") };
-    return { snapshot: parsed.data, projectRoot: root.rootPath };
+    return {
+      snapshot: { ...parsed.data, evidenceVersion: KILN_STATUS_EVIDENCE_VERSION },
+      projectRoot: root.rootPath,
+    };
   }
 
   return {
@@ -204,7 +208,7 @@ export function createNativeHarnessInspectionService(
       const result = await read();
       if ("diagnostic" in result) return unresolvedGovernance(result.diagnostic, now(), port.harness);
       const diagnostics = diagnosticsFor(result.snapshot);
-      const candidate = result.snapshot.effectiveConfig?.workGovernance;
+      const candidate = publicEffectiveConfigValue(result.snapshot.effectiveConfig, "/workGovernance");
       const policy = result.snapshot.effectiveConfigStatus === "valid"
         ? KilnResolvedWorkGovernancePolicySchema.safeParse(candidate)
         : undefined;

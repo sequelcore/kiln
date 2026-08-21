@@ -59,6 +59,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { deriveEffectiveKilnYaml, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { publicEffectiveConfigValue } from "./effective-config-projection.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
 import { projectDirectExecutionCatalog, readGlobalConfig } from "../config/global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
@@ -150,7 +151,7 @@ function createOperatorProjectGovernanceReader(rootPath: string): {
         throw new AgentTaskApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
       }
       const policy = KilnResolvedWorkGovernancePolicySchema.safeParse(
-        snapshot.data.effectiveConfig?.workGovernance,
+        publicEffectiveConfigValue(snapshot.data.effectiveConfig, "/workGovernance"),
       );
       if (!policy.success) {
         throw new AgentTaskApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");

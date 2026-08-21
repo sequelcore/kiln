@@ -27,6 +27,11 @@ The config projection boundary is owned by the CLI config layer.
 
 - `packages/cli/src/config/global-config.ts` owns canonical global config
   validation.
+- `packages/cli/src/config/project-config-schema.ts` owns the strict runtime
+  schema, inferred admitted type, stable structural diagnostics, editor schema,
+  and field descriptors for project `.kiln/kiln.yaml`. The committed JSON
+  artifacts under `packages/cli/schemas` are generated projections and never
+  runtime authority.
 - `packages/cli/src/config/harness-integration-capabilities.ts` owns harness
   integration capability declarations.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
@@ -483,9 +488,18 @@ session events and resources such as `kiln://session/goals` and
 `kiln://session/work-items`.
 
 Configuration inspection uses the same canonical status contract across
-operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
-global config status, project config status, adopted project-context status,
-effective config availability, repo-shim projection status, native projection
+operator surfaces. Status evidence V3 replaces the former untyped raw
+effective-config record with `KilnEffectiveConfigSnapshot`, a secret-free
+root-field projection. Every returned field carries a canonical JSON-pointer
+identity, effective value or redacted presence, effective scope, selected
+source and source path, default status, ordered global/project contribution or
+override chain, health, schema revision, sensitivity, and activation behavior.
+MCP, web, and hook fields can contain inline secret material, so the projection
+emits only `{ present: true }` for those families. The resolved runtime object is kept
+request-local by the CLI application owner and is never part of the transport.
+
+`KilnConfigStatusSnapshot` also reports resolved project root, global config
+status, project config status, adopted project-context status, repo-shim projection status, native projection
 install-state status, workflow snapshot manifest status, skill catalog status,
 permission integrity, and harness integration capabilities. Skill catalog
 status includes origin, built-in flag, source path, native projection status
@@ -496,6 +510,15 @@ consume that shared contract instead of re-reading YAML or native files
 independently. The model-callable `kiln_config.read` tool is a read-only
 projection of this contract; it may inspect effective config and status but
 must not mutate configuration or native provider files.
+
+Projection health is derived, not stored. Native drift yields `drifted`, stale
+projection or permission evidence yields `stale`, and unproven or failed
+permission observation yields `unknown`; none may be labeled `current` by a
+consumer. Missing optional projections remain visible in the projection list
+without making canonical configuration itself stale. Project broadening is
+rejected by effective-config admission before any read model is emitted, so a
+project omission or rejected override cannot silently remove global safety
+posture.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
 read model. It contains project-context status, repo-shim status, native
@@ -511,6 +534,12 @@ harness sees the same governed copy. Conflicting same-name native skills block
 adoption until the operator reconciles them. GUI, TUI, CLI, SDK/widget, and
 runtime tools must use this setup read model instead of locally filtering
 generic projection lists.
+
+Interactive GUI and TUI setup adapters attach the already-derived
+`effectiveConfig` projection to this setup response. They do not re-read YAML
+or recompute precedence. GUI exposes expandable field value/provenance rows;
+TUI prints the same value, source, health, activation, and ordered chain. The
+field is absent when effective configuration admission fails.
 
 The setup read model remains the shared source of truth. `kiln config read
 setup` prints the raw setup snapshot, `kiln status` includes deterministic
@@ -584,9 +613,12 @@ agent may request them through tools. Until then, agents must not simulate those
 changes by editing config files.
 
 `kiln_config.read` is read-only. It exposes the same bounded views as
-`kiln config read` and the setup/status surfaces. It may report effective
-config, provider health, projection status, and setup recommendations, but it
-does not grant mutation authority.
+`kiln config read` and the setup/status surfaces. The `effective` view returns
+the complete secret-free projection. Provider, route, permission, skill, and
+memory views select field records from that projection instead of rebuilding
+raw values. `kiln config explain <identity>` returns the same field record used
+by those views. The tool may report provider health, projection status, and
+setup recommendations, but it does not grant mutation authority.
 
 `kiln_config.propose_change` returns a `KilnConfigChangeProposal`, not a patch
 string. A proposal records:

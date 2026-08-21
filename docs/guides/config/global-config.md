@@ -340,6 +340,19 @@ cannot declare providers, models, target catalogs, target routing, economics,
 model suitability, deliberation policy, authority profiles, or Model Gateway.
 Unknown or forbidden fields fail validation instead of being silently merged.
 
+The runtime contract is `packages/cli/src/config/project-config-schema.ts`.
+Kiln validates parsed YAML against that schema before any semantic admission or
+execution. Diagnostics identify the exact JSON-pointer field path and identify
+the running CLI build when an unknown field could indicate an outdated install.
+
+The versioned editor projection is published as
+`@kilnai/cli/schemas/project-config-v1.json`; its companion descriptor artifact
+is `project-config-descriptors-v1.json`. Both are generated from the runtime
+schema with `bun run --cwd packages/cli config:schema:generate`, and tests reject
+committed artifact drift. Editors may map `.kiln/kiln.yaml` to the schema in the
+installed package. JSON Schema provides completion and early feedback, but the
+runtime schema plus named semantic admission remain authoritative.
+
 Global web providers may supply reusable adapters and credential references.
 The project still controls whether network use is enabled and which domains
 are admitted.
@@ -362,10 +375,19 @@ Prefer governed config commands over direct edits:
 ```bash
 kiln config read health
 kiln config read effective
+kiln config explain permissions
 kiln config read setup
 kiln config read agents
 kiln sync --all --dry-run
 ```
+
+`kiln config read effective` returns the shared secret-free field projection,
+not the runtime configuration object. Each field explains its canonical
+identity, effective value (or redacted presence), source, override chain,
+health, schema revision, and activation. `kiln config explain` accepts a
+top-level identity with or without the leading `/`. MCP, web, and hook values
+are redacted as complete sensitive families; inspect their separate status views
+for non-secret health and admission evidence.
 
 Global mutations use one interprocess lock, revision checks, validation, and an
 atomic replacement. Replacing an invalid or older global document requires an

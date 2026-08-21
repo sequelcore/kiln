@@ -354,7 +354,10 @@ export async function guiCommand(
       ),
       executionRouteCatalog: await executionRouteSelection.getCatalog(),
     }),
-    getSetupSnapshot: async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
+    getSetupSnapshot: async () => {
+      const snapshot = await readConfigStatusSnapshot({ projectPath: cwd });
+      return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
+    },
     executeSetupAction: async (action) => executeConfigSetupAction({ projectPath: cwd, action }),
     loadOperatorSessionHistory: () => loadOperatorSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),

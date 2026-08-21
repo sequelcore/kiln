@@ -164,12 +164,55 @@ export function SetupPanel(props: SetupPanelProps) {
 
             <PermissionIntegrityCard integrity={permissionIntegrity} />
 
+            <EffectiveConfigurationCard snapshot={props.snapshot.effectiveConfig} />
+
             <McpStatusCard snapshot={props.snapshot.mcp} />
 
             <SetupSourceInventory snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
           </div>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+function EffectiveConfigurationCard(props: { readonly snapshot: KilnConfigSetupSnapshot["effectiveConfig"] }) {
+  if (!props.snapshot) return null;
+  return (
+    <section aria-label="Effective Configuration">
+      <Card>
+        <CardHeader>
+          <CardTitle><h3>Effective Configuration</h3></CardTitle>
+          <CardDescription>Canonical values, selected sources, override chains, activation, and current health.</CardDescription>
+          <CardAction>
+            <Badge variant={props.snapshot.health === "current" ? "outline" : "destructive"}>{props.snapshot.health}</Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="divide-y divide-border/70 p-0">
+          {props.snapshot.fields.length === 0 ? (
+            <p className="px-4 py-5 text-sm text-muted-foreground">No effective configuration fields are available.</p>
+          ) : props.snapshot.fields.map((field) => (
+            <details key={field.identity} className="group px-4 py-3 text-sm">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-medium text-foreground">
+                <code className="min-w-0 break-all text-xs">{field.identity}</code>
+                <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+                  <span>{field.source}</span>
+                  <Badge variant={field.health === "current" ? "outline" : "destructive"}>{field.health}</Badge>
+                </span>
+              </summary>
+              <dl className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                <div><dt className="font-medium text-foreground">Activation</dt><dd>{field.activation}</dd></div>
+                <div><dt className="font-medium text-foreground">Default status</dt><dd>{field.defaultStatus}</dd></div>
+                <div className="sm:col-span-2"><dt className="font-medium text-foreground">Source</dt><dd className="break-all">{field.sourcePath}</dd></div>
+                <div className="sm:col-span-2"><dt className="font-medium text-foreground">Override chain</dt><dd>{field.overrideChain.map((step) => `${step.scope}: ${step.disposition}`).join(" → ")}</dd></div>
+              </dl>
+              <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-muted/50 p-3 text-xs text-foreground">{
+                field.redacted ? "present (redacted)" : JSON.stringify(field.value, null, 2)
+              }</pre>
+            </details>
+          ))}
+        </CardContent>
+      </Card>
     </section>
   );
 }

@@ -6,6 +6,8 @@ import { KILN_STATUS_EVIDENCE_VERSION } from "@kilnai/gateway-contracts";
 import type {
   KilnConfigReadResult,
   KilnConfigReadView,
+  KilnEffectiveConfigFieldSnapshot,
+  KilnEffectiveConfigHealth,
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
@@ -78,6 +80,10 @@ import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 import type { RouteAdmissionDecision } from "@kilnai/core";
 import { assembleRuntimePermissionIntegrity } from "../config/permission-integrity-assembler.js";
 import { createRuntimePermissionObservationStore } from "../wrapper/runtime-permission-observation.js";
+import {
+  effectiveConfigField,
+  projectEffectiveConfig,
+} from "./effective-config-projection.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -123,6 +129,7 @@ const skillCatalogDetails = new WeakMap<
   KilnConfigStatusSnapshot,
   ReturnType<typeof readSkillCatalogStatus>
 >();
+const resolvedConfigDetails = new WeakMap<KilnConfigStatusSnapshot, ResolvedKilnConfig>();
 
 export async function readConfigStatusSnapshot(
   options: ReadConfigStatusOptions = {},
@@ -151,6 +158,17 @@ export async function readConfigStatusSnapshot(
     now,
   );
   const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
+  const effectiveConfigProjection = effectiveConfig
+    ? projectEffectiveConfig({
+      effectiveConfig,
+      globalConfig: globalState.config as KilnGlobalConfig | null,
+      projectConfig: projectState.config as KilnProjectConfig | null,
+      globalSource: globalState.source,
+      projectSource: projectState.source,
+      projections: projectionState.projections,
+      permissionIntegrity,
+    })
+    : undefined;
   const shouldReadSkillCatalog = options.view === undefined || options.view === "skills" || options.view === "setup";
   const skillCatalog = effectiveConfig && shouldReadSkillCatalog
     ? readSkillCatalogStatus({
@@ -186,7 +204,7 @@ export async function readConfigStatusSnapshot(
     },
     global: globalState.source,
     effectiveConfigStatus: effectiveConfig ? "valid" : errors.length > 0 ? "invalid" : "missing",
-    ...(effectiveConfig ? { effectiveConfig: effectiveConfig as unknown as Record<string, unknown> } : {}),
+    ...(effectiveConfigProjection ? { effectiveConfig: effectiveConfigProjection } : {}),
     errors,
     mcp,
     projections: projectionState.projections,
@@ -194,8 +212,14 @@ export async function readConfigStatusSnapshot(
     setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
+  if (effectiveConfig) resolvedConfigDetails.set(snapshot, effectiveConfig);
   if (skillCatalog) skillCatalogDetails.set(snapshot, skillCatalog);
   return snapshot;
+}
+
+/** Internal runtime detail retained request-locally; never serialized to operator surfaces. */
+export function readResolvedConfigDetail(snapshot: KilnConfigStatusSnapshot): ResolvedKilnConfig | undefined {
+  return resolvedConfigDetails.get(snapshot);
 }
 
 function buildMcpStatus(
@@ -702,37 +726,34 @@ async function projectConfigView(
   view: KilnConfigReadView,
   options: ReadConfigStatusViewOptions,
 ): Promise<unknown> {
-  const config = snapshot.effectiveConfig as unknown as ResolvedKilnConfig | undefined;
+  const config = resolvedConfigDetails.get(snapshot);
   switch (view) {
     case "effective":
-      return config ?? null;
+      return snapshot.effectiveConfig ?? null;
     case "providers":
-      return {
-        provider: config?.provider,
-        model: config?.model,
-        providers: config?.providers,
-      };
+      return selectEffectiveFields(snapshot, ["/provider", "/model", "/providers"]);
     case "routes":
-      return {
-        defaultProvider: config?.provider,
-        managedAgents: config?.managedAgents,
-        modelTaskSuitability: config?.modelTaskSuitability,
-        deliberationPolicy: config?.deliberationPolicy,
-      };
+      return selectEffectiveFields(snapshot, [
+        "/provider", "/model", "/targetCatalog", "/authorityProfiles",
+        "/managedAgents", "/modelTaskSuitability", "/deliberationPolicy",
+      ]);
     case "agents":
       return readAgentIndexes(snapshot.project.rootPath, options);
     case "skills":
-      return skillCatalogDetails.get(snapshot) ?? readSkillCatalogStatus({
-        projectPath: snapshot.project.rootPath,
-        userHome: options.userHome,
-        cwd: options.cwd ?? snapshot.project.rootPath,
-        skillConfig: config?.skills,
-        ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
-        ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
-      });
+      return {
+        ...(skillCatalogDetails.get(snapshot) ?? readSkillCatalogStatus({
+          projectPath: snapshot.project.rootPath,
+          userHome: options.userHome,
+          cwd: options.cwd ?? snapshot.project.rootPath,
+          skillConfig: config?.skills,
+          ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+          ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+        })),
+        configuration: effectiveConfigField(snapshot.effectiveConfig, "/skills") ?? null,
+      };
     case "permissions":
       return {
-        policy: config?.permissions ?? null,
+        configuration: effectiveConfigField(snapshot.effectiveConfig, "/permissions") ?? null,
         permissionIntegrity: snapshot.permissionIntegrity,
       };
     case "mcp":
@@ -740,7 +761,7 @@ async function projectConfigView(
     case "memory": {
       const memoryStorage = resolveCliMemoryStorage(snapshot.project.rootPath);
       return {
-        permissions: config?.permissions?.memory ?? null,
+        configuration: effectiveConfigField(snapshot.effectiveConfig, "/permissions") ?? null,
         memoryDbPath: memoryStorage.memoryDbPath,
         memoryDbPresent: existsSync(memoryStorage.memoryDbPath),
       };
@@ -748,17 +769,42 @@ async function projectConfigView(
     case "projections":
       return snapshot.projections;
     case "setup":
-      return snapshot.setup;
+      return {
+        ...snapshot.setup,
+        ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}),
+      };
     case "health":
       return {
         global: snapshot.global,
         project: snapshot.project,
         effectiveConfigStatus: snapshot.effectiveConfigStatus,
+        effectiveConfig: snapshot.effectiveConfig
+          ? { schemaRevision: snapshot.effectiveConfig.schemaRevision, health: snapshot.effectiveConfig.health }
+          : null,
         errors: snapshot.errors,
         mcp: snapshot.mcp,
         harnessCapabilities: snapshot.harnessCapabilities,
       };
   }
+}
+
+function selectEffectiveFields(
+  snapshot: KilnConfigStatusSnapshot,
+  identities: readonly string[],
+): {
+  readonly schemaRevision: number | null;
+  readonly health: KilnEffectiveConfigHealth;
+  readonly fields: readonly KilnEffectiveConfigFieldSnapshot[];
+} {
+  const fields = identities.flatMap((identity) => {
+    const field = effectiveConfigField(snapshot.effectiveConfig, identity);
+    return field ? [field] : [];
+  });
+  return {
+    schemaRevision: snapshot.effectiveConfig?.schemaRevision ?? null,
+    health: snapshot.effectiveConfig?.health ?? "unknown",
+    fields,
+  };
 }
 
 function buildSetupSnapshot(input: {

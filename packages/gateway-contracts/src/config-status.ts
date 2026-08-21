@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 /** Version of status evidence that native-harness readers may treat as compatible. */
-export const KILN_STATUS_EVIDENCE_VERSION = 2 as const;
+export const KILN_STATUS_EVIDENCE_VERSION = 3 as const;
+
+/** Breaking revision of the secret-free effective-configuration projection. */
+export const KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION = 1 as const;
 
 export const KILN_WORK_GOVERNANCE_TRIGGERS = [
   "architecture",
@@ -110,6 +113,39 @@ export const KILN_CONFIG_READ_VIEWS = [
 export type KilnConfigReadView = typeof KILN_CONFIG_READ_VIEWS[number];
 
 export type KilnConfigSourceStatus = "missing" | "valid" | "invalid";
+
+export type KilnEffectiveConfigHealth = "current" | "stale" | "drifted" | "unknown";
+export type KilnEffectiveConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
+export type KilnEffectiveConfigSensitivity = "public" | "secret-reference";
+export type KilnEffectiveConfigSource = "default" | "global" | "project" | "composed";
+
+export interface KilnEffectiveConfigOverrideStep {
+  readonly scope: "default" | "global" | "project";
+  readonly sourcePath: string;
+  readonly disposition: "default" | "selected" | "contributed" | "overridden";
+}
+
+export interface KilnEffectiveConfigFieldSnapshot {
+  /** Canonical RFC 6901 JSON pointer in the effective configuration namespace. */
+  readonly identity: string;
+  readonly value?: unknown;
+  readonly redacted?: { readonly present: true };
+  readonly scope: "effective";
+  readonly source: KilnEffectiveConfigSource;
+  readonly sourcePath: string;
+  readonly defaultStatus: "default" | "explicit";
+  readonly overrideChain: readonly KilnEffectiveConfigOverrideStep[];
+  readonly health: KilnEffectiveConfigHealth;
+  readonly schemaRevision: number;
+  readonly activation: KilnEffectiveConfigActivation;
+  readonly sensitivity: KilnEffectiveConfigSensitivity;
+}
+
+export interface KilnEffectiveConfigSnapshot {
+  readonly schemaRevision: number;
+  readonly health: KilnEffectiveConfigHealth;
+  readonly fields: readonly KilnEffectiveConfigFieldSnapshot[];
+}
 
 export const KILN_CONFIG_SOURCE_STATUSES = [
   "missing",
@@ -634,6 +670,8 @@ export interface KilnHarnessCapabilitySnapshot {
 
 export interface KilnConfigSetupSnapshot {
   readonly projectRoot: string;
+  /** Included by interactive setup surfaces; derived by the status owner. */
+  readonly effectiveConfig?: KilnEffectiveConfigSnapshot;
   readonly projectContext: KilnConfigSourceSnapshot & {
     readonly recommendation: KilnConfigSetupAction;
   };
@@ -719,13 +757,12 @@ export interface KilnMcpStatusSnapshot {
 }
 
 export interface KilnConfigStatusSnapshot {
-  /** Optional for backwards-compatible transport decoding; consumers require it before authorization. */
-  readonly evidenceVersion?: number;
+  readonly evidenceVersion: typeof KILN_STATUS_EVIDENCE_VERSION;
   readonly generatedAt: string;
   readonly project: KilnConfigProjectSnapshot;
   readonly global: KilnConfigSourceSnapshot;
   readonly effectiveConfigStatus: KilnConfigSourceStatus;
-  readonly effectiveConfig?: Record<string, unknown>;
+  readonly effectiveConfig?: KilnEffectiveConfigSnapshot;
   readonly errors: readonly string[];
   readonly mcp: KilnMcpStatusSnapshot;
   readonly projections: readonly KilnProjectionTargetSnapshot[];
@@ -745,6 +782,63 @@ export const KilnConfigSourceSnapshotSchema = z.object({
   path: z.string(),
   status: z.enum(KILN_CONFIG_SOURCE_STATUSES),
   error: z.string().optional(),
+});
+
+export const KilnEffectiveConfigOverrideStepSchema = z.object({
+  scope: z.enum(["default", "global", "project"]),
+  sourcePath: z.string().min(1),
+  disposition: z.enum(["default", "selected", "contributed", "overridden"]),
+}).strict();
+
+export const KilnEffectiveConfigFieldSnapshotSchema = z.object({
+  identity: z.string().regex(/^\/(?:[^/~]|~[01])+(?:\/(?:[^/~]|~[01])+)*$/),
+  value: z.unknown().optional(),
+  redacted: z.object({ present: z.literal(true) }).strict().optional(),
+  scope: z.literal("effective"),
+  source: z.enum(["default", "global", "project", "composed"]),
+  sourcePath: z.string().min(1),
+  defaultStatus: z.enum(["default", "explicit"]),
+  overrideChain: z.array(KilnEffectiveConfigOverrideStepSchema).min(1),
+  health: z.enum(["current", "stale", "drifted", "unknown"]),
+  schemaRevision: z.number().int().positive(),
+  activation: z.enum(["hot", "next-turn", "next-session", "reconcile", "restart-required"]),
+  sensitivity: z.enum(["public", "secret-reference"]),
+}).strict().superRefine((field, context) => {
+  const hasValue = Object.prototype.hasOwnProperty.call(field, "value");
+  if (field.sensitivity === "secret-reference" && (hasValue || !field.redacted)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["redacted"],
+      message: "Secret-reference fields must expose redacted presence instead of a value",
+    });
+  }
+  if (field.sensitivity === "public" && (!hasValue || field.redacted)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["value"],
+      message: "Public fields must expose a value and cannot be marked redacted",
+    });
+  }
+});
+
+export const KilnEffectiveConfigSnapshotSchema = z.object({
+  schemaRevision: z.literal(KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION),
+  health: z.enum(["current", "stale", "drifted", "unknown"]),
+  fields: z.array(KilnEffectiveConfigFieldSnapshotSchema),
+}).strict().superRefine((snapshot, context) => {
+  const identities = new Set<string>();
+  for (const [index, field] of snapshot.fields.entries()) {
+    if (identities.has(field.identity)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["fields", index, "identity"], message: "Field identities must be unique" });
+    }
+    identities.add(field.identity);
+    if (field.schemaRevision !== snapshot.schemaRevision) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["fields", index, "schemaRevision"], message: "Field schema revision must match the projection" });
+    }
+    if (field.health !== snapshot.health) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["fields", index, "health"], message: "Field health must match the projection" });
+    }
+  }
 });
 
 const NativeRouteCatalogStatusSchema = z.enum([
@@ -975,6 +1069,7 @@ export const KilnMcpStatusSnapshotSchema = z.object({
 
 export const KilnConfigSetupSnapshotSchema = z.object({
   projectRoot: z.string(),
+  effectiveConfig: KilnEffectiveConfigSnapshotSchema.optional(),
   projectContext: KilnConfigSourceSnapshotSchema.extend({
     recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
   }),
@@ -1007,7 +1102,7 @@ export const KilnConfigSetupActionResultSchema = z.object({
 });
 
 export const KilnConfigStatusSnapshotSchema = z.object({
-  evidenceVersion: z.number().int().positive().optional(),
+  evidenceVersion: z.number().int().positive(),
   generatedAt: z.string().datetime(),
   project: z.object({
     rootPath: z.string(),
@@ -1019,7 +1114,7 @@ export const KilnConfigStatusSnapshotSchema = z.object({
   }),
   global: KilnConfigSourceSnapshotSchema,
   effectiveConfigStatus: z.enum(KILN_CONFIG_SOURCE_STATUSES),
-  effectiveConfig: z.record(z.string(), z.unknown()).optional(),
+  effectiveConfig: KilnEffectiveConfigSnapshotSchema.optional(),
   errors: z.array(z.string()),
   mcp: KilnMcpStatusSnapshotSchema,
   projections: z.array(KilnProjectionTargetSnapshotSchema),

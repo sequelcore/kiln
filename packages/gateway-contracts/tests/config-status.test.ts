@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   KILN_STATUS_EVIDENCE_VERSION,
+  KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
+  KilnEffectiveConfigSnapshotSchema,
   KilnResolvedWorkGovernancePolicySchema,
   TRUSTED_EXECUTION_CLASSIFICATIONS,
   TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
@@ -13,9 +15,66 @@ import {
   type TrustedExecutionIntegrity,
 } from "../src/config-status.js";
 
+describe("KilnEffectiveConfigSnapshotSchema", () => {
+  const publicField = {
+    identity: "/permissions",
+    value: { sandbox: "read-only" },
+    scope: "effective" as const,
+    source: "composed" as const,
+    sourcePath: "kiln://effective/permissions",
+    defaultStatus: "explicit" as const,
+    overrideChain: [
+      { scope: "global" as const, sourcePath: "C:/home/.kiln/config.yaml", disposition: "contributed" as const },
+      { scope: "project" as const, sourcePath: "C:/repo/.kiln/kiln.yaml", disposition: "contributed" as const },
+    ],
+    health: "current" as const,
+    schemaRevision: KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
+    activation: "next-session" as const,
+    sensitivity: "public" as const,
+  };
+
+  it("accepts explicit provenance and redacted secret presence", () => {
+    const parsed = KilnEffectiveConfigSnapshotSchema.parse({
+      schemaRevision: KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
+      health: "current",
+      fields: [
+        publicField,
+        {
+          identity: "/mcp",
+          redacted: { present: true },
+          scope: "effective",
+          source: "composed",
+          sourcePath: "kiln://effective/mcp",
+          defaultStatus: "explicit",
+          overrideChain: publicField.overrideChain,
+          health: "current",
+          schemaRevision: KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
+          activation: "next-session",
+          sensitivity: "secret-reference",
+        },
+      ],
+    });
+
+    expect(parsed.fields[1]).toMatchObject({ identity: "/mcp", redacted: { present: true } });
+  });
+
+  it("rejects leaked secret-reference values and false current field health", () => {
+    expect(() => KilnEffectiveConfigSnapshotSchema.parse({
+      schemaRevision: KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
+      health: "drifted",
+      fields: [{ ...publicField, health: "current" }],
+    })).toThrow();
+    expect(() => KilnEffectiveConfigSnapshotSchema.parse({
+      schemaRevision: KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
+      health: "current",
+      fields: [{ ...publicField, identity: "/mcp", sensitivity: "secret-reference", value: "secret" }],
+    })).toThrow();
+  });
+});
+
 describe("KilnSkillCatalogSnapshotSchema", () => {
-  it("publishes the summary-based status contract as evidence version 2", () => {
-    expect(KILN_STATUS_EVIDENCE_VERSION).toBe(2);
+  it("publishes the effective-configuration read model as evidence version 3", () => {
+    expect(KILN_STATUS_EVIDENCE_VERSION).toBe(3);
   });
   it("publishes exact source inventory and unknown budget evidence", () => {
     const parsed = KilnSkillCatalogSnapshotSchema.parse({
@@ -343,6 +402,7 @@ describe("KilnConfig setup and status permission integrity", () => {
     };
 
     const parsed = KilnConfigStatusSnapshotSchema.parse({
+      evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
       generatedAt: "2026-07-01T15:05:00.000Z",
       project: {
         rootPath: "C:/repo/kiln",

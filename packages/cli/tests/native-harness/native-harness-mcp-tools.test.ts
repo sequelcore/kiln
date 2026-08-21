@@ -21,6 +21,30 @@ const CodexMcpTools = class extends NativeHarnessMcpTools {
 const OBSERVED_AT = "2026-07-13T18:01:00.000Z";
 const TEMPORARY_CWD = join(tmpdir(), "kiln-codex-app-mcp-unrelated-cwd");
 
+function effectiveProjection(workGovernance?: unknown): KilnConfigStatusSnapshot["effectiveConfig"] {
+  return {
+    schemaRevision: 1,
+    health: "current",
+    fields: workGovernance === undefined ? [] : [{
+      identity: "/workGovernance",
+      value: workGovernance,
+      scope: "effective",
+      source: "global",
+      sourcePath: "C:\\Users\\operator\\.kiln\\config.yaml",
+      defaultStatus: "explicit",
+      overrideChain: [{
+        scope: "global",
+        sourcePath: "C:\\Users\\operator\\.kiln\\config.yaml",
+        disposition: "selected",
+      }],
+      health: "current",
+      schemaRevision: 1,
+      activation: "next-turn",
+      sensitivity: "public",
+    }],
+  };
+}
+
 function nativeHarnessDispatchFixture(overrides: {
   readonly routeId?: string;
   readonly providerId?: string;
@@ -56,7 +80,7 @@ function nativeHarnessDispatchFixture(overrides: {
 
 function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfigStatusSnapshot {
   return {
-    evidenceVersion: 2,
+    evidenceVersion: 3,
     generatedAt: "2026-07-13T18:00:00.000Z",
     project: {
       rootPath: "C:\\workspace\\kiln",
@@ -68,13 +92,11 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
     },
     global: { path: "C:\\Users\\operator\\.kiln\\config.yaml", status: "valid" },
     effectiveConfigStatus: "valid",
-    effectiveConfig: {
-      workGovernance: {
+    effectiveConfig: effectiveProjection({
         defaultPosture: "orchestrate",
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map", "tests"],
-      },
-    },
+    }),
     errors: [],
     projections: [],
     permissionIntegrity: [],
@@ -762,7 +784,7 @@ describe("NativeHarnessMcpTools", () => {
   });
 
   it("refuses governance authority while returning a typed diagnostic envelope", async () => {
-    const result = await createServer(snapshot({ effectiveConfig: {} })).callTool("kiln_work_governance_inspect", {});
+    const result = await createServer(snapshot({ effectiveConfig: effectiveProjection() })).callTool("kiln_work_governance_inspect", {});
 
     expect(result).toMatchObject({
       structuredContent: { operation: "work-governance", authority: "unresolved", diagnostics: [expect.objectContaining({ code: "KILN_GOVERNANCE_EVIDENCE_MALFORMED" })] },
@@ -771,13 +793,11 @@ describe("NativeHarnessMcpTools", () => {
 
   it("rejects malformed resolved governance policy instead of authorizing it", async () => {
     const malformed = snapshot({
-      effectiveConfig: {
-        workGovernance: {
+      effectiveConfig: effectiveProjection({
           defaultPosture: "direct",
           requireDelegationFor: ["not-a-trigger"],
           requiredEvidence: ["surface-map"],
-        },
-      },
+      }),
     });
 
     const result = await createServer(malformed).callTool("kiln_work_governance_inspect", {});
@@ -798,7 +818,7 @@ describe("NativeHarnessMcpTools", () => {
     ["duplicated authority trigger", { defaultPosture: "direct", requireDelegationFor: ["security", "security"], requiredEvidence: [] }],
     ["unsupported evidence", { defaultPosture: "direct", requireDelegationFor: [], requiredEvidence: ["operator-says-so"] }],
   ])("rejects %s governance evidence", async (_, workGovernance) => {
-    const result = await createServer(snapshot({ effectiveConfig: { workGovernance } })).callTool("kiln_work_governance_inspect", {});
+    const result = await createServer(snapshot({ effectiveConfig: effectiveProjection(workGovernance) })).callTool("kiln_work_governance_inspect", {});
 
     expect(result).toMatchObject({
       structuredContent: { authority: "unresolved", diagnostics: [expect.objectContaining({ code: "KILN_GOVERNANCE_EVIDENCE_MALFORMED" })] },
@@ -913,7 +933,11 @@ describe("NativeHarnessMcpTools", () => {
     const cases: readonly [string, KilnConfigStatusSnapshot, string][] = [
       ["missing version", snapshot({ evidenceVersion: undefined }), "KILN_EVIDENCE_MALFORMED"],
       ["missing observation", snapshot({ generatedAt: undefined } as unknown as Partial<KilnConfigStatusSnapshot>), "KILN_EVIDENCE_MALFORMED"],
-      ["unsupported version", snapshot({ evidenceVersion: 1 }), "KILN_EVIDENCE_VERSION_UNSUPPORTED"],
+      [
+        "unsupported version",
+        snapshot({ evidenceVersion: 1 as KilnConfigStatusSnapshot["evidenceVersion"] }),
+        "KILN_EVIDENCE_VERSION_UNSUPPORTED",
+      ],
       ["future observation", snapshot({ generatedAt: "2026-07-13T18:03:00.000Z" }), "KILN_EVIDENCE_FUTURE"],
       ["stale observation", snapshot({ generatedAt: "2026-07-13T17:50:00.000Z" }), "KILN_EVIDENCE_STALE"],
       ["invalid observation", snapshot({ generatedAt: "not-a-timestamp" }), "KILN_EVIDENCE_MALFORMED"],

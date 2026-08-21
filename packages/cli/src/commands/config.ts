@@ -12,6 +12,7 @@ import {
   readConfigStatusSnapshot,
   readConfigStatusView,
 } from "../application/config-status.js";
+import { effectiveConfigField } from "../application/effective-config-projection.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
 import { approveConfigChangeProposal } from "../application/config-approval.js";
 import {
@@ -143,6 +144,23 @@ export async function configCommand(
       const snapshot = await readConfigStatusSnapshot({ projectPath: root, view: viewArg });
       const result = await readConfigStatusView(snapshot, viewArg);
       console.log(JSON.stringify(result.value, null, 2));
+      break;
+    }
+
+    case "explain": {
+      const requestedIdentity = readPositionalArgs(args)[0];
+      if (!requestedIdentity) {
+        console.log("Usage: kiln config explain <identity>");
+        return;
+      }
+      const identity = requestedIdentity.startsWith("/") ? requestedIdentity : `/${requestedIdentity}`;
+      const snapshot = await readConfigStatusSnapshot({ projectPath: root, view: "effective" });
+      const field = effectiveConfigField(snapshot.effectiveConfig, identity);
+      if (!field) {
+        console.log(`Unknown effective config identity: ${identity}`);
+        return;
+      }
+      console.log(JSON.stringify(field, null, 2));
       break;
     }
 
@@ -564,6 +582,7 @@ function printConfigHelp(): void {
   console.log("Subcommands:");
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");
+  console.log("  explain <identity> Explain one effective field and its provenance");
   console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
@@ -582,7 +601,8 @@ async function runConfigSetupCommand(
     return [await executeConfigSetupAction({ projectPath, action })];
   }
   if (!args.includes("--apply")) {
-    return (await readConfigStatusSnapshot({ projectPath })).setup;
+    const snapshot = await readConfigStatusSnapshot({ projectPath });
+    return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
   }
 
   const results: KilnConfigSetupActionResult[] = [];

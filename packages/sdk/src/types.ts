@@ -9,6 +9,8 @@ import type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
+  KilnEffectiveConfigFieldSnapshot,
+  KilnEffectiveConfigSnapshot,
   VerifiedEfficiencyEvidenceProjection,
 } from "@kilnai/gateway-contracts";
 
@@ -71,6 +73,8 @@ export type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
+  KilnEffectiveConfigFieldSnapshot,
+  KilnEffectiveConfigSnapshot,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
   OperatorTurnRequestedAuthority,

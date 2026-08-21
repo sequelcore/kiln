@@ -53,9 +53,18 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
   const mcpDiagnostics = snapshot.mcp?.diagnostics.length
     ? snapshot.mcp.diagnostics.map((diagnostic) => `  - ${diagnostic.serverId}: ${diagnostic.code}: ${diagnostic.message}`).join("\n")
     : "  - none";
+  const effectiveConfig = snapshot.effectiveConfig?.fields.length
+    ? snapshot.effectiveConfig.fields.map((field) => [
+      `  - ${field.identity}: source=${field.source} health=${field.health} activation=${field.activation}`,
+      `    value=${field.redacted ? "present (redacted)" : JSON.stringify(field.value)}`,
+      `    chain=${field.overrideChain.map((step) => `${step.scope}:${step.disposition}`).join(" -> ")}`,
+    ].join("\n")).join("\n")
+    : "  - unavailable";
   return [
     `project: ${snapshot.projectRoot}`,
     `project context: ${snapshot.projectContext.status}`,
+    `effective configuration: ${snapshot.effectiveConfig?.health ?? "unknown"}`,
+    effectiveConfig,
     `actions: ${actions}`,
     "repo shims:",
     repoShims,

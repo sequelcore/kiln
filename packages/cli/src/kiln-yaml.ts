@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { KilnYamlError, validateAgentScopeInheritance } from "./kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./config/mcp-config.js";
+import { parseProjectConfigStructure } from "./config/project-config-schema.js";
 import { resolveCommunicationIntent } from "@kilnai/core";
 import type {
   ResolvedKilnConfig,
@@ -18,7 +19,6 @@ import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
-  KilnYamlQualityGate,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -67,26 +67,6 @@ export type {
   KilnHooksConfig,
 } from "./kiln-yaml-types.js";
 
-const PROJECT_ROOT_FIELDS = new Set([
-  "version",
-  "activeInstructionProfiles",
-  "workGovernance",
-  "domain",
-  "channels",
-  "teamMode",
-  "requireApproval",
-  "maxDepth",
-  "parallelWorkers",
-  "mcp",
-  "permissions",
-  "communication",
-  "web",
-  "interactiveUse",
-  "skills",
-  "qualityGates",
-  "contextGovernance",
-]);
-
 export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
   const path = join(kilnDir, "kiln.yaml");
   if (!existsSync(path)) {
@@ -94,18 +74,9 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
   }
   const raw = readFileSync(path, "utf-8");
   try {
-    const parsed = parse(raw);
-    if (typeof parsed !== "object" || parsed === null) {
-      throw new KilnYamlError("kiln.yaml must be an object");
-    }
-    const record = parsed as Record<string, unknown>;
-    const unknownField = Object.keys(record).find((field) => !PROJECT_ROOT_FIELDS.has(field));
-    if (unknownField) {
-      throw new KilnYamlError(`${unknownField} is global-only or is not a supported project configuration field`);
-    }
-    validateQualityGates(record.qualityGates);
-    validateAgentScopeInheritance(record.permissions);
-    const workGovernance = record.workGovernance;
+    const parsed = parseProjectConfigStructure(parse(raw), path);
+    validateAgentScopeInheritance(parsed.permissions);
+    const workGovernance = parsed.workGovernance;
     if (
       typeof workGovernance === "object"
       && workGovernance !== null
@@ -115,33 +86,30 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
       throw new KilnYamlError("workGovernance.boundedWorkCeiling is global-only");
     }
     readMcpConfigurationSource({
-      value: record.mcp,
+      value: parsed.mcp,
       scope: "project",
       sourcePath: path,
     });
-    const skills = record.skills;
-    if (skills !== undefined && (typeof skills !== "object" || skills === null || Array.isArray(skills))) {
-      throw new KilnYamlError("skills must be an object");
-    }
-    if ((skills as Record<string, unknown> | undefined)?.visibility !== undefined) {
+    const skills = parsed.skills;
+    if (skills?.visibility !== undefined) {
       throw new KilnYamlError(
         "skills.visibility is global-only because native skill targets are user-global; project-scoped visibility requires scoped harness projections",
       );
     }
-    if ((skills as Record<string, unknown> | undefined)?.externalCatalog !== undefined) {
+    if (skills?.externalCatalog !== undefined) {
       throw new KilnYamlError("skills.externalCatalog is global-only because it governs user-global native harness exposure");
     }
-    if ((parsed as Record<string, unknown>).communication !== undefined) {
+    if (parsed.communication !== undefined) {
       try {
         resolveCommunicationIntent([{
           source: "project",
-          intent: (parsed as KilnProjectConfig).communication!,
+          intent: parsed.communication,
         }]);
       } catch (error) {
         throw new KilnYamlError(`communication is invalid: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    return parsed as KilnProjectConfig;
+    return parsed;
   } catch (err) {
     if (err instanceof KilnYamlError) {
       throw err;
@@ -149,33 +117,6 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
     throw new KilnYamlError(
       `Failed to parse kiln.yaml: ${err instanceof Error ? err.message : String(err)}`,
     );
-  }
-}
-
-function validateQualityGates(value: unknown): asserts value is readonly KilnYamlQualityGate[] | undefined {
-  if (value === undefined) return;
-  if (!Array.isArray(value)) {
-    throw new KilnYamlError("qualityGates must be an array");
-  }
-  const allowedFields = new Set(["name", "command", "required"]);
-  for (const [index, gate] of value.entries()) {
-    if (typeof gate !== "object" || gate === null || Array.isArray(gate)) {
-      throw new KilnYamlError(`qualityGates[${index}] must be an object`);
-    }
-    const record = gate as Record<string, unknown>;
-    const unknownField = Object.keys(record).find((field) => !allowedFields.has(field));
-    if (unknownField) {
-      throw new KilnYamlError(`qualityGates[${index}].${unknownField} is an unknown field`);
-    }
-    if (typeof record.name !== "string" || record.name.trim() === "") {
-      throw new KilnYamlError(`qualityGates[${index}].name must be a non-empty string`);
-    }
-    if (typeof record.command !== "string" || record.command.trim() === "") {
-      throw new KilnYamlError(`qualityGates[${index}].command must be a non-empty string`);
-    }
-    if (record.required !== undefined && typeof record.required !== "boolean") {
-      throw new KilnYamlError(`qualityGates[${index}].required must be a boolean`);
-    }
   }
 }
 

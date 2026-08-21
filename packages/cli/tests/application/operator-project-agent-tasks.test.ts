@@ -130,16 +130,32 @@ vi.mock("../../src/application/config-status.js", () => ({
   readConfigStatusSnapshot: vi.fn(async (options?: { readonly projectPath?: string }) => {
     const projectRoot = options?.projectPath ?? "C:/workspace/unresolved";
     const effectiveConfig = {
-      version: "1",
-      workGovernance: {
+      schemaRevision: 1,
+      health: "current",
+      fields: [{
+        identity: "/workGovernance",
+        value: {
         defaultPosture: "orchestrate",
         requireDelegationFor: ["managed-agents"],
         requiredEvidence: ["surface-map", "tests"],
-      },
-      managedAgents: TEST_MANAGED_AGENTS_CONFIG,
+        },
+        scope: "effective",
+        source: "global",
+        sourcePath: "C:/Users/ExampleUser/.kiln/config.yaml",
+        defaultStatus: "explicit",
+        overrideChain: [{
+          scope: "global",
+          sourcePath: "C:/Users/ExampleUser/.kiln/config.yaml",
+          disposition: "selected",
+        }],
+        health: "current",
+        schemaRevision: 1,
+        activation: "next-turn",
+        sensitivity: "public",
+      }],
     };
     return {
-      evidenceVersion: 2,
+      evidenceVersion: 3,
       generatedAt: new Date().toISOString(),
       project: {
         rootPath: projectRoot,

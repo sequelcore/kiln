@@ -136,7 +136,12 @@ describe("config-status", () => {
     expect(snapshot.project.kilnYaml.status).toBe("valid");
     expect(snapshot.global.status).toBe("valid");
     expect(snapshot.effectiveConfigStatus).toBe("valid");
-    expect(snapshot.effectiveConfig?.provider).toBe("codex-oauth");
+    expect(snapshot.effectiveConfig?.fields).toContainEqual(expect.objectContaining({
+      identity: "/provider",
+      value: "codex-oauth",
+      source: "global",
+      health: "current",
+    }));
     expect(snapshot.projections).toEqual(expect.arrayContaining([
       expect.objectContaining({ targetId: "repo-shim:agents", status: "missing" }),
       expect.objectContaining({ targetId: "repo-shim:claude", status: "missing" }),
@@ -184,6 +189,79 @@ describe("config-status", () => {
         "sync-global-instruction-shims",
       ]),
     });
+  });
+
+  it("projects one secret-free effective value and provenance contract", async () => {
+    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+      'version: "1"',
+      "permissions:",
+      "  sandbox: read-only",
+      "mcp:",
+      "  servers:",
+      "    private:",
+      "      transport: stdio",
+      "      command: private-server",
+      "      env:",
+      "        TOKEN:",
+      "          fromEnv: KILN_SUPER_SECRET_TOKEN",
+      "",
+    ].join("\n"), "utf-8");
+    mutateGlobalConfig(() => ({
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    }));
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
+    const permissions = snapshot.effectiveConfig?.fields.find((field) => field.identity === "/permissions");
+    const mcp = snapshot.effectiveConfig?.fields.find((field) => field.identity === "/mcp");
+
+    expect(snapshot.errors).toEqual([]);
+    expect(snapshot.effectiveConfig).toMatchObject({ schemaRevision: 1, health: "current" });
+    expect(permissions).toMatchObject({
+      scope: "effective",
+      source: "composed",
+      defaultStatus: "explicit",
+      activation: "next-session",
+      sensitivity: "public",
+      overrideChain: [
+        expect.objectContaining({ scope: "global", disposition: "contributed" }),
+        expect.objectContaining({ scope: "project", disposition: "contributed" }),
+      ],
+      value: { approval: "on-request", sandbox: "read-only" },
+    });
+    expect(mcp).toMatchObject({
+      source: "project",
+      sensitivity: "secret-reference",
+      redacted: { present: true },
+    });
+    expect(JSON.stringify(snapshot.effectiveConfig)).not.toContain("KILN_SUPER_SECRET_TOKEN");
+  });
+
+  it("does not present stale or drifted projection evidence as current", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const codexDir = join(userHome, ".codex");
+    const codexConfigPath = join(codexDir, "config.toml");
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(codexConfigPath, "model = 'changed'\n", "utf-8");
+    const state = emptyNativeProjectionInstallState();
+    const drifted = createNativeProjectionSnapshot({
+      targetId: "codex-config",
+      filePath: codexConfigPath,
+      document: { model: "expected" },
+      managedFields: ["model"],
+      updatedAt: "2026-08-20T00:00:00.000Z",
+    });
+    writeNativeProjectionInstallState(join(tempDir, ".kiln"), upsertNativeProjectionTargetState(state, drifted));
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "codex-config", status: expect.stringMatching(/stale|drifted/) }),
+    ]));
+    expect(snapshot.effectiveConfig?.health).not.toBe("current");
+    expect(snapshot.effectiveConfig?.fields.every((field) => field.health !== "current")).toBe(true);
   });
 
   it("reports the same rejection as runtime admission for a broadening project policy", async () => {
@@ -390,6 +468,8 @@ describe("config-status", () => {
         details: expect.stringContaining("expected sha256:"),
       }),
     ]));
+    expect(snapshot.effectiveConfig?.health).toBe("stale");
+    expect(snapshot.effectiveConfig?.fields.every((field) => field.health === "stale")).toBe(true);
     expect(readFileSync(manifestPath, "utf-8")).toBe(`${staleManifest}\n`);
   });
 
@@ -401,8 +481,11 @@ describe("config-status", () => {
     const health = await readConfigStatusView(snapshot, "health");
     const setup = await readConfigStatusView(snapshot, "setup");
 
-    expect(permissions.value).toEqual({
-      policy: { approval: "on-request", sandbox: "read-only" },
+    expect(permissions.value).toMatchObject({
+      configuration: {
+        identity: "/permissions",
+        value: { approval: "on-request", sandbox: "read-only" },
+      },
       permissionIntegrity: [],
     });
     expect(JSON.stringify(health.value)).toContain("harnessCapabilities");
@@ -414,7 +497,7 @@ describe("config-status", () => {
         }),
       ]),
     });
-    expect(setup.value).toEqual(snapshot.setup);
+    expect(setup.value).toEqual({ ...snapshot.setup, effectiveConfig: snapshot.effectiveConfig });
   });
 
   it("reports unresolved native projection decisions for configured agents", async () => {
@@ -704,13 +787,18 @@ describe("config-status", () => {
       }),
     ]);
     expect(snapshot.setup.permissionIntegrity).toEqual(snapshot.permissionIntegrity);
+    expect(snapshot.effectiveConfig?.health).toBe("unknown");
+    expect(snapshot.effectiveConfig?.fields.every((field) => field.health === "unknown")).toBe(true);
 
     const permissionsView = await readConfigStatusView(snapshot, "permissions");
 
     expect(permissionsView.value).toMatchObject({
-      policy: {
-        approval: "on-request",
-        sandbox: "read-only",
+      configuration: {
+        identity: "/permissions",
+        value: {
+          approval: "on-request",
+          sandbox: "read-only",
+        },
       },
       permissionIntegrity: [
         expect.objectContaining({
@@ -1192,7 +1280,7 @@ describe("config-status", () => {
     const memory = await readConfigStatusView(snapshot, "memory");
 
     expect(memory.value).toMatchObject({
-      permissions: null,
+      configuration: { identity: "/permissions" },
       memoryDbPresent: expect.any(Boolean),
     });
     expect(JSON.stringify(memory.value)).toContain("memory.db");

@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slice 0 complete - begin the Slice 1 project schema pilot.
+Execution: Slices 0-2 complete - begin Slice 3 desired-intent and managed-evidence separation.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -276,7 +276,13 @@ configuration or runtime admission.
 
 ### Slice 1 - Project Schema Pilot
 
-Status: Ready.
+Status: Complete. The project family now has one strict TypeBox runtime schema
+and inferred admitted type. `readKilnYaml()` parses from `unknown` through that
+boundary before named MCP, communication, and authority semantic admission;
+the former root allowlist, unchecked cast, handwritten project interface, and
+quality-gate validator are deleted. Versioned editor-schema and field-descriptor
+artifacts are generated deterministically and drift-checked, and all public
+project fixtures pass the production reader.
 
 Use `.kiln/kiln.yaml` as the first bounded schema-first migration. Replace the
 unchecked or duplicated structural type and validator paths with one runtime
@@ -293,7 +299,21 @@ a fallback parser.
 
 ### Slice 2 - Effective Configuration Read Model
 
-Status: Blocked on Slice 1 descriptor proof.
+Status: Complete. Gateway status evidence V3 replaces the raw effective-config
+record with one schema-revisioned, secret-free root-field projection. The CLI
+application owner derives canonical JSON-pointer identity, effective value or
+redacted presence, effective scope, selected source, default status, exact
+global/project contribution chain, health, schema revision, and activation for
+each returned field. Inline-secret-capable MCP, web, and hook families expose
+only redacted presence. Resolved runtime detail remains request-local and is never
+serialized as operator evidence.
+
+`kiln config show`, `kiln config read`, `kiln config explain`, `kiln status`,
+`kiln_config.read`, native governance inspection, SDK types, GUI setup, and TUI
+setup consume that projection. Invalid broadening still fails before projection;
+drifted, stale, and unproven evidence downgrade projection health rather than
+appearing current. Contract, CLI, native inspection, GUI, and TUI tests cover
+the shared behavior.
 
 Define the shared secret-free configuration query contract. Each returned
 value binds canonical identity, effective value or redacted presence, scope,
@@ -307,7 +327,7 @@ state remains visible and cannot be presented as current.
 
 ### Slice 3 - Desired Intent And Managed Evidence Separation
 
-Status: Blocked on Slices 0 and 2.
+Status: Ready.
 
 Start with execution targets because they currently expose the largest repeated
 policy and economic material. Define minimal target intent and move generated

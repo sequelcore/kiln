@@ -16,6 +16,8 @@ export type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
+  KilnEffectiveConfigFieldSnapshot,
+  KilnEffectiveConfigSnapshot,
   InspectableWorkItemResource,
   InspectableWorkItemSnapshotResource,
   OperatorManagedAgentCapabilitySnapshot,
@@ -30,7 +32,9 @@ export type {
 export {
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceHomeProjection,
+  KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
   KilnConfigSetupSnapshotSchema,
+  KilnEffectiveConfigSnapshotSchema,
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
   projectOperatorGovernedWorkItemSnapshot,

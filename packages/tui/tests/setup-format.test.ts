@@ -87,6 +87,37 @@ function skillCatalog(): KilnSkillCatalogSummarySnapshot {
 }
 
 describe("formatSetupSnapshot", () => {
+  it("prints the shared effective value, provenance chain, and health", () => {
+    const output = formatSetupSnapshot({
+      ...setupSnapshot(),
+      effectiveConfig: {
+        schemaRevision: 1,
+        health: "current",
+        fields: [{
+          identity: "/permissions",
+          value: { sandbox: "read-only" },
+          scope: "effective",
+          source: "composed",
+          sourcePath: "kiln://effective/permissions",
+          defaultStatus: "explicit",
+          overrideChain: [
+            { scope: "global", sourcePath: "C:/home/.kiln/config.yaml", disposition: "contributed" },
+            { scope: "project", sourcePath: "C:/workspace/kiln/.kiln/kiln.yaml", disposition: "contributed" },
+          ],
+          health: "current",
+          schemaRevision: 1,
+          activation: "next-session",
+          sensitivity: "public",
+        }],
+      },
+    });
+
+    expect(output).toContain("effective configuration: current");
+    expect(output).toContain("/permissions: source=composed health=current activation=next-session");
+    expect(output).toContain('value={"sandbox":"read-only"}');
+    expect(output).toContain("chain=global:contributed -> project:contributed");
+  });
+
   it("prints shared permission integrity evidence for TUI setup status", () => {
     const output = formatSetupSnapshot(setupSnapshot());
 

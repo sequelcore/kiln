@@ -52,15 +52,28 @@ describe("configCommand", () => {
     vi.unstubAllEnvs();
   });
 
-  it("show prints current config", async () => {
+  it("show prints the secret-free effective configuration projection", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
     await configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
 
     const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
-    expect(output).toContain('"domain": "generic"');
-    expect(output).toContain('"requireApproval": true');
-    expect(output).toContain('"maxDepth": 3');
+    expect(output).toContain('"identity": "/domain"');
+    expect(output).toContain('"value": "generic"');
+    expect(output).toContain('"source": "project"');
+    expect(output).toContain('"schemaRevision": 1');
+  });
+
+  it("explain prints the same effective field with provenance", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    await configCommand(MOCK_APP_CONFIG, "explain", ["permissions"], tempDir);
+
+    const output = consoleSpy.mock.calls.map((call: unknown[]) => call[0]).join("\n");
+    expect(output).toContain('"identity": "/permissions"');
+    expect(output).toContain('"overrideChain"');
+    expect(output).toContain('"source": "project"');
+    expect(output).toContain('"sandbox": "read-only"');
   });
 
   it("set updates an admitted project config value", async () => {

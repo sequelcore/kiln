@@ -49,29 +49,32 @@ export function extractCodexNativeConfig(
   doc: Record<string, unknown>,
 ): ImportedNativeConfig {
   const extractedFields: string[] = [];
-  const permissions: KilnYamlPermissions = {};
   const model = typeof doc.model === "string" && doc.model.trim().length > 0
     ? doc.model.trim()
     : undefined;
+  const approval = isKilnApproval(doc.approval_policy) ? doc.approval_policy : undefined;
+  const sandbox = isKilnSandbox(doc.sandbox_mode) ? doc.sandbox_mode : undefined;
 
   if (model) {
     extractedFields.push("model");
   }
 
-  if (isKilnApproval(doc.approval_policy)) {
-    permissions.approval = doc.approval_policy;
+  if (approval !== undefined) {
     extractedFields.push("permissions.approval");
   }
 
-  if (isKilnSandbox(doc.sandbox_mode)) {
-    permissions.sandbox = doc.sandbox_mode;
+  if (sandbox !== undefined) {
     extractedFields.push("permissions.sandbox");
   }
+
+  const permissions: KilnYamlPermissions | undefined = approval === undefined && sandbox === undefined
+    ? undefined
+    : { ...(approval === undefined ? {} : { approval }), ...(sandbox === undefined ? {} : { sandbox }) };
 
   return {
     provider: "codex",
     model,
-    permissions: Object.keys(permissions).length > 0 ? permissions : undefined,
+    permissions,
     extractedFields: ["provider", ...extractedFields],
   };
 }
@@ -80,33 +83,35 @@ export function extractOpenCodeNativeConfig(
   doc: Record<string, unknown>,
 ): ImportedNativeConfig {
   const extractedFields: string[] = [];
-  const permissions: KilnYamlPermissions = {};
   const model = typeof doc.model === "string" && doc.model.trim().length > 0
     ? doc.model.trim()
     : undefined;
   const permission = asRecord(doc.permission);
   const permissionDefault = permission.default;
+  const permissions: KilnYamlPermissions | undefined = permissionDefault === "ask"
+    ? { approval: "on-request" }
+    : permissionDefault === "deny"
+      ? { approval: "untrusted" }
+      : permissionDefault === "allow"
+        ? { approval: "never", sandbox: "workspace-write" }
+        : undefined;
 
   if (model) {
     extractedFields.push("model");
   }
 
   if (permissionDefault === "ask") {
-    permissions.approval = "on-request";
     extractedFields.push("permissions.approval");
   } else if (permissionDefault === "deny") {
-    permissions.approval = "untrusted";
     extractedFields.push("permissions.approval");
   } else if (permissionDefault === "allow") {
-    permissions.approval = "never";
-    permissions.sandbox = "workspace-write";
     extractedFields.push("permissions.approval", "permissions.sandbox");
   }
 
   return {
     provider: "opencode",
     model,
-    permissions: Object.keys(permissions).length > 0 ? permissions : undefined,
+    permissions,
     extractedFields: ["provider", ...extractedFields],
   };
 }

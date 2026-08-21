@@ -1768,7 +1768,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     startupTransport === "direct" ? handleResumeSession : undefined,
     bootstrap.refreshProviderDiscovery,
     (themeName) => persistTuiThemePreference(themeName, globalConfig),
-    async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
+    async () => {
+      const snapshot = await readConfigStatusSnapshot({ projectPath: cwd });
+      return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
+    },
     () => startupProfiler.mark("tui-first-frame-rendered"),
     bootstrap.providerModelDiscoveryRef,
     bootstrap.executionRouteCatalogRef,

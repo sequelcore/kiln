@@ -98,6 +98,47 @@ function skillCatalog(): KilnSkillCatalogSummarySnapshot {
 }
 
 describe("SetupPanel", () => {
+  it("renders effective values and provenance from the shared projection", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          effectiveConfig: {
+            schemaRevision: 1,
+            health: "current",
+            fields: [{
+              identity: "/permissions",
+              value: { sandbox: "read-only" },
+              scope: "effective",
+              source: "composed",
+              sourcePath: "kiln://effective/permissions",
+              defaultStatus: "explicit",
+              overrideChain: [
+                { scope: "global", sourcePath: "C:/home/.kiln/config.yaml", disposition: "contributed" },
+                { scope: "project", sourcePath: "C:/workspace/kiln/.kiln/kiln.yaml", disposition: "contributed" },
+              ],
+              health: "current",
+              schemaRevision: 1,
+              activation: "next-session",
+              sensitivity: "public",
+            }],
+          },
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    const effective = screen.getByRole("region", { name: "Effective Configuration" });
+    expect(within(effective).getByText("/permissions")).toBeInTheDocument();
+    expect(within(effective).getByText("composed")).toBeInTheDocument();
+    fireEvent.click(within(effective).getByText("/permissions"));
+    expect(within(effective).getByText("global: contributed → project: contributed")).toBeInTheDocument();
+    expect(within(effective).getByText(/"sandbox": "read-only"/)).toBeInTheDocument();
+  });
+
   it("prioritizes recommended setup actions with executable controls", () => {
     const onExecuteAction = vi.fn();
 

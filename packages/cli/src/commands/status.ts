@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import { readConfigStatusSnapshot } from "../application/config-status.js";
+import { readConfigStatusSnapshot, readResolvedConfigDetail } from "../application/config-status.js";
+import { effectiveConfigField } from "../application/effective-config-projection.js";
 import type { SkillPluginProvider } from "../config/skill-source-inventory.js";
 import { describeWebToolConfiguration } from "../config/web-tools-config.js";
 import { describeInteractiveUseConfiguration } from "../config/interactive-use-config.js";
@@ -44,14 +45,19 @@ export async function statusCommand(
     console.log(`Not initialized. Run 'kiln init' first.`);
     return;
   }
-  const config = snapshot.effectiveConfig as unknown as ResolvedKilnConfig;
+  const config = readResolvedConfigDetail(snapshot);
+  if (!config) {
+    console.log("Effective configuration details are unavailable.");
+    return;
+  }
 
   console.log(`\nKiln Project Status\n`);
-  console.log(`  Domain:           ${config.domain ?? "—"}`);
-  console.log(`  Require Approval: ${config.requireApproval ?? true}`);
-  console.log(`  Max Depth:        ${config.maxDepth ?? 3}`);
-  console.log(`  Parallel Workers: ${config.parallelWorkers ?? 2}`);
-  console.log(`  Provider:         ${config.provider ?? "—"}`);
+  console.log(`  Effective Config: ${snapshot.effectiveConfig.health} (schema ${snapshot.effectiveConfig.schemaRevision})`);
+  printEffectiveStatusField(snapshot, "/domain", "Domain", "—");
+  printEffectiveStatusField(snapshot, "/requireApproval", "Require Approval", true);
+  printEffectiveStatusField(snapshot, "/maxDepth", "Max Depth", 3);
+  printEffectiveStatusField(snapshot, "/parallelWorkers", "Parallel Workers", 2);
+  printEffectiveStatusField(snapshot, "/provider", "Provider", "—");
 
   const globalConfig = readGlobalConfig();
   const projectConfig = snapshot.project.kilnYaml.status === "valid"
@@ -135,6 +141,17 @@ export async function statusCommand(
   }
 
   console.log("");
+}
+
+function printEffectiveStatusField(
+  snapshot: Awaited<ReturnType<typeof readConfigStatusSnapshot>>,
+  identity: string,
+  label: string,
+  fallback: unknown,
+): void {
+  const field = effectiveConfigField(snapshot.effectiveConfig, identity);
+  const value = field?.sensitivity === "public" ? field.value : fallback;
+  console.log(`  ${`${label}:`.padEnd(18)} ${String(value ?? fallback)} [${field?.source ?? "unknown"}]`);
 }
 
 function printInteractiveUseStatus(config: ResolvedKilnConfig): void {

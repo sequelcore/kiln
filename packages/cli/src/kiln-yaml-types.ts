@@ -6,11 +6,12 @@ import type {
   McpServerConfiguration,
   MemoryLayerKind,
   MemoryScopeKind,
-  CommunicationIntent,
 } from "@kilnai/core";
 import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
+import type { KilnProjectConfig } from "./config/project-config-schema.js";
 
 export type { KilnWorkGovernanceEvidence } from "@kilnai/core";
+export type { KilnProjectConfig, KilnYamlQualityGate } from "./config/project-config-schema.js";
 
 export class KilnYamlError extends Error {
   constructor(message: string) {
@@ -22,79 +23,79 @@ export class KilnYamlError extends Error {
 export type KilnYamlMcpServer = McpServerConfiguration;
 
 export interface KilnYamlMcp {
-  servers: Record<string, KilnYamlMcpServer>;
+  readonly servers: Readonly<Record<string, KilnYamlMcpServer>>;
 }
 
 export interface KilnYamlModel {
-  default?: string;
-  fallback?: string[];
+  readonly default?: string;
+  readonly fallback?: readonly string[];
 }
 
 export interface KilnYamlToolRule {
-  tool: string;
-  action: "allow" | "ask" | "deny";
-  reason?: string;
+  readonly tool: string;
+  readonly action: "allow" | "ask" | "deny";
+  readonly reason?: string;
 }
 
 export interface KilnYamlCommandRule {
-  pattern: string;
-  action: "allow" | "ask" | "deny";
-  shell?: "bash" | "sh" | "zsh" | "any";
-  reason?: string;
+  readonly pattern: string;
+  readonly action: "allow" | "ask" | "deny";
+  readonly shell?: "bash" | "sh" | "zsh" | "any";
+  readonly reason?: string;
 }
 
 export interface KilnYamlFileGovernance {
-  excludeFromContext?: boolean;
-  denyGlobs?: string[];
-  askGlobs?: string[];
-  allowGlobs?: string[];
+  readonly excludeFromContext?: boolean;
+  readonly denyGlobs?: readonly string[];
+  readonly askGlobs?: readonly string[];
+  readonly allowGlobs?: readonly string[];
 }
 
 export interface KilnYamlMemoryAuthorityRule {
-  operations: KilnMemoryAuthorityOperation[];
-  scopeKinds?: MemoryScopeKind[];
-  scopeIds?: string[];
-  layers?: MemoryLayerKind[];
-  allowAuditWrite?: boolean;
+  readonly operations: readonly KilnMemoryAuthorityOperation[];
+  readonly scopeKinds?: readonly MemoryScopeKind[];
+  readonly scopeIds?: readonly string[];
+  readonly layers?: readonly MemoryLayerKind[];
+  readonly allowAuditWrite?: boolean;
 }
 
 export interface KilnYamlMemoryPermissions {
-  read?: KilnYamlMemoryAuthorityRule[];
-  write?: KilnYamlMemoryAuthorityRule[];
+  readonly read?: readonly KilnYamlMemoryAuthorityRule[];
+  readonly write?: readonly KilnYamlMemoryAuthorityRule[];
 }
 
 export interface KilnYamlDataFirewallRule {
-  destination: string;
-  action: "allow" | "redact" | "deny";
-  classifications?: string[];
-  reason?: string;
+  readonly destination: string;
+  readonly action: "allow" | "redact" | "deny";
+  readonly classifications?: readonly string[];
+  readonly reason?: string;
 }
 
 export interface KilnYamlAgentScope {
-  agent: string;
-  inherit?: boolean;
-  tools?: KilnYamlToolRule[];
-  commands?: KilnYamlCommandRule[];
-  fileGovernance?: KilnYamlFileGovernance;
-  memory?: KilnYamlMemoryPermissions;
-  mcpTools?: string[];
+  readonly agent: string;
+  readonly inherit?: boolean;
+  readonly tools?: readonly KilnYamlToolRule[];
+  readonly commands?: readonly KilnYamlCommandRule[];
+  readonly fileGovernance?: KilnYamlFileGovernance;
+  readonly memory?: KilnYamlMemoryPermissions;
+  readonly mcpTools?: readonly string[];
 }
 
 export interface KilnYamlPermissions {
-  approval?: "never" | "on-request" | "on-failure" | "untrusted";
-  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
-  safeDefaults?: boolean;
-  auditLog?: boolean;
-  tools?: KilnYamlToolRule[];
-  commands?: KilnYamlCommandRule[];
-  fileGovernance?: KilnYamlFileGovernance;
-  memory?: KilnYamlMemoryPermissions;
-  dataFirewall?: KilnYamlDataFirewallRule[];
-  agentScopes?: KilnYamlAgentScope[];
+  readonly approval?: "never" | "on-request" | "on-failure" | "untrusted";
+  readonly sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  readonly safeDefaults?: boolean;
+  readonly auditLog?: boolean;
+  readonly tools?: readonly KilnYamlToolRule[];
+  readonly commands?: readonly KilnYamlCommandRule[];
+  readonly fileGovernance?: KilnYamlFileGovernance;
+  readonly memory?: KilnYamlMemoryPermissions;
+  readonly dataFirewall?: readonly KilnYamlDataFirewallRule[];
+  readonly agentScopes?: readonly KilnYamlAgentScope[];
 }
 
 export interface KilnYamlProvider {
-  apiKeyEnv?: string;
+  readonly apiKeyEnv?: string;
 }
 
 export interface KilnYamlSkillGeneration {
@@ -540,12 +541,6 @@ export interface KilnManagedAgentsConfig {
   readonly economicPolicies?: readonly KilnManagedEconomicPolicyConfig[];
 }
 
-export interface KilnYamlQualityGate {
-  readonly name: string;
-  readonly command: string;
-  readonly required?: boolean;
-}
-
 /** Agent authority is always inherited; `inherit:false` would remove parent
  * restrictions and is therefore rejected at the configuration boundary. */
 export function validateAgentScopeInheritance(value: unknown, path = "permissions"): void {
@@ -668,27 +663,6 @@ export interface KilnContextGovernanceConfig {
     readonly candidateRecordHash?: string;
     readonly evaluationEvidenceHash?: string;
   };
-}
-
-/** Repository-owned restrictions and project facts. It cannot define execution targets or models. */
-export interface KilnProjectConfig {
-  readonly version: "1";
-  readonly activeInstructionProfiles?: readonly string[];
-  readonly workGovernance?: KilnWorkGovernanceConfig;
-  readonly domain?: string;
-  readonly channels?: string[];
-  readonly teamMode?: string;
-  readonly requireApproval?: boolean;
-  readonly maxDepth?: number;
-  readonly parallelWorkers?: number;
-  readonly mcp?: KilnYamlMcp;
-  readonly permissions?: KilnYamlPermissions;
-  readonly communication?: CommunicationIntent;
-  readonly web?: KilnYamlWebConfig;
-  readonly interactiveUse?: KilnYamlInteractiveUseConfig;
-  readonly skills?: KilnYamlSkillsConfig;
-  readonly qualityGates?: readonly KilnYamlQualityGate[];
-  readonly contextGovernance?: KilnContextGovernanceConfig;
 }
 
 /** Fully resolved Runtime input after global authority and project restrictions are composed. */
