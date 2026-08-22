@@ -239,6 +239,7 @@ describe("configCommand", () => {
     expect(config.teamMode).toBe("sequential");
     expect(config.maxDepth).toBe(3);
     expect(config.permissions?.approval).toBe("on-request");
+    expect(consoleSpy.mock.calls.flat().join("\n")).toContain("next session boundary");
   });
 
   it("settings prints all sections and supports the client-side modified filter", async () => {

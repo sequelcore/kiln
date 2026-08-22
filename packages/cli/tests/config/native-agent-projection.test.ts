@@ -43,10 +43,10 @@ vi.mock("node:os", () => {
 });
 
 vi.mock("../../src/application/agent-loader.js", () => ({
-  loadGlobalAgentDefinitions: vi.fn(),
+  loadAgentDefinitions: vi.fn(),
 }));
 
-import { loadGlobalAgentDefinitions } from "../../src/application/agent-loader.js";
+import { loadAgentDefinitions } from "../../src/application/agent-loader.js";
 import {
   agentToClaudeMd,
   agentToCodexToml,
@@ -60,7 +60,7 @@ const unlinkSyncMock = unlinkSync as unknown as ReturnType<typeof vi.fn>;
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
 const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
-const loadAgentDefinitionsMock = loadGlobalAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
+const loadAgentDefinitionsMock = loadAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
 
 describe("native-agent-projection", () => {
   beforeEach(() => {
@@ -99,7 +99,7 @@ describe("native-agent-projection", () => {
       errors: [],
       outcomes: [],
     });
-    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith({});
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project", {});
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
@@ -176,7 +176,8 @@ describe("native-agent-projection", () => {
 
   it("passes an explicit userHome to the agent loader and never falls back to the OS home", async () => {
     const userHome = "/synthetic/user-home";
-    loadAgentDefinitionsMock.mockImplementation(async (options: { userHome?: string }) => {
+    loadAgentDefinitionsMock.mockImplementation(async (projectPath: string, options: { userHome?: string }) => {
+      expect(projectPath).toBe("/workspace/project");
       expect(options).toEqual({ userHome });
       return [{
         name: "synthetic-agent",
@@ -191,7 +192,7 @@ describe("native-agent-projection", () => {
     const result = await syncNativeAgentProjections("/workspace/project", { userHome });
 
     expect(result.errors).toEqual([]);
-    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith({ userHome });
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project", { userHome });
     expect(homedirMock).not.toHaveBeenCalled();
     expect(fsMocks.files.has(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "synthetic-agent.toml"))).toBe(false);

@@ -16,6 +16,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeConfigurationRevisionProvider } from "../session/runtime-configuration-revision-pin.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import {
@@ -154,6 +155,8 @@ export interface TuiGatewayOptions {
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
   /** Persisted sources retain provenance; a message-local user intent is added per turn. */
   readonly communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
+  /** Canonical configuration revision captured once at each admitted turn. */
+  readonly runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
 }
 
 export interface TuiGateway {
@@ -520,6 +523,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       ),
       executionBinding: committed.binding,
       executionCredential: committed.credential,
+      runtimeConfigurationRevision: committed.configurationRevision,
     } satisfies PerCallToolConfig;
     return processAdmittedTurn({
       orchestrator,
@@ -547,6 +551,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       ttsAdapter: options.ttsAdapter,
       callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
       perCallConfig,
+      runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
       turnCapture: {
         start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
         finish: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },

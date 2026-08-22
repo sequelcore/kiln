@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { defineExecutionCatalog } from "@kilnai/core";
 import { fingerprintOperatorTurnIntent } from "@kilnai/runtime";
 import { isDirectApiProvider, type ProviderId } from "../wrapper/session-registry.js";
@@ -30,7 +31,8 @@ export function createCanonicalRunSessionDispatcher(input: {
   readonly routeEvidence?: Pick<RunSessionRouteCandidate, "deliberationResolution">;
 }): CanonicalRunSessionDispatcher {
   const composition = createOperatorTurnDispatchComposition<CanonicalRunSessionPayload, RunSessionResult>({
-    catalog: input.catalog,
+    initialCatalog: input.catalog,
+    captureCatalogSnapshot: () => fixedCatalogSnapshot(input.catalog),
     cwd: input.authorityStateRoot ?? input.cwd,
   });
   composition.bridge.bind(async ({ admission, binding, credential, payload }) => {
@@ -70,4 +72,15 @@ export function createCanonicalRunSessionDispatcher(input: {
     },
     close: composition.close,
   };
+}
+
+function fixedCatalogSnapshot(catalog: ReturnType<typeof defineExecutionCatalog>) {
+  const revisionSetId = `sha256:${createHash("sha256").update(JSON.stringify(catalog), "utf8").digest("hex")}`;
+  return Object.freeze({
+    catalog,
+    configurationRevision: Object.freeze({
+      revisionSetId,
+      revisions: Object.freeze({ "execution-catalog": revisionSetId }),
+    }),
+  });
 }

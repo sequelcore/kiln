@@ -1640,6 +1640,13 @@ describe("startGuiGateway static mount", () => {
       rejectionCode: null,
       committedRevision: `sha256:${"b".repeat(64)}`,
       activation: "next-session",
+      activationObservation: {
+        state: "scheduled",
+        boundary: "next-session",
+        committedRevision: `sha256:${"b".repeat(64)}`,
+        activeRevision: null,
+        summary: "The committed revision activates at the next session boundary.",
+      },
       reconciliation: [],
       diagnostics: [],
       replayed: false,

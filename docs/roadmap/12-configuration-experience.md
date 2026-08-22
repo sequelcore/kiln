@@ -727,9 +727,20 @@ negative validation proves the old YAML shape is rejected.
 
 ### Slice 8 - Live Activation And Reconciliation
 
-Status: Ready. Slice 6's settings foundation and Slice 7's guided target flow
-are complete; the execution queue keeps Slice 7A ahead of this independent
-activation contract.
+Status: In progress. The shared activation observation, Runtime turn/session
+revision evidence pinning, and generation-fenced reconciliation path are
+implemented. Effective route, permission, budget, data-policy, and credential
+owners do not yet all consume one revision-indexed authority bundle. Operator
+route, account, and credential admission now capture and consume one stable
+catalog/revision snapshot before the dispatch fence, and GUI/TUI carry that
+exact revision through the turn instead of re-reading live configuration. The
+validated Runtime bundle contract exists but is deliberately not a parallel
+optional authority path while permission, budget, data-policy, managed-job,
+and persistence migration remain open. Cross-surface status convergence also
+remains open. No production
+descriptor currently owns `restart-required`; supervisor drain and restart
+wiring remains deferred until Slice 9 admits a real configuration family and
+owner rather than inventing a synthetic restart setting.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

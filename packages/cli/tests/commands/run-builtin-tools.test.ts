@@ -95,7 +95,7 @@ const runWiringMocks = vi.hoisted(() => {
 const operatorCompositionMocks = vi.hoisted(() => {
   const state: { dispatchError?: Error } = {};
   const create = vi.fn((input: {
-    readonly catalog: {
+    readonly initialCatalog: {
       readonly accounts: readonly {
         readonly id: string;
         readonly credentialId: string;
@@ -134,16 +134,16 @@ const operatorCompositionMocks = vi.hoisted(() => {
           readonly payload: unknown;
         }) => {
           if (state.dispatchError) throw state.dispatchError;
-          const route = input.catalog.routes.find((candidate) => candidate.id === request.intent.routeId);
+          const route = input.initialCatalog.routes.find((candidate) => candidate.id === request.intent.routeId);
           if (!route) throw new Error("Unknown test execution target '" + request.intent.routeId + "'.");
           const accountSelection = route.accountSelection;
           const accountId = request.intent.accountOverrideId
             ?? (accountSelection.mode === "exact"
               ? accountSelection.accountId
-              : input.catalog.accountPolicies.find((policy) => policy.id === accountSelection.accountPolicyId)
+              : input.initialCatalog.accountPolicies.find((policy) => policy.id === accountSelection.accountPolicyId)
                 ?.accountIds[0]);
           if (!accountId) throw new Error("No test account is available for route '" + route.id + "'.");
-          const account = input.catalog.accounts.find((candidate) => candidate.id === accountId);
+          const account = input.initialCatalog.accounts.find((candidate) => candidate.id === accountId);
           if (!account) throw new Error("Unknown test account '" + accountId + "'.");
           const admission = {
             routeId: route.id,
@@ -167,6 +167,10 @@ const operatorCompositionMocks = vi.hoisted(() => {
               credentialRevision: "sha256:test-revision",
             },
             credential: { kind: "test" },
+            configurationRevision: {
+              revisionSetId: "fixture",
+              revisions: { "execution-catalog": "fixture" },
+            },
             payload: request.payload,
           });
           return {

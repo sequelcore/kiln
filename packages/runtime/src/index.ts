@@ -96,6 +96,8 @@ export type {
   OperatorSessionCredentialPort,
   OperatorSessionExecutionCandidate,
   OperatorSessionExecutionCandidatePort,
+  OperatorSessionExecutionCatalogSnapshot,
+  OperatorSessionExecutionCatalogSource,
   OperatorSessionExecutionDispatch,
   OperatorSessionExecutionRequest,
   OperatorSessionExecutionResult,
@@ -831,6 +833,7 @@ export {
   buildEffectiveTurnAuthorityPolicyInputs,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
+  defineEffectiveAuthorityAdmissionBundle,
   projectRuntimeLifecycleAttributionAllocations,
   SessionRegistry,
   InMemorySessionStore,
@@ -846,6 +849,7 @@ export {
   wordOverlapSimilarity,
   DefaultContextSummarizer,
   DefaultAgentHandoffSummarizer,
+  captureRuntimeConfigurationRevision,
 } from "./session/index.js";
 export type {
   RuntimeSessionConfig,
@@ -864,6 +868,14 @@ export type {
   EffectiveTurnAuthorityPolicyInputSource,
   EffectiveTurnAuthorityPolicyInputStatus,
   EffectiveTurnAuthoritySnapshot,
+  EconomicCommitmentReference,
+  EffectiveAuthorityAdmissionBundle,
+  EffectiveAuthorityAdmissionBundleInput,
+  ExecutionAdmission,
+  SkillCatalogAdmission,
+  ToolPermissionAdmission,
+  TurnBudgetAdmission,
+  WorkGovernanceAdmission,
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
@@ -880,6 +892,8 @@ export type {
   DefaultEscalationDetectorConfig,
   ContextSummarizer,
   AgentHandoffSummarizer,
+  RuntimeConfigurationRevisionProvider,
+  RuntimeConfigurationRevisionSnapshot,
 } from "./session/index.js";
 
 // Tenant

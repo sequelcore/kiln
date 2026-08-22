@@ -28,12 +28,33 @@ export class ConfigMutationLockUnavailableError extends Error {
  * A lock whose owning process is gone is reclaimed, because a crashed apply must
  * not block the operator forever.
  */
-export async function withConfigMutationLock<T>(lockPath: string, run: () => T | Promise<T>): Promise<T> {
-  const lock = acquire(lockPath);
+export async function withConfigMutationLock<T>(
+  lockPath: string,
+  run: () => T | Promise<T>,
+  options?: { readonly waitMs?: number; readonly retryMs?: number },
+): Promise<T> {
+  const lock = await acquireWithWait(lockPath, options);
   try {
     return await run();
   } finally {
     release(lockPath, lock);
+  }
+}
+
+async function acquireWithWait(
+  lockPath: string,
+  options?: { readonly waitMs?: number; readonly retryMs?: number },
+): Promise<MutationLockOwner & { readonly descriptor: number }> {
+  const waitMs = options?.waitMs ?? 0;
+  const retryMs = options?.retryMs ?? 25;
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      return acquire(lockPath);
+    } catch (error) {
+      if (!(error instanceof ConfigMutationLockUnavailableError) || Date.now() >= deadline) throw error;
+      await new Promise<void>((resolve) => setTimeout(resolve, retryMs));
+    }
   }
 }
 

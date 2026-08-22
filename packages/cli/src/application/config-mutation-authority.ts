@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, realpathSync, 
 import { dirname, join, relative, resolve } from "node:path";
 import type {
   KilnConfigActivationClass,
+  KilnConfigActivationObservation,
   KilnConfigAppliedWrite,
   KilnConfigAuthorityImpact,
   KilnConfigMutationApproval,
@@ -350,14 +351,30 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
       const settledAt = nextSettlementTime(store, proposal.operation, input.now ?? new Date());
       const approval = input.approvalId ? store.readApproval(input.approvalId) : null;
 
-      const failedReconciliation = reconciliationEffects.some((effect) => effect.status === "failed");
+      const reconciliationState = reconciliationEffects.some((effect) => effect.status === "failed")
+        ? "failed"
+        : reconciliationEffects.some((effect) => effect.status === "skipped")
+          ? "superseded"
+          : "converged";
+      const readBackSnapshot = await readEffectiveState(input);
+      const readBackVerified = readBackSnapshot !== undefined && observedRevision({
+        appliedWrites,
+        scope: proposal.scope,
+        committedRevision,
+      }) === committedRevision;
+      const activationObservation = observeActivation(
+        proposal.activation,
+        committedRevision,
+        reconciliationState,
+        readBackVerified,
+      );
       const settlement = store.settle({
         proposalId: proposal.proposalId,
         approvalId: input.approvalId ?? null,
         scope: proposal.scope,
         operation: proposal.operation,
         settledAt,
-        outcome: failedReconciliation ? "committed-reconciliation-failed" : "committed",
+        outcome: reconciliationState === "failed" ? "committed-reconciliation-failed" : "committed",
         baseRevision: proposal.baseRevision,
         committedRevision,
         appliedWrites,
@@ -368,6 +385,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         ],
         rollbackToken: proposal.proposalId,
         activation: proposal.activation,
+        activationObservation,
         restore: record.writes.map((write): ConfigMutationRestorePoint => ({
           path: write.path,
           previousContent: write.previousContent,
@@ -377,7 +395,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         store.markApprovalConsumed(approval, settledAt);
       }
       store.clearProgressMarker(proposal.proposalId);
-      return await withReadBack(input, settlement, false);
+      return withReadBackSnapshot(settlement, false, readBackSnapshot);
     });
   } catch (error) {
     if (error instanceof ConfigMutationLockUnavailableError) {
@@ -591,6 +609,14 @@ async function withReadBack(
   replayed: boolean,
 ): Promise<KilnConfigMutationResult> {
   const snapshot = await readEffectiveState(input);
+  return withReadBackSnapshot(settlement, replayed, snapshot);
+}
+
+function withReadBackSnapshot(
+  settlement: StoredConfigMutationSettlement,
+  replayed: boolean,
+  snapshot: KilnEffectiveConfigSnapshot | undefined,
+): KilnConfigMutationResult {
   const wire = toWireSettlement(settlement);
   return {
     settlement: wire,
@@ -618,7 +644,7 @@ const defaultEffectiveStateReadBack: EffectiveStateReadBackPort = async (project
 };
 
 /** Re-reads the canonical bytes so the reported commit is observed, not assumed. */
-function observedRevision(settlement: StoredConfigMutationSettlement): string {
+function observedRevision(settlement: Pick<StoredConfigMutationSettlement, "appliedWrites" | "scope" | "committedRevision">): string {
   const path = settlement.appliedWrites[0]?.path;
   if (!path) {
     return settlement.committedRevision ?? "absent";
@@ -656,11 +682,94 @@ function rejected(
       diagnostics,
       rollbackToken: null,
       activation: proposal?.activation ?? ("hot" satisfies KilnConfigActivationClass),
+      activationObservation: {
+        state: "not-started",
+        boundary: proposal?.activation ?? ("hot" satisfies KilnConfigActivationClass),
+        committedRevision: null,
+        activeRevision: null,
+        summary: "Configuration was not committed.",
+      },
     },
     replayed: false,
     readBackSchemaRevision: null,
     readBackVerified: false,
   };
+}
+
+function observeActivation(
+  activation: KilnConfigActivationClass,
+  committedRevision: string,
+  reconciliationState: "converged" | "failed" | "superseded",
+  readBackVerified: boolean,
+): KilnConfigActivationObservation {
+  if (reconciliationState === "failed") {
+    return {
+      state: "failed",
+      boundary: activation,
+      committedRevision,
+      activeRevision: null,
+      summary: "Canonical configuration committed, but activation did not converge.",
+    };
+  }
+  if (reconciliationState === "superseded") {
+    return {
+      state: "superseded",
+      boundary: activation,
+      committedRevision,
+      activeRevision: null,
+      summary: "A newer canonical revision superseded this activation attempt.",
+    };
+  }
+  switch (activation) {
+    case "hot":
+      return readBackVerified
+        ? {
+            state: "active",
+            boundary: activation,
+            committedRevision,
+            activeRevision: committedRevision,
+            summary: "The committed revision is active immediately.",
+          }
+        : {
+            state: "failed",
+            boundary: activation,
+            committedRevision,
+            activeRevision: null,
+            summary: "Canonical configuration committed, but owner read-back did not prove hot activation.",
+          };
+    case "next-turn":
+      return {
+        state: "scheduled",
+        boundary: activation,
+        committedRevision,
+        activeRevision: null,
+        summary: "The committed revision activates at the next turn boundary.",
+      };
+    case "next-session":
+      return {
+        state: "scheduled",
+        boundary: activation,
+        committedRevision,
+        activeRevision: null,
+        summary: "The committed revision activates at the next session boundary.",
+      };
+    case "reconcile":
+      return {
+        state: "active",
+        boundary: activation,
+        committedRevision,
+        activeRevision: committedRevision,
+        summary: "Owned projections converged on the committed revision.",
+      };
+    case "restart-required":
+      return {
+        state: "unsupported",
+        boundary: activation,
+        committedRevision,
+        activeRevision: null,
+        summary: "No admitted restart-required configuration owner is available.",
+      };
+  }
 }
 
 function validateWritePath(input: {

@@ -33,6 +33,7 @@ import type {
   CommunicationResolution,
   ResolvedCommunicationIntent,
   ModelCommunicationCapabilities,
+  EffectiveTurnAuthoritySnapshot,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { KilnMcpClient } from "@kilnai/core";
@@ -57,6 +58,18 @@ import type { EscalationDetector, EscalationSignal } from "./support/escalation/
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
+import type { RuntimeConfigurationRevisionSnapshot } from "./runtime-configuration-revision-pin.js";
+
+export type {
+  EffectiveTurnAuthorityCompleteness,
+  EffectiveTurnAuthorityLevel,
+  EffectiveTurnAuthorityPolicyInput,
+  EffectiveTurnAuthorityPolicyInputSource,
+  EffectiveTurnAuthorityPolicyInputStatus,
+  EffectiveTurnAuthoritySandboxProjection,
+  EffectiveTurnAuthoritySnapshot,
+  EffectiveTurnAuthoritySourcePolicy,
+} from "@kilnai/core";
 
 export const RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON = "tool_round_budget_exhausted";
 export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
@@ -235,64 +248,6 @@ export interface GovernedRuntimeContext {
   readonly audit?: ContextAuditEntry;
 }
 
-export type EffectiveTurnAuthorityLevel =
-  | "fail_closed"
-  | "read_only"
-  | "idempotent"
-  | "audited"
-  | "destructive"
-  | "unknown";
-
-export type EffectiveTurnAuthorityCompleteness = "authoritative" | "partial";
-
-export type EffectiveTurnAuthoritySourcePolicy =
-  | "provider_profile_gate"
-  | "runtime_surface_projection"
-  | "plan_mode_projection";
-
-export type EffectiveTurnAuthoritySandboxProjection =
-  | "none"
-  | "read_only"
-  | "workspace_write"
-  | "unknown";
-
-export type EffectiveTurnAuthorityPolicyInputSource =
-  | "requested_authority"
-  | "session_policy"
-  | "tenant_policy"
-  | "route_policy"
-  | "parent_authority"
-  | "plan_approval"
-  | "goal_envelope"
-  | "work_item_authority";
-
-export type EffectiveTurnAuthorityPolicyInputStatus =
-  | "applied"
-  | "not_applicable"
-  | "unresolved";
-
-export interface EffectiveTurnAuthorityPolicyInput {
-  readonly source: EffectiveTurnAuthorityPolicyInputSource;
-  readonly status: EffectiveTurnAuthorityPolicyInputStatus;
-  readonly reason: string;
-  readonly subjectId?: string;
-  readonly requestedAuthority?: "planning" | "auto" | "read_only" | "audited" | "destructive";
-  readonly admittedAuthority?: EffectiveTurnAuthorityLevel;
-}
-
-export interface EffectiveTurnAuthoritySnapshot {
-  readonly executionMode: "execute" | "plan";
-  readonly requestedAuthority: "planning" | "auto" | "read_only" | "audited" | "destructive";
-  readonly admittedAuthority: EffectiveTurnAuthorityLevel;
-  readonly sourcePolicy: EffectiveTurnAuthoritySourcePolicy;
-  readonly reason: string;
-  readonly completeness: EffectiveTurnAuthorityCompleteness;
-  readonly toolCount: number;
-  readonly deniedToolCount: number;
-  readonly sandboxProjection?: EffectiveTurnAuthoritySandboxProjection;
-  readonly policyInputs?: readonly EffectiveTurnAuthorityPolicyInput[];
-}
-
 export type EffectiveTurnAuthorityPolicyMaximum = "read_only" | "audited" | "destructive";
 
 export interface EffectiveTurnAuthorityPolicyBound {
@@ -388,6 +343,10 @@ export interface PerCallToolConfig {
     readonly configurationHash: string;
     readonly contextAllocationMode: "whole-block" | "segmented" | "retrieval-on-demand";
   };
+  /** Secret-free configuration revision evidence captured at turn admission. */
+  readonly runtimeConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
+  /** Secret-free revision evidence fixed when the logical session was created. */
+  readonly runtimeSessionConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
 }
 
 export interface RuntimeProviderTransportConfig {

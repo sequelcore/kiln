@@ -143,6 +143,13 @@ describe("configuration settings contracts", () => {
           { severity: "warning", field: "reconcile", message: "Failed at /Users/ExampleUser/ExampleProject/.kiln/kiln.yaml" },
         ],
         rollbackToken: null, activation: "next-session",
+        activationObservation: {
+          state: "not-started",
+          boundary: "next-session",
+          committedRevision: null,
+          activeRevision: null,
+          summary: "Configuration was not committed.",
+        },
       },
       replayed: false,
       readBackSchemaRevision: null,
@@ -153,6 +160,36 @@ describe("configuration settings contracts", () => {
     expect(JSON.stringify(result)).not.toContain("ExampleUser");
     expect(JSON.stringify(result)).not.toContain("ExampleProject");
     expect(KilnSettingsMutationResultSchema.parse(result)).toEqual(result);
+  });
+
+  it("projects scheduled next-boundary activation separately from canonical commit", () => {
+    const committedRevision = `sha256:${"b".repeat(64)}`;
+    const result = projectKilnSettingsMutationResult({
+      settlement: {
+        proposalId: "cfg_scheduled", approvalId: null, scope: "project", operation: "setting.set",
+        settledAt: "2026-08-21T00:00:00.000Z", outcome: "committed", baseRevision: `sha256:${"a".repeat(64)}`,
+        committedRevision, appliedWrites: [], reconciliationEffects: [], diagnostics: [],
+        rollbackToken: "cfg_scheduled", activation: "next-turn",
+        activationObservation: {
+          state: "scheduled",
+          boundary: "next-turn",
+          committedRevision,
+          activeRevision: null,
+          summary: "The committed revision activates at the next turn boundary.",
+        },
+      },
+      replayed: false,
+      readBackSchemaRevision: 3,
+      readBackVerified: true,
+    });
+
+    expect(result.activationObservation).toEqual({
+      state: "scheduled",
+      boundary: "next-turn",
+      committedRevision,
+      activeRevision: null,
+      summary: "The committed revision activates at the next turn boundary.",
+    });
   });
 
   it("validates an apply request as a proposal reference", () => {

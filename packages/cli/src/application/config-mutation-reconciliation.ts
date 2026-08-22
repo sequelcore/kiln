@@ -11,6 +11,7 @@ import { syncNativePermissionProjections } from "../config/native-permission-pro
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
+import { runConfigReconciliationTarget } from "./config-reconciliation-target.js";
 
 /**
  * The single reconciliation owner for committed configuration mutations.
@@ -35,18 +36,17 @@ async function reconcileTarget(
   target: KilnConfigReconciliationTarget,
 ): Promise<KilnConfigReconciliationEffect> {
   try {
-    switch (target) {
-      case "native-agents":
-        return await reconcileNativeAgents(projectPath);
-      case "native-skills":
-        return await reconcileNativeSkills(projectPath);
-      case "repo-shims":
-        return await reconcileRepoShims(projectPath);
-      case "native-permissions":
-        return await reconcileNativePermissions(projectPath);
-      case "execution-routes":
-        return reconcileExecutionRoutes();
+    const result = await runConfigReconciliationTarget(projectPath, target, () =>
+      reconcileTargetOnce(projectPath, target));
+    if (result.status === "superseded") {
+      return {
+        target,
+        status: "skipped",
+        summary: `${target} reconciliation was superseded by a newer canonical revision.`,
+        errors: [],
+      };
     }
+    return result.value;
   } catch (error) {
     return {
       target,
@@ -54,6 +54,24 @@ async function reconcileTarget(
       summary: `${target} reconciliation threw before completing`,
       errors: [error instanceof Error ? error.message : String(error)],
     };
+  }
+}
+
+async function reconcileTargetOnce(
+  projectPath: string,
+  target: KilnConfigReconciliationTarget,
+): Promise<KilnConfigReconciliationEffect> {
+  switch (target) {
+    case "native-agents":
+      return await reconcileNativeAgents(projectPath);
+    case "native-skills":
+      return await reconcileNativeSkills(projectPath);
+    case "repo-shims":
+      return await reconcileRepoShims(projectPath);
+    case "native-permissions":
+      return await reconcileNativePermissions(projectPath);
+    case "execution-routes":
+      return reconcileExecutionRoutes();
   }
 }
 

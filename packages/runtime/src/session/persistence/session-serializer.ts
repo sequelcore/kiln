@@ -29,6 +29,7 @@ export function serializeSession(session: RuntimeSession): string {
       ...event,
       timestamp: event.timestamp.toISOString(),
     })),
+    runtimeConfigurationRevision: session.runtimeConfigurationRevision,
   };
   return JSON.stringify(data);
 }

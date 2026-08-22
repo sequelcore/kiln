@@ -19,6 +19,23 @@ function makeSession(overrides: {
 }
 
 describe("serializeSession / deserializeSession", () => {
+  it("roundtrips the configuration revision bound at the session boundary", () => {
+    const session = makeSession();
+    session.bindRuntimeConfigurationRevision({
+      revisionSetId: "R1",
+      revisions: { global: "global-R1", project: "project-R1" },
+    });
+
+    const restored = deserializeSession(serializeSession(session));
+
+    expect(restored.runtimeConfigurationRevision).toEqual({
+      revisionSetId: "R1",
+      revisions: { global: "global-R1", project: "project-R1" },
+    });
+    expect(Object.isFrozen(restored.runtimeConfigurationRevision)).toBe(true);
+    expect(Object.isFrozen(restored.runtimeConfigurationRevision?.revisions)).toBe(true);
+  });
+
   it("roundtrips a session with text-only history", () => {
     const session = makeSession();
     session.addUserMessage(textParts("hello"));

@@ -44,6 +44,7 @@ export type {
   KilnConfigActivationClass,
   KilnConfigAppliedWrite,
   KilnConfigApprovalSurface,
+  KilnConfigActivationObservation,
   KilnConfigAuthorityImpact,
   KilnConfigMutationApproval,
   KilnConfigMutationOperation,

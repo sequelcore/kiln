@@ -59,6 +59,28 @@ const SafeDisplayTextSchema = z.string().min(1).refine(
   (value) => !hasUnsafeSettingsText(value),
   "Secret or absolute path text is not permitted in settings projections.",
 );
+const ActivationObservationSchema = z.union([
+  z.object({
+    state: z.literal("not-started"), boundary: ActivationSchema,
+    committedRevision: z.null(), activeRevision: z.null(), summary: SafeDisplayTextSchema,
+  }).strict(),
+  z.object({
+    state: z.literal("active"), boundary: z.enum(["hot", "reconcile"]),
+    committedRevision: RevisionSchema, activeRevision: RevisionSchema, summary: SafeDisplayTextSchema,
+  }).strict(),
+  z.object({
+    state: z.literal("scheduled"), boundary: z.enum(["next-turn", "next-session"]),
+    committedRevision: RevisionSchema, activeRevision: z.null(), summary: SafeDisplayTextSchema,
+  }).strict(),
+  z.object({
+    state: z.enum(["failed", "superseded", "unsupported"]), boundary: ActivationSchema,
+    committedRevision: RevisionSchema, activeRevision: z.null(), summary: SafeDisplayTextSchema,
+  }).strict(),
+]).superRefine((value, context) => {
+  if (value.state === "active" && value.activeRevision !== value.committedRevision) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["activeRevision"], message: "Active revision must equal the committed revision." });
+  }
+});
 
 /**
  * Public settings values are deliberately less permissive than the mutation
@@ -304,6 +326,7 @@ export const KilnSettingsMutationResultSchema = z.object({
   rejectionCode: z.enum(KILN_SETTINGS_REJECTION_CODES).nullable(),
   committedRevision: RevisionSchema.nullable(),
   activation: ActivationSchema,
+  activationObservation: ActivationObservationSchema,
   reconciliation: z.array(ReconciliationSummarySchema),
   diagnostics: z.array(SafeDiagnosticSchema),
   replayed: z.boolean(),
@@ -371,6 +394,7 @@ export function projectKilnSettingsMutationResult(
     rejectionCode,
     committedRevision: settlement.committedRevision,
     activation: settlement.activation,
+    activationObservation: settlement.activationObservation,
     reconciliation: settlement.reconciliationEffects.map((effect) => ({
       target: effect.target,
       status: effect.status,

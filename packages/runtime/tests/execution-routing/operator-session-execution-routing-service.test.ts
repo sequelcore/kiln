@@ -4,11 +4,13 @@ import {
   createExecutionAccountRef,
   defineExecutionCatalog,
   type ExecutionAccountAdmissionCandidate,
+  type ExecutionCatalog,
 } from "@kilnai/core/agents";
 import { OperatorSessionExecutionRoutingService } from "../../src/execution-routing/operator-session-execution-routing-service.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import type { ExecutionAccountCapacityAuthority } from "../../src/index.js";
 import type { AccountCapacityAcquireInput, AccountCapacityRecord, ExecutionAccountCandidateBinding } from "../../src/execution-kernel/execution-account-capacity-authority.js";
+import type { RuntimeConfigurationRevisionSnapshot } from "../../src/session/runtime-configuration-revision-pin.js";
 
 function acceptsExecutionAccountCapacityAuthority(authority: ExecutionAccountCapacityAuthority): void {
   void authority;
@@ -54,7 +56,13 @@ function service(overrides: Record<string, unknown> = {}) {
     settleAccountCapacity: vi.fn(() => ({ ...acquiredRecord(), state: "released" as const })),
   };
   const routing = new OperatorSessionExecutionRoutingService({
-    catalog,
+    catalogSource: {
+      capture: vi.fn(async () => ({
+        catalog,
+        configurationRevision: revisionSnapshot("R1"),
+      })),
+      activate: vi.fn(),
+    },
     candidates: { resolve: vi.fn(async () => [{ candidate: candidate("personal"), lease: leaseBinding("personal") }, { candidate: candidate("work", { health: "unhealthy" }), lease: leaseBinding("work") }]) },
     accountCapacityAuthority: authority,
     credentials: { resolve: vi.fn(async () => { events.push("credential"); return { credential: { opaque: "credential" }, credentialId: "credential-personal", credentialRevisionId: "a".repeat(64) }; }) },
@@ -62,6 +70,29 @@ function service(overrides: Record<string, unknown> = {}) {
     ...overrides,
   });
   return { routing, authority, dispatch, events };
+}
+
+function revisionSnapshot(revisionSetId: string): RuntimeConfigurationRevisionSnapshot {
+  return {
+    revisionSetId,
+    revisions: { execution: revisionSetId },
+  };
+}
+
+function catalogForRevision(revisionSetId: string): ExecutionCatalog {
+  const model = `gpt-5.6-${revisionSetId.toLowerCase()}`;
+  const accountId = revisionSetId === "R1" ? "personal" : "work";
+  const credentialId = revisionSetId === "R1" ? "credential-personal" : "credential-work";
+  return defineExecutionCatalog({
+    accounts: [{ id: accountId, providerId: "codex", credentialId, maxConcurrency: 2, reservedAffinitySlots: 0, economics: economics() }],
+    accountPolicies: [{ id: "codex-policy", accountIds: [accountId], strategy: "economic-least-pressure" }],
+    routes: [{
+      id: "terra", label: "Terra", providerId: "codex", providerModelId: model,
+      dataClassification: "internal",
+      dataPolicyEvidence: { providerId: "codex", providerModelId: model, dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: revisionSetId, sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
+      accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" }, economics: routeEconomics(),
+    }],
+  });
 }
 
 describe("OperatorSessionExecutionRoutingService", () => {
@@ -206,6 +237,26 @@ describe("OperatorSessionExecutionRoutingService", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it("releases the admission mutex even when pre-fence cleanup also throws", async () => {
+    let fenceAttempts = 0;
+    const capacityAuthority = {
+      acquireAccountCapacity: vi.fn(() => ({ status: "acquired" as const, record: acquiredRecord(), replay: false })),
+      releaseAccountCapacityPreFence: vi.fn(() => { throw new Error("synthetic cleanup failure"); }),
+      fenceAccountCapacityDispatch: vi.fn(() => {
+        fenceAttempts += 1;
+        if (fenceAttempts === 1) throw new Error("synthetic fence failure");
+        return { ...acquiredRecord(), state: "dispatch-fenced" as const, dispatchFenceId: "turn-2:dispatch" };
+      }),
+      settleAccountCapacity: vi.fn(() => ({ ...acquiredRecord(), state: "released" as const })),
+    };
+    const { routing } = service({ accountCapacityAuthority: capacityAuthority });
+
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"1".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined }))
+      .rejects.toThrow(/cleanup failure/iu);
+    await expect(routing.execute({ executionId: "turn-2", intentFingerprint: `sha256:${"2".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined }))
+      .resolves.toMatchObject({ result: "done" });
+  });
+
   it.each([
     ["credential ID", { credential: {}, credentialId: "credential-other", credentialRevisionId: "a".repeat(64) }],
     ["credential revision", { credential: {}, credentialId: "credential-personal", credentialRevisionId: "b".repeat(64) }],
@@ -233,5 +284,115 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined });
     expect(order).toEqual(["fence", "credential", "dispatch"]);
     expect(authority.releaseAccountCapacityPreFence).not.toHaveBeenCalled();
+  });
+
+  it("keeps concurrent executions internally on one catalog revision while activation is serialized", async () => {
+    const r1Catalog = catalogForRevision("R1");
+    const r2Catalog = catalogForRevision("R2");
+    let current = { catalog: r1Catalog, configurationRevision: revisionSnapshot("R1") };
+    let captureCount = 0;
+    let releaseFirstCapture!: () => void;
+    const firstCaptureBlocked = new Promise<void>((resolve) => { releaseFirstCapture = resolve; });
+    let firstCaptureEntered!: () => void;
+    const firstCaptureStarted = new Promise<void>((resolve) => { firstCaptureEntered = resolve; });
+    let activeRevision: string | undefined;
+    const activationOrder: string[] = [];
+    const catalogSource = {
+      capture: vi.fn(async () => {
+        const captured = current;
+        captureCount += 1;
+        if (captureCount === 1) {
+          firstCaptureEntered();
+          await firstCaptureBlocked;
+        }
+        return captured;
+      }),
+      activate: vi.fn(async ({ configurationRevision }: { readonly configurationRevision: RuntimeConfigurationRevisionSnapshot }) => {
+        activeRevision = configurationRevision.revisionSetId;
+        activationOrder.push(`activate:${activeRevision}`);
+      }),
+    };
+    const authority = {
+      acquireAccountCapacity: vi.fn((input: AccountCapacityAcquireInput) => {
+        const accountId = input.candidates[0]!.candidate.account.slice("configured:".length);
+        const revision = accountId === "personal" ? "R1" : "R2";
+        return {
+          status: "acquired" as const,
+          record: {
+            ...acquiredRecord(),
+            accountRef: createExecutionAccountRef(`configured:${accountId}`),
+            capacityIdentity: `codex:${accountId}`,
+            credentialRevisionId: revision,
+          },
+          replay: false,
+        };
+      }),
+      releaseAccountCapacityPreFence: vi.fn(() => acquiredRecord()),
+      fenceAccountCapacityDispatch: vi.fn((_executionId: string, fenceId: string) => ({
+        ...acquiredRecord(),
+        state: "dispatch-fenced" as const,
+        dispatchFenceId: fenceId,
+      })),
+      settleAccountCapacity: vi.fn(() => ({ ...acquiredRecord(), state: "released" as const })),
+    };
+    let releaseFirstCredential!: () => void;
+    const firstCredentialBlocked = new Promise<void>((resolve) => { releaseFirstCredential = resolve; });
+    const credentials = {
+      resolve: vi.fn(async ({ accountId, credentialId, lease, configurationRevision }: {
+        readonly accountId: string;
+        readonly credentialId: string;
+        readonly lease: AccountCapacityRecord;
+        readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
+      }) => {
+        expect(activeRevision).toBe(configurationRevision.revisionSetId);
+        if (configurationRevision.revisionSetId === "R1") await firstCredentialBlocked;
+        return { credential: { revision: configurationRevision.revisionSetId }, credentialId, credentialRevisionId: lease.credentialRevisionId };
+      }),
+    };
+    const routing = new OperatorSessionExecutionRoutingService({
+      catalogSource,
+      candidates: {
+        resolve: vi.fn(async ({ admission, catalog, configurationRevision }: {
+          readonly admission: { readonly routeId: string; readonly providerModelId: string };
+          readonly catalog: ExecutionCatalog;
+          readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
+        }) => {
+          expect(activeRevision).toBe(configurationRevision.revisionSetId);
+          const account = catalog.accounts[0]!;
+          expect(admission.providerModelId).toBe(account === r1Catalog.accounts[0] ? "gpt-5.6-r1" : "gpt-5.6-r2");
+          return [{ candidate: candidate(account.id), lease: {
+            ...leaseBinding(account.id),
+            candidate: { ...leaseBinding(account.id).candidate, route: { providerId: "codex", providerModelId: admission.providerModelId, scope: "operator-session" } },
+            credentialRevisionId: configurationRevision.revisionSetId === "R1" ? "R1" : "R2",
+          } }];
+        }),
+      },
+      accountCapacityAuthority: authority,
+      credentials,
+      dispatch: { dispatchCommittedTurn: vi.fn(async (committed) => ({ revision: committed.configurationRevision.revisionSetId, model: committed.admission.providerModelId })) },
+    });
+
+    const first = routing.execute({ executionId: "turn-r1", intentFingerprint: `sha256:${"1".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined });
+    await firstCaptureStarted;
+    current = { catalog: r2Catalog, configurationRevision: revisionSnapshot("R2") };
+    const second = routing.execute({ executionId: "turn-r2", intentFingerprint: `sha256:${"2".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined });
+    await Promise.resolve();
+    expect(catalogSource.activate).not.toHaveBeenCalled();
+    releaseFirstCapture();
+    await vi.waitFor(() => expect(catalogSource.activate).toHaveBeenCalledWith(expect.objectContaining({ configurationRevision: expect.objectContaining({ revisionSetId: "R1" }) })));
+    expect(catalogSource.activate).toHaveBeenCalledTimes(1);
+    releaseFirstCredential();
+
+    await expect(first).resolves.toMatchObject({
+      accountId: "personal",
+      admission: { providerModelId: "gpt-5.6-r1" },
+      result: { revision: "R1", model: "gpt-5.6-r1" },
+    });
+    await expect(second).resolves.toMatchObject({
+      accountId: "work",
+      admission: { providerModelId: "gpt-5.6-r2" },
+      result: { revision: "R2", model: "gpt-5.6-r2" },
+    });
+    expect(activationOrder).toEqual(["activate:R1", "activate:R2"]);
   });
 });

@@ -180,7 +180,13 @@ function dispatcher(overrides: {
     return payload.result ?? accountId;
   });
   const routing = new OperatorSessionExecutionRoutingService({
-    catalog,
+    catalogSource: {
+      capture: async () => ({
+        catalog,
+        configurationRevision: { revisionSetId: "R1", revisions: { execution: "R1" } },
+      }),
+      activate: vi.fn(),
+    },
     candidates: {
       resolve: vi.fn(async () => overrides.candidates ?? [
         { candidate: candidate("personal"), lease: leaseBinding("personal") },

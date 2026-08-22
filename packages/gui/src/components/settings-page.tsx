@@ -617,8 +617,17 @@ function feedbackForResult(result: KilnSettingsMutationResult): string {
       ? "Change rejected because configuration changed. Refresh and propose again."
       : `Change rejected (${result.rejectionCode ?? "unknown"}). Review the diagnostics and retry.`;
   }
+  if (result.activationObservation.state === "scheduled") {
+    return `Change committed. ${result.activationObservation.summary}`;
+  }
+  if (result.activationObservation.state === "unsupported") {
+    return `Change committed, but activation is unavailable. ${result.activationObservation.summary}`;
+  }
+  if (result.activationObservation.state === "superseded") {
+    return `Change committed, but a newer revision superseded its activation. ${result.activationObservation.summary}`;
+  }
   return result.readBack.verified
-    ? "Change committed and verified from the shared settings model."
+    ? `Change committed and verified from the shared settings model. ${result.activationObservation.summary}`
     : "Change committed; refreshed effective-state verification is still pending.";
 }
 

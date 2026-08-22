@@ -7,6 +7,23 @@ const readExecutionCatalog = (config: ReturnType<typeof managedAgentIntentConfig
   config ? syntheticExecutionCatalog(config) ?? undefined : undefined;
 
 describe("operator execution target selection", () => {
+  it("admits against one captured config snapshot instead of mixing two revisions", async () => {
+    const readConfigSnapshot = vi.fn()
+      .mockReturnValueOnce({ config: managedAgentIntentConfig(), revision: `sha256:${"a".repeat(64)}` })
+      .mockReturnValue({ config: null, revision: `sha256:${"b".repeat(64)}` });
+    const port = createOperatorExecutionRouteSelectionPort({
+      readConfigSnapshot,
+      readExecutionCatalog,
+      resolveAccountAvailability: async () => [{ accountId: "codex-account", available: true, reasonCodes: [] }],
+    });
+
+    await expect(port.admit({ routeId: "codex-standard" })).resolves.toMatchObject({
+      ok: true,
+      admission: { routeId: "codex-standard" },
+    });
+    expect(readConfigSnapshot).toHaveBeenCalledTimes(1);
+  });
+
   it("projects route availability from the configured account candidates", async () => {
     const accountAvailability = { current: [] as { accountId: string; available: boolean; reasonCodes: readonly any[] }[] };
     const resolveAccountAvailability = vi.fn(async ({ admission }: {

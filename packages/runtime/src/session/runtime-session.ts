@@ -7,6 +7,10 @@ import type {
 import { compareSessionEvents, extractText } from "@kilnai/core";
 import type { SessionMode } from "./session-mode.js";
 import { transitionSessionMode } from "./session-mode.js";
+import {
+  normalizeRuntimeConfigurationRevision,
+  type RuntimeConfigurationRevisionSnapshot,
+} from "./runtime-configuration-revision-pin.js";
 
 export interface AgentTurnEntry {
   readonly agentId: string;
@@ -45,6 +49,7 @@ export interface SerializedSessionData {
   };
   readonly exactArtifacts?: readonly string[];
   readonly sessionEvents?: ReadonlyArray<Omit<CanonicalSessionEvent, "timestamp"> & { readonly timestamp: string }>;
+  readonly runtimeConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
 }
 
 export interface RuntimeSessionConfig {
@@ -88,6 +93,7 @@ export class RuntimeSession {
   } = { currentPhase: "active" };
   private _exactArtifacts: string[] = [];
   private _sessionEvents: CanonicalSessionEvent[] = [];
+  private _runtimeConfigurationRevision: RuntimeConfigurationRevisionSnapshot | undefined;
 
   constructor(config: RuntimeSessionConfig) {
     this.appName = config.appName;
@@ -190,6 +196,9 @@ export class RuntimeSession {
       // persisted payload may be mixed or foreign; foreign events are not
       // allowed into this session's replay ledger.
       session.appendSessionEvents(replayEvents);
+    }
+    if (data.runtimeConfigurationRevision) {
+      session.bindRuntimeConfigurationRevision(data.runtimeConfigurationRevision);
     }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
@@ -311,6 +320,22 @@ export class RuntimeSession {
 
   get sessionEvents(): readonly CanonicalSessionEvent[] {
     return this._sessionEvents;
+  }
+
+  get runtimeConfigurationRevision(): RuntimeConfigurationRevisionSnapshot | undefined {
+    return this._runtimeConfigurationRevision;
+  }
+
+  /** Bind this logical session once; later turns cannot replace its boundary. */
+  bindRuntimeConfigurationRevision(
+    revision: RuntimeConfigurationRevisionSnapshot,
+  ): RuntimeConfigurationRevisionSnapshot {
+    if (this._runtimeConfigurationRevision) {
+      return this._runtimeConfigurationRevision;
+    }
+    this._runtimeConfigurationRevision = normalizeRuntimeConfigurationRevision(revision);
+    this._version++;
+    return this._runtimeConfigurationRevision;
   }
 
   nextSessionEventSequence(): number {

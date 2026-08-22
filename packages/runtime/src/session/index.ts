@@ -29,6 +29,17 @@ export {
   formatEffectiveTurnAuthorityGuidance,
 } from "./effective-turn-authority.js";
 export type { EffectiveTurnAuthorityActionability } from "./effective-turn-authority.js";
+export { defineEffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
+export type {
+  EconomicCommitmentReference,
+  EffectiveAuthorityAdmissionBundle,
+  EffectiveAuthorityAdmissionBundleInput,
+  ExecutionAdmission,
+  SkillCatalogAdmission,
+  ToolPermissionAdmission,
+  TurnBudgetAdmission,
+  WorkGovernanceAdmission,
+} from "./effective-authority-admission-bundle.js";
 export type {
   RuntimeFeedbackEvidenceCollectorInput,
 } from "./session-feedback-evidence.js";
@@ -53,6 +64,11 @@ export type {
   RuntimeToolRoundBudget,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.js";
+export { captureRuntimeConfigurationRevision } from "./runtime-configuration-revision-pin.js";
+export type {
+  RuntimeConfigurationRevisionProvider,
+  RuntimeConfigurationRevisionSnapshot,
+} from "./runtime-configuration-revision-pin.js";
 
 // Persistence + registry
 export {

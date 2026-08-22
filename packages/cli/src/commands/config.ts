@@ -279,7 +279,8 @@ async function runGovernedConfigMutation(input: {
     return;
   }
 
-  console.log(`${input.describe}: ${settlement.outcome} (activation: ${settlement.activation})`);
+  console.log(`${input.describe}: ${settlement.outcome} (activation: ${settlement.activation}, ${settlement.activationObservation.state})`);
+  console.log(`  activation: ${settlement.activationObservation.summary}`);
   for (const warning of settlement.diagnostics.filter((entry) => entry.severity === "warning")) {
     console.log(warning.message);
   }

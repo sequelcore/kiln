@@ -20,6 +20,7 @@ import { readKilnYaml } from "../kiln-yaml.js";
 import { configuredCommunicationCandidates } from "../config/communication-policy.js";
 import { resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
+import { runConfigReconciliationTarget } from "./config-reconciliation-target.js";
 
 export interface ExecuteConfigSetupActionInput {
   readonly projectPath: string;
@@ -84,7 +85,7 @@ async function syncRepoShims(
   projectPath: string,
   action: KilnConfigSetupAction,
 ): Promise<KilnConfigSetupActionResult> {
-  const sync = await writeRepoShimProjections(projectPath);
+  const sync = await requireCurrentProjection(projectPath, "repo-shims", () => writeRepoShimProjections(projectPath));
   if (sync.errors.length > 0) {
     return result(action, "failed", "Repo-shim sync failed.", sync.errors, projectPath);
   }
@@ -130,29 +131,29 @@ async function syncNativeProjections(
   }
 
   const disabledHarnesses = [] as const;
-  const permissionResult = await syncNativePermissionProjections(kilnYaml, projectPath, {
+  const permissionResult = await requireCurrentProjection(projectPath, "native-permissions", () => syncNativePermissionProjections(kilnYaml, projectPath, {
     disabledHarnesses,
     userHome,
     modelGateway: globalConfig?.modelGateway,
-  });
+  }));
   const hookResult = await syncNativeHookProjections(projectPath, join(projectPath, ".kiln"), { disabledHarnesses });
-  const agentResult = await syncNativeAgentProjections(projectPath, {
+  const agentResult = await requireCurrentProjection(projectPath, "native-agents", () => syncNativeAgentProjections(projectPath, {
     disabledHarnesses,
     userHome,
     communicationCandidates: configuredCommunicationCandidates({
       global: globalConfig?.communication,
       project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
     }),
-  });
+  }));
   const communicationResult = syncGlobalCommunicationProjection({
     intent: resolveConfiguredCommunication({ global: globalConfig?.communication }),
     userHome,
   });
-  const skillResult = await syncNativeSkillProjections(projectPath, {
+  const skillResult = await requireCurrentProjection(projectPath, "native-skills", () => syncNativeSkillProjections(projectPath, {
     disabledHarnesses,
     skillConfig: kilnYaml.skills,
     userHome,
-  });
+  }));
   const globalMcpResult = await syncGlobalControlPlaneMcpProjections({
     operation: "install",
     projectPath,
@@ -182,6 +183,18 @@ async function syncNativeProjections(
   }
 
   return result(action, "applied", "Native projections synced.", [], projectPath, userHome);
+}
+
+async function requireCurrentProjection<T>(
+  projectPath: string,
+  target: "native-agents" | "native-skills" | "native-permissions" | "repo-shims",
+  run: () => T | Promise<T>,
+): Promise<T> {
+  const result = await runConfigReconciliationTarget(projectPath, target, run);
+  if (result.status === "superseded") {
+    throw new Error(`${target} projection was superseded by a newer canonical revision; retry setup.`);
+  }
+  return result.value;
 }
 
 async function adoptGlobalInstructions(

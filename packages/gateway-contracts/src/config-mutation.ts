@@ -35,6 +35,43 @@ export type KilnConfigActivationClass =
   | "restart-required";
 
 /**
+ * Observable activation evidence for one terminal mutation attempt.
+ *
+ * This is not effective configuration authority. It states whether the
+ * committed canonical revision is active now, scheduled for a named runtime
+ * boundary, or failed to converge through its activation owner.
+ */
+export type KilnConfigActivationObservation =
+  | {
+      readonly state: "not-started";
+      readonly boundary: KilnConfigActivationClass;
+      readonly committedRevision: null;
+      readonly activeRevision: null;
+      readonly summary: string;
+    }
+  | {
+      readonly state: "active";
+      readonly boundary: "hot" | "reconcile";
+      readonly committedRevision: string;
+      readonly activeRevision: string;
+      readonly summary: string;
+    }
+  | {
+      readonly state: "scheduled";
+      readonly boundary: "next-turn" | "next-session";
+      readonly committedRevision: string;
+      readonly activeRevision: null;
+      readonly summary: string;
+    }
+  | {
+      readonly state: "failed" | "superseded" | "unsupported";
+      readonly boundary: KilnConfigActivationClass;
+      readonly committedRevision: string;
+      readonly activeRevision: null;
+      readonly summary: string;
+    };
+
+/**
  * Authority delta between the current and proposed configuration. Derived by
  * comparing evaluated authority, never inferred from the operation name.
  */
@@ -144,6 +181,7 @@ export interface KilnConfigMutationSettlement {
   readonly diagnostics: readonly KilnConfigValidationDiagnostic[];
   readonly rollbackToken: string | null;
   readonly activation: KilnConfigActivationClass;
+  readonly activationObservation: KilnConfigActivationObservation;
 }
 
 /**

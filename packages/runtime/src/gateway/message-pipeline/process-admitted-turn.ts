@@ -177,6 +177,11 @@ import {
 import {
   resolveVoiceInputParts
 } from "./voice-input-resolver.js";
+import {
+  captureRuntimeConfigurationRevision,
+  type RuntimeConfigurationRevisionProvider,
+  type RuntimeConfigurationRevisionSnapshot,
+} from "../../session/runtime-configuration-revision-pin.js";
 
 export interface AdmittedTurnContext {
   readonly orchestrator: RuntimeSessionOrchestrator;
@@ -207,6 +212,8 @@ export interface AdmittedTurnContext {
   readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
+  /** Reads the current secret-free configuration revision once per admitted turn. */
+  readonly runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
   readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
   readonly contextUsageWindow?: ContextUsageWindowEvidence;
   readonly traceId?: string;
@@ -359,6 +366,8 @@ export type ProcessResult =
 interface SessionAdmissionState {
   readonly turnStartedAt: Date;
   readonly preAdmissionRuntimeEvents: readonly RuntimePipelineLedgerEvent[];
+  readonly runtimeConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
+  readonly runtimeSessionConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
   readonly effectiveTenantId: string;
   readonly executionMode: OperatorExecutionMode;
   readonly session: RuntimeSession;
@@ -428,6 +437,14 @@ async function resolveSessionAndAgentContext(
     }
   }
 
+  // Capture once after the ingress budget gate and before work that can span
+  // the turn. Later phases receive this exact frozen value and never reread
+  // live configuration.
+  const runtimeConfigurationRevision = ctx.perCallConfig?.runtimeConfigurationRevision
+    ?? (ctx.runtimeConfigurationRevisionProvider
+      ? await captureRuntimeConfigurationRevision(ctx.runtimeConfigurationRevisionProvider)
+      : undefined);
+
   const shouldAttemptResumeHydration = ctx.sessionId !== undefined && ctx.resumeSessionHydrator !== undefined;
   const existingResumeTarget = shouldAttemptResumeHydration && ctx.sessionId
     ? await ctx.sessionRegistry.getById(ctx.sessionId)
@@ -444,6 +461,9 @@ async function resolveSessionAndAgentContext(
     systemPrompt: initialSystemPrompt,
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
+  const runtimeSessionConfigurationRevision = runtimeConfigurationRevision
+    ? session.bindRuntimeConfigurationRevision(runtimeConfigurationRevision)
+    : session.runtimeConfigurationRevision;
   trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
 
   if (shouldHydrateResumedSession && ctx.sessionId && ctx.resumeSessionHydrator) {
@@ -583,6 +603,8 @@ async function resolveSessionAndAgentContext(
     state: {
       turnStartedAt,
       preAdmissionRuntimeEvents,
+      runtimeConfigurationRevision,
+      runtimeSessionConfigurationRevision,
       effectiveTenantId,
       executionMode,
       session,
@@ -778,6 +800,12 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
   const perCallConfig: PerCallToolConfig = {
     ...projectedPerCallConfig,
     turnId: canonicalTurn.turnId,
+    ...(state.runtimeConfigurationRevision
+      ? { runtimeConfigurationRevision: state.runtimeConfigurationRevision }
+      : {}),
+    ...(state.runtimeSessionConfigurationRevision
+      ? { runtimeSessionConfigurationRevision: state.runtimeSessionConfigurationRevision }
+      : {}),
   };
   // These values are runtime authority transport, not model-facing request
   // configuration. Keep them directly readable by the orchestrator while

@@ -55,6 +55,10 @@ function snapshot(): KilnSettingsSnapshot {
 const committedResult: KilnSettingsMutationResult = {
   proposalId: "cfg_domain", scope: "project", operation: "setting.reset", outcome: "committed", rejectionCode: null,
   committedRevision: revision, activation: "next-session", reconciliation: [], diagnostics: [], replayed: false,
+  activationObservation: {
+    state: "scheduled", boundary: "next-session", committedRevision: revision, activeRevision: null,
+    summary: "The committed revision activates at the next session boundary.",
+  },
   readBack: { schemaRevision: 1, verified: true },
 };
 
@@ -97,7 +101,7 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Apply change" }));
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({ proposalId: "cfg_domain" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("committed");
+    expect(await screen.findByRole("status")).toHaveTextContent("next session boundary");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Value for Domain" })).toHaveFocus());
   });
 

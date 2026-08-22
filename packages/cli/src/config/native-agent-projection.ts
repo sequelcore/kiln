@@ -8,7 +8,7 @@ import {
   type CommunicationIntentCandidate,
   type RouteAdmissionDecision,
 } from "@kilnai/core";
-import { loadGlobalAgentDefinitions } from "../application/agent-loader.js";
+import { loadAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
   createNativeProjectionFileSnapshot,
@@ -263,7 +263,10 @@ export async function syncNativeAgentProjections(
 
   let agents: KilnAgentDefinition[];
   try {
-    agents = await loadGlobalAgentDefinitions(options.userHome === undefined ? {} : { userHome: options.userHome });
+    agents = await loadAgentDefinitions(
+      projectPath,
+      options.userHome === undefined ? {} : { userHome: options.userHome },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {

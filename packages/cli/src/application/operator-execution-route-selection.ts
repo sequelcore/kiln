@@ -17,6 +17,8 @@ export function createOperatorExecutionRouteSelectionPort(input: {
   readonly readExecutionCatalog?: (config: KilnGlobalConfig | null) => ExecutionCatalog | undefined;
   readonly resolveAccountAvailability: (input: {
     readonly admission: ReturnType<typeof admitOperatorExecutionIntent>;
+    readonly catalog: ExecutionCatalog;
+    readonly configurationRevision: { readonly revisionSetId: string; readonly revisions: Readonly<Record<string, string>> };
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>;
 }): OperatorExecutionRouteSelectionPort {
   const catalog = (config: KilnGlobalConfig | null): ExecutionCatalog => {
@@ -31,11 +33,13 @@ export function createOperatorExecutionRouteSelectionPort(input: {
   return {
     getCatalog,
     admit: async (intent: ExecutionRouteSelectionIntent) => {
-      const projected = await getCatalog();
+      const snapshot = input.readConfigSnapshot();
+      const capturedCatalog = catalog(snapshot.config);
+      const projected = await projectCatalog(capturedCatalog, input.resolveAccountAvailability, snapshot.revision);
       const rejected = rejectUnavailableExecutionRoute(projected, intent);
       if (rejected) return rejected;
       try {
-        const admitted = admitOperatorExecutionIntent(catalog(input.readConfigSnapshot().config), intent);
+        const admitted = admitOperatorExecutionIntent(capturedCatalog, intent);
         return {
           ok: true,
           admission: {
@@ -78,6 +82,8 @@ async function projectCatalog(
   catalog: ExecutionCatalog,
   resolveAccountAvailability: (input: {
     readonly admission: ReturnType<typeof admitOperatorExecutionIntent>;
+    readonly catalog: ExecutionCatalog;
+    readonly configurationRevision: { readonly revisionSetId: string; readonly revisions: Readonly<Record<string, string>> };
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>,
   revision: string,
 ): Promise<ExecutionRouteCatalog> {
@@ -85,7 +91,11 @@ async function projectCatalog(
   for (const route of catalog.routes) {
     try {
       const admission = admitOperatorExecutionIntent(catalog, { routeId: route.id });
-      accountAvailabilityByRoute.set(route.id, await resolveAccountAvailability({ admission }));
+      accountAvailabilityByRoute.set(route.id, await resolveAccountAvailability({
+        admission,
+        catalog,
+        configurationRevision: { revisionSetId: revision, revisions: { global: revision } },
+      }));
     } catch {
       accountAvailabilityByRoute.set(route.id, []);
     }

@@ -21,6 +21,7 @@ import {
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeConfigurationRevisionProvider } from "../session/runtime-configuration-revision-pin.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
@@ -198,6 +199,8 @@ export interface StartGuiGatewayOptions {
   readonly goalController?: GuiGoalController;
   /** Persisted sources retain provenance; a message-local user intent is added per turn. */
   readonly communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
+  /** Canonical configuration revision captured once at each admitted turn. */
+  readonly runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
 }
 
 export interface GuiGoalController {
@@ -761,6 +764,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       managedInvocation,
       boundedWork: options.boundedWork,
       communicationIntentCandidates: options.communicationIntentCandidates,
+      runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
       executionRouteSelection: options.executionRouteSelection,
       runExecutionTargetWizard: options.runExecutionTargetWizard,
       operatorTerminalCapability,
@@ -874,6 +878,7 @@ function wireOperatorTransport(
     managedInvocation?: ManagedInvocationToolAttachment;
     boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
     communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
+    runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
     executionRouteSelection?: OperatorExecutionRouteSelectionPort;
     runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
     onReady: (wsUrl: string) => void;
@@ -967,6 +972,7 @@ function wireOperatorTransport(
       abortSignal: payload.abortSignal,
       executionBinding: committed.binding,
       executionCredential: committed.credential,
+      runtimeConfigurationRevision: committed.configurationRevision,
     } satisfies PerCallToolConfig;
     return processAdmittedTurn({
       orchestrator,
@@ -995,6 +1001,7 @@ function wireOperatorTransport(
       ttsAdapter: input.transport.ttsAdapter,
       callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
       perCallConfig,
+      runtimeConfigurationRevisionProvider: input.runtimeConfigurationRevisionProvider,
       turnCapture: {
         start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
         finish: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },

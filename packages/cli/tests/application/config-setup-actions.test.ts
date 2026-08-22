@@ -103,9 +103,9 @@ describe("config setup actions", () => {
     expect(existsSync(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
     expect(existsSync(join(userHome, ".claude", "agents", "synthetic-agent.md"))).toBe(true);
     expect(existsSync(join(userHome, ".config", "opencode", "agents", "synthetic-agent.md"))).toBe(true);
-    expect(existsSync(join(userHome, ".codex", "agents", "project-only-agent.toml"))).toBe(false);
-    expect(existsSync(join(userHome, ".claude", "agents", "project-only-agent.md"))).toBe(false);
-    expect(existsSync(join(userHome, ".config", "opencode", "agents", "project-only-agent.md"))).toBe(false);
+    expect(existsSync(join(userHome, ".codex", "agents", "project-only-agent.toml"))).toBe(true);
+    expect(existsSync(join(userHome, ".claude", "agents", "project-only-agent.md"))).toBe(true);
+    expect(existsSync(join(userHome, ".config", "opencode", "agents", "project-only-agent.md"))).toBe(true);
     expect(existsSync(join(userHome, ".codex", "agents", "adversarial-reviewer.toml"))).toBe(false);
     expect(existsSync(join(tempDir, "ambient-codex", "config.toml"))).toBe(false);
     const claudeGlobal = JSON.parse(readFileSync(join(userHome, ".claude.json"), "utf8"));

@@ -756,6 +756,39 @@ failed projection effects. A later retry remains pending until its own terminal
 settlement and cannot race another reconciliation for the same canonical path.
 `rejected` means nothing was written.
 
+Each settlement also carries a secret-free activation observation. `active`
+names the committed revision only after hot read-back or a stable reconciliation
+pass; `scheduled` names the next-turn or next-session boundary without claiming
+that the revision is active early; `failed`, `superseded`, and `unsupported`
+remain distinct. A superseded reconciliation re-runs the newest canonical
+generation under the same target lock before it releases the projection owner,
+so an older writer cannot remain the final published generation. Mutation,
+setup, and sync share that target lock, including a bounded interprocess wait.
+
+Runtime captures a content-addressed, secret-free global/project revision set
+once when a turn is admitted. The exact snapshot is immutable for the complete
+turn. A logical session separately binds its first admitted revision and
+persists that evidence, so later turns may observe a newer next-turn revision
+without rewriting the session boundary. Revision evidence identifies the
+configuration used by an execution; it does not duplicate configuration values
+or become a second effective-config authority.
+
+Operator route admission captures the effective execution catalog and that
+revision set as one Runtime value before candidate selection, capacity fencing,
+or credential resolution. Snapshot activation is serialized only through
+credential resolution; provider dispatch is concurrent afterward and carries
+the committed route, account, credential identity, and exact captured revision.
+The account runtime resolves candidates and credentials against the supplied
+snapshot rather than a mutable startup catalog. The broader
+`EffectiveAuthorityAdmissionBundle` remains a validated Runtime contract until
+all enforcing owners can compose it atomically; it is not installed as an
+optional authority alongside the existing per-call fields.
+
+`restart-required` remains part of the shared vocabulary but has no admitted
+production descriptor in the current project/global pilot. Such a mutation is
+reported as `unsupported`; a future configuration family must name its real
+Runtime supervisor and drain owner before it can claim restart activation.
+
 Config mutation authority is separate from filesystem write authority. A
 read-only child may receive `kiln_config.read` at most. Proposal authority can
 be admitted without apply authority. Apply authority requires an approved

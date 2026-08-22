@@ -89,9 +89,11 @@ import {
   resolveGuiOperatorDiscoveryResults,
 } from "@kilnai/runtime";
 import {
+  captureOperatorExecutionCatalogSnapshot,
   createOperatorTurnDispatchComposition,
   resolveOperatorContinuationBinding,
 } from "../application/operator-turn-dispatch-composition.js";
+import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
 import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
 import { resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
@@ -334,7 +336,12 @@ export async function guiCommand(
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
   const { startGuiGateway } = await import("@kilnai/runtime");
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>({
-    catalog: operatorExecutionCatalog,
+    initialCatalog: operatorExecutionCatalog,
+    captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
+      projectPath: cwd,
+      readConfigSnapshot: readGlobalConfigSnapshot,
+      readConfigurationRevision: readRuntimeConfigurationRevision,
+    }),
     cwd,
   });
   const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
@@ -368,6 +375,7 @@ export async function guiCommand(
   gateway = await startGuiGateway({
     port,
     guiAssetMode: mode === "dev" ? "external" : "bundled",
+    runtimeConfigurationRevisionProvider: () => readRuntimeConfigurationRevision(cwd),
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
     getSnapshot: async (context) => ({
       ...await buildDashboardSnapshot(

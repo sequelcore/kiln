@@ -93,6 +93,16 @@ export class ConfigMutationStore {
     return join(this.root, "locks", `${hashPath(canonicalPath)}.lock`);
   }
 
+  /** Cross-process lock for one owned reconciliation target. */
+  reconciliationLockPathFor(target: string): string {
+    return join(this.root, "reconciliation-locks", `${hashPath(target)}.lock`);
+  }
+
+  /** Lock shared user-home projection outputs across every project namespace. */
+  globalReconciliationLockPathFor(target: string): string {
+    return join(dirname(resolveGlobalConfigPath()), "mutations", "config", "reconciliation-locks-global", `${hashPath(target)}.lock`);
+  }
+
   readProgressMarker(proposalId: string): ConfigMutationProgressMarker | null {
     return readJson<ConfigMutationProgressMarker>(this.markerPath(proposalId));
   }
@@ -198,7 +208,7 @@ export class ConfigMutationStore {
   }
 
   readSettlement(proposalId: string): StoredConfigMutationSettlement | null {
-    return readJson<StoredConfigMutationSettlement>(this.settlementPath(proposalId));
+    return normalizeStoredConfigMutationSettlement(readJson<unknown>(this.settlementPath(proposalId)));
   }
 
   /** Latest durable outcome for one operation in this project namespace. */
@@ -207,7 +217,7 @@ export class ConfigMutationStore {
     if (!existsSync(directory)) return null;
     return readdirSync(directory, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map((entry) => readJson<StoredConfigMutationSettlement>(join(directory, entry.name)))
+      .map((entry) => normalizeStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name))))
       .filter((settlement): settlement is StoredConfigMutationSettlement => settlement?.operation === operation)
       .sort((left, right) => left.settledAt.localeCompare(right.settledAt) || left.proposalId.localeCompare(right.proposalId))
       .at(-1) ?? null;
@@ -287,6 +297,46 @@ function projectNamespace(projectPath: string): string {
 
 function hashPath(value: string): string {
   return createHash("sha256").update(resolve(value).toLowerCase()).digest("hex").slice(0, 16);
+}
+
+/**
+ * Read-normalize settlements written before activation observation became a
+ * required part of the terminal contract. Historical records cannot prove
+ * activation from a committed revision or its hash, so they are explicitly
+ * projected as unsupported rather than reported active. The durable terminal
+ * record remains immutable; normalization is only a compatibility read at the
+ * one existing store boundary.
+ */
+function normalizeStoredConfigMutationSettlement(value: unknown): StoredConfigMutationSettlement | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const settlement = value as Partial<StoredConfigMutationSettlement>;
+  if (settlement.activationObservation !== undefined) {
+    return settlement as StoredConfigMutationSettlement;
+  }
+
+  const committedRevision = settlement.committedRevision;
+  if (committedRevision !== "absent" && (typeof committedRevision !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(committedRevision))) {
+    return null;
+  }
+  const activation = settlement.activation === "hot"
+    || settlement.activation === "next-turn"
+    || settlement.activation === "next-session"
+    || settlement.activation === "reconcile"
+    || settlement.activation === "restart-required"
+    ? settlement.activation
+    : "restart-required";
+
+  return {
+    ...settlement,
+    activation,
+    activationObservation: {
+      state: "unsupported",
+      boundary: activation,
+      committedRevision,
+      activeRevision: null,
+      summary: "Historical settlement lacks activation evidence; activation is unproven.",
+    },
+  } as StoredConfigMutationSettlement;
 }
 
 function samePath(left: string, right: string): boolean {

@@ -120,6 +120,14 @@ type ConfiguredExecutionAccount =
   | OpenCodeExecutionAccount
   | DirectProviderExecutionAccount;
 
+interface ConfiguredCredentialResolutionInput {
+  readonly routeId: string;
+  readonly accountId: string;
+  readonly credentialId: string;
+  readonly lease: AccountCapacityRecord;
+  readonly catalog: ExecutionCatalog;
+}
+
 type ConfiguredExecutionUsageEvidence = {
   readonly health: "healthy" | "unhealthy";
   readonly freshness: "fresh" | "stale" | "missing";
@@ -167,9 +175,9 @@ export class ConfiguredExecutionAccountRuntime {
     };
     this.modelGatewayCandidates = candidates;
     this.operatorSessionCandidates = {
-      resolve: async ({ admission }) => {
-        const route = this.#routeForAdmission(admission, "operator-session");
-        return candidates.resolve({ admission, route });
+      resolve: async ({ admission, catalog }) => {
+        const route = this.#routeForAdmission(admission, "operator-session", catalog);
+        return this.#resolveCandidates(admission, route, catalog);
       },
     };
     this.operatorSessionCredentials = {
@@ -226,8 +234,9 @@ export class ConfiguredExecutionAccountRuntime {
   async #resolveCandidates(
     admission: AdmittedExecutionRoute,
     route: ConfiguredExecutionRoute,
+    catalog: ExecutionCatalog = this.#catalog,
   ): Promise<readonly ConfiguredExecutionCandidate[]> {
-    const configuredRoute = this.#routeForAdmission(admission, route.scope);
+    const configuredRoute = this.#routeForAdmission(admission, route.scope, catalog);
     if (
       configuredRoute.routeId !== route.routeId
       || configuredRoute.providerId !== route.providerId
@@ -236,21 +245,21 @@ export class ConfiguredExecutionAccountRuntime {
     ) {
       throw new Error("Execution candidate route does not match the admitted execution route.");
     }
-    this.#dataPolicyAuthority.assertAdmitted({
+    new ExecutionRouteDataPolicyAuthority({ catalog, now: this.#now }).assertAdmitted({
       routeId: admission.routeId,
       providerId: configuredRoute.providerId,
       providerModelId: configuredRoute.providerModelId,
     });
     const now = this.#validNow();
     const accountIds = admittedAccountIds(admission);
-    const accounts = accountIds.map((accountId) => this.#requireAccount(accountId));
+    const accounts = accountIds.map((accountId) => this.#requireAccount(accountId, catalog));
     const executionAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId);
     const usage = await this.#listUsage(
       admission.providerId as DirectProviderId,
       now,
       accounts.map(({ credentialId }) => credentialId),
     );
-    const cost = configuredRouteEconomics(this.#catalog, admission.routeId);
+    const cost = configuredRouteEconomics(catalog, admission.routeId);
     const candidates: ConfiguredExecutionCandidate[] = [];
 
     for (const account of accounts) {
@@ -314,16 +323,16 @@ export class ConfiguredExecutionAccountRuntime {
   }
 
   async #resolveCredential(
-    input: Parameters<OperatorSessionCredentialPort<ConfiguredExecutionCredential>["resolve"]>[0],
+    input: ConfiguredCredentialResolutionInput,
   ): Promise<OperatorSessionResolvedCredential<ConfiguredExecutionCredential>> {
     if (input.lease.state !== "dispatch-fenced") {
       throw new Error("Configured execution credential resolution requires a dispatch-fenced account lease.");
     }
-    const account = this.#requireAccount(input.accountId);
+    const account = this.#requireAccount(input.accountId, input.catalog);
     if (account.credentialId !== input.credentialId) {
       throw new Error("Configured execution credential identity does not match the account catalog.");
     }
-    this.#assertDataPolicyForCredential(input.routeId, account, input.lease.route);
+    this.#assertDataPolicyForCredential(input.routeId, account, input.lease.route, input.catalog);
     const execution = await this.#findExecutionAccount(account);
     if (configuredExecutionAccountRef(account, execution) !== input.lease.accountRef) {
       throw new Error("Configured execution account identity changed after the dispatch fence.");
@@ -360,6 +369,7 @@ export class ConfiguredExecutionAccountRuntime {
       accountId,
       credentialId: account.credentialId,
       lease,
+      catalog: this.#catalog,
     });
     if (route.providerId === "codex-oauth") {
       const codexCredential = credential as CodexOAuthExecutionCredential;
@@ -467,8 +477,8 @@ export class ConfiguredExecutionAccountRuntime {
     return [...cached.filter(({ credentialId }) => !refreshedIds.has(credentialId)), ...refreshed];
   }
 
-  #routeForAdmission(admission: AdmittedExecutionRoute, scope: string): ConfiguredExecutionRoute {
-    const route = this.#catalog.routes.find(({ id }) => id === admission.routeId);
+  #routeForAdmission(admission: AdmittedExecutionRoute, scope: string, catalog: ExecutionCatalog = this.#catalog): ConfiguredExecutionRoute {
+    const route = catalog.routes.find(({ id }) => id === admission.routeId);
     if (!route) throw new Error(`Execution route '${admission.routeId}' is unavailable.`);
     if (route.providerId !== admission.providerId || route.providerModelId !== admission.providerModelId) {
       throw new Error("Execution admission does not match the catalog route.");
@@ -481,23 +491,23 @@ export class ConfiguredExecutionAccountRuntime {
     return this.#dataPolicyAuthority.assertAdmitted(identity);
   }
 
-  #assertDataPolicyForCredential(routeId: string, account: ExecutionAccount, identity: ProviderModelRouteIdentity): void {
-    const route = this.#catalog.routes.find(({ id }) => id === routeId);
+  #assertDataPolicyForCredential(routeId: string, account: ExecutionAccount, identity: ProviderModelRouteIdentity, catalog: ExecutionCatalog): void {
+    const route = catalog.routes.find(({ id }) => id === routeId);
     if (!route) throw new Error(`Execution route '${routeId}' is unavailable.`);
     const selection = route.accountSelection;
     const accountAdmitted = selection.mode === "exact"
       ? selection.accountId === account.id
-      : this.#catalog.accountPolicies.find(({ id }) => id === selection.accountPolicyId)?.accountIds.includes(account.id) === true;
+      : catalog.accountPolicies.find(({ id }) => id === selection.accountPolicyId)?.accountIds.includes(account.id) === true;
     if (!accountAdmitted) throw new Error("Configured execution account does not belong to the committed execution route.");
-    this.#dataPolicyAuthority.assertAdmitted({
+    new ExecutionRouteDataPolicyAuthority({ catalog, now: this.#now }).assertAdmitted({
       routeId,
       providerId: identity.providerId,
       providerModelId: identity.providerModelId,
     });
   }
 
-  #requireAccount(accountId: string): ExecutionAccount {
-    const account = this.#catalog.accounts.find(({ id }) => id === accountId);
+  #requireAccount(accountId: string, catalog: ExecutionCatalog = this.#catalog): ExecutionAccount {
+    const account = catalog.accounts.find(({ id }) => id === accountId);
     if (!account) throw new Error(`Configured execution account '${accountId}' is unavailable.`);
     return account;
   }

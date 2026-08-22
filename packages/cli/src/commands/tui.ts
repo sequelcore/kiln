@@ -149,9 +149,11 @@ import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import {
+  captureOperatorExecutionCatalogSnapshot,
   createOperatorTurnDispatchComposition,
   resolveOperatorContinuationBinding,
 } from "../application/operator-turn-dispatch-composition.js";
+import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
 import type {
   OperatorTurnDispatchResult,
   OperatorTurnTuiDispatchPayload,
@@ -1088,6 +1090,7 @@ async function bootstrapGatewaySession(
   options.startupProfiler?.mark("gateway-start-requested");
   const gateway = await startTuiGateway({
     sessionManager,
+    runtimeConfigurationRevisionProvider: () => readRuntimeConfigurationRevision(options.cwd),
     port: flags.port,
     systemPrompt,
     operatorTimeZone: options.operatorTimeZone,
@@ -1637,7 +1640,12 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>({
-    catalog: operatorExecutionCatalog,
+    initialCatalog: operatorExecutionCatalog,
+    captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
+      projectPath: cwd,
+      readConfigSnapshot: readGlobalConfigSnapshot,
+      readConfigurationRevision: readRuntimeConfigurationRevision,
+    }),
     cwd,
   });
   const executionRouteSelection = createOperatorExecutionRouteSelectionPort({

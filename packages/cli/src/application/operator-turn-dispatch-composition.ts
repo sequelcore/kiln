@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import type {
@@ -6,7 +7,7 @@ import type {
   ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
 import type { ExecutionRouteReasonCode } from "@kilnai/gateway-contracts";
-import { admitOperatorExecutionIntent } from "@kilnai/core";
+import { admitOperatorExecutionIntent, defineExecutionCatalog } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
   createOperatorSessionAccountCapacityAuthority,
@@ -14,10 +15,16 @@ import {
   OperatorSessionExecutionRoutingService,
   OperatorTurnDispatcher,
   type ConfiguredExecutionCredential,
+  type OperatorSessionExecutionCatalogSnapshot,
   type SqliteManagedAccountLeaseAuthority,
   type OperatorTurnDispatchPort,
+  type RuntimeConfigurationRevisionSnapshot,
 } from "@kilnai/runtime";
 import type { OperatorExecutionRouteAccountAvailability } from "./operator-execution-route-selection.js";
+import {
+  readGlobalExecutionCatalog,
+  type KilnGlobalConfig,
+} from "../config/global-config.js";
 
 export interface OperatorTurnDispatchComposition<Payload, Result> {
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
@@ -26,13 +33,17 @@ export interface OperatorTurnDispatchComposition<Payload, Result> {
   readonly dispatcher: OperatorTurnDispatchPort<Payload, Result>;
   readonly resolveExecutionRouteAccountAvailability: (input: {
     readonly admission: AdmittedExecutionRoute;
+    readonly catalog: ExecutionCatalog;
+    readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>;
   readonly close: () => void;
 }
 
 /** Composes one fenced account/credential routing service for an operator surface. */
 export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
-  readonly catalog: ExecutionCatalog;
+  /** Bootstrap-only catalog; every execution activates a freshly captured snapshot before admission. */
+  readonly initialCatalog: ExecutionCatalog;
+  readonly captureCatalogSnapshot: () => OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
   readonly cwd: string;
   readonly credentialRootDir?: string;
 }): OperatorTurnDispatchComposition<Payload, Result> {
@@ -41,13 +52,16 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
     path: join(input.cwd, ".kiln", "runtime", "operator-session-account-capacity.sqlite"),
   });
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
-    catalog: input.catalog,
+    catalog: input.initialCatalog,
     ...(input.credentialRootDir ? { credentialRootDir: input.credentialRootDir } : {}),
     observeOperatorSessionCapacity: (candidates) => authority.observeCandidateCapacity(candidates),
   });
   const bridge = new OperatorSessionExecutionBridge<ConfiguredExecutionCredential, any, Result>();
   const routing = new OperatorSessionExecutionRoutingService<ConfiguredExecutionCredential, Payload, Result>({
-    catalog: input.catalog,
+    catalogSource: {
+      capture: input.captureCatalogSnapshot,
+      activate: ({ catalog }) => accountRuntime.updateCatalog(catalog),
+    },
     candidates: accountRuntime.operatorSessionCandidates,
     accountCapacityAuthority: authority,
     credentials: accountRuntime.operatorSessionCredentials,
@@ -58,8 +72,8 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
     accountCapacityAuthority: authority,
     bridge,
     dispatcher: new OperatorTurnDispatcher(routing),
-    resolveExecutionRouteAccountAvailability: async ({ admission }) => {
-      const candidates = await accountRuntime.operatorSessionCandidates.resolve({ admission });
+    resolveExecutionRouteAccountAvailability: async ({ admission, catalog, configurationRevision }) => {
+      const candidates = await accountRuntime.operatorSessionCandidates.resolve({ admission, catalog, configurationRevision });
       return candidates.map(({ candidate, lease }) => {
         const reasonCodes = candidateReasonCodes(candidate, lease.usageEvidence);
         return {
@@ -71,6 +85,33 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
     },
     close: () => authority.close(),
   };
+}
+
+const MAX_CATALOG_CAPTURE_ATTEMPTS = 3;
+
+/**
+ * Captures catalog values only when the global bytes that produced them match
+ * the canonical Runtime revision set captured for the same admission.
+ */
+export function captureOperatorExecutionCatalogSnapshot(input: {
+  readonly projectPath: string;
+  readonly readConfigSnapshot: () => { readonly config: KilnGlobalConfig | null; readonly revision: string };
+  readonly readConfigurationRevision: (projectPath: string) => RuntimeConfigurationRevisionSnapshot;
+  readonly readExecutionCatalog?: (config: KilnGlobalConfig | null) => ExecutionCatalog | undefined;
+}): OperatorSessionExecutionCatalogSnapshot {
+  for (let attempt = 0; attempt < MAX_CATALOG_CAPTURE_ATTEMPTS; attempt += 1) {
+    const config = input.readConfigSnapshot();
+    const configurationRevision = input.readConfigurationRevision(input.projectPath);
+    if (configurationRevision.revisions.global !== config.revision) continue;
+    const catalog = (input.readExecutionCatalog ?? readGlobalExecutionCatalog)(config.config)
+      ?? defineEmptyExecutionCatalog();
+    return Object.freeze({ catalog, configurationRevision });
+  }
+  throw new Error("Canonical configuration changed while the operator execution catalog was being admitted.");
+}
+
+function defineEmptyExecutionCatalog(): ExecutionCatalog {
+  return defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
 }
 
 function candidateReasonCodes(
@@ -118,7 +159,11 @@ export async function resolveOperatorContinuationBinding(input: {
   } catch {
     return undefined;
   }
-  const candidates = await input.accountRuntime.operatorSessionCandidates.resolve({ admission }).catch(() => []);
+  const candidates = await input.accountRuntime.operatorSessionCandidates.resolve({
+    admission,
+    catalog: input.catalog,
+    configurationRevision: catalogContentRevision(input.catalog),
+  }).catch(() => []);
   const matching = candidates.find(({ candidate, lease }) => (
     candidate.accountId === input.binding.accountId
     && lease.credentialRevisionId === input.binding.credentialRevision
@@ -131,4 +176,9 @@ export async function resolveOperatorContinuationBinding(input: {
     && candidate.capacity === "available"
   ));
   return matching ? { admission } : undefined;
+}
+
+function catalogContentRevision(catalog: ExecutionCatalog): RuntimeConfigurationRevisionSnapshot {
+  const revisionSetId = `sha256:${createHash("sha256").update(JSON.stringify(catalog), "utf8").digest("hex")}`;
+  return Object.freeze({ revisionSetId, revisions: Object.freeze({ "execution-catalog": revisionSetId }) });
 }

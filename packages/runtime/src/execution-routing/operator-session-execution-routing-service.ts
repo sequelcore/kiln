@@ -15,6 +15,10 @@ import type {
 import type { SqliteManagedAccountLeaseAuthorityOptions } from "../managed-account-leases/managed-account-lease-authority.js";
 import { SqliteManagedAccountLeaseAuthority } from "../managed-account-leases/managed-account-lease-authority.js";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
+import {
+  normalizeRuntimeConfigurationRevision,
+  type RuntimeConfigurationRevisionSnapshot,
+} from "../session/runtime-configuration-revision-pin.js";
 
 /** Candidate evidence is prepared without resolving credential material or constructing a provider adapter. */
 export interface OperatorSessionExecutionCandidate {
@@ -23,7 +27,13 @@ export interface OperatorSessionExecutionCandidate {
 }
 
 export interface OperatorSessionExecutionCandidatePort {
-  resolve(input: { readonly admission: AdmittedExecutionRoute }): Promise<readonly OperatorSessionExecutionCandidate[]>;
+  resolve(input: {
+    readonly admission: AdmittedExecutionRoute;
+    /** The exact catalog activated for this admission. */
+    readonly catalog: ExecutionCatalog;
+    /** Secret-free configuration evidence captured with the catalog. */
+    readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
+  }): Promise<readonly OperatorSessionExecutionCandidate[]>;
 }
 
 export interface OperatorSessionCredentialPort<Credential> {
@@ -33,6 +43,9 @@ export interface OperatorSessionCredentialPort<Credential> {
     readonly accountId: string;
     readonly credentialId: string;
     readonly lease: AccountCapacityRecord;
+    /** The exact catalog and revision activated for this admission. */
+    readonly catalog: ExecutionCatalog;
+    readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   }): Promise<OperatorSessionResolvedCredential<Credential>>;
 }
 
@@ -43,8 +56,28 @@ export interface OperatorSessionResolvedCredential<Credential> {
   readonly credentialRevisionId: string;
 }
 
-export interface OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result> {
+/**
+ * One immutable routing snapshot.  The source owns the effective catalog;
+ * Runtime owns the lifetime and prevents a second activation from interleaving
+ * with the first execution's candidate, capacity, or credential admission.
+ */
+export interface OperatorSessionExecutionCatalogSnapshot {
   readonly catalog: ExecutionCatalog;
+  readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
+}
+
+/**
+ * Runtime's narrow source boundary for effective execution configuration.
+ * Implementations must return a Core-defined (immutable) catalog and may
+ * switch their candidate/credential owner to the supplied exact snapshot.
+ */
+export interface OperatorSessionExecutionCatalogSource {
+  capture(): OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
+  activate(snapshot: OperatorSessionExecutionCatalogSnapshot): void | Promise<void>;
+}
+
+export interface OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result> {
+  readonly catalogSource: OperatorSessionExecutionCatalogSource;
   readonly candidates: OperatorSessionExecutionCandidatePort;
   /** Must be a SqliteManagedAccountLeaseAuthority configured with participantKind: operator-session. */
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
@@ -67,6 +100,7 @@ export interface OperatorSessionCommittedExecution<Credential, Payload> {
   readonly accountId: string;
   readonly lease: AccountCapacityRecord;
   readonly credential: Credential;
+  readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   readonly payload: Payload;
 }
@@ -114,22 +148,47 @@ export class OperatorSessionExecutionRoutingError extends Error {
  */
 export class OperatorSessionExecutionRoutingService<Credential = unknown, Payload = unknown, Result = unknown> {
   readonly #options: OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result>;
+  readonly #admissionMutex = new AsyncAdmissionMutex();
 
   constructor(options: OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result>) {
     this.#options = options;
   }
 
   async execute(request: OperatorSessionExecutionRequest<Payload>): Promise<OperatorSessionExecutionResult<Result>> {
-    const admission = admitOperatorExecutionIntent(this.#options.catalog, request.intent);
-    const candidates = await this.#options.candidates.resolve({ admission });
-    const account = this.#acquireSelectedCapacity(request, admission, candidates);
+    const releaseAdmission = await this.#admissionMutex.acquire();
+    let admissionReleased = false;
+    const releaseAdmissionOnce = (): void => {
+      if (admissionReleased) return;
+      admissionReleased = true;
+      releaseAdmission();
+    };
 
-    const fenceId = `${request.executionId}:dispatch`;
+    let admission: AdmittedExecutionRoute;
+    let snapshot: OperatorSessionExecutionCatalogSnapshot;
+    let account: ExecutionCatalog["accounts"][number];
+    let fenceId: string;
     let fenced: AccountCapacityRecord;
+    let capacityAcquired = false;
     try {
+      snapshot = await this.#captureAndNormalizeSnapshot();
+      await this.#options.catalogSource.activate(snapshot);
+      admission = admitOperatorExecutionIntent(snapshot.catalog, request.intent);
+      const candidates = await this.#options.candidates.resolve({
+        admission,
+        catalog: snapshot.catalog,
+        configurationRevision: snapshot.configurationRevision,
+      });
+      account = this.#acquireSelectedCapacity(request, admission, candidates, snapshot.catalog);
+      capacityAcquired = true;
+
+      fenceId = `${request.executionId}:dispatch`;
       fenced = this.#options.accountCapacityAuthority.fenceAccountCapacityDispatch(request.executionId, fenceId);
     } catch (error) {
-      this.#releasePreFenceOrThrow(request.executionId, error);
+      try {
+        if (capacityAcquired) this.#releasePreFenceOrThrow(request.executionId, error);
+      } finally {
+        releaseAdmissionOnce();
+      }
       throw error;
     }
     let credential: Credential;
@@ -139,6 +198,8 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         accountId: account.id,
         credentialId: account.credentialId,
         lease: fenced,
+        catalog: snapshot.catalog,
+        configurationRevision: snapshot.configurationRevision,
       });
       if (resolved.credentialId !== account.credentialId || resolved.credentialRevisionId !== fenced.credentialRevisionId) {
         this.#settleUnknown(request.executionId, fenceId, "credential-identity-drift");
@@ -146,11 +207,18 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
       }
       credential = resolved.credential;
     } catch (error) {
-      if (!(error instanceof OperatorSessionExecutionRoutingError)) {
-        this.#settleUnknown(request.executionId, fenceId, "credential-resolution-failed");
+      try {
+        if (!(error instanceof OperatorSessionExecutionRoutingError)) {
+          this.#settleUnknown(request.executionId, fenceId, "credential-resolution-failed");
+        }
+      } finally {
+        releaseAdmissionOnce();
       }
       throw error;
     }
+    // Provider dispatch remains concurrent; only effective-config admission is
+    // serialized through credential identity resolution and the dispatch fence.
+    releaseAdmissionOnce();
     try {
       const binding = Object.freeze({
         status: "bound" as const,
@@ -165,6 +233,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         accountId: account.id,
         lease: fenced,
         credential,
+        configurationRevision: snapshot.configurationRevision,
         binding,
         payload: request.payload,
       }) as OperatorSessionCommittedExecution<Credential, Payload>;
@@ -212,6 +281,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     request: OperatorSessionExecutionRequest<Payload>,
     admission: AdmittedExecutionRoute,
     candidates: readonly OperatorSessionExecutionCandidate[],
+    catalog: ExecutionCatalog,
   ): ExecutionCatalog["accounts"][number] {
     const excludedAccountIds = new Set<string>();
     while (true) {
@@ -227,7 +297,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
       const selected = candidates.find(({ candidate }) => candidate.accountId === selection.accountId);
       if (!selected) throw new OperatorSessionExecutionRoutingError("The selected account has no lease binding.");
       this.#validateLeaseBinding(admission, selected);
-      const account = this.#options.catalog.accounts.find(({ id }) => id === selection.accountId);
+      const account = catalog.accounts.find(({ id }) => id === selection.accountId);
       if (!account) throw new OperatorSessionExecutionRoutingError("The selected account is no longer configured.");
 
       // The atomic acquire is the capacity authority.  Candidate availability is
@@ -263,6 +333,18 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     }
   }
 
+  async #captureAndNormalizeSnapshot(): Promise<OperatorSessionExecutionCatalogSnapshot> {
+    const observed = await this.#options.catalogSource.capture();
+    if (!observed || typeof observed !== "object" || !observed.catalog || !observed.configurationRevision) {
+      throw new TypeError("The execution catalog source must return a catalog and configuration revision snapshot.");
+    }
+    const configurationRevision = normalizeRuntimeConfigurationRevision(observed.configurationRevision);
+    return Object.freeze({
+      catalog: observed.catalog,
+      configurationRevision,
+    });
+  }
+
   #validateLeaseBinding(admission: AdmittedExecutionRoute, selected: OperatorSessionExecutionCandidate): void {
     if (
       selected.lease.candidate.route.providerId !== admission.providerId
@@ -286,6 +368,20 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         `The pre-fence account lease could not be released after failure: ${errorMessage(cause)}; release error: ${errorMessage(releaseError)}`,
       );
     }
+  }
+}
+
+/** Serializes only the mutable effective-config activation window. */
+class AsyncAdmissionMutex {
+  #tail: Promise<void> = Promise.resolve();
+
+  async acquire(): Promise<() => void> {
+    const predecessor = this.#tail;
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.#tail = predecessor.then(() => current);
+    await predecessor;
+    return release;
   }
 }
 

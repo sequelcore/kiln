@@ -9,7 +9,7 @@ import {
   approveConfigMutation,
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
-import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
+import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
 import { defaultGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   executionTargetEvidenceRevision,
@@ -103,6 +103,39 @@ describe("config mutation authority", () => {
     rmSync(globalHome, { recursive: true, force: true });
   });
 
+  it("read-normalizes a pre-Slice-8 settlement without claiming activation", () => {
+    const store = new ConfigMutationStore(tempDir);
+    const historical = {
+      proposalId: "historical-proposal",
+      approvalId: null,
+      scope: "project",
+      operation: "project.adopt",
+      settledAt: "2026-01-01T00:00:00.000Z",
+      outcome: "committed",
+      baseRevision: "absent",
+      committedRevision: `sha256:${"a".repeat(64)}`,
+      appliedWrites: [],
+      reconciliationEffects: [],
+      diagnostics: [],
+      rollbackToken: null,
+      activation: "next-session",
+      restore: [],
+    } as unknown as StoredConfigMutationSettlement;
+
+    // This deliberately writes the old wire shape: no activationObservation.
+    store.settle(historical);
+
+    const replayed = store.readLatestSettlement("project.adopt");
+    expect(replayed?.activationObservation).toEqual({
+      state: "unsupported",
+      boundary: "next-session",
+      committedRevision: `sha256:${"a".repeat(64)}`,
+      activeRevision: null,
+      summary: "Historical settlement lacks activation evidence; activation is unproven.",
+    });
+    expect(replayed?.activationObservation.state).not.toBe("active");
+  });
+
   it("commits a non-authority-expanding change without an approval", async () => {
     const record = propose("skill.upsert", {
       name: "repo-review",
@@ -123,6 +156,13 @@ describe("config mutation authority", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed");
+    expect(result.settlement.activationObservation).toEqual({
+      state: "active",
+      boundary: "reconcile",
+      committedRevision: result.settlement.committedRevision,
+      activeRevision: result.settlement.committedRevision,
+      summary: "Owned projections converged on the committed revision.",
+    });
     expect(existsSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"))).toBe(true);
   });
 
@@ -441,8 +481,42 @@ describe("config mutation authority", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed-reconciliation-failed");
+    expect(result.settlement.activationObservation).toMatchObject({
+      state: "failed",
+      boundary: "reconcile",
+      committedRevision: result.settlement.committedRevision,
+      activeRevision: null,
+    });
     expect(existsSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"))).toBe(true);
     expect(result.settlement.diagnostics.map((entry) => entry.message)).toContain("harness unavailable");
+  });
+
+  it("does not report a superseded reconciliation revision as active", async () => {
+    const record = propose("skill.upsert", {
+      name: "repo-review",
+      description: "Review the repository",
+      instructions: "Read the diff.",
+    });
+
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      readEffectiveState: async () => undefined,
+      reconcile: async () => [{
+        target: "native-skills" as const,
+        status: "skipped" as const,
+        summary: "superseded",
+        errors: [],
+      }],
+    });
+
+    expect(result.settlement.activationObservation).toMatchObject({
+      state: "superseded",
+      boundary: "reconcile",
+      committedRevision: result.settlement.committedRevision,
+      activeRevision: null,
+    });
   });
 
   it("restores the exact prior bytes through a governed rollback", async () => {
@@ -495,6 +569,13 @@ describe("config mutation authority", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed");
+    expect(result.settlement.activationObservation).toEqual({
+      state: "failed",
+      boundary: "hot",
+      committedRevision: result.settlement.committedRevision,
+      activeRevision: null,
+      summary: "Canonical configuration committed, but owner read-back did not prove hot activation.",
+    });
     expect(parse(readFileSync(globalConfigPath(), "utf-8")).ui.theme).toBe("vesper");
   });
 

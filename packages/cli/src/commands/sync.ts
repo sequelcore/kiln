@@ -8,6 +8,7 @@ import { writeRepoShimProjections } from "../application/repo-shim-projection.js
 import { syncGlobalInstructionShimProjections } from "../application/global-instruction-shim-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
+import { runConfigReconciliationTarget } from "../application/config-reconciliation-target.js";
 import { syncCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
 import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 import type { KilnAppConfig } from "../config.js";
@@ -230,12 +231,12 @@ export async function syncCommand(
 
   if (isSyncTargetSelected(flags, "permissions")) {
     permResult = await captureProjectionFailure(unexpectedOutcomes, "permissions", root, () =>
-      syncNativePermissionProjections(kilnYaml, root, {
+      requireCurrentProjection(root, "native-permissions", () => syncNativePermissionProjections(kilnYaml, root, {
         force: forcePermissionSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
         modelGateway: globalConfig?.modelGateway,
-      }));
+      })));
   }
 
   if (isSyncTargetSelected(flags, "hooks")) {
@@ -249,7 +250,7 @@ export async function syncCommand(
 
   if (isSyncTargetSelected(flags, "agents")) {
     agentResult = await captureProjectionFailure(unexpectedOutcomes, "agents", root, () =>
-      syncNativeAgentProjections(root, {
+      requireCurrentProjection(root, "native-agents", () => syncNativeAgentProjections(root, {
         force: forceAgentSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
@@ -257,7 +258,7 @@ export async function syncCommand(
           global: globalConfig?.communication,
           project: readKilnYaml(join(root, ".kiln"))?.communication,
         }),
-      }));
+      })));
   }
 
   if (isSyncTargetSelected(flags, "repo-shims")) {
@@ -275,7 +276,8 @@ export async function syncCommand(
       };
     } else {
       repoShimResult = await captureProjectionFailure(unexpectedOutcomes, "repo-shims", root, () =>
-        writeRepoShimProjections(root, { force: forceRepoShimSync, dryRun: flags.dryRun }));
+        requireCurrentProjection(root, "repo-shims", () =>
+          writeRepoShimProjections(root, { force: forceRepoShimSync, dryRun: flags.dryRun })));
     }
   }
 
@@ -308,12 +310,12 @@ export async function syncCommand(
         force: forceSkillSync, dryRun: flags.dryRun, disabledHarnesses,
       }));
     skillsResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
-      syncNativeSkillProjections(root, {
+      requireCurrentProjection(root, "native-skills", () => syncNativeSkillProjections(root, {
         force: forceSkillSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
         skillConfig: kilnYaml.skills,
-      }));
+      })));
   }
 
   const outcomes = [
@@ -333,6 +335,18 @@ export async function syncCommand(
   if (outcomes.some((outcome) => outcome.status === "failed")) {
     process.exit(1);
   }
+}
+
+async function requireCurrentProjection<T>(
+  projectPath: string,
+  target: "native-agents" | "native-skills" | "native-permissions" | "repo-shims",
+  run: () => T | Promise<T>,
+): Promise<T> {
+  const result = await runConfigReconciliationTarget(projectPath, target, run);
+  if (result.status === "superseded") {
+    throw new Error(`${target} projection was superseded by a newer canonical revision; retry sync.`);
+  }
+  return result.value;
 }
 
 async function captureProjectionFailure<T>(

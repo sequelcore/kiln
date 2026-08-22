@@ -24,6 +24,7 @@ vi.mock("../../src/config/config-merger.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: syncMocks.readGlobalConfig,
+  resolveGlobalConfigPath: () => `${process.env.TEMP ?? process.cwd()}/kiln-sync-fixture/config.yaml`,
 }));
 
 vi.mock("../../src/config/native-permission-projection.js", () => ({
