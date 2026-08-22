@@ -2008,11 +2008,11 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("rejects execution route creation before reading the catalog without the existing operator capability", async () => {
+  it("rejects the execution target wizard before reading the catalog without the existing operator capability", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const getCatalog = vi.fn(async () => ({ routes: [] }));
-    const createExecutionRoute = vi.fn();
+    const runExecutionTargetWizard = vi.fn();
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -2028,7 +2028,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders: async () => [],
        executionRouteSelection: { getCatalog } as never,
-       createExecutionRoute,
+       runExecutionTargetWizard,
       operatorTransport: {
         ...guiOperatorTransportDefaults,
           sessionManager: {
@@ -2042,16 +2042,16 @@ describe("startGuiGateway static mount", () => {
       });
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onMessage!(new MessageEvent("message", {
-        data: JSON.stringify({ type: "execution_route_create", requestId: "request-unauthorized" }),
+        data: JSON.stringify({ type: "execution_target_wizard", requestId: "request-unauthorized" }),
       }), wsCtx);
 
       expect(getCatalog).not.toHaveBeenCalled();
-      expect(createExecutionRoute).not.toHaveBeenCalled();
+      expect(runExecutionTargetWizard).not.toHaveBeenCalled();
       expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({
-        type: "execution_route_create_result",
+        type: "execution_target_wizard_result",
         requestId: "request-unauthorized",
         status: "rejected",
-        code: "EXECUTION_ROUTE_CREATE_DENIED",
+        code: "TARGET_CREATE_REJECTED",
       });
     } finally {
       gateway?.shutdown();
@@ -2059,11 +2059,11 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("passes an authenticated execution route create through the handler boundary", async () => {
+  it("passes an authenticated execution target wizard request through the handler boundary", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const getCatalog = vi.fn(async () => ({ routes: [] }));
-    const createExecutionRoute = vi.fn();
+    const runExecutionTargetWizard = vi.fn();
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -2079,7 +2079,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders: async () => [],
         executionRouteSelection: { getCatalog } as never,
-        createExecutionRoute,
+        runExecutionTargetWizard,
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
@@ -2095,16 +2095,16 @@ describe("startGuiGateway static mount", () => {
       expect(token).toEqual(expect.any(String));
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1", operatorToken: token! });
       await handlers.onMessage!(new MessageEvent("message", {
-        data: JSON.stringify({ type: "execution_route_create", requestId: "request-authenticated" }),
+        data: JSON.stringify({ type: "execution_target_wizard", requestId: "request-authenticated" }),
       }), wsCtx);
 
       expect(getCatalog).toHaveBeenCalledTimes(1);
-      expect(createExecutionRoute).not.toHaveBeenCalled();
+      expect(runExecutionTargetWizard).not.toHaveBeenCalled();
       expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({
-        type: "execution_route_create_result",
+        type: "execution_target_wizard_result",
         requestId: "request-authenticated",
         status: "rejected",
-        code: "EXECUTION_ROUTE_CREATE_DENIED",
+        code: "TARGET_CREATE_REJECTED",
       });
     } finally {
       gateway?.shutdown();
@@ -5471,6 +5471,28 @@ describe("startGuiGateway static mount", () => {
 });
 
 describe("projectGuiOperatorModels", () => {
+  it("anchors implicit catalog observation time to the latest provider observation", () => {
+    const projection = projectGuiProviderModelDiscovery([{
+      provider: "codex-oauth",
+      available: true,
+      models: ["gpt-5.5"],
+      status: "available",
+      reason: "Codex OAuth models discovered.",
+      authState: "authenticated",
+      lastCheckedAt: "2026-07-02T12:00:00.000Z",
+    }, {
+      provider: "opencode-go",
+      available: true,
+      models: ["deepseek-v4-flash"],
+      status: "available",
+      reason: "OpenCode Go models discovered.",
+      authState: "authenticated",
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }]);
+
+    expect(projection.catalogEvidence.observedAt).toBe("2026-07-02T12:00:00.000Z");
+  });
+
   it("projects large OpenCode catalogs as diagnostic evidence without making routes selectable", () => {
     const discovery = buildGuiOperatorDiscoveryResults({
       opencodeModels: Array.from({ length: 397 }, (_, index) => `provider-${index}/model-${index}`),
@@ -5580,6 +5602,9 @@ describe("projectGuiOperatorModels", () => {
       provider: "codex-oauth",
       available: true,
       models: ["gpt-5.5"],
+      modelCapabilities: {
+        "gpt-5.5": { supportsFunctionTools: false, supportsRuntimeTools: false },
+      },
       status: "available",
       reason: "Codex OAuth models discovered.",
       authState: "authenticated",
@@ -5613,6 +5638,7 @@ describe("projectGuiOperatorModels", () => {
         routeHealth: expect.objectContaining({ status: "healthy" }),
         policyAdmission: expect.objectContaining({ use: "interactive", status: "admitted" }),
         eligibility: { eligible: true, reasonCodes: [] },
+        modelCapabilities: { supportsFunctionTools: false, supportsRuntimeTools: false },
       }),
     ]));
   });

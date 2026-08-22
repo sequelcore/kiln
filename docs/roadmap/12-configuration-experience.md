@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slices 0-6 complete - Slice 7 is the next bounded product proof.
+Execution: Slices 0-7 complete - Slice 7A is the next bounded product proof.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -50,8 +50,9 @@ Kiln already has several foundations this track must reuse:
   current-evidence, revision-fenced route-creation boundary;
 - GUI theme mutation proves that a low-risk preference can be changed through a
   typed surface contract;
-- GUI setup and Available Models pages exist, but the latter still exposes raw
-  material JSON for policy and economics instead of a guided product flow;
+- CLI and GUI Available Models flows create targets from guided operator intent;
+  Runtime derives and admits internal identity, account, policy, economics,
+  capability, and revision evidence before the governed mutation;
 - configuration types, handwritten validators, docs, examples, and surface
   controls do not yet derive uniformly from one runtime contract.
 
@@ -650,8 +651,8 @@ present now; economic evidence and managed-agent intent remain owned by Slice
 
 ### Slice 7 - Available Models Target Wizard
 
-Status: Ready. Slices 3, 4, and 6 provide the required evidence, mutation, and
-settings-surface contracts.
+Status: Complete. Slices 3, 4, and 6 provide the required evidence, mutation,
+and settings-surface contracts.
 
 Replace raw target-material JSON with a guided wizard backed by current Available
 Models evidence. The operator selects a discovered model and answers only
@@ -665,9 +666,28 @@ policy, revision conflict, or authority widening fails before mutation;
 success, rejection, and committed-but-reconciliation-failed are correlated and
 actionable.
 
+Delivered one typed preview/apply protocol shared by CLI, GUI, and Runtime.
+The operator selects one unambiguous discovered provider/model, chooses a data
+classification and optional label, and explicitly confirms the conservative
+data-policy posture. Kiln derives a collision-safe target identity, the unique
+configured provider account or account policy, provider execution capability,
+economic evidence, policy evidence, and current revisions. Preview performs
+full admission without publishing; apply re-resolves current evidence and is
+bound to the exact normalized proposal. A full discovery revision retains the
+complete observation, while a material revision omits only refreshed observation
+timestamps and binds expiry, raw provenance, eligibility and policy state, and
+exact adapter model capabilities. Every apply re-resolves current discovery;
+materially changed same-identity evidence fails closed and negative tool evidence
+narrows the target to text-only. Stale discovery, identity drift,
+ambiguous or absent accounts, missing provider capability/economics, revision
+drift, and unapproved authority expansion fail before mutation. The removed raw
+material request, legacy frames, source-file/stdin command path, and GUI JSON
+editor have no compatibility alias.
+
 ### Slice 7A - Managed-Agent Intent And Economic Visibility
 
-Status: Blocked on Slices 4, 6, and 7.
+Status: Ready. Slices 4, 6, and 7 provide the required mutation, projection,
+and guided target contracts.
 
 Replace operator-authored managed economic policy material with minimal
 managed-agent intent. Common setup captures agent purpose, authority profile,
@@ -693,8 +713,9 @@ are deleted in the same slice with no alias or dual read.
 
 ### Slice 8 - Live Activation And Reconciliation
 
-Status: Ready. Slice 6's settings foundation is complete; product sequence
-keeps Slice 7 ahead of this independent activation contract.
+Status: Ready. Slice 6's settings foundation and Slice 7's guided target flow
+are complete; the execution queue keeps Slice 7A ahead of this independent
+activation contract.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

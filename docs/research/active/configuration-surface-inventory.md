@@ -267,7 +267,7 @@ written to a same-directory temporary file and atomically renamed
 Reconciliation failure is no longer hidden behind a successful status: the
 terminal outcome distinguishes `committed`, `committed-reconciliation-failed`,
 and `rejected`, matching the honesty target that target creation already met
-([`execution-route-creation.ts`](../../../packages/gateway-contracts/src/execution-route-creation.ts#L24)).
+([`execution-target-wizard.ts`](../../../packages/gateway-contracts/src/execution-target-wizard.ts#L24)).
 Roadmap 12 should generalize that honest terminal-state distinction.
 
 ### B8 — Effective configuration is not a field-level read model
@@ -443,8 +443,8 @@ Global configuration is the base and project configuration is the override
 | Setup actions | setup read model | bounded adoption and projection sync | install/projection state | review-only actions block; not general config mutation |
 | Config propose/approve/apply | project and global operations | base-revision fence, authority-derived approval, atomic replace, write-once settlement, exact-bytes rollback | `.kiln/mutations/config` | unchecked store parsing; multi-path atomicity still unproven because every current operation writes one path |
 | Global mutation primitive | current global bytes | CAS, lock, validation, temp file, atomic rename | revision and optional invalid backup | callers do not share one typed operation lifecycle |
-| Available Models | secret-free discovery/configuration projection | no dispatch authority | discovery cache only | GUI/CLI creation still requires complete raw policy/economic material |
-| Target creation | current discovery plus expected global revision | CAS global mutation and catalog refresh | global config and request result | no durable retry/idempotency receipt |
+| Available Models | secret-free discovery/configuration projection | guided preview only; no dispatch or mutation authority | discovery cache only | economic runtime observations remain pending Slice 7A |
+| Target creation | minimal operator intent plus current discovery and global revision | exact-proposal approval, current-evidence revalidation, CAS global mutation, and catalog refresh | content-addressed target evidence, global config, and correlated result | no durable retry/idempotency receipt |
 | Theme | session and persisted preference | immediate surface update and optional global mutation | global UI preference | bypasses config proposal/events |
 | Native/repo projections | shared status and canonical config | reconcile generated files | install state, hashes, drift evidence | no unified canonical revision → projection revision → activation record |
 | SDK | exported types | none found | none | no behavioral parity API |

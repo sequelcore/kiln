@@ -17,8 +17,7 @@ import type {
   ExecutionRouteThreadMeta,
 } from "./execution-route.js";
 import type { AvailableModelCatalog } from "./available-models.js";
-import type { ExecutionRouteCreateResult } from "./execution-route-creation.js";
-import type { ExecutionRouteCreationRequest } from "./execution-route-creation.js";
+import type { ExecutionTargetWizardRequest, ExecutionTargetWizardResult } from "./execution-target-wizard.js";
 
 // --- Dashboard / HTTP response shapes ---
 
@@ -342,6 +341,8 @@ export interface GuiProviderModelRouteEntry {
   readonly routeHealth: GuiProviderModelRouteHealthEvidence;
   readonly policyAdmission: GuiProviderModelPolicyAdmission;
   readonly eligibility: GuiProviderModelEligibility;
+  /** Adapter-reported capability evidence for this exact provider/model route. */
+  readonly modelCapabilities?: GuiProviderModelCapabilities;
 }
 
 /** Provider discovery projection; route selection uses ExecutionRouteCatalog instead. */
@@ -1179,7 +1180,7 @@ export interface GuiApprovalResponseResultFrame {
 
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
-  | ({ readonly type: "execution_route_create" } & ExecutionRouteCreationRequest)
+  | ({ readonly type: "execution_target_wizard" } & ExecutionTargetWizardRequest)
   | {
       type: "message";
       content: string;
@@ -1339,7 +1340,7 @@ export type GuiInboundFrame =
       executionRouteCatalog: ExecutionRouteCatalog;
       availableModels: AvailableModelCatalog;
     }
-    | ExecutionRouteCreateResult
+    | ExecutionTargetWizardResult
     | ExecutionRouteChanged
     | ExecutionRouteChangeFailed
     | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };

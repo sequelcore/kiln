@@ -114,7 +114,7 @@ export interface SessionStoreState {
   readonly availableModels: AvailableModelCatalog | null;
   /** Operator selection authority. Provider/model identities are derived evidence only. */
   readonly executionRouteCatalog: ExecutionRouteCatalog;
-  readonly executionRouteCreationResult: Extract<GuiInboundFrame, { type: "execution_route_create_result" }> | null;
+  readonly executionTargetWizardResult: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }> | null;
   readonly activeRouteId: string | null;
   readonly activeAccountOverrideId: string | null;
   readonly sessionList: readonly OperatorSessionSummary[];
@@ -208,7 +208,7 @@ export interface ExecutionRouteLifecycleActions {
   markProviderCatalogError: (message: string) => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
   onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
-  onExecutionRouteCreateResult: (frame: Extract<GuiInboundFrame, { type: "execution_route_create_result" }>) => void;
+  onExecutionTargetWizardResult: (frame: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>) => void;
   onExecutionRouteChanged: (frame: Extract<GuiInboundFrame, { type: "execution_route_changed" }>) => void;
   onExecutionRouteChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_route_change_failed" }>) => void;
   onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;

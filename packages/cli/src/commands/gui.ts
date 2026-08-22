@@ -7,7 +7,10 @@ import {
   readGlobalConfigSnapshot,
   readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
-import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
+import {
+  createCurrentExecutionRoute,
+  parseExecutionTargetWizardRevision,
+} from "../application/current-execution-route-creation.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
@@ -79,6 +82,8 @@ import {
   withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
+  type ExecutionTargetWizardApplicationResult,
+  executionTargetWizardDiscoveryEvidence,
   projectAvailableModelCatalogForExecutionRoutes,
   projectGuiProviderModelDiscovery,
   resolveGuiOperatorDiscoveryResults,
@@ -431,14 +436,12 @@ export async function guiCommand(
     domainLabel: bootstrapContext.domainLabel,
     workspaceExplorer,
     executionRouteSelection,
-    createExecutionRoute: async (request, admittedEvidence) => {
+    runExecutionTargetWizard: async (request, admittedEvidence): Promise<ExecutionTargetWizardApplicationResult> => {
       const result = await createCurrentExecutionRoute({
         request,
         admittedEvidence,
         projectPath: cwd,
         approvalSurface: "gui",
-        // The GUI invokes this callback only for the operator's explicit create action.
-        operatorApproved: true,
         resolveCurrentEvidence: async () => {
           const snapshot = readGlobalConfigSnapshot();
           const targetAuthority = readGlobalExecutionTargetAuthority(snapshot.config);
@@ -446,16 +449,43 @@ export async function guiCommand(
           if (!targetAuthority || !targetIntent) throw new Error("Direct target catalog is unavailable.");
           const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
           const executionRouteCatalog = await executionRouteSelection.getCatalog();
+          const catalog = projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog });
+          const currentEntry = catalog.entries.find((entry) => entry.providerId === request.discoveryIdentity.providerId
+            && entry.providerRouteId === request.discoveryIdentity.providerRouteId
+            && entry.providerModelId === request.discoveryIdentity.providerModelId);
+          if (!currentEntry) throw new Error("The selected Available Models identity is no longer current.");
           return {
-            catalog: projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog }),
+            catalog,
             executionCatalog: targetAuthority.executionCatalog,
             targetIntent,
             targetEvidence: targetAuthority.evidence,
             revision: snapshot.revision,
+            discoveryEvidence: executionTargetWizardDiscoveryEvidence(discovery, currentEntry),
           };
         },
       });
-      return { status: result.status, revision: result.revision };
+      if (result.status === "previewed") {
+        return {
+          status: "previewed",
+          proposal: result.proposal,
+          message: result.message,
+        };
+      }
+      if (result.status === "rejected") {
+        return {
+          status: "rejected",
+          code: result.code,
+          action: result.action,
+          message: result.message,
+          ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
+          ...(result.proposal ? { proposal: result.proposal } : {}),
+        };
+      }
+      return {
+        status: result.status,
+        proposal: result.proposal,
+        revision: parseExecutionTargetWizardRevision(result.revision),
+      };
     },
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,

@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [12 - Configuration Experience](12-configuration-experience.md) | In progress | Urgent | Execute Slice 7: replace raw target-material JSON with the guided Available Models target wizard. |
+| 1 | [12 - Configuration Experience](12-configuration-experience.md) | In progress | Urgent | Execute Slice 7A: replace managed-agent economic material with bounded intent and project runtime-owned economic visibility. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |

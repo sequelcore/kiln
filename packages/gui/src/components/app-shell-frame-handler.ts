@@ -24,7 +24,7 @@ interface AppShellFrameHandlerInput {
   readonly onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   readonly onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
   readonly onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
-  readonly onExecutionRouteCreateResult: (frame: Extract<GuiInboundFrame, { type: "execution_route_create_result" }>) => void;
+  readonly onExecutionTargetWizardResult: (frame: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>) => void;
   readonly onExecConfirmed: () => void;
   readonly onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   readonly onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
@@ -134,8 +134,8 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
       case "execution_routes_refreshed":
         input.onExecutionRoutesRefreshed(frame);
         return;
-      case "execution_route_create_result":
-        input.onExecutionRouteCreateResult(frame);
+      case "execution_target_wizard_result":
+        input.onExecutionTargetWizardResult(frame);
         return;
       case "execution_mode_transitioned":
         input.onExecConfirmed();

@@ -203,6 +203,26 @@ kiln run --target codex-terra "Inspect this repository"
 GUI and TUI use a target picker. The TUI command is `/target`. Surfaces send a
 target ID, never a raw provider, model, credential, or account-policy choice.
 
+Create a target from current Available Models evidence without writing target
+material by hand:
+
+```bash
+kiln target available
+kiln target create <provider>/<model> --classification internal --confirm-data-policy
+kiln target create <provider>/<model> --classification internal --confirm-data-policy --approve
+```
+
+The first create command previews the normalized proposal. The approved command
+prints its freshly derived proposal, asks for an interactive yes/no confirmation,
+and applies only that confirmed proposal after revalidating the same intent
+against current discovery and configuration. A declined or non-interactive
+confirmation writes nothing. `--confirm-data-policy` accepts provider service
+operation, potentially permitted training, and retention up to 3650 days for
+data at the selected classification; it does not assert a stricter provider
+privacy guarantee. `--label` is optional; route IDs, account selection,
+data-policy evidence, economics, capability evidence, and revisions are
+Runtime-derived.
+
 Runtime may record an internal `routeId` after admission and commitment. That
 identifier belongs to execution evidence, settlement, and replay. It is not a
 second user-configured target name.

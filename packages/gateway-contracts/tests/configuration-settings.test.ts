@@ -126,7 +126,7 @@ describe("configuration settings contracts", () => {
       activation: "next-session",
       diagnostics: [],
       previewDiff: "--- secret diff",
-      rollback: { restorable: true, summary: "Rollback C:\\Users\\Jane Doe\\Kiln Project\\.kiln\\kiln.yaml" },
+      rollback: { restorable: true, summary: "Rollback C:\\Users\\ExampleUser\\ExampleProject\\.kiln\\kiln.yaml" },
     });
     expect(proposal).toMatchObject({ proposalId: "cfg_123", key: "domain", operation: "setting.reset" });
     expect(JSON.stringify(proposal)).not.toContain("Users");
@@ -139,8 +139,8 @@ describe("configuration settings contracts", () => {
         settledAt: "2026-08-21T00:00:00.000Z", outcome: "rejected", baseRevision: `sha256:${"a".repeat(64)}`,
         committedRevision: null, appliedWrites: [], reconciliationEffects: [],
         diagnostics: [
-          { severity: "error", field: "configuration", message: "C:\\Users\\Jane Doe\\Kiln Project\\token=secret" },
-          { severity: "warning", field: "reconcile", message: "Failed at /Users/Jane Doe/Kiln Project/.kiln/kiln.yaml" },
+          { severity: "error", field: "configuration", message: "C:\\Users\\ExampleUser\\ExampleProject\\token=secret" },
+          { severity: "warning", field: "reconcile", message: "Failed at /Users/ExampleUser/ExampleProject/.kiln/kiln.yaml" },
         ],
         rollbackToken: null, activation: "next-session",
       },
@@ -150,8 +150,8 @@ describe("configuration settings contracts", () => {
     });
     expect(result.rejectionCode).toBeDefined();
     expect(JSON.stringify(result)).not.toContain("Users");
-    expect(JSON.stringify(result)).not.toContain("Jane Doe");
-    expect(JSON.stringify(result)).not.toContain("Kiln Project");
+    expect(JSON.stringify(result)).not.toContain("ExampleUser");
+    expect(JSON.stringify(result)).not.toContain("ExampleProject");
     expect(KilnSettingsMutationResultSchema.parse(result)).toEqual(result);
   });
 

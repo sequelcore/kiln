@@ -4,7 +4,7 @@ import { useSessionStore } from "../src/lib/session-store/index.js";
 const route = (overrides: Record<string, unknown> = {}) => ({ routeId: "terra", label: "Terra", providerId: "codex", providerModelId: "gpt", accountOverrideIds: ["work"], accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true }, availability: "available", reasonCodes: ["configured"], repairActions: [], ...overrides });
 
 describe("session-store execution target selection", () => {
-  beforeEach(() => { localStorage.clear(); useSessionStore.setState({ outboundSend: null, executionRouteSelecting: false, executionRouteSelectionTarget: null, activeRouteId: null, activeAccountOverrideId: null, providerOperationFailure: null, executionRouteCatalog: { routes: [] } }); });
+  beforeEach(() => { localStorage.clear(); useSessionStore.setState({ outboundSend: null, executionRouteSelecting: false, executionRouteSelectionTarget: null, activeRouteId: null, activeAccountOverrideId: null, providerOperationFailure: null, executionRouteCatalog: { routes: [] }, executionTargetWizardResult: null }); });
   it("sends an admitted route with an exact account override", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
@@ -42,5 +42,13 @@ describe("session-store execution target selection", () => {
     } as never);
 
     expect(useSessionStore.getState().executionRouteCatalog.routes[0]?.availability).toBe("available");
+  });
+  it("stores wizard outcomes and adopts catalogs only after creation", () => {
+    useSessionStore.setState({ executionRouteCatalog: { routes: [] }, availableModels: null });
+    useSessionStore.getState().onExecutionTargetWizardResult({ type: "execution_target_wizard_result", requestId: "wizard-1", status: "rejected", code: "TARGET_REVISION_CONFLICT", action: "refresh-and-retry", message: "Refresh." } as never);
+    expect(useSessionStore.getState().executionTargetWizardResult?.status).toBe("rejected");
+    expect(useSessionStore.getState().executionRouteCatalog.routes).toHaveLength(0);
+    useSessionStore.getState().onExecutionTargetWizardResult({ type: "execution_target_wizard_result", requestId: "wizard-1", status: "created", executionRouteCatalog: { routes: [route()] }, availableModels: { observedAt: "2026-08-01T00:00:00.000Z", entries: [] } } as never);
+    expect(useSessionStore.getState().executionRouteCatalog.routes[0]?.routeId).toBe("terra");
   });
 });

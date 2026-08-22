@@ -4,6 +4,8 @@ import { join } from "node:path";
 import {
   buildGuiOperatorDiscoveryResults,
   OperatorSessionExecutionBridge,
+  projectAvailableModelCatalogForExecutionRoutes,
+  projectGuiProviderModelDiscovery,
   startGuiGateway,
   type CliSessionFactory,
   type OperatorExecutionRouteSelectionPort,
@@ -12,9 +14,21 @@ import {
   type OperatorTurnGuiDispatchPayload,
 } from "../../../../runtime/src/index.js";
 import {
+  createCurrentExecutionRoute,
+  parseExecutionTargetWizardRevision,
+} from "../../../../cli/src/application/current-execution-route-creation.js";
+import {
+  defineExecutionTargetEvidenceSnapshot,
+  executionTargetEvidenceRevision,
+  projectExecutionCatalogFromIntent,
+  type ExecutionTargetCatalogIntent,
+  type ExecutionTargetEvidenceSnapshot,
+} from "../../../../cli/src/config/execution-target-evidence-store.js";
+import {
   InMemoryContextArtifactCache,
   SqliteMemoryRepository,
   type CreateMemoryRecordInput,
+  type ExecutionCatalogInput,
   type MemoryProvenance,
 } from "@kilnai/core";
 import {
@@ -25,6 +39,7 @@ import {
   type GuiSessionDetail,
   type OperatorSessionSummary,
   type KilnConfigSetupSnapshot,
+  type ExecutionRouteCatalog,
   type KilnSettingsMutationResult,
   type KilnSettingsProposalProjection,
   type KilnSettingsProposalRequest,
@@ -129,12 +144,20 @@ const sessionSummaries: OperatorSessionSummary[] = [
 const operatorDiscovery: readonly GuiProviderDiscoveryResult[] = buildGuiOperatorDiscoveryResults({
   opencodeModels: [],
   codexModels: [],
+  directProviderDiscovery: {
+    "codex-oauth": {
+      models: ["gpt-5.6-sol", "gpt-5.6-terra"],
+      status: "available",
+      reason: "Parity Codex OAuth models discovered.",
+      authState: "authenticated",
+    },
+  },
   providerAvailability: {
     claude: true,
     codex: false,
     opencode: false,
   },
-  lastCheckedAt: "2026-07-28T09:00:00.000Z",
+  lastCheckedAt: new Date().toISOString(),
 });
 
 const restoredSessionDetail: GuiSessionDetail = {
@@ -641,13 +664,50 @@ function createDeterministicOperatorRouting(): {
   readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<unknown, OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly runExecutionTargetWizard: NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]>;
 } {
   const operatorTurnExecutionBridge = new OperatorSessionExecutionBridge<
     unknown,
     OperatorTurnGuiDispatchPayload,
     OperatorTurnDispatchResult
   >();
-  const routeCatalog = {
+  const accountId = "parity-codex-oauth-account";
+  const accountPolicyId = "parity-codex-oauth-policy";
+  let targetEvidence: ExecutionTargetEvidenceSnapshot = defineExecutionTargetEvidenceSnapshot({
+    version: 1,
+    accounts: [{
+      accountId,
+      providerId: "codex-oauth",
+      economics: {
+        capacityIdentity: "parity-codex-capacity",
+        subscriptionClass: "subscription",
+        quotaClassId: "parity-codex-subscription",
+      },
+    }],
+    targets: [],
+  });
+  const initialRevision = executionTargetEvidenceRevision(targetEvidence);
+  let targetIntent: ExecutionTargetCatalogIntent = {
+    evidenceRevision: initialRevision,
+    accounts: [{
+      id: accountId,
+      providerId: "codex-oauth",
+      credentialId: "parity-credential-ref",
+      maxConcurrency: 2,
+      reservedAffinitySlots: 0,
+      economics: { creditPosture: "disabled", overagePosture: "disabled" },
+    }],
+    accountPolicies: [{ id: accountPolicyId, accountIds: [accountId], strategy: "economic-least-pressure" }],
+    targets: [],
+  };
+  let executionCatalog: ExecutionCatalogInput = projectExecutionCatalogFromIntent(
+    targetIntent,
+    targetEvidence,
+    initialRevision,
+  );
+  let routeCatalog: ExecutionRouteCatalog = {
+    observedAt: new Date().toISOString(),
+    revision: initialRevision,
     routes: [
       executionRoute("claude-default", "Claude", "claude", "claude-sonnet-4-6"),
       executionRoute("codex-default", "Codex", "codex", "gpt-5.5"),
@@ -726,7 +786,91 @@ function createDeterministicOperatorRouting(): {
     },
   };
 
-  return { executionRouteSelection, operatorTurnDispatcher, operatorTurnExecutionBridge };
+  const resolveCurrentWizardEvidence = async (
+    discoveryEvidence: Parameters<NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]>>[1],
+  ) => {
+    const discovery = projectGuiProviderModelDiscovery(operatorDiscovery, { observedAt: discoveryEvidence.catalogObservedAt });
+    const catalog = projectAvailableModelCatalogForExecutionRoutes({
+      discovery,
+      executionRouteCatalog: routeCatalog,
+    });
+    return {
+      catalog,
+      executionCatalog,
+      targetIntent,
+      targetEvidence,
+      revision: routeCatalog.revision ?? initialRevision,
+      discoveryEvidence,
+    };
+  };
+
+  const runExecutionTargetWizard: NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]> = async (request, evidence) => {
+    const result = await createCurrentExecutionRoute({
+      request,
+      admittedEvidence: evidence,
+      projectPath: "synthetic-parity-project",
+      approvalSurface: "gui",
+      resolveCurrentEvidence: () => resolveCurrentWizardEvidence(evidence),
+      commit: async ({ draft, expectedRevision, currentIntent, currentEvidence, operatorApproved }) => {
+        if (!operatorApproved || expectedRevision !== routeCatalog.revision) {
+          throw new Error("The parity target commit no longer matches current authority.");
+        }
+        if (currentIntent !== targetIntent || currentEvidence !== targetEvidence) {
+          throw new Error("The parity target commit did not revalidate its current evidence snapshot.");
+        }
+
+        const nextEvidence = defineExecutionTargetEvidenceSnapshot({
+          ...currentEvidence,
+          targets: [...currentEvidence.targets, draft.evidence],
+        });
+        const nextRevision = executionTargetEvidenceRevision(nextEvidence);
+        const nextIntent: ExecutionTargetCatalogIntent = {
+          ...currentIntent,
+          evidenceRevision: nextRevision,
+          targets: [...currentIntent.targets, draft.intent],
+        };
+        const nextExecutionCatalog = projectExecutionCatalogFromIntent(
+          nextIntent,
+          nextEvidence,
+          nextRevision,
+        );
+
+        targetEvidence = nextEvidence;
+        targetIntent = nextIntent;
+        executionCatalog = nextExecutionCatalog;
+        routeCatalog = {
+          observedAt: new Date().toISOString(),
+          revision: nextRevision,
+          routes: [
+            ...routeCatalog.routes,
+            executionRoute(draft.route.id, draft.route.label, draft.route.providerId, draft.route.providerModelId),
+          ],
+        };
+        return { status: "created", revision: nextRevision };
+      },
+    });
+
+    if (result.status === "previewed") {
+      return { status: "previewed", proposal: result.proposal, message: result.message };
+    }
+    if (result.status === "rejected") {
+      return {
+        status: "rejected",
+        code: result.code,
+        action: result.action,
+        message: result.message,
+        ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
+        ...(result.proposal ? { proposal: result.proposal } : {}),
+      };
+    }
+    return {
+      status: result.status,
+      proposal: result.proposal,
+      revision: parseExecutionTargetWizardRevision(result.revision),
+    };
+  };
+
+  return { executionRouteSelection, operatorTurnDispatcher, operatorTurnExecutionBridge, runExecutionTargetWizard };
 }
 
 function executionRoute(
@@ -903,6 +1047,7 @@ async function main(): Promise<void> {
     initialOperatorDiscovery: operatorDiscovery,
     initialOperatorDiscoveryFreshness: "fresh",
     executionRouteSelection: operatorRouting.executionRouteSelection,
+    runExecutionTargetWizard: operatorRouting.runExecutionTargetWizard,
     discoverOperatorProviders: async () => operatorDiscovery,
     getSetupSnapshot: async () => setupSnapshot,
     getSettingsSnapshot: async () => settingsSnapshot(),

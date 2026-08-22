@@ -13,7 +13,8 @@ import {
   CommunicationIntentSchema,
   EffectivePromptObservationSchema,
   AvailableModelCatalogSchema,
-  ExecutionRouteCreateResultSchema,
+  ExecutionTargetWizardRequestSchema,
+  ExecutionTargetWizardResultSchema,
   ExecutionRouteCatalogSchema,
   ExecutionRouteReasonCodeSchema,
   ExecutionRouteRepairActionSchema,
@@ -784,7 +785,7 @@ const GuiInboundFrameSchema = z.union([
     message: z.string(),
   }),
   z.object({ type: z.literal("execution_routes_refreshed"), executionRouteCatalog: ExecutionRouteCatalogSchema, availableModels: AvailableModelCatalogSchema }),
-  ExecutionRouteCreateResultSchema,
+  ExecutionTargetWizardResultSchema,
   z.object({ type: z.literal("execution_route_changed"), routeId: z.string().trim().min(1), requestId: z.string().trim().min(1), providerId: z.string().optional(), providerModelId: z.string().optional() }),
   z.object({ type: z.literal("execution_route_change_failed"), routeId: z.string().trim().min(1), requestId: z.string().trim().min(1), reasonCode: ExecutionRouteReasonCodeSchema, reason: z.string(), repairActions: z.array(ExecutionRouteRepairActionSchema) }),
   z.object({
@@ -879,7 +880,12 @@ export class GuiWsClient {
   send(frame: GuiOutboundFrame): void {
     // Validate outbound frame schema
     try {
-      GuiOutboundFrameSchema.parse(frame);
+      if (frame.type === "execution_target_wizard") {
+        const { type: _type, ...request } = frame;
+        ExecutionTargetWizardRequestSchema.parse(request);
+      } else {
+        GuiOutboundFrameSchema.parse(frame);
+      }
     } catch {
       console.warn("[GuiWsClient] Invalid outbound frame:", JSON.stringify(frame));
       return;

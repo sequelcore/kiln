@@ -1043,7 +1043,10 @@ export {
   projectAvailableModelCatalogForExecutionRoutes,
 } from "./gateway/available-model-catalog-projector.js";
 export type { AvailableModelConfiguredRouteIdentity } from "./gateway/available-model-catalog-projector.js";
-export { executionRouteCreationDiscoveryEvidence } from "./gateway/execution-route-create-handler.js";
-export type { ExecutionRouteCreationDiscoveryEvidence } from "./gateway/execution-route-create-handler.js";
+export { executionTargetWizardDiscoveryEvidence } from "./gateway/execution-target-wizard-handler.js";
+export type {
+  ExecutionTargetWizardApplicationResult,
+  ExecutionTargetWizardDiscoveryEvidence,
+} from "./gateway/execution-target-wizard-handler.js";
 
 export { projectCapabilityCatalog } from "./capabilities/capability-catalog-projector.js";

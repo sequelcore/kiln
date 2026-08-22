@@ -29,6 +29,22 @@ const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome"
 };
 const EMPTY_EXECUTION_ROUTE_CATALOG = { routes: [] } as const;
 const EMPTY_AVAILABLE_MODELS = { observedAt: "2026-07-01T00:00:00.000Z", entries: [] } as const;
+const WIZARD_PROPOSAL = {
+  proposalId: "proposal-1",
+  operation: "target.create",
+  scope: "global",
+  status: "valid",
+  baseRevision: `sha256:${"a".repeat(64)}`,
+  authorityImpact: "expands-write",
+  approvalRequired: true,
+  approvalStatus: "required",
+  activation: "hot",
+  owners: ["runtime"],
+  reconciliationTargets: ["gui"],
+  diagnostics: [],
+  rollback: { restorable: true, summary: "Remove the target." },
+  target: { routeId: "target-route", label: "Target route", providerId: "provider", providerModelId: "model", accountSelectionMode: "automatic", dataClassification: "public", billingClass: "subscription", capabilityPosture: "kiln-executable", discoveryExpiresAt: "2026-09-01T00:00:00.000Z", evidenceExpiresAt: "2026-09-01T00:00:00.000Z" },
+} as const;
 
 // Track created WebSocket instances for testing
 let wsInstances: MockWebSocket[] = [];
@@ -521,6 +537,31 @@ describe("GuiWsClient", () => {
           requiredContent: ["verification"],
         },
       }));
+    });
+
+    it("serializes execution target wizard intents through the canonical request schema", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+      const frame: GuiOutboundFrame = {
+        type: "execution_target_wizard",
+        action: "preview",
+        requestId: "target-wizard-1",
+        expectedRevision: `sha256:${"1".repeat(64)}`,
+        discoveryIdentity: {
+          providerId: "codex-oauth",
+          providerRouteId: "provider-route-internal",
+          providerModelId: "gpt-5.6-terra",
+        },
+        label: "Terra",
+        dataClassification: "internal",
+        dataPolicyConfirmed: true,
+      };
+
+      client.send(frame);
+
+      expect(wsInstance.send).toHaveBeenCalledWith(JSON.stringify(frame));
     });
 
     it("All outbound frame shapes serialize through Zod without error", () => {
@@ -1350,12 +1391,12 @@ describe("GuiWsClient", () => {
           },
         },
         {
-          json: { type: "execution_route_create_result", requestId: "create-1", status: "rejected", code: "EXECUTION_ROUTE_CREATE_DENIED", message: "Current evidence changed." },
-          expected: { type: "execution_route_create_result", requestId: "create-1", status: "rejected", code: "EXECUTION_ROUTE_CREATE_DENIED", message: "Current evidence changed." },
+          json: { type: "execution_target_wizard_result", requestId: "wizard-1", status: "rejected", code: "TARGET_DISCOVERY_STALE", action: "refresh-and-retry", message: "Current evidence changed." },
+          expected: { type: "execution_target_wizard_result", requestId: "wizard-1", status: "rejected", code: "TARGET_DISCOVERY_STALE", action: "refresh-and-retry", message: "Current evidence changed." },
         },
         {
-          json: { type: "execution_route_create_result", requestId: "create-2", status: "committed-refresh-failed", code: "EXECUTION_ROUTE_COMMITTED_REFRESH_FAILED", message: "Committed; refresh required.", revision: `sha256:${"d".repeat(64)}` },
-          expected: { type: "execution_route_create_result", requestId: "create-2", status: "committed-refresh-failed", code: "EXECUTION_ROUTE_COMMITTED_REFRESH_FAILED", message: "Committed; refresh required.", revision: `sha256:${"d".repeat(64)}` },
+          json: { type: "execution_target_wizard_result", requestId: "wizard-2", status: "previewed", code: "EXECUTION_TARGET_PREVIEWED", action: "approve-and-apply", message: "Review and approve.", proposal: WIZARD_PROPOSAL },
+          expected: { type: "execution_target_wizard_result", requestId: "wizard-2", status: "previewed", code: "EXECUTION_TARGET_PREVIEWED", action: "approve-and-apply", message: "Review and approve.", proposal: WIZARD_PROPOSAL },
         },
         {
           json: {

@@ -161,7 +161,9 @@ documentation closure note, not a claim of live operator validation.
   local 503 evidence.
 - [#73](https://github.com/sequelcore/kiln/issues/73): Available Models is a
   discovery projection, separate from the execution picker and its route
-  authority.
+  authority; its target wizard accepts minimal operator intent, previews one
+  admitted normalized proposal, and revalidates current evidence before the
+  governed create mutation.
 - [#69](https://github.com/sequelcore/kiln/issues/69): execution routes require
   classification and expiring data-policy evidence, and protected effects are
   denied before dispatch when proof is missing or invalid.

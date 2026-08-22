@@ -96,6 +96,37 @@ Pass condition:
 - Execution-route selection changes the next turn only; it does not create or
   reveal a provider-owned session namespace.
 
+### 2A. Available Models target creation
+
+Show:
+
+- Settings > Models with the current searchable discovery projection and its
+  observation time.
+- A stale, failed, ineligible, or unknown-eligibility entry blocked with an
+  actionable refresh explanation when the fixture or environment provides one.
+- An observed eligible entry opened through `Add target`, including its warning
+  when current availability is unavailable or unknown.
+- Only the optional label, data classification, and explicit conservative
+  data-policy confirmation as editable fields; no raw JSON, internal target or
+  account IDs, evidence, economics, credentials, or paths.
+- Preview of the normalized target, derived account-selection mode, billing
+  class, capability posture, evidence expiry, authority impact, activation, and
+  rollback posture without mutation.
+- Explicit approval of that proposal, followed by a correlated created result
+  and refreshed Models projection.
+- Where the fixture permits, a stale/revision rejection that preserves intent
+  and a committed-refresh-failed result that offers refresh but never create
+  retry.
+
+Pass condition:
+
+- Preview and apply use the shared typed wizard contract, approval is bound to
+  the exact normalized proposal, and no operator-authored internal route
+  material crosses the surface boundary.
+- Keyboard focus returns to the initiating row after cancel or success;
+  pending, rejection, creation, and refresh-failure states are announced and
+  duplicate submission is unavailable.
+
 ### 3. Cost and telemetry
 
 Show:

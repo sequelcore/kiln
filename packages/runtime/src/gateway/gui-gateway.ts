@@ -46,7 +46,7 @@ import {
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
-import { executionRouteCreateDeniedResult, handleExecutionRouteCreate } from "./execution-route-create-handler.js";
+import { executionTargetWizardDeniedResult, handleExecutionTargetWizard } from "./execution-target-wizard-handler.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -186,7 +186,7 @@ export interface StartGuiGatewayOptions {
   readonly workspaceExplorer?: OperatorWorkspaceExplorer;
   /** Route selection is the only operator execution-selection authority. */
   readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
-  readonly createExecutionRoute?: (request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, evidence: import("./execution-route-create-handler.js").ExecutionRouteCreationDiscoveryEvidence) => Promise<{ readonly status: "created" | "committed-refresh-failed"; readonly revision: string }>;
+  readonly runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
   readonly onConnectionCountChange?: (count: number) => void;
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
@@ -762,7 +762,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       boundedWork: options.boundedWork,
       communicationIntentCandidates: options.communicationIntentCandidates,
       executionRouteSelection: options.executionRouteSelection,
-      createExecutionRoute: options.createExecutionRoute,
+      runExecutionTargetWizard: options.runExecutionTargetWizard,
       operatorTerminalCapability,
       operatorTerminalService,
       goalController: options.goalController,
@@ -875,7 +875,7 @@ function wireOperatorTransport(
     boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
     communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
     executionRouteSelection?: OperatorExecutionRouteSelectionPort;
-    createExecutionRoute?: (request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, evidence: import("./execution-route-create-handler.js").ExecutionRouteCreationDiscoveryEvidence) => Promise<{ readonly status: "created" | "committed-refresh-failed"; readonly revision: string }>;
+    runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -1142,18 +1142,18 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "execution_route_create") {
+            if (frame.type === "execution_target_wizard") {
               if (!terminalAuthorized) {
-                ws.send(JSON.stringify(executionRouteCreateDeniedResult(frame) satisfies GuiInboundFrame));
+                ws.send(JSON.stringify(executionTargetWizardDeniedResult(frame) satisfies GuiInboundFrame));
                 return;
               }
               const currentCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
-              const responseFrames = await handleExecutionRouteCreate({
+              const responseFrames = await handleExecutionTargetWizard({
                 operatorAuthorized: terminalAuthorized,
                 frame,
                 discovery: projectGuiProviderModelDiscovery(discovery),
                 executionRouteCatalog: currentCatalog,
-                createExecutionRoute: input.createExecutionRoute,
+                runWizard: input.runExecutionTargetWizard,
                 readExecutionRouteCatalog: async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
               });
               for (const responseFrame of responseFrames) {

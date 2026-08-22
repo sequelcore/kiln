@@ -20,6 +20,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onProviderAuthCompleted: vi.fn(),
     onProviderAuthFailed: vi.fn(),
     onExecutionRoutesRefreshed: vi.fn(),
+    onExecutionTargetWizardResult: vi.fn(),
     onExecConfirmed: vi.fn(),
     onActivityPhase: vi.fn(),
     onInteractiveUseUpdated: vi.fn(),
@@ -184,6 +185,20 @@ describe("createAppShellFrameHandler", () => {
       status: "failed",
     }));
     expect(input.onError).not.toHaveBeenCalled();
+  });
+
+  it("routes target wizard results to their lifecycle owner", () => {
+    const input = createInput();
+    const handleFrame = createAppShellFrameHandler(input);
+    handleFrame({
+      type: "execution_target_wizard_result",
+      requestId: "target-wizard-1",
+      status: "rejected",
+      code: "TARGET_DISCOVERY_STALE",
+      action: "refresh-and-retry",
+      message: "Refresh current discovery evidence.",
+    });
+    expect(input.onExecutionTargetWizardResult).toHaveBeenCalledWith(expect.objectContaining({ requestId: "target-wizard-1" }));
   });
 
   it("routes memory invalidation and thinking frames to their focused state updates", () => {

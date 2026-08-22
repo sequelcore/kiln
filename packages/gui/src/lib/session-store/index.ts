@@ -36,7 +36,7 @@ const initialState: SessionStoreState = {
   providerModelDiscovery: null,
   availableModels: null,
   executionRouteCatalog: { routes: [] },
-  executionRouteCreationResult: null,
+  executionTargetWizardResult: null,
   activeRouteId: null,
   activeAccountOverrideId: null,
   sessionList: [],

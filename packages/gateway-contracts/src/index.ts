@@ -27,8 +27,18 @@ export {
   CapabilityCatalogProjectionSchema,
   CapabilityCatalogRejectionSchema,
 } from "./capability-catalog.js";
-export { ExecutionRouteCreateResultSchema, ExecutionRouteCreationRequestSchema } from "./execution-route-creation.js";
-export type { ExecutionRouteCreateResult, ExecutionRouteCreationRequest } from "./execution-route-creation.js";
+export {
+  ExecutionTargetWizardApplyRequestSchema,
+  ExecutionTargetWizardProposalSchema,
+  ExecutionTargetWizardRequestSchema,
+  ExecutionTargetWizardResultSchema,
+} from "./execution-target-wizard.js";
+export type {
+  ExecutionTargetWizardApplyRequest,
+  ExecutionTargetWizardProposal,
+  ExecutionTargetWizardRequest,
+  ExecutionTargetWizardResult,
+} from "./execution-target-wizard.js";
 
 export type {
   KilnConfigActivationClass,

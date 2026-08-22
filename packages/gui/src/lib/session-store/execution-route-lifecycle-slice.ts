@@ -48,9 +48,9 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
     if (restore) get().selectExecutionRoute(restore.routeId, restore.accountOverrideId);
   },
 
-  onExecutionRouteCreateResult: (frame) => {
+  onExecutionTargetWizardResult: (frame) => {
     set({
-      executionRouteCreationResult: frame,
+      executionTargetWizardResult: frame,
       ...(frame.status === "created" ? { executionRouteCatalog: frame.executionRouteCatalog, availableModels: frame.availableModels } : {}),
     });
   },

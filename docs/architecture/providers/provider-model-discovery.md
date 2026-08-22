@@ -58,13 +58,47 @@ evidence plus whether a configured execution target currently references a model
 GUI, TUI, and CLI render the same projection for diagnosis and route-creation
 starting points. It is intentionally separate from the execution picker.
 
-Selecting an available model produces an incomplete typed route draft. Runtime
-will not turn discovery metadata into an executable route: the operator must
-provide the data classification and current data-policy evidence, account
-selection, economic policy, and other route authority fields. Canonical route
-creation uses the revision-fenced global-config mutation owner, validates the
-whole execution catalog atomically, and then refreshes projections. A stale
-revision, missing material field, or contradictory evidence fails closed.
+Selecting one unambiguous discovered provider/model starts the target wizard;
+it does not make the discovery projection execution authority. The common
+intent contains only the selected discovery identity, optional label, data
+classification, explicit confirmation of the conservative data-policy posture,
+and current catalog revision. It never contains a target ID, account or policy
+ID, evidence digest, economic record, credential, path, or raw route material.
+
+Runtime resolves the exact current discovery record and derives a
+collision-safe target identity, the unique configured same-provider account or
+account policy, provider execution capability, conservative data-policy
+evidence, configured-account economics, and freshness/revision evidence. An
+absent or ambiguous account choice, stale or ineligible discovery, changed
+identity, missing provider capability or economics, or revision drift fails
+closed before publication. Observed eligibility is the admission prerequisite;
+availability remains diagnostic and may warn without becoming authority.
+
+The full discovery revision content-addresses catalog and source observation
+time, expiry, raw provenance, credential and entitlement evidence, route health,
+policy admission, eligibility, and the adapter's exact model-capability record.
+A separate material revision omits only observation timestamps; it retains the
+source identity, expiry, provenance, admission states, and capabilities. Preview
+and every apply admission resolve both again. A semantically equivalent newer
+observation may retain the approved proposal, while any material change fails
+closed even when provider, route, and model identities remain unchanged.
+Negative tool-capability evidence narrows the derived target to text-only. This
+two-revision distinction is required because a fresh probe necessarily changes
+observation time; treating that non-authority timestamp as approval material
+would make exact post-confirmation revalidation impossible.
+
+An adapter-declared discovery expiry remains authoritative. When a fresh
+adapter observation has no expiry, the target evidence owner assigns a bounded
+one-year renewal horizon from the observation time; it does not persist an
+unbounded freshness claim or add an operator-configurable TTL. Stale status or
+an expired declared or derived horizon still fails before preview or mutation.
+
+Preview runs the full admission path and returns a secret-free normalized
+proposal without mutation. Apply requires explicit operator approval of that
+exact proposal and re-resolves current evidence before invoking the canonical
+revision-fenced global mutation owner. Created, rejected, and
+committed-but-refresh-failed results retain request correlation. A committed
+refresh failure offers catalog refresh, never a retry of target creation.
 
 `model_version_unsupported` means the harness or provider is installed and
 authenticated enough to answer, but the selected or requested model requires a

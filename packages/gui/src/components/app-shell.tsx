@@ -371,10 +371,10 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const markProviderCatalogError = useSessionStore((state) => state.markProviderCatalogError);
   const onWelcome = useSessionStore((state) => state.onWelcome);
   const availableModels = useSessionStore((state) => state.availableModels);
-  const executionRouteCreationResult = useSessionStore((state) => state.executionRouteCreationResult);
+  const executionTargetWizardResult = useSessionStore((state) => state.executionTargetWizardResult);
   const outboundSend = useSessionStore((state) => state.outboundSend);
   const onExecutionRoutesRefreshed = useSessionStore((state) => state.onExecutionRoutesRefreshed);
-  const onExecutionRouteCreateResult = useSessionStore((state) => state.onExecutionRouteCreateResult);
+  const onExecutionTargetWizardResult = useSessionStore((state) => state.onExecutionTargetWizardResult);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
   const onTurnCancelResult = useSessionStore((state) => state.onTurnCancelResult);
@@ -693,7 +693,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
       onProviderAuthCompleted,
       onProviderAuthFailed,
       onExecutionRoutesRefreshed,
-      onExecutionRouteCreateResult,
+      onExecutionTargetWizardResult,
       onExecConfirmed,
       onActivityPhase,
       onInteractiveUseUpdated,
@@ -1162,7 +1162,16 @@ function useAppShellRuntimeView(props: AppShellProps) {
                 void previewSetupSource(`${workingDirectory.replace(/[\\/]+$/u, "")}/.kiln/kiln.yaml`);
               } : undefined}
               leadingContent={settingsSection === "models" ? (
-                <AvailableModelsPanel catalog={availableModels} catalogRevision={executionRouteCatalog.revision} creationResult={executionRouteCreationResult} send={outboundSend} />
+                <AvailableModelsPanel
+                  catalog={availableModels}
+                  catalogRevision={executionRouteCatalog.revision}
+                  wizardResult={executionTargetWizardResult}
+                  send={outboundSend}
+                  onRefresh={outboundSend ? () => {
+                    markProviderCatalogRefreshing();
+                    outboundSend({ type: "refresh_execution_routes" });
+                  } : undefined}
+                />
               ) : settingsSection === "health" ? (
                 onboardingQuery.data?.status === "complete" ? (
                   <SetupPanel

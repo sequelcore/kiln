@@ -314,7 +314,7 @@ export function projectGuiProviderModelDiscovery(
   discovery: readonly GuiProviderDiscoveryResult[],
   options: { readonly observedAt?: string } = {},
 ): GuiProviderModelDiscoveryProjection {
-  const observedAt = options.observedAt ?? new Date().toISOString();
+  const observedAt = options.observedAt ?? latestProviderObservation(discovery) ?? new Date().toISOString();
   const catalogs = discovery.map((entry) => normalizeRuntimeProviderDiscoveryCatalog({
     providerId: entry.provider,
     family: runtimeAdapterFamily(entry.provider),
@@ -394,6 +394,19 @@ export function projectGuiProviderModelDiscovery(
     },
     entries,
   };
+}
+
+function latestProviderObservation(
+  discovery: readonly GuiProviderDiscoveryResult[],
+): string | undefined {
+  let latest: { readonly value: string; readonly timestamp: number } | undefined;
+  for (const entry of discovery) {
+    const timestamp = Date.parse(entry.lastCheckedAt);
+    if (Number.isFinite(timestamp) && (!latest || timestamp > latest.timestamp)) {
+      latest = { value: entry.lastCheckedAt, timestamp };
+    }
+  }
+  return latest?.value;
 }
 
 function enrichRouteHealthEvidence(
@@ -500,6 +513,9 @@ function projectGuiProviderModelRouteEntry(input: {
           : "unknown",
     },
     eligibility: input.eligibility,
+    ...(input.discovery?.modelCapabilities?.[input.route.identity.route.providerModelId]
+      ? { modelCapabilities: input.discovery.modelCapabilities[input.route.identity.route.providerModelId] }
+      : {}),
   };
 }
 

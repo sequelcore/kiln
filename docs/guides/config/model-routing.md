@@ -34,6 +34,29 @@ The GUI and TUI use the same target catalog. The TUI opens it with `/target`.
 No operator surface selects a raw provider, model, account policy, or
 credential.
 
+To create a direct target without authoring route material, first inspect the
+current discovery projection and then request a guided preview:
+
+```bash
+kiln target available
+kiln target create <provider>/<model> --classification internal --confirm-data-policy
+```
+
+Add `--label "Review model"` when a custom display label is useful. Review the
+normalized, secret-free proposal, then repeat the same command with `--approve`.
+The approved invocation prints its freshly derived proposal and asks for an
+interactive yes/no confirmation before applying that exact proposal. A
+declined or non-interactive confirmation writes nothing.
+`--confirm-data-policy` explicitly accepts the conservative posture shown in
+the proposal: provider service operation, training may be permitted, and
+retention may be as long as 3650 days for data up to the selected
+classification. It is not a claim of a stricter provider privacy guarantee.
+Kiln chooses an unambiguous current discovery route, derives configured account,
+policy, economics, capability, target identity, and evidence, and revalidates
+them before mutation. If the provider/model match is ambiguous, account policy
+is absent or ambiguous, or evidence changed, the command fails closed and asks
+for refresh or configuration rather than requesting internal IDs.
+
 Start from the parser-validated
 [task-aware model team](../../examples/configs/task-aware-model-team.yaml).
 
