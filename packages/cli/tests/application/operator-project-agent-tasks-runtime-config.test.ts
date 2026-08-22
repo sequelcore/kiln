@@ -42,7 +42,7 @@ import { createOperatorProjectAgentTaskApplicationComposition } from "../../src/
 import { createNativeHarnessInspectionService } from "../../src/application/native-harness-inspection.js";
 import { NativeHarnessMcpTools } from "../../src/native-harness/native-harness-mcp-tools.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
-import { economicConfig } from "../config/managed-economic-policy-config-fixture.js";
+import { managedAgentIntentConfig } from "../config/managed-agent-intent-config-fixture.js";
 
 const routeCatalogTrace = vi.hoisted(() => ({
   contexts: [] as Array<{ readonly compositionMode?: "execution" | "candidate-admission"; readonly managedAccountComposition?: unknown }>,
@@ -265,7 +265,6 @@ const ECONOMIC_WORKER_AGENT = [
   "tier: fast",
   "mode: managed-child",
   "authorityProfileId: readonly-plan",
-  "economicPolicyId: default-economic-policy",
   "---",
   "Regression fixture agent; not used for real work.",
 ].join("\n");
@@ -277,7 +276,6 @@ const OPENCODE_WRITE_WORKER_AGENT = [
   "goal: Apply only operator-approved workspace changes.",
   "tier: fast",
   "mode: managed-child",
-  "economicPolicyId: default-economic-policy",
   "authorityProfileId: approved-write",
   "---",
   "Regression fixture agent; not used for real work.",
@@ -341,14 +339,26 @@ function nativeCodexDeliberationConfig(): KilnGlobalConfig {
 }
 
 function accountBoundEconomicConfig(): KilnGlobalConfig {
-  const configured = economicConfig();
+  const configured = managedAgentIntentConfig();
+  // These durable Agent Task fixtures exercise dispatch/replay, not an
+  // interactive approval surface. Keep their paid posture explicitly bounded
+  // so the ask-before-spend producer path remains covered by Runtime-tool
+  // tests without silently auto-approving a spend here.
   return {
     ...configured,
     managedAgents: {
       ...configured.managedAgents!,
-      economicPolicies: configured.managedAgents!.economicPolicies!.map((policy) => ({
-        ...policy,
-        evidenceRequirements: { ...policy.evidenceRequirements, quota: "optional" as const },
+      intents: configured.managedAgents!.intents!.map((intent) => ({
+        ...intent,
+        paidUsage: {
+          kind: "cap" as const,
+          amount: {
+            atoms: "1000000000",
+            scale: 6,
+            unit: "input-token",
+            scheme: { kind: "currency" as const, currency: "USD" },
+          },
+        },
       })),
     },
   };
@@ -361,9 +371,10 @@ function openCodeGoEconomicConfig(): KilnGlobalConfig {
     ...configured,
     managedAgents: {
       ...configured.managedAgents!,
-      economicPolicies: configured.managedAgents!.economicPolicies!.map((policy) => ({
-        ...policy,
-        candidates: policy.candidates.map((candidate) => ({ ...candidate, targetId: "opencode-go-direct" })),
+      intents: configured.managedAgents!.intents!.map((intent) => ({
+        ...intent,
+        target: { mode: "explicit" as const, targetId: "opencode-go-direct" },
+        model: { mode: "explicit" as const, modelId: "kimi-k2.6" },
       })),
     },
     targetCatalog: {
@@ -417,6 +428,11 @@ function openCodeGoWriteEconomicConfig(): KilnGlobalConfig {
     managedAgents: {
       ...configured.managedAgents!,
       defaultAuthorityProfileId: "approved-write",
+      intents: configured.managedAgents!.intents!.map((intent) => ({
+        ...intent,
+        id: "opencode-write-worker",
+        authorityProfileId: "approved-write",
+      })),
     },
   };
 }
@@ -522,7 +538,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("constructs the real composition from canonical V3 config and surfaces the admitted managed agent through the real MCP server", async () => {
     useIsolatedGlobalConfigHome();
-    persistGlobalConfig(economicConfig());
+    persistGlobalConfig(managedAgentIntentConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
@@ -1100,7 +1116,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
   it("keeps a globally disabled provider engine unavailable through the real composition boundary", async () => {
     useIsolatedGlobalConfigHome();
     const globalConfig: KilnGlobalConfig = {
-      ...economicConfig(),
+      ...managedAgentIntentConfig(),
       engines: { "codex-oauth": { enabled: false } },
     };
     persistGlobalConfig(globalConfig);
@@ -1128,7 +1144,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("rejects project kiln.yaml attempts to declare global target or engine authority", async () => {
     useIsolatedGlobalConfigHome();
-    persistGlobalConfig(economicConfig());
+    persistGlobalConfig(managedAgentIntentConfig());
     // Project config is a strict restriction surface. Global engine and target
     // declarations are rejected at the project boundary instead of ignored.
     const projectRoot = createProjectRoot([

@@ -16,9 +16,10 @@ project cannot consume or recover another project's work.
 ## Adopted Input
 
 Core owns the immutable `ManagedEconomicSnapshot` and its validation rules. CLI
-composition adopts one snapshot outside the SQLite write transaction from:
+composition validates bounded managed-agent intent, then derives and adopts one
+snapshot outside the SQLite write transaction from:
 
-- the exact economic policy id and revision;
+- one immutable Runtime-derived policy identity and revision;
 - the admitted candidate identities and authority rejections;
 - canonical provider, model, capability, tariff, comparison-domain, envelope,
   ceiling, account-policy, usage, and quota evidence; and

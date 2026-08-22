@@ -103,6 +103,8 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly authorityProfileId: string;
   readonly invocationId: string;
   readonly abortSignal?: AbortSignal;
+  /** Optional bounded-intent duration cap, applied in addition to route timeout. */
+  readonly workLimitDurationMs?: number;
   readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
   /** Runs after held commitment acquisition and before dispatch fencing or adapter materialization. */
   readonly validateAndConsumeApprovalBeforeFence?: (input: {
@@ -170,7 +172,10 @@ export class ManagedEconomicDispatchCoordinator {
         commitment: result.record.commitment,
       });
       lifecycle = createManagedEconomicLifecycleDeadline(
-        this.options.resolveLifecycleTimeoutMs(result.record.commitment, input.admissionProfile),
+        Math.min(
+          this.options.resolveLifecycleTimeoutMs(result.record.commitment, input.admissionProfile),
+          input.workLimitDurationMs ?? Number.POSITIVE_INFINITY,
+        ),
         input.abortSignal,
       );
       throwManagedEconomicAbort(lifecycle.signal);

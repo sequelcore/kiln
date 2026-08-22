@@ -31,8 +31,12 @@ export interface KilnAgentDefinition {
   readonly sandbox?: boolean;
   readonly modalities?: readonly string[];
   readonly authorityProfileId?: string;
-  readonly economicPolicyId?: string;
   readonly targetId?: string;
+  readonly workLimits?: {
+    readonly maxTurns?: number;
+    readonly maxDurationMs?: number;
+    readonly maxConcurrency?: number;
+  };
   readonly workClassification?: WorkClassification;
   readonly voiceProfile?: string;
   readonly communication?: CommunicationIntent;
@@ -161,7 +165,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const allowedFields = new Set([
     "name", "displayName", "nicknameCandidates", "role", "description", "goal", "backstory", "tier",
     "tools", "skills", "instructionProfiles", "taskAffinity", "mode", "structured", "count", "sandbox",
-    "modalities", "authorityProfileId", "economicPolicyId", "targetId", "workClassification", "voiceProfile",
+    "modalities", "authorityProfileId", "targetId", "workClassification", "voiceProfile",
     "communication",
   ]);
   if (Object.keys(record).some((field) => !allowedFields.has(field))) {
@@ -192,7 +196,6 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   if (record.authorityProfileId !== undefined && !authorityProfileId) return undefined;
   const targetId = asNonEmptyString(record.targetId);
   if (record.targetId !== undefined && !targetId) return undefined;
-  const economicPolicyId = asNonEmptyString(record.economicPolicyId);
   let workClassification: WorkClassification | undefined;
   try {
     workClassification = asWorkClassification(record.workClassification);
@@ -227,7 +230,6 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(sandbox !== undefined ? { sandbox } : {}),
     ...(modalities ? { modalities } : {}),
     ...(authorityProfileId ? { authorityProfileId } : {}),
-    ...(economicPolicyId ? { economicPolicyId } : {}),
     ...(targetId ? { targetId } : {}),
     ...(workClassification ? { workClassification } : {}),
     ...(voiceProfile ? { voiceProfile } : {}),

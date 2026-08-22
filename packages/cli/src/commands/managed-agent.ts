@@ -15,6 +15,8 @@ import type {
 import {
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceHomeProjection,
+  formatOperatorManagedEconomicAmount,
+  formatOperatorManagedEconomicChildConsumption,
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorGovernedWorkItems,
   projectOperatorCockpitReadOnlyView,
@@ -435,14 +437,14 @@ function formatManagedAgentList(
     formatManagedAgentGovernanceSummary(workspaceHome),
     ...formatGovernedWorkItemLines(governedWorkItems),
     ...viewState.items.map((item) => formatManagedAgentListRow(item)),
-    ...formatEconomicAttemptLines(economicAttempts),
+    ...formatManagedEconomicAttemptLines(economicAttempts),
     ...formatUnprojectableEvidenceLines(unprojectableEvidence),
   ].join("\n");
 }
 
 // Economic attempts are not joined to a specific managed invocation (jobId carries no durable
 // invocationId link yet), so they are listed as their own section rather than nested per row.
-function formatEconomicAttemptLines(
+export function formatManagedEconomicAttemptLines(
   economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[],
 ): readonly string[] {
   if (economicAttempts.length === 0) {
@@ -479,7 +481,18 @@ function formatEconomicAttemptRow(attempt: OperatorCockpitEconomicAttemptProject
     attempt.transition.padEnd(18),
     `policy:${attempt.policyId}`,
     attempt.selectedRoute ? `route:${attempt.selectedRoute.providerId}/${attempt.selectedRoute.modelId}` : undefined,
+    attempt.selectedTarget ? `target:${attempt.selectedTarget.targetId}(${attempt.selectedTarget.reason})` : undefined,
     attempt.selectedAccount ? `account:${attempt.selectedAccount.kind}` : undefined,
+    attempt.billingClass ? `billing:${attempt.billingClass}` : undefined,
+    attempt.providerAllowance ? `allowance:${attempt.providerAllowance.status}/${attempt.providerAllowance.evidenceFreshness}` : undefined,
+    attempt.workLimitProgress
+      ? `work:${attempt.workLimitProgress.dimension}=${attempt.workLimitProgress.consumed}/${attempt.workLimitProgress.limit}`
+      : undefined,
+    attempt.reservedAmount ? `reserved:${formatOperatorManagedEconomicAmount(attempt.reservedAmount)}` : undefined,
+    attempt.settledAmount ? `settled:${formatOperatorManagedEconomicAmount(attempt.settledAmount)}` : undefined,
+    attempt.perChildConsumption ? `children:${formatOperatorManagedEconomicChildConsumption(attempt.perChildConsumption)}` : undefined,
+    attempt.evidenceFreshness ? `evidence:${attempt.evidenceFreshness}` : undefined,
+    attempt.terminalCause ? `terminal:${attempt.terminalCause}` : undefined,
     attempt.settlementKind ? `settlement:${attempt.settlementKind}` : undefined,
     attempt.reason ? `reason:${attempt.reason}` : undefined,
     ...(attempt.rejections ?? []).map((rejection) => `rejection:${rejection.stage}:${rejection.reason}`),

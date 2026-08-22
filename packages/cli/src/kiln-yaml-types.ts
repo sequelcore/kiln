@@ -1,8 +1,6 @@
 import type {
   KilnWorkGovernanceEvidence,
   ManagedEconomicAmount,
-  ManagedEconomicComparableReservation,
-  ManagedEconomicScheme,
   McpServerConfiguration,
   MemoryLayerKind,
   MemoryScopeKind,
@@ -480,35 +478,40 @@ export interface KilnAuthorityProfileConfig {
   readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
 }
 
-export interface KilnManagedEconomicComparisonDomainConfig {
-  readonly id: string;
-  readonly rank: number;
-  readonly unit: string;
-  readonly scheme: ManagedEconomicScheme;
-  readonly rateCardBasis: string;
-  readonly envelopeSemantics: string;
+export type KilnManagedAgentTargetSelection =
+  | { readonly mode: "inherited" }
+  | { readonly mode: "explicit"; readonly targetId: string };
+
+export type KilnManagedAgentModelSelection =
+  | { readonly mode: "inherited" }
+  | { readonly mode: "explicit"; readonly modelId: string };
+
+/** Operator-owned work ceilings. Runtime maps these to the bounded-work authority. */
+export interface KilnManagedAgentWorkLimitsConfig {
+  readonly maxTurns?: number;
+  readonly maxDurationMs?: number;
+  readonly maxConcurrency?: number;
 }
 
-export interface KilnManagedEconomicPolicyCandidateConfig {
-  readonly targetId: string;
-  readonly comparisonDomainId: string;
-  readonly priorityRank: number;
-  readonly worstCaseReservation: ManagedEconomicComparableReservation;
-  readonly ceiling:
-    | { readonly kind: "none" }
-    | { readonly kind: "finite"; readonly amount: ManagedEconomicAmount };
-}
+/** Paid-usage intent; policy identity, evidence, and reservations remain Runtime-owned. */
+export type KilnManagedAgentPaidUsagePosture =
+  | "included-only"
+  | "ask-before-spend"
+  | "uncapped"
+  | {
+      readonly kind: "cap";
+      readonly amount: ManagedEconomicAmount;
+    };
 
-export interface KilnManagedEconomicPolicyConfig {
+/** Minimal operator intent for one managed child. No policy or evidence material is accepted. */
+export interface KilnManagedAgentIntentConfig {
   readonly id: string;
-  readonly revision: string;
-  readonly evidenceRequirements: {
-    readonly quota: "optional" | "required-for-account-bound";
-    readonly price: "optional" | "required";
-  };
-  readonly noRouteAction: "deny";
-  readonly comparisonDomains: readonly KilnManagedEconomicComparisonDomainConfig[];
-  readonly candidates: readonly KilnManagedEconomicPolicyCandidateConfig[];
+  readonly purpose: string;
+  readonly authorityProfileId: string;
+  readonly target?: KilnManagedAgentTargetSelection;
+  readonly model?: KilnManagedAgentModelSelection;
+  readonly workLimits?: KilnManagedAgentWorkLimitsConfig;
+  readonly paidUsage?: KilnManagedAgentPaidUsagePosture;
 }
 
 export interface KilnManagedAgentsConfig {
@@ -517,7 +520,7 @@ export interface KilnManagedAgentsConfig {
   readonly defaultVoiceProfile?: string;
   readonly worktreeLease?: KilnManagedAgentWorktreeLeaseConfig;
   readonly requireApproval?: boolean;
-  readonly economicPolicies?: readonly KilnManagedEconomicPolicyConfig[];
+  readonly intents?: readonly KilnManagedAgentIntentConfig[];
 }
 
 /** Agent authority is always inherited; `inherit:false` would remove parent

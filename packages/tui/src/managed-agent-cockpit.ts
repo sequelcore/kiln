@@ -6,6 +6,8 @@
 import {
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceHomeProjection,
+  formatOperatorManagedEconomicAmount,
+  formatOperatorManagedEconomicChildConsumption,
   projectOperatorCockpitReadOnlyView,
   type OperatorCockpitAttachTarget,
   type OperatorCockpitEconomicAttemptProjection,
@@ -165,9 +167,12 @@ function formatEconomicAttemptCockpitLines(
   if (economicAttempts.length === 0) {
     return [];
   }
+  const displayed = economicAttempts.slice(0, 5);
   return [
-    "economic attempts:",
-    ...economicAttempts.slice(0, 5).map((attempt) => {
+    economicAttempts.length > displayed.length
+      ? `economic attempts (showing ${displayed.length} of ${economicAttempts.length}):`
+      : "economic attempts:",
+    ...displayed.map((attempt) => {
       const route = attempt.selectedRoute
         ? `${attempt.selectedRoute.providerId}/${attempt.selectedRoute.modelId}`
         : undefined;
@@ -175,6 +180,17 @@ function formatEconomicAttemptCockpitLines(
         attempt.jobId,
         attempt.transition,
         route,
+        attempt.selectedTarget ? `target:${attempt.selectedTarget.targetId}(${attempt.selectedTarget.reason})` : undefined,
+        attempt.billingClass ? `billing:${attempt.billingClass}` : undefined,
+        attempt.providerAllowance ? `allowance:${attempt.providerAllowance.status}/${attempt.providerAllowance.evidenceFreshness}` : undefined,
+        attempt.workLimitProgress
+          ? `work:${attempt.workLimitProgress.dimension}=${attempt.workLimitProgress.consumed}/${attempt.workLimitProgress.limit}`
+          : undefined,
+        attempt.reservedAmount ? `reserved:${formatOperatorManagedEconomicAmount(attempt.reservedAmount)}` : undefined,
+        attempt.settledAmount ? `settled:${formatOperatorManagedEconomicAmount(attempt.settledAmount)}` : undefined,
+        attempt.perChildConsumption ? `children:${formatOperatorManagedEconomicChildConsumption(attempt.perChildConsumption)}` : undefined,
+        attempt.evidenceFreshness ? `evidence:${attempt.evidenceFreshness}` : undefined,
+        attempt.terminalCause ? `terminal:${attempt.terminalCause}` : undefined,
         attempt.settlementKind,
         ...(attempt.rejections ?? []).map((rejection) => `rejection:${rejection.stage}:${rejection.reason}`),
       ].filter((part): part is string => part !== undefined).join("  ");

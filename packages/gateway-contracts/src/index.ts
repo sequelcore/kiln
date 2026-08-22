@@ -369,6 +369,15 @@ export type {
   OperatorManagedEconomicLifecycleTransition,
   OperatorManagedEconomicRouteIdentity,
   OperatorManagedEconomicAccountIdentity,
+  OperatorManagedEconomicAmount,
+  OperatorManagedEconomicBillingClass,
+  OperatorManagedEconomicSelectionReason,
+  OperatorManagedEconomicTerminalCause,
+  OperatorManagedEconomicTargetExplanation,
+  OperatorManagedEconomicProviderAllowanceBucket,
+  OperatorManagedEconomicProviderAllowance,
+  OperatorManagedEconomicWorkLimitProgress,
+  OperatorManagedEconomicChildConsumption,
   OperatorManagedEconomicSettlementKind,
   OperatorManagedEconomicEvidenceAuthority,
   OperatorManagedEconomicCoreRejectionReason,
@@ -476,6 +485,10 @@ export {
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "./operator-cockpit-projection.js";
+export {
+  formatOperatorManagedEconomicAmount,
+  formatOperatorManagedEconomicChildConsumption,
+} from "./operator-economic-formatting.js";
 
 export type {
   OperatorCockpitFocusTarget,

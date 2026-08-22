@@ -25,32 +25,18 @@ function deferred<T>() {
 /**
  * Shared between the `config-status.js` mock (still the sole source of
  * `workGovernance` evidence, consulted by `inspection.inspectWorkGovernance()`)
- * and the `global-config.js` mock below. Managed-agent policy remains global,
+ * and the `global-config.js` mock below. Managed-agent intent remains global,
  * while target and authority identity live in their dedicated V4 catalogs.
  */
 const TEST_MANAGED_AGENTS_CONFIG = {
   enabled: true,
   defaultAuthorityProfileId: "test-readonly",
-  economicPolicies: [{
-    id: "test-economic-policy",
-    revision: "rev-1",
-    evidenceRequirements: { quota: "optional", price: "optional" },
-    noRouteAction: "deny",
-    comparisonDomains: [{
-      id: "priority-only",
-      rank: 0,
-      unit: "request",
-      scheme: { kind: "unit" },
-      rateCardBasis: "subscription",
-      envelopeSemantics: "turn",
-    }],
-    candidates: [{
-      targetId: "managed-codex",
-      comparisonDomainId: "priority-only",
-      priorityRank: 0,
-      ceiling: { kind: "none" },
-      worstCaseReservation: { kind: "not-comparable", reason: "subscription-basis" },
-    }],
+  intents: [{
+    id: "test-agent",
+    purpose: "Run the bounded managed test agent.",
+    authorityProfileId: "test-readonly",
+    target: { mode: "explicit", targetId: "managed-codex" },
+    paidUsage: "ask-before-spend",
   }],
 } as const;
 
@@ -323,7 +309,7 @@ describe("operator project agent-task production composition", () => {
       }],
     });
     const agents = [
-      { name: "economic-worker", role: "Policy-only worker", goal: "Policy-only economic worker.", tier: "fast" as const, scope: "project" as const, economicPolicyId: "bounded-policy", authorityProfileId: "test-readonly" },
+      { name: "economic-worker", role: "Policy-only worker", goal: "Policy-only economic worker.", tier: "fast" as const, scope: "project" as const, authorityProfileId: "test-readonly" },
     ];
 
     expect(summarizeOperatorProjectManagedAgents(agents, undefined)).toMatchObject([{

@@ -5,6 +5,7 @@ import type { EffectivePromptObservation } from "../context/effective-prompt-obs
 import type { VerifiedEfficiencyEvidenceProjection } from "../efficiency/verified-efficiency-evidence.js";
 import type {
   ManagedEconomicCoreRejectionReason,
+  ManagedEconomicAmount,
   ManagedEconomicEvidenceIdentity,
   ManagedEconomicSettlement,
 } from "../cost/managed-route-economics.js";
@@ -653,6 +654,8 @@ export interface SessionManagedEconomicRouteIdentity {
   readonly modelId: string;
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
+  /** Price class projected from committed route evidence, when known before settlement. */
+  readonly priceClass?: "subscription" | "included" | "free" | "metered" | "estimated" | "unknown";
 }
 
 export interface SessionManagedEconomicAccountIdentity {
@@ -660,6 +663,60 @@ export interface SessionManagedEconomicAccountIdentity {
   readonly capacityIdentity?: string;
   readonly creditPosture?: "disabled" | "committed";
   readonly overagePosture?: "disabled" | "committed";
+}
+
+/** Secret-free explanation fields projected from Runtime-owned economic evidence. */
+export type SessionManagedEconomicBillingClass =
+  | "subscription" | "included" | "free" | "metered" | "estimated" | "unknown";
+
+export type SessionManagedEconomicSelectionReason =
+  | "only-admitted-target"
+  | "configured-target-order"
+  | "lower-comparable-reservation"
+  | "stable-identity-order"
+  | "runtime-authority-selection";
+
+export type SessionManagedEconomicTerminalCause =
+  | "work-limit-exhaustion"
+  | "provider-exhaustion"
+  | "spend-denial"
+  | "technical-failure"
+  | "completed"
+  | "cancelled"
+  | "unknown";
+
+export interface SessionManagedEconomicTargetExplanation {
+  readonly targetId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly reason: SessionManagedEconomicSelectionReason;
+}
+
+export interface SessionManagedEconomicProviderAllowanceBucket {
+  readonly dimension: string;
+  readonly remaining: ManagedEconomicAmount | null;
+  readonly resetsAt: string | null;
+}
+
+export interface SessionManagedEconomicProviderAllowance {
+  readonly status: "available" | "exhausted" | "unlimited" | "unknown";
+  readonly evidenceFreshness: "fresh" | "stale" | "missing" | "unknown";
+  readonly buckets?: readonly SessionManagedEconomicProviderAllowanceBucket[];
+}
+
+export interface SessionManagedEconomicWorkLimitProgress {
+  readonly dimension: "turns" | "duration-ms" | "concurrency";
+  readonly consumed: number;
+  readonly limit: number;
+  readonly status: "within-limit" | "exhausted" | "unknown";
+}
+
+export interface SessionManagedEconomicChildConsumption {
+  readonly childId: string;
+  readonly units?: readonly ManagedEconomicAmount[];
+  /** Present only when the Runtime has comparable settlement evidence. */
+  readonly settledAmount?: ManagedEconomicAmount;
+  readonly comparability: "comparable" | "not-comparable" | "unknown";
 }
 
 export interface CanonicalManagedEconomicLifecycleEvent
@@ -683,6 +740,15 @@ export interface CanonicalManagedEconomicLifecycleEvent
   readonly dispatchFenceId?: string;
   readonly selectedRoute?: SessionManagedEconomicRouteIdentity;
   readonly selectedAccount?: SessionManagedEconomicAccountIdentity;
+  readonly selectedTarget?: SessionManagedEconomicTargetExplanation;
+  readonly billingClass?: SessionManagedEconomicBillingClass;
+  readonly providerAllowance?: SessionManagedEconomicProviderAllowance;
+  readonly workLimitProgress?: SessionManagedEconomicWorkLimitProgress;
+  readonly reservedAmount?: ManagedEconomicAmount;
+  readonly settledAmount?: ManagedEconomicAmount;
+  readonly perChildConsumption?: readonly SessionManagedEconomicChildConsumption[];
+  readonly evidenceFreshness?: "fresh" | "stale" | "missing" | "unknown";
+  readonly terminalCause?: SessionManagedEconomicTerminalCause;
   readonly settlementKind?: ManagedEconomicSettlement["kind"];
   readonly settlementAuthority?: ManagedEconomicEvidenceIdentity["authority"];
   readonly reason?: string;

@@ -439,6 +439,27 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     authorityProfileId: agentProfile.authorityProfileId,
     invocationId,
     ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+    ...(agentProfile.workLimits?.maxDurationMs !== undefined
+      ? { workLimitDurationMs: agentProfile.workLimits.maxDurationMs }
+      : {}),
+    ...(agentProfile.economicSpendApproval === "required"
+      ? {
+          validateAndConsumeApprovalBeforeFence: async ({ commitment }: { readonly commitment: import("@kilnai/core").ManagedEconomicCommitment }) => {
+            const comparablePaidAmounts = commitment.reservation.amounts.filter((amount) =>
+              amount.scheme.kind !== "unit" && BigInt(amount.atoms) !== 0n);
+            if (comparablePaidAmounts.length === 0) return;
+            if (!context.requestApproval) {
+              throw new Error("Managed economic invocation requires approval before fencing a comparable paid reservation.");
+            }
+            const approval = await context.requestApproval(
+              `Managed agent '${agentProfile.name}' requests approval before reserving comparable paid usage on target '${commitment.reservation.selectedIdentity.route.routeId}'.`,
+            );
+            if (!approval.approved) {
+              throw new Error(`Managed economic paid-usage approval denied: ${approval.reason ?? "approval denied"}`);
+            }
+          },
+        }
+      : {}),
     validateExecutionProfile: async ({ commitment }) => {
       const selected = commitment.reservation.selectedIdentity.route;
       const selectedCandidate = candidateSet.candidates.find((candidate) =>
@@ -581,6 +602,46 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       canonicalizedRawInput: canonicalizedRawInput.input,
       lifecycleOptions: {
         abortSignal: economicPreparation.abortSignal,
+        ...(agentProfile.workLimits ? { workLimits: agentProfile.workLimits } : {}),
+        ...(options.workspaceRoot && agentProfile.workLimits
+          ? {
+              terminalObserver: (notification) => {
+                const maxTurnsExhausted = notification.record.stopReason === "tool_round_budget_exhausted"
+                  && agentProfile.workLimits?.maxTurns !== undefined;
+                const durationExhausted = notification.record.stopReason === "managed-economic-duration-limit"
+                  && agentProfile.workLimits?.maxDurationMs !== undefined;
+                if (!maxTurnsExhausted && !durationExhausted) return;
+                const progress = maxTurnsExhausted
+                  ? {
+                      dimension: "turns" as const,
+                      consumed: agentProfile.workLimits!.maxTurns!,
+                      limit: agentProfile.workLimits!.maxTurns!,
+                      status: "exhausted" as const,
+                    }
+                  : {
+                      dimension: "duration-ms" as const,
+                      consumed: notification.durationMs ?? agentProfile.workLimits!.maxDurationMs!,
+                      limit: agentProfile.workLimits!.maxDurationMs!,
+                      status: "exhausted" as const,
+                    };
+                const events = appendManagedEconomicLifecycleSessionEvent({
+                  session: context.session,
+                  workspaceRoot: options.workspaceRoot!,
+                  ...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
+                  jobId: `managed-economic-job:${economicIdentity}`,
+                  economicAttemptId: `economic-attempt:${economicIdentity}`,
+                  invocationId,
+                  transition: durationExhausted ? "settlement-pending" : "released",
+                  policy: economicPreparation.commitment.reservation.policy,
+                  commitment: economicPreparation.commitment,
+                  dispatchFenceId: economicPreparation.dispatchFenceId,
+                  workLimitProgress: progress,
+                  terminalCause: "work-limit-exhaustion",
+                });
+                void publishManagedInvocationSessionEvents(options, context, events);
+              },
+            }
+          : {}),
         economicDispatch: {
           commitment: economicPreparation.commitment,
           dispatchFenceId: economicPreparation.dispatchFenceId,
@@ -1033,6 +1094,7 @@ async function buildManagedInvocationRequestRecord(input: {
     toolName, parentTurnId, invocationId, admittedDeliberationResolution,
   } = input;
   const { adapter } = route;
+  const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.agentProfile);
 
   const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
   const handoffContract = buildHandoffContract(parsed);
@@ -1261,6 +1323,7 @@ async function buildManagedInvocationRequestRecord(input: {
         },
       },
       ...(boundedWorkAdmission ? { boundedWorkLifecycle: boundedWorkAdmission.lifecycle } : {}),
+      ...(agentProfile?.workLimits ? { lifecycleOptions: { workLimits: agentProfile.workLimits } } : {}),
       ...(canonicalizedRawInput.canonicalizedForbiddenInputFields.length > 0
         ? { canonicalizedForbiddenInputFields: canonicalizedRawInput.canonicalizedForbiddenInputFields }
         : {}),
@@ -1280,6 +1343,7 @@ export async function prepareManagedInvocationRequest(
   if (!context) {
     return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
+
   const callerResolution = resolveManagedInvocationCallerIdentity(
     attachment.callerIdentity,
     context.effectiveTurnAuthority,

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createOperatorExecutionRouteSelectionPort } from "../../src/application/operator-execution-route-selection.js";
-import { economicConfig } from "../config/managed-economic-policy-config-fixture.js";
+import { managedAgentIntentConfig } from "../config/managed-agent-intent-config-fixture.js";
 import { syntheticExecutionCatalog } from "../config/execution-target-evidence-fixture.js";
 
-const readExecutionCatalog = (config: ReturnType<typeof economicConfig> | null) =>
+const readExecutionCatalog = (config: ReturnType<typeof managedAgentIntentConfig> | null) =>
   config ? syntheticExecutionCatalog(config) ?? undefined : undefined;
 
 describe("operator execution target selection", () => {
@@ -20,7 +20,7 @@ describe("operator execution target selection", () => {
       return accountAvailability.current;
     });
     const port = createOperatorExecutionRouteSelectionPort({
-      readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
+      readConfigSnapshot: () => ({ config: managedAgentIntentConfig(), revision: `sha256:${"a".repeat(64)}` }),
       readExecutionCatalog,
       resolveAccountAvailability,
     });
@@ -53,7 +53,7 @@ describe("operator execution target selection", () => {
     ["provider-unavailable", ["provider-unavailable"]],
   ] as const)("projects sanitized %s account evidence through admission", async (_name, reasonCodes) => {
     const port = createOperatorExecutionRouteSelectionPort({
-      readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
+      readConfigSnapshot: () => ({ config: managedAgentIntentConfig(), revision: `sha256:${"a".repeat(64)}` }),
       readExecutionCatalog,
       resolveAccountAvailability: async () => [{ accountId: "codex-account", available: false, reasonCodes }],
     });
@@ -67,7 +67,7 @@ describe("operator execution target selection", () => {
     "fails closed when quota evidence is %s",
     async (reasonCode) => {
       const port = createOperatorExecutionRouteSelectionPort({
-        readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
+        readConfigSnapshot: () => ({ config: managedAgentIntentConfig(), revision: `sha256:${"a".repeat(64)}` }),
         readExecutionCatalog,
         resolveAccountAvailability: async () => [{
           accountId: "codex-account",

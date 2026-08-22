@@ -26,9 +26,15 @@ import type {
   SessionAgentInvocationEvidence,
   SessionEventSource,
   SessionManagedEconomicAccountIdentity,
+  SessionManagedEconomicBillingClass,
+  SessionManagedEconomicChildConsumption,
+  SessionManagedEconomicProviderAllowance,
   SessionManagedEconomicRejection,
+  SessionManagedEconomicSelectionReason,
   SessionManagedEconomicLifecycleTransition,
   SessionManagedEconomicRouteIdentity,
+  SessionManagedEconomicTerminalCause,
+  SessionManagedEconomicWorkLimitProgress,
 } from "@kilnai/core";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
 import type { RuntimeSession } from "../../session/runtime-session.js";
@@ -224,6 +230,9 @@ export interface AppendManagedEconomicLifecycleSessionEventInput {
   readonly commitment?: ManagedEconomicCommitment;
   readonly dispatchFenceId?: string;
   readonly settlement?: ManagedEconomicSettlement;
+  readonly selectionReason?: SessionManagedEconomicSelectionReason;
+  readonly workLimitProgress?: SessionManagedEconomicWorkLimitProgress;
+  readonly terminalCause?: SessionManagedEconomicTerminalCause;
   readonly reason?: string;
   readonly rejections?: readonly SessionManagedEconomicRejection[];
   readonly timestamp?: Date;
@@ -234,13 +243,24 @@ export function appendManagedEconomicLifecycleSessionEvent(
 ): readonly CanonicalSessionEvent[] {
   const selectedIdentity = input.commitment?.reservation.selectedIdentity;
   const settlementAuthority = settlementAuthorityOf(input.settlement);
+  const timestamp = input.timestamp ?? new Date();
+  const providerAllowance = selectedIdentity
+    ? providerAllowanceOf(selectedIdentity.account, timestamp)
+    : undefined;
+  const reservedAmount = comparableReservedAmount(input.commitment);
+  const settledAmount = comparableSettledAmount(input.settlement);
+  const billingClass = billingClassOf(selectedIdentity?.route, input.settlement);
+  const perChildConsumption = perChildConsumptionOf(input, settledAmount);
+  const selectionReason = input.selectionReason ?? selectionReasonOf(input.commitment);
+  const terminalCause = input.terminalCause ?? terminalCauseOf(input);
+  const evidenceFreshness = evidenceFreshnessOf(input.settlement, providerAllowance, timestamp);
   const event = projectDurableSessionEvent(createSessionEvent<"managed_economic_lifecycle">({
     kilnSessionId: input.session.id,
     sequence: input.session.nextSessionEventSequence(),
     kind: "managed_economic_lifecycle",
     ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
     source: makeSource(),
-    timestamp: input.timestamp ?? new Date(),
+    timestamp,
     jobId: input.jobId,
     economicAttemptId: input.economicAttemptId,
     evidenceVersion: 1,
@@ -256,6 +276,22 @@ export function appendManagedEconomicLifecycleSessionEvent(
     ...(input.dispatchFenceId !== undefined ? { dispatchFenceId: input.dispatchFenceId } : {}),
     ...(selectedIdentity ? { selectedRoute: projectManagedEconomicRouteIdentity(selectedIdentity.route) } : {}),
     ...(selectedIdentity ? { selectedAccount: projectManagedEconomicAccountIdentity(selectedIdentity.account) } : {}),
+    ...(selectedIdentity ? {
+      selectedTarget: {
+        targetId: selectedIdentity.route.routeId,
+        providerId: selectedIdentity.route.providerId,
+        modelId: selectedIdentity.route.modelId,
+        reason: selectionReason,
+      },
+    } : {}),
+    ...(billingClass !== undefined ? { billingClass } : {}),
+    ...(providerAllowance !== undefined ? { providerAllowance } : {}),
+    ...(input.workLimitProgress !== undefined ? { workLimitProgress: input.workLimitProgress } : {}),
+    ...(reservedAmount !== undefined ? { reservedAmount } : {}),
+    ...(settledAmount !== undefined ? { settledAmount } : {}),
+    ...(perChildConsumption !== undefined ? { perChildConsumption: [perChildConsumption] } : {}),
+    ...(evidenceFreshness !== undefined ? { evidenceFreshness } : {}),
+    ...(terminalCause !== undefined ? { terminalCause } : {}),
     ...(input.settlement ? { settlementKind: input.settlement.kind } : {}),
     ...(settlementAuthority !== undefined ? { settlementAuthority } : {}),
     ...(input.reason !== undefined ? { reason: input.reason } : {}),
@@ -263,6 +299,147 @@ export function appendManagedEconomicLifecycleSessionEvent(
   }), input.workspaceRoot);
   input.session.appendSessionEvents([event]);
   return [event];
+}
+
+function projectManagedEconomicAmount(amount: import("@kilnai/core").ManagedEconomicAmount) {
+  return {
+    atoms: amount.atoms,
+    scale: amount.scale,
+    unit: amount.unit,
+    scheme: amount.scheme,
+  };
+}
+
+function comparableReservedAmount(
+  commitment: ManagedEconomicCommitment | undefined,
+) {
+  const amount = commitment?.reservation.amounts.length === 1
+    ? commitment.reservation.amounts[0]
+    : undefined;
+  return amount && amount.scheme.kind !== "unit" ? projectManagedEconomicAmount(amount) : undefined;
+}
+
+function comparableSettledAmount(settlement: ManagedEconomicSettlement | undefined) {
+  if (settlement?.kind !== "charged") return undefined;
+  return settlement.charge.scheme.kind !== "unit"
+    ? projectManagedEconomicAmount(settlement.charge)
+    : undefined;
+}
+
+function billingClassOf(
+  route: ManagedEconomicRouteIdentity | undefined,
+  settlement: ManagedEconomicSettlement | undefined,
+): SessionManagedEconomicBillingClass | undefined {
+  if (!settlement) return route?.priceClass;
+  if (settlement.kind === "pending" || settlement.kind === "leaked") return route?.priceClass ?? "unknown";
+  return settlement.kind === "charged" ? "metered" : settlement.kind;
+}
+
+function providerAllowanceOf(
+  account: ManagedEconomicAccountIdentity,
+  at: Date,
+): SessionManagedEconomicProviderAllowance | undefined {
+  if (account.kind !== "account-bound" || !account.quotaEvidence) return undefined;
+  const quota = account.quotaEvidence;
+  const evidenceFreshness = quota.evidence
+    ? freshnessForEvidence(quota.evidence, at)
+    : "missing" as const;
+  if (quota.kind === "unlimited") {
+    return { status: "unlimited", evidenceFreshness };
+  }
+  if (quota.kind === "unknown") {
+    return { status: "unknown", evidenceFreshness };
+  }
+  return {
+    status: quota.exhaustionReason ? "exhausted" : "available",
+    evidenceFreshness,
+    buckets: quota.buckets.map((bucket) => ({
+      dimension: bucket.dimension,
+      remaining: bucket.remaining ? projectManagedEconomicAmount(bucket.remaining) : null,
+      resetsAt: bucket.resetsAt,
+    })),
+  };
+}
+
+function freshnessForEvidence(
+  evidence: import("@kilnai/core").ManagedEconomicEvidenceIdentity,
+  at: Date,
+): "fresh" | "stale" | "unknown" {
+  const validUntil = Date.parse(evidence.validUntil);
+  const observedAt = Date.parse(evidence.observedAt);
+  if (!Number.isFinite(validUntil) || !Number.isFinite(observedAt)) return "unknown";
+  return at.getTime() <= validUntil && observedAt <= at.getTime() ? "fresh" : "stale";
+}
+
+function evidenceFreshnessOf(
+  settlement: ManagedEconomicSettlement | undefined,
+  providerAllowance: SessionManagedEconomicProviderAllowance | undefined,
+  at: Date,
+): "fresh" | "stale" | "missing" | "unknown" | undefined {
+  if (settlement && "evidence" in settlement && settlement.evidence) {
+    return freshnessForEvidence(settlement.evidence, at);
+  }
+  return providerAllowance?.evidenceFreshness;
+}
+
+function perChildConsumptionOf(
+  input: AppendManagedEconomicLifecycleSessionEventInput,
+  settledAmount: ReturnType<typeof comparableSettledAmount>,
+): SessionManagedEconomicChildConsumption | undefined {
+  if (!input.invocationId || !input.settlement || !("units" in input.settlement)) return undefined;
+  return {
+    childId: input.invocationId,
+    units: input.settlement.units.map(projectManagedEconomicAmount),
+    ...(settledAmount ? { settledAmount } : {}),
+    comparability: settledAmount ? "comparable" : "not-comparable",
+  };
+}
+
+function terminalCauseOf(
+  input: AppendManagedEconomicLifecycleSessionEventInput,
+): SessionManagedEconomicTerminalCause | undefined {
+  if (input.transition === "denied") {
+    if ((input.rejections ?? []).some((rejection) =>
+      rejection.stage === "economic-selection" && rejection.reason === "ceiling-exceeded")) {
+      return "spend-denial";
+    }
+    if ((input.rejections ?? []).some((rejection) =>
+      rejection.stage === "account-selection" && rejection.reason === "unhealthy")) {
+      return "provider-exhaustion";
+    }
+    if ((input.rejections ?? []).length === 0) return "unknown";
+    return "technical-failure";
+  }
+  if (input.transition === "release-failed" || input.transition === "leaked") return "technical-failure";
+  if (input.settlement?.kind === "unknown" || input.settlement?.kind === "leaked") {
+    return "technical-failure";
+  }
+  if (input.settlement?.kind === "charged" || input.settlement?.kind === "estimated"
+    || input.settlement?.kind === "subscription"
+    || input.settlement?.kind === "included" || input.settlement?.kind === "free") {
+    return "completed";
+  }
+  if (input.transition === "released") return "cancelled";
+  return undefined;
+}
+
+function selectionReasonOf(
+  commitment: ManagedEconomicCommitment | undefined,
+): SessionManagedEconomicSelectionReason {
+  if (!commitment) return "runtime-authority-selection";
+  const reasons = [
+    ...commitment.notSelected.map((candidate) => candidate.reason),
+    ...commitment.rejected.map(() => "rejected" as const),
+  ];
+  if (reasons.length === 0) return "only-admitted-target";
+  if (reasons.includes("higher-comparison-domain-rank") || reasons.includes("higher-priority-rank")) {
+    return "configured-target-order";
+  }
+  if (reasons.includes("higher-worst-case-reservation")) return "lower-comparable-reservation";
+  if (reasons.includes("stable-route-id-order") || reasons.includes("stable-capacity-identity-order")) {
+    return "stable-identity-order";
+  }
+  return "runtime-authority-selection";
 }
 
 function projectManagedEconomicRouteIdentity(
@@ -274,6 +451,7 @@ function projectManagedEconomicRouteIdentity(
     modelId: route.modelId,
     adapterCapabilityId: route.adapterCapabilityId,
     adapterCapabilityVersion: route.adapterCapabilityVersion,
+    ...(route.priceClass !== undefined ? { priceClass: route.priceClass } : {}),
   };
 }
 

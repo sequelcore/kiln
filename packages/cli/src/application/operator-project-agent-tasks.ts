@@ -95,6 +95,7 @@ function loadOperatorProjectManagedRouteConfig(
     executionCatalog: targetAuthority?.executionCatalog,
     executionTargetEvidence: targetAuthority?.evidence,
     targetCatalog: globalConfig?.targetCatalog,
+    targetRouting: globalConfig?.targetRouting,
     authorityProfiles: globalConfig?.authorityProfiles,
     engines: globalConfig?.engines,
   };
@@ -111,6 +112,10 @@ const REQUIRED_ADMISSION_PROFILE_ID = "foundation-readonly-plan";
 export interface CreateOperatorProjectAgentTaskApplicationCompositionOptions {
   readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
   readonly onRefreshError?: (error: unknown) => void;
+  /** Interactive approval used by ask-before-spend economic intents. */
+  readonly requestEconomicApproval?: (
+    description: string,
+  ) => Promise<{ readonly approved: boolean; readonly reason?: string }>;
   readonly projectPath: string;
   readonly managedAccountComposition?: NonNullable<ReturnType<typeof createManagedAccountRuntimeComposition>>;
 }
@@ -448,12 +453,13 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     profiles: {
       resolve: async (id) => {
         const agent = findAgent(await loadAgentDefinitions(root.rootPath), id);
-        if (!agent) return undefined;
         const current = await freshManagedInvocation();
         const catalogEntry = current.agentCatalog?.find(
-          (candidate) => candidate.name === agent.name,
+          (candidate) => candidate.name === id,
         );
-        if (!agent.economicPolicyId) {
+        if (!agent && !catalogEntry?.economicPolicyId) return undefined;
+        if (!catalogEntry?.economicPolicyId) {
+          if (!agent) return undefined;
           const nativeRoute = resolveNativeHarnessRouteForAgent(agent, current.routes);
           if (!nativeRoute || !catalogEntry?.routeId) return undefined;
           const admissionProfileId = catalogEntry.admissionProfile;
@@ -474,13 +480,17 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         }
         return {
           kind: "economic" as const,
-          id: agent.name,
+          id,
           authorityProfileId: catalogEntry.authorityProfileId,
           economicPolicyId: catalogEntry.economicPolicyId,
           economicPolicyRevision: catalogEntry.economicPolicyRevision,
           admissionProfileId: catalogEntry.admissionProfile,
+          ...(catalogEntry.economicSpendApproval
+            ? { economicSpendApproval: catalogEntry.economicSpendApproval }
+            : {}),
+          ...(catalogEntry.workLimits ? { workLimits: catalogEntry.workLimits } : {}),
           constraints: {
-            ...(agent.targetId ? { routeId: agent.targetId } : {}),
+            ...(agent?.targetId ? { routeId: agent.targetId } : {}),
           },
         };
       },
@@ -688,7 +698,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       },
     },
     economicExecution: {
-      execute: async ({ job, preparation, consumedWriteApproval }) => {
+      execute: async ({ job, preparation, consumedWriteApproval, workLimits }) => {
         if (!managedAccountComposition) {
           throw new AgentTaskApplicationError("route_unavailable", "Restore the process-owned managed economic Runtime authority.");
         }
@@ -789,6 +799,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
           ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
         }, {
           abortSignal: preparation.abortSignal,
+          ...(workLimits ? { workLimits } : {}),
           ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
           economicDispatch: {
             commitment: preparation.commitment,
@@ -841,6 +852,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     },
     commitmentRecovery,
     store: agentTaskStore,
+    ...(options.requestEconomicApproval ? { requestEconomicApproval: options.requestEconomicApproval } : {}),
   });
   const dispatcher = new OperatorProjectAgentTaskDispatcher(service);
   const recoveredJobs = await service.recoverInterrupted();
@@ -1234,7 +1246,7 @@ export function summarizeOperatorProjectManagedAgents(
       ...(agent.role ? { role: agent.role } : {}),
       admissionProfileId,
     };
-    if (!agent.economicPolicyId) {
+    if (!catalogEntry?.economicPolicyId) {
       const nativeRoute = resolveNativeHarnessRouteForAgent(agent, resolution?.routes ?? []);
       if (nativeRoute && catalogEntry
         && resolveConfiguredManagedInvocationRouteProfile(nativeRoute, catalogEntry, admissionProfileId)) {
@@ -1253,9 +1265,7 @@ export function summarizeOperatorProjectManagedAgents(
         operatorAction: "Restore the exact configured native-harness route and its read-only admission profile.",
       }];
     }
-    const economicCatalogEntry = catalogEntry?.economicPolicyId === agent.economicPolicyId
-      ? catalogEntry
-      : undefined;
+    const economicCatalogEntry = catalogEntry;
     const policyRouteIds = new Set(
       economicCatalogEntry?.economicPolicyCandidateRouteIds ?? [],
     );
@@ -1291,7 +1301,7 @@ export function summarizeOperatorProjectManagedAgents(
       ...base,
       availability: "unavailable",
       diagnostic: "route_unavailable",
-      operatorAction: "Restore at least one non-economically admitted route in the configured economic policy.",
+      operatorAction: "Restore at least one admitted route for the configured managed-agent intent.",
     }];
   });
 }

@@ -7,14 +7,14 @@ import {
 
 /**
  * Canonical V4 global config: a runtime-selected `codex-standard` target
- * covered by a matching economic policy. Shared by
- * `managed-economic-policy-config.test.ts` (schema/runtime
+ * selected by bounded managed-agent intent. Shared by
+ * `managed-agent-intent-config.test.ts` (schema/runtime
  * validation of this shape) and `operator-project-agent-tasks-runtime-config.test.ts`
  * (the real native-harness composition boundary), so both exercise the exact
  * same valid fixture rather than two independently drifting copies.
  */
-export function economicConfig(): KilnGlobalConfig {
-  const evidence = economicTargetEvidence();
+export function managedAgentIntentConfig(): KilnGlobalConfig {
+  const evidence = managedAgentTargetEvidence();
   return {
     version: "4",
     workGovernance: {
@@ -24,45 +24,14 @@ export function economicConfig(): KilnGlobalConfig {
     },
     managedAgents: {
       defaultAuthorityProfileId: "readonly-plan",
-      economicPolicies: [{
-        id: "default-economic-policy",
-        revision: "rev-2026-07",
-        evidenceRequirements: {
-          quota: "required-for-account-bound",
-          price: "required",
-        },
-        noRouteAction: "deny",
-        comparisonDomains: [{
-          id: "usd-worst-case",
-          rank: 0,
-          unit: "request",
-          scheme: { kind: "currency", currency: "USD" },
-          rateCardBasis: "public-rate-card",
-          envelopeSemantics: "configured-upper-bound",
-        }],
-        candidates: [{
-          targetId: "codex-standard",
-          comparisonDomainId: "usd-worst-case",
-          priorityRank: 0,
-          ceiling: {
-            kind: "finite",
-            amount: {
-              atoms: "25",
-              scale: 0,
-              unit: "request",
-              scheme: { kind: "currency", currency: "USD" },
-            },
-          },
-          worstCaseReservation: {
-            kind: "exact",
-            amount: {
-              atoms: "25",
-              scale: 0,
-              unit: "request",
-              scheme: { kind: "currency", currency: "USD" },
-            },
-          },
-        }],
+      intents: [{
+        id: "economic-worker",
+        purpose: "Review the requested change and report bounded findings.",
+        authorityProfileId: "readonly-plan",
+        target: { mode: "explicit", targetId: "codex-standard" },
+        model: { mode: "explicit", modelId: "gpt-5.6-codex" },
+        workLimits: { maxTurns: 4, maxDurationMs: 120000, maxConcurrency: 1 },
+        paidUsage: "ask-before-spend",
       }],
     },
     authorityProfiles: [{
@@ -119,7 +88,7 @@ export function economicConfig(): KilnGlobalConfig {
   };
 }
 
-export function economicTargetEvidence(): ExecutionTargetEvidenceSnapshot {
+export function managedAgentTargetEvidence(): ExecutionTargetEvidenceSnapshot {
   return {
     version: 1,
     accounts: [{
@@ -193,11 +162,11 @@ export function economicTargetEvidence(): ExecutionTargetEvidenceSnapshot {
   };
 }
 
-export function economicExecutionCatalog() {
-  const config = economicConfig();
+export function managedAgentExecutionCatalog() {
+  const config = managedAgentIntentConfig();
   return projectExecutionCatalogFromIntent(
     config.targetCatalog!,
-    economicTargetEvidence(),
+    managedAgentTargetEvidence(),
     config.targetCatalog!.evidenceRevision,
     { now: new Date("2026-08-20T00:00:00.000Z") },
   );

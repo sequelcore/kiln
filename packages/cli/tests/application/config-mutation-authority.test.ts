@@ -1000,7 +1000,7 @@ describe("config mutation authority", () => {
       "role: Reviewer",
       "goal: Review changes",
       "tier: reasoning",
-      "economicPolicyId: policy-abc",
+      "authorityProfileId: readonly-plan",
       "targetId: target-abc",
       "nicknameCandidates:",
       "  - rev",
@@ -1023,7 +1023,7 @@ describe("config mutation authority", () => {
 
     expect(result.settlement.outcome).toBe("committed");
     const written = readFileSync(agentPath, "utf-8");
-    expect(written).toContain("economicPolicyId: policy-abc");
+    expect(written).toContain("authorityProfileId: readonly-plan");
     expect(written).toContain("targetId: target-abc");
     expect(written).toContain("rev");
     expect(written).toContain("sequel-engineering");

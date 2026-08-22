@@ -636,6 +636,20 @@ describe("ManagedAgentCockpitPanel", () => {
             adapterCapabilityId: "gui-fixture-adapter",
             adapterCapabilityVersion: "1",
           },
+          selectedTarget: {
+            targetId: "gui-fixture-route",
+            providerId: "codex-oauth",
+            modelId: "gpt-test",
+            reason: "only-admitted-target",
+          },
+          billingClass: "metered",
+          providerAllowance: { status: "available", evidenceFreshness: "fresh" },
+          workLimitProgress: { dimension: "turns", consumed: 2, limit: 4, status: "within-limit" },
+          reservedAmount: { atoms: "25", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+          settledAmount: { atoms: "12", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+          perChildConsumption: [{ childId: "child-gui", comparability: "comparable" }],
+          evidenceFreshness: "fresh",
+          terminalCause: "completed",
         },
       }],
     });
@@ -647,6 +661,15 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText("managed-economic-job:gui-fixture")).toBeVisible();
     expect(screen.getByText("held")).toBeVisible();
     expect(screen.getByText("route codex-oauth/gpt-test")).toBeVisible();
+    expect(screen.getByText("target gui-fixture-route · only-admitted-target")).toBeVisible();
+    expect(screen.getByText("billing metered")).toBeVisible();
+    expect(screen.getByText("allowance available · fresh")).toBeVisible();
+    expect(screen.getByText("work turns 2/4")).toBeVisible();
+    expect(screen.getByText("reserved 25e-2 request USD")).toBeVisible();
+    expect(screen.getByText("settled 12e-2 request USD")).toBeVisible();
+    expect(screen.getByText("children child-gui[none]")).toBeVisible();
+    expect(screen.getByText("evidence fresh")).toBeVisible();
+    expect(screen.getByText("terminal completed")).toBeVisible();
     expect(view.managedAgents.items).toHaveLength(0);
     expect(screen.queryByLabelText("Unprojectable evidence")).toBeNull();
   });

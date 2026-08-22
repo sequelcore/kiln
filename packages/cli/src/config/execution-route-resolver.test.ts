@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "./execution-route-resolver.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import {
-  economicConfig,
-} from "../../tests/config/managed-economic-policy-config-fixture.js";
+  managedAgentIntentConfig,
+} from "../../tests/config/managed-agent-intent-config-fixture.js";
 import { syntheticExecutionCatalog } from "../../tests/config/execution-target-evidence-fixture.js";
 
-const fixture = economicConfig();
+const fixture = managedAgentIntentConfig();
 const standardTarget = fixture.targetCatalog!.targets[0]!;
 const config: KilnGlobalConfig = {
   ...fixture,

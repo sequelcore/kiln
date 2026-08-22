@@ -193,6 +193,8 @@ export interface ManagedEconomicRouteIdentity {
   readonly rateCardId: string;
   readonly rateCardRevision: string;
   readonly priceEvidenceDigest: string;
+  /** Price class known from the committed route evidence, before settlement. */
+  readonly priceClass?: ManagedEconomicClass;
   readonly unit: string;
   readonly scheme: ManagedEconomicScheme;
   readonly contextClass: string;

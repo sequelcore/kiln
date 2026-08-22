@@ -1153,6 +1153,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
             <SettingsPage
               section={settingsSection}
               snapshot={settingsQuery.data ?? null}
+              economicAttempts={settingsSection === "usage-and-limits" ? managedAgentEconomicAttempts : undefined}
               loading={Boolean(settingsQuery.isLoading || settingsQuery.isFetching)}
               error={settingsQuery.error instanceof Error ? settingsQuery.error : null}
               onRefresh={() => settingsQuery.refetch()}

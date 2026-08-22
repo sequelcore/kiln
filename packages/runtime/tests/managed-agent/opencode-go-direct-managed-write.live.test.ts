@@ -286,21 +286,20 @@ function liveAgentDefinition(): string {
     "mode: managed-child",
     `targetId: ${targetId}`,
     `authorityProfileId: ${target.authorityProfileId}`,
-    `economicPolicyId: ${target.economicPolicyId}`,
     "---",
     "Live proof only.",
     "",
   ].join("\n");
 }
 
-function assertLiveTarget(targetId: string): { readonly authorityProfileId: string; readonly economicPolicyId: string } {
+function assertLiveTarget(targetId: string): { readonly authorityProfileId: string } {
   const config = readGlobalConfig();
   const target = config?.targetCatalog?.targets.find((candidate) => candidate.id === targetId);
   const authorityProfile = config?.authorityProfiles?.find(
     (candidate) => candidate.admissionProfile === "foundation-apply-approved-writes",
   );
-  const economicPolicy = config?.managedAgents?.economicPolicies?.find(
-    (candidate) => candidate.candidates.some((candidateTarget) => candidateTarget.targetId === targetId),
+  const intent = config?.managedAgents?.intents?.find(
+    (candidate) => candidate.target?.mode === "explicit" && candidate.target.targetId === targetId,
   );
   if (
     !target
@@ -313,9 +312,9 @@ function assertLiveTarget(targetId: string): { readonly authorityProfileId: stri
     || authorityProfile.tools?.network !== false
     || authorityProfile.writeAuthority?.workspace.mode !== "apply-approved"
     || authorityProfile.writeAuthority.approval.mode !== "required-before-apply"
-    || !economicPolicy
+    || !intent
   ) {
     throw new Error("Live proof requires one account-leased opencode-go direct approved-write target and authority profile.");
   }
-  return { authorityProfileId: authorityProfile.id, economicPolicyId: economicPolicy.id };
+  return { authorityProfileId: authorityProfile.id };
 }

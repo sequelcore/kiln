@@ -86,6 +86,10 @@ import type {
   KilnDeliberationPolicyConfig,
 } from "../kiln-yaml-types.js";
 import type { ExecutionTargetEvidenceSnapshot } from "./execution-target-evidence-store.js";
+import {
+  deriveManagedAgentEconomicPolicies,
+  type DerivedManagedAgentEconomicPolicy,
+} from "./managed-agent-intent.js";
 import type {
   ProviderCreateConfig,
   ProviderId,
@@ -261,6 +265,7 @@ export interface ManagedAgentRouteConfigSource {
   readonly executionCatalog?: ExecutionCatalog;
   readonly executionTargetEvidence?: ExecutionTargetEvidenceSnapshot;
   readonly targetCatalog?: KilnTargetCatalogIntentConfig;
+  readonly targetRouting?: { readonly defaultTargetId: string };
   readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
 }
@@ -297,7 +302,12 @@ export async function projectManagedEconomicJobAdoption(
   const managed = config.managedAgents;
   const executionCatalog = resolveSourceExecutionCatalog(config);
   const dispatch = job.dispatch;
-  const policy = managed?.economicPolicies?.find((entry) =>
+  const policy = deriveManagedAgentEconomicPolicies({
+    managedAgents: managed,
+    executionCatalog,
+    defaultTargetId: config.targetRouting?.defaultTargetId,
+    targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+  }).find((entry) =>
     entry.id === dispatch.economicPolicyId && entry.revision === dispatch.economicPolicyRevision);
   if (!managed || !policy || !executionCatalog) {
     throw new AgentTaskApplicationError(
@@ -399,6 +409,7 @@ export async function projectManagedEconomicJobAdoption(
           rateCardId: economics.priceEvidence.rateCardId,
           rateCardRevision: economics.priceEvidence.rateCardRevision,
           priceEvidenceDigest: economics.priceEvidence.evidence.sourceDigest,
+          priceClass: economics.priceEvidence.kind,
           unit: domain.basis.unit,
           scheme: domain.basis.scheme,
           contextClass: economics.contextClass,
@@ -613,11 +624,17 @@ export async function resolveManagedInvocationToolOptions(
   const userHome = context.userHome ?? homedir();
   const agentDefinitions = await loadAgentDefinitions(context.cwd, { userHome });
   mark("managed-route-agents-loaded", { count: agentDefinitions.length });
-  const configuredAgentDefinitions = agentDefinitions;
+  const configuredAgentDefinitions = mergeManagedAgentIntentDefinitions(agentDefinitions, config.managedAgents);
+  const derivedEconomicPolicies = deriveManagedAgentEconomicPolicies({
+    managedAgents: config.managedAgents,
+    executionCatalog: config.executionCatalog,
+    defaultTargetId: config.targetRouting?.defaultTargetId,
+    targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+  });
   const economicPolicyHealth = validateManagedAgentEconomicPolicyBindings(
     configuredAgentDefinitions,
     routeConfigs,
-    config.managedAgents,
+    derivedEconomicPolicies,
   );
   const economicPolicyHealthByAgent = new Map(
     economicPolicyHealth.map((health) => [health.agentName, health]),
@@ -626,7 +643,7 @@ export async function resolveManagedInvocationToolOptions(
   mark("managed-route-skills-loaded", { count: skillCatalog.length });
 
   let routeIndex = 0;
-  const economicPolicyIdsByRoute = managedEconomicPolicyIdsByRoute(config.managedAgents);
+  const economicPolicyIdsByRoute = managedEconomicPolicyIdsByRoute(derivedEconomicPolicies);
   const economicCapabilityByRoute = managedEconomicCapabilitiesByRoute(
     config,
     routeConfigs.map((projection) => projection.routeConfig),
@@ -674,10 +691,22 @@ export async function resolveManagedInvocationToolOptions(
     const policyHealth = economicPolicyHealthByAgent.get(agent.name);
     return policyHealth
       ? { health: policyHealth }
-      : projectManagedAgentCatalogEntry(agent, routes, config);
+      : projectManagedAgentCatalogEntry(
+          agent,
+          routes,
+          config,
+          derivedEconomicPolicies.find((candidate) => candidate.intentId === agent.name),
+        );
   });
   const agentCatalog = agentProjections.flatMap((projection) => projection.entry ? [projection.entry] : []);
   const agentHealth = agentProjections.flatMap((projection) => projection.health ? [projection.health] : []);
+  const configuredConcurrencyLimits = agentCatalog
+    .map((entry) => entry.workLimits?.maxConcurrency)
+    .filter((limit): limit is number => limit !== undefined);
+  const maxParallelChildren = Math.min(
+    context.maxParallelChildren ?? 1,
+    ...(configuredConcurrencyLimits.length > 0 ? configuredConcurrencyLimits : [Number.POSITIVE_INFINITY]),
+  );
 
   const unavailableRoutes = routeHealth
     .filter((route) => !route.available)
@@ -756,7 +785,7 @@ export async function resolveManagedInvocationToolOptions(
     ...(shouldExposeManagedInvocation ? {
       managedInvocation: {
         routes,
-        maxParallelChildren: context.maxParallelChildren ?? 1,
+        maxParallelChildren,
         ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
         ...(skillCatalog.length > 0 ? { skillCatalog } : {}),
         ...(unavailableRoutes.length > 0 ? { unavailableRoutes } : {}),
@@ -855,7 +884,13 @@ function createManagedEconomicDispatchWithAuthority(
         authorityProfileId: input.authorityProfileId,
         invocationId: input.invocationId,
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+        ...(input.workLimitDurationMs !== undefined
+          ? { workLimitDurationMs: input.workLimitDurationMs }
+          : {}),
         ...(input.lifecycleEvents ? { lifecycleEvents: input.lifecycleEvents } : {}),
+        ...(input.validateAndConsumeApprovalBeforeFence
+          ? { validateAndConsumeApprovalBeforeFence: input.validateAndConsumeApprovalBeforeFence }
+          : {}),
         ...(input.validateExecutionProfile ? { validateExecutionProfile: input.validateExecutionProfile } : {}),
       });
     },
@@ -865,30 +900,30 @@ function createManagedEconomicDispatchWithAuthority(
 function validateManagedAgentEconomicPolicyBindings(
   agents: readonly KilnAgentDefinition[],
   routeConfigs: readonly ManagedAgentRouteConfigProjection[],
-  managedAgents: KilnManagedAgentsConfig | undefined,
+  policies: readonly DerivedManagedAgentEconomicPolicy[],
 ): readonly ManagedAgentProfileHealth[] {
-  if (!managedAgents?.economicPolicies) return [];
-  const policies = new Map(managedAgents.economicPolicies.map((policy) => [policy.id, policy]));
+  const policiesByIntent = new Map(policies.map((policy) => [policy.intentId, policy]));
   const configuredRoutes = new Map(routeConfigs.map((route) => [route.routeConfig.id, route.routeConfig]));
   const failures: ManagedAgentProfileHealth[] = [];
   for (const agent of agents) {
     if (agent.mode !== "managed-child" && agent.mode !== "all") continue;
     const configuredRoute = agent.targetId ? configuredRoutes.get(agent.targetId) : undefined;
     if (configuredRoute?.kind === "harness") continue;
-    if (!agent.economicPolicyId) {
-      failures.push({
-        agentName: agent.name,
-        available: false,
-        reason: "Managed agent schema v2 requires an explicit economicPolicyId.",
-      });
-      continue;
-    }
-    const policy = policies.get(agent.economicPolicyId);
+    const policy = policiesByIntent.get(agent.name);
     if (!policy) {
       failures.push({
         agentName: agent.name,
         available: false,
-        reason: `Agent references unknown economic policy '${agent.economicPolicyId}'.`,
+        reason: "Managed agent requires a bounded intent with target/model and paid-usage posture.",
+      });
+      continue;
+    }
+    if (policy.candidates.length === 0) {
+      failures.push({
+        agentName: agent.name,
+        available: false,
+        reason: policy.unavailableReason
+          ?? `Managed agent intent '${agent.name}' has no admitted target with comparable current economics.`,
       });
       continue;
     }
@@ -898,7 +933,7 @@ function validateManagedAgentEconomicPolicyBindings(
         agentName: agent.name,
         available: false,
         routeId: agent.targetId,
-        reason: `Agent target '${agent.targetId}' is not admitted by economic policy '${policy.id}'.`,
+        reason: `Agent target '${agent.targetId}' is not admitted by its managed intent.`,
       });
       continue;
     }
@@ -906,11 +941,33 @@ function validateManagedAgentEconomicPolicyBindings(
   return failures;
 }
 
-function managedEconomicPolicyIdsByRoute(
+/** Intent-only managed agents do not require a second `.kiln/agents` authoring file. */
+function mergeManagedAgentIntentDefinitions(
+  definitions: readonly KilnAgentDefinition[],
   managedAgents: KilnManagedAgentsConfig | undefined,
+): readonly KilnAgentDefinition[] {
+  const byName = new Map(definitions.map((definition) => [definition.name, definition]));
+  for (const intent of managedAgents?.intents ?? []) {
+    if (byName.has(intent.id)) continue;
+    byName.set(intent.id, {
+      name: intent.id,
+      role: intent.purpose,
+      goal: intent.purpose,
+      tier: "fast",
+      mode: "managed-child",
+      authorityProfileId: intent.authorityProfileId,
+      scope: "global",
+      ...(intent.workLimits ? { workLimits: intent.workLimits } : {}),
+    });
+  }
+  return [...byName.values()];
+}
+
+function managedEconomicPolicyIdsByRoute(
+  policies: readonly DerivedManagedAgentEconomicPolicy[],
 ): ReadonlyMap<string, readonly string[]> {
   const idsByRoute = new Map<string, string[]>();
-  for (const policy of managedAgents?.economicPolicies ?? []) {
+  for (const policy of policies) {
     for (const candidate of policy.candidates) {
       const ids = idsByRoute.get(candidate.targetId) ?? [];
       ids.push(policy.id);
@@ -971,6 +1028,7 @@ function projectManagedAgentCatalogEntry(
   agent: KilnAgentDefinition,
   routes: readonly ManagedInvocationToolRoute[],
   config: ManagedAgentRouteConfigSource,
+  derivedPolicy?: DerivedManagedAgentEconomicPolicy,
 ): { readonly entry?: ManagedInvocationAgentCatalogEntry; readonly health?: ManagedAgentProfileHealth } {
   const explicitRouteHealth = validateExplicitAgentRoute(agent, routes, config.authorityProfiles);
   if (explicitRouteHealth) {
@@ -978,6 +1036,7 @@ function projectManagedAgentCatalogEntry(
   }
   const routeHint = resolveAgentRouteHint(agent, routes);
   const admissionProfile = resolveAgentAdmissionProfile(agent, config.authorityProfiles)!;
+  const intent = config.managedAgents?.intents?.find((candidate) => candidate.id === agent.name);
   return {
     entry: {
       name: agent.name,
@@ -990,16 +1049,19 @@ function projectManagedAgentCatalogEntry(
       admissionProfile,
       ...(agent.skills ? { skills: agent.skills } : {}),
       ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
-      ...(agent.economicPolicyId
-        ? {
-            economicPolicyId: agent.economicPolicyId,
-            economicPolicyRevision: config.managedAgents?.economicPolicies?.find(
-              (policy) => policy.id === agent.economicPolicyId,
-            )?.revision,
-            economicPolicyCandidateRouteIds: config.managedAgents?.economicPolicies?.find(
-              (policy) => policy.id === agent.economicPolicyId,
-            )?.candidates.map((candidate) => candidate.targetId),
-          }
+      ...(() => {
+        const policy = derivedPolicy;
+        return policy
+          ? {
+              economicPolicyId: policy.id,
+              economicPolicyRevision: policy.revision,
+              economicPolicyCandidateRouteIds: policy.candidates.map((candidate) => candidate.targetId),
+            }
+          : {};
+      })(),
+      ...(intent?.workLimits ? { workLimits: intent.workLimits } : {}),
+      ...(intent && (intent.paidUsage === "ask-before-spend" || intent.paidUsage === undefined)
+        ? { economicSpendApproval: "required" as const }
         : {}),
       ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
       ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
@@ -1070,7 +1132,7 @@ function resolveAgentRouteHint(
   if (explicit) {
     return routeHint(explicit);
   }
-  if (agent.economicPolicyId) {
+  if (agent.mode === "managed-child" || agent.mode === "all") {
     return undefined;
   }
   const scored = routes

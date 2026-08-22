@@ -8,8 +8,10 @@ import type {
   KilnSettingsProposalProjection,
   KilnSettingsProposalRequest,
   KilnSettingsSnapshot,
+  OperatorCockpitEconomicAttemptProjection,
 } from "@kilnai/gateway-contracts";
 import { KilnSettingsSnapshotSchema } from "@kilnai/gateway-contracts";
+import { formatOperatorManagedEconomicAmount } from "@kilnai/gateway-contracts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,8 @@ interface SettingsPageProps {
   readonly leadingContent?: ReactNode;
   readonly trailingContent?: ReactNode;
   readonly onOpenYaml?: () => void;
+  /** Runtime-owned, secret-free managed economic evidence from the shared cockpit projection. */
+  readonly economicAttempts?: readonly OperatorCockpitEconomicAttemptProjection[];
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -177,8 +181,29 @@ export function SettingsPage(props: SettingsPageProps) {
           <h3 id="economic-evidence-heading" className="text-sm font-medium text-foreground">Provider usage evidence</h3>
           <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
             Allowance, reset, observed usage, estimates, reservations, settlements, freshness, and confidence are read-only.
-            No owning runtime evidence is reported in this settings snapshot; absent evidence never means zero usage or available spend.
+            Evidence below is projected from Runtime-owned managed-run events; absent evidence never means zero usage or available spend.
           </p>
+          {props.economicAttempts && props.economicAttempts.length > 0 ? (
+            <>
+              {props.economicAttempts.length > 5 ? (
+                <p className="mt-3 text-xs text-muted-foreground">Showing 5 of {props.economicAttempts.length} managed-run attempts.</p>
+              ) : null}
+              <ul className="mt-3 grid gap-2 font-mono text-xs text-muted-foreground">
+              {props.economicAttempts.slice(0, 5).map((attempt) => (
+                <li key={`${attempt.instanceId}:${attempt.sessionId}:${attempt.jobId}`} className="rounded-md border border-border/60 px-3 py-2">
+                  <span className="text-foreground">{attempt.selectedTarget?.targetId ?? attempt.selectedRoute?.routeId ?? "target unavailable"}</span>
+                  {attempt.billingClass ? ` · billing ${attempt.billingClass}` : ""}
+                  {attempt.reservedAmount ? ` · reserved ${formatOperatorManagedEconomicAmount(attempt.reservedAmount)}` : ""}
+                  {attempt.settledAmount ? ` · settled ${formatOperatorManagedEconomicAmount(attempt.settledAmount)}` : ""}
+                  {attempt.evidenceFreshness ? ` · evidence ${attempt.evidenceFreshness}` : ""}
+                  {attempt.terminalCause ? ` · ${attempt.terminalCause}` : ""}
+                </li>
+              ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">No managed-run economic evidence is available in the current session.</p>
+          )}
         </section>
       ) : null}
 

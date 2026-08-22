@@ -29,6 +29,7 @@ import {
   resolveManagedInvocationToolOptions,
   type ManagedAgentRouteConfigSource,
 } from "../../src/config/managed-agent-routes.js";
+import { deriveManagedAgentEconomicPolicies } from "../../src/config/managed-agent-intent.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import {
   normalizeRuntimeProviderDiscoveryCatalog,
@@ -513,35 +514,21 @@ function testExecutionIdentity(targetId: string): {
   return { providerId: "codex-oauth", providerModelId: "gpt-5.4-mini" };
 }
 
-// Minimal economic-policy coverage for a direct route under test. Direct
-// routes now fail route health unconditionally without at least one
-// covering policy (H1/H2 closure); this fixture exists purely to keep
-// unrelated route-composition tests exercising their own concern instead of
-// tripping the policy-coverage gate.
-function economicPolicyCovering(
+// Minimal managed-agent intent coverage for a direct route under test. Direct
+// routes fail route health without a derived intent candidate; this fixture
+// keeps unrelated route-composition tests focused on their own concern.
+function managedAgentIntentCovering(
   targetIds: readonly string[],
-  policyId = "test-coverage-policy",
-): NonNullable<KilnGlobalConfig["managedAgents"]>["economicPolicies"] {
+  intentId = "test-coverage-intent",
+): NonNullable<KilnGlobalConfig["managedAgents"]>["intents"] {
   return [{
-    id: policyId,
-    revision: "rev-1",
-    evidenceRequirements: { quota: "optional", price: "optional" },
-    noRouteAction: "deny",
-    comparisonDomains: [{
-      id: "priority-only",
-      rank: 0,
-      unit: "request",
-      scheme: { kind: "unit" },
-      rateCardBasis: "configured",
-      envelopeSemantics: "bounded",
-    }],
-    candidates: targetIds.map((targetId, priorityRank) => ({
-      targetId,
-      comparisonDomainId: "priority-only",
-      priorityRank,
-      ceiling: { kind: "none" as const },
-      worstCaseReservation: { kind: "not-comparable" as const, reason: "subscription-basis" as const },
-    })),
+    id: intentId,
+    purpose: "Run the bounded managed-agent route composition fixture.",
+    authorityProfileId: "authority:foundation-readonly-plan",
+    target: targetIds.length === 1
+      ? { mode: "explicit" as const, targetId: targetIds[0]! }
+      : { mode: "inherited" as const },
+    paidUsage: "ask-before-spend" as const,
   }];
 }
 
@@ -808,7 +795,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("creates a managed invocation service for catalog-selected account routes without worktree leases", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
-        economicPolicies: economicPolicyCovering(["openai-readonly"]),
+        intents: managedAgentIntentCovering(["openai-readonly"]),
         targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
@@ -1034,7 +1021,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("derives account-leased credential evidence and service keys from the execution catalog", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
-        economicPolicies: economicPolicyCovering(["openai-readonly"]),
+        intents: managedAgentIntentCovering(["openai-readonly"]),
         targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
@@ -1084,7 +1071,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("admits direct sandbox working-directory routes with a shared sandbox lease manager", async () => {
     validateGlobalConfig(persistedConfig(baseConfig({
-      economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
+      intents: managedAgentIntentCovering(["codex-oauth-sandbox-readonly"]),
       targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
@@ -1094,7 +1081,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     })));
 
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
+      intents: managedAgentIntentCovering(["codex-oauth-sandbox-readonly"]),
       targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
@@ -1406,29 +1393,15 @@ describe("resolveManagedInvocationToolOptions", () => {
         "---",
         "Remain within the configured economic policy.",
       ].filter(Boolean).join("\n"));
-      const economicPolicies = [{
-        id: "bounded-policy",
-        revision: "rev-1",
-        evidenceRequirements: { quota: "optional" as const, price: "optional" as const },
-        noRouteAction: "deny" as const,
-        comparisonDomains: [{
-          id: "priority-only",
-          rank: 0,
-          unit: "request",
-          scheme: { kind: "unit" as const },
-          rateCardBasis: "configured",
-          envelopeSemantics: "bounded",
-        }],
-        candidates: [{
-          targetId: "admitted-route",
-          comparisonDomainId: "priority-only",
-          priorityRank: 0,
-          ceiling: { kind: "none" as const },
-          worstCaseReservation: { kind: "not-comparable" as const, reason: "economic-basis-unavailable" as const },
-        }],
+      const intents = [{
+        id: "economic-worker",
+        purpose: "Run only policy-admitted work.",
+        authorityProfileId: "authority:foundation-readonly-plan",
+        target: { mode: "explicit" as const, targetId: "admitted-route" },
+        paidUsage: "ask-before-spend" as const,
       }];
       const config = baseConfig({
-        economicPolicies,
+        intents,
         targetFixtures: [{
           id: "admitted-route",
           kind: "direct",
@@ -1441,6 +1414,9 @@ describe("resolveManagedInvocationToolOptions", () => {
           profiles: ["foundation-readonly-plan"],
         }],
       });
+      // Start without the intent to prove the affected agent is isolated;
+      // restore the exact intent before testing a widening target hint.
+      (config.managedAgents as { intents?: typeof intents }).intents = [];
       let adapterConstructions = 0;
       const resolve = () => resolveManagedInvocationToolOptions(config, {
         cwd: root,
@@ -1462,11 +1438,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       expect(missing.agentHealth).toContainEqual(expect.objectContaining({
         agentName: "economic-worker",
         available: false,
-        reason: expect.stringContaining("economicPolicyId"),
+        reason: expect.stringContaining("bounded intent"),
       }));
       expect(missing.routeHealth).toContainEqual(expect.objectContaining({
         routeId: "admitted-route",
-        available: true,
+        available: false,
+        reason: expect.stringContaining("no covering economic policy"),
       }));
       expect(missing.managedInvocation?.agentCatalog ?? []).not.toContainEqual(expect.objectContaining({
         name: "economic-worker",
@@ -1477,7 +1454,8 @@ describe("resolveManagedInvocationToolOptions", () => {
       }));
       expect(adapterConstructions).toBe(0);
 
-      writeAgent("economicPolicyId: bounded-policy", "targetId: outside-policy");
+      (config.managedAgents as { intents?: typeof intents }).intents = intents;
+      writeAgent("", "targetId: outside-policy");
       const widening = await resolve();
       expect(widening.agentHealth).toContainEqual(expect.objectContaining({
         agentName: "economic-worker",
@@ -1514,31 +1492,16 @@ describe("resolveManagedInvocationToolOptions", () => {
         "tier: reasoning",
         "mode: managed-child",
         "authorityProfileId: authority:foundation-readonly-plan",
-        "economicPolicyId: bounded-policy",
         "---",
         "Remain within the configured economic policy.",
       ].join("\n"));
       const result = await resolveManagedInvocationToolOptions(baseConfig({
-        economicPolicies: [{
-          id: "bounded-policy",
-          revision: "rev-1",
-          evidenceRequirements: { quota: "optional", price: "optional" },
-          noRouteAction: "deny",
-          comparisonDomains: [{
-            id: "priority-only",
-            rank: 0,
-            unit: "request",
-            scheme: { kind: "unit" },
-            rateCardBasis: "configured",
-            envelopeSemantics: "bounded",
-          }],
-          candidates: [{
-            targetId: "admitted-route",
-            comparisonDomainId: "priority-only",
-            priorityRank: 0,
-            ceiling: { kind: "none" },
-            worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
-          }],
+        intents: [{
+          id: "economic-worker",
+          purpose: "Run only policy-admitted work.",
+          authorityProfileId: "authority:foundation-readonly-plan",
+          target: { mode: "explicit" as const, targetId: "admitted-route" },
+          paidUsage: "ask-before-spend" as const,
         }],
         targetFixtures: [{
           id: "admitted-route",
@@ -1569,26 +1532,12 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("rejects a committed route mismatch before constructing its adapter", async () => {
     const directAdapterFactory = vi.fn((_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId));
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      economicPolicies: [{
+      intents: [{
         id: "bounded-policy",
-        revision: "rev-1",
-        evidenceRequirements: { quota: "optional", price: "optional" },
-        noRouteAction: "deny",
-        comparisonDomains: [{
-          id: "priority-only",
-          rank: 0,
-          unit: "request",
-          scheme: { kind: "unit" },
-          rateCardBasis: "configured",
-          envelopeSemantics: "bounded",
-        }],
-        candidates: [{
-          targetId: "admitted-route",
-          comparisonDomainId: "priority-only",
-          priorityRank: 0,
-          ceiling: { kind: "none" },
-          worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
-        }],
+        purpose: "Run only policy-admitted work.",
+        authorityProfileId: "authority:foundation-readonly-plan",
+        target: { mode: "explicit" as const, targetId: "admitted-route" },
+        paidUsage: "ask-before-spend" as const,
       }],
       targetFixtures: [{
         id: "admitted-route",
@@ -1646,7 +1595,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       ].join("\n"));
       const result = await resolveManagedInvocationToolOptions({
         ...baseConfig({
-          economicPolicies: economicPolicyCovering(["codex-oauth-reasoning-readonly", "codex-oauth-bounded-readonly"]),
+          intents: managedAgentIntentCovering(["codex-oauth-reasoning-readonly", "codex-oauth-bounded-readonly"]),
           targetFixtures: [{
             id: "codex-oauth-reasoning-readonly",
             kind: "direct",
@@ -1657,6 +1606,7 @@ describe("resolveManagedInvocationToolOptions", () => {
             profiles: ["foundation-readonly-plan"],
           }],
         }),
+        targetRouting: { defaultTargetId: "codex-oauth-bounded-readonly" },
         modelTaskSuitability: [{
           provider: "codex-oauth",
           model: "gpt-5.5",
@@ -1691,6 +1641,31 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
+  it("enforces the admitted managed-agent concurrency bound through maxParallelChildren", async () => {
+    const boundedIntent = (managedAgentIntentCovering(["codex-oauth-bounded-readonly"]) ?? [])[0];
+    if (!boundedIntent) throw new Error("managed-agent intent fixture did not produce a bounded intent");
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      intents: [{
+        ...boundedIntent,
+        workLimits: { maxConcurrency: 2 },
+      }],
+      targetFixtures: [{
+        id: "codex-oauth-bounded-readonly",
+        kind: "direct",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      maxParallelChildren: 4,
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) =>
+        makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
+    });
+    expect(result.managedInvocation?.maxParallelChildren).toBe(2);
+  });
+
   it("binds an explicit visual read-only route to a matching agent profile", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-visual-route-"));
     try {
@@ -1719,7 +1694,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
       const result = await resolveManagedInvocationToolOptions({
         ...baseConfig({
-          economicPolicies: economicPolicyCovering(["opencode-go-kimi-k2-6-readonly"]),
+          intents: managedAgentIntentCovering(["opencode-go-kimi-k2-6-readonly"]),
           targetFixtures: [{
             id: "opencode-go-kimi-k2-6-readonly",
             kind: "direct",
@@ -1850,7 +1825,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("resolves direct routes when the host supplies a direct runtime adapter factory", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      economicPolicies: economicPolicyCovering(["openai-readonly"]),
+      intents: managedAgentIntentCovering(["openai-readonly"]),
       targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
@@ -1879,7 +1854,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("resolves explicit Codex OAuth auto-review routes when direct discovery advertises the model", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      economicPolicies: economicPolicyCovering(["codex-oauth-auto-review-readonly"]),
+      intents: managedAgentIntentCovering(["codex-oauth-auto-review-readonly"]),
       targetFixtures: [{
         id: "codex-oauth-auto-review-readonly",
         kind: "direct",
@@ -2558,7 +2533,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("resolves explicit live-proven direct provider routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      economicPolicies: economicPolicyCovering(["codex-oauth-approved-write"]),
+      intents: managedAgentIntentCovering(["codex-oauth-approved-write"]),
       targetFixtures: [{
         id: "codex-oauth-approved-write",
         kind: "direct",
@@ -2665,7 +2640,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   // H1/H2 closure (issue #34): a configured direct route not covered by any
   // economic policy must fail route health at composition, not silently
-  // dispatch. This must hold when no economicPolicies are declared at all.
+  // dispatch. This must hold when no intents are declared at all.
   it("fails direct route health with a named reason when no economic policy covers it", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       targetFixtures: [{
@@ -2694,12 +2669,12 @@ describe("resolveManagedInvocationToolOptions", () => {
     }]);
   });
 
-  // Same closure, schema v2: the route exists and economicPolicies are
+  // Same closure, schema v2: the route exists and intents are
   // declared, but this specific route is simply never named as a candidate
   // in any of them.
   it("fails direct route health with a named reason when no economic policy covers it (schema v2, route not a candidate)", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      economicPolicies: economicPolicyCovering(["openai-covered"]),
+      intents: managedAgentIntentCovering(["openai-covered"]),
       targetFixtures: [{
         id: "openai-covered",
         kind: "direct",
@@ -2758,7 +2733,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("uses the one canonical target id for direct-target capacity resolution", async () => {
     const canonicalTargetId = "codex-luna";
     const config = baseConfig({
-      economicPolicies: economicPolicyCovering([canonicalTargetId]),
+      intents: managedAgentIntentCovering([canonicalTargetId]),
       targetFixtures: [{
         id: canonicalTargetId,
         kind: "direct",
@@ -2766,6 +2741,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       }],
     });
     const resolve = vi.fn(async () => []);
+    const policy = deriveManagedAgentEconomicPolicies({
+      managedAgents: config.managedAgents,
+      executionCatalog: config.executionCatalog,
+      targetEvidenceRevision: config.targetCatalog?.evidenceRevision,
+    })[0];
+    expect(policy).toBeDefined();
 
     await projectManagedEconomicJobAdoption(config, {
       projectId: "project-a",
@@ -2774,12 +2755,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       dispatch: {
         kind: "economic",
         economicAttemptId: "economic-attempt:canonical-target-001",
-        economicPolicyId: "test-coverage-policy",
-        economicPolicyRevision: "rev-1",
+        economicPolicyId: policy!.id,
+        economicPolicyRevision: policy!.revision,
         constraints: {},
         candidateSet: {
-          economicPolicyId: "test-coverage-policy",
-          economicPolicyRevision: "rev-1",
+          economicPolicyId: policy!.id,
+          economicPolicyRevision: policy!.revision,
           admissionProfileId: "foundation-readonly-plan",
           constraints: {},
           candidates: [{
@@ -2805,7 +2786,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("rejects a harness route named as an economic-policy candidate at config validation", () => {
     expect(() => validateGlobalConfig(persistedConfig(baseConfig({
-      economicPolicies: economicPolicyCovering(["codex-harness-readonly"]),
+      intents: managedAgentIntentCovering(["codex-harness-readonly"]),
       targetFixtures: [{
         id: "codex-harness-readonly",
         kind: "harness",
@@ -2813,6 +2794,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
       }],
-    })))).toThrow(/targetId must reference a direct target/u);
+    })))).toThrow(/targetId must reference an automatic direct target/u);
   });
 });

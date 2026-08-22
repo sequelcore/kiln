@@ -138,6 +138,11 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly request: ManagedAgentInvocationRequest;
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly abortSignal: AbortSignal;
+  readonly workLimits?: {
+    readonly maxTurns?: number;
+    readonly maxDurationMs?: number;
+    readonly maxConcurrency?: number;
+  };
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
   readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
   readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
@@ -188,6 +193,7 @@ export type ManagedAgentRuntimeInvocationTerminalObserver = (
 
 export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly abortSignal?: AbortSignal;
+  readonly workLimits?: ManagedAgentRuntimeInvocationInput["workLimits"];
   readonly terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
   readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
   /** Runtime-only identity for the attached surface that owns child cleanup. */
@@ -597,6 +603,7 @@ export class RuntimeManagedAgentInvocationService {
           adapter: executableAdapter,
           admission: cloneJson(registeredDecision),
           abortSignal: abortController.signal,
+          ...(lifecycleOptions.workLimits ? { workLimits: lifecycleOptions.workLimits } : {}),
           promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
           progressObserver: (event) => appendProgressEvent(entry, event),
           ...(lifecycleOptions.consumedWriteApproval
@@ -999,6 +1006,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly adapter: ManagedAgentRuntimeAdapter;
     readonly admission: ManagedAgentAdmissionDecision;
     readonly abortSignal?: AbortSignal;
+    readonly workLimits?: ManagedAgentRuntimeInvocationInput["workLimits"];
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
     readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
     readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
@@ -1017,6 +1025,7 @@ export class RuntimeManagedAgentInvocationService {
       request: input.request,
       admission,
       abortSignal: input.abortSignal ?? new AbortController().signal,
+      ...(input.workLimits ? { workLimits: input.workLimits } : {}),
       promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
       ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(input.consumedWriteApproval !== undefined

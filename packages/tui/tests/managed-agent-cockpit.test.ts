@@ -709,6 +709,20 @@ describe("TUI managed-agent cockpit projection", () => {
         adapterCapabilityId: "tui-fixture-adapter",
         adapterCapabilityVersion: "1",
       },
+      selectedTarget: {
+        targetId: "tui-fixture-route",
+        providerId: "codex-oauth",
+        modelId: "gpt-test",
+        reason: "only-admitted-target",
+      },
+      billingClass: "metered",
+      providerAllowance: { status: "available", evidenceFreshness: "fresh" },
+      workLimitProgress: { dimension: "turns", consumed: 2, limit: 4, status: "within-limit" },
+      reservedAmount: { atoms: "25", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+      settledAmount: { atoms: "12", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+      perChildConsumption: [{ childId: "child-tui", comparability: "comparable" }],
+      evidenceFreshness: "fresh",
+      terminalCause: "completed",
     });
 
     const events = appendManagedAgentSessionEvent([], held);
@@ -727,8 +741,17 @@ describe("TUI managed-agent cockpit projection", () => {
     );
     expect(lines).toEqual(expect.arrayContaining([
       "economic attempts:",
-      "managed-economic-job:tui-fixture  held  codex-oauth/gpt-test",
     ]));
+    const economicLine = lines.find((line) => line.includes("managed-economic-job:tui-fixture"))!;
+    expect(economicLine).toContain("target:tui-fixture-route(only-admitted-target)");
+    expect(economicLine).toContain("billing:metered");
+    expect(economicLine).toContain("allowance:available/fresh");
+    expect(economicLine).toContain("work:turns=2/4");
+    expect(economicLine).toContain("reserved:25e-2 request USD");
+    expect(economicLine).toContain("settled:12e-2 request USD");
+    expect(economicLine).toContain("children:child-tui[none]");
+    expect(economicLine).toContain("evidence:fresh");
+    expect(economicLine).toContain("terminal:completed");
   });
 
   it("reports unprojectable evidence so a degraded cockpit cannot read as a complete one", () => {

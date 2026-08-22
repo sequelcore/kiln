@@ -6,9 +6,9 @@ import {
   type ExecutionTargetEvidenceSnapshot,
 } from "../../src/config/execution-target-evidence-store.js";
 import {
-  economicConfig,
-  economicTargetEvidence,
-} from "../config/managed-economic-policy-config-fixture.js";
+  managedAgentIntentConfig,
+  managedAgentTargetEvidence,
+} from "../config/managed-agent-intent-config-fixture.js";
 
 /** A V4 operator fixture with separate target intent and managed evidence. */
 export function makeOperatorSurfaceGlobalConfig(
@@ -16,7 +16,7 @@ export function makeOperatorSurfaceGlobalConfig(
   providerModelId = "gpt-5.6-codex",
   targetId = "operator-default",
 ): KilnGlobalConfig {
-  const base = economicConfig();
+  const base = managedAgentIntentConfig();
   const accountId = `${targetId}-account`;
   const policyId = `${targetId}-policy`;
   const account = base.targetCatalog!.accounts[0]!;
@@ -28,9 +28,10 @@ export function makeOperatorSurfaceGlobalConfig(
     version: "4",
     managedAgents: {
       ...base.managedAgents,
-      economicPolicies: base.managedAgents?.economicPolicies?.map((economicPolicy) => ({
-        ...economicPolicy,
-        candidates: economicPolicy.candidates.map((candidate) => ({ ...candidate, targetId })),
+      intents: base.managedAgents?.intents?.map((intent) => ({
+        ...intent,
+        target: { mode: "explicit" as const, targetId },
+        model: { mode: "explicit" as const, modelId: providerModelId },
       })),
     },
     targetCatalog: {
@@ -65,7 +66,7 @@ export function makeOperatorSurfaceTargetEvidence(
   providerModelId = "gpt-5.6-codex",
   targetId = "operator-default",
 ): ExecutionTargetEvidenceSnapshot {
-  const base = economicTargetEvidence();
+  const base = managedAgentTargetEvidence();
   const account = base.accounts[0]!;
   const target = base.targets[0]!;
   if (target.kind !== "direct") throw new Error("Operator surface fixture expects direct target evidence.");

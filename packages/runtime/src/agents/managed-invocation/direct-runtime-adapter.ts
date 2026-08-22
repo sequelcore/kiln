@@ -401,7 +401,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const deps: OrchestratorDeps = {
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
-        executionEnvelope: this.executionEnvelope,
+        executionEnvelope: boundedExecutionEnvelope(this.executionEnvelope, input.workLimits?.maxTurns),
         tools,
         builtinTools,
         eventBus,
@@ -534,12 +534,15 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const replayResources = [replayResource, childExecutionResource]
         .filter((resource): resource is ManagedAgentReplayResource => resource !== undefined);
 
-      const missingRequiredHandoff = handoffSubmission !== undefined && structuredResult === undefined;
+      const missingRequiredHandoff = handoffSubmission !== undefined
+        && structuredResult === undefined
+        && result.stopReason !== RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
         lifecycleState: missingRequiredHandoff
           ? "failed"
           : lifecycleStateForDirectChildStopReason(result.stopReason),
+        ...(result.stopReason ? { stopReason: result.stopReason } : {}),
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),
@@ -665,6 +668,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input),
       lifecycleState: "timed_out",
+      stopReason: "managed-economic-duration-limit",
       childSessionId,
       childTurnId,
       transcript: transcriptPointer(request.invocationId),
@@ -772,6 +776,18 @@ function createManagedHandoffSubmission(): {
 
 function uniqueStrings(values: readonly string[]): readonly string[] {
   return [...new Set(values)];
+}
+
+function boundedExecutionEnvelope(
+  envelope: import("../../session/runtime-session-orchestrator.types.js").RuntimeExecutionEnvelope | undefined,
+  maxTurns: number | undefined,
+): import("../../session/runtime-session-orchestrator.types.js").RuntimeExecutionEnvelope | undefined {
+  if (maxTurns === undefined) return envelope;
+  const routeLimit = envelope?.toolRounds?.max;
+  return {
+    ...envelope,
+    toolRounds: { max: routeLimit === undefined ? maxTurns : Math.min(routeLimit, maxTurns) },
+  };
 }
 
 function attachManagedChildProgressObserver(

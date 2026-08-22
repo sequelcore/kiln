@@ -16,14 +16,11 @@ import { dirname, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
 import {
-  compareManagedEconomicAmounts,
-  deriveManagedEconomicMinimumReservation,
   parseGatewayYaml,
-  validateManagedEconomicAmount,
   validateVoiceConfig,
   resolveCommunicationIntent,
-  isDirectProviderId,
   MANAGED_AGENT_ADMISSION_PROFILES,
+  validateManagedEconomicAmount,
   type ManagedEconomicAmount,
   type ModelGatewayConfig,
   type VoiceConfig,
@@ -972,7 +969,6 @@ export function projectDirectExecutionCatalog(
       config?.managedAgents,
       catalog,
       config?.authorityProfiles,
-      executionCatalog,
     );
     return executionCatalog;
   } catch (error) {
@@ -1032,6 +1028,33 @@ function validateExecutionRouteIntentEconomics(value: unknown, path: string): vo
   rejectUnknownFields(value.executionEnvelope, ["limits"], `${path}.executionEnvelope`);
   if (!Array.isArray(value.executionEnvelope.limits)) throw new KilnYamlError(`${path}.executionEnvelope.limits must be an array`);
   value.executionEnvelope.limits.forEach((limit, index) => validateEconomicAmount(limit, `${path}.executionEnvelope.limits[${index}]`));
+}
+
+function validateEconomicAmount(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["atoms", "scale", "unit", "scheme"], path);
+  validateEconomicScheme(value.scheme, `${path}.scheme`);
+  try {
+    validateManagedEconomicAmount(value as unknown as ManagedEconomicAmount);
+  } catch (error) {
+    throw new KilnYamlError(`${path} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function validateEconomicScheme(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  if (value.kind === "currency") {
+    rejectUnknownFields(value, ["kind", "currency"], path);
+    validateCanonicalId(value.currency, `${path}.currency`);
+    return;
+  }
+  if (value.kind === "credit") {
+    rejectUnknownFields(value, ["kind", "creditSchemeId"], path);
+    validateCanonicalId(value.creditSchemeId, `${path}.creditSchemeId`);
+    return;
+  }
+  if (value.kind !== "unit") throw new KilnYamlError(`${path}.kind is invalid`);
+  rejectUnknownFields(value, ["kind"], path);
 }
 
 function validateRouteAccountSelection(
@@ -1309,186 +1332,96 @@ function validateManagedAgents(value: unknown, operatorVoice: VoiceConfig | unde
     "defaultVoiceProfile",
     "worktreeLease",
     "requireApproval",
-    "economicPolicies",
+    "intents",
   ], "managedAgents");
   validateManagedAgentWorktreeLease(value.worktreeLease);
   validateManagedAgentVoiceProfile(value.defaultVoiceProfile, "managedAgents.defaultVoiceProfile", operatorVoice);
-  validateManagedEconomicPolicies(value.economicPolicies);
+  validateManagedAgentIntents(value.intents);
 }
 
-function validateManagedEconomicPolicies(value: unknown): void {
+function validateManagedAgentIntents(value: unknown): void {
   if (value === undefined) return;
   if (!Array.isArray(value) || value.length === 0) {
-    throw new KilnYamlError("managedAgents.economicPolicies must be a non-empty array");
+    throw new KilnYamlError("managedAgents.intents must be a non-empty array");
   }
-  const policyIds = new Set<string>();
-  for (let policyIndex = 0; policyIndex < value.length; policyIndex += 1) {
-    const path = `managedAgents.economicPolicies[${policyIndex}]`;
-    const policy = value[policyIndex];
-    if (!isRecord(policy)) throw new KilnYamlError(`${path} must be an object`);
-    rejectUnknownFields(policy, ["id", "revision", "evidenceRequirements", "noRouteAction", "comparisonDomains", "candidates"], path);
-    validateCanonicalId(policy.id, `${path}.id`);
-    if (policyIds.has(String(policy.id))) throw new KilnYamlError(`${path}.id must be unique`);
-    policyIds.add(String(policy.id));
-    validateCanonicalId(policy.revision, `${path}.revision`);
-    if (policy.noRouteAction !== "deny") throw new KilnYamlError(`${path}.noRouteAction must be "deny"`);
-    validateEconomicEvidenceRequirements(policy.evidenceRequirements, `${path}.evidenceRequirements`);
-    const domains = validateEconomicComparisonDomains(policy.comparisonDomains, `${path}.comparisonDomains`);
-    validateEconomicCandidates(policy.candidates, domains, `${path}.candidates`);
-  }
-}
-
-function validateEconomicEvidenceRequirements(value: unknown, path: string): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  rejectUnknownFields(value, ["quota", "price"], path);
-  if (value.quota !== "optional" && value.quota !== "required-for-account-bound") {
-    throw new KilnYamlError(`${path}.quota is invalid`);
-  }
-  if (value.price !== "optional" && value.price !== "required") {
-    throw new KilnYamlError(`${path}.price is invalid`);
-  }
-}
-
-function validateEconomicComparisonDomains(value: unknown, path: string): Map<string, Record<string, unknown>> {
-  if (!Array.isArray(value) || value.length === 0) throw new KilnYamlError(`${path} must be a non-empty array`);
-  const domains = new Map<string, Record<string, unknown>>();
-  const ranks = new Set<number>();
+  const ids = new Set<string>();
   for (let index = 0; index < value.length; index += 1) {
-    const domainPath = `${path}[${index}]`;
-    const domain = value[index];
-    if (!isRecord(domain)) throw new KilnYamlError(`${domainPath} must be an object`);
-    rejectUnknownFields(domain, ["id", "rank", "unit", "scheme", "rateCardBasis", "envelopeSemantics"], domainPath);
-    validateCanonicalId(domain.id, `${domainPath}.id`);
-    validateCanonicalId(domain.unit, `${domainPath}.unit`);
-    validateCanonicalId(domain.rateCardBasis, `${domainPath}.rateCardBasis`);
-    validateCanonicalId(domain.envelopeSemantics, `${domainPath}.envelopeSemantics`);
-    if (!Number.isSafeInteger(domain.rank) || Number(domain.rank) < 0) throw new KilnYamlError(`${domainPath}.rank must be a non-negative integer`);
-    if (domains.has(String(domain.id))) throw new KilnYamlError(`${domainPath}.id must be unique`);
-    if (ranks.has(Number(domain.rank))) throw new KilnYamlError(`${domainPath}.rank must be unique`);
-    validateEconomicScheme(domain.scheme, `${domainPath}.scheme`);
-    domains.set(String(domain.id), domain);
-    ranks.add(Number(domain.rank));
-  }
-  return domains;
-}
-
-function validateEconomicCandidates(
-  value: unknown,
-  domains: ReadonlyMap<string, Record<string, unknown>>,
-  path: string,
-): void {
-  if (!Array.isArray(value) || value.length === 0) throw new KilnYamlError(`${path} must be a non-empty array`);
-  const targetIds = new Set<string>();
-  for (let index = 0; index < value.length; index += 1) {
-    const candidatePath = `${path}[${index}]`;
-    const candidate = value[index];
-    if (!isRecord(candidate)) throw new KilnYamlError(`${candidatePath} must be an object`);
-    rejectUnknownFields(candidate, ["targetId", "comparisonDomainId", "priorityRank", "ceiling", "worstCaseReservation"], candidatePath);
-    validateCanonicalId(candidate.targetId, `${candidatePath}.targetId`);
-    validateCanonicalId(candidate.comparisonDomainId, `${candidatePath}.comparisonDomainId`);
-    if (targetIds.has(String(candidate.targetId))) throw new KilnYamlError(`${candidatePath}.targetId must be unique within the policy`);
-    targetIds.add(String(candidate.targetId));
-    const domain = domains.get(String(candidate.comparisonDomainId));
-    if (!domain) throw new KilnYamlError(`${candidatePath}.comparisonDomainId must reference a policy comparison domain`);
-    if (!Number.isSafeInteger(candidate.priorityRank) || Number(candidate.priorityRank) < 0) {
-      throw new KilnYamlError(`${candidatePath}.priorityRank must be a non-negative integer`);
+    const path = `managedAgents.intents[${index}]`;
+    const intent = value[index];
+    if (!isRecord(intent)) throw new KilnYamlError(`${path} must be an object`);
+    rejectUnknownFields(intent, ["id", "purpose", "authorityProfileId", "target", "model", "workLimits", "paidUsage"], path);
+    validateCanonicalId(intent.id, `${path}.id`);
+    if (ids.has(String(intent.id))) throw new KilnYamlError(`${path}.id must be unique`);
+    ids.add(String(intent.id));
+    if (typeof intent.purpose !== "string" || intent.purpose.trim().length === 0 || intent.purpose.length > 2000) {
+      throw new KilnYamlError(`${path}.purpose must be a non-empty string of at most 2000 characters`);
     }
-    validateEconomicCeiling(candidate.ceiling, domain, `${candidatePath}.ceiling`);
-    validateEconomicReservation(candidate.worstCaseReservation, domain, `${candidatePath}.worstCaseReservation`);
-    if (isRecord(candidate.ceiling) && candidate.ceiling.kind === "finite") {
-      if (!isRecord(candidate.worstCaseReservation) || candidate.worstCaseReservation.kind !== "exact") {
-        throw new KilnYamlError(`${candidatePath}.worstCaseReservation must be exact when ceiling is finite`);
-      }
-      const reservation = candidate.worstCaseReservation.amount as ManagedEconomicAmount;
-      const ceiling = candidate.ceiling.amount as ManagedEconomicAmount;
-      if (compareManagedEconomicAmounts(reservation, ceiling) > 0) {
-        throw new KilnYamlError(`${candidatePath}.worstCaseReservation must not exceed its finite ceiling`);
-      }
-    }
+    validateCanonicalId(intent.authorityProfileId, `${path}.authorityProfileId`);
+    validateManagedAgentIntentSelection(intent.target, path, "target", "targetId");
+    validateManagedAgentIntentSelection(intent.model, path, "model", "modelId");
+    validateManagedAgentWorkLimits(intent.workLimits, `${path}.workLimits`);
+    validateManagedAgentPaidUsage(intent.paidUsage, `${path}.paidUsage`);
   }
 }
 
-function validateEconomicReservation(
-  value: unknown,
-  domain: Readonly<Record<string, unknown>>,
-  path: string,
-): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  if (value.kind === "exact") {
-    rejectUnknownFields(value, ["kind", "amount"], path);
-    validateEconomicAmount(value.amount, `${path}.amount`);
-    const amount = value.amount as ManagedEconomicAmount;
-    if (amount.unit !== domain.unit || !economicSchemesEqual(amount.scheme, domain.scheme)) {
-      throw new KilnYamlError(`${path}.amount must use the comparison domain unit and scheme`);
-    }
+function validateManagedAgentIntentSelection(value: unknown, path: string, field: string, explicitKey: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError(`${path}.${field} must be an object`);
+  rejectUnknownFields(value, ["mode", explicitKey], `${path}.${field}`);
+  if (value.mode === "inherited") {
+    if (Object.keys(value).length !== 1) throw new KilnYamlError(`${path}.${field}.inherited cannot carry explicit selection`);
     return;
   }
-  if (value.kind !== "not-comparable") {
-    throw new KilnYamlError(`${path}.kind must be "exact" or "not-comparable"`);
-  }
-  rejectUnknownFields(value, ["kind", "reason"], path);
-  if (![
-    "subscription-basis",
-    "included-basis",
-    "estimated-basis",
-    "unknown-basis",
-    "economic-basis-unavailable",
-  ].includes(String(value.reason))) {
-    throw new KilnYamlError(`${path}.reason is invalid`);
+  if (value.mode !== "explicit") throw new KilnYamlError(`${path}.${field}.mode must be inherited or explicit`);
+  validateCanonicalId(value[explicitKey], `${path}.${field}.${explicitKey}`);
+}
+
+function validateManagedAgentWorkLimits(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["maxTurns", "maxDurationMs", "maxConcurrency"], path);
+  for (const key of ["maxTurns", "maxDurationMs", "maxConcurrency"] as const) {
+    if (value[key] !== undefined && (!Number.isSafeInteger(value[key]) || Number(value[key]) <= 0)) {
+      throw new KilnYamlError(`${path}.${key} must be a positive safe integer`);
+    }
   }
 }
 
-function validateEconomicCeiling(
-  value: unknown,
-  domain: Readonly<Record<string, unknown>>,
-  path: string,
-): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  if (value.kind === "none") {
-    rejectUnknownFields(value, ["kind"], path);
-    return;
-  }
-  if (value.kind !== "finite") throw new KilnYamlError(`${path}.kind must be "none" or "finite"`);
+function validateManagedAgentPaidUsage(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (value === "included-only" || value === "ask-before-spend" || value === "uncapped") return;
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be included-only, ask-before-spend, uncapped, or a cap object`);
   rejectUnknownFields(value, ["kind", "amount"], path);
-  validateEconomicAmount(value.amount, `${path}.amount`);
-  const amount = value.amount as ManagedEconomicAmount;
-  if (amount.unit !== domain.unit || !economicSchemesEqual(amount.scheme, domain.scheme)) {
-    throw new KilnYamlError(`${path}.amount must use the comparison domain unit and scheme`);
-  }
+  if (value.kind !== "cap") throw new KilnYamlError(`${path}.kind must be cap`);
+  validateManagedAgentSpendAmount(value.amount, `${path}.amount`);
 }
 
-function validateEconomicAmount(value: unknown, path: string): void {
+function validateManagedAgentSpendAmount(value: unknown, path: string): void {
   if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
   rejectUnknownFields(value, ["atoms", "scale", "unit", "scheme"], path);
-  validateEconomicScheme(value.scheme, `${path}.scheme`);
-  try {
-    validateManagedEconomicAmount(value as unknown as ManagedEconomicAmount);
-  } catch (error) {
-    throw new KilnYamlError(`${path} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  if (typeof value.atoms !== "string" || !/^(?:0|[1-9][0-9]*)$/u.test(value.atoms)) {
+    throw new KilnYamlError(`${path}.atoms must be canonical non-negative base-10`);
   }
-}
-
-function validateEconomicScheme(value: unknown, path: string): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  if (value.kind === "currency") {
-    rejectUnknownFields(value, ["kind", "currency"], path);
-    validateCanonicalId(value.currency, `${path}.currency`);
-    return;
+  if (!Number.isSafeInteger(value.scale) || Number(value.scale) < 0 || Number(value.scale) > 18) {
+    throw new KilnYamlError(`${path}.scale must be an integer from 0 to 18`);
   }
-  if (value.kind === "credit") {
-    rejectUnknownFields(value, ["kind", "creditSchemeId"], path);
-    validateCanonicalId(value.creditSchemeId, `${path}.creditSchemeId`);
-    return;
+  validateCanonicalId(value.unit, `${path}.unit`);
+  if (!isRecord(value.scheme)) throw new KilnYamlError(`${path}.scheme must be an object`);
+  if (value.scheme.kind === "currency") {
+    rejectUnknownFields(value.scheme, ["kind", "currency"], `${path}.scheme`);
+    validateCanonicalId(value.scheme.currency, `${path}.scheme.currency`);
+  } else if (value.scheme.kind === "credit") {
+    rejectUnknownFields(value.scheme, ["kind", "creditSchemeId"], `${path}.scheme`);
+    validateCanonicalId(value.scheme.creditSchemeId, `${path}.scheme.creditSchemeId`);
+  } else {
+    throw new KilnYamlError(`${path}.scheme.kind must be currency or credit for an enforceable cap`);
   }
-  if (value.kind !== "unit") throw new KilnYamlError(`${path}.kind is invalid`);
-  rejectUnknownFields(value, ["kind"], path);
 }
 
 function validateManagedTargetReferences(
   managedAgents: unknown,
   targetCatalog: unknown,
   authorityProfiles: unknown,
-  executionCatalog?: ExecutionCatalog,
 ): void {
   if (isRecord(managedAgents) && managedAgents.defaultAuthorityProfileId !== undefined) {
     const ids = new Set(Array.isArray(authorityProfiles)
@@ -1498,194 +1431,49 @@ function validateManagedTargetReferences(
       throw new KilnYamlError("managedAgents.defaultAuthorityProfileId references an unknown authority profile");
     }
   }
-  if (!isRecord(managedAgents) || !Array.isArray(managedAgents.economicPolicies)) return;
-  if (!isRecord(targetCatalog)) {
-    throw new KilnYamlError("managedAgents.economicPolicies require targetCatalog");
-  }
-  const targets = Array.isArray(targetCatalog.targets)
+  if (!isRecord(managedAgents) || !Array.isArray(managedAgents.intents)) return;
+  const targets = isRecord(targetCatalog) && Array.isArray(targetCatalog.targets)
     ? targetCatalog.targets.filter(isRecord)
     : [];
-  const accounts = Array.isArray(targetCatalog.accounts)
-    ? targetCatalog.accounts.filter(isRecord)
-    : [];
-  const accountPolicies = Array.isArray(targetCatalog.accountPolicies)
-    ? targetCatalog.accountPolicies.filter(isRecord)
-    : [];
-  for (let policyIndex = 0; policyIndex < managedAgents.economicPolicies.length; policyIndex += 1) {
-    const economicPolicy = managedAgents.economicPolicies[policyIndex];
-    if (!isRecord(economicPolicy) || !Array.isArray(economicPolicy.candidates)) continue;
-    for (let candidateIndex = 0; candidateIndex < economicPolicy.candidates.length; candidateIndex += 1) {
-      const candidate = economicPolicy.candidates[candidateIndex];
-      if (!isRecord(candidate)) continue;
-      const path = `managedAgents.economicPolicies[${policyIndex}].candidates[${candidateIndex}]`;
-      const executionRoute = targets.find((entry) => entry.id === candidate.targetId);
-      if (!executionRoute) throw new KilnYamlError(`${path}.targetId references an unknown target`);
-      if (executionRoute.kind !== "direct" || !isDirectProviderId(String(executionRoute.providerId))) {
-        throw new KilnYamlError(`${path}.targetId must reference a direct target`);
-      }
-      const selection = isRecord(executionRoute.accountSelection) ? executionRoute.accountSelection : undefined;
+  const authorityIds = new Set(Array.isArray(authorityProfiles)
+    ? authorityProfiles.filter(isRecord).map((entry) => String(entry.id))
+    : []);
+  for (let index = 0; index < managedAgents.intents.length; index += 1) {
+    const intent = managedAgents.intents[index];
+    if (!isRecord(intent)) continue;
+    const path = `managedAgents.intents[${index}]`;
+    if (!authorityIds.has(String(intent.authorityProfileId))) {
+      throw new KilnYamlError(`${path}.authorityProfileId references an unknown authority profile`);
+    }
+    const targetSelection = isRecord(intent.target) ? intent.target : undefined;
+    const target = targetSelection?.mode === "explicit"
+      ? targets.find((entry) => entry.id === targetSelection.targetId)
+      : undefined;
+    if (targetSelection?.mode === "explicit" && !target) {
+      throw new KilnYamlError(`${path}.target.targetId references an unknown target`);
+    }
+    if (target && target.kind !== "direct") {
+      throw new KilnYamlError(`${path}.target.targetId must reference an automatic direct target`);
+    }
+    if (target && target.kind === "direct") {
+      const selection = isRecord(target.accountSelection) ? target.accountSelection : undefined;
       if (!selection || selection.mode !== "automatic" || typeof selection.accountPolicyId !== "string") {
-        throw new KilnYamlError(`${path}.targetId must reference an automatic direct target for managed economics`);
+        throw new KilnYamlError(`${path}.target.targetId must reference an automatic direct target`);
       }
-      const accountPolicy = accountPolicies.find((entry) => entry.id === selection.accountPolicyId);
-      if (!accountPolicy || !Array.isArray(accountPolicy.accountIds)) {
-        throw new KilnYamlError(`${path}.targetId must reference a target with a valid account policy`);
-      }
-      const intentEconomics = isRecord(executionRoute.economics) ? executionRoute.economics : undefined;
-      if (!intentEconomics) throw new KilnYamlError(`${path}.targetId must reference target economics intent`);
-      const domain = Array.isArray(economicPolicy.comparisonDomains)
-        ? economicPolicy.comparisonDomains.find((entry) =>
-            isRecord(entry) && entry.id === candidate.comparisonDomainId)
-        : undefined;
-      if (!isRecord(domain)) {
-        throw new KilnYamlError(`${path}.comparisonDomainId must reference a policy comparison domain`);
-      }
-      if (intentEconomics.fallbackPosture !== "disabled" || intentEconomics.overagePosture !== "disabled") {
-        throw new KilnYamlError(`${path}.targetId cannot activate uncommitted fallback or overage`);
-      }
-      for (const accountId of accountPolicy.accountIds) {
-        const account = accounts.find((entry) => entry.id === accountId);
-        if (!account || !isRecord(account.economics)) {
-          throw new KilnYamlError(`${path}.targetId requires economics intent for every account candidate`);
-        }
-        if (account.economics.creditPosture !== "disabled" || account.economics.overagePosture !== "disabled") {
-          throw new KilnYamlError(`${path}.targetId cannot activate account credit or overage subcommitments`);
-        }
-      }
-      if (!executionCatalog) continue;
-      const resolvedRoute = executionCatalog.routes.find((entry) => entry.id === candidate.targetId);
-      const economics = resolvedRoute?.economics;
-      if (!economics) throw new KilnYamlError(`${path}.targetId must resolve current target economics evidence`);
-      if (domain.rateCardBasis !== economics.rateCardBasis) {
-        throw new KilnYamlError(`${path} comparison domain rateCardBasis must match route economics`);
-      }
-      if (domain.envelopeSemantics !== economics.envelopeSemantics) {
-        throw new KilnYamlError(`${path} comparison domain envelopeSemantics must match route economics`);
-      }
-      validateReservationPriceClass(
-        candidate.worstCaseReservation,
-        isRecord(economics.priceEvidence) ? economics.priceEvidence.kind : undefined,
-        path,
-      );
-      const economicsRecord = { ...economics };
-      validateRouteEconomicSchemes(economicsRecord, domain, path);
-      validateDerivedRouteReservation(candidate.worstCaseReservation, economicsRecord, domain, path);
-    }
-  }
-}
-
-function validateRouteEconomicSchemes(
-  economics: Readonly<Record<string, unknown>>,
-  domain: Readonly<Record<string, unknown>>,
-  path: string,
-): void {
-  const priceEvidence = economics.priceEvidence;
-  if (isRecord(priceEvidence) && Array.isArray(priceEvidence.unitPrices)) {
-    for (const unitPrice of priceEvidence.unitPrices) {
-      if (
-        !isRecord(unitPrice)
-        || !isRecord(unitPrice.price)
-        || !economicSchemesEqual(unitPrice.price.scheme, domain.scheme)
-      ) {
-        throw new KilnYamlError(`${path} route price scheme must match its comparison domain`);
+      const economics = isRecord(target.economics) ? target.economics : undefined;
+      if (!economics || economics.fallbackPosture !== "disabled" || economics.overagePosture !== "disabled") {
+        throw new KilnYamlError(`${path}.target.targetId cannot activate fallback or overage without a new commitment`);
       }
     }
-  }
-  if (Array.isArray(economics.auxiliaryCharges)) {
-    for (const charge of economics.auxiliaryCharges) {
-      if (
-        !isRecord(charge)
-        || !isRecord(charge.amount)
-        || charge.amount.unit !== domain.unit
-        || !economicSchemesEqual(charge.amount.scheme, domain.scheme)
-      ) {
-        throw new KilnYamlError(`${path} auxiliary charge unit and scheme must match its comparison domain`);
+    const modelSelection = isRecord(intent.model) ? intent.model : undefined;
+    if (modelSelection?.mode === "explicit") {
+      const matchingTargets = target
+        ? [target]
+        : targets;
+      if (!matchingTargets.some((candidate) => candidate.providerModelId === modelSelection.modelId)) {
+        throw new KilnYamlError(`${path}.model.modelId does not match an admitted target model`);
       }
     }
-  }
-}
-
-function validateDerivedRouteReservation(
-  reservation: unknown,
-  economics: Readonly<Record<string, unknown>>,
-  domain: Readonly<Record<string, unknown>>,
-  path: string,
-): void {
-  const priceEvidence = economics.priceEvidence;
-  if (!isRecord(priceEvidence) || !isRecord(reservation)) return;
-  const auxiliaryCharges = Array.isArray(economics.auxiliaryCharges) ? economics.auxiliaryCharges : [];
-  if (priceEvidence.kind === "free") {
-    if (auxiliaryCharges.length > 0) {
-      throw new KilnYamlError(`${path} free route cannot declare separately charged auxiliary calls`);
-    }
-    if (reservation.kind !== "exact" || !isRecord(reservation.amount)) return;
-    const amount = reservation.amount as unknown as ManagedEconomicAmount;
-    const zero: ManagedEconomicAmount = {
-      atoms: "0",
-      scale: 0,
-      unit: amount.unit,
-      scheme: amount.scheme,
-    };
-    if (compareManagedEconomicAmounts(amount, zero) !== 0) {
-      throw new KilnYamlError(`${path} free route requires an exact zero worst-case reservation`);
-    }
-    return;
-  }
-  if (priceEvidence.kind !== "metered" || reservation.kind !== "exact" || !isRecord(reservation.amount)) return;
-  const envelope = economics.executionEnvelope;
-  if (!isRecord(envelope) || !Array.isArray(envelope.limits) || !Array.isArray(priceEvidence.unitPrices)) return;
-  try {
-    const minimum = deriveManagedEconomicMinimumReservation({
-      unitRates: priceEvidence.unitPrices.map((entry) => {
-        if (!isRecord(entry) || !isRecord(entry.price)) throw new KilnYamlError(`${path} route unit price is invalid`);
-        return {
-          usageUnit: String(entry.usageUnit),
-          price: entry.price as unknown as ManagedEconomicAmount,
-        };
-      }),
-      usageLimits: envelope.limits as ManagedEconomicAmount[],
-      auxiliaryCharges: auxiliaryCharges.map((entry) => {
-        if (!isRecord(entry) || !isRecord(entry.amount)) throw new KilnYamlError(`${path} auxiliary charge is invalid`);
-        return {
-          id: String(entry.id),
-          amount: entry.amount as unknown as ManagedEconomicAmount,
-        };
-      }),
-      outputUnit: String(domain.unit),
-      targetScheme: domain.scheme as Exclude<ManagedEconomicAmount["scheme"], { readonly kind: "unit" }>,
-    });
-    if (compareManagedEconomicAmounts(reservation.amount as unknown as ManagedEconomicAmount, minimum) < 0) {
-      throw new KilnYamlError(`${path} worstCaseReservation must cover the derived minimum reservation`);
-    }
-  } catch (error) {
-    if (error instanceof KilnYamlError) throw error;
-    throw new KilnYamlError(`${path} cannot derive an exact minimum reservation: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function validateReservationPriceClass(
-  reservation: unknown,
-  priceKind: unknown,
-  path: string,
-): void {
-  if (!isRecord(reservation)) return;
-  if (priceKind === "metered" || priceKind === "free") {
-    if (reservation.kind !== "exact") {
-      throw new KilnYamlError(`${path} ${priceKind} route requires an exact worst-case reservation`);
-    }
-    return;
-  }
-  const expectedReason = priceKind === "subscription"
-    ? "subscription-basis"
-    : priceKind === "included"
-      ? "included-basis"
-      : priceKind === "estimated"
-        ? "estimated-basis"
-        : priceKind === "unknown"
-          ? "unknown-basis"
-          : undefined;
-  if (expectedReason && (reservation.kind !== "not-comparable" || reservation.reason !== expectedReason)) {
-    throw new KilnYamlError(`${path} ${priceKind} route requires not-comparable reason '${expectedReason}'`);
   }
 }
 
@@ -2119,14 +1907,6 @@ function validateCanonicalId(value: unknown, path: string): asserts value is str
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value)) {
     throw new KilnYamlError(`${path} must be a canonical id`);
   }
-}
-
-function economicSchemesEqual(left: unknown, right: unknown): boolean {
-  if (!isRecord(left) || !isRecord(right) || left.kind !== right.kind) return false;
-  if (left.kind === "unit") return true;
-  if (left.kind === "currency") return left.currency === right.currency;
-  if (left.kind === "credit") return left.creditSchemeId === right.creditSchemeId;
-  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

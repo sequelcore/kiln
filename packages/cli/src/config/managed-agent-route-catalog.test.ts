@@ -276,26 +276,12 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
     managedAgents: {
       enabled: true,
       defaultAuthorityProfileId: "readonly-plan",
-      economicPolicies: [{
-        id: "research-policy",
-        revision: "rev-1",
-        evidenceRequirements: { quota: "optional", price: "optional" },
-        noRouteAction: "deny",
-        comparisonDomains: [{
-          id: "priority-only",
-          rank: 0,
-          unit: "request",
-          scheme: { kind: "unit" },
-          rateCardBasis: "configured",
-          envelopeSemantics: "bounded",
-        }],
-        candidates: [{
-          targetId: "opencode-go-research-readonly",
-          comparisonDomainId: "priority-only",
-          priorityRank: 0,
-          ceiling: { kind: "none" },
-          worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
-        }],
+      intents: [{
+        id: "research-agent",
+        purpose: "Run bounded research route.",
+        authorityProfileId: "readonly-plan",
+        target: { mode: "explicit", targetId: "opencode-go-research-readonly" },
+        paidUsage: "ask-before-spend",
       }],
     },
   };
@@ -556,26 +542,12 @@ describe("managed agent route catalog", () => {
       managedAgents: {
         enabled: true,
         defaultAuthorityProfileId: "frontend-reference-readonly",
-        economicPolicies: [{
-          id: "frontend-reference-policy",
-          revision: "rev-1",
-          evidenceRequirements: { quota: "optional", price: "optional" },
-          noRouteAction: "deny",
-          comparisonDomains: [{
-            id: "priority-only",
-            rank: 0,
-            unit: "request",
-            scheme: { kind: "unit" },
-            rateCardBasis: "configured",
-            envelopeSemantics: "bounded",
-          }],
-          candidates: [{
-            targetId: "opencode-go-frontend-reference-readonly",
-            comparisonDomainId: "priority-only",
-            priorityRank: 0,
-            ceiling: { kind: "none" },
-            worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
-          }],
+        intents: [{
+          id: "frontend-reference-agent",
+          purpose: "Inspect bounded reference material.",
+          authorityProfileId: "frontend-reference-readonly",
+          target: { mode: "explicit", targetId: "opencode-go-frontend-reference-readonly" },
+          paidUsage: "ask-before-spend",
         }],
       },
     }, {

@@ -150,7 +150,9 @@ export interface ManagedInvocationToolOptions {
       readonly authorityProfileId: string;
       readonly invocationId: string;
       readonly abortSignal?: AbortSignal;
+      readonly workLimitDurationMs?: number;
        readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
+       readonly validateAndConsumeApprovalBeforeFence?: ManagedEconomicDispatchPrepareInput["validateAndConsumeApprovalBeforeFence"];
        readonly validateExecutionProfile?: ManagedEconomicDispatchPrepareInput["validateExecutionProfile"];
      }): Promise<ManagedEconomicDispatchPreparation>;
   };
@@ -253,6 +255,14 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly economicPolicyId?: string;
   readonly economicPolicyRevision?: string;
   readonly economicPolicyCandidateRouteIds?: readonly string[];
+  /** Runtime-enforced admitted limits derived from the bounded operator intent. */
+  readonly workLimits?: {
+    readonly maxTurns?: number;
+    readonly maxDurationMs?: number;
+    readonly maxConcurrency?: number;
+  };
+  /** Nonzero comparable reservations require interactive approval before fencing. */
+  readonly economicSpendApproval?: "required";
   readonly routeId?: string;
   readonly providerRoute?: {
     readonly providerId: string;

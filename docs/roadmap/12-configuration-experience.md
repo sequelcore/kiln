@@ -2,7 +2,8 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slices 0-7 complete - Slice 7A is the next bounded product proof.
+Execution: Slices 0-7 and 7A are code/integration complete; Slice 8 is the
+next bounded product proof. Live provider/runtime validation remains unrun.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -93,7 +94,7 @@ The common configuration surface asks only for material operator intent:
 - provider connection and preferred or inherited execution target;
 - managed-agent purpose and authority profile;
 - inherited or explicit model choice;
-- work limits such as turns, time, concurrency, or nesting when their owning
+- work limits such as turns, time, or concurrency when their owning
   governance contract admits them;
 - paid-usage posture: included use only, ask before additional spend, an exact
   enforceable monetary cap, or an explicit advanced uncapped posture.
@@ -111,7 +112,7 @@ Common surfaces use distinct terms instead of one overloaded `budget` label:
 - **usage** is observed consumption;
 - **provider allowance or quota** is provider-reported capacity and reset state;
 - **spend guard** is operator intent governing additional monetary spend;
-- **work limit** bounds turns, time, concurrency, nesting, or another admitted
+- **work limit** bounds turns, time, concurrency, or another admitted
   unit of work;
 - **context limit** bounds model context or local token consumption;
 - **reservation** is internal economic evidence, never a common setting.
@@ -686,8 +687,11 @@ editor have no compatibility alias.
 
 ### Slice 7A - Managed-Agent Intent And Economic Visibility
 
-Status: Ready. Slices 4, 6, and 7 provide the required mutation, projection,
-and guided target contracts.
+Status: Complete for code and integration. Focused CLI, Runtime, Gateway,
+GUI, and TUI tests and affected package typechecks pass; live provider/runtime
+validation is intentionally unrun because the operator Runtime is unavailable.
+Slices 4, 6, and 7 supplied the mutation, projection, and guided target
+contracts.
 
 Replace operator-authored managed economic policy material with minimal
 managed-agent intent. Common setup captures agent purpose, authority profile,
@@ -710,6 +714,16 @@ change economics after commitment; fan-out and per-child consumption are
 visible; limit termination preserves available partial evidence. The replaced
 economic intent shape, validator, reader, writer, fixtures, docs, and operations
 are deleted in the same slice with no alias or dual read.
+
+Delivery evidence: `managedAgents.intents[]` is the only operator-authored
+managed-agent economic input. CLI composition derives ephemeral policy identity,
+candidate and reservation material from the canonical execution catalog, while
+Runtime remains the commitment and settlement authority. The shared session
+event, Gateway cockpit projection, CLI, GUI, and TUI expose selected target and
+reason, billing, allowance, work progress, comparable reservation/settlement,
+per-child consumption, freshness, and distinct terminal causes without secrets
+or workspace paths. The retired economic policy fixture and test are removed;
+negative validation proves the old YAML shape is rejected.
 
 ### Slice 8 - Live Activation And Reconciliation
 

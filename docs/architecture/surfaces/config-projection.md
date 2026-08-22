@@ -92,7 +92,8 @@ Global config is the active user-level contract. It includes:
 - `authorityProfiles` for reusable tool, workspace, network, memory, voice,
   timeout, and write authority
 - `permissions`, `permissionCeiling`, `mcp`, and `hooks`
-- `managedAgents` defaults and economic policy
+- `managedAgents` defaults and bounded managed-agent intent; Runtime-owned
+  economic evidence is projected read-only
 - `identity`, `ui.theme`, and bundled `components`
 
 The current canonical global schema version is `"3"`. Kiln does not support
@@ -813,9 +814,11 @@ diagnostics. Surfaces do not decide their own child-agent provider list.
 `sessionTurnBudget`, when configured, projects only into normal session pre-turn
 budget admission. CLI surfaces may supply `routing.budget` and a live usage
 reader, but they do not evaluate that policy locally. Policy-bearing managed
-children instead use the configured managed economic policy and Runtime's
-atomic commitment authority; the session-turn budget decision cannot authorize
-or widen a managed route.
+children instead use the bounded managed-agent intent and Runtime's derived
+economic evidence with the same atomic commitment authority; the session-turn
+budget decision cannot authorize or widen a managed route. Policy identity,
+candidate material, reservation, commitment, and settlement remain Runtime
+state and are never authored or defaulted by a surface.
 
 There is no synthesized or implicit agent roster. Ad hoc child execution may
 select an admission class only when exactly one concrete authority profile on

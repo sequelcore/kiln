@@ -95,15 +95,8 @@ function canonicalV4GlobalYaml(): string {
     "targetRouting: { defaultTargetId: codex-terra }",
     "managedAgents:",
     "  defaultAuthorityProfileId: readonly-scout",
-    "  economicPolicies:",
-    "    - id: economical",
-    "      revision: rev-1",
-    "      evidenceRequirements: { quota: optional, price: optional }",
-    "      noRouteAction: deny",
-    "      comparisonDomains:",
-    "        - { id: priority-only, rank: 0, unit: request, scheme: { kind: unit }, rateCardBasis: configured, envelopeSemantics: bounded }",
-    "      candidates:",
-    "        - { targetId: codex-terra, comparisonDomainId: priority-only, priorityRank: 0, ceiling: { kind: none }, worstCaseReservation: { kind: not-comparable, reason: subscription-basis } }",
+    "  intents:",
+    "    - { id: reviewer, purpose: Review the requested change, authorityProfileId: readonly-scout, target: { mode: explicit, targetId: codex-terra }, model: { mode: explicit, modelId: gpt-5.6-terra }, paidUsage: ask-before-spend }",
     "ui:",
     "  targetSelection: { targetId: codex-terra, accountOverrideId: codex-account }",
   ].join("\n");
@@ -369,7 +362,7 @@ describe("global-config", () => {
       targetRouting: { defaultTargetId: "codex-terra" },
       managedAgents: {
         defaultAuthorityProfileId: "readonly-scout",
-        economicPolicies: [{ candidates: [{ targetId: "codex-terra" }] }],
+        intents: [{ id: "reviewer", purpose: "Review the requested change", authorityProfileId: "readonly-scout", target: { mode: "explicit", targetId: "codex-terra" } }],
       },
       ui: {
         targetSelection: {
@@ -454,31 +447,17 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow(message);
   });
 
-  it("readGlobalConfig() requires economic candidates to use targetId", () => {
+  it("readGlobalConfig() rejects the replaced economic policy surface", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       canonicalV4GlobalYaml().replace(
-        "targetId: codex-terra, comparisonDomainId",
-        "routeId: codex-terra, comparisonDomainId",
+        "  intents:",
+        "  economicPolicies: []\n  intents:",
       ),
     );
 
     expect(() => readGlobalConfig()).toThrow(
-      "Unknown managedAgents.economicPolicies[0].candidates[0] field: routeId",
-    );
-  });
-
-  it("readGlobalConfig() rejects economic candidates that reference harness targets", () => {
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      canonicalV4GlobalYaml().replace(
-        "targetId: codex-terra, comparisonDomainId",
-        "targetId: claude-cli, comparisonDomainId",
-      ),
-    );
-
-    expect(() => readGlobalConfig()).toThrow(
-      "managedAgents.economicPolicies[0].candidates[0].targetId must reference a direct target",
+      "Unknown managedAgents field: economicPolicies",
     );
   });
 
@@ -508,12 +487,12 @@ describe("global-config", () => {
       "managedAgents.defaultAuthorityProfileId references an unknown authority profile",
     ],
     [
-      "economic target",
+      "intent target",
       canonicalV4GlobalYaml().replace(
-        "targetId: codex-terra, comparisonDomainId",
-        "targetId: missing-target, comparisonDomainId",
+        "targetId: codex-terra }, model",
+        "targetId: missing-target }, model",
       ),
-      "managedAgents.economicPolicies[0].candidates[0].targetId references an unknown target",
+      "managedAgents.intents[0].target.targetId references an unknown target",
     ],
   ])(
     "readGlobalConfig() rejects an unknown %s reference",

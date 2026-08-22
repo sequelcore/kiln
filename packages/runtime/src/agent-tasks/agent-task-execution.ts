@@ -17,6 +17,11 @@ export interface AgentTaskEconomicExecutionPort {
     readonly job: AgentTaskRecord;
     readonly preparation: Extract<ManagedEconomicDispatchPreparation, { readonly status: "prepared" }>;
     readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
+    readonly workLimits?: {
+      readonly maxTurns?: number;
+      readonly maxDurationMs?: number;
+      readonly maxConcurrency?: number;
+    };
   }): Promise<{
     readonly runtimeInvocationId: string;
     readonly completedAt: string;

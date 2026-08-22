@@ -3,6 +3,7 @@ import {
   collectManagedEconomicCandidates,
   createManagedInvocationLifecycleToolExecutors,
   MANAGED_AGENT_INVOKE_TOOL,
+  type ManagedEconomicDispatchPrepareInput,
   RuntimeManagedAgentInvocationService,
   type ManagedInvocationToolAttachment,
   type ManagedInvocationToolRoute,
@@ -88,6 +89,81 @@ const command = {
   authorityProfileId: "readonly",
   admissionProfileId: "foundation-readonly-plan" as const,
 };
+
+function paidApprovalCommitment(): never {
+  return {
+    reservation: {
+      selectedIdentity: {
+        route: { routeId: "codex-primary", providerId: "codex-oauth", modelId: "gpt-test" },
+      },
+      amounts: [{
+        atoms: "25",
+        scale: 2,
+        unit: "request",
+        scheme: { kind: "currency", currency: "USD" },
+      }],
+    },
+  } as never;
+}
+
+function approvalProducerAttachment(
+  prepare: (input: ManagedEconomicDispatchPrepareInput) => Promise<never>,
+): ManagedInvocationToolAttachment {
+  const service = new RuntimeManagedAgentInvocationService();
+  return {
+    options: {
+      routes: [route({
+        routeId: "codex-primary",
+        providerId: "codex-oauth",
+        model: "gpt-test",
+        policy: true,
+        capability: "verified",
+      })],
+      agentCatalog: [{
+        name: "scout",
+        role: "Scout",
+        goal: "Inspect bounded work.",
+        tier: "reasoning",
+        authorityProfileId: "readonly",
+        admissionProfile: "foundation-readonly-plan",
+        economicPolicyId: "economy-policy",
+        economicPolicyRevision: "revision-001",
+        economicPolicyCandidateRouteIds: ["codex-primary"],
+        economicSpendApproval: "required",
+      }],
+      contextResolver: async () => ({ admittedAgentProfile: "scout" }),
+      invocationService: service,
+      economicDispatch: { prepare },
+    },
+    callerIdentity: {
+      kind: "kiln-runtime",
+      surface: "test",
+      attachmentId: "attachment:approval-producer",
+    },
+  };
+}
+
+async function runApprovalProducer(
+  attachment: ManagedInvocationToolAttachment,
+  requestApproval?: RuntimeBuiltinToolExecutionContext["requestApproval"],
+): Promise<{ readonly isError: boolean; readonly output?: string; readonly metadata: Record<string, unknown> }> {
+  const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
+  if (!executor) throw new Error("managed_agent.invoke was not registered");
+  return await executor({
+    profile: "foundation-readonly-plan",
+    agentProfile: "scout",
+    task: "Inspect the paid-usage approval boundary.",
+  }, {
+    session: {
+      id: "session-approval-producer",
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    } as RuntimeBuiltinToolExecutionContext["session"],
+    turnId: "turn-approval-producer",
+    effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
+    toolCall: { id: "tool-call-approval-producer", name: "managed_agent.invoke", input: {} },
+    ...(requestApproval ? { requestApproval } : {}),
+  }) as never;
+}
 
 describe("managed economic candidate admission", () => {
   it("makes providerRoute optional at the public policy-owned command boundary", () => {
@@ -394,6 +470,38 @@ describe("managed economic candidate admission", () => {
       },
     });
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it("asks before fencing comparable paid usage through the producer callback", async () => {
+    const requestApproval = vi.fn(async () => ({ approved: true as const }));
+    const prepare = async (input: ManagedEconomicDispatchPrepareInput): Promise<never> => {
+      await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
+      throw new Error("stop after approval callback");
+    };
+    await expect(runApprovalProducer(approvalProducerAttachment(prepare), requestApproval))
+      .rejects.toThrow("stop after approval callback");
+    expect(requestApproval).toHaveBeenCalledOnce();
+    expect(requestApproval.mock.calls[0]?.[0]).toMatch(/before reserving comparable paid usage/);
+  });
+
+  it("denies ask-before-spend when the producer has no approval callback", async () => {
+    const prepare = async (input: ManagedEconomicDispatchPrepareInput): Promise<never> => {
+      await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
+      throw new Error("approval callback unexpectedly returned");
+    };
+    await expect(runApprovalProducer(approvalProducerAttachment(prepare)))
+      .rejects.toThrow("requires approval before fencing");
+  });
+
+  it("denies ask-before-spend when the operator rejects the producer approval", async () => {
+    const requestApproval = vi.fn(async () => ({ approved: false as const, reason: "operator declined" }));
+    const prepare = async (input: ManagedEconomicDispatchPrepareInput): Promise<never> => {
+      await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
+      throw new Error("approval callback unexpectedly returned");
+    };
+    await expect(runApprovalProducer(approvalProducerAttachment(prepare), requestApproval))
+      .rejects.toThrow("approval denied");
+    expect(requestApproval).toHaveBeenCalledOnce();
   });
 
   it("records a fenced commitment as pending when postcommit request realization fails", async () => {

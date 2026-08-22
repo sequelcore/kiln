@@ -2,11 +2,20 @@ import type {
   OperatorManagedAgentExternalRuntimeAttachmentIdentity,
   OperatorManagedAgentResourceLeaseSnapshot,
   OperatorManagedEconomicAccountIdentity,
+  OperatorManagedEconomicAmount,
+  OperatorManagedEconomicBillingClass,
+  OperatorManagedEconomicChildConsumption,
   OperatorManagedEconomicRejection,
   OperatorManagedEconomicEvidenceAuthority,
   OperatorManagedEconomicLifecycleTransition,
   OperatorManagedEconomicRouteIdentity,
+  OperatorManagedEconomicProviderAllowance,
+  OperatorManagedEconomicProviderAllowanceBucket,
+  OperatorManagedEconomicSelectionReason,
   OperatorManagedEconomicSettlementKind,
+  OperatorManagedEconomicTargetExplanation,
+  OperatorManagedEconomicTerminalCause,
+  OperatorManagedEconomicWorkLimitProgress,
   OperatorSessionEvent,
   OperatorSessionEventKind,
 } from "./frames.js";
@@ -411,6 +420,15 @@ export interface OperatorCockpitEconomicAttemptProjection {
   readonly dispatchFenceId?: string;
   readonly selectedRoute?: OperatorManagedEconomicRouteIdentity;
   readonly selectedAccount?: OperatorManagedEconomicAccountIdentity;
+  readonly selectedTarget?: OperatorManagedEconomicTargetExplanation;
+  readonly billingClass?: OperatorManagedEconomicBillingClass;
+  readonly providerAllowance?: OperatorManagedEconomicProviderAllowance;
+  readonly workLimitProgress?: OperatorManagedEconomicWorkLimitProgress;
+  readonly reservedAmount?: OperatorManagedEconomicAmount;
+  readonly settledAmount?: OperatorManagedEconomicAmount;
+  readonly perChildConsumption?: readonly OperatorManagedEconomicChildConsumption[];
+  readonly evidenceFreshness?: "fresh" | "stale" | "missing" | "unknown";
+  readonly terminalCause?: OperatorManagedEconomicTerminalCause;
   readonly settlementKind?: OperatorManagedEconomicSettlementKind;
   readonly settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
   readonly reason?: string;
@@ -543,6 +561,15 @@ interface EconomicAttemptAccumulator {
   dispatchFenceId?: string;
   selectedRoute?: OperatorManagedEconomicRouteIdentity;
   selectedAccount?: OperatorManagedEconomicAccountIdentity;
+  selectedTarget?: OperatorManagedEconomicTargetExplanation;
+  billingClass?: OperatorManagedEconomicBillingClass;
+  providerAllowance?: OperatorManagedEconomicProviderAllowance;
+  workLimitProgress?: OperatorManagedEconomicWorkLimitProgress;
+  reservedAmount?: OperatorManagedEconomicAmount;
+  settledAmount?: OperatorManagedEconomicAmount;
+  perChildConsumption?: readonly OperatorManagedEconomicChildConsumption[];
+  evidenceFreshness?: "fresh" | "stale" | "missing" | "unknown";
+  terminalCause?: OperatorManagedEconomicTerminalCause;
   settlementKind?: OperatorManagedEconomicSettlementKind;
   settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
   reason?: string;
@@ -838,6 +865,63 @@ export function projectOperatorCockpitReadOnlyView(
           pushEvidenceRejection(unprojectableEvidence, event, selectedAccount);
         } else if (selectedAccount !== undefined) {
           attempt.selectedAccount = selectedAccount;
+        }
+        const selectedTarget = readManagedEconomicSelectedTarget(payload.selectedTarget);
+        if (isEvidenceRejection(selectedTarget)) {
+          pushEvidenceRejection(unprojectableEvidence, event, selectedTarget);
+        } else if (selectedTarget !== undefined) {
+          attempt.selectedTarget = selectedTarget;
+        }
+        const billingClass = readManagedEconomicBillingClass(payload.billingClass);
+        if (isEvidenceRejection(billingClass)) {
+          pushEvidenceRejection(unprojectableEvidence, event, billingClass);
+        } else if (billingClass !== undefined) {
+          attempt.billingClass = billingClass;
+        }
+        const providerAllowance = readManagedEconomicProviderAllowance(payload.providerAllowance);
+        if (isEvidenceRejection(providerAllowance)) {
+          pushEvidenceRejection(unprojectableEvidence, event, providerAllowance);
+        } else if (providerAllowance !== undefined) {
+          attempt.providerAllowance = providerAllowance;
+        }
+        const workLimitProgress = readManagedEconomicWorkLimitProgress(payload.workLimitProgress);
+        if (isEvidenceRejection(workLimitProgress)) {
+          pushEvidenceRejection(unprojectableEvidence, event, workLimitProgress);
+        } else if (workLimitProgress !== undefined) {
+          attempt.workLimitProgress = workLimitProgress;
+        }
+        const reservedAmount = readManagedEconomicAmount(payload.reservedAmount, "reservedAmount");
+        if (isEvidenceRejection(reservedAmount)) {
+          pushEvidenceRejection(unprojectableEvidence, event, reservedAmount);
+        } else if (reservedAmount !== undefined) {
+          attempt.reservedAmount = reservedAmount;
+        }
+        const settledAmount = readManagedEconomicAmount(payload.settledAmount, "settledAmount");
+        if (isEvidenceRejection(settledAmount)) {
+          pushEvidenceRejection(unprojectableEvidence, event, settledAmount);
+        } else if (settledAmount !== undefined) {
+          attempt.settledAmount = settledAmount;
+        }
+        const perChildConsumption = readManagedEconomicChildConsumption(payload.perChildConsumption);
+        if (isEvidenceRejection(perChildConsumption)) {
+          pushEvidenceRejection(unprojectableEvidence, event, perChildConsumption);
+        } else if (perChildConsumption !== undefined) {
+          attempt.perChildConsumption = mergePerChildConsumption(
+            attempt.perChildConsumption,
+            perChildConsumption,
+          );
+        }
+        const evidenceFreshness = readManagedEconomicEvidenceFreshness(payload.evidenceFreshness);
+        if (isEvidenceRejection(evidenceFreshness)) {
+          pushEvidenceRejection(unprojectableEvidence, event, evidenceFreshness);
+        } else if (evidenceFreshness !== undefined) {
+          attempt.evidenceFreshness = worseEvidenceFreshness(attempt.evidenceFreshness, evidenceFreshness);
+        }
+        const terminalCause = readManagedEconomicTerminalCause(payload.terminalCause);
+        if (isEvidenceRejection(terminalCause)) {
+          pushEvidenceRejection(unprojectableEvidence, event, terminalCause);
+        } else if (terminalCause !== undefined) {
+          attempt.terminalCause = mergeTerminalCause(attempt.terminalCause, terminalCause);
         }
         const settlement = readManagedEconomicSettlement(payload);
         if (isEvidenceRejection(settlement)) {
@@ -1326,6 +1410,15 @@ function projectEconomicAttempt(input: EconomicAttemptAccumulator): OperatorCock
     ...(input.dispatchFenceId !== undefined ? { dispatchFenceId: input.dispatchFenceId } : {}),
     ...(input.selectedRoute !== undefined ? { selectedRoute: input.selectedRoute } : {}),
     ...(input.selectedAccount !== undefined ? { selectedAccount: input.selectedAccount } : {}),
+    ...(input.selectedTarget !== undefined ? { selectedTarget: input.selectedTarget } : {}),
+    ...(input.billingClass !== undefined ? { billingClass: input.billingClass } : {}),
+    ...(input.providerAllowance !== undefined ? { providerAllowance: input.providerAllowance } : {}),
+    ...(input.workLimitProgress !== undefined ? { workLimitProgress: input.workLimitProgress } : {}),
+    ...(input.reservedAmount !== undefined ? { reservedAmount: input.reservedAmount } : {}),
+    ...(input.settledAmount !== undefined ? { settledAmount: input.settledAmount } : {}),
+    ...(input.perChildConsumption !== undefined ? { perChildConsumption: input.perChildConsumption } : {}),
+    ...(input.evidenceFreshness !== undefined ? { evidenceFreshness: input.evidenceFreshness } : {}),
+    ...(input.terminalCause !== undefined ? { terminalCause: input.terminalCause } : {}),
     ...(input.settlementKind !== undefined ? { settlementKind: input.settlementKind } : {}),
     ...(input.settlementAuthority !== undefined ? { settlementAuthority: input.settlementAuthority } : {}),
     ...(input.reason !== undefined ? { reason: input.reason } : {}),
@@ -1869,17 +1962,72 @@ function readManagedEconomicRoute(
 ): OperatorManagedEconomicRouteIdentity | EvidenceRejectionCause | undefined {
   if (value === undefined) return undefined;
   const route = asRecord(value);
-  const fields = ["routeId", "providerId", "modelId", "adapterCapabilityId", "adapterCapabilityVersion"];
+  const fields = ["routeId", "providerId", "modelId", "adapterCapabilityId", "adapterCapabilityVersion", "priceClass"];
   if (!hasOnlyKeys(route, fields)) return evidenceRejection("contract-violation", "selectedRoute");
   const routeId = readString(route.routeId);
   const providerId = readString(route.providerId);
   const modelId = readString(route.modelId);
   const adapterCapabilityId = readString(route.adapterCapabilityId);
   const adapterCapabilityVersion = readString(route.adapterCapabilityVersion);
+  const priceClass = route.priceClass === undefined
+    ? undefined
+    : readManagedEconomicBillingClass(route.priceClass);
+  if (isEvidenceRejection(priceClass)) return priceClass;
+  if (route.priceClass !== undefined && priceClass === undefined) {
+    return evidenceRejection("invalid-discriminator", "selectedRoute.priceClass");
+  }
   if (!routeId || !providerId || !modelId || !adapterCapabilityId || !adapterCapabilityVersion) {
     return evidenceRejection("missing-required-field", "selectedRoute");
   }
-  return { routeId, providerId, modelId, adapterCapabilityId, adapterCapabilityVersion };
+  return {
+    routeId,
+    providerId,
+    modelId,
+    adapterCapabilityId,
+    adapterCapabilityVersion,
+    ...(priceClass !== undefined ? { priceClass } : {}),
+  };
+}
+
+function mergePerChildConsumption(
+  existing: readonly OperatorManagedEconomicChildConsumption[] | undefined,
+  incoming: readonly OperatorManagedEconomicChildConsumption[],
+): readonly OperatorManagedEconomicChildConsumption[] {
+  const merged = new Map<string, OperatorManagedEconomicChildConsumption>();
+  for (const child of existing ?? []) merged.set(child.childId, child);
+  for (const child of incoming) merged.set(child.childId, child);
+  return [...merged.values()];
+}
+
+function worseEvidenceFreshness(
+  existing: "fresh" | "stale" | "missing" | "unknown" | undefined,
+  incoming: "fresh" | "stale" | "missing" | "unknown",
+): "fresh" | "stale" | "missing" | "unknown" {
+  const rank: Record<"fresh" | "stale" | "missing" | "unknown", number> = {
+    fresh: 0,
+    unknown: 1,
+    stale: 2,
+    missing: 3,
+  };
+  if (existing === undefined) return incoming;
+  return rank[incoming] >= rank[existing] ? incoming : existing;
+}
+
+function mergeTerminalCause(
+  existing: OperatorManagedEconomicTerminalCause | undefined,
+  incoming: OperatorManagedEconomicTerminalCause,
+): OperatorManagedEconomicTerminalCause {
+  if (existing === undefined) return incoming;
+  const priority: Record<OperatorManagedEconomicTerminalCause, number> = {
+    "work-limit-exhaustion": 6,
+    "provider-exhaustion": 5,
+    "spend-denial": 5,
+    "technical-failure": 4,
+    unknown: 3,
+    cancelled: 2,
+    completed: 1,
+  };
+  return priority[incoming] >= priority[existing] ? incoming : existing;
 }
 
 function readManagedEconomicAccount(
@@ -1911,6 +2059,214 @@ function readManagedEconomicAccount(
     creditPosture,
     overagePosture,
   };
+}
+
+function readManagedEconomicSelectedTarget(
+  value: unknown,
+): OperatorManagedEconomicTargetExplanation | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  const target = asRecord(value);
+  if (!hasOnlyKeys(target, ["targetId", "providerId", "modelId", "reason"])) {
+    return evidenceRejection("contract-violation", "selectedTarget");
+  }
+  const targetId = readString(target.targetId);
+  const providerId = readString(target.providerId);
+  const modelId = readString(target.modelId);
+  const reason = readManagedEconomicSelectionReason(target.reason);
+  if (!targetId || !providerId || !modelId || !reason) {
+    return evidenceRejection("missing-required-field", "selectedTarget");
+  }
+  return { targetId, providerId, modelId, reason };
+}
+
+function readManagedEconomicSelectionReason(
+  value: unknown,
+): OperatorManagedEconomicSelectionReason | undefined {
+  return value === "only-admitted-target" || value === "configured-target-order"
+    || value === "lower-comparable-reservation" || value === "stable-identity-order"
+    || value === "runtime-authority-selection"
+    ? value
+    : undefined;
+}
+
+function readManagedEconomicBillingClass(
+  value: unknown,
+): OperatorManagedEconomicBillingClass | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  if (value === "subscription" || value === "included" || value === "free"
+    || value === "metered" || value === "estimated" || value === "unknown") {
+    return value;
+  }
+  return evidenceRejection("invalid-discriminator", "billingClass");
+}
+
+function readManagedEconomicProviderAllowance(
+  value: unknown,
+): OperatorManagedEconomicProviderAllowance | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  const allowance = asRecord(value);
+  if (!hasOnlyKeys(allowance, ["status", "evidenceFreshness", "buckets"])) {
+    return evidenceRejection("contract-violation", "providerAllowance");
+  }
+  const status = allowance.status;
+  if (status !== "available" && status !== "exhausted" && status !== "unlimited" && status !== "unknown") {
+    return evidenceRejection("invalid-discriminator", "providerAllowance.status");
+  }
+  const evidenceFreshness = readManagedEconomicEvidenceFreshness(allowance.evidenceFreshness);
+  if (!evidenceFreshness || isEvidenceRejection(evidenceFreshness)) {
+    return evidenceRejection("invalid-discriminator", "providerAllowance.evidenceFreshness");
+  }
+  if (allowance.buckets === undefined) return { status, evidenceFreshness };
+  if (!Array.isArray(allowance.buckets)) return evidenceRejection("contract-violation", "providerAllowance.buckets");
+  const buckets: OperatorManagedEconomicProviderAllowanceBucket[] = [];
+  for (const valueOfBucket of allowance.buckets) {
+    const bucket = asRecord(valueOfBucket);
+    if (!hasOnlyKeys(bucket, ["dimension", "remaining", "resetsAt"])) {
+      return evidenceRejection("contract-violation", "providerAllowance.buckets");
+    }
+    const dimension = readString(bucket.dimension);
+    if (!dimension || (bucket.resetsAt !== null && readString(bucket.resetsAt) === null)) {
+      return evidenceRejection("missing-required-field", "providerAllowance.buckets");
+    }
+    const remaining = bucket.remaining === null
+      ? null
+      : readManagedEconomicAmount(bucket.remaining, "providerAllowance.buckets.remaining");
+    if (remaining === undefined || isEvidenceRejection(remaining)) {
+      return isEvidenceRejection(remaining)
+        ? remaining
+        : evidenceRejection("missing-required-field", "providerAllowance.buckets.remaining");
+    }
+    buckets.push({ dimension, remaining, resetsAt: bucket.resetsAt === null ? null : readString(bucket.resetsAt) });
+  }
+  return { status, evidenceFreshness, buckets };
+}
+
+function readManagedEconomicWorkLimitProgress(
+  value: unknown,
+): OperatorManagedEconomicWorkLimitProgress | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  const progress = asRecord(value);
+  if (!hasOnlyKeys(progress, ["dimension", "consumed", "limit", "status"])) {
+    return evidenceRejection("contract-violation", "workLimitProgress");
+  }
+  const dimension = progress.dimension;
+  const status = progress.status;
+  if (dimension !== "turns" && dimension !== "duration-ms" && dimension !== "concurrency" && dimension !== "nesting") {
+    return evidenceRejection("invalid-discriminator", "workLimitProgress.dimension");
+  }
+  if (status !== "within-limit" && status !== "exhausted" && status !== "unknown") {
+    return evidenceRejection("invalid-discriminator", "workLimitProgress.status");
+  }
+  const consumed = readNonNegativeSafeInteger(progress.consumed);
+  const limit = readPositiveSafeInteger(progress.limit);
+  if (consumed === undefined || limit === undefined || consumed > limit) {
+    return evidenceRejection("contract-violation", "workLimitProgress");
+  }
+  return { dimension, consumed, limit, status };
+}
+
+function readManagedEconomicAmount(
+  value: unknown,
+  field: string,
+): OperatorManagedEconomicAmount | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  const amount = asRecord(value);
+  if (!hasOnlyKeys(amount, ["atoms", "scale", "unit", "scheme"])) {
+    return evidenceRejection("contract-violation", field);
+  }
+  const atoms = readString(amount.atoms);
+  const scale = readNonNegativeSafeInteger(amount.scale);
+  const unit = readString(amount.unit);
+  const scheme = asRecord(amount.scheme);
+  if (!atoms || !/^(?:0|[1-9][0-9]*)$/u.test(atoms) || scale === undefined || scale > 18 || !unit) {
+    return evidenceRejection("contract-violation", field);
+  }
+  if (scheme.kind === "unit") {
+    if (!hasOnlyKeys(scheme, ["kind"])) return evidenceRejection("contract-violation", `${field}.scheme`);
+    return { atoms, scale, unit, scheme: { kind: "unit" } };
+  }
+  if (scheme.kind === "currency") {
+    const currency = readString(scheme.currency);
+    if (!currency || !hasOnlyKeys(scheme, ["kind", "currency"])) {
+      return evidenceRejection("contract-violation", `${field}.scheme`);
+    }
+    return { atoms, scale, unit, scheme: { kind: "currency", currency } };
+  }
+  if (scheme.kind === "credit") {
+    const creditSchemeId = readString(scheme.creditSchemeId);
+    if (!creditSchemeId || !hasOnlyKeys(scheme, ["kind", "creditSchemeId"])) {
+      return evidenceRejection("contract-violation", `${field}.scheme`);
+    }
+    return { atoms, scale, unit, scheme: { kind: "credit", creditSchemeId } };
+  }
+  return evidenceRejection("invalid-discriminator", `${field}.scheme.kind`);
+}
+
+function readManagedEconomicChildConsumption(
+  value: unknown,
+): readonly OperatorManagedEconomicChildConsumption[] | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return evidenceRejection("contract-violation", "perChildConsumption");
+  const children: OperatorManagedEconomicChildConsumption[] = [];
+  for (const valueOfChild of value) {
+    const child = asRecord(valueOfChild);
+    if (!hasOnlyKeys(child, ["childId", "units", "settledAmount", "comparability"])) {
+      return evidenceRejection("contract-violation", "perChildConsumption");
+    }
+    const childId = readString(child.childId);
+    const comparability = child.comparability;
+    if (!childId || (comparability !== "comparable" && comparability !== "not-comparable" && comparability !== "unknown")) {
+      return evidenceRejection("contract-violation", "perChildConsumption");
+    }
+    let units: OperatorManagedEconomicAmount[] | undefined;
+    if (child.units !== undefined) {
+      if (!Array.isArray(child.units)) return evidenceRejection("contract-violation", "perChildConsumption.units");
+      units = [];
+      for (const valueOfUnit of child.units) {
+        const unit = readManagedEconomicAmount(valueOfUnit, "perChildConsumption.units");
+        if (unit === undefined || isEvidenceRejection(unit)) {
+          return isEvidenceRejection(unit) ? unit : evidenceRejection("contract-violation", "perChildConsumption.units");
+        }
+        units.push(unit);
+      }
+    }
+    const settledAmount = readManagedEconomicAmount(child.settledAmount, "perChildConsumption.settledAmount");
+    if (isEvidenceRejection(settledAmount)) return settledAmount;
+    children.push({
+      childId,
+      ...(units ? { units } : {}),
+      ...(settledAmount ? { settledAmount } : {}),
+      comparability,
+    });
+  }
+  return children;
+}
+
+function readManagedEconomicEvidenceFreshness(
+  value: unknown,
+): "fresh" | "stale" | "missing" | "unknown" | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  if (value === "fresh" || value === "stale" || value === "missing" || value === "unknown") return value;
+  return evidenceRejection("invalid-discriminator", "evidenceFreshness");
+}
+
+function readManagedEconomicTerminalCause(
+  value: unknown,
+): OperatorManagedEconomicTerminalCause | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  if (value === "work-limit-exhaustion" || value === "provider-exhaustion" || value === "spend-denial"
+    || value === "technical-failure" || value === "completed" || value === "cancelled" || value === "unknown") {
+    return value;
+  }
+  return evidenceRejection("invalid-discriminator", "terminalCause");
+}
+
+function readNonNegativeSafeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function readPositiveSafeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function readManagedEconomicSettlement(

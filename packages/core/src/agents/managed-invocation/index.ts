@@ -988,6 +988,8 @@ export interface ManagedAgentInvocationRecord {
   readonly parentTurnId: string;
   readonly profile: ManagedAgentAdmissionProfile;
   readonly lifecycleState: ManagedAgentLifecycleState;
+  /** Provider/runtime stop reason retained for bounded-work and terminal-cause projection. */
+  readonly stopReason?: string;
   readonly providerRoute: ManagedAgentProviderRoute;
   readonly adapterKind: ManagedAgentAdapterKind;
   readonly executionMode: ManagedAgentExecutionMode;
@@ -1516,6 +1518,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     parentTurnId: requireText(input.parentTurnId, "Managed invocation record parent turn id is required"),
     profile: requireAdmissionProfile(input.profile),
     lifecycleState: requireLifecycleState(input.lifecycleState),
+    ...(input.stopReason !== undefined ? { stopReason: requireText(input.stopReason, "Managed invocation stop reason is required") } : {}),
     providerRoute: requireInvocationRecordProviderRoute(input.providerRoute, capabilitySnapshot.providerRoute),
     adapterKind: requireMatchingAdapterKind(input.adapterKind, capabilitySnapshot.adapterKind),
     executionMode: requireMatchingExecutionMode(input.executionMode, capabilitySnapshot.executionMode),

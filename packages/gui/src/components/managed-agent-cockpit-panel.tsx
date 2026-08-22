@@ -7,6 +7,10 @@ import type {
   OperatorCockpitTimelineEntry,
   OperatorCockpitActionTarget,
 } from "@kilnai/gateway-contracts";
+import {
+  formatOperatorManagedEconomicAmount,
+  formatOperatorManagedEconomicChildConsumption,
+} from "@kilnai/gateway-contracts";
 import { useState } from "react";
 import { AlertTriangle, Bot, ExternalLink, Send, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +72,7 @@ const ECONOMIC_TRANSITION_VARIANTS: Record<string, "default" | "destructive" | "
 function economicTransitionVariant(transition: string): "default" | "destructive" | "outline" | "secondary" {
   return ECONOMIC_TRANSITION_VARIANTS[transition] ?? "outline";
 }
+
 
 function resourceLabel(uri: string): string {
   const normalized = uri.split("?")[0] ?? uri;
@@ -502,6 +507,12 @@ function EconomicAttemptCard(props: { readonly attempt: OperatorCockpitEconomicA
             <dd className="truncate">route {routeLabel}</dd>
           </div>
         ) : null}
+        {attempt.selectedTarget ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Selected target</dt>
+            <dd className="truncate">target {attempt.selectedTarget.targetId} · {attempt.selectedTarget.reason}</dd>
+          </div>
+        ) : null}
         {attempt.selectedAccount ? (
           <div className="min-w-0">
             <dt className="sr-only">Account</dt>
@@ -519,6 +530,39 @@ function EconomicAttemptCard(props: { readonly attempt: OperatorCockpitEconomicA
             <dt className="sr-only">Reason</dt>
             <dd className="truncate">{attempt.reason}</dd>
           </div>
+        ) : null}
+        {attempt.billingClass ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Billing class</dt>
+            <dd className="truncate">billing {attempt.billingClass}</dd>
+          </div>
+        ) : null}
+        {attempt.providerAllowance ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Provider allowance</dt>
+            <dd className="truncate">allowance {attempt.providerAllowance.status} · {attempt.providerAllowance.evidenceFreshness}</dd>
+          </div>
+        ) : null}
+        {attempt.workLimitProgress ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Work limit</dt>
+            <dd className="truncate">work {attempt.workLimitProgress.dimension} {attempt.workLimitProgress.consumed}/{attempt.workLimitProgress.limit}</dd>
+          </div>
+        ) : null}
+        {attempt.reservedAmount ? (
+          <div className="min-w-0"><dt className="sr-only">Reserved amount</dt><dd className="truncate">reserved {formatOperatorManagedEconomicAmount(attempt.reservedAmount)}</dd></div>
+        ) : null}
+        {attempt.settledAmount ? (
+          <div className="min-w-0"><dt className="sr-only">Settled amount</dt><dd className="truncate">settled {formatOperatorManagedEconomicAmount(attempt.settledAmount)}</dd></div>
+        ) : null}
+        {attempt.perChildConsumption ? (
+          <div className="min-w-0"><dt className="sr-only">Per-child consumption</dt><dd className="truncate">children {formatOperatorManagedEconomicChildConsumption(attempt.perChildConsumption)}</dd></div>
+        ) : null}
+        {attempt.evidenceFreshness ? (
+          <div className="min-w-0"><dt className="sr-only">Evidence freshness</dt><dd className="truncate">evidence {attempt.evidenceFreshness}</dd></div>
+        ) : null}
+        {attempt.terminalCause ? (
+          <div className="min-w-0"><dt className="sr-only">Terminal cause</dt><dd className="truncate">terminal {attempt.terminalCause}</dd></div>
         ) : null}
         {attempt.rejections?.map((rejection, index) => (
           <div key={`${rejection.stage}:${rejection.reason}:${"routeId" in rejection ? rejection.routeId : ""}:${"count" in rejection ? rejection.count : ""}:${index}`} className="min-w-0 sm:col-span-2">

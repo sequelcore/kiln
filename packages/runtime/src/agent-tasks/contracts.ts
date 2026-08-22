@@ -83,6 +83,12 @@ export interface AgentTaskEconomicProfile {
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly economicSpendApproval?: "required";
+  readonly workLimits?: {
+    readonly maxTurns?: number;
+    readonly maxDurationMs?: number;
+    readonly maxConcurrency?: number;
+  };
   readonly constraints?: {
     readonly routeId?: string;
     readonly providerId?: string;

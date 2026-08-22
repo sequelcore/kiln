@@ -94,6 +94,10 @@ export interface AgentTaskApplicationOptions {
   readonly writeApprovals?: AgentTaskWriteApprovalPort;
   readonly economicDispatch?: ManagedEconomicDispatchCoordinator;
   readonly economicExecution?: AgentTaskEconomicExecutionPort;
+  /** Interactive approval used by ask-before-spend economic intents. */
+  readonly requestEconomicApproval?: (
+    description: string,
+  ) => Promise<{ readonly approved: boolean; readonly reason?: string }>;
   readonly nativeHarnessExecution?: AgentTaskNativeHarnessExecutionPort;
   readonly clock?: () => Date;
   readonly idGenerator?: () => string;
@@ -677,6 +681,34 @@ export class AgentTaskApplicationService {
         authorityProfileId: executionProfile.authorityProfileId,
         invocationId: `agent-task:${job.id}`,
         ...(abortSignal ? { abortSignal } : {}),
+        ...(executionProfile.workLimits?.maxDurationMs !== undefined
+          ? { workLimitDurationMs: executionProfile.workLimits.maxDurationMs }
+          : {}),
+        ...(executionProfile.economicSpendApproval === "required"
+          ? {
+              validateAndConsumeApprovalBeforeFence: async ({ commitment }: { readonly commitment: import("@kilnai/core").ManagedEconomicCommitment }) => {
+                const comparablePaidAmounts = commitment.reservation.amounts.filter((amount) =>
+                  amount.scheme.kind !== "unit" && BigInt(amount.atoms) !== 0n);
+                if (comparablePaidAmounts.length > 0) {
+                  if (!this.options.requestEconomicApproval) {
+                    throw new AgentTaskApplicationError(
+                      "admission_denied",
+                      "This managed task requires interactive approval before paid usage can be fenced.",
+                    );
+                  }
+                  const approval = await this.options.requestEconomicApproval(
+                    `Managed task '${job.configuredAgentProfileId}' requests approval before reserving comparable paid usage on target '${commitment.reservation.selectedIdentity.route.routeId}'.`,
+                  );
+                  if (!approval.approved) {
+                    throw new AgentTaskApplicationError(
+                      "admission_denied",
+                      `Managed task paid-usage approval denied: ${approval.reason ?? "approval denied"}`,
+                    );
+                  }
+                }
+              },
+            }
+          : {}),
         ...(isApprovedWriteProfile(job.admissionProfileId) ? {
           validateAndConsumeApprovalBeforeFence: async () => {
             consumedWriteApproval = await this.consumeWriteApproval(job);
@@ -720,6 +752,7 @@ export class AgentTaskApplicationService {
           job: running,
           preparation,
           ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
+          ...(executionProfile.workLimits ? { workLimits: executionProfile.workLimits } : {}),
         });
         if (abortSignal?.aborted) return await this.currentJob(job.id);
         const selected = preparation.commitment.reservation.selectedIdentity.route;

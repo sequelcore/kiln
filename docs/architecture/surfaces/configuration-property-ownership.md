@@ -222,23 +222,15 @@ contract named by the profile.
 | `managedAgents.worktreeLease.rootPath` | GR | I | C | operator path | session | supported; not portable project state |
 | `managedAgents.worktreeLease.ref` | GR | I | H | optional | session | supported |
 | `managedAgents.worktreeLease.gitBinary` | GR | I | H ref | optional command | session | supported |
-| `managedAgents.economicPolicies[].id` | GR | I | H | unique | session | supported |
-| `managedAgents.economicPolicies[].revision` | GE | E | M | required | session | managed-evidence |
-| `managedAgents.economicPolicies[].evidenceRequirements.quota` | GR | I | H | required policy | session | supported |
-| `managedAgents.economicPolicies[].evidenceRequirements.price` | GR | I | H | required policy | session | supported |
-| `managedAgents.economicPolicies[].noRouteAction` | GR | I | C | `deny` | session | supported |
-| `managedAgents.economicPolicies[].comparisonDomains[].id` | GR | I | H | unique | session | supported |
-| `managedAgents.economicPolicies[].comparisonDomains[].rank` | GR | I | H | unique non-negative | session | supported |
-| `managedAgents.economicPolicies[].comparisonDomains[].unit` | GE | E | M | evidence unit | session | managed-evidence |
-| `managedAgents.economicPolicies[].comparisonDomains[].scheme` | GE | E | M | evidence scheme | session | managed-evidence |
-| `managedAgents.economicPolicies[].comparisonDomains[].rateCardBasis` | GE | E | M | evidence basis | session | managed-evidence |
-| `managedAgents.economicPolicies[].comparisonDomains[].envelopeSemantics` | GE | E | M | evidence semantics | session | managed-evidence |
-| `managedAgents.economicPolicies[].candidates[].targetId` | GR | I | H | route reference | session | supported |
-| `managedAgents.economicPolicies[].candidates[].comparisonDomainId` | GR | I | H | domain reference | session | supported |
-| `managedAgents.economicPolicies[].candidates[].priorityRank` | GR | I | H | non-negative | session | supported |
-| `managedAgents.economicPolicies[].candidates[].worstCaseReservation` | GE | E | H | exact/comparable evidence | session | managed-evidence |
-| `managedAgents.economicPolicies[].candidates[].ceiling.kind` | GR | I | H | none or finite | session | supported |
-| `managedAgents.economicPolicies[].candidates[].ceiling.amount` | GR | I | H | finite only | session | supported |
+| `managedAgents.intents[].id` | GR | I | H | unique | session | supported |
+| `managedAgents.intents[].purpose` | GR | I | M | non-empty bounded purpose | session | supported |
+| `managedAgents.intents[].authorityProfileId` | GR | I | C | profile reference | session | supported |
+| `managedAgents.intents[].target.mode` | GR | I | C | inherited or explicit | session | supported |
+| `managedAgents.intents[].target.targetId` | GR | I | C | direct target reference | session | supported |
+| `managedAgents.intents[].model.mode` | GR | I | M | inherited or explicit | session | supported |
+| `managedAgents.intents[].model.modelId` | GR | I | M | admitted model reference | session | supported |
+| `managedAgents.intents[].workLimits.*` | GR | I | M | positive bounded work | session | supported |
+| `managedAgents.intents[].paidUsage` | GR | I | H | included, ask, cap, or uncapped posture | session | supported |
 | `modelTaskSuitability[].provider` | GC | I | M | route selector | turn | supported |
 | `modelTaskSuitability[].model` | GC | I | M | route selector | turn | supported |
 | `modelTaskSuitability[].task` | GC | I | M | task selector | turn | supported |
@@ -694,6 +686,12 @@ and the imported gateway domain contracts.
 | `modelGateway.surfaces.anthropicMessages.maxConcurrentRequests` | W | I | H | required when surface exists | restart | supported |
 | `modelGateway.codexComposite.maxQueuedRequests` | W | I | H | required when present | restart | supported |
 | `modelGateway.codexComposite.queueTimeoutMs` | W | I | H | required when present | restart | supported |
+
+Managed-agent economic policy identity and revision, evidence requirements,
+comparison domains, candidate material, reservations, commitments, and
+settlements are Runtime-owned derived evidence. They are projected read-only
+through the managed-run cockpit and are not configuration leaves or YAML
+mutation inputs.
 
 ## Derived `ResolvedKilnConfig` Residue
 

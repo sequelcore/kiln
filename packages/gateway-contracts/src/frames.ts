@@ -729,6 +729,7 @@ export interface OperatorManagedEconomicRouteIdentity {
   readonly modelId: string;
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
+  readonly priceClass?: OperatorManagedEconomicBillingClass;
 }
 
 // Mirrors, does not import, @kilnai/core's SessionManagedEconomicAccountIdentity.
@@ -737,6 +738,69 @@ export interface OperatorManagedEconomicAccountIdentity {
   readonly capacityIdentity?: string;
   readonly creditPosture?: "disabled" | "committed";
   readonly overagePosture?: "disabled" | "committed";
+}
+
+/** Secret-free economic amount mirrored from Core for operator projections. */
+export interface OperatorManagedEconomicAmount {
+  readonly atoms: string;
+  readonly scale: number;
+  readonly unit: string;
+  readonly scheme:
+    | { readonly kind: "currency"; readonly currency: string }
+    | { readonly kind: "credit"; readonly creditSchemeId: string }
+    | { readonly kind: "unit" };
+}
+
+export type OperatorManagedEconomicBillingClass =
+  | "subscription" | "included" | "free" | "metered" | "estimated" | "unknown";
+
+export type OperatorManagedEconomicSelectionReason =
+  | "only-admitted-target"
+  | "configured-target-order"
+  | "lower-comparable-reservation"
+  | "stable-identity-order"
+  | "runtime-authority-selection";
+
+export type OperatorManagedEconomicTerminalCause =
+  | "work-limit-exhaustion"
+  | "provider-exhaustion"
+  | "spend-denial"
+  | "technical-failure"
+  | "completed"
+  | "cancelled"
+  | "unknown";
+
+export interface OperatorManagedEconomicTargetExplanation {
+  readonly targetId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly reason: OperatorManagedEconomicSelectionReason;
+}
+
+export interface OperatorManagedEconomicProviderAllowanceBucket {
+  readonly dimension: string;
+  readonly remaining: OperatorManagedEconomicAmount | null;
+  readonly resetsAt: string | null;
+}
+
+export interface OperatorManagedEconomicProviderAllowance {
+  readonly status: "available" | "exhausted" | "unlimited" | "unknown";
+  readonly evidenceFreshness: "fresh" | "stale" | "missing" | "unknown";
+  readonly buckets?: readonly OperatorManagedEconomicProviderAllowanceBucket[];
+}
+
+export interface OperatorManagedEconomicWorkLimitProgress {
+  readonly dimension: "turns" | "duration-ms" | "concurrency" | "nesting";
+  readonly consumed: number;
+  readonly limit: number;
+  readonly status: "within-limit" | "exhausted" | "unknown";
+}
+
+export interface OperatorManagedEconomicChildConsumption {
+  readonly childId: string;
+  readonly units?: readonly OperatorManagedEconomicAmount[];
+  readonly settledAmount?: OperatorManagedEconomicAmount;
+  readonly comparability: "comparable" | "not-comparable" | "unknown";
 }
 
 export type OperatorManagedEconomicSettlementKind =
@@ -809,6 +873,17 @@ export interface OperatorManagedEconomicLifecycleEventPayload extends Record<str
   readonly dispatchFenceId?: string;
   readonly selectedRoute?: OperatorManagedEconomicRouteIdentity;
   readonly selectedAccount?: OperatorManagedEconomicAccountIdentity;
+  readonly selectedTarget?: OperatorManagedEconomicTargetExplanation;
+  readonly billingClass?: OperatorManagedEconomicBillingClass;
+  readonly providerAllowance?: OperatorManagedEconomicProviderAllowance;
+  readonly workLimitProgress?: OperatorManagedEconomicWorkLimitProgress;
+  /** Present only for comparable Runtime-owned reservation evidence. */
+  readonly reservedAmount?: OperatorManagedEconomicAmount;
+  /** Present only for comparable Runtime-owned settlement evidence. */
+  readonly settledAmount?: OperatorManagedEconomicAmount;
+  readonly perChildConsumption?: readonly OperatorManagedEconomicChildConsumption[];
+  readonly evidenceFreshness?: "fresh" | "stale" | "missing" | "unknown";
+  readonly terminalCause?: OperatorManagedEconomicTerminalCause;
   readonly settlementKind?: OperatorManagedEconomicSettlementKind;
   readonly settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
   readonly reason?: string;

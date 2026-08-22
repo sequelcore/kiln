@@ -1254,6 +1254,7 @@ function makeEconomicCommitment(): ManagedEconomicCommitment {
           modelId: "gpt-test",
           adapterCapabilityId: "direct-runtime",
           adapterCapabilityVersion: "1",
+          priceClass: "metered",
         } as never,
         account: {
           kind: "account-bound",
@@ -1295,6 +1296,30 @@ function makeEconomicSettlement(dispatchFenceId: string): ManagedEconomicSettlem
 }
 
 describe("appendManagedEconomicLifecycleSessionEvent", () => {
+  it("distinguishes a released successful settlement from a release without settlement", () => {
+    const settled = appendManagedEconomicLifecycleSessionEvent({
+      session: makeSession("session-settled-terminal"),
+      workspaceRoot: "C:/workspace/kiln",
+      jobId: "job-settled-terminal",
+      economicAttemptId: "economic-attempt-settled-terminal",
+      transition: "released",
+      policy: makeEconomicPolicy(),
+      commitment: makeEconomicCommitment(),
+      settlement: makeEconomicSettlement("managed-economic-dispatch:fence-a"),
+    })[0];
+    const cancelled = appendManagedEconomicLifecycleSessionEvent({
+      session: makeSession("session-cancelled-terminal"),
+      workspaceRoot: "C:/workspace/kiln",
+      jobId: "job-cancelled-terminal",
+      economicAttemptId: "economic-attempt-cancelled-terminal",
+      transition: "released",
+      policy: makeEconomicPolicy(),
+      commitment: makeEconomicCommitment(),
+    })[0];
+    expect(settled).toMatchObject({ terminalCause: "completed" });
+    expect(cancelled).toMatchObject({ terminalCause: "cancelled" });
+  });
+
   it.each([
     { transition: "denied" as const },
     { transition: "held" as const },
@@ -1453,11 +1478,160 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
     expect(projection.economicAttempts.map((attempt) => ({
       settlementKind: attempt.settlementKind,
       settlementAuthority: attempt.settlementAuthority,
+      terminalCause: attempt.terminalCause,
     }))).toEqual([
-      { settlementKind: "charged", settlementAuthority: "provider-reported" },
-      { settlementKind: "estimated", settlementAuthority: "calculated-estimate" },
-      { settlementKind: "free", settlementAuthority: "configured" },
+      { settlementKind: "charged", settlementAuthority: "provider-reported", terminalCause: "completed" },
+      { settlementKind: "estimated", settlementAuthority: "calculated-estimate", terminalCause: "completed" },
+      { settlementKind: "free", settlementAuthority: "configured", terminalCause: "completed" },
     ]);
     expect(projection.unprojectableEvidence).toEqual([]);
+  });
+
+  it("projects Runtime-owned managed-run explanation evidence across the Gateway boundary", () => {
+    const session = makeSession("session-economic-explanation");
+    const baseCommitment = makeEconomicCommitment();
+    const comparableCommitment: ManagedEconomicCommitment = {
+      ...baseCommitment,
+      reservation: {
+        ...baseCommitment.reservation,
+        amounts: [{
+          atoms: "25",
+          scale: 2,
+          unit: "request",
+          scheme: { kind: "currency", currency: "USD" },
+        }],
+        selectedIdentity: {
+          ...baseCommitment.reservation.selectedIdentity,
+          account: {
+            ...baseCommitment.reservation.selectedIdentity.account,
+            quotaEvidence: {
+              kind: "known",
+              capacityIdentity: "account-b",
+              subscriptionClass: "metered",
+              quotaClassId: "quota-b",
+              buckets: [{
+                bucketId: "input-tokens",
+                dimension: "input-token",
+                remaining: { atoms: "1000", scale: 0, unit: "input-token", scheme: { kind: "unit" } },
+                resetsAt: "2026-08-02T00:00:00.000Z",
+              }],
+              evidence: {
+                sourceIdentity: "provider-quota",
+                sourceRevision: "quota-1",
+                sourceDigest: `sha256:${"e".repeat(64)}`,
+                observedAt: "2026-07-31T00:00:00.000Z",
+                validUntil: "2026-08-02T00:00:00.000Z",
+                confidence: "high",
+                authority: "provider-reported",
+              },
+            },
+          },
+        },
+      },
+    };
+    const settlement: ManagedEconomicSettlement = {
+      kind: "charged",
+      reservationId: "reservation-a",
+      dispatchFenceId: "managed-economic-dispatch:explanation",
+      actualIdentity: comparableCommitment.reservation.selectedIdentity,
+      units: [{ atoms: "20", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+      charge: { atoms: "12", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+      evidence: {
+        sourceIdentity: "provider-usage",
+        sourceRevision: "usage-explanation",
+        sourceDigest: `sha256:${"f".repeat(64)}`,
+        observedAt: "2026-08-01T00:00:00.000Z",
+        validUntil: "2026-08-02T00:00:00.000Z",
+        confidence: "high",
+        authority: "provider-reported",
+      },
+    };
+    const explanationEvent = appendManagedEconomicLifecycleSessionEvent({
+      session,
+      workspaceRoot: "C:/workspace/kiln",
+      jobId: "job-explanation",
+      economicAttemptId: "economic-attempt-explanation",
+      invocationId: "child-explanation",
+      transition: "released",
+      policy: makeEconomicPolicy(),
+      commitment: comparableCommitment,
+      dispatchFenceId: settlement.dispatchFenceId,
+      settlement,
+      selectionReason: "only-admitted-target",
+      workLimitProgress: { dimension: "turns", consumed: 4, limit: 4, status: "exhausted" },
+      terminalCause: "work-limit-exhaustion",
+      timestamp: new Date("2026-08-01T00:00:01.000Z"),
+    });
+    const denialEvents = [
+      appendManagedEconomicLifecycleSessionEvent({
+        session,
+        workspaceRoot: "C:/workspace/kiln",
+        jobId: "job-provider-exhaustion",
+        economicAttemptId: "economic-attempt-provider-exhaustion",
+        transition: "denied",
+        policy: makeEconomicPolicy(),
+        rejections: [{ stage: "account-selection", routeId: "route-a", reason: "unhealthy", count: 1 }],
+      }),
+      appendManagedEconomicLifecycleSessionEvent({
+        session,
+        workspaceRoot: "C:/workspace/kiln",
+        jobId: "job-spend-denial",
+        economicAttemptId: "economic-attempt-spend-denial",
+        transition: "denied",
+        policy: makeEconomicPolicy(),
+        rejections: [{ stage: "economic-selection", routeId: "route-a", reason: "ceiling-exceeded" }],
+      }),
+      appendManagedEconomicLifecycleSessionEvent({
+        session,
+        workspaceRoot: "C:/workspace/kiln",
+        jobId: "job-technical-failure",
+        economicAttemptId: "economic-attempt-technical-failure",
+        transition: "release-failed",
+        policy: makeEconomicPolicy(),
+        commitment: comparableCommitment,
+      }),
+    ];
+    const events = [...explanationEvent, ...denialEvents.flat()];
+    const replayed = normalizeManagedAgentOperatorReplayEvents(events.map((event) =>
+      toOperatorSessionEventFrame(event, {
+        eventId: event.eventId,
+        sequence: event.sequence,
+        instanceId: "local-test",
+      }).event), { defaultInstanceId: "local-test" });
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-01T00:00:02.000Z",
+      attachTargets: [{ instanceId: "local-test", label: "Local test", kind: "local" }],
+      events: replayed,
+    });
+
+    expect(projection.economicAttempts.find((attempt) => attempt.jobId === "job-explanation")).toMatchObject({
+      selectedTarget: {
+        targetId: "route-a",
+        providerId: "codex-oauth",
+        modelId: "gpt-test",
+        reason: "only-admitted-target",
+      },
+      selectedRoute: { priceClass: "metered" },
+      billingClass: "metered",
+      providerAllowance: {
+        status: "available",
+        evidenceFreshness: "fresh",
+        buckets: [{ dimension: "input-token", remaining: { atoms: "1000", scale: 0 } }],
+      },
+      workLimitProgress: { dimension: "turns", consumed: 4, limit: 4, status: "exhausted" },
+      reservedAmount: { atoms: "25", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+      settledAmount: { atoms: "12", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
+      perChildConsumption: [{ childId: "child-explanation", comparability: "comparable" }],
+      evidenceFreshness: "fresh",
+      terminalCause: "work-limit-exhaustion",
+    });
+    expect(projection.economicAttempts.map((attempt) => attempt.terminalCause)).toEqual([
+      "work-limit-exhaustion",
+      "provider-exhaustion",
+      "spend-denial",
+      "technical-failure",
+    ]);
+    expect(projection.unprojectableEvidence).toEqual([]);
+    expect(JSON.stringify(projection)).not.toMatch(/accountRef|credentialRevision|C:\\workspace\\kiln/iu);
   });
 });
