@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import { toMessengerFormat } from "../channels/message-formatter.js";
-import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -16,6 +16,7 @@ import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
+import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
@@ -59,6 +60,7 @@ export interface MessengerWebhookConfig {
   readonly dedup?: WebhookDedup;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
 
 /** Messenger webhook messaging entry (same structure as Instagram) */
@@ -227,12 +229,37 @@ async function processMessengerMessage(
   senderId: string,
   messageParts: readonly ContentPart[],
   accessToken?: string,
+  admitted?: GatewayAuthorityAdmissionCommit,
 ): Promise<void> {
   const trace = new TraceContext();
   trace.log("messenger", "Processing message", { tenantId, from: senderId });
 
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
+
+  // The admission callback owns the complete consequential lifecycle.  The
+  // initial session is only the identity anchor required by the admission
+  // port; every effect after admission (including media/STT, provider work,
+  // outbound delivery, and memory/session writes) stays inside its fence.
+  if (!admitted) {
+    const session = await config.sessionRegistry.getOrCreate({
+      appName: config.appName,
+      tenantId,
+      userId: senderId,
+      systemPrompt: "",
+      idleTimeoutMs: tenant.idleTimeoutMs,
+    });
+    await config.gatewayAdmission.execute({
+      ingressId: crypto.randomUUID(),
+      appName: config.appName,
+      tenantId,
+      userId: senderId,
+      sessionId: session.id,
+      channel: "messenger",
+      userParts: messageParts,
+    }, (commit) => processMessengerMessage(config, tenantId, senderId, messageParts, accessToken, commit));
+    return;
+  }
 
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
@@ -350,14 +377,7 @@ async function processMessengerMessage(
     }
   }
 
-  // Get or create session first (needed for ping-pong guard)
-  const session = await config.sessionRegistry.getOrCreate({
-    appName: config.appName,
-    tenantId,
-    userId: senderId,
-    systemPrompt: "",
-    idleTimeoutMs: tenant.idleTimeoutMs,
-  });
+  const session = admitted.session;
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
@@ -387,15 +407,6 @@ async function processMessengerMessage(
   if (tenantToolCtx.toolDefinitions.length > 0) {
     config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
   }
-
-  const perCallConfig: PerCallToolConfig = {
-    toolAllowlist: tenantToolCtx.toolAllowlist,
-    rateLimiter: tenantToolCtx.rateLimiter,
-    tenantId: tenant.tenantId,
-    toolAuthority: tenantToolCtx.toolAuthority,
-    additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-    perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-  };
 
   // --- Budget check ---
   const activeBilling = tenant.billing?.budgetEndpoint
@@ -433,16 +444,19 @@ async function processMessengerMessage(
   let replyText: string;
   let replyAudioUrls: string[] = [];
   try {
-    const result = await config.orchestrator.processMessage(
-      session,
+    const result = await config.orchestrator.bindProvider(
+        admitted.provider,
+        admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+      ).processMessage(
+      admitted.session,
       processedParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      perCallConfig,
+      admitted.perCallConfig,
     );
 
-    // Persist mutated session
-    await config.sessionRegistry.save(session);
+    // Persist mutated session while the account fence is still held.
+    await config.sessionRegistry.save(admitted.session);
 
     // Emit handoff events when message was queued
     if (result.queued && config.eventEmitter) {

@@ -211,6 +211,15 @@ export function attachManagedInvocationSessionEventSink(
     get callerIdentity() {
       return attachment.callerIdentity;
     },
+    ...(attachment.childAuthorityAdmission !== undefined
+      ? { childAuthorityAdmission: attachment.childAuthorityAdmission }
+      : {}),
+    ...(attachment.governedScopeAdmission !== undefined
+      ? { governedScopeAdmission: attachment.governedScopeAdmission }
+      : {}),
+    ...(attachment.boundedWorkAdmission !== undefined
+      ? { boundedWorkAdmission: attachment.boundedWorkAdmission }
+      : {}),
     get options() {
       return {
         ...options,

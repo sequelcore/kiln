@@ -194,6 +194,8 @@ export {
 
 export type {
   KilnConfigProjectSnapshot,
+  KilnConfigActivationStatus,
+  KilnConfigActivationStatusEntry,
   KilnEffectiveConfigActivation,
   KilnEffectiveConfigFieldSnapshot,
   KilnEffectiveConfigHealth,
@@ -241,6 +243,8 @@ export type {
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
+  KILN_CONFIG_ACTIVATION_STATUS_EVIDENCE,
+  KILN_CONFIG_ACTIVATION_STATUS_STATES,
   KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
   KILN_STATUS_EVIDENCE_VERSION,
   KILN_SETUP_HARNESSES,
@@ -260,6 +264,7 @@ export {
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
   KilnConfigStatusSnapshotSchema,
+  KilnConfigActivationStatusSchema,
   KilnResolvedWorkGovernancePolicySchema,
   KilnConfigSourceSnapshotSchema,
   KilnEffectiveConfigFieldSnapshotSchema,

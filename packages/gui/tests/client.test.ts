@@ -137,6 +137,16 @@ describe("GuiGatewayClient", () => {
     });
   });
 
+  it("fails closed without a committed session target", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    await expect(client.loadResourceDataUrl("kiln://artifacts/capture")).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps data URL conversion as GUI presentation behavior", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       uri: "kiln://artifacts/capture",
@@ -156,7 +166,10 @@ describe("GuiGatewayClient", () => {
 
     const client = new GuiGatewayClient("http://localhost:4810");
 
-    await expect(client.loadResourceDataUrl("kiln://artifacts/capture")).resolves.toBe(
+    await expect(client.loadResourceDataUrl("kiln://artifacts/capture", {
+      sessionId: "session-1",
+      resourceUri: "kiln://artifacts/capture",
+    })).resolves.toBe(
       "data:image/png;base64,iVBORw0KGgo=",
     );
   });
@@ -191,7 +204,10 @@ describe("GuiGatewayClient", () => {
 
     const client = new GuiGatewayClient("http://localhost:4810");
 
-    const dataUrl = await client.loadResourceDataUrl("kiln://external-engagement/artifacts");
+    const dataUrl = await client.loadResourceDataUrl("kiln://external-engagement/artifacts", {
+      sessionId: "session-1",
+      resourceUri: "kiln://external-engagement/artifacts",
+    });
     expect(dataUrl).toMatch(/^data:application\/json;charset=utf-8;base64,/u);
     const payload = JSON.parse(atob(dataUrl!.slice(dataUrl!.indexOf(",") + 1)));
     expect(payload).toEqual({

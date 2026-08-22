@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import { toWhatsAppFormat } from "../channels/message-formatter.js";
-import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -17,6 +17,7 @@ import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
+import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
@@ -61,6 +62,7 @@ export interface WhatsAppWebhookConfig {
   readonly dedup?: WebhookDedup;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
 
 interface MetaWebhookMessage {
@@ -311,12 +313,36 @@ async function processWhatsAppMessage(
   messageParts: readonly ContentPart[],
   phoneNumberId: string,
   accessToken?: string,
+  admitted?: GatewayAuthorityAdmissionCommit,
 ): Promise<void> {
   const trace = new TraceContext();
   trace.log("whatsapp", "Processing message", { tenantId, from: senderPhone });
 
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
+
+  // One admission callback owns preprocessing, provider work, voice/media,
+  // outbound Cloud API calls, and durable session/memory effects. The session
+  // created here is only the identity anchor needed by the admission port.
+  if (!admitted) {
+    const session = await config.sessionRegistry.getOrCreate({
+      appName: config.appName,
+      tenantId,
+      userId: senderPhone,
+      systemPrompt: "",
+      idleTimeoutMs: tenant.idleTimeoutMs,
+    });
+    await config.gatewayAdmission.execute({
+      ingressId: crypto.randomUUID(),
+      appName: config.appName,
+      tenantId,
+      userId: senderPhone,
+      sessionId: session.id,
+      channel: "whatsapp",
+      userParts: messageParts,
+    }, (commit) => processWhatsAppMessage(config, tenantId, senderPhone, messageParts, phoneNumberId, accessToken, commit));
+    return;
+  }
 
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
@@ -461,14 +487,7 @@ async function processWhatsAppMessage(
     }
   }
 
-  // Get or create session first (needed for ping-pong guard)
-  const session = await config.sessionRegistry.getOrCreate({
-    appName: config.appName,
-    tenantId,
-    userId: senderPhone,
-    systemPrompt: "",
-    idleTimeoutMs: tenant.idleTimeoutMs,
-  });
+  const session = admitted.session;
 
   // Coexistence auto-release: if human has been idle past the timeout, transition back to AI
   if (session.sessionMode === "human_active" && tenant.whatsappCoexistence?.autoReleaseMs) {
@@ -522,15 +541,6 @@ async function processWhatsAppMessage(
     config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
   }
 
-  const perCallConfig: PerCallToolConfig = {
-    toolAllowlist: tenantToolCtx.toolAllowlist,
-    rateLimiter: tenantToolCtx.rateLimiter,
-    tenantId: tenant.tenantId,
-    toolAuthority: tenantToolCtx.toolAuthority,
-    additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-    perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-  };
-
   // --- Budget check ---
   const activeBilling = tenant.billing?.budgetEndpoint
     ? (tenant.billing as unknown as BillingConfig)
@@ -570,16 +580,19 @@ async function processWhatsAppMessage(
   let replyText: string;
   let replyAudioUrls: string[] = [];
   try {
-    const result = await config.orchestrator.processMessage(
-      session,
+    const result = await config.orchestrator.bindProvider(
+        admitted.provider,
+        admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+      ).processMessage(
+      admitted.session,
       processedParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      perCallConfig,
+      admitted.perCallConfig,
     );
 
-    // Persist mutated session (required for non-reference stores like Redis)
-    await config.sessionRegistry.save(session);
+    // Persist mutated session while the account fence is still held.
+    await config.sessionRegistry.save(admitted.session);
 
     // Emit handoff events when message was queued
     if (result.queued && config.eventEmitter) {
@@ -762,6 +775,7 @@ async function processCoexistenceEcho(
   config: WhatsAppWebhookConfig,
   tenant: import("@kilnai/core").TenantConfig,
   msg: MetaWebhookMessage,
+  admitted?: GatewayAuthorityAdmissionCommit,
 ): Promise<void> {
   const trace = new TraceContext();
   const customerPhone = msg.to!;
@@ -775,24 +789,39 @@ async function processCoexistenceEcho(
     return;
   }
 
+  if (!admitted) {
+    await config.gatewayAdmission.execute({
+      ingressId: crypto.randomUUID(),
+      appName: config.appName,
+      tenantId,
+      userId: customerPhone,
+      sessionId: session.id,
+      channel: "whatsapp",
+      userParts: msg.text?.body ? textParts(msg.text.body) : [],
+    }, (commit) => processCoexistenceEcho(config, tenant, msg, commit));
+    return;
+  }
+
+  const admittedSession = admitted.session;
+
   // If already human_active or resolved, just update the timestamp
-  if (session.sessionMode !== "ai_active" && session.sessionMode !== "queued") {
-    session.recordHumanMessage();
-    await config.sessionRegistry.save(session);
+  if (admittedSession.sessionMode !== "ai_active" && admittedSession.sessionMode !== "queued") {
+    admittedSession.recordHumanMessage();
+    await config.sessionRegistry.save(admittedSession);
     return;
   }
 
   // Transition to human_active -- human is already actively responding
-  session.setSessionMode("human_active");
-  session.recordHumanMessage();
+  admittedSession.setSessionMode("human_active");
+  admittedSession.recordHumanMessage();
 
   // Inject the business message into session history so AI has context when it resumes
   const echoText = msg.text?.body;
   if (echoText) {
-    session.injectOperatorMessage(textParts(echoText));
+    admittedSession.injectOperatorMessage(textParts(echoText));
   }
 
-  await config.sessionRegistry.save(session);
+  await config.sessionRegistry.save(admittedSession);
 
   if (config.eventEmitter) {
     config.eventEmitter.emit({
@@ -800,7 +829,7 @@ async function processCoexistenceEcho(
       tenantId,
       channel: "whatsapp",
       externalUserId: customerPhone,
-      sessionId: session.id,
+       sessionId: admittedSession.id,
       sessionMode: "human_active",
       handoffSource: "whatsapp_coexistence",
       messageContent: echoText,
@@ -810,5 +839,5 @@ async function processCoexistenceEcho(
     });
   }
 
-  trace.log("whatsapp", "Coexistence: human takeover", { tenantId, customerPhone, sessionId: session.id });
+  trace.log("whatsapp", "Coexistence: human takeover", { tenantId, customerPhone, sessionId: admittedSession.id });
 }

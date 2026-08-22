@@ -15,6 +15,8 @@ import {
   type ProviderModelRouteIdentity,
   type ModelTurn,
   type ModelTurnResult,
+  type ExecutionSessionBindingEvidence,
+  type SessionTurnBudgetDecision,
 } from "@kilnai/core";
 import type {
   AccountCapacityRecord,
@@ -24,6 +26,10 @@ import type {
   ExecutionAccountCapacityAuthority,
 } from "./execution-account-capacity-authority.js";
 import { ProviderDispatchTerminalError } from "./provider-dispatch-terminal-error.js";
+import type {
+  EffectiveAuthorityAdmissionBundle,
+  TurnBudgetAdmission,
+} from "../session/effective-authority-admission-bundle.js";
 
 export type GovernedOneRoundToolExecutionMode = "caller-owned" | "kiln-owned";
 export interface GovernedOneRoundIdentity {
@@ -60,11 +66,18 @@ export interface GovernedOneRoundInvocationInput {
   readonly turn: ModelTurn;
   readonly signal?: AbortSignal;
   readonly lifecycle?: {
-    readonly afterCommittedBeforeDispatch: () => void | Promise<void>;
+    /** Runs after the durable capacity fence and bundle composition, before provider dispatch. */
+    readonly afterCommittedBeforeDispatch: (input: {
+      readonly bundle: EffectiveAuthorityAdmissionBundle;
+      readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+      readonly lease: AccountCapacityRecord;
+    }) => void | Promise<void>;
   };
 }
 export interface GovernedOneRoundCandidateCatalog {
-  list(input: Pick<GovernedOneRoundInvocationInput, "identity" | "route" | "authority" | "budget">): Promise<{
+  list(input: Pick<GovernedOneRoundInvocationInput, "identity" | "route" | "authority"> & {
+    readonly budget: TurnBudgetAdmission;
+  }): Promise<{
     readonly admission: AdmittedExecutionRoute;
     readonly candidates: readonly GovernedOneRoundCandidate[];
   }>;
@@ -99,13 +112,38 @@ export interface GovernedOneRoundDispatcherResolver {
     readonly accountId: string;
     readonly route: ProviderModelRouteIdentity;
     readonly lease: AccountCapacityRecord;
-  }): Promise<OneRoundModelDispatcher>;
+  }): Promise<GovernedOneRoundResolvedDispatch>;
+}
+export interface GovernedOneRoundResolvedDispatch {
+  /** Provider adapter materialized from the credential resolved behind the fence. */
+  readonly dispatcher: OneRoundModelDispatcher;
+  /** Exact secret-free identity observed by the post-fence resolver. */
+  readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+}
+export interface GovernedOneRoundBudgetAdmissionPort {
+  /** Reads live session usage before any candidate or capacity decision. */
+  admit(input: {
+    readonly identity: GovernedOneRoundIdentity;
+    readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
+  }): Promise<TurnBudgetAdmission | Extract<SessionTurnBudgetDecision, { readonly status: "denied" }>>;
+}
+export interface GovernedOneRoundAuthorityAdmissionPort {
+  /** Composes the one immutable, secret-free bundle from owner decisions. */
+  compose(input: {
+    readonly invocation: GovernedOneRoundInvocationInput;
+    readonly admission: AdmittedExecutionRoute;
+    readonly budget: TurnBudgetAdmission;
+    readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+    readonly lease: AccountCapacityRecord;
+  }): Promise<EffectiveAuthorityAdmissionBundle>;
 }
 export interface GovernedOneRoundInvocationPorts {
   readonly candidateCatalog: GovernedOneRoundCandidateCatalog;
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly attemptEvidence: GovernedOneRoundAttemptEvidenceSink;
   readonly dispatcherResolver: GovernedOneRoundDispatcherResolver;
+  readonly budgetAdmission: GovernedOneRoundBudgetAdmissionPort;
+  readonly authorityAdmission: GovernedOneRoundAuthorityAdmissionPort;
 }
 export type GovernedOneRoundCloseoutDiagnosticCode = "terminal-evidence-failed" | "capacity-settlement-failed";
 export interface GovernedOneRoundCloseoutDiagnostic {
@@ -169,11 +207,21 @@ export async function invokeGovernedOneRound(
   ports: GovernedOneRoundInvocationPorts,
 ): Promise<GovernedOneRoundInvocationResult> {
   validateAdmission(input);
+  const budget = await ports.budgetAdmission.admit({
+    identity: input.identity,
+    route: input.route,
+  });
+  if (budget.status !== "admitted") {
+    throw new GovernedOneRoundInvocationError(
+      "budget-denied",
+      "The live session turn budget did not admit this invocation.",
+    );
+  }
   const catalog = await ports.candidateCatalog.list({
     identity: input.identity,
     route: input.route,
     authority: input.authority,
-    budget: input.budget,
+    budget,
   });
   const affinityRequest: ExecutionAccountAffinityRequest =
     input.affinity.continuity === "none"
@@ -294,31 +342,59 @@ export async function invokeGovernedOneRound(
     throw error;
   }
   const dispatchFenceId = `${input.attemptId}:dispatch`;
-  attempt = advanceExecutionAttempt(attempt, "committed");
-  // Committed evidence is observational; the lifecycle hook still has a pre-fence rollback path.
-  await record(true);
+  let dispatchLease: AccountCapacityRecord;
+  let resolved: GovernedOneRoundResolvedDispatch;
+  let bundle: EffectiveAuthorityAdmissionBundle;
   try {
-    await input.lifecycle?.afterCommittedBeforeDispatch();
-  } catch (error) {
-    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
-    throw new GovernedOneRoundCommittedError(error, Object.freeze(diagnostics), {
-      attemptId: attempt.attemptId,
-      leaseId: capacity.leaseId,
-      phases: Object.freeze(phases),
-    });
-  }
-  const dispatchLease = ports.accountCapacityAuthority.fenceAccountCapacityDispatch(runtimeInvocationId, dispatchFenceId);
-  let result: ModelTurnResult | undefined;
-  let failure: unknown;
-  try {
-    const dispatcher = await ports.dispatcherResolver.resolve({
+    dispatchLease = ports.accountCapacityAuthority.fenceAccountCapacityDispatch(runtimeInvocationId, dispatchFenceId);
+    if (input.signal?.aborted) throw new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
+    resolved = await ports.dispatcherResolver.resolve({
       identity: input.identity,
       routeId: catalog.admission.routeId,
       accountId: candidateSelection.accountId,
       route: input.route,
       lease: dispatchLease,
     });
-    result = await dispatchOneModelRound(dispatcher, {
+    if (resolved.binding.status !== "bound"
+      || resolved.binding.routeId !== catalog.admission.routeId
+      || resolved.binding.accountId !== candidateSelection.accountId
+      || resolved.binding.credentialRevision !== dispatchLease.credentialRevisionId) {
+      throw new GovernedOneRoundInvocationError("invalid-input", "The post-fence credential binding does not match the admitted capacity lease.");
+    }
+    bundle = await ports.authorityAdmission.compose({
+      invocation: input,
+      admission: catalog.admission,
+      budget,
+      binding: resolved.binding,
+      lease: dispatchLease,
+    });
+    await input.lifecycle?.afterCommittedBeforeDispatch({
+      bundle,
+      binding: resolved.binding,
+      lease: dispatchLease,
+    });
+  } catch (error) {
+    attempt = advanceExecutionAttempt(attempt, error instanceof GovernedOneRoundInvocationError && error.code === "aborted" ? "cancelled" : "failed");
+    await record(true);
+    try {
+      ports.accountCapacityAuthority.settleAccountCapacity(runtimeInvocationId, dispatchFenceId, {
+        kind: "completed",
+        outcome: "cancelled",
+        observedAt: new Date().toISOString(),
+      });
+    } catch {
+      diagnostics.push({ code: "capacity-settlement-failed", phase: attempt.phase });
+    }
+    throw error;
+  }
+  attempt = advanceExecutionAttempt(attempt, "committed");
+  // Committed evidence is observational; the authority bundle and any replay
+  // claim have already been durably committed before this point.
+  await record(true);
+  let result: ModelTurnResult | undefined;
+  let failure: unknown;
+  try {
+    result = await dispatchOneModelRound(resolved.dispatcher, {
       account: capacity.accountRef,
       route: input.route,
       sessionId: input.identity.sessionId,
@@ -434,8 +510,6 @@ function validateAdmission(input: GovernedOneRoundInvocationInput): void {
     throw new GovernedOneRoundInvocationError("tool-execution-mode", "This boundary admits caller-owned tools only.");
   if (input.authority.status !== "admitted")
     throw new GovernedOneRoundInvocationError("authority-denied", "The invocation authority was not admitted.");
-  if (input.budget.status !== "admitted")
-    throw new GovernedOneRoundInvocationError("budget-denied", "The invocation budget was not admitted.");
   for (const [name, value] of Object.entries({
     attemptId: input.attemptId,
     ...input.identity,

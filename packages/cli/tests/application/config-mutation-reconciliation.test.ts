@@ -32,7 +32,7 @@ vi.mock("../../src/application/repo-shim-projection.js", () => ({ writeRepoShimP
 vi.mock("../../src/config/communication-policy.js", () => ({ configuredCommunicationCandidates: vi.fn() }));
 vi.mock("../../src/kiln-yaml.js", () => ({ readKilnYaml: vi.fn() }));
 vi.mock("../../src/application/config-reconciliation-generation.js", () => ({
-  captureCanonicalReconciliationGeneration: (_projectPath: string, target: string) => mocks.generations.get(target) ?? "initial",
+  captureCanonicalReconciliationGeneration: (_projectPath: string, target: string) => mocks.generations.get(target) ?? `sha256:${"a".repeat(64)}`,
 }));
 
 describe("configuration mutation reconciliation", () => {
@@ -53,7 +53,7 @@ describe("configuration mutation reconciliation", () => {
       "C:/fixture/project",
       { force: true, modelGateway: { enabled: true } },
     );
-    expect(effect).toMatchObject({ target: "native-permissions", status: "ok" });
+    expect(effect).toMatchObject({ target: "native-permissions", status: "ok", generation: `sha256:${"a".repeat(64)}` });
   });
 
   it("reports native projection errors as reconciliation failure after commit", async () => {
@@ -76,6 +76,7 @@ describe("configuration mutation reconciliation", () => {
       status: "ok",
       summary: "1 execution routes verified from canonical intent and evidence.",
       errors: [],
+      generation: `sha256:${"a".repeat(64)}`,
     });
   });
 
@@ -88,7 +89,7 @@ describe("configuration mutation reconciliation", () => {
     let publishedGeneration = "none";
     mocks.syncAgents.mockImplementation(async () => {
       callCount += 1;
-      const admittedGeneration = mocks.generations.get("native-agents") ?? "initial";
+      const admittedGeneration = mocks.generations.get("native-agents") ?? `sha256:${"a".repeat(64)}`;
       if (callCount === 1) {
         firstStarted();
         await firstMayFinish;
@@ -99,7 +100,8 @@ describe("configuration mutation reconciliation", () => {
 
     const first = reconcileConfigMutation("C:/fixture/project", ["native-agents"]);
     await firstDidStart;
-    mocks.generations.set("native-agents", "newer");
+    const newerGeneration = `sha256:${"b".repeat(64)}`;
+    mocks.generations.set("native-agents", newerGeneration);
     const second = reconcileConfigMutation("C:/fixture/project", ["native-agents"]);
 
     // The second canonical-path mutation cannot enter the shared projection
@@ -115,8 +117,8 @@ describe("configuration mutation reconciliation", () => {
       status: "skipped",
       summary: "native-agents reconciliation was superseded by a newer canonical revision.",
     });
-    expect(secondEffect).toMatchObject({ target: "native-agents", status: "ok" });
-    expect(publishedGeneration).toBe("newer");
+    expect(secondEffect).toMatchObject({ target: "native-agents", status: "ok", generation: newerGeneration });
+    expect(publishedGeneration).toBe(newerGeneration);
     expect(callCount).toBe(3);
   });
 });

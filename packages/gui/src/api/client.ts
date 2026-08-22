@@ -27,6 +27,7 @@ import type {
   OperatorResourceReadContent,
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
+  OperatorCockpitActionTarget,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import {
@@ -539,10 +540,14 @@ export class GuiGatewayClient {
     return null;
   }
 
-  async loadResourceDataUrl(uri: string, target?: OperatorResourceReadRequest["target"]): Promise<string | null> {
+  async loadResourceDataUrl(uri: string, target?: OperatorCockpitActionTarget): Promise<string | null> {
+    const sessionId = target?.sessionId?.trim();
+    if (!sessionId) {
+      return null;
+    }
     const result = await this.readResource({
       uri,
-      ...(target ? { target } : {}),
+      target: { ...target, sessionId },
     });
     if (result?.summary) {
       return summarizedResourceDataUrl(result);

@@ -5,6 +5,7 @@ import type { KilnAppConfig } from "../config.js";
 import { YamlWatcher } from "./dev-watcher.js";
 import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
+import { createAppGatewayExecutionComposition, gatewayRequiresAppGatewayExecution } from "../application/app-gateway-execution-composition.js";
 
 export interface DevFlags {
   readonly port?: number;
@@ -88,13 +89,21 @@ export async function devCommand(_appConfig: KilnAppConfig, flags: DevFlags = {}
     if (mcp.diagnostics.length > 0) {
       throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
     }
-    await startGateway(plan.gatewayPath, {
-      port: plan.port,
-      swarmCoordination: "project-local",
-      canonicalMcpServers: new Map(Object.entries(mcp.servers)),
-      mcpCredentialResolver: createMcpCredentialAccess().resolve,
-      ...(plan.openUrl ? { onReady: () => openBrowser(plan.openUrl!) } : {}),
-    });
+    const appGatewayExecution = gatewayRequiresAppGatewayExecution(plan.gatewayPath)
+      ? createAppGatewayExecutionComposition({ projectPath: root, configPath: plan.gatewayPath })
+      : undefined;
+    try {
+      await startGateway(plan.gatewayPath, {
+        port: plan.port,
+        swarmCoordination: "project-local",
+        canonicalMcpServers: new Map(Object.entries(mcp.servers)),
+        mcpCredentialResolver: createMcpCredentialAccess().resolve,
+        ...(appGatewayExecution ? { appGatewayExecution: appGatewayExecution.bundle } : {}),
+        ...(plan.openUrl ? { onReady: () => openBrowser(plan.openUrl!) } : {}),
+      });
+    } finally {
+      appGatewayExecution?.close();
+    }
   } catch (err) {
     console.error(`Failed to start: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);

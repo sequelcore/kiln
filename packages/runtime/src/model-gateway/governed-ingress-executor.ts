@@ -8,6 +8,7 @@ import {
   invokeGovernedOneRound,
 } from "../execution-kernel/governed-one-round-invocation.js";
 import type { ModelGatewayReplayDecision, ModelGatewayReplayGuard } from "./replay-guard.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 
 /** Protocol-neutral compatibility evidence retained by the model-gateway authority. */
 export type ModelGatewayIngressId = "openai-responses" | "anthropic-messages";
@@ -95,9 +96,10 @@ export async function executeGovernedIngress<T>(input: GovernedIngressExecutorIn
       attemptId: input.createAttemptId(), identity: input.identity, route: input.route,
       authority: input.authority, budget: input.budget, affinity: input.affinity,
       toolExecutionMode: input.toolExecutionMode, turn: input.turn, signal: input.signal,
-      ...(dispatch === undefined ? {} : { lifecycle: { afterCommittedBeforeDispatch: () => {
+      ...(dispatch === undefined ? {} : { lifecycle: { afterCommittedBeforeDispatch: ({ bundle }: { readonly bundle: EffectiveAuthorityAdmissionBundle }) => {
+        if (input.replayGuard!.commitAdmission) input.replayGuard!.commitAdmission(dispatch!.key, dispatch!.fence, bundle);
+        else input.replayGuard!.markCommitted(dispatch!.key, dispatch!.fence);
         commitAttempted = true;
-        input.replayGuard!.markCommitted(dispatch!.key, dispatch!.fence);
       } } }),
     }, input.invocationPorts);
     dispatched = true;

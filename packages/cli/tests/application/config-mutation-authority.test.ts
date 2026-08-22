@@ -10,6 +10,7 @@ import {
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
 import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
+import { captureCanonicalReconciliationGeneration } from "../../src/application/config-reconciliation-generation.js";
 import { defaultGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   executionTargetEvidenceRevision,
@@ -25,6 +26,10 @@ let previousXdgConfigHome: string | undefined;
 
 /** Reconciliation is exercised separately; these specs assert lifecycle behavior. */
 const reconcileOk = vi.fn(async () => []);
+
+function isDigest(value: string): value is `sha256:${string}` {
+  return /^sha256:[a-f0-9]{64}$/u.test(value);
+}
 
 function globalConfigPath(): string {
   return join(globalHome, "kiln", "config.yaml");
@@ -519,6 +524,41 @@ describe("config mutation authority", () => {
     });
   });
 
+  it("settles the exact generation proven inside the target fence when canonical inputs change afterward", async () => {
+    const record = propose("skill.upsert", {
+      name: "repo-review",
+      description: "Review the repository",
+      instructions: "Read the diff.",
+    });
+    let fencedGeneration: `sha256:${string}` | undefined;
+
+    await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      readEffectiveState: async () => undefined,
+      reconcile: async () => {
+        const captured = captureCanonicalReconciliationGeneration(tempDir, "native-skills");
+        if (!isDigest(captured)) throw new Error("fixture generation was malformed");
+        fencedGeneration = captured;
+        const competitor = join(tempDir, ".kiln", "skills", "competitor", "SKILL.md");
+        mkdirSync(join(tempDir, ".kiln", "skills", "competitor"), { recursive: true });
+        writeFileSync(competitor, "---\nname: competitor\ndescription: changed\n---\n", "utf8");
+        return [{
+          target: "native-skills" as const,
+          status: "ok" as const,
+          summary: "fenced generation converged",
+          errors: [],
+          generation: fencedGeneration,
+        }];
+      },
+    });
+
+    expect(captureCanonicalReconciliationGeneration(tempDir, "native-skills")).not.toBe(fencedGeneration);
+    expect(new ConfigMutationStore(tempDir).readSettlement(record.proposal.proposalId)?.reconciliationGenerations)
+      .toEqual([{ target: "native-skills", generation: fencedGeneration }]);
+  });
+
   it("restores the exact prior bytes through a governed rollback", async () => {
     const path = join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md");
     const original = "---\nname: repo-review\ndescription: Original\n---\n\nOriginal instructions.\n";
@@ -550,6 +590,41 @@ describe("config mutation authority", () => {
 
     expect(restored.settlement.outcome).toBe("committed");
     expect(readFileSync(path, "utf-8")).toBe(original);
+    expect(restored.settlement.committedRevision).toBe(`sha256:${createHash("sha256").update(original).digest("hex")}`);
+    expect(restored.settlement.committedRevision).not.toBe(committed.settlement.committedRevision);
+    expect(new ConfigMutationStore(tempDir).readLatestSettlementForPath(
+      path,
+      restored.settlement.committedRevision ?? undefined,
+    )?.proposalId).toBe(rollback.proposal.proposalId);
+  });
+
+  it("orders settlements by canonical path across different mutation operations", async () => {
+    const now = new Date("2026-08-22T00:00:00.000Z");
+    const change = propose("skill.upsert", {
+      name: "path-ordering",
+      description: "Original",
+      instructions: "Original instructions.",
+    });
+    const committed = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: change.proposal.proposalId,
+      requester: "operator",
+      now,
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    const rollback = propose("mutation.rollback", { token: committed.settlement.rollbackToken });
+    const restored = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: rollback.proposal.proposalId,
+      requester: "operator",
+      now,
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(Date.parse(restored.settlement.settledAt)).toBe(Date.parse(committed.settlement.settledAt) + 1);
+    expect(restored.settlement.proposalId).not.toBe(committed.settlement.proposalId);
   });
 
   it("writes a global preference through the authority rather than the surface", async () => {

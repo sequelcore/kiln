@@ -22,6 +22,8 @@ import type { Capability, AuthorityDescriptor } from "@kilnai/core/engine";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { prepareOperatorAdoptionTurn } from "../../src/session/operator-adoption-authority.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
 import type { readRuntimeSupportArtifactsDetailed } from "../../src/session/support/artifacts/context-artifact-summary.js";
@@ -241,6 +243,89 @@ describe("processAdmittedTurn", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("uses the persisted bundle and pre-admitted canonical adoption without allocating a second authority turn", async () => {
+    const session = new RuntimeSession({
+      sessionId: "session-authority",
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    const persistCanonicalSessionEvent = vi.fn().mockResolvedValue(undefined);
+    const adoption = await prepareOperatorAdoptionTurn({
+      session,
+      actorId: "user-1",
+      correlationId: "routing-execution-1",
+      persist: persistCanonicalSessionEvent,
+    });
+    persistCanonicalSessionEvent.mockClear();
+    const revision = { revisionSetId: "R1", revisions: { execution: "R1" } } as const;
+    const authority = {
+      executionMode: "execute" as const,
+      requestedAuthority: "read_only" as const,
+      admittedAuthority: "fail_closed" as const,
+      sourcePolicy: "runtime_surface_projection" as const,
+      reason: "No tools admitted.",
+      completeness: "authoritative" as const,
+      toolCount: 0,
+      deniedToolCount: 0,
+      sandboxProjection: "read_only" as const,
+    };
+    const bundle = defineEffectiveAuthorityAdmissionBundle({
+      sessionId: session.id,
+      turnId: adoption.turnId,
+      admittedAt: "2026-08-22T18:00:00.000Z",
+      configuration: { sessionRevision: revision, turnRevision: revision },
+      session: {
+        skillCatalog: { catalogId: "operator", revision: "skills-r1", skillIds: [] },
+        authorityCeiling: { maximumAuthority: "read_only", reason: "test session ceiling", subjectId: session.id },
+      },
+      turn: {
+        authority,
+        workGovernance: { status: "not-required" },
+        operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+        tools: { allowedToolPermissions: [], deniedToolNames: [] },
+        effectCeiling: {
+          operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+          identityUse: "none", consequences: [], idempotency: "idempotent",
+        },
+        budget: { status: "not-configured" },
+        execution: { status: "not-routed" },
+      },
+    });
+    const orchestrator = makeMockOrchestrator();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      persistCanonicalSessionEvent,
+      authorityAdmission: bundle,
+      perCallConfig: {
+        turnId: adoption.turnId,
+        turnCorrelationId: adoption.correlationId,
+        operatorAdoptionDecision: adoption.operatorAdoptionDecision,
+        toolAllowlist: new Set(),
+        toolAuthority: new Map(),
+        perCallCapabilities: new Map(),
+        effectiveTurnAuthority: authority,
+        runtimeConfigurationRevision: revision,
+      },
+    }))).resolves.toMatchObject({ ok: true });
+
+    expect(persistCanonicalSessionEvent).not.toHaveBeenCalled();
+    expect(orchestrator.processMessage).toHaveBeenCalledWith(
+      session,
+      expect.any(Array),
+      expect.any(Object),
+      undefined,
+      expect.objectContaining({
+        turnId: adoption.turnId,
+        operatorAdoptionDecision: adoption.operatorAdoptionDecision,
+        toolAllowlist: new Set(),
+      }),
+    );
   });
 
   it("ignores caller turn ids and allocates the next canonical runtime ordinal", async () => {

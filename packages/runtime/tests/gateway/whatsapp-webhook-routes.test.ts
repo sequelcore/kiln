@@ -11,6 +11,7 @@ import { createWhatsAppWebhookRoutes } from "../../src/gateway/whatsapp-webhook-
 import type { WhatsAppWebhookConfig } from "../../src/gateway/whatsapp-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -110,13 +111,17 @@ function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
 
 function makeConfig(overrides: Partial<WhatsAppWebhookConfig> = {}): WhatsAppWebhookConfig {
   const provider = makeMockProvider();
+  const orchestrator = new RuntimeSessionOrchestrator({ provider, model: provider.name });
+  orchestrator.bindProvider = vi.fn().mockReturnValue(orchestrator);
   const tmpDir = mkdtempSync(join(tmpdir(), "wa-webhook-test-"));
   const tenantRegistry = new TenantRegistry(tmpDir);
+  const sessionRegistry = new SessionRegistry();
   return {
     appName: "test-app",
-    orchestrator: new RuntimeSessionOrchestrator({ provider }),
-    sessionRegistry: new SessionRegistry(),
+    orchestrator,
+    sessionRegistry,
     tenantRegistry,
+    gatewayAdmission: makeGatewayTestAdmission(sessionRegistry, provider),
     verifyToken: "my-verify-token",
     ...overrides,
   };
@@ -436,7 +441,7 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(await res.text()).toBe("OK");
     });
 
-    it("forwards tenant tool authority into per-call config", async () => {
+    it("uses the model-only admitted tool authority instead of tenant hints", async () => {
       const config = makeConfig();
       config.tenantRegistry.create(makeTenantConfig());
       const processSpy = vi.spyOn(config.orchestrator, "processMessage");
@@ -457,7 +462,7 @@ describe("createWhatsAppWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+      expect(perCallConfig?.toolAuthority).toEqual(new Map());
     });
 
     it("captures WhatsApp media as replay artifacts before provider invocation", async () => {

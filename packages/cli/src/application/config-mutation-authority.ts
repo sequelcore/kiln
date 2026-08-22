@@ -33,6 +33,7 @@ import {
   ConfigMutationStore,
   createConfigApprovalId,
   type ConfigMutationProposalRecord,
+  type ConfigMutationReconciliationGeneration,
   type ConfigMutationRestorePoint,
   type ConfigMutationWrite,
   type StoredConfigMutationSettlement,
@@ -232,9 +233,9 @@ export function approveConfigMutation(input: ApproveConfigMutationInput): KilnCo
  * the same intent once the conflict that caused the rejection clears.
  */
 export async function applyConfigMutation(input: ApplyConfigMutationInput): Promise<KilnConfigMutationResult> {
-  const store = new ConfigMutationStore(input.projectPath);
   const attemptedAt = (input.now ?? new Date()).toISOString();
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
+  const store = new ConfigMutationStore(input.projectPath, { globalConfigPath });
 
   const record = store.readProposal(input.proposalId);
   if (!record) {
@@ -347,8 +348,13 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         ? [diagnostic("configuration", `Previous invalid configuration backed up to ${commitOutcome.invalidBackupPath}`, "warning")]
         : [];
       const reconcile = input.reconcile ?? reconcileConfigMutation;
-      const reconciliationEffects = await reconcile(input.projectPath, proposal.reconciliationTargets);
-      const settledAt = nextSettlementTime(store, proposal.operation, input.now ?? new Date());
+      const reconciliationOutcomes = await reconcile(input.projectPath, proposal.reconciliationTargets);
+      const reconciliationEffects = reconciliationOutcomes.map(({ generation: _generation, ...effect }) => effect);
+      const reconciliationGenerations = reconciliationOutcomes.flatMap((effect) =>
+        effect.status === "ok" && effect.generation !== undefined
+          ? [{ target: effect.target, generation: effect.generation } satisfies ConfigMutationReconciliationGeneration]
+          : []);
+      const settledAt = nextSettlementTime(store, write.path, input.now ?? new Date());
       const approval = input.approvalId ? store.readApproval(input.approvalId) : null;
 
       const reconciliationState = reconciliationEffects.some((effect) => effect.status === "failed")
@@ -386,6 +392,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         rollbackToken: proposal.proposalId,
         activation: proposal.activation,
         activationObservation,
+        reconciliationGenerations,
         restore: record.writes.map((write): ConfigMutationRestorePoint => ({
           path: write.path,
           previousContent: write.previousContent,
@@ -415,10 +422,10 @@ interface CommitOutcome {
 /** Keeps operation settlements totally ordered even when a deterministic test clock is reused. */
 function nextSettlementTime(
   store: ConfigMutationStore,
-  operation: KilnConfigMutationOperation,
+  canonicalPath: string,
   candidate: Date,
 ): string {
-  const latest = store.readLatestSettlement(operation);
+  const latest = store.readLatestSettlementForPath(canonicalPath);
   const latestTime = latest === null ? Number.NEGATIVE_INFINITY : Date.parse(latest.settledAt);
   return new Date(Math.max(candidate.getTime(), latestTime + 1)).toISOString();
 }
@@ -656,7 +663,7 @@ function observedRevision(settlement: Pick<StoredConfigMutationSettlement, "appl
 }
 
 function toWireSettlement(settlement: StoredConfigMutationSettlement): KilnConfigMutationResult["settlement"] {
-  const { restore: _restore, ...wire } = settlement;
+  const { restore: _restore, reconciliationGenerations: _reconciliationGenerations, ...wire } = settlement;
   return wire;
 }
 

@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createAnthropicMessagesRoutes, type AnthropicMessagesIngressConfig } from "../../src/model-gateway/anthropic-messages-routes.js";
 import type { GovernedOneRoundInvocationPorts } from "../../src/execution-kernel/governed-one-round-invocation.js";
 import { InMemoryModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const principal = { tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted" as const, evidenceId: "budget" } };
 const route = { providerId: "codex-oauth", providerModelId: "upstream", scope: "virtual:claude-kiln" };
@@ -20,7 +21,9 @@ function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?
   const candidate = vi.fn(async (input) => ({ admission, candidates: [{ candidate: { accountId: "account", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }));
   const invocationPorts: GovernedOneRoundInvocationPorts = {
     candidateCatalog: { list: candidate }, accountCapacityAuthority: authority,
-    attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatchOneRound: execute }) },
+    attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: execute }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
+    budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
+    authorityAdmission: { compose: async () => ({}) as EffectiveAuthorityAdmissionBundle },
   };
   const namespaceCorrelation = vi.fn(async () => ({ sessionId: "ns:session", turnId: "ns:turn" }));
   const config: AnthropicMessagesIngressConfig = {

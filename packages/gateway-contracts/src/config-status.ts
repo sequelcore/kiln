@@ -1,4 +1,9 @@
 import { z } from "zod";
+import type {
+  KilnConfigActivationClass,
+  KilnConfigMutationScope,
+  KilnConfigReconciliationTarget,
+} from "./config-mutation.js";
 
 /** Version of status evidence that native-harness readers may treat as compatible. */
 export const KILN_STATUS_EVIDENCE_VERSION = 3 as const;
@@ -114,6 +119,57 @@ export const KILN_CONFIG_READ_VIEWS = [
 export type KilnConfigReadView = typeof KILN_CONFIG_READ_VIEWS[number];
 
 export type KilnConfigSourceStatus = "missing" | "valid" | "invalid";
+
+export const KILN_CONFIG_ACTIVATION_STATUS_STATES = [
+  "not-started",
+  "pending",
+  "scheduled",
+  "active",
+  "failed",
+  "superseded",
+  "unsupported",
+] as const;
+
+export const KILN_CONFIG_ACTIVATION_STATUS_EVIDENCE = [
+  "none",
+  "progress",
+  "scheduled",
+  "read-back",
+  "reconciliation",
+  "turn-boundary",
+  "session-boundary",
+  "mismatched-generations",
+  "superseded",
+  "unsupported",
+] as const;
+
+export interface KilnConfigActivationStatusEntry {
+  readonly proposalId: string;
+  readonly scope: KilnConfigMutationScope;
+  /** Logical canonical path only; operator filesystem paths never cross this contract. */
+  readonly path: string;
+  readonly committedRevision: string;
+  readonly boundary: KilnConfigActivationClass;
+  readonly state: typeof KILN_CONFIG_ACTIVATION_STATUS_STATES[number];
+  readonly activeRevision: string | null;
+  readonly evidence: typeof KILN_CONFIG_ACTIVATION_STATUS_EVIDENCE[number];
+  readonly reconciliationGenerations: readonly {
+    readonly target: KilnConfigReconciliationTarget;
+    readonly generation: string;
+  }[];
+  readonly settledAt?: string;
+  readonly summary: string;
+}
+
+/** Derived activation status; this is a read model, never an authority store. */
+export interface KilnConfigActivationStatus {
+  readonly desiredRevisionSetId: string;
+  readonly state: typeof KILN_CONFIG_ACTIVATION_STATUS_STATES[number];
+  readonly boundary: KilnConfigActivationClass | null;
+  readonly activeRevision: string | null;
+  readonly entries: readonly KilnConfigActivationStatusEntry[];
+  readonly summary: string;
+}
 
 export type KilnEffectiveConfigHealth = "current" | "stale" | "drifted" | "unknown";
 export type KilnEffectiveConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
@@ -764,6 +820,8 @@ export interface KilnConfigStatusSnapshot {
   readonly global: KilnConfigSourceSnapshot;
   readonly effectiveConfigStatus: KilnConfigSourceStatus;
   readonly effectiveConfig?: KilnEffectiveConfigSnapshot;
+  /** Present on CLI-produced snapshots; omitted only by pre-Slice-8 readers. */
+  readonly activationStatus?: KilnConfigActivationStatus;
   readonly errors: readonly string[];
   readonly mcp: KilnMcpStatusSnapshot;
   readonly projections: readonly KilnProjectionTargetSnapshot[];
@@ -839,6 +897,79 @@ export const KilnEffectiveConfigSnapshotSchema = z.object({
     if (field.health !== snapshot.health) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["fields", index, "health"], message: "Field health must match the projection" });
     }
+  }
+});
+
+const KilnConfigActivationStatusDigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
+const KilnConfigActivationStatusRevisionSchema = z.union([
+  KilnConfigActivationStatusDigestSchema,
+  z.literal("absent"),
+]);
+
+const KilnConfigActivationStatusGenerationSchema = z.object({
+  target: z.enum(["native-agents", "native-skills", "native-permissions", "repo-shims", "execution-routes"]),
+  generation: KilnConfigActivationStatusDigestSchema,
+}).strict();
+
+const KilnConfigActivationStatusEntrySchema = z.object({
+  proposalId: z.string().min(1),
+  scope: z.enum(["project", "global"]),
+  path: z.string().min(1),
+  committedRevision: KilnConfigActivationStatusRevisionSchema,
+  boundary: z.enum(["hot", "next-turn", "next-session", "reconcile", "restart-required"]),
+  state: z.enum(KILN_CONFIG_ACTIVATION_STATUS_STATES),
+  activeRevision: KilnConfigActivationStatusRevisionSchema.nullable(),
+  evidence: z.enum(KILN_CONFIG_ACTIVATION_STATUS_EVIDENCE),
+  reconciliationGenerations: z.array(KilnConfigActivationStatusGenerationSchema),
+  settledAt: z.string().datetime().optional(),
+  summary: z.string().min(1),
+}).strict().superRefine((entry, context) => {
+  if (entry.state === "active") {
+    if (entry.activeRevision === null || entry.activeRevision !== entry.committedRevision) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["activeRevision"],
+        message: "Active entries must report the exact committed revision as active.",
+      });
+    }
+    if (entry.boundary === "restart-required") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["boundary"], message: "Restart-required activation cannot be active." });
+    }
+  } else if (entry.activeRevision !== null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["activeRevision"],
+      message: "Only active entries may report an active revision.",
+    });
+  }
+});
+
+export const KilnConfigActivationStatusSchema = z.object({
+  desiredRevisionSetId: KilnConfigActivationStatusDigestSchema,
+  state: z.enum(KILN_CONFIG_ACTIVATION_STATUS_STATES),
+  boundary: z.enum(["hot", "next-turn", "next-session", "reconcile", "restart-required"]).nullable(),
+  activeRevision: KilnConfigActivationStatusRevisionSchema.nullable(),
+  entries: z.array(KilnConfigActivationStatusEntrySchema),
+  summary: z.string().min(1),
+}).strict().superRefine((status, context) => {
+  if (status.state === "active") {
+    if (status.activeRevision === null || status.entries.length === 0 || status.entries.some((entry) => entry.state !== "active")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["activeRevision"], message: "Active status requires every entry to be active with an active revision." });
+    }
+    if (status.activeRevision !== status.desiredRevisionSetId) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["activeRevision"], message: "Active status revision must equal desiredRevisionSetId." });
+    }
+    if (status.boundary === null) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["boundary"], message: "Active status requires an activation boundary." });
+    }
+  } else if (status.activeRevision !== null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["activeRevision"], message: "Non-active status cannot report an active revision." });
+  }
+  if (status.state === "not-started" && (status.boundary !== null || status.entries.length > 0)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["boundary"], message: "Not-started status cannot carry activation entries or a boundary." });
+  }
+  if (status.boundary !== null && !status.entries.some((entry) => entry.state === status.state && entry.boundary === status.boundary)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["boundary"], message: "Aggregate boundary must come from an entry in the aggregate state." });
   }
 });
 
@@ -1116,6 +1247,7 @@ export const KilnConfigStatusSnapshotSchema = z.object({
   global: KilnConfigSourceSnapshotSchema,
   effectiveConfigStatus: z.enum(KILN_CONFIG_SOURCE_STATUSES),
   effectiveConfig: KilnEffectiveConfigSnapshotSchema.optional(),
+  activationStatus: KilnConfigActivationStatusSchema.optional(),
   errors: z.array(z.string()),
   mcp: KilnMcpStatusSnapshotSchema,
   projections: z.array(KilnProjectionTargetSnapshotSchema),

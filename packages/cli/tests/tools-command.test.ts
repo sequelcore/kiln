@@ -209,9 +209,11 @@ describe("tools command", () => {
   it("reads a resource by URI for debugging and scripts", async () => {
     const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await toolsCommand(APP_CONFIG, { resource: "kiln://tools/catalog" });
+    await toolsCommand(APP_CONFIG, { resource: "kiln://tools/catalog", sessionId: "session-1" });
 
-    expect(coreMocks.resources.read).toHaveBeenCalledWith("kiln://tools/catalog");
+    expect(coreMocks.resources.read).toHaveBeenCalledWith("kiln://tools/catalog", {
+      target: { sessionId: "session-1", resourceUri: "kiln://tools/catalog" },
+    });
     expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
   });
 
@@ -259,10 +261,14 @@ describe("tools command", () => {
     });
     const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await toolsCommand(APP_CONFIG, { resource: "kiln://external-engagement/artifacts" });
+    await toolsCommand(APP_CONFIG, { resource: "kiln://external-engagement/artifacts", sessionId: "session-1" });
 
     expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify({
       uri: "kiln://external-engagement/artifacts",
+      target: {
+        sessionId: "session-1",
+        resourceUri: "kiln://external-engagement/artifacts",
+      },
       summary: {
         kind: "external-engagement",
         totalCount: 2,
@@ -309,10 +315,14 @@ describe("tools command", () => {
     });
     const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await toolsCommand(APP_CONFIG, { resource: "kiln://artifacts/capture" });
+    await toolsCommand(APP_CONFIG, { resource: "kiln://artifacts/capture", sessionId: "session-1" });
 
     expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify({
       uri: "kiln://artifacts/capture",
+      target: {
+        sessionId: "session-1",
+        resourceUri: "kiln://artifacts/capture",
+      },
       contents: [{
         kind: "blob",
         uri: "kiln://artifacts/capture",

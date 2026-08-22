@@ -9,6 +9,7 @@ import type { TenantAppRuntime } from "../../src/gateway/tenant-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -46,11 +47,13 @@ function makeRuntime(overrides: Partial<TenantAppRuntime> = {}): TenantAppRuntim
   const provider = makeMockProvider();
   const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
   const tenantRegistry = new TenantRegistry(storageDir);
+  const sessionRegistry = new SessionRegistry();
   return {
     appName: "test-app",
-    orchestrator: new RuntimeSessionOrchestrator({ provider }),
-    sessionRegistry: new SessionRegistry(),
+    orchestrator: new RuntimeSessionOrchestrator({ provider, model: provider.name }),
+    sessionRegistry,
     tenantRegistry,
+    gatewayAdmission: makeGatewayTestAdmission(sessionRegistry, provider),
     ...overrides,
   };
 }
@@ -148,7 +151,8 @@ describe("createTenantRoutes", () => {
 
     it("validates and applies tenant SDK communication intent", async () => {
       const provider = makeMockProvider();
-      const runtime = makeRuntime({ orchestrator: new RuntimeSessionOrchestrator({ provider }) });
+      const runtime = makeRuntime({ orchestrator: new RuntimeSessionOrchestrator({ provider, model: provider.name }) });
+      Object.assign(runtime, { gatewayAdmission: makeGatewayTestAdmission(runtime.sessionRegistry, provider) });
       runtime.tenantRegistry.create(makeTenantConfig());
       const app = createTenantRoutes(runtime);
 
@@ -362,8 +366,9 @@ describe("createTenantRoutes", () => {
       expect(forwarded.tenant?.tenantId).toBe("test-tenant");
       expect(forwarded.systemPrompt).toBeUndefined();
       expect(forwarded.callBuiltinTools).toBeUndefined();
-      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set(["mcp:tenant-tools:tool:read"]));
-      expect(forwarded.requestedAuthority).toBe("audited");
+      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set());
+      expect(forwarded.requestedAuthority).toBeUndefined();
+      expect(forwarded.authorityAdmission?.turn.authority.admittedAuthority).toBe("fail_closed");
 
       vi.doUnmock("../../src/gateway/message-pipeline/index.js");
       vi.resetModules();

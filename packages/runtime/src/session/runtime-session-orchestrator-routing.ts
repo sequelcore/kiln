@@ -211,6 +211,14 @@ export async function resolveRuntimeSessionRouting(
     routedCanonicalModel: routingDecision?.canonicalModel,
     routedBillingMode: routingDecision?.billingMode,
   });
+  const admittedRoute = perCallConfig?.admittedExecutionRoute;
+  if (admittedRoute
+    && (executionIdentity?.provider !== admittedRoute.providerId
+      || executionIdentity.model !== admittedRoute.providerModelId)) {
+    throw new Error(
+      `Selected provider/model ${executionIdentity?.provider ?? "unknown"}/${executionIdentity?.model ?? "unknown"} does not match admitted execution route ${admittedRoute.providerId}/${admittedRoute.providerModelId}.`,
+    );
+  }
 
   let deliberationResolution = perCallConfig?.deliberationResolution ?? routingDecision?.deliberationResolution;
   if (perCallConfig?.deliberationIntent && !deliberationResolution) {

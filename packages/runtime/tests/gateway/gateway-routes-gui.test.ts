@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 
 describe("App Gateway GUI routes", () => {
   it("exposes a minimal GUI dashboard for App Gateway attach mode", async () => {
@@ -301,7 +303,10 @@ describe("App Gateway GUI routes", () => {
       };
     });
     const { createGatewayApp: createGatewayAppWithMocks } = await import("../../src/gateway/gateway-routes.js");
-    const detachActive = vi.fn().mockResolvedValue(true);
+    const sessionRegistry = new SessionRegistry();
+    const detachActive = vi.spyOn(sessionRegistry, "detachActive").mockResolvedValue(true);
+    const gatewayAdmission = makeGatewayTestAdmission(sessionRegistry);
+    const executeAdmission = vi.spyOn(gatewayAdmission, "execute");
     let handlers: {
       onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
       onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
@@ -316,8 +321,9 @@ describe("App Gateway GUI routes", () => {
           registry: {} as never,
           providerAdapterRuntime: {
             appName: "support",
-            orchestrator: {} as never,
-            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]), detachActive } as never,
+            orchestrator: { bindProvider: vi.fn().mockReturnValue({}) } as never,
+            sessionRegistry,
+            gatewayAdmission,
             systemPrompt: "System prompt",
           },
         } as never,
@@ -349,7 +355,8 @@ describe("App Gateway GUI routes", () => {
     expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
     expect(detachActive).toHaveBeenCalledWith("support", "_gui", "_default");
     expect(detachActive.mock.invocationCallOrder[0]).toBeLessThan(processAdmittedTurnMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
-    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBe("audited");
+    expect(executeAdmission).toHaveBeenCalledWith(expect.objectContaining({ requestedAuthority: "audited" }), expect.any(Function));
+    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBeUndefined();
     expect(processAdmittedTurnMock.mock.calls[0]![0].sessionId).toBeUndefined();
     const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; authorityStatus?: unknown });
     expect(sentFrames).toEqual(expect.arrayContaining([
@@ -451,6 +458,8 @@ describe("App Gateway GUI routes", () => {
       };
     });
     const { createGatewayApp: createGatewayAppWithMocks } = await import("../../src/gateway/gateway-routes.js");
+    const sessionRegistry = new SessionRegistry();
+    const gatewayAdmission = makeGatewayTestAdmission(sessionRegistry);
     let handlers: {
       onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
       onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
@@ -465,8 +474,9 @@ describe("App Gateway GUI routes", () => {
           registry: {} as never,
           tenantRuntime: {
             appName: "support",
-            orchestrator: {} as never,
-            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]) } as never,
+            orchestrator: { bindProvider: vi.fn().mockReturnValue({}) } as never,
+            sessionRegistry,
+            gatewayAdmission,
             tenantRegistry: {
               get: vi.fn().mockReturnValue({
                 tenantId: "acme",
@@ -600,6 +610,9 @@ describe("App Gateway GUI routes", () => {
       };
     });
     const { createGatewayApp: createGatewayAppWithMocks } = await import("../../src/gateway/gateway-routes.js");
+    const sessionRegistry = new SessionRegistry();
+    const gatewayAdmission = makeGatewayTestAdmission(sessionRegistry);
+    const executeAdmission = vi.spyOn(gatewayAdmission, "execute");
     let handlers: {
       onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
       onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
@@ -614,8 +627,9 @@ describe("App Gateway GUI routes", () => {
           registry: {} as never,
           providerAdapterRuntime: {
             appName: "support",
-            orchestrator: {} as never,
-            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]) } as never,
+            orchestrator: { bindProvider: vi.fn().mockReturnValue({}) } as never,
+            sessionRegistry,
+            gatewayAdmission,
             systemPrompt: "System prompt",
           },
         } as never,
@@ -638,7 +652,8 @@ describe("App Gateway GUI routes", () => {
     );
 
     expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
-    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBe("destructive");
+    expect(executeAdmission).toHaveBeenCalledWith(expect.objectContaining({ requestedAuthority: "destructive" }), expect.any(Function));
+    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBeUndefined();
     const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; authorityStatus?: unknown });
     expect(sentFrames).toEqual(expect.arrayContaining([
       expect.objectContaining({

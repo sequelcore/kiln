@@ -144,7 +144,9 @@ import type {
   RuntimeSessionTurnBudgetAuthority,
   RuntimeSessionHydrator,
   OperatorTurnDispatchPort,
+  OperatorSessionAuthorityAdmissionBridge,
 } from "@kilnai/runtime";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
@@ -190,6 +192,8 @@ interface TuiBootstrapOptions {
   readonly startupProfiler?: StartupProfiler;
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<OperatorTurnTuiDispatchPayload>;
+  readonly authorityAdmissionEvidenceStore: TranscriptAuthorityAdmissionEvidenceStore;
   readonly closeOperatorTurnComposition: () => void;
   readonly communicationIntentCandidates?: readonly import("@kilnai/core").CommunicationIntentCandidate[];
 }
@@ -1099,6 +1103,8 @@ async function bootstrapGatewaySession(
     executionRouteSelection: options.executionRouteSelection,
     operatorTurnDispatcher: options.operatorTurnDispatcher,
     operatorTurnExecutionBridge: options.operatorTurnExecutionBridge,
+    operatorAuthorityAdmissionBridge: options.operatorAuthorityAdmissionBridge,
+    authorityAdmissionEvidenceStore: options.authorityAdmissionEvidenceStore,
     contextArtifactCache,
     artifactStore: options.builtinToolOptions?.artifactResources?.store,
     voiceConfig: options.operatorVoice?.voiceConfig,
@@ -1681,6 +1687,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     startupProfiler,
     operatorTurnDispatcher: operatorTurnComposition.dispatcher,
     operatorTurnExecutionBridge: operatorTurnComposition.bridge,
+    operatorAuthorityAdmissionBridge: operatorTurnComposition.authorityAdmissionBridge,
+    authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
     closeOperatorTurnComposition: operatorTurnComposition.close,
     communicationIntentCandidates: configuredCommunicationCandidates({
       global: globalConfig.communication,

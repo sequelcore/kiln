@@ -78,6 +78,7 @@ import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
 import type { RuntimeSession } from "../session/runtime-session.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
+import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -425,6 +426,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             orchestrator: tenantRuntime.orchestrator,
             sessionRegistry: tenantRuntime.sessionRegistry,
             tenantRegistry: tenantRuntime.tenantRegistry,
+            gatewayAdmission: tenantRuntime.gatewayAdmission,
             billing: tenantRuntime.billing,
             eventEmitter: loadedApp.eventEmitter,
             ...(config.eventBus ? { eventBus: config.eventBus } : {}),
@@ -454,6 +456,16 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 userId,
                 systemPrompt: runtime.systemPrompt,
               });
+              return runtime.gatewayAdmission.execute({
+                  ingressId: crypto.randomUUID(),
+                  appName: runtime.appName,
+                  tenantId: "_default",
+                  userId,
+                  sessionId: session.id,
+                  channel: "web",
+                  userParts: parts,
+                  requestedAuthority: options?.requestedAuthority,
+                }, async (admitted) => {
               const coordinationContext = await resolveCoordinationContextCandidates(runtime.coordinationContextProvider, {
                 appName: loadedApp.name,
                 tenantId: "_default",
@@ -477,34 +489,20 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                   coordinationContext.failureReason,
                 ),
               };
-              return runtime.orchestrator.processMessage(
-                session,
+              return runtime.orchestrator.bindProvider(
+                admitted.provider,
+                admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+              ).processMessage(
+                admitted.session,
                 parts,
                 projectedTurnContext,
                 undefined,
-                options?.requestedAuthority || options?.communicationIntent || runtime.toolAllowlist
-                  ? {
-                      ...(options?.requestedAuthority && options.requestedAuthority !== "auto"
-                        ? { toolAllowlist: new Set<string>() }
-                        : runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
-                      ...(options?.requestedAuthority
-                        ? {
-                            effectiveTurnAuthority: {
-                              executionMode: "execute" as const,
-                              requestedAuthority: options.requestedAuthority,
-                              admittedAuthority: options.requestedAuthority !== "auto" ? "fail_closed" as const : "unknown" as const,
-                              sourcePolicy: "runtime_surface_projection" as const,
-                              reason: "provider-adapter websocket requested turn authority before full min-policy admission",
-                              completeness: options.requestedAuthority !== "auto" ? "authoritative" as const : "partial" as const,
-                              toolCount: 0,
-                              deniedToolCount: 0,
-                            },
-                          }
-                        : {}),
-                      ...(options?.communicationIntent ? { communicationIntent: options.communicationIntent } : {}),
-                    }
-                  : undefined,
+                {
+                  ...admitted.perCallConfig,
+                  ...(options?.communicationIntent ? { communicationIntent: options.communicationIntent } : {}),
+                },
               );
+              });
             },
           });
           app.route(`/apps/${loadedApp.name}`, wsApp);
@@ -981,14 +979,35 @@ async function processAppGatewayGuiMessage(
   ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
 
   try {
-    const processResult = selectedRuntime.kind === "provider-adapter"
-      ? await processAdmittedTurn({
-        orchestrator: selectedRuntime.runtime.orchestrator,
-        sessionRegistry: selectedRuntime.runtime.sessionRegistry,
+    let processResult;
+    if (selectedRuntime.kind === "provider-adapter") {
+      const runtimeSession = await selectedRuntime.runtime.sessionRegistry.getOrCreate({
         appName: selectedRuntime.runtime.appName,
         tenantId: selectedRuntime.tenantId,
         userId: selectedRuntime.userId,
         ...(sessionId ? { sessionId } : {}),
+        systemPrompt: selectedRuntime.runtime.systemPrompt,
+      });
+      processResult = await selectedRuntime.runtime.gatewayAdmission.execute({
+          ingressId: crypto.randomUUID(),
+          appName: selectedRuntime.runtime.appName,
+          tenantId: selectedRuntime.tenantId,
+          userId: selectedRuntime.userId,
+          sessionId: runtimeSession.id,
+          channel: "gui",
+          userParts,
+          requestedAuthority: frame.requestedAuthority,
+        }, async (admitted) => processAdmittedTurn({
+        orchestrator: selectedRuntime.runtime.orchestrator.bindProvider(
+          admitted.provider,
+          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+        ),
+        sessionRegistry: selectedRuntime.runtime.sessionRegistry,
+        appName: selectedRuntime.runtime.appName,
+        tenantId: selectedRuntime.tenantId,
+        userId: selectedRuntime.userId,
+        admittedSession: admitted.session,
+        authorityAdmission: admitted.bundle,
         systemPrompt: selectedRuntime.runtime.systemPrompt,
         userParts,
         billing: selectedRuntime.runtime.billing,
@@ -999,17 +1018,22 @@ async function processAppGatewayGuiMessage(
         handoffSummarizer: selectedRuntime.runtime.handoffSummarizer,
         eventBus: selectedRuntime.runtime.eventBus,
         groundingMode: selectedRuntime.runtime.tenant?.groundingMode,
-        groundingDeps: selectedRuntime.runtime.groundingDeps,
+        groundingDeps: selectedRuntime.runtime.groundingDeps ? {
+          ...selectedRuntime.runtime.groundingDeps,
+          providerPool: new Map([[admitted.provider.name, admitted.provider]]),
+        } : undefined,
         contextArtifactCache: selectedRuntime.runtime.contextArtifactCache,
         coordinationContextProvider: selectedRuntime.runtime.coordinationContextProvider,
-        requestedAuthority: frame.requestedAuthority,
+        requestedAuthority: undefined,
         artifactStore: selectedRuntime.loadedApp.artifactStore,
         voiceConfig: selectedRuntime.loadedApp.app.voice,
         sttAdapter: selectedRuntime.loadedApp.sttAdapter,
         ttsAdapter: selectedRuntime.loadedApp.ttsAdapter,
-        ...(selectedRuntime.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: selectedRuntime.runtime.toolAllowlist } } : {}),
-      })
-      : await processTenantAppGatewayGuiTurn(selectedRuntime, userParts, sessionId, frame.requestedAuthority);
+        perCallConfig: admitted.perCallConfig,
+      }));
+    } else {
+      processResult = await processTenantAppGatewayGuiTurn(selectedRuntime, userParts, sessionId, frame.requestedAuthority);
+    }
 
     if (!processResult.ok) {
       ws.send(JSON.stringify({
@@ -1067,29 +1091,53 @@ async function processTenantAppGatewayGuiTurn(
     ? (tenant.billing as unknown as TenantAppRuntime["billing"])
     : selection.runtime.billing;
 
-  return processAdmittedTurn({
-    orchestrator: selection.runtime.orchestrator,
-    sessionRegistry: selection.runtime.sessionRegistry,
+  const runtimeSession = await selection.runtime.sessionRegistry.getOrCreate({
     appName: selection.runtime.appName,
     tenantId: selection.tenantId,
     userId: selection.userId,
     ...(sessionId ? { sessionId } : {}),
+    systemPrompt: buildTenantSystemPrompt(tenant),
+    idleTimeoutMs: tenant.idleTimeoutMs,
+  });
+  return selection.runtime.gatewayAdmission.execute({
+      ingressId: crypto.randomUUID(),
+      appName: selection.runtime.appName,
+      tenantId: selection.tenantId,
+      userId: selection.userId,
+      sessionId: runtimeSession.id,
+      channel: "gui",
+      userParts,
+      requestedAuthority,
+    }, async (admitted) => processAdmittedTurn({
+    orchestrator: selection.runtime.orchestrator.bindProvider(
+      admitted.provider,
+      admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+    ),
+    sessionRegistry: selection.runtime.sessionRegistry,
+    appName: selection.runtime.appName,
+    tenantId: selection.tenantId,
+    userId: selection.userId,
+    admittedSession: admitted.session,
+    authorityAdmission: admitted.bundle,
     userParts,
     billing: billingConfig,
     channel: "gui",
     tenant,
     idleTimeoutMs: tenant.idleTimeoutMs,
     groundingMode: tenant.groundingMode,
-    groundingDeps: selection.runtime.groundingDeps,
+    groundingDeps: selection.runtime.groundingDeps ? {
+      ...selection.runtime.groundingDeps,
+      providerPool: new Map([[admitted.provider.name, admitted.provider]]),
+    } : undefined,
     contextArtifactCache: selection.runtime.contextArtifactCache,
     coordinationContextProvider: selection.runtime.coordinationContextProvider,
-    requestedAuthority,
+    requestedAuthority: undefined,
     artifactStore: selection.loadedApp.artifactStore,
     voiceConfig: selection.loadedApp.app.voice,
     sttAdapter: selection.loadedApp.sttAdapter,
     ttsAdapter: selection.loadedApp.ttsAdapter,
-    ...(selection.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: selection.runtime.toolAllowlist } } : {}),
-  });
+    perCallConfig: admitted.perCallConfig,
+  }));
 }
 
 type AppGatewayGuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "done" }>["authorityStatus"]>;

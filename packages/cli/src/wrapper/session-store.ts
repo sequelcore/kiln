@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { appendFile, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile, readdir, rename, rm } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
 import type {
   CanonicalSessionEventKind,
@@ -9,6 +10,12 @@ import type {
   SessionTurnOutcome,
 } from '@kilnai/core';
 import { executionSessionBindingKey } from '@kilnai/core';
+import {
+  assertPersistableAuthorityAdmissionBundle,
+  defineEffectiveAuthorityAdmissionBundle,
+  defineRuntimeSessionAuthorityFacet,
+  type EffectiveAuthorityAdmissionBundle,
+} from '@kilnai/runtime';
 
 export interface ProviderThreadMeta {
   provider: string;
@@ -367,6 +374,15 @@ export interface PersistedSessionMeta {
   exactArtifacts?: string[];
 }
 
+/** One immutable full Runtime authority bundle, indexed by its turn. */
+export interface PersistedAuthorityAdmissionRecord {
+  readonly schemaRevision: 1;
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly admissionId: `sha256:${string}`;
+  readonly bundle: EffectiveAuthorityAdmissionBundle;
+}
+
 export interface PersistedProviderTokenUsage {
   readonly provider: string;
   readonly model?: string;
@@ -608,6 +624,80 @@ export class TranscriptStore {
     return join(this.baseDir, encodeSessionPathSegment(sessionId));
   }
 
+  authorityAdmissionEvidencePath(sessionId: string): string {
+    return join(this.sessionDir(sessionId), 'authority-admissions.jsonl');
+  }
+
+  authorityAdmissionLockPath(sessionId: string): string {
+    return join(this.sessionDir(sessionId), 'authority-admissions.lock');
+  }
+
+  async appendAuthorityAdmission(record: PersistedAuthorityAdmissionRecord): Promise<void> {
+    if (!isPersistedAuthorityAdmissionRecord(record)) {
+      throw new IncompatibleTranscriptError('Authority admission evidence does not satisfy its persisted record contract.');
+    }
+    try {
+      assertPersistableAuthorityAdmissionBundle(record.bundle);
+    } catch (error) {
+      throw new IncompatibleTranscriptError(`Authority admission evidence is not a valid immutable bundle: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await this.enqueueAppend(record.sessionId, async () => {
+      const existing = await this.readAuthorityAdmissions(record.sessionId);
+      const candidateFacet = authorityFacetFromBundle(record.bundle);
+      if (existing.some((entry) => authorityFacetFromBundle(entry.bundle).facetId !== candidateFacet.facetId)) {
+        throw new IncompatibleTranscriptError(`Authority admission evidence contains conflicting session facets for "${record.sessionId}".`);
+      }
+      const previous = existing.find((entry) => entry.turnId === record.turnId);
+      if (previous) {
+        if (previous.admissionId === record.admissionId && JSON.stringify(previous.bundle) === JSON.stringify(record.bundle)) return;
+        throw new IncompatibleTranscriptError(`Authority admission conflict for turn "${record.turnId}".`);
+      }
+      const dir = this.sessionDir(record.sessionId);
+      await mkdir(dir, { recursive: true });
+      await writeAuthorityAdmissionRecords(this.authorityAdmissionEvidencePath(record.sessionId), [...existing, record]);
+    });
+  }
+
+  async readAuthorityAdmissions(sessionId: string): Promise<PersistedAuthorityAdmissionRecord[]> {
+    try {
+      const content = await readFile(this.authorityAdmissionEvidencePath(sessionId), 'utf-8');
+      const records = content.split('\n').filter((line) => line.trim() !== '').map((line, index) => {
+        let parsed: unknown;
+        try { parsed = JSON.parse(line) as unknown; } catch { throw new IncompatibleTranscriptError(`Authority admission evidence line ${index + 1} is not valid JSON.`); }
+        if (!isPersistedAuthorityAdmissionRecord(parsed)) {
+          throw new IncompatibleTranscriptError(`Authority admission evidence line ${index + 1} is malformed.`);
+        }
+        let normalizedBundle: EffectiveAuthorityAdmissionBundle;
+        try {
+          normalizedBundle = assertPersistableAuthorityAdmissionBundle(defineEffectiveAuthorityAdmissionBundle(parsed.bundle));
+        } catch (error) {
+          throw new IncompatibleTranscriptError(`Authority admission evidence line ${index + 1} has an invalid bundle: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return Object.freeze({ ...parsed, bundle: normalizedBundle });
+      });
+      const turnIds = new Set<string>();
+      for (const record of records) {
+        if (turnIds.has(record.turnId)) throw new IncompatibleTranscriptError(`Authority admission evidence repeats turn "${record.turnId}".`);
+        turnIds.add(record.turnId);
+      }
+      return records;
+    } catch (error) {
+      if (isMissingFileError(error)) return [];
+      throw error;
+    }
+  }
+
+  /** Reads all persisted full bundles for this project for derived status projections. */
+  async readAllAuthorityAdmissions(): Promise<readonly PersistedAuthorityAdmissionRecord[]> {
+    const sessionIds = await this.listSessions();
+    const records: PersistedAuthorityAdmissionRecord[] = [];
+    for (const sessionId of sessionIds) {
+      records.push(...await this.readAuthorityAdmissions(sessionId));
+    }
+    return records.sort((left, right) => left.bundle.admittedAt.localeCompare(right.bundle.admittedAt)
+      || left.turnId.localeCompare(right.turnId));
+  }
+
   async init(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
     try {
       const dir = this.sessionDir(sessionId);
@@ -777,6 +867,40 @@ async function writeTranscriptEvents(
     return;
   }
   await appendFile(join(sessionDir, 'transcript.jsonl'), `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf-8');
+}
+
+function authorityFacetFromBundle(bundle: EffectiveAuthorityAdmissionBundle) {
+  return defineRuntimeSessionAuthorityFacet({
+    sessionId: bundle.sessionId,
+    sessionRevision: bundle.configuration.sessionRevision,
+    ...bundle.session,
+  });
+}
+
+function isPersistedAuthorityAdmissionRecord(value: unknown): value is PersistedAuthorityAdmissionRecord {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<PersistedAuthorityAdmissionRecord>;
+  return candidate.schemaRevision === 1
+    && typeof candidate.sessionId === 'string' && candidate.sessionId.trim().length > 0
+    && typeof candidate.turnId === 'string' && candidate.turnId.trim().length > 0
+    && typeof candidate.admissionId === 'string' && /^sha256:[a-f0-9]{64}$/u.test(candidate.admissionId)
+    && candidate.bundle !== null && typeof candidate.bundle === 'object' && !Array.isArray(candidate.bundle)
+    && (candidate.bundle as { sessionId?: unknown }).sessionId === candidate.sessionId
+    && (candidate.bundle as { turnId?: unknown }).turnId === candidate.turnId
+    && (candidate.bundle as { admissionId?: unknown }).admissionId === candidate.admissionId;
+}
+
+async function writeAuthorityAdmissionRecords(
+  filePath: string,
+  records: readonly PersistedAuthorityAdmissionRecord[],
+): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`, { encoding: 'utf8', flag: 'wx' });
+    await rename(temporaryPath, filePath);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
 }
 
 function decodeSessionPathSegment(segment: string): string {

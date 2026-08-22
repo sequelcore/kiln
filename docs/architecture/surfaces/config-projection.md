@@ -779,10 +779,23 @@ or credential resolution. Snapshot activation is serialized only through
 credential resolution; provider dispatch is concurrent afterward and carries
 the committed route, account, credential identity, and exact captured revision.
 The account runtime resolves candidates and credentials against the supplied
-snapshot rather than a mutable startup catalog. The broader
-`EffectiveAuthorityAdmissionBundle` remains a validated Runtime contract until
-all enforcing owners can compose it atomically; it is not installed as an
-optional authority alongside the existing per-call fields.
+snapshot rather than a mutable startup catalog. Runtime owns the broader
+`EffectiveAuthorityAdmissionBundle`. Operator-turn and App Gateway admission
+compose it once, before consequential dispatch, from the real session,
+governance, permission, budget, route, sanitized data-policy, and
+execution-binding decisions. The complete bundle and session facet are durable
+evidence; credential material remains an ephemeral post-fence value. Gateway
+and referenced app YAML contribute content digests to the admitted revision set
+without persisting their values. The bundle is not installed as an optional
+authority field in `PerCallToolConfig`.
+
+This cutover is not complete at the current Slice 8 checkpoint. Model-gateway
+and managed-child persistence are under integration, webhook and tenant-WebSocket
+effects do not yet all remain inside the admitted fence, and the legacy
+per-call authority/revision projection still exists. Those paths must be
+replaced and deleted before the bundle is the sole productive Runtime authority;
+revision-only sessions remain non-authority transcript context until that proof
+exists.
 
 `restart-required` remains part of the shared vocabulary but has no admitted
 production descriptor in the current project/global pilot. Such a mutation is

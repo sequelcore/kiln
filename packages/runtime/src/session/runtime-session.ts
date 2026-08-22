@@ -11,6 +11,11 @@ import {
   normalizeRuntimeConfigurationRevision,
   type RuntimeConfigurationRevisionSnapshot,
 } from "./runtime-configuration-revision-pin.js";
+import {
+  defineRuntimeSessionAuthorityFacet,
+  type RuntimeSessionAuthorityFacet,
+  type RuntimeSessionAuthorityFacetInput,
+} from "./runtime-session-authority-facet.js";
 
 export interface AgentTurnEntry {
   readonly agentId: string;
@@ -50,6 +55,8 @@ export interface SerializedSessionData {
   readonly exactArtifacts?: readonly string[];
   readonly sessionEvents?: ReadonlyArray<Omit<CanonicalSessionEvent, "timestamp"> & { readonly timestamp: string }>;
   readonly runtimeConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
+  /** Absent means this legacy/revision-only session is not an authority source. */
+  readonly runtimeSessionAuthorityFacet?: RuntimeSessionAuthorityFacet;
 }
 
 export interface RuntimeSessionConfig {
@@ -94,6 +101,7 @@ export class RuntimeSession {
   private _exactArtifacts: string[] = [];
   private _sessionEvents: CanonicalSessionEvent[] = [];
   private _runtimeConfigurationRevision: RuntimeConfigurationRevisionSnapshot | undefined;
+  private _runtimeSessionAuthorityFacet: RuntimeSessionAuthorityFacet | undefined;
 
   constructor(config: RuntimeSessionConfig) {
     this.appName = config.appName;
@@ -199,6 +207,9 @@ export class RuntimeSession {
     }
     if (data.runtimeConfigurationRevision) {
       session.bindRuntimeConfigurationRevision(data.runtimeConfigurationRevision);
+    }
+    if (data.runtimeSessionAuthorityFacet) {
+      session.bindRuntimeSessionAuthorityFacet(data.runtimeSessionAuthorityFacet);
     }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;
@@ -326,6 +337,28 @@ export class RuntimeSession {
     return this._runtimeConfigurationRevision;
   }
 
+  /** Persisted session authority, if this session was admitted under the facet contract. */
+  get runtimeSessionAuthorityFacet(): RuntimeSessionAuthorityFacet | undefined {
+    return this._runtimeSessionAuthorityFacet;
+  }
+
+  bindRuntimeSessionAuthorityFacet(facet: RuntimeSessionAuthorityFacetInput): RuntimeSessionAuthorityFacet {
+    const normalized = defineRuntimeSessionAuthorityFacet(facet);
+    if (normalized.sessionId !== this.id) throw new TypeError("Runtime session authority facet sessionId must match the RuntimeSession id.");
+    if (this._runtimeConfigurationRevision
+      && !sameRuntimeConfigurationRevision(this._runtimeConfigurationRevision, normalized.sessionRevision)) {
+      throw new TypeError("Runtime session authority facet revision must match the RuntimeSession revision pin.");
+    }
+    if (this._runtimeSessionAuthorityFacet) {
+      if (this._runtimeSessionAuthorityFacet.facetId !== normalized.facetId) throw new Error("Runtime session authority facet is already bound to a different value.");
+      return this._runtimeSessionAuthorityFacet;
+    }
+    this._runtimeConfigurationRevision ??= normalized.sessionRevision;
+    this._runtimeSessionAuthorityFacet = normalized;
+    this._version++;
+    return normalized;
+  }
+
   /** Bind this logical session once; later turns cannot replace its boundary. */
   bindRuntimeConfigurationRevision(
     revision: RuntimeConfigurationRevisionSnapshot,
@@ -438,6 +471,17 @@ export class RuntimeSession {
     }
     this._version++;
   }
+}
+
+function sameRuntimeConfigurationRevision(
+  left: RuntimeConfigurationRevisionSnapshot,
+  right: RuntimeConfigurationRevisionSnapshot,
+): boolean {
+  if (left.revisionSetId !== right.revisionSetId) return false;
+  const leftEntries = Object.entries(left.revisions).sort(([a], [b]) => a.localeCompare(b));
+  const rightEntries = Object.entries(right.revisions).sort(([a], [b]) => a.localeCompare(b));
+  return leftEntries.length === rightEntries.length
+    && leftEntries.every(([key, value], index) => rightEntries[index]?.[0] === key && rightEntries[index]?.[1] === value);
 }
 
 function sameAdoptionAuthority(

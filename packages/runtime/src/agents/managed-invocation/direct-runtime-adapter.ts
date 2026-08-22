@@ -68,6 +68,7 @@ import {
 } from "./resource-context.js";
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
+import { admitManagedChildAuthority } from "./child-authority-admission.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -387,6 +388,28 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const effectiveToolAuthority = input.consumedWriteApproval
         ? applyConsumedWriteApproval(toolAuthority, request)
         : toolAuthority;
+      const childAuthority = input.childAuthorityAdmission
+        ? admitManagedChildAuthority({
+            bundle: input.childAuthorityAdmission.bundle,
+            request,
+            candidateToolNames: [...allowedToolNames],
+            capabilities: capabilityMap,
+            toolAuthority: effectiveToolAuthority,
+          })
+        : undefined;
+      const executionToolAllowlist = childAuthority
+        ? new Set(childAuthority.allowedToolPermissions.map(({ toolName }) => toolName))
+        : allowedToolNames;
+      const executionToolAuthority = childAuthority
+        ? new Map(childAuthority.allowedToolPermissions.map(({ toolName, authority }) => [toolName, authority]))
+        : effectiveToolAuthority;
+      const executionCapabilities = childAuthority
+        ? new Map(childAuthority.allowedToolPermissions.map(({ toolName, effectEnvelope }) => {
+            const capability = capabilityMap.get(toolName);
+            if (!capability) throw new Error(`Managed child authority admission is missing capability for tool "${toolName}".`);
+            return [toolName, { ...capability, effectEnvelope }];
+          }))
+        : capabilityMap;
       const builtinTools = withManagedToolSandbox(
         runtimeBuiltinTools,
         createManagedToolSandbox(request),
@@ -402,10 +425,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
         executionEnvelope: boundedExecutionEnvelope(this.executionEnvelope, input.workLimits?.maxTurns),
-        tools,
+        tools: tools.filter((tool) => executionToolAllowlist.has(tool.name)),
         builtinTools,
         eventBus,
-        ...(capabilityMap.size > 0 ? { capabilityMap } : {}),
+        ...(executionCapabilities.size > 0 ? { capabilityMap: executionCapabilities } : {}),
       };
       const orchestrator = new RuntimeSessionOrchestrator(deps);
       const routeModel = request.providerRoute.model ?? this.model ?? "";
@@ -427,10 +450,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         tenantId: request.authority.memoryScope.scope.id,
         ...(request.executionScope ? { executionScope: request.executionScope } : {}),
         abortSignal,
-        toolAllowlist: allowedToolNames,
-        additionalTools: tools,
-        ...(capabilityMap.size > 0 ? { perCallCapabilities: capabilityMap } : {}),
-        ...(effectiveToolAuthority.size > 0 ? { toolAuthority: effectiveToolAuthority } : {}),
+        toolAllowlist: executionToolAllowlist,
+        additionalTools: tools.filter((tool) => executionToolAllowlist.has(tool.name)),
+        ...(executionCapabilities.size > 0 ? { perCallCapabilities: executionCapabilities } : {}),
+        ...(executionToolAuthority.size > 0 ? { toolAuthority: executionToolAuthority } : {}),
         ...(request.providerRoute.deliberationResolution
           ? { deliberationResolution: request.providerRoute.deliberationResolution }
           : {}),

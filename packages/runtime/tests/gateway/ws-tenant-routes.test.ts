@@ -10,6 +10,9 @@ import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-sessi
 import type { ToolDefinition } from "@kilnai/core/agents";
 import { type Capability, type TenantConfig, textParts } from "@kilnai/core/engine";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
+import type { GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -157,8 +160,28 @@ function makeConfig(
     orchestrator,
     sessionRegistry,
     tenantRegistry,
+    gatewayAdmission: makeGatewayTestAdmission(sessionRegistry),
     ...overrides,
   };
+}
+
+function observeAdmissionFence(
+  config: WsTenantRoutesConfig,
+  state: { active: boolean; outboundWhileActive: boolean },
+): void {
+  const base = config.gatewayAdmission;
+  config.gatewayAdmission = {
+    async execute<Result>(request, dispatch) {
+      return base.execute(request, async (commit) => {
+        state.active = true;
+        try {
+          return await dispatch(commit);
+        } finally {
+          state.active = false;
+        }
+      });
+    },
+  } satisfies GatewayAuthorityAdmissionPort;
 }
 
 describe("createWsTenantRoutes", () => {
@@ -190,28 +213,19 @@ describe("createWsTenantRoutes", () => {
       resolveByWidgetId: vi.fn(),
     } as unknown as TenantRegistry;
 
-    mockSession = {
-      id: "sess-1",
-      userId: "user-1",
-      tenantId: "salon-test",
-      conversationHistory: [],
-      agentTurnHistory: [],
-      handoffCount: 0,
-      lastRouteChangeAt: 0,
-      activeAgentId: undefined,
-      sessionMode: "ai_active",
-      setSystemPrompt: vi.fn(),
-      setActiveAgent: vi.fn(),
-    };
+    mockSession = new RuntimeSession({ sessionId: "sess-1", appName: TEST_APP, userId: "user-1", tenantId: "salon-test", systemPrompt: "Mock system prompt" }) as typeof mockSession;
+    vi.spyOn(mockSession as RuntimeSession, "setSystemPrompt");
 
     mockSessionRegistry = {
       getOrCreate: vi.fn().mockResolvedValue(mockSession),
+      getById: vi.fn().mockResolvedValue(mockSession),
       save: vi.fn().mockResolvedValue(undefined),
     } as unknown as SessionRegistry;
 
     mockOrchestrator = {
       model: "claude-sonnet-4-6",
       registerTools: vi.fn(),
+      bindProvider: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("Hello from agent"),
         outcome: "completed",
@@ -219,6 +233,7 @@ describe("createWsTenantRoutes", () => {
         outputTokens: 20,
       }),
     } as unknown as RuntimeSessionOrchestrator;
+    vi.mocked(mockOrchestrator.bindProvider).mockReturnValue(mockOrchestrator);
   });
 
   afterEach(() => {
@@ -437,7 +452,7 @@ describe("createWsTenantRoutes", () => {
 
       createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
 
-      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-2" });
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
 
       await handlers.onMessage!(
@@ -449,7 +464,7 @@ describe("createWsTenantRoutes", () => {
         expect.objectContaining({
           appName: TEST_APP,
           tenantId: "salon-test",
-          userId: "user-2",
+          userId: "user-1",
           systemPrompt: "",
         }),
       );
@@ -481,6 +496,41 @@ describe("createWsTenantRoutes", () => {
         inputTokens: 10,
         outputTokens: 20,
       });
+    });
+
+    it("keeps the done frame inside admission and emits no fallback on rejection", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      const state = { active: false, outboundWhileActive: false };
+      const config = makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator);
+      observeAdmissionFence(config, state);
+      createWsTenantRoutes(config);
+      const connection = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      connection.mockWs.send.mockImplementation((data: string) => {
+        state.outboundWhileActive ||= state.active;
+      });
+      connection.handlers.onOpen!(new Event("open"), connection.wsCtx);
+      await connection.handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "fenced" }) }),
+        connection.wsCtx,
+      );
+      expect(state.outboundWhileActive).toBe(true);
+
+      const rejected = makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator, {
+        gatewayAdmission: {
+          async execute<Result>() {
+            throw new Error("admission rejected");
+          },
+        } satisfies GatewayAuthorityAdmissionPort,
+      });
+      createWsTenantRoutes(rejected);
+      const rejectedConnection = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      rejectedConnection.handlers.onOpen!(new Event("open"), rejectedConnection.wsCtx);
+      await rejectedConnection.handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "rejected" }) }),
+        rejectedConnection.wsCtx,
+      );
+      expect(rejectedConnection.mockWs.send).not.toHaveBeenCalled();
     });
 
     it("sends error frame when orchestrator throws", async () => {
@@ -545,7 +595,7 @@ describe("createWsTenantRoutes", () => {
       expect(mockWs.send).not.toHaveBeenCalled();
     });
 
-    it("forwards tenant tool authority into per-call config", async () => {
+    it("uses the model-only admitted tool authority instead of tenant hints", async () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
 
@@ -565,7 +615,7 @@ describe("createWsTenantRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+      expect(perCallConfig?.toolAuthority).toEqual(new Map());
     });
 
     it("propagates communication intent and returns raw-free final prompt evidence", async () => {
@@ -702,59 +752,14 @@ describe("createWsTenantRoutes", () => {
       );
 
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
-      expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual(["read_tool"]);
-      expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["read_tool"]);
+      expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual([]);
+      expect(perCallConfig?.additionalTools).toBeUndefined();
       expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
         requestedAuthority: "read_only",
-        admittedAuthority: "read_only",
+        admittedAuthority: "fail_closed",
         completeness: "authoritative",
-        deniedToolCount: 1,
+        deniedToolCount: 0,
       }));
-      expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toEqual([
-        {
-          source: "requested_authority",
-          status: "applied",
-          requestedAuthority: "read_only",
-          reason: "Operator requested read_only authority.",
-        },
-        {
-          source: "session_policy",
-          status: "not_applicable",
-          reason: "No narrower session authority policy is configured for this turn.",
-        },
-        {
-          source: "tenant_policy",
-          status: "not_applicable",
-          subjectId: "salon-test",
-          reason: "Tenant salon-test has no narrower authority policy configured for this turn.",
-        },
-        {
-          source: "route_policy",
-          status: "not_applicable",
-          admittedAuthority: "read_only",
-          reason: "websocket tenant message requested turn authority",
-        },
-        {
-          source: "parent_authority",
-          status: "not_applicable",
-          reason: "Operator turns have no parent managed-agent authority.",
-        },
-        {
-          source: "plan_approval",
-          status: "not_applicable",
-          reason: "Execute-mode turns are not governed by plan-mode approval policy.",
-        },
-        {
-          source: "goal_envelope",
-          status: "not_applicable",
-          reason: "No goal authority envelope is bound to this turn.",
-        },
-        {
-          source: "work_item_authority",
-          status: "not_applicable",
-          reason: "No work-item authority envelope is bound to this turn.",
-        },
-      ]);
     });
 
     it("fails closed when audited authority is requested for tenant tools without authority metadata", async () => {
@@ -791,14 +796,14 @@ describe("createWsTenantRoutes", () => {
 
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
       expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual([]);
-      expect(perCallConfig?.additionalTools).toEqual([]);
+      expect(perCallConfig?.additionalTools).toBeUndefined();
       expect(Array.from(perCallConfig?.perCallCapabilities?.keys() ?? [])).toEqual([]);
       expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
-        requestedAuthority: "audited",
+        requestedAuthority: "read_only",
         admittedAuthority: "fail_closed",
         completeness: "authoritative",
         toolCount: 0,
-        deniedToolCount: 1,
+        deniedToolCount: 0,
       }));
     });
 
@@ -818,16 +823,12 @@ describe("createWsTenantRoutes", () => {
 
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
       expect(perCallConfig?.toolAllowlist?.size).toBe(0);
-      expect(perCallConfig?.additionalTools).toEqual([]);
+      expect(perCallConfig?.additionalTools).toBeUndefined();
       expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
-        requestedAuthority: "destructive",
+        requestedAuthority: "read_only",
         admittedAuthority: "fail_closed",
         completeness: "authoritative",
       }));
-      expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toEqual(expect.arrayContaining([
-        expect.objectContaining({ source: "goal_envelope", status: "unresolved" }),
-        expect.objectContaining({ source: "work_item_authority", status: "unresolved" }),
-      ]));
       expect(JSON.parse(mockWs.send.mock.calls.at(-1)?.[0] as string)).toEqual(expect.objectContaining({
         type: "done",
       }));

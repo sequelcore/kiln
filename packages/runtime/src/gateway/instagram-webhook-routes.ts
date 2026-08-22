@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import { toInstagramFormat } from "../channels/message-formatter.js";
-import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -16,6 +16,7 @@ import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
+import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
@@ -59,6 +60,7 @@ export interface InstagramWebhookConfig {
   readonly dedup?: WebhookDedup;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
 
 /** Instagram webhook messaging entry */
@@ -229,12 +231,36 @@ async function processInstagramMessage(
   messageParts: readonly ContentPart[],
   pageId: string,
   accessToken?: string,
+  admitted?: GatewayAuthorityAdmissionCommit,
 ): Promise<void> {
   const trace = new TraceContext();
   trace.log("instagram", "Processing message", { tenantId, from: senderId });
 
   const tenant = config.tenantRegistry.get(tenantId);
   if (!tenant) return;
+
+  // Keep the entire consequential webhook lifecycle under one admission
+  // callback. The session is the identity anchor; preprocessing, provider,
+  // TTS/media, outbound API calls, and durable writes run under the fence.
+  if (!admitted) {
+    const session = await config.sessionRegistry.getOrCreate({
+      appName: config.appName,
+      tenantId,
+      userId: senderId,
+      systemPrompt: "",
+      idleTimeoutMs: tenant.idleTimeoutMs,
+    });
+    await config.gatewayAdmission.execute({
+      ingressId: crypto.randomUUID(),
+      appName: config.appName,
+      tenantId,
+      userId: senderId,
+      sessionId: session.id,
+      channel: "instagram",
+      userParts: messageParts,
+    }, (commit) => processInstagramMessage(config, tenantId, senderId, messageParts, pageId, accessToken, commit));
+    return;
+  }
 
   const resolvedAccessToken = accessToken
     ? (process.env[accessToken] ?? accessToken)
@@ -352,14 +378,7 @@ async function processInstagramMessage(
     }
   }
 
-  // Get or create session first (needed for ping-pong guard)
-  const session = await config.sessionRegistry.getOrCreate({
-    appName: config.appName,
-    tenantId,
-    userId: senderId,
-    systemPrompt: "",
-    idleTimeoutMs: tenant.idleTimeoutMs,
-  });
+  const session = admitted.session;
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
@@ -389,15 +408,6 @@ async function processInstagramMessage(
   if (tenantToolCtx.toolDefinitions.length > 0) {
     config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
   }
-
-  const perCallConfig: PerCallToolConfig = {
-    toolAllowlist: tenantToolCtx.toolAllowlist,
-    rateLimiter: tenantToolCtx.rateLimiter,
-    tenantId: tenant.tenantId,
-    toolAuthority: tenantToolCtx.toolAuthority,
-    additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-    perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-  };
 
   // --- Budget check ---
   const activeBilling = tenant.billing?.budgetEndpoint
@@ -435,16 +445,19 @@ async function processInstagramMessage(
   let replyText: string;
   let replyAudioUrls: string[] = [];
   try {
-    const result = await config.orchestrator.processMessage(
-      session,
+    const result = await config.orchestrator.bindProvider(
+        admitted.provider,
+        admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+      ).processMessage(
+      admitted.session,
       processedParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      perCallConfig,
+      admitted.perCallConfig,
     );
 
-    // Persist mutated session
-    await config.sessionRegistry.save(session);
+    // Persist mutated session while the account fence is still held.
+    await config.sessionRegistry.save(admitted.session);
 
     // Emit handoff events when message was queued
     if (result.queued && config.eventEmitter) {

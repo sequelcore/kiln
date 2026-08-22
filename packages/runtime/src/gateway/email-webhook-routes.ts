@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
-import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -27,6 +27,7 @@ import {
   createTenantConversationMemoryRepository,
   TenantConversationMemory,
 } from "./tenant-conversation-memory.js";
+import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 
 export interface EmailWebhookConfig {
   readonly appName: string;
@@ -46,6 +47,7 @@ export interface EmailWebhookConfig {
   readonly defaultFromName?: string;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
 
 /** Inbound email payload (provider-agnostic) */
@@ -176,6 +178,7 @@ async function processEmailMessage(
   subject: string,
   messageId: string,
   payload: InboundEmailPayload,
+  admitted?: GatewayAuthorityAdmissionCommit,
 ): Promise<void> {
   const trace = new TraceContext();
   trace.log("email", "Processing message", { tenantId, from: senderEmail, subject });
@@ -188,6 +191,29 @@ async function processEmailMessage(
   if (!messageText) return;
 
   const messageParts: readonly ContentPart[] = [{ type: "text", text: messageText }];
+
+  // Keep thread/memory/knowledge/agent/provider/outbound/session effects in
+  // one admission callback. The session is the identity anchor required by
+  // the Runtime admission port; no productive work occurs before the fence.
+  if (!admitted) {
+    const session = await config.sessionRegistry.getOrCreate({
+      appName: config.appName,
+      tenantId,
+      userId: `email:${senderEmail}`,
+      systemPrompt: "",
+      idleTimeoutMs: tenant.idleTimeoutMs,
+    });
+    await config.gatewayAdmission.execute({
+      ingressId: crypto.randomUUID(),
+      appName: config.appName,
+      tenantId,
+      userId: `email:${senderEmail}`,
+      sessionId: session.id,
+      channel: "email",
+      userParts: messageParts,
+    }, (commit) => processEmailMessage(config, threadStore, tenantId, senderEmail, _recipientEmail, subject, messageId, payload, commit));
+    return;
+  }
 
   // --- Thread tracking ---
   const references = payload.references
@@ -220,8 +246,6 @@ async function processEmailMessage(
     };
     threadStore.save(thread);
   }
-
-  const userId = `email:${senderEmail}`;
 
   // --- Memory: recall past context about this user ---
   let recalledMemory: ReturnType<TenantConversationMemory["recall"]>;
@@ -281,14 +305,7 @@ async function processEmailMessage(
     }
   }
 
-  // Get or create session first (needed for ping-pong guard)
-  const session = await config.sessionRegistry.getOrCreate({
-    appName: config.appName,
-    tenantId,
-    userId,
-    systemPrompt: "",
-    idleTimeoutMs: tenant.idleTimeoutMs,
-  });
+  const session = admitted.session;
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
@@ -319,15 +336,6 @@ async function processEmailMessage(
     config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
   }
 
-  const perCallConfig: PerCallToolConfig = {
-    toolAllowlist: tenantToolCtx.toolAllowlist,
-    rateLimiter: tenantToolCtx.rateLimiter,
-    tenantId: tenant.tenantId,
-    toolAuthority: tenantToolCtx.toolAuthority,
-    additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-    perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-  };
-
   // --- Budget check ---
   const activeBilling = tenant.billing?.budgetEndpoint
     ? (tenant.billing as unknown as BillingConfig)
@@ -357,16 +365,19 @@ async function processEmailMessage(
 
   let replyText: string;
   try {
-    const result = await config.orchestrator.processMessage(
-      session,
+    const result = await config.orchestrator.bindProvider(
+        admitted.provider,
+        admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+      ).processMessage(
+      admitted.session,
       messageParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      perCallConfig,
+      admitted.perCallConfig,
     );
 
-    // Persist mutated session
-    await config.sessionRegistry.save(session);
+    // Persist mutated session while the account fence is still held.
+    await config.sessionRegistry.save(admitted.session);
 
     // Emit handoff events when message was queued
     if (result.queued && config.eventEmitter) {

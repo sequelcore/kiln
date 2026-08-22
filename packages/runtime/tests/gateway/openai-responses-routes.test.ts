@@ -18,6 +18,7 @@ import {
   type GovernedOneRoundInvocationPorts,
 } from "../../src/execution-kernel/governed-one-round-invocation.js";
 import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const route = { providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" };
 const admission = { routeId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account-1", source: "route" as const } };
@@ -64,7 +65,9 @@ function config(overrides: ConfigOverrides = {}) {
     candidateCatalog: { list: catalog },
     accountCapacityAuthority: authority,
     attemptEvidence: { record: evidence },
-    dispatcherResolver: { resolve: async () => ({ dispatchOneRound: async (input) => (await execute(input)).result }) },
+    dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async (input) => (await execute(input)).result }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
+    budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
+    authorityAdmission: { compose: async () => ({}) as EffectiveAuthorityAdmissionBundle },
   };
   const record = vi.fn(async () => undefined);
   const namespace = vi.fn(async () => ({ sessionId: "ns:tenant:session-1", turnId: "ns:tenant:turn-1" }));

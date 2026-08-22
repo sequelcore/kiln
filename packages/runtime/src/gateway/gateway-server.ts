@@ -41,6 +41,12 @@ import type {
   ModelGatewayExecutionRoutingPort,
 } from "../model-gateway/model-gateway-ingress.js";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
+import { ConfiguredExecutionAccountRuntime, type ConfiguredExecutionCredential } from "../managed-account-leases/configured-execution-account-runtime.js";
+import type { OperatorSessionExecutionCatalogSnapshot } from "../execution-routing/operator-session-execution-routing-service.js";
+import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
+import type { OperatorAdoptionDecisionPersistence } from "../session/operator-adoption-authority.js";
+import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
+import { FixedRouteGatewayAuthorityAdmission } from "./gateway-authority-admission.js";
 import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
@@ -151,6 +157,8 @@ export interface StartGatewayOptions {
    * startup never derives it from the model-gateway overlay.
    */
   readonly modelGatewayExecution?: ModelGatewayExecutionBundle;
+  /** Required canonical execution and evidence authority for provider-adapter Apps. */
+  readonly appGatewayExecution?: AppGatewayExecutionBundle;
   /** Test seam for the dedicated loopback model-gateway listener. */
   readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: ModelGatewayListenerFetch }) => { stop(force?: boolean): void | Promise<void> };
 }
@@ -161,6 +169,17 @@ export interface ModelGatewayExecutionBundle {
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
+}
+
+export interface AppGatewayExecutionBundle {
+  readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+  readonly accountRuntime: ConfiguredExecutionAccountRuntime;
+  readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
+  readonly evidenceStore: AuthorityAdmissionEvidenceStore;
+  readonly persistOperatorAdoptionDecision: OperatorAdoptionDecisionPersistence;
+  readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
+  /** Releases CLI-owned account-authority resources when the gateway stops or startup fails. */
+  readonly close?: () => void | Promise<void>;
 }
 
 export async function closeGatewayResources(actions: readonly (() => void | Promise<void>)[]): Promise<void> {
@@ -314,6 +333,28 @@ class ProviderScorerLlmBridge {
 }
 
 export async function startGateway(configPath: string, options?: StartGatewayOptions): Promise<void> {
+  const suppliedExecution = options?.appGatewayExecution;
+  if (!suppliedExecution?.close) return startGatewayWithOwnedResources(configPath, options);
+
+  let closed = false;
+  const closeOnce = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    await suppliedExecution.close?.();
+  };
+  const guardedOptions: StartGatewayOptions = {
+    ...options,
+    appGatewayExecution: { ...suppliedExecution, close: closeOnce },
+  };
+  try {
+    await startGatewayWithOwnedResources(configPath, guardedOptions);
+  } catch (error) {
+    await closeOnce();
+    throw error;
+  }
+}
+
+async function startGatewayWithOwnedResources(configPath: string, options?: StartGatewayOptions): Promise<void> {
   let content: string;
   try {
     content = readFileSync(configPath, "utf-8");
@@ -339,6 +380,14 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   }
 
   const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
+  const appGatewayExecution = options?.appGatewayExecution;
+  if (resolvedApps.some((resolved) => resolved.runtimeModeConfig?.runtime === "provider-adapter") && !appGatewayExecution) {
+    throw new KilnError(
+      "CONFIG_INVALID",
+      "App Gateway execution composition is required when provider-adapter Apps are configured.",
+      { context: { configPath } },
+    );
+  }
 
   // Build startup config validation input from provider-adapter apps
   const providerAdapterApps: { provider: string; apiKeyEnv: string }[] = [];
@@ -712,6 +761,34 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     const toolAllowlist = new Set(tools
       .filter((tool) => !tool.name.startsWith("mcp:") || configuredWildcard || configuredToolNames.has(tool.name))
       .map((tool) => tool.name));
+    const providerName = resolved.runtimeModeConfig.provider.name;
+    const providerModel = resolved.runtimeModeConfig.provider.model;
+    const matchingAppRoutes = appGatewayExecution!.snapshot.catalog.routes.filter((route) =>
+      route.providerId === providerName && route.providerModelId === providerModel);
+    if (matchingAppRoutes.length !== 1) {
+      throw new KilnError(
+        "CONFIG_INVALID",
+        `App '${loaded.name}' provider/model ${providerName}/${providerModel} must match exactly one canonical execution target.`,
+        { context: { appName: loaded.name, provider: providerName, model: providerModel, matchCount: matchingAppRoutes.length } },
+      );
+    }
+    const gatewayAdmission = new FixedRouteGatewayAuthorityAdmission<ConfiguredExecutionCredential>({
+      appName: loaded.name,
+      routeId: matchingAppRoutes[0]!.id,
+      snapshot: appGatewayExecution!.snapshot,
+      sessionRegistry,
+      candidates: appGatewayExecution!.accountRuntime.operatorSessionCandidates,
+      accountCapacityAuthority: appGatewayExecution!.accountCapacityAuthority,
+      credentials: appGatewayExecution!.accountRuntime.operatorSessionCredentials,
+      evidenceStore: appGatewayExecution!.evidenceStore,
+      persistOperatorAdoptionDecision: appGatewayExecution!.persistOperatorAdoptionDecision,
+      createProvider: ({ credential, admission }) => appGatewayExecution!.accountRuntime.createProviderAdapterFromCredential({
+        providerId: admission.providerId,
+        providerModelId: admission.providerModelId,
+        credential,
+      }),
+      ...(appGatewayExecution!.sessionTurnBudget ? { sessionTurnBudget: appGatewayExecution!.sessionTurnBudget } : {}),
+    });
 
     // Build grounding deps (shared by all routes for this app)
     const groundingRail = new GroundingRail();
@@ -724,8 +801,41 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       eventBus: gatewayEventBus,
     };
 
-    // Register delegation target (reuse provider + systemPrompt)
-    delegationTargets.set(loaded.name, { appName: loaded.name, provider, systemPrompt });
+    // Cross-app delegation is a child effect and therefore enters the same
+    // persisted admission/fence as every other productive App execution.
+    delegationTargets.set(loaded.name, {
+      appName: loaded.name,
+      systemPrompt,
+      execute: async ({ fromApp, task, request }) => {
+        const tenantId = "_delegation";
+        const userId = `app:${fromApp}`;
+        const session = await sessionRegistry.getOrCreate({
+          appName: loaded.name,
+          tenantId,
+          userId,
+          systemPrompt,
+        });
+        return gatewayAdmission.execute({
+          ingressId: crypto.randomUUID(),
+          appName: loaded.name,
+          tenantId,
+          userId,
+          sessionId: session.id,
+          channel: "delegation",
+          userParts: textParts(task),
+          requestedAuthority: "read_only",
+        }, async (admitted) => admitted.provider.createMessage({
+          ...request,
+          sessionId: admitted.session.id,
+          executionContext: admitted.bundle.turn.execution.status === "routed"
+            ? {
+                requestedAuthority: "read_only",
+                executionBinding: admitted.bundle.turn.execution.binding,
+              }
+            : undefined,
+        }));
+      },
+    });
 
     const isMultiTenant = loaded.binding.channels.some((ch) => ch.multiTenant === true);
 
@@ -768,6 +878,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         orchestrator,
         sessionRegistry,
         tenantRegistry,
+        gatewayAdmission,
         artifactStore: loaded.artifactStore,
         voiceConfig: resolved.app.voice,
         ttsAdapter: loaded.ttsAdapter,
@@ -823,6 +934,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           orchestrator,
           sessionRegistry,
           tenantRegistry,
+          gatewayAdmission,
           verifyToken: verifyTokenEnv ? process.env[verifyTokenEnv] ?? "" : "",
           appSecret: appSecretEnv ? process.env[appSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
@@ -853,6 +965,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           orchestrator,
           sessionRegistry,
           tenantRegistry,
+          gatewayAdmission,
           verifyToken: igVerifyTokenEnv ? process.env[igVerifyTokenEnv] ?? "" : "",
           appSecret: igAppSecretEnv ? process.env[igAppSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
@@ -882,6 +995,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           orchestrator,
           sessionRegistry,
           tenantRegistry,
+          gatewayAdmission,
           verifyToken: msgVerifyTokenEnv ? process.env[msgVerifyTokenEnv] ?? "" : "",
           appSecret: msgAppSecretEnv ? process.env[msgAppSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
@@ -912,6 +1026,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           orchestrator,
           sessionRegistry,
           tenantRegistry,
+          gatewayAdmission,
           webhookSecret: emailWebhookSecretEnv ? process.env[emailWebhookSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
@@ -941,6 +1056,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         appName: loaded.name,
         orchestrator,
         sessionRegistry,
+        gatewayAdmission,
         artifactStore: loaded.artifactStore,
         voiceConfig: resolved.app.voice,
         ttsAdapter: loaded.ttsAdapter,
@@ -1381,6 +1497,7 @@ REASONING: <one sentence explanation>`;
       () => swarmMemoryRepository?.close(),
       () => mcpServerInstance?.close(),
       () => modelGatewayRuntime?.close(),
+      () => appGatewayExecution?.close?.(),
       ...ownedMcpClients.map((client) => () => client.disconnect()),
       ...loadedApps.map((loaded) => () => loaded.knowledgePipeline?.close()),
     ]);

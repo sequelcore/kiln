@@ -1485,6 +1485,44 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
   });
 
+  it("rejects an operator model override that differs from the admitted execution route before provider dispatch", async () => {
+    const overrideProvider = makeProvider("override");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "default-model",
+      providerPool: new Map([["override", overrideProvider]]),
+    });
+
+    await expect(orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "override", model: "override-model", source: "operator" },
+      admittedExecutionRoute: { routeId: "route-default", providerId: "default", providerModelId: "default-model" },
+    })).rejects.toThrow("does not match admitted execution route");
+    expect(overrideProvider.createMessage).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects an automatic routed provider that differs from the admitted execution route before provider dispatch", async () => {
+    const routedProvider = makeProvider("routed");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "default-model",
+      modelRouter: makeRouter({
+        provider: "routed",
+        model: "routed-model",
+        reasoning: "synthetic mismatch",
+        confidence: 1,
+        routingTier: "rule",
+      }),
+      providerPool: new Map([["routed", routedProvider]]),
+    });
+
+    await expect(orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
+      admittedExecutionRoute: { routeId: "route-default", providerId: "default", providerModelId: "default-model" },
+    })).rejects.toThrow("does not match admitted execution route");
+    expect(routedProvider.createMessage).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
   it("ignores modelOverride without explicit operator provenance and falls back to automatic routing", async () => {
     const routedProvider = makeProvider("routed");
     const router = makeRouter({

@@ -46,12 +46,16 @@ import type {
 } from "../execution-routing/operator-session-execution-routing-service.js";
 import { CodexOAuthModelTurnDispatcher } from "../execution-kernel/provider-adapters/codex-oauth-model-turn-dispatcher.js";
 import { ProviderAdapterOneRoundDispatcher } from "../execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
-import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
+import type {
+  GovernedOneRoundDispatcherResolver,
+  GovernedOneRoundResolvedDispatch,
+} from "../execution-kernel/governed-one-round-invocation.js";
 import {
   ExecutionRouteDataPolicyAuthority,
   type ExecutionRouteDataPolicyIdentity,
   type SanitizedExecutionRouteDataPolicyDecision,
 } from "../execution-routing/execution-route-data-policy-authority.js";
+import type { ProviderAdapter } from "@kilnai/core";
 
 /**
  * The configured execution catalog is the only durable input to this runtime.
@@ -76,6 +80,10 @@ export interface ConfiguredCodexExecutionAccountPool {
   refreshUsageForCredentials(credentialIds: readonly string[]): Promise<readonly ProviderUsageSnapshot[]>;
   resolveExecutionCredential(selected: CodexOAuthExecutionAccount): Promise<CodexOAuthExecutionCredential>;
   recordProviderOutcome(credentialId: string, error?: unknown): Promise<void>;
+  createAdapterFromCredential?(input: {
+    readonly credential: CodexOAuthExecutionCredential;
+    readonly defaultModel: string;
+  }): Promise<ProviderAdapter>;
 }
 
 export type ConfiguredExecutionCredential =
@@ -148,6 +156,7 @@ export class ConfiguredExecutionAccountRuntime {
   readonly #codexPool: ConfiguredCodexExecutionAccountPool;
   readonly #openCodePool: OpenCodeCredentialPoolService;
   readonly #directPool: DirectProviderCredentialPoolService;
+  readonly #env: Readonly<Record<string, string | undefined>>;
   readonly #now: () => Date;
   readonly #observeOperatorSessionCapacity?: ConfiguredExecutionAccountRuntimeOptions["observeOperatorSessionCapacity"];
   readonly #dataPolicyAuthority: ExecutionRouteDataPolicyAuthority;
@@ -166,6 +175,7 @@ export class ConfiguredExecutionAccountRuntime {
       rootDir: options.credentialRootDir,
       env: options.env,
     });
+    this.#env = options.env ?? process.env;
     this.#now = options.now ?? (() => new Date());
     this.#observeOperatorSessionCapacity = options.observeOperatorSessionCapacity;
     this.#dataPolicyAuthority = new ExecutionRouteDataPolicyAuthority({ catalog: options.catalog, now: this.#now });
@@ -192,6 +202,43 @@ export class ConfiguredExecutionAccountRuntime {
   updateCatalog(catalog: ExecutionCatalog): void {
     this.#catalog = catalog;
     this.#dataPolicyAuthority.updateCatalog(catalog);
+  }
+
+  /** Materializes an adapter from the exact credential already resolved behind a dispatch fence. */
+  async createProviderAdapterFromCredential(input: {
+    readonly providerId: string;
+    readonly providerModelId: string;
+    readonly credential: ConfiguredExecutionCredential;
+  }): Promise<ProviderAdapter> {
+    const providerId = input.providerId;
+    if (providerId === "codex-oauth") {
+      if (!this.#codexPool.createAdapterFromCredential) {
+        throw new Error("Configured Codex execution pool cannot materialize an exact provider adapter.");
+      }
+      return this.#codexPool.createAdapterFromCredential({
+        credential: input.credential as CodexOAuthExecutionCredential,
+        defaultModel: input.providerModelId,
+      });
+    }
+    if (providerId === "opencode-go" || providerId === "opencode-zen") {
+      return this.#openCodePool.createAdapterFromCredential({
+        credential: input.credential as OpenCodeExecutionCredential,
+        defaultModel: input.providerModelId,
+      });
+    }
+    if (isDirectProviderId(providerId) && isPooledDirectProviderId(providerId)) {
+      return this.#directPool.createAdapterFromCredential({
+        credential: input.credential as DirectProviderExecutionCredential,
+        defaultModel: input.providerModelId,
+        openRouterAppUrl: this.#envValue("OPENROUTER_APP_URL"),
+        openRouterAppName: this.#envValue("OPENROUTER_APP_NAME"),
+      });
+    }
+    throw new Error(`Configured provider '${providerId}' has no exact provider adapter.`);
+  }
+
+  #envValue(name: string): string | undefined {
+    return this.#env[name];
   }
 
   /**
@@ -353,7 +400,7 @@ export class ConfiguredExecutionAccountRuntime {
     accountId: string,
     route: { readonly providerId: string; readonly providerModelId: string },
     lease: AccountCapacityRecord,
-  ): Promise<OneRoundModelDispatcher> {
+  ): Promise<GovernedOneRoundResolvedDispatch> {
     if (!lease.dispatchFenceId) {
       throw new Error("Configured model gateway dispatch requires a durable dispatch fence identity.");
     }
@@ -371,6 +418,13 @@ export class ConfiguredExecutionAccountRuntime {
       lease,
       catalog: this.#catalog,
     });
+    const binding = Object.freeze({
+      status: "bound" as const,
+      routeId,
+      accountId,
+      credentialId: account.credentialId,
+      credentialRevision: lease.credentialRevisionId,
+    });
     if (route.providerId === "codex-oauth") {
       const codexCredential = credential as CodexOAuthExecutionCredential;
       const dispatcher = new CodexOAuthModelTurnDispatcher({
@@ -381,31 +435,37 @@ export class ConfiguredExecutionAccountRuntime {
         },
         fetch,
       });
-      return this.#recordCodexOutcome(dispatcher, codexCredential.credentialId);
+      return { dispatcher: this.#recordCodexOutcome(dispatcher, codexCredential.credentialId), binding };
     }
     if (route.providerId === "opencode-go" || route.providerId === "opencode-zen") {
       const adapter = await this.#openCodePool.createAdapterFromCredential({
         credential: credential as OpenCodeExecutionCredential,
         defaultModel: route.providerModelId,
       });
-      return new ProviderAdapterOneRoundDispatcher({
-        account: lease.accountRef,
-        providerId: route.providerId,
-        adapter,
-        requestIdentity: { requestId: lease.dispatchFenceId },
-      });
+      return {
+        dispatcher: new ProviderAdapterOneRoundDispatcher({
+          account: lease.accountRef,
+          providerId: route.providerId,
+          adapter,
+          requestIdentity: { requestId: lease.dispatchFenceId },
+        }),
+        binding,
+      };
     }
     if (isPooledDirectProviderId(route.providerId)) {
       const adapter = await this.#directPool.createAdapterFromCredential({
         credential: credential as DirectProviderExecutionCredential,
         defaultModel: route.providerModelId,
       });
-      return new ProviderAdapterOneRoundDispatcher({
-        account: lease.accountRef,
-        providerId: route.providerId,
-        adapter,
-        requestIdentity: { requestId: lease.dispatchFenceId },
-      });
+      return {
+        dispatcher: new ProviderAdapterOneRoundDispatcher({
+          account: lease.accountRef,
+          providerId: route.providerId,
+          adapter,
+          requestIdentity: { requestId: lease.dispatchFenceId },
+        }),
+        binding,
+      };
     }
     throw new Error(`Configured provider '${route.providerId}' has no model gateway dispatcher.`);
   }

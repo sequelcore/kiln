@@ -1329,7 +1329,7 @@ expect(admittedToolNames).not.toContain("write");
       sourcePolicy: "provider_profile_gate",
       completeness: "authoritative",
       toolCount: 0,
-      deniedToolCount: 0,
+      deniedToolCount: expect.any(Number),
       sandboxProjection: "none",
     });
 
@@ -1344,8 +1344,10 @@ expect(admittedToolNames).not.toContain("write");
       sourcePolicy: "provider_profile_gate",
       completeness: "authoritative",
       toolCount: 0,
-      deniedToolCount: 0,
+      deniedToolCount: expect.any(Number),
     });
+    expect(config.effectiveTurnAuthority?.deniedToolCount).toBeGreaterThan(0);
+    expect(unresolvedConfig.effectiveTurnAuthority?.deniedToolCount).toBeGreaterThan(0);
     expect(unresolvedConfig.effectiveTurnAuthority?.reason).toContain("unresolved");
   });
 

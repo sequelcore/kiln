@@ -11,6 +11,7 @@ import { admitOperatorExecutionIntent, defineExecutionCatalog } from "@kilnai/co
 import {
   ConfiguredExecutionAccountRuntime,
   createOperatorSessionAccountCapacityAuthority,
+  OperatorSessionAuthorityAdmissionBridge,
   OperatorSessionExecutionBridge,
   OperatorSessionExecutionRoutingService,
   OperatorTurnDispatcher,
@@ -30,6 +31,7 @@ export interface OperatorTurnDispatchComposition<Payload, Result> {
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
   readonly accountCapacityAuthority: SqliteManagedAccountLeaseAuthority;
   readonly bridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, any, Result>;
+  readonly authorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<Payload>;
   readonly dispatcher: OperatorTurnDispatchPort<Payload, Result>;
   readonly resolveExecutionRouteAccountAvailability: (input: {
     readonly admission: AdmittedExecutionRoute;
@@ -57,6 +59,7 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
     observeOperatorSessionCapacity: (candidates) => authority.observeCandidateCapacity(candidates),
   });
   const bridge = new OperatorSessionExecutionBridge<ConfiguredExecutionCredential, any, Result>();
+  const authorityAdmissionBridge = new OperatorSessionAuthorityAdmissionBridge<Payload>();
   const routing = new OperatorSessionExecutionRoutingService<ConfiguredExecutionCredential, Payload, Result>({
     catalogSource: {
       capture: input.captureCatalogSnapshot,
@@ -65,12 +68,14 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
     candidates: accountRuntime.operatorSessionCandidates,
     accountCapacityAuthority: authority,
     credentials: accountRuntime.operatorSessionCredentials,
+    authorityAdmission: authorityAdmissionBridge,
     dispatch: bridge,
   });
   return {
     accountRuntime,
     accountCapacityAuthority: authority,
     bridge,
+    authorityAdmissionBridge,
     dispatcher: new OperatorTurnDispatcher(routing),
     resolveExecutionRouteAccountAvailability: async ({ admission, catalog, configurationRevision }) => {
       const candidates = await accountRuntime.operatorSessionCandidates.resolve({ admission, catalog, configurationRevision });

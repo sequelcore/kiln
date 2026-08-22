@@ -8,6 +8,7 @@ import type {
   ProviderExecutionRequestedAuthority,
   ConversationToolResultProjectionPolicy,
   EffectivePromptManifest,
+  ProviderAdapter,
 } from "@kilnai/core";
 import {
   accountedWorkItemEvidence,
@@ -217,6 +218,16 @@ export class RuntimeSessionOrchestrator {
 
   get eventBus(): EventBus | undefined {
     return this.deps.eventBus;
+  }
+
+  /** Rebinds the same execution surface to the exact post-fence provider selected by admission. */
+  bindProvider(provider: ProviderAdapter, model = this.deps.model): RuntimeSessionOrchestrator {
+    return new RuntimeSessionOrchestrator({
+      ...this.deps,
+      provider,
+      ...(model ? { model } : {}),
+      tools: this._tools,
+    });
   }
 
   emitApprovalRequested(description: string, sessionId: string, approvalId: string): void {

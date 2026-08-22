@@ -67,6 +67,7 @@ import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../application/operator-transcript-projection.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
 import {
   createDefaultRegistry,
   getRuntimeProviderAvailability,
@@ -511,6 +512,8 @@ export async function guiCommand(
       sessionManager,
       operatorTurnDispatcher: operatorTurnComposition.dispatcher,
       operatorTurnExecutionBridge: operatorTurnComposition.bridge,
+      operatorAuthorityAdmissionBridge: operatorTurnComposition.authorityAdmissionBridge,
+      authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
       systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
       persistCanonicalSessionEvent: async (event) => {

@@ -57,9 +57,10 @@ export async function toolsCommand(
 
   if (flags.resource) {
     const target = buildResourceReadTarget(flags);
-    const result = target
-      ? await surface.resources.read(flags.resource, { target })
-      : await surface.resources.read(flags.resource);
+    if (!target) {
+      throw new Error("Resource reads require --session-id authority scope.");
+    }
+    const result = await surface.resources.read(flags.resource, { target });
     console.log(formatResourceReadResult(flags.resource, result, target));
     return;
   }
@@ -105,14 +106,14 @@ function formatResourceReadResult(
 }
 
 function buildResourceReadTarget(flags: ToolsCommandFlags): OperatorResourceReadRequest["target"] | undefined {
-  if (!flags.gatewayTargetId && !flags.appId && !flags.tenantId && !flags.sessionId) {
+  if (!flags.sessionId) {
     return undefined;
   }
   const target = {
     ...(flags.gatewayTargetId ? { gatewayTargetId: flags.gatewayTargetId } : {}),
     ...(flags.appId ? { appId: flags.appId } : {}),
     ...(flags.tenantId ? { tenantId: flags.tenantId } : {}),
-    ...(flags.sessionId ? { sessionId: flags.sessionId } : {}),
+    sessionId: flags.sessionId,
     ...(flags.resource ? { resourceUri: flags.resource } : {}),
   };
   return Object.keys(target).length > 0 ? target : undefined;

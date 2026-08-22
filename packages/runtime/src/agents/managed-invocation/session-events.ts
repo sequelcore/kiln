@@ -38,6 +38,7 @@ import type {
 } from "@kilnai/core";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
 import type { RuntimeSession } from "../../session/runtime-session.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 import {
   projectManagedInvocationAuthorityResources,
   projectManagedInvocationCapabilitySnapshotResources,
@@ -825,7 +826,15 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     resultHandoff?: SessionAgentInvocationEvidence["resultHandoff"];
     writeAuthority?: SessionAgentInvocationEvidence["writeAuthority"];
     writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
+    /** Runtime-owned, secret-free parent admission carried with the child event. */
+    authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   } = {};
+  const authorityAdmission = (record as ManagedAgentInvocationRecord & {
+    readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+  }).authorityAdmission;
+  if (authorityAdmission !== undefined) {
+    evidence.authorityAdmission = authorityAdmission;
+  }
   const lifecycle = buildManagedAgentLifecycleEvidence(record);
   evidence.lifecycle = {
     ...lifecycle,

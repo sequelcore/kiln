@@ -183,6 +183,7 @@ export interface ProviderCreateConfig {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly operatorAdoption?: import("@kilnai/runtime").OperatorAdoptionRuntimeBinding;
+  readonly authorityAdmissionContext?: import("./provider-session.js").ProviderSessionConfig["authorityAdmissionContext"];
   readonly runtimeExecutionMode?: "execute" | "plan";
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
@@ -1135,11 +1136,18 @@ function createDirectProviderSession(
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
     ...(config.operatorAdoption ? { operatorAdoption: config.operatorAdoption } : {}),
+    ...(config.authorityAdmissionContext ? { authorityAdmissionContext: config.authorityAdmissionContext } : {}),
     ...(config.runtimeExecutionMode ? { runtimeExecutionMode: config.runtimeExecutionMode } : {}),
-    ...(config.sessionTurnBudget ? { sessionTurnBudget: config.sessionTurnBudget } : {}),
+    // Canonical authority admission owns the single pre-fence budget decision;
+    // do not wire its source back into either ProviderSession execution mode.
+    ...(!config.authorityAdmissionContext && config.sessionTurnBudget
+      ? { sessionTurnBudget: config.sessionTurnBudget }
+      : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
     ...(config.communicationIntent ? { communicationIntent: config.communicationIntent } : {}),
-    ...(config.canonicalMcpServers ? {
+    ...(config.authorityAdmissionContext ? {
+      mcpClients: config.authorityAdmissionContext.mcpClients,
+    } : config.canonicalMcpServers ? {
       mcpClients: config.canonicalMcpServers.map(createCanonicalMcpClient),
     } : {}),
     ...(config.mcpToolAllowlist ? { mcpToolAllowlist: config.mcpToolAllowlist } : {}),

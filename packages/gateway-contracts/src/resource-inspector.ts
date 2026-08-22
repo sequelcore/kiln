@@ -11,9 +11,18 @@ export const OPERATOR_RESOURCE_CONTENT_KINDS = [
 
 export type OperatorResourceContentKind = typeof OPERATOR_RESOURCE_CONTENT_KINDS[number];
 
+/**
+ * Resource reads are an authority-scoped operation.  The session id is the
+ * narrowest existing durable identity that lets a gateway select only the
+ * committed turn surfaces belonging to the caller's logical session.
+ */
+const OperatorResourceReadTargetSchema = OperatorCockpitActionTargetSchema.extend({
+  sessionId: z.string().min(1),
+});
+
 export const OperatorResourceReadRequestSchema = z.object({
   uri: z.string().min(1),
-  target: OperatorCockpitActionTargetSchema.optional(),
+  target: OperatorResourceReadTargetSchema,
   cursor: z.string().min(1).optional(),
   limit: z.number().int().positive().optional(),
 });

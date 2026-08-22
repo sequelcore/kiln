@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createOperatorAdoptionDecisionAuthority } from "@kilnai/core";
 import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import type {
@@ -8,6 +10,8 @@ import type {
   PrivateFormalScreeningPackageFacts,
 } from "../../src/application/private-formal-screening-package.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
+import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
+import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
 
@@ -557,7 +561,10 @@ describe("createBenchmarkSessionExecutor", () => {
     });
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
-      governedGoalTools: "forbidden",
+      operatorAdoption: expect.objectContaining({
+        persist: expect.any(Function),
+        replayCanonicalSessionEvents: expect.any(Function),
+      }),
       sessionConfig: expect.objectContaining({
         executionEnvelope: { toolRounds: { max: 8 } },
         requestedAuthority: "read_only",
@@ -659,6 +666,75 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(benchmarkExecutorMocks.withGlobalIdentityContext).toHaveBeenCalledTimes(priorIdentityContextCount);
     expect(benchmarkExecutorMocks.withWorkGovernanceContext).toHaveBeenCalledTimes(priorGovernanceContextCount);
     expect(benchmarkExecutorMocks.resolveInstructionProfileContextCandidates).toHaveBeenCalledTimes(priorInstructionContextCount);
+  });
+
+  it("persists canonical adoption evidence outside the fixture and survives authority lease cleanup", async () => {
+    const repositoryRoot = resolveProjectRoot().rootPath;
+    const fixturePath = "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation";
+    const fixture = resolveBenchmarkWorkspace(repositoryRoot, fixturePath);
+    if (fixture.kind !== "synthetic-fixture") throw new Error("Expected a synthetic benchmark fixture.");
+    const fixtureHashBefore = hashBenchmarkWorkspace(fixture);
+    const authorityLeaseRoot = mkdtempSync(join(tmpdir(), "kiln-benchmark-authority-test-"));
+    const evidenceRoot = mkdtempSync(join(tmpdir(), "kiln-benchmark-evidence-test-"));
+    benchmarkExecutorMocks.createBenchmarkAuthorityWorkspaceLease.mockImplementationOnce(() => ({
+      rootPath: authorityLeaseRoot,
+      cleanup: () => rmSync(authorityLeaseRoot, { recursive: true, force: true }),
+    }));
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    const ownerSessionId = "benchmark-session";
+    const operatorTurnId = `${ownerSessionId}:turn:1`;
+    const authority = createOperatorAdoptionDecisionAuthority({
+      ownerSessionId,
+      operatorTurnId,
+      actorId: "benchmark",
+    });
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (options: {
+      readonly operatorAdoption?: { persist(event: unknown): Promise<void> };
+    }) => {
+      await options.operatorAdoption?.persist({
+        eventId: "benchmark-adoption-event",
+        kilnSessionId: ownerSessionId,
+        sequence: 1,
+        kind: "operator_adoption_decision",
+        turnId: operatorTurnId,
+        ...authority,
+        turnOrdinal: 1,
+        source: { actor: "runtime", surface: "runtime", component: "operator-adoption" },
+        timestamp: new Date("2026-08-22T00:00:00.000Z"),
+      });
+      return defaultRun(options as never);
+    });
+
+    try {
+      const executor = createBenchmarkSessionExecutor({
+        appConfig: MOCK_APP_CONFIG,
+        flags: { benchmarkEvidenceRoot: evidenceRoot },
+      });
+      await executor("Inspect only the fixture.", makeBenchmarkContext({
+        id: "synthetic-evidence",
+        input: "Inspect only the fixture.",
+        metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
+      }));
+
+      expect(hashBenchmarkWorkspace(fixture)).toBe(fixtureHashBefore);
+      expect(existsSync(authorityLeaseRoot)).toBe(false);
+      const transcriptPath = join(
+        evidenceRoot,
+        ".kiln",
+        "sessions",
+        encodeURIComponent(ownerSessionId),
+        "transcript.jsonl",
+      );
+      expect(existsSync(transcriptPath)).toBe(true);
+      expect(JSON.parse(readFileSync(transcriptPath, "utf8")).kind).toBe("operator_adoption_decision");
+      await expect(new TranscriptStore(evidenceRoot).readTranscript(ownerSessionId)).resolves.toEqual([
+        expect.objectContaining({ kind: "operator_adoption_decision", turnId: operatorTurnId }),
+      ]);
+    } finally {
+      rmSync(evidenceRoot, { recursive: true, force: true });
+      rmSync(authorityLeaseRoot, { recursive: true, force: true });
+    }
   });
 
   it("runs write profiles only in a disposable strict direct-provider lease", async () => {

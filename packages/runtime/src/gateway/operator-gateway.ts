@@ -2,11 +2,13 @@ import { startTuiGateway, type TuiGateway, type TuiGatewayOptions } from "./tui-
 import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
 import type {
   OperatorSessionExecutionBridge,
+  OperatorSessionAuthorityAdmissionBridge,
   OperatorTurnDispatchPort,
   OperatorTurnDispatchResult,
   OperatorTurnGuiDispatchPayload,
   OperatorTurnTuiDispatchPayload,
 } from "../execution-routing/operator-turn-dispatcher.js";
+import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 
 export interface OperatorGateway extends TuiGateway {}
 
@@ -20,6 +22,8 @@ type BaseOperatorSessionTransportOptions<Payload> = Omit<Pick<
 >, "operatorTurnDispatcher"> & {
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<Payload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, Payload, OperatorTurnDispatchResult>;
+  readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<Payload>;
+  readonly authorityAdmissionEvidenceStore: AuthorityAdmissionEvidenceStore;
 };
 
 export type OperatorSessionTransportOptions<Payload = OperatorTurnTuiDispatchPayload> = BaseOperatorSessionTransportOptions<Payload> & {

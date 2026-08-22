@@ -20,7 +20,8 @@ function makeMockProvider(content: string = '{"recommendation":"use TypeScript"}
 }
 
 function makeTarget(appName: string, content?: string): DelegationTarget {
-  return { appName, provider: makeMockProvider(content), systemPrompt: `You are ${appName}.` };
+  const provider = makeMockProvider(content);
+  return { appName, execute: ({ request }) => provider.createMessage(request), systemPrompt: `You are ${appName}.` };
 }
 
 function makeRegistry(...targets: DelegationTarget[]): DelegationRegistry {
@@ -157,7 +158,7 @@ describe("createDelegationRoutes", () => {
       };
       const target: DelegationTarget = {
         appName: "app-b",
-        provider: slowProvider,
+        execute: ({ request }) => slowProvider.createMessage(request),
         systemPrompt: "You are app-b.",
       };
       const registry = makeRegistry(target);
@@ -198,7 +199,7 @@ describe("createDelegationRoutes", () => {
       };
       const target: DelegationTarget = {
         appName: "app-b",
-        provider: failingProvider,
+        execute: ({ request }) => failingProvider.createMessage(request),
         systemPrompt: "You are app-b.",
       };
       const registry = makeRegistry(target);

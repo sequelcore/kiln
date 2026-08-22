@@ -20,6 +20,8 @@ import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/exec
 import { admitOperatorExecutionIntent } from "@kilnai/core";
 import type {
   GovernedOneRoundCandidate,
+  GovernedOneRoundBudgetAdmissionPort,
+  GovernedOneRoundAuthorityAdmissionPort,
   GovernedOneRoundDispatcherResolver,
   GovernedOneRoundInvocationPorts,
 } from "../execution-kernel/governed-one-round-invocation.js";
@@ -53,6 +55,10 @@ export interface ModelGatewayIngressOptions {
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   /** Shared account-capacity authority; ingress does not create or close it. */
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
+  /** Live session budget owner; evaluated before candidate/capacity selection. */
+  readonly budgetAdmission: GovernedOneRoundBudgetAdmissionPort;
+  /** Runtime owner that composes the immutable authority bundle once. */
+  readonly authorityAdmission: GovernedOneRoundAuthorityAdmissionPort;
   readonly databasePath: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
@@ -175,28 +181,31 @@ export async function createModelGatewayIngress(
       if (!admittedModel) throw new Error("Selected provider route is unavailable.");
       const canonicalAccount = options.executionCatalog.accounts.find(({ id }) => id === accountId);
       if (!canonicalAccount || canonicalAccount.providerId !== route.providerId) throw new Error("Selected execution account is unavailable.");
-      const dispatcher = await options.executionDispatcher.resolve(input);
+      const resolved = await options.executionDispatcher.resolve(input);
       return {
-        dispatchOneRound: async (input) => {
-          try {
-            const result = await dispatcher.dispatchOneRound(input);
-            return result;
-          } catch (error) {
-            const status = providerStatus(error);
+        dispatcher: {
+          dispatchOneRound: async (input) => {
             try {
-              if (singleAccountRoute(admittedModel.admission) && status === 429)
-                store.coolRoute(route, Date.now() + 60_000, "rate-limited");
-              else if (singleAccountRoute(admittedModel.admission) && [408, 425, 500, 502, 503, 504].includes(status ?? 0))
-                store.coolRoute(route, Date.now() + 30_000, "upstream-transient");
-            } catch (circuitError) {
-              throw new AggregateError(
-                [error, circuitError],
-                "Provider failure could not be fenced by the route circuit.",
-              );
+              const result = await resolved.dispatcher.dispatchOneRound(input);
+              return result;
+            } catch (error) {
+              const status = providerStatus(error);
+              try {
+                if (singleAccountRoute(admittedModel.admission) && status === 429)
+                  store.coolRoute(route, Date.now() + 60_000, "rate-limited");
+                else if (singleAccountRoute(admittedModel.admission) && [408, 425, 500, 502, 503, 504].includes(status ?? 0))
+                  store.coolRoute(route, Date.now() + 30_000, "upstream-transient");
+              } catch (circuitError) {
+                throw new AggregateError(
+                  [error, circuitError],
+                  "Provider failure could not be fenced by the route circuit.",
+                );
+              }
+              throw error;
             }
-            throw error;
-          }
+          },
         },
+        binding: resolved.binding,
       };
     },
   };
@@ -205,6 +214,8 @@ export async function createModelGatewayIngress(
     accountCapacityAuthority: options.accountCapacityAuthority,
     attemptEvidence: store,
     dispatcherResolver,
+    budgetAdmission: options.budgetAdmission,
+    authorityAdmission: options.authorityAdmission,
   };
 
   const openAIResponses: OpenAIResponsesIngressConfig | undefined =

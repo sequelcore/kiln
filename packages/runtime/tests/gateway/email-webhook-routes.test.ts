@@ -5,6 +5,7 @@ import { createEmailWebhookRoutes } from "../../src/gateway/email-webhook-routes
 import type { EmailWebhookConfig } from "../../src/gateway/email-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { InMemoryEmailThreadStore } from "../../src/gateway/email-thread-store.js";
 import { mkdtempSync } from "node:fs";
@@ -89,13 +90,17 @@ function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
 
 function makeConfig(overrides: Partial<EmailWebhookConfig> = {}): EmailWebhookConfig {
   const provider = makeMockProvider();
+  const orchestrator = new RuntimeSessionOrchestrator({ provider, model: provider.name });
+  orchestrator.bindProvider = vi.fn().mockReturnValue(orchestrator);
   const tmpDir = mkdtempSync(join(tmpdir(), "email-webhook-test-"));
   const tenantRegistry = new TenantRegistry(tmpDir);
+  const sessionRegistry = new SessionRegistry();
   return {
     appName: "test-app",
-    orchestrator: new RuntimeSessionOrchestrator({ provider }),
-    sessionRegistry: new SessionRegistry(),
+    orchestrator,
+    sessionRegistry,
     tenantRegistry,
+    gatewayAdmission: makeGatewayTestAdmission(sessionRegistry, provider),
     ...overrides,
   };
 }
@@ -398,7 +403,7 @@ describe("createEmailWebhookRoutes", () => {
       expect(sentEmail.subject).toBe("Re: Existing thread");
     });
 
-    it("forwards tenant tool authority into per-call config", async () => {
+    it("uses the model-only admitted tool authority instead of tenant hints", async () => {
       const mockTransport = { send: vi.fn().mockResolvedValue({ messageId: "<r@b.com>" }) };
       const config = makeConfig({ emailTransport: mockTransport });
       const tenant = makeTenantConfig();
@@ -422,7 +427,7 @@ describe("createEmailWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+      expect(perCallConfig?.toolAuthority).toEqual(new Map());
     });
   });
 });

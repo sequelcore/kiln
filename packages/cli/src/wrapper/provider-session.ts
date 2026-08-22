@@ -39,6 +39,7 @@ import {
 } from "@kilnai/core";
 import {
   buildEffectiveTurnAuthorityPolicyInputs,
+  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
   createAttachedRuntimeBuiltinToolSurface,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
@@ -51,6 +52,8 @@ import {
   prepareOperatorAdoptionTurn,
   hasGovernedGoalTools,
   type OperatorAdoptionRuntimeBinding,
+  type EffectiveAuthorityAdmissionBundle,
+  type RuntimeSession,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
@@ -100,6 +103,15 @@ export interface ProviderSessionConfig {
   readonly mcpToolAllowlist?: ReadonlySet<string>;
   /** Durable transcript sink and canonical replay binding for this surface. */
   readonly operatorAdoption?: OperatorAdoptionRuntimeBinding;
+  /** Runtime-composed authority and its exact prepared execution resources. */
+  readonly authorityAdmissionContext?: {
+    readonly bundle: EffectiveAuthorityAdmissionBundle;
+    readonly runtimeSession: RuntimeSession;
+    readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
+    readonly mcpClients: readonly KilnMcpClient[];
+    readonly mcpCapabilities: readonly Capability[];
+    readonly perCallConfig: PerCallToolConfig;
+  };
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -277,6 +289,7 @@ function deriveCapabilities(
 }
 
 export class ProviderSession implements IKilnSession {
+  readonly config: ProviderSessionConfig;
   readonly sessionId: string;
 
   private readonly _capabilities: SessionCapabilities;
@@ -294,7 +307,17 @@ export class ProviderSession implements IKilnSession {
   private readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
   private disposePromise?: Promise<void>;
 
-  constructor(readonly config: ProviderSessionConfig) {
+  constructor(config: ProviderSessionConfig) {
+    // Canonical authority admission owns the one pre-fence budget decision.
+    // Keep the source out of this wrapper for both text-only and executable
+    // sessions so the provider cannot admit the same turn a second time.
+    if (config.authorityAdmissionContext && config.sessionTurnBudget) {
+      const { sessionTurnBudget: _sessionTurnBudget, ...withoutSessionTurnBudget } = config;
+      this.config = withoutSessionTurnBudget;
+      config = this.config;
+    } else {
+      this.config = config;
+    }
     this.sessionId = config.runtimeSessionId ?? randomUUID();
     this.executionProfile = resolveProfile(config);
     this.executionMode = this.executionProfile?.executionMode ?? "text-only";
@@ -306,7 +329,7 @@ export class ProviderSession implements IKilnSession {
     const operatorSurface = config.operatorSurface ?? {
       theme: createCliOperatorThemeController(),
     };
-    const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+    const builtinToolSurface = config.authorityAdmissionContext?.builtinToolSurface ?? createAttachedRuntimeBuiltinToolSurface({
       operatorSurface,
       builtinToolOptions: config.builtinToolOptions,
       managedInvocation: config.managedInvocation,
@@ -329,8 +352,37 @@ export class ProviderSession implements IKilnSession {
     );
   }
 
+  /** Exposes the canonical per-call projection for the admission composition owner. */
+  buildAuthorityPerCallConfig(input: {
+    readonly deliberationResolution?: DeliberationResolution;
+    readonly communicationIntent?: ResolvedCommunicationIntent;
+    readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+    readonly abortSignal?: AbortSignal;
+    readonly turnId?: string;
+    readonly workingDirectory?: string;
+    readonly toolSandbox?: unknown;
+    readonly externalTools?: readonly ToolDefinition[];
+    readonly externalCapabilities?: ReadonlyMap<string, Capability>;
+  }): PerCallToolConfig {
+    return this.buildPerCallConfig(
+      input.deliberationResolution,
+      input.communicationIntent,
+      input.requestedAuthority,
+      input.abortSignal,
+      input.turnId,
+      input.workingDirectory,
+      input.toolSandbox,
+      input.externalTools ?? [],
+      input.externalCapabilities ?? new Map(),
+    );
+  }
+
   get capabilities(): SessionCapabilities {
     return this._capabilities;
+  }
+
+  get authorityBuiltinToolSurface(): ReturnType<typeof createAttachedRuntimeBuiltinToolSurface> {
+    return this.builtinToolSurface;
   }
 
   get providerSessionId(): string | undefined {
@@ -762,18 +814,20 @@ export class ProviderSession implements IKilnSession {
   private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
-    const mcpCapabilities = (await Promise.all(
-      (this.config.mcpClients ?? []).map((client) => client.discoverProviderCapabilities()),
-    )).flat();
+    const mcpCapabilities = this.config.authorityAdmissionContext?.mcpCapabilities
+      ?? (await Promise.all(
+        (this.config.mcpClients ?? []).map((client) => client.discoverProviderCapabilities()),
+      )).flat();
     const externalTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
       name: capability.name,
       description: capability.description,
       inputSchema: capability.schema,
       tags: new Set(capability.tags),
+      ...(capability.effectEnvelope ? { effectEnvelope: capability.effectEnvelope } : {}),
     }));
     const externalCapabilityMap = new Map(mcpCapabilities.map((capability) => [capability.name, capability]));
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
-    let perCallConfig = this.buildPerCallConfig(
+    let perCallConfig = this.config.authorityAdmissionContext?.perCallConfig ?? this.buildPerCallConfig(
       options.deliberationResolution ?? this.config.deliberationResolution,
       options.communicationIntent ?? this.config.communicationIntent,
       requestedAuthority,
@@ -809,7 +863,7 @@ export class ProviderSession implements IKilnSession {
     const authorizer = new PermissionPolicyAuthorizer(this.config.permissionPolicy);
 
     const runtimeSessionId = options.kilnSessionId ?? this.config.runtimeSessionId ?? this.sessionId;
-    const cliSession = new RuntimeSession({
+    const cliSession = this.config.authorityAdmissionContext?.runtimeSession ?? new RuntimeSession({
       appName: "kiln-cli",
       tenantId: "cli-session",
       userId: this.sessionId,
@@ -818,7 +872,9 @@ export class ProviderSession implements IKilnSession {
       idleTimeoutMs: 30 * 60 * 1000,
     });
 
-    const replayEvents = this.config.operatorAdoption?.replayCanonicalSessionEvents
+    const replayEvents = this.config.authorityAdmissionContext
+      ? []
+      : this.config.operatorAdoption?.replayCanonicalSessionEvents
       ? await this.config.operatorAdoption.replayCanonicalSessionEvents(runtimeSessionId)
       : [];
     const canonicalReplayEvents = replayEvents
@@ -833,7 +889,7 @@ export class ProviderSession implements IKilnSession {
       additionalTools: perCallConfig.additionalTools,
       builtinToolNames: this.builtinTools.keys(),
     });
-    if (governedGoalTools || this.config.operatorAdoption) {
+    if (!this.config.authorityAdmissionContext && (governedGoalTools || this.config.operatorAdoption)) {
       if (!this.config.operatorAdoption) {
         throw new Error(
           "Governed operator turns require a durable transcript-backed adoption decision sink.",
@@ -853,6 +909,13 @@ export class ProviderSession implements IKilnSession {
       };
     }
 
+    if (this.config.authorityAdmissionContext) {
+      perCallConfig = applyEffectiveAuthorityAdmissionBundleToPerCallConfig(
+        this.config.authorityAdmissionContext.bundle,
+        perCallConfig,
+      );
+    }
+
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: adapter,
       model: this.resolvedModel,
@@ -864,7 +927,12 @@ export class ProviderSession implements IKilnSession {
       capabilityMap: new Map([...this.capabilityMap, ...externalCapabilityMap]),
       ...(this.config.mcpClients && this.config.mcpClients.length > 0 ? { mcpClients: this.config.mcpClients } : {}),
       dangerousCommandDetector: undefined,
-      ...(this.config.sessionTurnBudget ? { sessionTurnBudget: this.config.sessionTurnBudget } : {}),
+      // Canonical direct dispatch admits the session budget in Runtime before
+      // credential resolution; forwarding the authority's source here would
+      // perform a second, post-fence budget admission.
+      ...(!this.config.authorityAdmissionContext && this.config.sessionTurnBudget
+        ? { sessionTurnBudget: this.config.sessionTurnBudget }
+        : {}),
       ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
     });
 

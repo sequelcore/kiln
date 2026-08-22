@@ -153,6 +153,7 @@ const operatorCompositionMocks = vi.hoisted(() => ({
       return accountIds.map((accountId) => ({ accountId, available: true, reasonCodes: [] }));
     }),
     bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
+    authorityAdmissionBridge: { bind: vi.fn() },
     dispatcher: { dispatchTurn: vi.fn() },
     close: vi.fn(),
   })),

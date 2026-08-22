@@ -76,6 +76,7 @@ const tuiSocketHarness = vi.hoisted(() => {
 const tuiTestRouting = vi.hoisted(() => ({
   create(providerId?: string, providerModelId?: string) {
     let handler: ((input: unknown) => Promise<unknown>) | undefined;
+    let authorityHandler: any;
     const admission = {
       routeId: "test-route",
       providerId: providerId?.trim() || "claude",
@@ -109,24 +110,47 @@ const tuiTestRouting = vi.hoisted(() => ({
         return handler(input);
       },
     };
+    const authorityBridge = {
+      bind(nextHandler: unknown) {
+        if (authorityHandler) throw new Error("Test authority bridge is already bound.");
+        authorityHandler = nextHandler;
+      },
+    };
     const dispatcher = {
       dispatchTurn: vi.fn(async (request: {
+        readonly executionId: string;
+        readonly intentFingerprint: string;
         readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
         readonly payload: unknown;
       }) => {
         const accountId = request.intent.accountOverrideId ?? "test-account";
         const selectedAdmission = { ...admission, routeId: request.intent.routeId };
+        const budget = await authorityHandler.preflight({ request });
+        const binding = {
+          status: "bound" as const, routeId: request.intent.routeId, accountId,
+          credentialId: "test-credential", credentialRevision: "sha256:test-revision",
+        };
+        const snapshot = {
+          catalog: { routes: [{ id: selectedAdmission.routeId, providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId }] },
+          configurationRevision: { revisionSetId: "R1", revisions: { execution: "R1" } },
+        };
+        const dataPolicy = { decision: { status: "admitted" as const, freshness: "current" as const, reason: "test policy" } };
+        const facets = await authorityHandler.prepare({ request, admission: selectedAdmission, snapshot, binding, dataPolicy });
+        const { defineEffectiveAuthorityAdmissionBundle } = await import("../../src/session/effective-authority-admission-bundle.js");
+        const authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
+          sessionId: facets.sessionId, turnId: facets.turnId, admittedAt: "2026-08-22T18:00:00.000Z",
+          configuration: { sessionRevision: facets.sessionRevision, turnRevision: snapshot.configurationRevision },
+          session: facets.session,
+          turn: { ...facets.turn, budget, execution: { status: "routed", route: selectedAdmission, dataPolicy, binding } },
+        });
+        await authorityHandler.persist(authorityAdmission);
         const result = await bridge.dispatchCommittedTurn({
+          executionId: request.executionId,
           admission: selectedAdmission,
           accountId,
-          binding: {
-            status: "bound",
-            routeId: request.intent.routeId,
-            accountId,
-            credentialId: "test-credential",
-            credentialRevision: "sha256:test-revision",
-          },
+          binding,
           credential: { kind: "test" },
+          authorityAdmission,
           payload: request.payload,
         });
         return {
@@ -150,6 +174,8 @@ const tuiTestRouting = vi.hoisted(() => ({
     return {
       operatorTurnDispatcher: dispatcher,
       operatorTurnExecutionBridge: bridge,
+      operatorAuthorityAdmissionBridge: authorityBridge,
+      authorityAdmissionEvidenceStore: { persist: async () => undefined, loadSessionFacet: async () => undefined },
       executionRouteSelection,
     };
   },
@@ -210,12 +236,15 @@ function makeSessionManager() {
 
 function makeTuiTestRouting(
   sessionManager: Pick<TuiGatewayOptions["sessionManager"], "getProvider" | "getModel">,
-): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge"> {
+): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "persistCanonicalSessionEvent"> {
   const routing = tuiTestRouting.create(sessionManager.getProvider(), sessionManager.getModel());
   return {
     executionRouteSelection: routing.executionRouteSelection as never,
     operatorTurnDispatcher: routing.operatorTurnDispatcher as never,
     operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as never,
+    operatorAuthorityAdmissionBridge: routing.operatorAuthorityAdmissionBridge as never,
+    authorityAdmissionEvidenceStore: routing.authorityAdmissionEvidenceStore as never,
+    persistCanonicalSessionEvent: async () => undefined,
   };
 }
 

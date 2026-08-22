@@ -11,6 +11,8 @@ import { createMessengerWebhookRoutes } from "../../src/gateway/messenger-webhoo
 import type { MessengerWebhookConfig } from "../../src/gateway/messenger-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
+import type { GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -74,6 +76,25 @@ function makeMockProvider(): ProviderAdapter {
   };
 }
 
+function withAdmissionFenceObservation(
+  config: MessengerWebhookConfig,
+  state: { active: boolean; outboundWhileActive: boolean },
+): void {
+  const base = config.gatewayAdmission;
+  config.gatewayAdmission = {
+    async execute<Result>(request, dispatch) {
+      return base.execute(request, async (commit) => {
+        state.active = true;
+        try {
+          return await dispatch(commit);
+        } finally {
+          state.active = false;
+        }
+      });
+    },
+  } satisfies GatewayAuthorityAdmissionPort;
+}
+
 function makeMessengerPayload(
   senderId: string,
   recipientPageId: string,
@@ -122,13 +143,17 @@ function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
 
 function makeConfig(overrides: Partial<MessengerWebhookConfig> = {}): MessengerWebhookConfig {
   const provider = makeMockProvider();
+  const orchestrator = new RuntimeSessionOrchestrator({ provider, model: provider.name });
+  orchestrator.bindProvider = vi.fn().mockReturnValue(orchestrator);
   const tmpDir = mkdtempSync(join(tmpdir(), "msg-webhook-test-"));
   const tenantRegistry = new TenantRegistry(tmpDir);
+  const sessionRegistry = new SessionRegistry();
   return {
     appName: "test-app",
-    orchestrator: new RuntimeSessionOrchestrator({ provider }),
-    sessionRegistry: new SessionRegistry(),
+    orchestrator,
+    sessionRegistry,
     tenantRegistry,
+    gatewayAdmission: makeGatewayTestAdmission(sessionRegistry, provider),
     verifyToken: "msg-verify-token",
     ...overrides,
   };
@@ -215,6 +240,44 @@ describe("createMessengerWebhookRoutes", () => {
       expect(fetchBody.messaging_type).toBe("RESPONSE");
       expect(fetchBody.recipient.id).toBe("psid-sender");
       expect(fetchBody.message.text).toBe("mock messenger response");
+    });
+
+    it("keeps outbound delivery inside the admission fence and sends nothing on rejection", async () => {
+      const state = { active: false, outboundWhileActive: false };
+      const config = makeConfig();
+      withAdmissionFenceObservation(config, state);
+      config.tenantRegistry.create(makeTenantConfig());
+      globalThis.fetch = vi.fn(async () => {
+        state.outboundWhileActive ||= state.active;
+        return new Response(JSON.stringify({ recipient_id: "psid-sender", message_id: "mid-reply" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+      await createMessengerWebhookRoutes(config).request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeMessengerPayload("psid-sender", "fb-page-789", "Fence me")),
+      });
+      await vi.waitFor(() => expect(state.outboundWhileActive).toBe(true));
+
+      const rejectedConfig = makeConfig({
+        gatewayAdmission: {
+          async execute<Result>() {
+            throw new Error("admission rejected");
+          },
+        } satisfies GatewayAuthorityAdmissionPort,
+      });
+      rejectedConfig.tenantRegistry.create(makeTenantConfig());
+      const rejectedFetch = vi.fn(async () => new Response("unexpected", { status: 500 }));
+      globalThis.fetch = rejectedFetch as typeof fetch;
+      await createMessengerWebhookRoutes(rejectedConfig).request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeMessengerPayload("psid-sender", "fb-page-789", "Reject me")),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(rejectedFetch).not.toHaveBeenCalled();
     });
 
     it("synthesizes configured Messenger voice output and sends public audio media", async () => {
@@ -392,7 +455,7 @@ describe("createMessengerWebhookRoutes", () => {
       expect(sent![0].channel).toBe("messenger");
     });
 
-    it("forwards tenant tool authority into per-call config", async () => {
+    it("uses the model-only admitted tool authority instead of tenant hints", async () => {
       const config = makeConfig();
       config.tenantRegistry.create(makeTenantConfig());
       const processSpy = vi.spyOn(config.orchestrator, "processMessage");
@@ -413,7 +476,7 @@ describe("createMessengerWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+      expect(perCallConfig?.toolAuthority).toEqual(new Map());
     });
 
     it("captures Messenger attachments as replay artifacts before provider invocation", async () => {

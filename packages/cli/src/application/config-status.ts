@@ -17,6 +17,7 @@ import type {
   KilnMcpStatusSnapshot,
   KilnProjectionTargetSnapshot,
   KilnRepoShimProjectionSnapshot,
+  KilnConfigActivationStatusEntry,
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
 import { readKilnYaml, readKilnYamlSnapshot } from "../kiln-yaml.js";
@@ -86,6 +87,15 @@ import {
   projectEffectiveConfig,
 } from "./effective-config-projection.js";
 import { readSettingsSnapshot } from "./config-settings.js";
+import { ConfigMutationStore } from "./config-mutation-store.js";
+import {
+  createRuntimeConfigurationRevisionSetId,
+  readRuntimeConfigurationRevision,
+} from "./runtime-configuration-revision.js";
+import {
+  projectActivationStatus,
+  readPersistedActivationAdmissionBoundaries,
+} from "./activation-status-projector.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -199,6 +209,13 @@ export async function readConfigStatusSnapshot(
     skillCatalog,
     mcp,
   });
+  const activationStatus = await readActivationStatus(
+    rootPath,
+    globalState.source.path,
+    globalState,
+    projectState,
+    errors,
+  );
 
   const snapshot: KilnConfigStatusSnapshot = {
     evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
@@ -214,6 +231,7 @@ export async function readConfigStatusSnapshot(
     global: globalState.source,
     effectiveConfigStatus: effectiveConfig ? "valid" : errors.length > 0 ? "invalid" : "missing",
     ...(effectiveConfigProjection ? { effectiveConfig: effectiveConfigProjection } : {}),
+    activationStatus,
     errors,
     mcp,
     projections: projectionState.projections,
@@ -225,6 +243,69 @@ export async function readConfigStatusSnapshot(
   configSourceDetails.set(snapshot, { global: globalState, project: projectState });
   if (skillCatalog) skillCatalogDetails.set(snapshot, skillCatalog);
   return snapshot;
+}
+
+async function readActivationStatus(
+  projectPath: string,
+  globalConfigPath: string,
+  globalState: ConfigLoadState,
+  projectState: ConfigLoadState,
+  errors: string[],
+): Promise<NonNullable<KilnConfigStatusSnapshot["activationStatus"]>> {
+  try {
+    const desiredRevision = readRuntimeConfigurationRevision(projectPath, { globalConfigPath });
+    const store = new ConfigMutationStore(projectPath, { globalConfigPath });
+    const admittedBundles = await readPersistedActivationAdmissionBoundaries(projectPath);
+    const projected = projectActivationStatus({
+      desiredRevision,
+      settlements: store.readSettlements(),
+      progress: store.readProgressMarkers(),
+      proposals: store.readProposals(),
+      admittedBundles,
+    });
+    const entries: KilnConfigActivationStatusEntry[] = projected.entries.map((entry): KilnConfigActivationStatusEntry => ({
+      proposalId: entry.proposalId,
+      scope: entry.scope,
+      path: entry.path,
+      committedRevision: entry.committedRevision,
+      boundary: entry.boundary,
+      state: entry.state,
+      activeRevision: entry.activeRevision,
+      evidence: entry.evidence,
+      reconciliationGenerations: entry.reconciliationGenerations.map((generation) => ({
+        target: generation.target,
+        generation: generation.generation as `sha256:${string}`,
+      })),
+      ...(entry.settledAt === undefined ? {} : { settledAt: entry.settledAt }),
+      summary: entry.summary,
+    }));
+    return {
+      ...projected,
+      entries,
+    };
+  } catch (error) {
+    errors.push(`activation status: ${errorMessage(error)}`);
+    return {
+      desiredRevisionSetId: degradedActivationRevisionSetId(globalState, projectState),
+      state: "unsupported",
+      boundary: null,
+      activeRevision: null,
+      entries: [],
+      summary: "Activation status could not be derived from canonical evidence.",
+    };
+  }
+}
+
+function degradedActivationRevisionSetId(
+  globalState: ConfigLoadState,
+  projectState: ConfigLoadState,
+): `sha256:${string}` {
+  const globalConfig = globalState.config as KilnGlobalConfig | null;
+  return createRuntimeConfigurationRevisionSetId({
+    global: globalState.revision,
+    project: projectState.revision,
+    "execution-target-evidence": globalConfig?.targetCatalog?.evidenceRevision ?? "absent",
+  });
 }
 
 /** Internal runtime detail retained request-locally; never serialized to operator surfaces. */

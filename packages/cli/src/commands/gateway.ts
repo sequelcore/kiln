@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
+import { createAppGatewayExecutionComposition, gatewayRequiresAppGatewayExecution } from "../application/app-gateway-execution-composition.js";
 
 export async function gatewayCommand(args: string[]): Promise<void> {
   // Parse --config flag (default: gateway.yaml in cwd)
@@ -48,11 +49,19 @@ export async function gatewayCommand(args: string[]): Promise<void> {
   if (mcp.diagnostics.length > 0) {
     throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
   }
-  await startGateway(resolvedPath, {
-    port: portOverride,
-    canonicalMcpServers: new Map(Object.entries(mcp.servers)),
-    mcpCredentialResolver: createMcpCredentialAccess().resolve,
-  });
+  const appGatewayExecution = gatewayRequiresAppGatewayExecution(resolvedPath)
+    ? createAppGatewayExecutionComposition({ projectPath: process.cwd(), configPath: resolvedPath })
+    : undefined;
+  try {
+    await startGateway(resolvedPath, {
+      port: portOverride,
+      canonicalMcpServers: new Map(Object.entries(mcp.servers)),
+      mcpCredentialResolver: createMcpCredentialAccess().resolve,
+      ...(appGatewayExecution ? { appGatewayExecution: appGatewayExecution.bundle } : {}),
+    });
+  } finally {
+    appGatewayExecution?.close();
+  }
 }
 
 function printGatewayHelp(): void {

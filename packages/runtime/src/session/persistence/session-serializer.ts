@@ -30,6 +30,7 @@ export function serializeSession(session: RuntimeSession): string {
       timestamp: event.timestamp.toISOString(),
     })),
     runtimeConfigurationRevision: session.runtimeConfigurationRevision,
+    runtimeSessionAuthorityFacet: session.runtimeSessionAuthorityFacet,
   };
   return JSON.stringify(data);
 }

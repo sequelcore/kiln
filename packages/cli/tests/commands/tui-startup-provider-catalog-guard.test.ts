@@ -42,6 +42,7 @@ const operatorCompositionMocks = vi.hoisted(() => ({
       },
     },
     bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
+    authorityAdmissionBridge: { bind: vi.fn() },
     dispatcher: { dispatchTurn: vi.fn() },
     close: vi.fn(),
   })),

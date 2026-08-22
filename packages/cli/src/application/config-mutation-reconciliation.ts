@@ -23,8 +23,8 @@ import { runConfigReconciliationTarget } from "./config-reconciliation-target.js
 export async function reconcileConfigMutation(
   projectPath: string,
   targets: readonly KilnConfigReconciliationTarget[],
-): Promise<readonly KilnConfigReconciliationEffect[]> {
-  const effects: KilnConfigReconciliationEffect[] = [];
+): Promise<readonly ConfigMutationReconciliationOutcome[]> {
+  const effects: ConfigMutationReconciliationOutcome[] = [];
   for (const target of unique(targets)) {
     effects.push(await reconcileTarget(projectPath, target));
   }
@@ -34,7 +34,7 @@ export async function reconcileConfigMutation(
 async function reconcileTarget(
   projectPath: string,
   target: KilnConfigReconciliationTarget,
-): Promise<KilnConfigReconciliationEffect> {
+): Promise<ConfigMutationReconciliationOutcome> {
   try {
     const result = await runConfigReconciliationTarget(projectPath, target, () =>
       reconcileTargetOnce(projectPath, target));
@@ -46,7 +46,7 @@ async function reconcileTarget(
         errors: [],
       };
     }
-    return result.value;
+    return { ...result.value, generation: requireGeneration(result.generation) };
   } catch (error) {
     return {
       target,
@@ -55,6 +55,18 @@ async function reconcileTarget(
       errors: [error instanceof Error ? error.message : String(error)],
     };
   }
+}
+
+export interface ConfigMutationReconciliationOutcome extends KilnConfigReconciliationEffect {
+  /** Exact generation proven while the reconciliation target fence was held. */
+  readonly generation?: `sha256:${string}`;
+}
+
+function requireGeneration(value: string): `sha256:${string}` {
+  if (!/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    throw new Error("Reconciliation target returned a malformed generation digest.");
+  }
+  return value as `sha256:${string}`;
 }
 
 async function reconcileTargetOnce(

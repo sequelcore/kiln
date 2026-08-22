@@ -8,9 +8,13 @@ import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orch
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
+import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processAdmittedTurn } from "./message-pipeline/index.js";
 import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import {
+  type GatewayAuthorityAdmissionPort,
+} from "./gateway-authority-admission.js";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -26,6 +30,9 @@ export interface TenantAppRuntime {
   readonly groundingDeps?: import("./message-pipeline/index.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly coordinationContextProvider?: import("./message-pipeline/index.js").AdmittedTurnContext["coordinationContextProvider"];
+  /** Required Runtime owner for durable, complete authority admission. */
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
+  /** Transitional non-authority application hint; ignored by this route. */
   readonly toolAllowlist?: ReadonlySet<string>;
 }
 
@@ -95,34 +102,62 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       ? (tenant.billing as unknown as BillingConfig)
       : runtime.billing;
 
-    const processResult = await processAdmittedTurn({
-      orchestrator: runtime.orchestrator,
-      sessionRegistry: runtime.sessionRegistry,
+    const session = await runtime.sessionRegistry.getOrCreate({
       appName: runtime.appName,
       tenantId: body.tenantId,
       userId: body.userId,
-      userParts,
-      artifactStore: runtime.artifactStore,
-      voiceConfig: runtime.voiceConfig,
-      ttsAdapter: runtime.ttsAdapter,
-      billing: billingConfig,
-      channel: "api",
-      tenant,
-      ...(runtime.toolAllowlist || communicationIntent
-        ? {
-            perCallConfig: {
-              ...(runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
-              ...(communicationIntent ? { communicationIntent } : {}),
-            },
-          }
-        : {}),
+      systemPrompt: buildTenantSystemPrompt(tenant),
       idleTimeoutMs: tenant.idleTimeoutMs,
-      groundingMode: tenant.groundingMode,
-      groundingDeps: runtime.groundingDeps,
-      contextArtifactCache: runtime.contextArtifactCache,
-      coordinationContextProvider: runtime.coordinationContextProvider,
-      requestedAuthority: body.requestedAuthority,
     });
+    let processResult;
+    try {
+      processResult = await runtime.gatewayAdmission.execute({
+          ingressId: crypto.randomUUID(),
+          appName: runtime.appName,
+          tenantId: body.tenantId,
+          userId: body.userId,
+          sessionId: session.id,
+          channel: "api",
+          userParts,
+          requestedAuthority: body.requestedAuthority,
+        }, async (admitted) => processAdmittedTurn({
+        orchestrator: runtime.orchestrator.bindProvider(
+          admitted.provider,
+          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+        ),
+        sessionRegistry: runtime.sessionRegistry,
+        appName: runtime.appName,
+        tenantId: body.tenantId,
+        userId: body.userId,
+        admittedSession: admitted.session,
+        userParts,
+        artifactStore: runtime.artifactStore,
+        voiceConfig: runtime.voiceConfig,
+        ttsAdapter: runtime.ttsAdapter,
+        billing: billingConfig,
+        channel: "api",
+        tenant,
+        authorityAdmission: admitted.bundle,
+        // requestedAuthority remains request context only; the committed
+        // bundle is the sole authority source crossing into execution.
+        requestedAuthority: undefined,
+        perCallConfig: {
+          ...admitted.perCallConfig,
+          ...(communicationIntent ? { communicationIntent } : {}),
+        },
+        idleTimeoutMs: tenant.idleTimeoutMs,
+        groundingMode: tenant.groundingMode,
+        groundingDeps: runtime.groundingDeps ? {
+          ...runtime.groundingDeps,
+          providerPool: new Map([[admitted.provider.name, admitted.provider]]),
+        } : undefined,
+        contextArtifactCache: runtime.contextArtifactCache,
+        coordinationContextProvider: runtime.coordinationContextProvider,
+      }));
+    } catch (error) {
+      console.error(`[${runtime.appName}] tenant processMessage error:`, error);
+      return c.json({ error: String(error) }, 503);
+    }
 
     if (!processResult.ok) {
       return c.json({

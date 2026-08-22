@@ -602,6 +602,9 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       canonicalizedRawInput: canonicalizedRawInput.input,
       lifecycleOptions: {
         abortSignal: economicPreparation.abortSignal,
+        ...(attachment.childAuthorityAdmission
+          ? { childAuthorityAdmission: attachment.childAuthorityAdmission }
+          : {}),
         ...(agentProfile.workLimits ? { workLimits: agentProfile.workLimits } : {}),
         ...(options.workspaceRoot && agentProfile.workLimits
           ? {
@@ -1323,7 +1326,16 @@ async function buildManagedInvocationRequestRecord(input: {
         },
       },
       ...(boundedWorkAdmission ? { boundedWorkLifecycle: boundedWorkAdmission.lifecycle } : {}),
-      ...(agentProfile?.workLimits ? { lifecycleOptions: { workLimits: agentProfile.workLimits } } : {}),
+      ...(agentProfile?.workLimits || attachment.childAuthorityAdmission
+        ? {
+            lifecycleOptions: {
+              ...(attachment.childAuthorityAdmission
+                ? { childAuthorityAdmission: attachment.childAuthorityAdmission }
+                : {}),
+              ...(agentProfile?.workLimits ? { workLimits: agentProfile.workLimits } : {}),
+            },
+          }
+        : {}),
       ...(canonicalizedRawInput.canonicalizedForbiddenInputFields.length > 0
         ? { canonicalizedForbiddenInputFields: canonicalizedRawInput.canonicalizedForbiddenInputFields }
         : {}),

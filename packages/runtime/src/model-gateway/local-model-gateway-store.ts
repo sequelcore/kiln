@@ -11,6 +11,14 @@ import {
   type ProviderModelRouteIdentity,
 } from "@kilnai/core";
 import type { ModelGatewayReplayFence, ModelGatewayReplayKey } from "./replay-claim.js";
+import {
+  assertPersistableAuthorityAdmissionBundle,
+} from "../session/authority-admission-evidence.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
+import {
+  defineRuntimeSessionAuthorityFacet,
+  type RuntimeSessionAuthorityFacet,
+} from "../session/runtime-session-authority-facet.js";
 import type {
   GovernedOneRoundAttemptEvidence,
   GovernedOneRoundAttemptEvidenceSink,
@@ -38,6 +46,7 @@ type ReplayRow = {
   ciphertext: Uint8Array | null;
   nonce: Uint8Array | null;
   tag: Uint8Array | null;
+  authority_bundle_json: string | null;
 };
 
 /** Replay, cooldown, and portable evidence storage. Capacity and affinity are owned by the managed-account authority. */
@@ -85,12 +94,16 @@ export class LocalModelGatewayStore
     this.#db = new Database(options.path, { create: true, strict: true });
     try {
       this.#db.exec(
-        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS attempt_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS compatibility_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ingress_capacity_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS route_cooldowns (route_key TEXT PRIMARY KEY, cooldown_until INTEGER NOT NULL, reason TEXT NOT NULL); CREATE TABLE IF NOT EXISTS replay (fingerprint TEXT PRIMARY KEY, status TEXT NOT NULL, fence TEXT NOT NULL, expires_at INTEGER, ciphertext BLOB, nonce BLOB, tag BLOB);",
+        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS attempt_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS compatibility_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ingress_capacity_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS route_cooldowns (route_key TEXT PRIMARY KEY, cooldown_until INTEGER NOT NULL, reason TEXT NOT NULL); CREATE TABLE IF NOT EXISTS authority_session_facets (session_id TEXT PRIMARY KEY, facet_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS replay (fingerprint TEXT PRIMARY KEY, status TEXT NOT NULL, fence TEXT NOT NULL, expires_at INTEGER, ciphertext BLOB, nonce BLOB, tag BLOB, authority_bundle_json TEXT);",
       );
+      const replayColumns = this.#db.query<{ name: string }, []>("PRAGMA table_info(replay)").all();
+      if (!replayColumns.some(({ name }) => name === "authority_bundle_json")) {
+        this.#db.exec("ALTER TABLE replay ADD COLUMN authority_bundle_json TEXT");
+      }
       this.#db.query("DELETE FROM replay WHERE status='claimed'").run();
       this.#db
         .query(
-          "UPDATE replay SET status='committed-unknown',expires_at=? WHERE status='committed'",
+          "UPDATE replay SET status='committed-unknown',expires_at=? WHERE status IN ('committed','completed') AND authority_bundle_json IS NULL",
         )
         .run(this.#now() + this.#ttl);
     } catch (error) {
@@ -134,7 +147,7 @@ export class LocalModelGatewayStore
         .run(now);
       const row = this.#db
         .query<ReplayRow, [string]>(
-          "SELECT status,fence,expires_at,ciphertext,nonce,tag FROM replay WHERE fingerprint=?",
+          "SELECT status,fence,expires_at,ciphertext,nonce,tag,authority_bundle_json FROM replay WHERE fingerprint=?",
         )
         .get(key);
       if (row?.status === "claimed")
@@ -169,6 +182,64 @@ export class LocalModelGatewayStore
     fence: ModelGatewayReplayFence,
   ): void {
     this.#transition(key, fence, "claimed", "committed", null);
+  }
+
+  /** Atomically binds the session facet, persists the full bundle, and commits the replay claim. */
+  commitAdmission(
+    key: ModelGatewayReplayKey,
+    fence: ModelGatewayReplayFence,
+    bundle: EffectiveAuthorityAdmissionBundle,
+  ): void {
+    const admitted = assertPersistableAuthorityAdmissionBundle(bundle);
+    const facet = defineRuntimeSessionAuthorityFacet({
+      sessionId: admitted.sessionId,
+      sessionRevision: admitted.configuration.sessionRevision,
+      ...admitted.session,
+    });
+    const bundleJson = JSON.stringify(admitted);
+    const facetJson = JSON.stringify(facet);
+    this.#transaction(() => {
+      const existing = this.#db
+        .query<{ status: string; fence: string; authority_bundle_json: string | null }, [string]>(
+          "SELECT status,fence,authority_bundle_json FROM replay WHERE fingerprint=?",
+        )
+        .get(key);
+      if (!existing || existing.fence !== fence || existing.status !== "claimed") {
+        throw new Error("Replay claim cannot be committed with authority admission.");
+      }
+      const existingFacet = this.#db
+        .query<{ facet_json: string }, [string]>(
+          "SELECT facet_json FROM authority_session_facets WHERE session_id=?",
+        )
+        .get(admitted.sessionId);
+      if (existingFacet && existingFacet.facet_json !== facetJson) {
+        throw new Error("Runtime session authority facet conflicts with the persisted session facet.");
+      }
+      this.#db
+        .query("INSERT OR IGNORE INTO authority_session_facets(session_id,facet_json) VALUES(?,?)")
+        .run(admitted.sessionId, facetJson);
+      if (
+        this.#db
+          .query(
+            "UPDATE replay SET status='committed',expires_at=NULL,authority_bundle_json=? WHERE fingerprint=? AND fence=? AND status='claimed'",
+          )
+          .run(bundleJson, key, fence).changes !== 1
+      ) throw new Error("Replay claim cannot be committed with authority admission.");
+    });
+  }
+
+  loadSessionFacet(sessionId: string): RuntimeSessionAuthorityFacet | undefined {
+    const row = this.#db
+      .query<{ facet_json: string }, [string]>("SELECT facet_json FROM authority_session_facets WHERE session_id=?")
+      .get(sessionId);
+    if (!row) return undefined;
+    let value: unknown;
+    try { value = JSON.parse(row.facet_json); } catch { throw new Error("Persisted Runtime session authority facet is corrupt."); }
+    if (!isObject(value)) throw new Error("Persisted Runtime session authority facet is corrupt.");
+    const { facetId, ...input } = value as unknown as RuntimeSessionAuthorityFacet;
+    const normalized = defineRuntimeSessionAuthorityFacet(input);
+    if (normalized.facetId !== facetId) throw new Error("Persisted Runtime session authority facet digest is invalid.");
+    return normalized;
   }
   settleUnknown(
     key: ModelGatewayReplayKey,

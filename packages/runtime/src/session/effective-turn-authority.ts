@@ -444,13 +444,20 @@ function minAuthority(
   return maximumLevel(left) <= maximumLevel(right) ? left : right;
 }
 
-function maximumLevel(authority: EffectiveTurnAuthorityPolicyMaximum): number {
-  if (authority === "read_only") return 1;
-  if (authority === "audited") return 2;
+export function effectiveTurnAuthorityRank(
+  authority: EffectiveTurnAuthorityLevel | EffectiveTurnAuthorityPolicyMaximum,
+): number {
+  if (authority === "read_only" || authority === "fail_closed") return 1;
+  if (authority === "idempotent" || authority === "audited") return 2;
   return 4;
 }
 
-function rollupAdmittedAuthority(
+function maximumLevel(authority: EffectiveTurnAuthorityPolicyMaximum): number {
+  return effectiveTurnAuthorityRank(authority);
+}
+
+/** Canonical rollup of admitted Core descriptors used by projection and bundle validation. */
+export function rollupAdmittedAuthority(
   toolAllowlist: ReadonlySet<string>,
   toolAuthority: ReadonlyMap<string, AuthorityDescriptor> | undefined,
 ): EffectiveTurnAuthorityPolicyMaximum {

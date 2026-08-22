@@ -80,6 +80,15 @@ export {
   type ManagedDirectProviderRuntimeAdapterConfig,
 } from "./direct-runtime-adapter.js";
 export {
+  admitManagedChildAuthority,
+  assertManagedChildAuthorityAdmissionBoundary,
+} from "./child-authority-admission.js";
+export type {
+  ManagedChildAuthorityAdmission,
+  ManagedChildAuthorityAdmissionContract,
+  ManagedChildAuthorityAdmissionInput,
+} from "./child-authority-admission.js";
+export {
   ManagedFilesystemRuntimeRecoveryStore,
   validateManagedAgentRuntimeRecoveryCheckpoint,
 } from "./recovery-store.js";
@@ -151,6 +160,7 @@ export {
   resolveAdHocManagedInvocationRouteProfile,
   resolveConfiguredManagedInvocationRouteProfile,
   resolveManagedInvocationRouteProfile,
+  withManagedChildAuthorityAdmission,
 } from "./runtime-tool/index.js";
 export type {
   ManagedCommittedInvocationRequest,
@@ -267,6 +277,7 @@ export type {
   ManagedAgentRuntimeInvocationProgressEvent,
   ManagedAgentRuntimeInvocationProgressObserver,
   ManagedAgentRuntimeInvocationResult,
+  ManagedAgentRuntimeInvocationRecord,
   ManagedAgentRuntimeInvocationSnapshot,
   ManagedAgentRuntimeInvocationStartResult,
   ManagedAgentRuntimeInvocationTerminalNotification,

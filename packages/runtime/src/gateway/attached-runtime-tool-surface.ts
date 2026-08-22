@@ -1713,14 +1713,19 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
         }
       : {}),
   };
+  const builtinToolSurface = input.builtinToolSurface
+    ?? (executionMode === "plan"
+      ? createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" })
+      : DEFAULT_BUILTIN_TOOL_SURFACE);
 
   if (profile?.executionMode !== "kiln-executable") {
     const failClosedConfig: PerCallToolConfig = {
       ...config,
-      toolAllowlist: new Set<string>(),
+      additionalTools: builtinToolSurface.toolDefinitions,
       toolAuthority: new Map(),
+      perCallCapabilities: builtinToolSurface.capabilities,
     };
-    return recordRuntimeAuthoritySnapshot(input.builtinToolSurface, projectEffectiveTurnAuthorityPerCallConfig({
+    return recordRuntimeAuthoritySnapshot(builtinToolSurface, projectEffectiveTurnAuthorityPerCallConfig({
       config: failClosedConfig,
       executionMode,
       sourcePolicy: "provider_profile_gate",
@@ -1732,10 +1737,6 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     })!);
   }
 
-  const builtinToolSurface = input.builtinToolSurface
-    ?? (executionMode === "plan"
-      ? createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" })
-      : DEFAULT_BUILTIN_TOOL_SURFACE);
   if (executionMode === "plan") {
     const planSurface = builtinToolSurface.analysisStateStore
       && builtinToolSurface.planStateStore

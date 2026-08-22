@@ -728,19 +728,46 @@ negative validation proves the old YAML shape is rejected.
 ### Slice 8 - Live Activation And Reconciliation
 
 Status: In progress. The shared activation observation, Runtime turn/session
-revision evidence pinning, and generation-fenced reconciliation path are
-implemented. Effective route, permission, budget, data-policy, and credential
-owners do not yet all consume one revision-indexed authority bundle. Operator
-route, account, and credential admission now capture and consume one stable
-catalog/revision snapshot before the dispatch fence, and GUI/TUI carry that
-exact revision through the turn instead of re-reading live configuration. The
-validated Runtime bundle contract exists but is deliberately not a parallel
-optional authority path while permission, budget, data-policy, managed-job,
-and persistence migration remain open. Cross-surface status convergence also
-remains open. No production
-descriptor currently owns `restart-required`; supervisor drain and restart
-wiring remains deferred until Slice 9 admits a real configuration family and
-owner rather than inventing a synthetic restart setting.
+revision evidence pinning, target-aware generation-fenced reconciliation, and
+convergent status projection are implemented. Hot activation requires read-back
+proof; legacy settlements fail closed; rollback uses the governed mutation and
+reconciliation path. Operator turns now compose and persist one immutable,
+secret-free, content-addressed `EffectiveAuthorityAdmissionBundle` from the
+session skill/ceiling, work governance, exact tool permissions/effect ceiling,
+session-turn budget, sanitized route/data-policy decision, execution binding,
+and economic commitment evidence where one exists. Route, account, credential,
+and budget admission precede provider dispatch, with credential material kept
+ephemeral after the dispatch fence. Canonical run, GUI, TUI, and most App
+Gateway ingress now carry the committed revision and bundle rather than
+re-reading live configuration. App Gateway admission also captures gateway/app
+configuration digests, records the true requested authority, supplies the
+configured session budget, fences native delegation, and owns early-startup
+cleanup.
+
+The current checkpoint is intentionally not Slice 8 completion. Managed-child
+and model-gateway bundle persistence are partially implemented and require
+integration repair and focused verification. Email, WhatsApp, Instagram,
+Messenger, and tenant WebSocket effect lifetimes are being moved wholly inside
+the admitted capacity fence; that change is incomplete. The obsolete
+revision/authority fields in `PerCallToolConfig` and their bundle-to-legacy
+projection seam still need an outright cutover, so no parallel authority path
+may be considered accepted. Production package compilation passes at this
+checkpoint, but root test typechecking still fails in new activation/benchmark
+fixtures; the full Runtime, CLI, surface, and documentation gates plus final
+independent review remain required. No production descriptor
+owns `restart-required`; supervisor drain and restart wiring remains deferred
+until Slice 9 admits a real configuration family and owner.
+
+Checkpoint evidence (2026-08-22): documentation validation and diff whitespace
+validation pass; the focused App Gateway authority/delegation/startup suite
+passes 49 tests and the CLI App Gateway composition suite passes 3 tests. Root
+production compilation passes. Root test typechecking is
+not green: activation-status fixtures need literal revision typing, one App
+Gateway global-config fixture lacks the required config version, and benchmark
+fixtures need current mock and canonical-turn-id types. Broad Runtime, complete
+CLI (including the previously repaired stale mock), surface suites, and final
+Sol-high review were not rerun after the interrupted model/managed-child/webhook
+increments.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

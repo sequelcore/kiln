@@ -7,6 +7,7 @@ import {
   type GovernedOneRoundInvocationPorts,
 } from "../../src/execution-kernel/governed-one-round-invocation.js";
 import { ProviderDispatchTerminalError } from "../../src/execution-kernel/provider-dispatch-terminal-error.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const route = {
   providerId: "fixture",
@@ -80,12 +81,21 @@ function fixture() {
       resolve: async () => {
         resolved += 1;
         return {
-          dispatchOneRound: async () => {
-            dispatched += 1;
-            return result;
+          dispatcher: {
+            dispatchOneRound: async () => {
+              dispatched += 1;
+              return result;
+            },
           },
+          binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) },
         };
       },
+    },
+    budgetAdmission: {
+      admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }),
+    },
+    authorityAdmission: {
+      compose: async () => ({}) as EffectiveAuthorityAdmissionBundle,
     },
   };
   return {
@@ -154,7 +164,47 @@ function capacityInputFor(runtimeInvocationId: string) {
 }
 
 describe("governed one-round capacity", () => {
-  it("runs the lifecycle hook before fencing and resolves credentials only after the dispatch fence", async () => {
+  it("reads the live budget before candidate or capacity admission", async () => {
+    const value = fixture();
+    const order: string[] = [];
+    const ports = {
+      ...value.ports,
+      budgetAdmission: { admit: async () => { order.push("budget"); return { status: "denied" as const, reason: "usage-unknown" as const, action: "stop" as const, message: "unknown" }; } },
+      candidateCatalog: { list: async () => { order.push("candidates"); throw new Error("must not select"); } },
+    };
+    await expect(invokeGovernedOneRound(input(), ports)).rejects.toMatchObject({ code: "budget-denied" });
+    expect(order).toEqual(["budget"]);
+    expect(value.authority.recoverAccountCapacity()).toEqual([]);
+    value.authority.close();
+  });
+
+  it("composes and commits the bundle after the exact post-fence binding and before dispatch", async () => {
+    const value = fixture();
+    const order: string[] = [];
+    const bundle = { admissionId: "sha256:test" } as EffectiveAuthorityAdmissionBundle;
+    const ports = {
+      ...value.ports,
+      dispatcherResolver: { resolve: async () => {
+        order.push("resolve");
+        return {
+          dispatcher: { dispatchOneRound: async () => { order.push("dispatch"); return result; } },
+          binding: { status: "bound" as const, routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) },
+        };
+      } },
+      authorityAdmission: { compose: async ({ binding }: { readonly binding: { readonly accountId: string; readonly credentialRevision: string } }) => {
+        order.push(`compose:${binding.accountId}:${binding.credentialRevision}`);
+        return bundle;
+      } },
+    };
+    await invokeGovernedOneRound({ ...input(), lifecycle: { afterCommittedBeforeDispatch: ({ bundle: admitted }) => {
+      expect(admitted).toBe(bundle);
+      order.push("commit");
+    } } }, ports);
+    expect(order).toEqual(["resolve", `compose:account:${"a".repeat(64)}`, "commit", "dispatch"]);
+    value.authority.close();
+  });
+
+  it("resolves credentials, composes authority, and runs the lifecycle hook only after the dispatch fence", async () => {
     const value = fixture();
     const order: string[] = [];
     const ports = {
@@ -163,16 +213,19 @@ describe("governed one-round capacity", () => {
         resolve: async () => {
           order.push(value.authority.recoverAccountCapacity()[0]!.state);
           return {
-            dispatchOneRound: async () => {
-              order.push(value.authority.recoverAccountCapacity()[0]!.state);
-              return result;
+            dispatcher: {
+              dispatchOneRound: async () => {
+                order.push(value.authority.recoverAccountCapacity()[0]!.state);
+                return result;
+              },
             },
+            binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) },
           };
         },
       },
     };
     await invokeGovernedOneRound({ ...input(), lifecycle: { afterCommittedBeforeDispatch: () => { order.push(`hook:${value.authority.recoverAccountCapacity()[0]!.state}`); } } }, ports);
-    expect(order).toEqual(["hook:held", "dispatch-fenced", "dispatch-fenced"]);
+    expect(order).toEqual(["dispatch-fenced", "hook:dispatch-fenced", "dispatch-fenced"]);
     expect(value.events).toEqual([
       "planned",
       "leased",
@@ -195,10 +248,8 @@ describe("governed one-round capacity", () => {
           },
         },
       }),
-    ).rejects.toBeInstanceOf(GovernedOneRoundCommittedError);
-    expect(value.authority.recoverAccountCapacity()).toMatchObject([
-      { state: "settlement-pending" },
-    ]);
+    ).rejects.toThrow("credential unavailable");
+    expect(value.authority.recoverAccountCapacity()).toEqual([]);
     expect(value.authority.acquireAccountCapacity(capacityInputFor("next-attempt")))
       .toMatchObject({ status: "acquired", replay: false });
     value.authority.close();
@@ -245,13 +296,13 @@ describe("governed one-round capacity", () => {
     value.authority.close();
   });
 
-  it("releases pre-fence when the committed lifecycle hook fails without dispatching", async () => {
+  it("settles the fenced capacity when authority commit fails without dispatching", async () => {
     const value = fixture();
     const failure = await invokeGovernedOneRound(
       { ...input(), lifecycle: { afterCommittedBeforeDispatch: () => { throw new Error("replay hook failed"); } } },
       value.ports,
     ).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(GovernedOneRoundCommittedError);
+    expect(failure).toMatchObject({ message: "replay hook failed" });
     expect(value.dispatched).toBe(0);
     expect(value.authority.recoverAccountCapacity()).toEqual([]);
     value.authority.close();
@@ -278,9 +329,12 @@ describe("governed one-round capacity", () => {
       ...value.ports,
       dispatcherResolver: {
         resolve: async () => ({
-          dispatchOneRound: async () => {
-            throw new Error("provider failed");
+          dispatcher: {
+            dispatchOneRound: async () => {
+              throw new Error("provider failed");
+            },
           },
+          binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) },
         }),
       },
     }).catch((error: unknown) => error);
@@ -299,14 +353,17 @@ describe("governed one-round capacity", () => {
       ...value.ports,
       dispatcherResolver: {
         resolve: async () => ({
-          dispatchOneRound: async () => {
-            throw new ProviderDispatchTerminalError({
-              outcome: "provider-error",
-              requestId: "attempt:dispatch",
-              status: 503,
-              observedAt: "2026-08-13T20:00:00.000Z",
-            }, new Error("provider payload is not durable evidence"));
+          dispatcher: {
+            dispatchOneRound: async () => {
+              throw new ProviderDispatchTerminalError({
+                outcome: "provider-error",
+                requestId: "attempt:dispatch",
+                status: 503,
+                observedAt: "2026-08-13T20:00:00.000Z",
+              }, new Error("provider payload is not durable evidence"));
+            },
           },
+          binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) },
         }),
       },
     }).catch((error: unknown) => error);

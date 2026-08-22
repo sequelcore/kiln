@@ -25,6 +25,11 @@ import {
   evaluateCodexResponsesNativeClient,
   type CodexResponsesNativeClientCompatibility,
 } from "@kilnai/runtime";
+import {
+  createModelGatewayAuthorityAdmissionPort,
+  type GovernedOneRoundBudgetAdmissionPort,
+  type GovernedOneRoundAuthorityAdmissionPort,
+} from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
 import { CANONICAL_GLOBAL_CONFIG_VERSION, readGlobalConfig, readGlobalExecutionCatalog, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
@@ -45,6 +50,11 @@ import { evaluateCodexDesktopHistoryCompatibility } from "../application/codex-d
 import { expectedModelGatewayHost, resolveModelGatewayHost, type ResolvedModelGatewayHost } from "../application/model-gateway-host.js";
 import { runCodexAppServerThreadContinuity } from "../application/codex-app-server-thread-continuity.js";
 import type { CodexThreadContinuityProof } from "../application/codex-thread-continuity.js";
+import { TranscriptStore } from "../wrapper/session-store.js";
+import {
+  createCliTranscriptSessionTokenUsageReader,
+  createRuntimeSessionTurnBudgetFromGlobalConfig,
+} from "../application/session-turn-budget.js";
 
 interface SupervisorSurface {
   start(): Promise<ModelGatewaySupervisorStatus>;
@@ -354,6 +364,8 @@ async function startConfiguredModelGatewayListener(
     listener.databasePath,
     dependencies.env,
     createModelGatewayExecutionConfigurationRevision(globalConfig, config),
+    globalConfig,
+    dependencies.projectPath,
   );
   let runtime: { close(): Promise<void>; readonly shutdownRequested: Promise<void> };
   try {
@@ -384,7 +396,15 @@ function createModelGatewayExecutionComposition(
   databasePath: string,
   env: Readonly<Record<string, string | undefined>>,
   configurationRevision: string,
-): { readonly bundle: ModelGatewayExecutionBundle; close(): void } {
+  globalConfig: KilnGlobalConfig,
+  projectPath: string,
+): {
+  readonly bundle: ModelGatewayExecutionBundle & {
+    readonly budgetAdmission: GovernedOneRoundBudgetAdmissionPort;
+    readonly authorityAdmission: GovernedOneRoundAuthorityAdmissionPort;
+  };
+  close(): void;
+} {
   if (!executionCatalog) {
     throw new Error("Model gateway execution requires admitted managed evidence for the configured target catalog.");
   }
@@ -392,6 +412,21 @@ function createModelGatewayExecutionComposition(
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
     catalog: executionCatalog,
     env,
+  });
+  const transcriptStore = new TranscriptStore(projectPath);
+  const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(
+    globalConfig,
+    createCliTranscriptSessionTokenUsageReader(transcriptStore),
+  );
+  const budgetAdmission: GovernedOneRoundBudgetAdmissionPort = {
+    admit: async ({ identity }) => sessionTurnBudget?.admit(identity.sessionId) ?? { status: "not-configured" },
+  };
+  const authorityAdmission = createModelGatewayAuthorityAdmissionPort({
+    executionCatalog,
+    configurationRevision: {
+      revisionSetId: configurationRevision,
+      revisions: { modelGateway: `sha256:${configurationRevision}` },
+    },
   });
   const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({
     path: databasePath,
@@ -412,6 +447,8 @@ function createModelGatewayExecutionComposition(
       executionCandidates: accountRuntime.modelGatewayCandidates,
       executionDispatcher: accountRuntime.modelGatewayDispatchers,
       accountCapacityAuthority,
+      budgetAdmission,
+      authorityAdmission,
     },
     close: () => accountCapacityAuthority.close(),
   };

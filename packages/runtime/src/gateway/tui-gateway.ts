@@ -15,9 +15,11 @@ import {
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../session/runtime-session.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeConfigurationRevisionProvider } from "../session/runtime-configuration-revision-pin.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
+import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import {
   textParts,
@@ -86,16 +88,31 @@ import {
 } from "./operator-execution-route-selection.js";
 import {
   fingerprintOperatorTurnIntent,
+  type OperatorSessionAuthorityAdmissionBridge,
   type OperatorSessionExecutionBridge,
   type OperatorTurnDispatchPort,
   type OperatorTurnDispatchResult,
   type OperatorTurnTuiDispatchPayload,
 } from "../execution-routing/operator-turn-dispatcher.js";
 import type { OperatorSessionCommittedExecution } from "../execution-routing/operator-session-execution-routing-service.js";
-import type { OperatorAdoptionDecisionPersistence } from "../session/operator-adoption-authority.js";
+import { OperatorAuthorityAdmissionCoordinator } from "../execution-routing/operator-authority-admission-coordinator.js";
+import {
+  defineOperatorAuthorityAdmissionFacets,
+  defineOperatorSkillCatalogAdmission,
+} from "../execution-routing/operator-authority-admission-facets.js";
+import {
+  hasGovernedGoalTools,
+  prepareOperatorAdoptionTurn,
+  requireOperatorAdoptionDecisionPersistence,
+  type OperatorAdoptionDecisionPersistence,
+} from "../session/operator-adoption-authority.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
 const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
+const TUI_SESSION_AUTHORITY_CEILING = {
+  maximumAuthority: "destructive" as const,
+  reason: "The attended operator controls authority for this TUI session.",
+};
 
 async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
   return import("hono/bun");
@@ -132,6 +149,8 @@ export interface TuiGatewayOptions {
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   /** Composition-owned bridge bound to this gateway's local orchestrator. */
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<OperatorTurnTuiDispatchPayload>;
+  readonly authorityAdmissionEvidenceStore: AuthorityAdmissionEvidenceStore;
   /** Optional context-artifact cache used to hydrate and persist runtime summaries. */
   readonly contextArtifactCache?: ContextArtifactCache;
   /** Artifact store used to persist replayable multimodal turn inputs. */
@@ -172,6 +191,29 @@ export interface TuiGateway {
 
 const TUI_APP_NAME = "kiln-tui";
 const TUI_TENANT_ID = "_tui";
+
+interface TuiResourceSurfaceRegistration {
+  readonly surface: AttachedRuntimeBuiltinToolSurface;
+  /** Undefined is the gateway-wide base surface; turn surfaces are session-scoped. */
+  readonly sessionId?: string;
+}
+
+function surfacesForTuiSession(
+  registrations: readonly TuiResourceSurfaceRegistration[],
+  sessionId: string | undefined,
+): readonly AttachedRuntimeBuiltinToolSurface[] {
+  if (!sessionId) return [];
+  return registrations
+    .filter((registration) => registration.sessionId === undefined || registration.sessionId === sessionId)
+    .map((registration) => registration.surface);
+}
+
+function disposeTuiResourceSurfaces(
+  registrations: readonly TuiResourceSurfaceRegistration[],
+): void {
+  const surfaces = [...new Set(registrations.map((registration) => registration.surface))];
+  void Promise.all(surfaces.map((surface) => surface.dispose().catch(() => undefined)));
+}
 
 function tuiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
   if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
@@ -457,7 +499,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       { publish: (events) => activityStreamer.forwardSessionEvents(events) },
     ),
   });
-  const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
+  const resourceSurfaces: TuiResourceSurfaceRegistration[] = [{ surface: builtinToolSurface }];
   activityStreamer.setToolCallMetadata(builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
@@ -473,7 +515,6 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     provider: executor,
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
-    ...(options.sessionTurnBudget ? { sessionTurnBudget: options.sessionTurnBudget } : {}),
   });
   const sessionRegistry = new SessionRegistry();
   const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
@@ -481,49 +522,111 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
+  const authorityCoordinator = new OperatorAuthorityAdmissionCoordinator<
+    OperatorTurnTuiDispatchPayload,
+    {
+      readonly payload: OperatorTurnTuiDispatchPayload;
+      readonly perCallConfig: PerCallToolConfig;
+      readonly turnBuiltinToolSurface: AttachedRuntimeBuiltinToolSurface;
+      readonly executionMode: OperatorExecutionMode;
+      readonly activeModelCapabilities: GuiProviderModelCapabilities | undefined;
+      readonly runtimeSession: RuntimeSession;
+    }
+  >({
+    resolveSession: async (request) => {
+      const payload = request.payload;
+      const existing = await sessionRegistry.get(TUI_APP_NAME, payload.userId, TUI_TENANT_ID);
+      const session = await sessionRegistry.getOrCreate({
+        appName: TUI_APP_NAME, tenantId: TUI_TENANT_ID, userId: payload.userId, systemPrompt: payload.systemPrompt,
+      });
+      return { session, allowAuthorityFacetCreation: existing === undefined };
+    },
+    sessionTurnBudget: options.sessionTurnBudget,
+    prepare: async ({ request, session, admission, snapshot, binding }) => {
+      const payload = request.payload;
+      const route = snapshot.catalog.routes.find((candidate) => candidate.id === admission.routeId);
+      if (!route) throw new Error("The admitted operator route is absent from its captured catalog.");
+      const activeModelCapabilities = findProviderModelCapabilities(
+        payload.providerDiscovery, route.providerId, route.providerModelId,
+      );
+      const executionMode = resolveExecutionMode(payload.message.executionMode);
+      const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+        builtinToolOptions,
+        boundedWork: options.boundedWork,
+        executionMode,
+        managedInvocation: attachManagedInvocationSessionEventSink(
+          managedInvocation,
+          { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+        ),
+        operatorSurface: activeOperatorSurface,
+      });
+      try {
+        const perCallConfig = {
+          ...buildTuiTurnPerCallConfig(
+            route.providerId, route.providerModelId, turnBuiltinToolSurface, activeModelCapabilities,
+            toCoreDeliberationIntent(payload.message.deliberationIntent), executionMode,
+            resolveTuiRequestedAuthority(payload.message.requestedAuthority),
+            payload.operatorTimeZone ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone }) : undefined,
+            resolveOperatorCommunicationIntent(options.communicationIntentCandidates, payload.message.communicationIntent),
+          ),
+          executionBinding: binding,
+          runtimeConfigurationRevision: snapshot.configurationRevision,
+        } satisfies PerCallToolConfig;
+        const adoption = await prepareOperatorAdoptionTurn({
+          session,
+          actorId: payload.userId,
+          correlationId: request.executionId,
+          persist: requireOperatorAdoptionDecisionPersistence(options.persistCanonicalSessionEvent),
+        });
+        const admittedPerCallConfig = {
+          ...perCallConfig,
+          turnId: adoption.turnId,
+          turnCorrelationId: adoption.correlationId,
+          operatorAdoptionDecision: adoption.operatorAdoptionDecision,
+        } satisfies PerCallToolConfig;
+        const workGovernance = hasGovernedGoalTools({
+          toolAllowlist: admittedPerCallConfig.toolAllowlist,
+          additionalTools: admittedPerCallConfig.additionalTools,
+        }) ? {
+          status: "required" as const,
+          kind: "goal" as const,
+          subjectId: adoption.operatorAdoptionDecision.decisionId,
+          authorityRevision: adoption.operatorAdoptionDecision.decisionId,
+        } : { status: "not-required" as const };
+        const preparedAdmission = {
+          facets: defineOperatorAuthorityAdmissionFacets({
+            executionId: request.executionId, turnId: adoption.turnId, session, snapshot, perCallConfig: admittedPerCallConfig,
+            candidateToolNames: turnBuiltinToolSurface.toolDefinitions.map((tool) => tool.name),
+            workGovernance,
+            operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+            skillCatalog: defineOperatorSkillCatalogAdmission([]),
+            authorityCeiling: TUI_SESSION_AUTHORITY_CEILING,
+          }),
+          prepared: { payload, perCallConfig: admittedPerCallConfig, turnBuiltinToolSurface, executionMode, activeModelCapabilities, runtimeSession: session },
+        };
+        return preparedAdmission;
+      } catch (error) {
+        await turnBuiltinToolSurface.dispose();
+        throw error;
+      }
+    },
+    saveSession: (session) => sessionRegistry.save(session),
+    evidenceStore: options.authorityAdmissionEvidenceStore,
+    discardPrepared: ({ turnBuiltinToolSurface }) => turnBuiltinToolSurface.dispose(),
+  });
+  options.operatorAuthorityAdmissionBridge.bind(authorityCoordinator);
   options.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnTuiDispatchPayload>) => {
-    const payload = committed.payload;
+    const prepared = authorityCoordinator.consume(committed.executionId, committed.authorityAdmission);
+    const { payload, runtimeSession, turnBuiltinToolSurface, executionMode, activeModelCapabilities } = prepared;
+    resourceSurfaces.push({
+      surface: turnBuiltinToolSurface,
+      sessionId: committed.authorityAdmission.sessionId,
+    });
     options.sessionManager.setProvider(committed.admission.providerId);
     options.sessionManager.setModel(committed.admission.providerModelId);
-    const activeModelCapabilities = findProviderModelCapabilities(
-      payload.providerDiscovery,
-      committed.admission.providerId,
-      committed.admission.providerModelId,
-    );
-    const deliberationIntent = toCoreDeliberationIntent(payload.message.deliberationIntent);
-    const communicationIntent = resolveOperatorCommunicationIntent(
-      options.communicationIntentCandidates,
-      payload.message.communicationIntent,
-    );
-    const executionMode = resolveExecutionMode(payload.message.executionMode);
-    const requestedAuthority = resolveTuiRequestedAuthority(payload.message.requestedAuthority);
-    const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions,
-      boundedWork: options.boundedWork,
-      executionMode,
-      managedInvocation: attachManagedInvocationSessionEventSink(
-        managedInvocation,
-        { publish: (events) => activityStreamer.forwardSessionEvents(events) },
-      ),
-      operatorSurface: activeOperatorSurface,
-    });
     const perCallConfig = {
-      ...buildTuiTurnPerCallConfig(
-        committed.admission.providerId,
-        committed.admission.providerModelId,
-        turnBuiltinToolSurface,
-        activeModelCapabilities,
-        deliberationIntent,
-        executionMode,
-        requestedAuthority,
-        payload.operatorTimeZone
-          ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone })
-          : undefined,
-        communicationIntent,
-      ),
-      executionBinding: committed.binding,
+      ...prepared.perCallConfig,
       executionCredential: committed.credential,
-      runtimeConfigurationRevision: committed.configurationRevision,
     } satisfies PerCallToolConfig;
     return processAdmittedTurn({
       orchestrator,
@@ -531,6 +634,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       appName: TUI_APP_NAME,
       tenantId: TUI_TENANT_ID,
       userId: payload.userId,
+      sessionId: committed.authorityAdmission.sessionId,
+      admittedSession: runtimeSession,
       systemPrompt: payload.systemPrompt,
       userParts: payload.userParts,
       channel: "tui",
@@ -551,6 +656,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       ttsAdapter: options.ttsAdapter,
       callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
       perCallConfig,
+      authorityAdmission: committed.authorityAdmission,
       runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
       turnCapture: {
         start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
@@ -770,7 +876,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               const toMode = resolveExecutionMode(frame.toMode);
               if (toMode === "execute") {
                 const transition = await approvePlanExecutionTransition({
-                  surfaces: resourceSurfaces,
+                  surfaces: surfacesForTuiSession(
+                    resourceSurfaces,
+                    (await sessionRegistry.get(TUI_APP_NAME, userId, TUI_TENANT_ID))?.id,
+                  ),
                   planId: typeof frame.planId === "string" ? frame.planId : undefined,
                   sessionRegistry,
                   appName: TUI_APP_NAME,
@@ -1022,7 +1131,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       readDiscovery();
       return projectGuiProviderModelDiscovery(providerDiscovery);
     },
-    shutdown: () => server.stop(),
+    shutdown: () => {
+      server.stop();
+      disposeTuiResourceSurfaces(resourceSurfaces);
+    },
   };
 }
 

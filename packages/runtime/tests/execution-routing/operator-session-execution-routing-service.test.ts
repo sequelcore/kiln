@@ -6,11 +6,18 @@ import {
   type ExecutionAccountAdmissionCandidate,
   type ExecutionCatalog,
 } from "@kilnai/core/agents";
-import { OperatorSessionExecutionRoutingService } from "../../src/execution-routing/operator-session-execution-routing-service.js";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core";
+import {
+  OperatorSessionPreDispatchCancellationError,
+  OperatorSessionExecutionRoutingService,
+  type OperatorSessionAuthorityAdmissionPort,
+  type OperatorSessionAuthorityAdmissionFacets,
+} from "../../src/execution-routing/operator-session-execution-routing-service.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import type { ExecutionAccountCapacityAuthority } from "../../src/index.js";
 import type { AccountCapacityAcquireInput, AccountCapacityRecord, ExecutionAccountCandidateBinding } from "../../src/execution-kernel/execution-account-capacity-authority.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "../../src/session/runtime-configuration-revision-pin.js";
+import type { TurnBudgetAdmission } from "../../src/session/effective-authority-admission-bundle.js";
 
 function acceptsExecutionAccountCapacityAuthority(authority: ExecutionAccountCapacityAuthority): void {
   void authority;
@@ -48,7 +55,7 @@ function acquiredRecord(): AccountCapacityRecord {
 
 function service(overrides: Record<string, unknown> = {}) {
   const events: string[] = [];
-  const dispatch = vi.fn(async () => { events.push("dispatch"); return "done"; });
+  const dispatch = vi.fn(async (_input: unknown) => { events.push("dispatch"); return "done"; });
   const authority = {
     acquireAccountCapacity: vi.fn((_input: AccountCapacityAcquireInput) => ({ status: "acquired" as const, record: acquiredRecord(), replay: false })),
     releaseAccountCapacityPreFence: vi.fn(() => acquiredRecord()),
@@ -66,10 +73,56 @@ function service(overrides: Record<string, unknown> = {}) {
     candidates: { resolve: vi.fn(async () => [{ candidate: candidate("personal"), lease: leaseBinding("personal") }, { candidate: candidate("work", { health: "unhealthy" }), lease: leaseBinding("work") }]) },
     accountCapacityAuthority: authority,
     credentials: { resolve: vi.fn(async () => { events.push("credential"); return { credential: { opaque: "credential" }, credentialId: "credential-personal", credentialRevisionId: "a".repeat(64) }; }) },
+    authorityAdmission: {
+      preflight: vi.fn(async () => admittedBudget()),
+      prepare: vi.fn(async () => authorityFacets()),
+      persist: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    },
     dispatch: { dispatchCommittedTurn: async (input) => dispatch(input) },
     ...overrides,
   });
   return { routing, authority, dispatch, events };
+}
+
+function authorityFacets(): OperatorSessionAuthorityAdmissionFacets {
+  return {
+    sessionId: "session-1",
+    turnId: "turn-1",
+    sessionRevision: revisionSnapshot("R1"),
+    session: {
+      skillCatalog: { catalogId: "operator", revision: "skills-r1", skillIds: ["research"] },
+      authorityCeiling: { maximumAuthority: "audited", reason: "operator session policy" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute", requestedAuthority: "audited", admittedAuthority: "audited",
+        sourcePolicy: "runtime_surface_projection", reason: "admitted", completeness: "authoritative",
+        toolCount: 1, deniedToolCount: 0, sandboxProjection: "workspace_write",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: {
+        allowedToolPermissions: [{
+          toolName: "read_file",
+          authority: { level: 1, allowed: true, requiresApproval: false, reason: "read-only" } satisfies AuthorityDescriptor,
+          effectEnvelope: {
+            operation: "observe", boundaries: ["workspace"], reversibility: "reversible", dataEgress: "none",
+            identityUse: "none", consequences: ["local-state"], idempotency: "idempotent",
+          } satisfies ActionEffectEnvelope,
+        }],
+        deniedToolNames: [],
+      },
+      effectCeiling: {
+        operation: "observe", boundaries: ["workspace"], reversibility: "reversible", dataEgress: "metadata",
+        identityUse: "none", consequences: ["local-state"], idempotency: "idempotent",
+      },
+    },
+  };
+}
+
+function admittedBudget(): TurnBudgetAdmission {
+  return { status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "test" } };
 }
 
 function revisionSnapshot(revisionSetId: string): RuntimeConfigurationRevisionSnapshot {
@@ -96,6 +149,106 @@ function catalogForRevision(revisionSetId: string): ExecutionCatalog {
 }
 
 describe("OperatorSessionExecutionRoutingService", () => {
+  it("admits one effective authority bundle after credential identity is bound and carries it separately", async () => {
+    const prepare = vi.fn(async () => authorityFacets());
+    const persist = vi.fn(async () => undefined);
+    const authorityAdmission: OperatorSessionAuthorityAdmissionPort<undefined> = {
+      preflight: vi.fn(async () => admittedBudget()), prepare, persist, abort: vi.fn(async () => undefined),
+    };
+    const dispatch = vi.fn(async (committed) => {
+      expect(committed.authorityAdmission).toBeDefined();
+      expect(committed.credential).toEqual({ opaque: "credential" });
+      return "done";
+    });
+    const { routing, authority } = service({
+      authorityAdmission,
+      dispatch: { dispatchCommittedTurn: dispatch },
+    });
+
+    await expect(routing.execute({
+      executionId: "turn-1",
+      intentFingerprint: `sha256:${"b".repeat(64)}`,
+      intent: { routeId: "terra" },
+      payload: undefined,
+    })).resolves.toMatchObject({ result: "done" });
+
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(authority.fenceAccountCapacityDispatch).toHaveBeenCalledBefore(prepare);
+    expect(prepare).toHaveBeenCalledBefore(persist);
+    expect(persist).toHaveBeenCalledBefore(dispatch);
+  });
+
+  it("aborts a persisted prepared admission when committed dispatch rejects before consumption", async () => {
+    const abort = vi.fn(async () => undefined);
+    const authorityAdmission: OperatorSessionAuthorityAdmissionPort<undefined> = {
+      preflight: vi.fn(async () => admittedBudget()),
+      prepare: vi.fn(async () => authorityFacets()),
+      persist: vi.fn(async () => undefined),
+      abort,
+    };
+    const { routing, authority } = service({
+      authorityAdmission,
+      dispatch: { dispatchCommittedTurn: vi.fn(async () => { throw new OperatorSessionPreDispatchCancellationError("pre-consume isolation failed"); }) },
+    });
+
+    await expect(routing.execute({
+      executionId: "turn-1",
+      intentFingerprint: `sha256:${"b".repeat(64)}`,
+      intent: { routeId: "terra" },
+      payload: undefined,
+    })).rejects.toThrow(/isolation failed/iu);
+
+    expect(abort).toHaveBeenCalledWith("turn-1");
+    expect(authority.settleAccountCapacity).toHaveBeenCalledWith(
+      "turn-1",
+      "turn-1:dispatch",
+      expect.objectContaining({ kind: "completed", outcome: "cancelled" }),
+    );
+  });
+
+  it.each([
+    ["observed-at-or-above-limit", { status: "denied" as const, reason: "observed-at-or-above-limit" as const, action: "stop" as const, message: "budget reached", observation: { observedTokens: 100, source: "test" } }],
+    ["usage-unknown", { status: "denied" as const, reason: "usage-unknown" as const, action: "stop" as const, message: "budget unavailable" }],
+  ])("denies a %s budget before capacity, credential, authority, or dispatch", async (_reason, budget) => {
+    const preflight = vi.fn(async () => { throw new Error(budget.message); });
+    const prepare = vi.fn(async () => authorityFacets());
+    const authorityAdmission: OperatorSessionAuthorityAdmissionPort<undefined> = {
+      preflight,
+      prepare,
+      persist: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    const { routing, authority, dispatch, events } = service({ authorityAdmission });
+
+    await expect(routing.execute({
+      executionId: "turn-1",
+      intentFingerprint: `sha256:${"b".repeat(64)}`,
+      intent: { routeId: "terra" },
+      payload: undefined,
+    })).rejects.toThrow(/budget|bound/i);
+
+    expect(authority.acquireAccountCapacity).not.toHaveBeenCalled();
+    expect(preflight).toHaveBeenCalledOnce();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("settles unknown before releasing the mutex when post-fence authority preparation fails", async () => {
+    const prepare = vi.fn(async () => { throw new Error("prepare failed"); });
+    const authorityAdmission: OperatorSessionAuthorityAdmissionPort<undefined> = {
+      preflight: vi.fn(async () => admittedBudget()),
+      prepare,
+      persist: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    const { routing, authority, dispatch } = service({ authorityAdmission });
+
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/prepare failed/);
+    expect(authority.settleAccountCapacity).toHaveBeenCalledWith("turn-1", "turn-1:dispatch", expect.objectContaining({ kind: "completed", outcome: "cancelled" }));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("exposes a provider-neutral capacity authority structurally satisfied by the SQLite authority", () => {
     const authority = new SqliteManagedAccountLeaseAuthority({
       path: ":memory:",
@@ -111,7 +264,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
   });
 
   it("admits automatic selection in Core, leases before resolving a credential, then fences before dispatch", async () => {
-    const { routing, authority, events, dispatch } = service();
+    const { routing, authority, events } = service();
 
     await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).resolves.toMatchObject({
       result: "done",
@@ -266,7 +419,8 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/does not match/i);
 
     expect(authority.fenceAccountCapacityDispatch).toHaveBeenCalledWith("turn-1", "turn-1:dispatch");
-    expect(authority.settleAccountCapacity).toHaveBeenCalledWith("turn-1", "turn-1:dispatch", expect.objectContaining({ kind: "unknown", reason: "credential-identity-drift" }));
+    expect(authority.settleAccountCapacity).toHaveBeenCalledWith("turn-1", "turn-1:dispatch", expect.objectContaining({ kind: "completed", outcome: "cancelled" }));
+    expect(authority.settleAccountCapacity).toHaveBeenCalledOnce();
     expect(dispatch).not.toHaveBeenCalled();
   });
 
@@ -338,8 +492,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     let releaseFirstCredential!: () => void;
     const firstCredentialBlocked = new Promise<void>((resolve) => { releaseFirstCredential = resolve; });
     const credentials = {
-      resolve: vi.fn(async ({ accountId, credentialId, lease, configurationRevision }: {
-        readonly accountId: string;
+      resolve: vi.fn(async ({ credentialId, lease, configurationRevision }: {
         readonly credentialId: string;
         readonly lease: AccountCapacityRecord;
         readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
@@ -369,6 +522,12 @@ describe("OperatorSessionExecutionRoutingService", () => {
       },
       accountCapacityAuthority: authority,
       credentials,
+      authorityAdmission: {
+        preflight: vi.fn(async () => admittedBudget()),
+        prepare: vi.fn(async () => authorityFacets()),
+        persist: vi.fn(async () => undefined),
+        abort: vi.fn(async () => undefined),
+      },
       dispatch: { dispatchCommittedTurn: vi.fn(async (committed) => ({ revision: committed.configurationRevision.revisionSetId, model: committed.admission.providerModelId })) },
     });
 

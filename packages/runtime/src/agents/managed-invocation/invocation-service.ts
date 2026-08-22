@@ -42,6 +42,11 @@ import type { ManagedAgentArtifactDirectoryLeaseManager } from "./artifact-direc
 import type { ManagedAgentDevServerPortLeaseManager } from "./dev-server-port-lease-manager.js";
 import type { ManagedAgentEnvironmentLeaseManager } from "./environment-lease-manager.js";
 import type { ManagedAgentCredentialRouteLeaseManager } from "./credential-route-lease-manager.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
+import {
+  assertManagedChildAuthorityAdmissionBoundary,
+  type ManagedChildAuthorityAdmissionContract,
+} from "./child-authority-admission.js";
 import {
   ManagedAgentRuntimeAuthorityObservationError,
   assertManagedEconomicCommitmentMatchesRequest,
@@ -97,6 +102,20 @@ import {
 
 export { MANAGED_AGENT_OWNER_TIMEOUT_SETTLEMENT_GRACE_MS };
 
+/** Runtime-owned evidence attached after Core validates the canonical record. */
+export type ManagedAgentRuntimeInvocationRecord = ManagedAgentInvocationRecord & {
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+};
+
+function attachRuntimeAuthorityAdmission(
+  record: ManagedAgentInvocationRecord,
+  authorityAdmission: EffectiveAuthorityAdmissionBundle | undefined,
+): ManagedAgentRuntimeInvocationRecord {
+  return authorityAdmission === undefined
+    ? record
+    : { ...record, authorityAdmission };
+}
+
 function attachStructuredVerificationUsage(record: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
   const structuredResult = record.resultHandoff?.structuredResult;
   if (!record.resultHandoff || !structuredResult || record.resultHandoff.verificationUsage) return record;
@@ -146,6 +165,8 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
   readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
   readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
+  /** Narrow parent-turn authority contract committed before child dispatch. */
+  readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   readonly environment?: ManagedAgentEnvironmentVariables;
   readonly registerAdapterCompletion: (completion: PromiseLike<unknown>) => void;
   readonly registerEconomicSettlement?: (
@@ -166,7 +187,7 @@ export interface ManagedAgentRuntimeCancellationInput {
 export interface ManagedAgentRuntimeInvocationTerminalNotification {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
-  readonly record: ManagedAgentInvocationRecord;
+  readonly record: ManagedAgentRuntimeInvocationRecord;
   readonly durationMs?: number;
 }
 
@@ -196,6 +217,8 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly workLimits?: ManagedAgentRuntimeInvocationInput["workLimits"];
   readonly terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
   readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
+  /** Narrow parent-turn authority contract committed before child dispatch. */
+  readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   /** Runtime-only identity for the attached surface that owns child cleanup. */
   readonly owner?: object;
   readonly economicDispatch?: {
@@ -256,7 +279,7 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly durationMs?: number;
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
-  readonly record?: ManagedAgentInvocationRecord;
+  readonly record?: ManagedAgentRuntimeInvocationRecord;
   readonly progressEvents?: readonly ManagedAgentRuntimeInvocationProgressEvent[];
   readonly promptInbox?: readonly ManagedAgentRuntimePromptAdmissionRecord[];
   readonly error?: {
@@ -338,7 +361,7 @@ export type ManagedAgentRuntimeInvocationResult =
   | {
     readonly status: "completed";
     readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
-    readonly record: ManagedAgentInvocationRecord;
+    readonly record: ManagedAgentRuntimeInvocationRecord;
   }
   | {
     readonly status: "denied";
@@ -359,7 +382,7 @@ export type ManagedAgentRuntimeInvocationStartResult =
 export type ManagedAgentRuntimeInvocationCancelResult = {
   readonly status: "cancelled";
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
-  readonly record: ManagedAgentInvocationRecord;
+  readonly record: ManagedAgentRuntimeInvocationRecord;
 };
 
 export interface ManagedAgentStaleRecoveryInput {
@@ -416,6 +439,7 @@ export interface ManagedAgentRuntimeInvocationEntry {
   adapterCompletion?: Promise<void>;
   adapterSettlement?: Promise<void>;
   readonly owner?: object;
+  readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
 }
 
 export class RuntimeManagedAgentInvocationService {
@@ -448,6 +472,7 @@ export class RuntimeManagedAgentInvocationService {
     const recordEconomicPending = async (reason: string): Promise<void> => {
       await lifecycleOptions.economicDispatch?.recordExecutionSettlementPending(reason);
     };
+    let committedAuthorityAdmission: EffectiveAuthorityAdmissionBundle | undefined;
     try {
       if (this.invocations.has(request.invocationId)) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
@@ -470,6 +495,15 @@ export class RuntimeManagedAgentInvocationService {
           capabilitySnapshotInput.routeId,
           lifecycleOptions.consumedWriteApproval,
         );
+      }
+      if (lifecycleOptions.childAuthorityAdmission) {
+        committedAuthorityAdmission = assertManagedChildAuthorityAdmissionBoundary({
+          bundle: lifecycleOptions.childAuthorityAdmission.bundle,
+          request,
+          ...(lifecycleOptions.economicDispatch
+            ? { economicCommitmentId: lifecycleOptions.economicDispatch.commitment.commitmentId }
+            : {}),
+        });
       }
     } catch (error) {
       await recordEconomicPending("runtime-prestart-validation-failed");
@@ -532,6 +566,9 @@ export class RuntimeManagedAgentInvocationService {
         : {}),
       terminal,
       ...(lifecycleOptions.owner !== undefined ? { owner: lifecycleOptions.owner } : {}),
+      ...(committedAuthorityAdmission !== undefined
+        ? { childAuthorityAdmission: { bundle: committedAuthorityAdmission } }
+        : {}),
       ...(lifecycleOptions.terminalObserver !== undefined
         ? { terminalObserver: lifecycleOptions.terminalObserver }
         : {}),
@@ -608,6 +645,9 @@ export class RuntimeManagedAgentInvocationService {
           progressObserver: (event) => appendProgressEvent(entry, event),
           ...(lifecycleOptions.consumedWriteApproval
             ? { consumedWriteApproval: lifecycleOptions.consumedWriteApproval }
+            : {}),
+          ...(committedAuthorityAdmission !== undefined
+            ? { childAuthorityAdmission: { bundle: committedAuthorityAdmission } }
             : {}),
           registerAdapterCompletion: (completion) => {
             registerAdapterCompletionOnEntry(entry, completion);
@@ -1010,6 +1050,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
     readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
     readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
+    readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
     readonly environment?: ManagedAgentEnvironmentVariables;
     readonly registerAdapterCompletion?: (completion: PromiseLike<unknown>) => void;
     readonly registerEconomicSettlement?: (
@@ -1031,6 +1072,9 @@ export class RuntimeManagedAgentInvocationService {
       ...(input.consumedWriteApproval !== undefined
         ? { consumedWriteApproval: input.consumedWriteApproval }
         : {}),
+      ...(input.childAuthorityAdmission !== undefined
+        ? { childAuthorityAdmission: input.childAuthorityAdmission }
+        : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
       registerAdapterCompletion: input.registerAdapterCompletion ?? (() => undefined),
       ...(input.registerEconomicSettlement === undefined
@@ -1051,9 +1095,13 @@ export class RuntimeManagedAgentInvocationService {
         ...(canonicalRecord.resultHandoff ? { resultHandoff: canonicalRecord.resultHandoff } : {}),
       }),
     });
-    assertManagedAgentResultHandoffContract(input.request.input.handoff, attributedRecord);
-    assertRecordWithinAdmission(attributedRecord, input.request, admission);
-    return attributedRecord;
+    const runtimeRecord = attachRuntimeAuthorityAdmission(
+      attributedRecord,
+      input.childAuthorityAdmission?.bundle,
+    );
+    assertManagedAgentResultHandoffContract(input.request.input.handoff, runtimeRecord);
+    assertRecordWithinAdmission(runtimeRecord, input.request, admission);
+    return runtimeRecord;
   }
 
   private now(): Date {

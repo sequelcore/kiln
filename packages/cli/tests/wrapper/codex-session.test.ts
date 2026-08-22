@@ -22,8 +22,10 @@ function permissionWriter(onRequest: (profile: string) => void | Promise<void>) 
   } as any;
 }
 
-vi.mock("@kilnai/core", () => ({
+vi.mock("@kilnai/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@kilnai/core")>()),
   CODEX_DEFAULT_MODEL: "gpt-5.4",
+  LMSTUDIO_BASE_URL: "http://127.0.0.1:1234/v1",
   defineDeliberationLevelId: (value: string) => value,
   admitDeliberationForExecution: (resolution: { selectedLevel?: string } | undefined) => resolution?.selectedLevel,
   admitCommunicationForExecution: (resolution: {
@@ -105,7 +107,8 @@ vi.mock("@openai/codex-sdk", () => ({
   Codex: mockCodexConstructor,
 }));
 
-vi.mock("node:child_process", () => ({
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
   spawn: mockSpawn,
 }));
 

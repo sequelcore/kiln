@@ -6,11 +6,20 @@ import type {
 } from "@kilnai/gateway-contracts";
 import type { ProcessResult } from "../gateway/message-pipeline/index.js";
 import type {
+  OperatorSessionAuthorityAdmissionFacets,
+  OperatorSessionAuthorityAdmissionPort,
   OperatorSessionCommittedExecution,
   OperatorSessionExecutionDispatch,
   OperatorSessionExecutionResult,
   OperatorSessionExecutionRoutingService,
 } from "./operator-session-execution-routing-service.js";
+import type {
+  EffectiveAuthorityAdmissionBundle,
+  TurnBudgetAdmission,
+} from "../session/effective-authority-admission-bundle.js";
+import type { SanitizedExecutionRouteDataPolicyDecision } from "./execution-route-data-policy-authority.js";
+import type { AdmittedExecutionRoute, ExecutionSessionBindingEvidence } from "@kilnai/core";
+import type { OperatorSessionExecutionCatalogSnapshot, OperatorSessionExecutionRequest } from "./operator-session-execution-routing-service.js";
 
 /**
  * The committed part of an operator turn. Adapter construction and the
@@ -84,6 +93,53 @@ export class OperatorSessionExecutionBridge<Credential, Payload, Result>
       throw new Error("The operator session execution bridge is not bound.");
     }
     return this.#handler(input);
+  }
+}
+
+/** Bind-once Runtime authority seam; every unbound operation fails closed. */
+export class OperatorSessionAuthorityAdmissionBridge<Payload = unknown>
+  implements OperatorSessionAuthorityAdmissionPort<Payload> {
+  #handler: {
+    preflight(input: { readonly request: OperatorSessionExecutionRequest<Payload> }): TurnBudgetAdmission | Promise<TurnBudgetAdmission>;
+    prepare(input: {
+      readonly request: OperatorSessionExecutionRequest<Payload>;
+      readonly admission: AdmittedExecutionRoute;
+      readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+      readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+      readonly dataPolicy: SanitizedExecutionRouteDataPolicyDecision;
+    }): OperatorSessionAuthorityAdmissionFacets | Promise<OperatorSessionAuthorityAdmissionFacets>;
+    persist(bundle: EffectiveAuthorityAdmissionBundle): void | Promise<void>;
+    abort(executionId: string): void | Promise<void>;
+  } | undefined;
+
+  bind(handler: {
+    preflight: OperatorSessionAuthorityAdmissionBridge<Payload>["preflight"];
+    prepare: OperatorSessionAuthorityAdmissionBridge<Payload>["prepare"];
+    persist: OperatorSessionAuthorityAdmissionBridge<Payload>["persist"];
+    abort: OperatorSessionAuthorityAdmissionBridge<Payload>["abort"];
+  }): void {
+    if (this.#handler) throw new Error("The operator authority admission bridge is already bound.");
+    this.#handler = handler;
+  }
+
+  preflight(input: { readonly request: OperatorSessionExecutionRequest<Payload> }): TurnBudgetAdmission | Promise<TurnBudgetAdmission> {
+    if (!this.#handler) throw new Error("The operator authority admission bridge is not bound.");
+    return this.#handler.preflight(input);
+  }
+
+  prepare(input: Parameters<OperatorSessionAuthorityAdmissionPort<Payload>["prepare"]>[0]): ReturnType<OperatorSessionAuthorityAdmissionPort<Payload>["prepare"]> {
+    if (!this.#handler) throw new Error("The operator authority admission bridge is not bound.");
+    return this.#handler.prepare(input);
+  }
+
+  persist(bundle: EffectiveAuthorityAdmissionBundle): void | Promise<void> {
+    if (!this.#handler) throw new Error("The operator authority admission bridge is not bound.");
+    return this.#handler.persist(bundle);
+  }
+
+  abort(executionId: string): void | Promise<void> {
+    if (!this.#handler) throw new Error("The operator authority admission bridge is not bound.");
+    return this.#handler.abort(executionId);
   }
 }
 

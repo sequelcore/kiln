@@ -87,10 +87,13 @@ export {
 } from "./managed-account-leases/managed-account-lease-authority.js";
 export {
   createOperatorSessionAccountCapacityAuthority,
+  OperatorSessionPreDispatchCancellationError,
   OperatorSessionExecutionRoutingError,
   OperatorSessionExecutionRoutingService,
 } from "./execution-routing/operator-session-execution-routing-service.js";
 export type {
+  OperatorSessionAuthorityAdmissionFacets,
+  OperatorSessionAuthorityAdmissionPort,
   OperatorSessionCommittedExecution,
   OperatorSessionCommittedExecutionEvidence,
   OperatorSessionCredentialPort,
@@ -104,6 +107,12 @@ export type {
   OperatorSessionExecutionRoutingServiceOptions,
   OperatorSessionResolvedCredential,
 } from "./execution-routing/operator-session-execution-routing-service.js";
+export { OperatorAuthorityAdmissionCoordinator } from "./execution-routing/operator-authority-admission-coordinator.js";
+export { defineOperatorAuthorityAdmissionFacets } from "./execution-routing/operator-authority-admission-facets.js";
+export type {
+  OperatorAuthorityAdmissionCoordinatorOptions,
+  OperatorAuthorityAdmissionSessionResolution,
+} from "./execution-routing/operator-authority-admission-coordinator.js";
 export {
   ExecutionRouteDataPolicyAuthority,
   evaluateExecutionTargetDataPolicy,
@@ -126,6 +135,7 @@ export type {
   ExecutionAccountCapacityObservation,
 } from "./execution-kernel/execution-account-capacity-authority.js";
 export {
+  OperatorSessionAuthorityAdmissionBridge,
   OperatorSessionExecutionBridge,
   OperatorTurnDispatcher,
   fingerprintOperatorTurnIntent,
@@ -174,6 +184,7 @@ export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "
 export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
 export type { LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
 export { createModelGatewayIngress, createModelGatewayExecutionRoutingPort } from "./model-gateway/model-gateway-ingress.js";
+export { createModelGatewayAuthorityAdmissionPort, callerOwnedToolContractForTurn } from "./model-gateway/model-gateway-authority-admission.js";
 export type {
   ModelGatewayExecutionCandidatePort,
   ModelGatewayExecutionRoutingPort,
@@ -242,6 +253,9 @@ export type {
   GovernedOneRoundCloseoutDiagnostic,
   GovernedOneRoundCloseoutDiagnosticCode,
   GovernedOneRoundDispatcherResolver,
+  GovernedOneRoundResolvedDispatch,
+  GovernedOneRoundBudgetAdmissionPort,
+  GovernedOneRoundAuthorityAdmissionPort,
   GovernedOneRoundIdentity,
   GovernedOneRoundInvocationErrorCode,
   GovernedOneRoundInvocationInput,
@@ -282,7 +296,7 @@ export type {
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
-export type { ModelGatewayExecutionBundle, StartGatewayOptions } from "./gateway/gateway-server.js";
+export type { AppGatewayExecutionBundle, ModelGatewayExecutionBundle, StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
 export { BunPtyAdapter } from "./operator-terminal/bun-pty-adapter.js";
 export {
@@ -411,6 +425,9 @@ export {
   MANAGED_AGENT_STATUS_TOOL_NAME,
   ManagedCliHarnessAdapter,
   ManagedDirectProviderRuntimeAdapter,
+  admitManagedChildAuthority,
+  assertManagedChildAuthorityAdmissionBoundary,
+  withManagedChildAuthorityAdmission,
   ManagedRemoteHarnessAdapter,
   ManagedFilesystemArtifactDirectoryLeaseManager,
   ManagedFilesystemRuntimeRecoveryStore,
@@ -472,10 +489,14 @@ export type {
   ManagedAgentRuntimeAuthorityObserver,
   ManagedAgentRuntimeConsumedWriteApproval,
   ManagedAgentRuntimeInvocationInput,
+  ManagedAgentRuntimeInvocationRecord,
   ManagedAgentRuntimeInvocationProgressEvent,
   ManagedAgentRuntimeInvocationResult,
   ManagedAgentRuntimeInvocationSnapshot,
   ManagedAgentRuntimeInvocationStartResult,
+  ManagedChildAuthorityAdmission,
+  ManagedChildAuthorityAdmissionContract,
+  ManagedChildAuthorityAdmissionInput,
   ManagedAgentRuntimeRecoveryCheckpoint,
   ManagedAgentRuntimeRecoveryDaemonConfig,
   ManagedAgentRuntimeRecoveryDaemonRunInput,
@@ -833,7 +854,11 @@ export {
   buildEffectiveTurnAuthorityPolicyInputs,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
+  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
   defineEffectiveAuthorityAdmissionBundle,
+  projectToolPermissionAdmissionFromPerCallConfig,
+  defineRuntimeSessionAuthorityFacet,
+  assertPersistableAuthorityAdmissionBundle,
   projectRuntimeLifecycleAttributionAllocations,
   SessionRegistry,
   InMemorySessionStore,
@@ -863,6 +888,9 @@ export type {
   ProjectRuntimeLifecycleAttributionAllocationsInput,
   RuntimeLifecycleFinalOutputBoundary,
   SerializedSessionData,
+  RuntimeSessionAuthorityFacet,
+  RuntimeSessionAuthorityFacetInput,
+  AuthorityAdmissionEvidenceStore,
   AgentTurnEntry,
   EffectiveTurnAuthorityPolicyInput,
   EffectiveTurnAuthorityPolicyInputSource,
@@ -874,6 +902,8 @@ export type {
   ExecutionAdmission,
   SkillCatalogAdmission,
   ToolPermissionAdmission,
+  ToolPermissionAdmissionEntry,
+  ToolPermissionAdmissionProjectionInput,
   TurnBudgetAdmission,
   WorkGovernanceAdmission,
   OrchestratorDeps,

@@ -1,5 +1,9 @@
 export { RuntimeSession } from "./runtime-session.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
+export { defineRuntimeSessionAuthorityFacet } from "./runtime-session-authority-facet.js";
+export type { RuntimeSessionAuthorityFacet, RuntimeSessionAuthorityFacetInput } from "./runtime-session-authority-facet.js";
+export { assertPersistableAuthorityAdmissionBundle } from "./authority-admission-evidence.js";
+export type { AuthorityAdmissionEvidenceStore } from "./authority-admission-evidence.js";
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
 export {
   prepareOperatorAdoptionTurn,
@@ -29,13 +33,19 @@ export {
   formatEffectiveTurnAuthorityGuidance,
 } from "./effective-turn-authority.js";
 export type { EffectiveTurnAuthorityActionability } from "./effective-turn-authority.js";
-export { defineEffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
+export {
+  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
+  defineEffectiveAuthorityAdmissionBundle,
+  projectToolPermissionAdmissionFromPerCallConfig,
+} from "./effective-authority-admission-bundle.js";
 export type {
   EconomicCommitmentReference,
   EffectiveAuthorityAdmissionBundle,
   EffectiveAuthorityAdmissionBundleInput,
   ExecutionAdmission,
   SkillCatalogAdmission,
+  ToolPermissionAdmissionEntry,
+  ToolPermissionAdmissionProjectionInput,
   ToolPermissionAdmission,
   TurnBudgetAdmission,
   WorkGovernanceAdmission,

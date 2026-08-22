@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type {
   BenchmarkItemExecutor,
   DeliberationResolution,
@@ -24,6 +24,7 @@ import {
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
+import type { OperatorAdoptionRuntimeBinding } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
 import type { GuiModelDeliberationCapabilities } from "@kilnai/gateway-contracts";
 import { defaultBuildSystemPrompt } from "../config.js";
@@ -37,7 +38,7 @@ import {
   type ProviderId,
 } from "../wrapper/session-registry.js";
 import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
-import { readGlobalConfig, readGlobalExecutionCatalog } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalConfigSnapshot, readGlobalExecutionCatalog } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
@@ -98,6 +99,12 @@ import type {
 import { createPrivateFormalScreeningWorkspaceLease } from "./private-formal-screening-package.js";
 import type { ResolvedFormalScreeningConfig } from "../config/formal-screening-config.js";
 import { BACKEND_BENCHMARK_CASES } from "./benchmark-backend-cases.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
+import { TranscriptStore } from "../wrapper/session-store.js";
+import { readRuntimeConfigurationRevision } from "./runtime-configuration-revision.js";
+import { captureOperatorExecutionCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
+import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "./operator-transcript-projection.js";
+import { canonicalSessionEventsFromTranscript } from "./runtime-session-rehydration.js";
 
 export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
 export const FORMAL_SCREENING_BUDGET = Object.freeze({
@@ -129,6 +136,8 @@ export interface BenchmarkSessionExecutorFlags {
   readonly accountOverrideIds?: readonly string[];
   /** Stable pair order supplied by the dataset owner for balanced account assignment. */
   readonly benchmarkPairIds?: readonly string[];
+  /** Durable run-owned root for canonical benchmark transcript and authority evidence. */
+  readonly benchmarkEvidenceRoot?: string;
   readonly skipGitRepoCheck?: boolean;
   readonly deliberationLevel?: string;
 }
@@ -175,6 +184,13 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       : undefined;
     const cwd = writeLease?.rootPath ?? benchmarkWorkspace.rootPath;
     const authorityStateRoot = authorityLease?.rootPath ?? repositoryRoot;
+    // Benchmark transcript/admission evidence belongs to the run artifact owner,
+    // never to a synthetic fixture or a disposable workspace lease. The command
+    // supplies this root beside its durable output artifacts; the authority lease
+    // remains a fallback for direct executor callers that do not own a run output.
+    const benchmarkEvidenceRoot = options.flags?.benchmarkEvidenceRoot
+      ? resolve(options.flags.benchmarkEvidenceRoot)
+      : authorityStateRoot;
     let closeAuthorityState = () => authorityLease?.cleanup();
     const workspaceFixtureHash = writeLease?.canonicalHash ?? (benchmarkWorkspace.kind === "synthetic-fixture"
       ? hashBenchmarkWorkspace(benchmarkWorkspace)
@@ -400,6 +416,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
     const sessionId = randomUUID();
+    const transcriptStore = new TranscriptStore(benchmarkEvidenceRoot);
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
       managedInvocationWithService ? {
@@ -436,10 +453,21 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       },
     );
     const runOutput = createNonHumanRunOutputSink();
+    const operatorAdoption: OperatorAdoptionRuntimeBinding = {
+      persist: async (event) => {
+        await transcriptStore.appendManyNext(
+          event.kilnSessionId,
+          [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
+        );
+      },
+      replayCanonicalSessionEvents: async (canonicalSessionId) => canonicalSessionEventsFromTranscript(
+        await transcriptStore.readTranscript(canonicalSessionId),
+        canonicalSessionId,
+      ),
+    };
     const formalAbortController = isFormalScreening ? new AbortController() : undefined;
     let formalWallClockTimedOut = false;
     const runInput = {
-      governedGoalTools: "forbidden" as const,
       registry,
       cleanupRegistry: benchmarkCleanupRegistry,
       manager,
@@ -469,6 +497,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         },
       } : {}),
       output: runOutput,
+      operatorAdoption,
     };
     let accountFallbackCount = 0;
     const formalWallClockTimer = formalAbortController
@@ -496,6 +525,14 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               authorityStateRoot,
               executionId: `${sessionId}:account:${index}`,
               routeId: configuredRouteCandidate.routeId,
+              configurationRevision: readRuntimeConfigurationRevision(cwd),
+              authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
+              captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
+                projectPath: cwd,
+                readConfigSnapshot: readGlobalConfigSnapshot,
+                readConfigurationRevision: readRuntimeConfigurationRevision,
+                readExecutionCatalog: readGlobalExecutionCatalog,
+              }),
               ...(accountOverrideId ? { accountOverrideId } : {}),
               ...(executionDeliberation
                 ? { routeEvidence: { deliberationResolution: executionDeliberation } }

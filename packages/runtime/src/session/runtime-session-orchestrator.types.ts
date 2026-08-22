@@ -34,6 +34,7 @@ import type {
   ResolvedCommunicationIntent,
   ModelCommunicationCapabilities,
   EffectiveTurnAuthoritySnapshot,
+  AdmittedExecutionRoute,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { KilnMcpClient } from "@kilnai/core";
@@ -303,6 +304,8 @@ export interface PerCallToolConfig {
   readonly executionScope?: SessionExecutionScope;
   /** Exact account/credential identity fenced for this operator turn. */
   readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+  /** Exact secret-free provider/model route derived from the persisted admission bundle. */
+  readonly admittedExecutionRoute?: AdmittedExecutionRoute;
   /** Credential material resolved after the dispatch fence. */
   readonly executionCredential?: unknown;
   readonly workingDirectory?: string;

@@ -20,6 +20,12 @@ import {
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../session/runtime-session.js";
+import {
+  hasGovernedGoalTools,
+  prepareOperatorAdoptionTurn,
+  requireOperatorAdoptionDecisionPersistence,
+} from "../session/operator-adoption-authority.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeConfigurationRevisionProvider } from "../session/runtime-configuration-revision-pin.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
@@ -132,7 +138,15 @@ import {
   type OperatorTurnDispatchResult,
   type OperatorTurnGuiDispatchPayload,
 } from "../execution-routing/operator-turn-dispatcher.js";
-import type { OperatorSessionCommittedExecution } from "../execution-routing/operator-session-execution-routing-service.js";
+import {
+  OperatorSessionPreDispatchCancellationError,
+  type OperatorSessionCommittedExecution,
+} from "../execution-routing/operator-session-execution-routing-service.js";
+import { OperatorAuthorityAdmissionCoordinator } from "../execution-routing/operator-authority-admission-coordinator.js";
+import {
+  defineOperatorAuthorityAdmissionFacets,
+  defineOperatorSkillCatalogAdmission,
+} from "../execution-routing/operator-authority-admission-facets.js";
 
 export type {
   GuiDashboardSnapshot,
@@ -233,6 +247,29 @@ interface ActiveGuiTurn {
   readonly controller: AbortController;
   readonly settled: Promise<void>;
   readonly markSettled: () => void;
+}
+
+interface GuiResourceSurfaceRegistration {
+  readonly surface: AttachedRuntimeBuiltinToolSurface;
+  /** Undefined is the gateway-wide base surface; turn surfaces are session-scoped. */
+  readonly sessionId?: string;
+}
+
+function surfacesForGuiSession(
+  registrations: readonly GuiResourceSurfaceRegistration[],
+  sessionId: string | undefined,
+): readonly AttachedRuntimeBuiltinToolSurface[] {
+  if (!sessionId) return [];
+  return registrations
+    .filter((registration) => registration.sessionId === undefined || registration.sessionId === sessionId)
+    .map((registration) => registration.surface);
+}
+
+function disposeGuiResourceSurfaces(
+  registrations: readonly GuiResourceSurfaceRegistration[],
+): void {
+  const surfaces = [...new Set(registrations.map((registration) => registration.surface))];
+  void Promise.all(surfaces.map((surface) => surface.dispose().catch(() => undefined)));
 }
 
 function createActiveGuiTurn(): ActiveGuiTurn {
@@ -752,8 +789,9 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     return c.json(sessionDetail);
   });
 
+  let disposeOperatorResourceSurfaces: (() => void) | undefined;
   if (transportOptions) {
-    wireOperatorTransport(app, upgradeWebSocket, {
+    disposeOperatorResourceSurfaces = wireOperatorTransport(app, upgradeWebSocket, {
       port,
       transport: transportOptions,
       initialDiscovery: operatorDiscovery ?? [],
@@ -851,6 +889,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     shutdown: () => {
       operatorTerminalService?.closeAll();
       server.stop();
+      disposeOperatorResourceSurfaces?.();
     },
   };
 }
@@ -888,7 +927,7 @@ function wireOperatorTransport(
     operatorTerminalService?: OperatorTerminalService;
     goalController?: GuiGoalController;
   },
-): void {
+): () => void {
   const providerLabel = input.transport.sessionManager.getProvider();
   const approvalRegistry = new ApprovalGateRegistry();
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -896,7 +935,8 @@ function wireOperatorTransport(
     boundedWork: input.boundedWork,
     managedInvocation: input.managedInvocation,
   });
-  const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
+  const resourceSurfaces: GuiResourceSurfaceRegistration[] = [{ surface: builtinToolSurface }];
+  const committedAuthoritySessionIds = new Set<string>();
   const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
   bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
@@ -913,66 +953,198 @@ function wireOperatorTransport(
     provider: executor,
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
-    ...(input.transport.sessionTurnBudget ? { sessionTurnBudget: input.transport.sessionTurnBudget } : {}),
   });
   const sessionRegistry = new SessionRegistry();
+  const priorActiveSessions = new Map<string, RuntimeSession | undefined>();
 
   activityStreamer.bindApprovalBridge({
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
+  const authorityCoordinator = new OperatorAuthorityAdmissionCoordinator<
+    OperatorTurnGuiDispatchPayload,
+    {
+      readonly payload: OperatorTurnGuiDispatchPayload;
+      readonly perCallConfig: PerCallToolConfig;
+      readonly turnBuiltinToolSurface: AttachedRuntimeBuiltinToolSurface;
+      readonly executionMode: OperatorExecutionMode;
+      readonly activeModelCapabilities: GuiProviderModelCapabilities | undefined;
+      readonly priorActiveSession: RuntimeSession | undefined;
+      readonly runtimeSessionId: string;
+      readonly runtimeSession: RuntimeSession;
+    }
+  >({
+    resolveSession: async (request) => {
+      const payload = request.payload;
+      if (payload.freshSessionRequested) {
+        const priorActiveSession = await sessionRegistry.get(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
+        const session = new RuntimeSession({
+          appName: GUI_APP_NAME,
+          tenantId: GUI_TENANT_ID,
+          userId: payload.userId,
+          systemPrompt: payload.systemPrompt,
+        });
+        priorActiveSessions.set(session.id, priorActiveSession);
+        return {
+          session,
+          allowAuthorityFacetCreation: true,
+        };
+      }
+      const requestedSessionId = payload.sessionId;
+      const existing = requestedSessionId
+        ? await sessionRegistry.getById(requestedSessionId)
+        : await sessionRegistry.get(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
+      const priorActiveSession = await sessionRegistry.get(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
+      const session = await sessionRegistry.getOrCreate({
+        appName: GUI_APP_NAME,
+        tenantId: GUI_TENANT_ID,
+        userId: payload.userId,
+        ...(requestedSessionId ? { sessionId: requestedSessionId } : {}),
+        systemPrompt: payload.systemPrompt,
+      });
+      if (requestedSessionId && !existing) {
+        try {
+          const hydrator = input.transport.resumeSessionHydrator;
+          if (!hydrator) {
+            throw new Error("Continuation authority admission requires a transcript-backed Runtime session hydrator.");
+          }
+          const hydration = await hydrator({ sessionId: requestedSessionId, session });
+          if (!hydration.rehydrated) {
+            throw new Error(`Continuation authority admission could not rehydrate canonical session state: ${hydration.reason ?? "unknown reason"}.`);
+          }
+        } catch (error) {
+          await sessionRegistry.remove(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
+          if (priorActiveSession) await sessionRegistry.save(priorActiveSession);
+          throw error;
+        }
+      }
+      return { session, allowAuthorityFacetCreation: existing === undefined };
+    },
+    sessionTurnBudget: input.transport.sessionTurnBudget,
+    prepare: async ({ request, session, admission, snapshot, binding }) => {
+      const payload = request.payload;
+      const route = snapshot.catalog.routes.find((candidate) => candidate.id === admission.routeId);
+      if (!route) throw new Error("The admitted operator route is absent from its captured catalog.");
+      const activeModelCapabilities = findProviderModelCapabilities(
+        payload.providerDiscovery, route.providerId, route.providerModelId,
+      );
+      const executionMode = resolveExecutionMode(payload.message.executionMode);
+      const requestedAuthority = resolveGuiRequestedAuthority(payload.message.requestedAuthority);
+      const governedWorkRequirement = resolveGuiGovernedWorkRequirement(payload.message.governedWorkRequirement);
+      assertGuiTurnModeCompatibility(executionMode, governedWorkRequirement);
+      const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+        builtinToolOptions: input.builtinToolOptions,
+        boundedWork: input.boundedWork,
+        executionMode,
+        managedInvocation: attachManagedInvocationSessionEventSink(
+          input.managedInvocation,
+          { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+        ),
+        operatorSurface: activeOperatorSurface,
+      });
+      try {
+        const perCallConfig = {
+          ...buildGuiTurnPerCallConfig(
+            route.providerId, route.providerModelId, turnBuiltinToolSurface, activeModelCapabilities,
+            toCoreDeliberationIntent(payload.message.deliberationIntent), executionMode, requestedAuthority,
+            input.transport.workingDirectory, governedWorkRequirement,
+            payload.operatorTimeZone ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone }) : undefined,
+            resolveOperatorCommunicationIntent(input.communicationIntentCandidates, payload.message.communicationIntent),
+          ),
+          abortSignal: payload.abortSignal,
+          executionBinding: binding,
+          runtimeConfigurationRevision: snapshot.configurationRevision,
+        } satisfies PerCallToolConfig;
+        const adoption = await prepareOperatorAdoptionTurn({
+          session,
+          actorId: payload.userId,
+          correlationId: request.executionId,
+          persist: requireOperatorAdoptionDecisionPersistence(input.transport.persistCanonicalSessionEvent),
+        });
+        const admittedPerCallConfig = {
+          ...perCallConfig,
+          turnId: adoption.turnId,
+          turnCorrelationId: adoption.correlationId,
+          operatorAdoptionDecision: adoption.operatorAdoptionDecision,
+        } satisfies PerCallToolConfig;
+        const governedGoalTools = hasGovernedGoalTools({
+          toolAllowlist: admittedPerCallConfig.toolAllowlist,
+          additionalTools: admittedPerCallConfig.additionalTools,
+        });
+        const workGovernance = governedWorkRequirement || governedGoalTools
+          ? {
+              status: "required" as const,
+              kind: "goal" as const,
+              subjectId: adoption.operatorAdoptionDecision.decisionId,
+              authorityRevision: adoption.operatorAdoptionDecision.decisionId,
+            }
+          : { status: "not-required" as const };
+        const preparedAdmission = {
+          facets: defineOperatorAuthorityAdmissionFacets({
+            executionId: request.executionId,
+            turnId: adoption.turnId,
+            session,
+            snapshot,
+            perCallConfig: admittedPerCallConfig,
+            candidateToolNames: turnBuiltinToolSurface.toolDefinitions.map((tool) => tool.name),
+            workGovernance,
+            operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+            skillCatalog: defineOperatorSkillCatalogAdmission([]),
+            authorityCeiling: admittedPerCallConfig.authorityContext!.sessionPolicy!,
+          }),
+          prepared: {
+            payload,
+            perCallConfig: admittedPerCallConfig,
+            turnBuiltinToolSurface,
+            executionMode,
+            activeModelCapabilities,
+            priorActiveSession: priorActiveSessions.get(session.id),
+            runtimeSessionId: session.id,
+            runtimeSession: session,
+          },
+        };
+        return preparedAdmission;
+      } catch (error) {
+        await turnBuiltinToolSurface.dispose();
+        priorActiveSessions.delete(session.id);
+        throw error;
+      }
+    },
+    saveSession: (session) => sessionRegistry.save(session),
+    evidenceStore: input.transport.authorityAdmissionEvidenceStore,
+    discardPrepared: async ({ turnBuiltinToolSurface, payload, priorActiveSession, runtimeSessionId }) => {
+      await turnBuiltinToolSurface.dispose();
+      if (payload.freshSessionRequested) {
+        await sessionRegistry.remove(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
+        if (priorActiveSession) await sessionRegistry.save(priorActiveSession);
+      }
+      priorActiveSessions.delete(runtimeSessionId);
+    },
+  });
+  input.transport.operatorAuthorityAdmissionBridge.bind(authorityCoordinator);
   input.transport.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnGuiDispatchPayload>) => {
-    const payload = committed.payload;
+    if (committed.payload.freshSessionRequested) {
+      try {
+        await input.transport.onClear?.();
+      } catch (error) {
+        throw new OperatorSessionPreDispatchCancellationError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    const prepared = authorityCoordinator.consume(committed.executionId, committed.authorityAdmission);
+    priorActiveSessions.delete(prepared.runtimeSessionId);
+    const { payload, runtimeSession, turnBuiltinToolSurface, executionMode, activeModelCapabilities } = prepared;
+    resourceSurfaces.push({
+      surface: turnBuiltinToolSurface,
+      sessionId: committed.authorityAdmission.sessionId,
+    });
+    committedAuthoritySessionIds.add(committed.authorityAdmission.sessionId);
     input.transport.sessionManager.setProvider(committed.admission.providerId);
     input.transport.sessionManager.setModel(committed.admission.providerModelId);
-    if (payload.freshSessionRequested) {
-      await sessionRegistry.detachActive(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
-      await input.transport.onClear?.();
-    }
-    const activeModelCapabilities = findProviderModelCapabilities(
-      payload.providerDiscovery,
-      committed.admission.providerId,
-      committed.admission.providerModelId,
-    );
-    const deliberationIntent = toCoreDeliberationIntent(payload.message.deliberationIntent);
-    const communicationIntent = resolveOperatorCommunicationIntent(
-      input.communicationIntentCandidates,
-      payload.message.communicationIntent,
-    );
-    const executionMode = resolveExecutionMode(payload.message.executionMode);
-    const requestedAuthority = resolveGuiRequestedAuthority(payload.message.requestedAuthority);
-    const governedWorkRequirement = resolveGuiGovernedWorkRequirement(payload.message.governedWorkRequirement);
-    assertGuiTurnModeCompatibility(executionMode, governedWorkRequirement);
-    const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions: input.builtinToolOptions,
-      boundedWork: input.boundedWork,
-      executionMode,
-      managedInvocation: attachManagedInvocationSessionEventSink(
-        input.managedInvocation,
-        { publish: (events) => activityStreamer.forwardSessionEvents(events) },
-      ),
-      operatorSurface: activeOperatorSurface,
-    });
     const perCallConfig = {
-      ...buildGuiTurnPerCallConfig(
-        committed.admission.providerId,
-        committed.admission.providerModelId,
-        turnBuiltinToolSurface,
-        activeModelCapabilities,
-        deliberationIntent,
-        executionMode,
-        requestedAuthority,
-        input.transport.workingDirectory,
-        governedWorkRequirement,
-        payload.operatorTimeZone
-          ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone })
-          : undefined,
-        communicationIntent,
-      ),
-      abortSignal: payload.abortSignal,
-      executionBinding: committed.binding,
+      ...prepared.perCallConfig,
       executionCredential: committed.credential,
-      runtimeConfigurationRevision: committed.configurationRevision,
     } satisfies PerCallToolConfig;
     return processAdmittedTurn({
       orchestrator,
@@ -980,7 +1152,8 @@ function wireOperatorTransport(
       appName: GUI_APP_NAME,
       tenantId: GUI_TENANT_ID,
       userId: payload.userId,
-      sessionId: payload.sessionId,
+      sessionId: committed.authorityAdmission.sessionId,
+      admittedSession: runtimeSession,
       systemPrompt: payload.systemPrompt,
       userParts: payload.userParts,
       channel: "gui",
@@ -1001,6 +1174,7 @@ function wireOperatorTransport(
       ttsAdapter: input.transport.ttsAdapter,
       callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
       perCallConfig,
+      authorityAdmission: committed.authorityAdmission,
       runtimeConfigurationRevisionProvider: input.runtimeConfigurationRevisionProvider,
       turnCapture: {
         start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
@@ -1020,7 +1194,11 @@ function wireOperatorTransport(
     if (!request.success) {
       return c.json({ error: "resource_read_request_invalid" }, 400);
     }
-    for (const surface of resourceSurfaces) {
+    const sessionId = request.data.target?.sessionId;
+    if (!sessionId || !committedAuthoritySessionIds.has(sessionId)) {
+      return c.json({ error: "resource_admission_required" }, 404);
+    }
+    for (const surface of surfacesForGuiSession(resourceSurfaces, sessionId)) {
       const result = await surface.readResource(request.data.uri, {
         ...(request.data.target ? { target: request.data.target } : {}),
         ...(request.data.cursor ? { cursor: request.data.cursor } : {}),
@@ -1366,7 +1544,10 @@ function wireOperatorTransport(
               const toMode = resolveExecutionMode(frame.toMode);
               if (toMode === "execute") {
                 const transition = await approvePlanExecutionTransition({
-                  surfaces: resourceSurfaces,
+                  surfaces: surfacesForGuiSession(
+                    resourceSurfaces,
+                    (await sessionRegistry.get(GUI_APP_NAME, userId, GUI_TENANT_ID))?.id,
+                  ),
                   planId: typeof frame.planId === "string" ? frame.planId : undefined,
                   sessionRegistry,
                   appName: GUI_APP_NAME,
@@ -1953,6 +2134,7 @@ function wireOperatorTransport(
   );
 
   input.onReady(`ws://localhost:${input.port}/gui/ws`);
+  return () => disposeGuiResourceSurfaces(resourceSurfaces);
 }
 
 export function buildGuiTurnPerCallConfig(

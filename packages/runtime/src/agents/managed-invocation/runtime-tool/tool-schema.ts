@@ -459,7 +459,7 @@ const MANAGED_AGENT_DESTRUCTIVE_ENVELOPE: ActionEffectEnvelope = {
   operation: "mutate",
   boundaries: ["process", "workspace", "network"],
   reversibility: "irreversible",
-  dataEgress: "unknown",
+  dataEgress: "sensitive-data",
   identityUse: "authenticated",
   consequences: ["local-state", "external-state"],
   idempotency: "non-idempotent",

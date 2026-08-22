@@ -133,6 +133,7 @@ const guiSocketHarness = vi.hoisted(() => {
 const guiTestRouting = vi.hoisted(() => ({
   create(providerId?: string, providerModelId?: string) {
     let handler: ((input: unknown) => Promise<unknown>) | undefined;
+    let authorityHandler: any;
     const admission = {
       routeId: "test-route",
       providerId: providerId?.trim() || "claude",
@@ -166,26 +167,55 @@ const guiTestRouting = vi.hoisted(() => ({
         return handler(input);
       },
     };
+    const authorityBridge = {
+      bind(nextHandler: unknown) {
+        if (authorityHandler) throw new Error("Test authority bridge is already bound.");
+        authorityHandler = nextHandler;
+      },
+    };
     const dispatcher = {
       dispatchTurn: vi.fn(async (request: {
+        readonly executionId: string;
+        readonly intentFingerprint: string;
         readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
         readonly payload: unknown;
       }) => {
         const accountId = request.intent.accountOverrideId ?? "test-account";
         const selectedAdmission = { ...admission, routeId: request.intent.routeId };
-        const result = await bridge.dispatchCommittedTurn({
-          admission: selectedAdmission,
-          accountId,
-          binding: {
-            status: "bound",
-            routeId: request.intent.routeId,
-            accountId,
-            credentialId: "test-credential",
-            credentialRevision: "sha256:test-revision",
-          },
-          credential: { kind: "test" },
-          payload: request.payload,
+        const budget = await authorityHandler.preflight({ request });
+        const binding = {
+          status: "bound" as const, routeId: request.intent.routeId, accountId,
+          credentialId: "test-credential", credentialRevision: "sha256:test-revision",
+        };
+        const snapshot = {
+          catalog: { routes: [{ id: selectedAdmission.routeId, providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId }] },
+          configurationRevision: { revisionSetId: "R1", revisions: { execution: "R1" } },
+        };
+        const dataPolicy = { decision: { status: "admitted" as const, freshness: "current" as const, reason: "test policy" } };
+        const facets = await authorityHandler.prepare({ request, admission: selectedAdmission, snapshot, binding, dataPolicy });
+        const { defineEffectiveAuthorityAdmissionBundle } = await import("../../src/session/effective-authority-admission-bundle.js");
+        const authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
+          sessionId: facets.sessionId, turnId: facets.turnId, admittedAt: "2026-08-22T18:00:00.000Z",
+          configuration: { sessionRevision: facets.sessionRevision, turnRevision: snapshot.configurationRevision },
+          session: facets.session,
+          turn: { ...facets.turn, budget, execution: { status: "routed", route: selectedAdmission, dataPolicy, binding } },
         });
+        await authorityHandler.persist(authorityAdmission);
+        let result: unknown;
+        try {
+          result = await bridge.dispatchCommittedTurn({
+            executionId: request.executionId,
+            admission: selectedAdmission,
+            accountId,
+            binding,
+            credential: { kind: "test" },
+            authorityAdmission,
+            payload: request.payload,
+          });
+        } catch (error) {
+          await authorityHandler.abort(request.executionId);
+          throw error;
+        }
         return {
           admission: selectedAdmission,
           accountId,
@@ -207,6 +237,8 @@ const guiTestRouting = vi.hoisted(() => ({
     return {
       operatorTurnDispatcher: dispatcher,
       operatorTurnExecutionBridge: bridge,
+      operatorAuthorityAdmissionBridge: authorityBridge,
+      authorityAdmissionEvidenceStore: { persist: async () => undefined, loadSessionFacet: async () => undefined },
       executionRouteSelection,
     };
   },
@@ -217,7 +249,10 @@ const guiOperatorTransportDefaults = (() => {
   return {
     operatorTurnDispatcher: routing.operatorTurnDispatcher as unknown as OperatorGuiSessionTransportOptions["operatorTurnDispatcher"],
     operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as unknown as OperatorGuiSessionTransportOptions["operatorTurnExecutionBridge"],
-  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge">;
+    operatorAuthorityAdmissionBridge: routing.operatorAuthorityAdmissionBridge as unknown as OperatorGuiSessionTransportOptions["operatorAuthorityAdmissionBridge"],
+    authorityAdmissionEvidenceStore: routing.authorityAdmissionEvidenceStore,
+    persistCanonicalSessionEvent: async () => undefined,
+  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "persistCanonicalSessionEvent">;
 })();
 
 vi.mock("hono/bun", () => ({
@@ -247,6 +282,8 @@ vi.mock("../../src/gateway/gui-gateway.js", async (importOriginal) => {
           ...input.operatorTransport,
           operatorTurnDispatcher: routing.operatorTurnDispatcher as never,
           operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as never,
+          operatorAuthorityAdmissionBridge: routing.operatorAuthorityAdmissionBridge as never,
+          authorityAdmissionEvidenceStore: input.operatorTransport.authorityAdmissionEvidenceStore,
         },
       });
     },
@@ -1718,7 +1755,7 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("reads resources through target-aware operator resource requests", async () => {
+  it("rejects resource reads that do not name a committed authority session", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     let appFetch: ((request: Request) => Promise<Response>) | undefined;
@@ -1787,33 +1824,9 @@ describe("startGuiGateway static mount", () => {
         }),
       }));
 
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({
-        uri: "kiln://test/resources/work-1",
-        target: {
-          gatewayTargetId: "gateway:local-app",
-          instanceId: "local-app:instance",
-          sessionId: "session-1",
-          resourceUri: "kiln://test/resources/work-1",
-        },
-        contents: [{
-          kind: "text",
-          uri: "kiln://test/resources/work-1",
-          mimeType: "text/markdown",
-          text: "# line:100",
-        }],
-        nextCursor: "line:125",
-      });
-      expect(resourceProvider.read).toHaveBeenCalledWith("kiln://test/resources/work-1", {
-        target: {
-          gatewayTargetId: "gateway:local-app",
-          instanceId: "local-app:instance",
-          sessionId: "session-1",
-          resourceUri: "kiln://test/resources/work-1",
-        },
-        cursor: "line:100",
-        limit: 25,
-      });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "resource_admission_required" });
+      expect(resourceProvider.read).not.toHaveBeenCalled();
     } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
@@ -1858,13 +1871,16 @@ describe("startGuiGateway static mount", () => {
       rmSync(distDir, { recursive: true, force: true });
     }
   });
-  it("clears transport resume state before admitting a fresh GUI message", async () => {
+  it("clears transport resume state only after durable admission and before fresh dispatch", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const onClear = vi.fn().mockResolvedValue(undefined);
+    const persistAuthority = vi.fn().mockResolvedValue(undefined);
+    const persistCanonicalSessionEvent = vi.fn().mockResolvedValue(undefined);
+    const freshRouting = guiTestRouting.create();
     vi.mocked(processAdmittedTurn).mockReset();
     vi.mocked(processAdmittedTurn).mockResolvedValue({
       ok: true,
@@ -1896,7 +1912,10 @@ describe("startGuiGateway static mount", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         operatorTransport: {
-          ...guiOperatorTransportDefaults,
+          operatorTurnDispatcher: freshRouting.operatorTurnDispatcher as never,
+          operatorTurnExecutionBridge: freshRouting.operatorTurnExecutionBridge as never,
+          operatorAuthorityAdmissionBridge: freshRouting.operatorAuthorityAdmissionBridge as never,
+          executionRouteSelection: freshRouting.executionRouteSelection,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -1905,6 +1924,11 @@ describe("startGuiGateway static mount", () => {
             setModel: vi.fn(),
           },
           onClear,
+          persistCanonicalSessionEvent,
+          authorityAdmissionEvidenceStore: {
+            persist: persistAuthority,
+            loadSessionFacet: async () => undefined,
+          },
         },
       });
 
@@ -1918,13 +1942,41 @@ describe("startGuiGateway static mount", () => {
       );
 
       expect(onClear).toHaveBeenCalledWith();
+      const persistedBundle = persistAuthority.mock.calls[0]?.[0];
+      const persistedAdoption = persistCanonicalSessionEvent.mock.calls[0]?.[0];
+      expect(persistedBundle?.turnId).toBe(persistedAdoption?.operatorTurnId);
+      expect(persistedAdoption?.correlationId).toEqual(expect.any(String));
+      expect(persistAuthority.mock.invocationCallOrder[0]).toBeLessThan(
+        onClear.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+      );
       expect(onClear.mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(processAdmittedTurn).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
       );
       expect(processAdmittedTurn).toHaveBeenCalledWith(expect.objectContaining({
-        sessionId: undefined,
+        sessionId: expect.any(String),
       }));
       expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("fresh turn admitted"));
+
+      onClear.mockRejectedValueOnce(new Error("provider clear failed"));
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "retry fresh gui", sessionIntent: "fresh" }),
+        }),
+        wsCtx,
+      );
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
+      expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("provider clear failed"));
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "continue original gui session" }),
+        }),
+        wsCtx,
+      );
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(processAdmittedTurn).mock.calls[1]?.[0].sessionId).toBe(
+        vi.mocked(processAdmittedTurn).mock.calls[0]?.[0].sessionId,
+      );
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
@@ -5498,6 +5550,118 @@ describe("projectGuiOperatorModels", () => {
     }]);
 
     expect(projection.catalogEvidence.observedAt).toBe("2026-07-02T12:00:00.000Z");
+  });
+
+  it("rehydrates continuation authority before allocating the next canonical turn after restart", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "admitted" }], inputTokens: 1, outputTokens: 1,
+        cacheReadTokens: 0, cacheWriteTokens: 0, queued: false,
+        sessionId: "transport-output", sessionMode: "mode-a", traceId: "trace",
+      },
+    } as never);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4810, stop })),
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      const firstBundleWrites: unknown[] = [];
+      const firstAdoptionWrites: unknown[] = [];
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          ...guiOperatorTransportDefaults,
+          sessionManager: {
+            factory: vi.fn() as never, getProvider: () => "openai", setProvider: vi.fn(),
+            getModel: () => GPT4O, setModel: vi.fn(),
+          },
+          authorityAdmissionEvidenceStore: {
+            persist: async (bundle) => { firstBundleWrites.push(bundle); },
+            loadSessionFacet: async () => undefined,
+          },
+          persistCanonicalSessionEvent: async (event) => { firstAdoptionWrites.push(event); },
+        },
+      });
+      let connection = guiSocketHarness.simulateConnection({ userId: "restart-user" });
+      await selectGuiTestExecutionRoute(connection.handlers, connection.wsCtx);
+      await connection.handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({ type: "message", content: "first turn" }),
+      }), connection.wsCtx);
+
+      const firstBundle = firstBundleWrites[0] as import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
+      const firstAdoption = firstAdoptionWrites[0] as import("@kilnai/core").CanonicalSessionEvent;
+      expect(firstBundle.turnId).toBe(`${firstBundle.sessionId}:turn:1`);
+      gateway.shutdown();
+      gateway = undefined;
+
+      const secondBundleWrites: typeof firstBundle[] = [];
+      const secondAdoptionWrites: import("@kilnai/core").CanonicalSessionEvent[] = [];
+      const hydrateCanonicalSession = async ({ session }: { readonly session: RuntimeSession }) => {
+        session.addUserMessage([{ type: "text", text: "persisted first user turn" }]);
+        session.addAssistantMessage([{ type: "text", text: "persisted first assistant turn" }]);
+        session.appendSessionEvents([firstAdoption]);
+        return { rehydrated: true as const, messageCount: 2, sourceSequence: 1 };
+      };
+      const resumeSessionHydrator = vi.fn()
+        .mockResolvedValueOnce({ rehydrated: false as const, messageCount: 0, reason: "temporary transcript failure" })
+        .mockImplementation(hydrateCanonicalSession);
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          ...guiOperatorTransportDefaults,
+          sessionManager: {
+            factory: vi.fn() as never, getProvider: () => "openai", setProvider: vi.fn(),
+            getModel: () => GPT4O, setModel: vi.fn(),
+          },
+          resumeSessionHydrator: resumeSessionHydrator as never,
+          authorityAdmissionEvidenceStore: {
+            persist: async (bundle) => { secondBundleWrites.push(bundle); },
+            loadSessionFacet: async () => ({
+              sessionId: firstBundle.sessionId,
+              sessionRevision: firstBundle.configuration.sessionRevision,
+              ...firstBundle.session,
+            }),
+          },
+          persistCanonicalSessionEvent: async (event) => { secondAdoptionWrites.push(event); },
+        },
+      });
+      connection = guiSocketHarness.simulateConnection({ userId: "restart-user" });
+      await selectGuiTestExecutionRoute(connection.handlers, connection.wsCtx);
+      await connection.handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message", content: "continued turn", continuationSessionId: firstBundle.sessionId,
+        }),
+      }), connection.wsCtx);
+
+      expect(resumeSessionHydrator).toHaveBeenCalledOnce();
+      expect(secondBundleWrites).toHaveLength(0);
+      await connection.handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message", content: "retry continued turn", continuationSessionId: firstBundle.sessionId,
+        }),
+      }), connection.wsCtx);
+
+      expect(resumeSessionHydrator).toHaveBeenCalledTimes(2);
+      expect(secondBundleWrites[0]?.turnId).toBe(`${firstBundle.sessionId}:turn:2`);
+      expect(secondAdoptionWrites[0]).toMatchObject({
+        operatorTurnId: `${firstBundle.sessionId}:turn:2`,
+      });
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
   });
 
   it("projects large OpenCode catalogs as diagnostic evidence without making routes selectable", () => {

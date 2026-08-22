@@ -128,6 +128,7 @@ const operatorCompositionMocks = vi.hoisted(() => {
     return {
       accountRuntime: {},
       bridge,
+      authorityAdmissionBridge: { bind: vi.fn() },
       dispatcher: {
         dispatchTurn: vi.fn(async (request: {
           readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
@@ -219,6 +220,19 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     capabilities: new Map(),
     toolAuthority: new Map(),
   })),
+  OperatorAuthorityAdmissionCoordinator: class MockOperatorAuthorityAdmissionCoordinator {
+    constructor(_options: unknown) {}
+
+    consume(_executionId: string, _bundle: unknown) {
+      return {
+        runtimeSession: { id: "test-runtime-session" },
+        builtinToolSurface: { dispose: vi.fn() },
+        mcpClients: [],
+        mcpCapabilities: [],
+        perCallConfig: {},
+      };
+    }
+  },
   RuntimeSessionTurnBudgetService: class MockRuntimeSessionTurnBudgetService {
     constructor(_policy: { readonly tokenLimit: number }, private readonly usageReader: (sessionId: string) => Promise<unknown>) {}
 

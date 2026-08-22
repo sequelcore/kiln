@@ -52,6 +52,9 @@ export function invocationEntryFromRecoveryCheckpoint(
     ...(validated.economicDispatch !== undefined
       ? { economicDispatch: cloneJson(validated.economicDispatch) }
       : {}),
+    ...(validated.childAuthorityAdmission !== undefined
+      ? { childAuthorityAdmission: cloneJson(validated.childAuthorityAdmission) }
+      : {}),
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
     ...(validated.error !== undefined ? { error: new Error(validated.error.message) } : {}),
@@ -78,6 +81,9 @@ export function recoveryCheckpointFromInvocationEntry(
     adapterStarted: entry.adapterStarted,
     ...(entry.economicDispatch !== undefined
       ? { economicDispatch: cloneJson(entry.economicDispatch) }
+      : {}),
+    ...(entry.childAuthorityAdmission !== undefined
+      ? { childAuthorityAdmission: cloneJson(entry.childAuthorityAdmission) }
       : {}),
     ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),

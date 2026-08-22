@@ -49,6 +49,14 @@ function makeRegistry(targets: DelegationTarget[]): DelegationRegistry {
   return { targets: new Map(targets.map((t) => [t.appName, t])) };
 }
 
+function targetFromProvider(provider: ProviderAdapter, systemPrompt = "You are a helper."): DelegationTarget {
+  return {
+    appName: "app-b",
+    systemPrompt,
+    execute: ({ request }) => provider.createMessage(request),
+  };
+}
+
 function makeValidDelegation(
   overrides?: Partial<AppDelegation>,
 ): AppDelegation {
@@ -69,7 +77,7 @@ describe("executeDelegation", () => {
   it("returns AppDelegationResult on success", async () => {
     const provider = makeMockProvider();
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a helper." },
+      targetFromProvider(provider),
     ]);
     const delegation = makeValidDelegation();
 
@@ -87,7 +95,7 @@ describe("executeDelegation", () => {
   it("result includes token usage from provider response", async () => {
     const provider = makeMockProvider();
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a helper." },
+      targetFromProvider(provider),
     ]);
 
     const result = await executeDelegation(makeValidDelegation(), registry);
@@ -105,7 +113,7 @@ describe("executeDelegation", () => {
   it("result includes durationMs > 0", async () => {
     const provider = makeMockProvider();
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a helper." },
+      targetFromProvider(provider),
     ]);
 
     const result = await executeDelegation(makeValidDelegation(), registry);
@@ -132,7 +140,7 @@ describe("executeDelegation", () => {
   it("returns SCHEMA_VALIDATION_FAILED when provider returns non-JSON content", async () => {
     const provider = makeMockProvider("not json");
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a helper." },
+      targetFromProvider(provider),
     ]);
 
     const result = await executeDelegation(makeValidDelegation(), registry);
@@ -146,7 +154,7 @@ describe("executeDelegation", () => {
   it("returns SCHEMA_VALIDATION_FAILED when response misses required fields", async () => {
     const provider = makeMockProvider("{}");
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a helper." },
+      targetFromProvider(provider),
     ]);
 
     const result = await executeDelegation(makeValidDelegation(), registry);
@@ -181,7 +189,7 @@ describe("executeDelegation", () => {
     };
 
     const registry = makeRegistry([
-      { appName: "app-b", provider: slowProvider, systemPrompt: "You are a helper." },
+      targetFromProvider(slowProvider),
     ]);
     const delegation = makeValidDelegation({ timeout: 10 });
 
@@ -200,7 +208,7 @@ describe("executeDelegation", () => {
     };
 
     const registry = makeRegistry([
-      { appName: "app-b", provider: failingProvider, systemPrompt: "You are a helper." },
+      targetFromProvider(failingProvider),
     ]);
 
     const result = await executeDelegation(makeValidDelegation(), registry);
@@ -214,7 +222,7 @@ describe("executeDelegation", () => {
   it("passes outputSchema to provider.createMessage options", async () => {
     const provider = makeMockProvider();
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a helper." },
+      targetFromProvider(provider),
     ]);
     const delegation = makeValidDelegation();
 
@@ -230,7 +238,7 @@ describe("executeDelegation", () => {
   it("builds system prompt containing delegation task and context", async () => {
     const provider = makeMockProvider();
     const registry = makeRegistry([
-      { appName: "app-b", provider, systemPrompt: "You are a coding assistant." },
+      targetFromProvider(provider, "You are a coding assistant."),
     ]);
     const delegation = makeValidDelegation({
       context: "The codebase uses TypeScript 5.6.",

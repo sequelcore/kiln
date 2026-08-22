@@ -391,7 +391,13 @@ async function runInternalBenchmark(
   );
   const runs = [];
   for (const deliberationLevel of deliberationMembers) {
-    const executorFlags = readExecutorFlags(args, deliberationLevel, accountOverrideIds, benchmarkPairIds);
+    const executorFlags = readExecutorFlags(
+      args,
+      deliberationLevel,
+      accountOverrideIds,
+      benchmarkPairIds,
+      join(artifactRoot, "authority-evidence"),
+    );
     const executor = dependencies.createExecuteItem?.(executorFlags)
       ?? dependencies.executeItem
       ?? createBenchmarkSessionExecutor({
@@ -1129,11 +1135,13 @@ function readExecutorFlags(
   deliberationLevel?: string,
   accountOverrideIds?: readonly string[],
   benchmarkPairIds?: readonly string[],
+  benchmarkEvidenceRoot?: string,
 ): BenchmarkSessionExecutorFlags {
   return {
     targetId: readFlag(args, "--target"),
     ...(accountOverrideIds && accountOverrideIds.length > 0 ? { accountOverrideIds } : {}),
     ...(benchmarkPairIds && benchmarkPairIds.length > 0 ? { benchmarkPairIds } : {}),
+    ...(benchmarkEvidenceRoot ? { benchmarkEvidenceRoot } : {}),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
   };

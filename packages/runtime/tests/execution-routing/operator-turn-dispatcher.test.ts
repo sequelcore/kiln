@@ -13,6 +13,7 @@ import {
 } from "../../src/index.js";
 import {
   fingerprintOperatorTurnIntent,
+  OperatorSessionAuthorityAdmissionBridge,
   OperatorSessionExecutionBridge,
   OperatorTurnDispatcher,
 } from "../../src/execution-routing/operator-turn-dispatcher.js";
@@ -179,7 +180,26 @@ function dispatcher(overrides: {
     order.push("adapter");
     return payload.result ?? accountId;
   });
-  const routing = new OperatorSessionExecutionRoutingService({
+  const authorityAdmission = new OperatorSessionAuthorityAdmissionBridge<{ readonly result?: string }>();
+  authorityAdmission.bind({
+    preflight: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "test" } }),
+    prepare: async () => ({
+      sessionId: "session-1",
+      turnId: "turn-1",
+      sessionRevision: { revisionSetId: "R1", revisions: { skills: "s1" } },
+      session: { skillCatalog: { catalogId: "operator", revision: "s1", skillIds: ["research"] }, authorityCeiling: { maximumAuthority: "audited", reason: "test" } },
+      turn: {
+        authority: { executionMode: "execute", requestedAuthority: "audited", admittedAuthority: "audited", sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
+        workGovernance: { status: "not-required" },
+        operatorAdoption: { status: "not-required" },
+        tools: { allowedToolPermissions: [], deniedToolNames: [] },
+        effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+      },
+    }),
+    persist: async () => undefined,
+    abort: async () => undefined,
+  });
+  const routing = new OperatorSessionExecutionRoutingService<{ readonly opaque: boolean }, { readonly result?: string }, string>({
     catalogSource: {
       capture: async () => ({
         catalog,
@@ -204,12 +224,26 @@ function dispatcher(overrides: {
         };
       }),
     },
+    authorityAdmission,
     dispatch: { dispatchCommittedTurn: dispatch },
   });
   return { dispatcher: new OperatorTurnDispatcher(routing), authority, order, dispatch };
 }
 
 describe("OperatorTurnDispatcher", () => {
+  it("fails closed while the authority bridge is unbound and binds once", async () => {
+    const bridge = new OperatorSessionAuthorityAdmissionBridge();
+    await expect(Promise.resolve().then(() => bridge.preflight({ request: {} as never }))).rejects.toThrow(/not bound/i);
+    const handler = {
+      preflight: async () => ({ status: "not-configured" as const }),
+      prepare: async () => { throw new Error("unused"); },
+      persist: async () => undefined,
+    };
+    bridge.bind(handler);
+    await expect(bridge.preflight({ request: {} as never })).resolves.toEqual({ status: "not-configured" });
+    expect(() => bridge.bind(handler)).toThrow(/already bound/i);
+  });
+
   it("requires one composition-owned gateway binding and cannot be rebound", async () => {
     const bridge = new OperatorSessionExecutionBridge<unknown, { readonly value: string }, string>();
     await expect(Promise.resolve().then(() => bridge.dispatchCommittedTurn({} as never))).rejects.toThrow(/not bound/i);

@@ -38,6 +38,7 @@ describe("resource SDK exports", () => {
       target: {
         gatewayTargetId: "app-gateway:support",
         resourceUri: descriptor.uri,
+        sessionId: "session-1",
       },
     };
     const operatorReadResult: OperatorResourceReadResult = {

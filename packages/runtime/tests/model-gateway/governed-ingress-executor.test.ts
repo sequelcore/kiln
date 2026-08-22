@@ -3,6 +3,7 @@ import { createExecutionAccountRef, type ModelTurnResult } from "@kilnai/core/ag
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { executeGovernedIngress } from "../../src/model-gateway/governed-ingress-executor.js";
 import type { GovernedOneRoundInvocationPorts } from "../../src/execution-kernel/governed-one-round-invocation.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 
 const route = { providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" };
@@ -31,7 +32,9 @@ function fixture(overrides: { readonly guard?: ModelGatewayReplayGuard; readonly
     candidateCatalog: { list: async () => ({ admission, candidates: [{ candidate: { accountId: "account-1", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account-1"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }) },
     accountCapacityAuthority: authority,
     attemptEvidence: { record: async () => undefined },
-    dispatcherResolver: { resolve: async () => ({ dispatchOneRound: dispatch }) },
+    dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: dispatch }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
+    budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
+    authorityAdmission: { compose: async () => ({}) as EffectiveAuthorityAdmissionBundle },
   };
   return {
     dispatch,
@@ -107,6 +110,6 @@ describe("governed ingress executor", () => {
     let abandons = 0;
     const guard: ModelGatewayReplayGuard = { fingerprint: (x) => delegate.fingerprint(x), claim: (x) => delegate.claim(x), markCommitted: () => { throw new Error("commit unavailable"); }, settleUnknown: (x, y) => delegate.settleUnknown(x, y), complete: (x, y, z) => delegate.complete(x, y, z), abandon: (x, y) => { abandons++; delegate.abandon(x, y); } };
     await expect(executeGovernedIngress(fixture({ guard }).input)).rejects.toThrow("commit unavailable");
-    expect(abandons).toBe(0);
+    expect(abandons).toBe(1);
   });
 });

@@ -5,6 +5,7 @@ import { createProviderAdapterRoutes } from "../../src/gateway/provider-adapter-
 import type { ProviderAdapterAppRuntime } from "../../src/gateway/provider-adapter-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -25,10 +26,12 @@ function makeMockProvider(): ProviderAdapter {
 
 function makeRuntime(overrides: Partial<ProviderAdapterAppRuntime> = {}): ProviderAdapterAppRuntime {
   const provider = makeMockProvider();
+  const sessionRegistry = new SessionRegistry();
   return {
     appName: "test-app",
-    orchestrator: new RuntimeSessionOrchestrator({ provider }),
-    sessionRegistry: new SessionRegistry(),
+    orchestrator: new RuntimeSessionOrchestrator({ provider, model: provider.name }),
+    sessionRegistry,
+    gatewayAdmission: makeGatewayTestAdmission(sessionRegistry, provider),
     systemPrompt: "You are a test assistant.",
     ...overrides,
   };
@@ -93,7 +96,8 @@ describe("createProviderAdapterRoutes", () => {
 
     it("validates and applies SDK communication intent", async () => {
       const provider = makeMockProvider();
-      const runtime = makeRuntime({ orchestrator: new RuntimeSessionOrchestrator({ provider }) });
+      const runtime = makeRuntime({ orchestrator: new RuntimeSessionOrchestrator({ provider, model: provider.name }) });
+      Object.assign(runtime, { gatewayAdmission: makeGatewayTestAdmission(runtime.sessionRegistry, provider) });
       const app = createProviderAdapterRoutes(runtime);
 
       const res = await app.request("/message", {
@@ -407,9 +411,10 @@ describe("createProviderAdapterRoutes", () => {
       expect(forwarded.tenant).toEqual(runtime.tenant);
       expect(forwarded.knowledgePipeline).toBe(knowledgePipeline);
       expect(forwarded.knowledgeMode).toBe("auto");
-      expect(forwarded.requestedAuthority).toBe("audited");
+      expect(forwarded.requestedAuthority).toBeUndefined();
+      expect(forwarded.authorityAdmission?.turn.authority.admittedAuthority).toBe("fail_closed");
       expect(forwarded.callBuiltinTools).toBeUndefined();
-      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set(["mcp:docs:tool:search"]));
+      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set());
 
       vi.doUnmock("../../src/gateway/message-pipeline/index.js");
       vi.resetModules();

@@ -2056,6 +2056,25 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
+  it("does not re-admit a canonical pre-fenced budget on the real text-only path", async () => {
+    const sessionTurnBudget = {
+      admit: vi.fn().mockResolvedValue({ status: "admitted", reason: "within-ceiling" }),
+    };
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-4o",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+      sessionTurnBudget,
+      authorityAdmissionContext: {} as never,
+    }));
+
+    await collectEvents(session.run({ prompt: "canonical text-only turn" }));
+
+    expect(sessionTurnBudget.admit).not.toHaveBeenCalled();
+    expect(adapterMocks.openai.ctor).toHaveBeenCalledTimes(1);
+  });
+
   it("normalizes direct-provider builtin tool executor results before runtime execution", async () => {
     coreSurfaceMocks.bridgeExecute.mockResolvedValueOnce({
       result: {

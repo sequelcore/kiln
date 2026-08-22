@@ -40,6 +40,7 @@ export {
   createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,
   resolveManagedInvocationService,
+  withManagedChildAuthorityAdmission,
   withManagedInvocationService,
 } from "./tool-factories.js";
 export {

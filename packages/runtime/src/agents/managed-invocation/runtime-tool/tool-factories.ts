@@ -4,6 +4,7 @@
 // service resolution).
 import type { ManagedAgentCallerAttachmentIdentity, ToolDefinition } from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutor } from "../../../session/runtime-session-orchestrator.types.js";
+import type { ManagedChildAuthorityAdmissionContract } from "../child-authority-admission.js";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
   ManagedRuntimeSandboxLeaseManager,
@@ -196,6 +197,14 @@ export function createManagedInvocationToolAttachment(
   callerIdentity: ManagedAgentCallerAttachmentIdentity,
 ): ManagedInvocationToolAttachment {
   return { options, callerIdentity };
+}
+
+/** Binds the committed parent bundle to the managed-child dispatch boundary. */
+export function withManagedChildAuthorityAdmission(
+  attachment: ManagedInvocationToolAttachment,
+  childAuthorityAdmission: ManagedChildAuthorityAdmissionContract,
+): ManagedInvocationToolAttachment {
+  return { ...attachment, childAuthorityAdmission };
 }
 
 export function withManagedInvocationService(

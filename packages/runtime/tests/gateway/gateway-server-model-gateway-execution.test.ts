@@ -1,7 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startGateway } from "../../src/gateway/gateway-server.js";
 
 describe("startGateway model-gateway execution composition", () => {
@@ -21,6 +21,32 @@ describe("startGateway model-gateway execution composition", () => {
       code: "CONFIG_INVALID",
       message: "Model gateway execution composition is required when modelGateway is configured.",
     });
+  });
+
+  it("fails closed before provider setup when a provider-adapter App has no execution bundle", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-gateway-app-execution-"));
+    const appPath = join(root, "app.yaml");
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(appPath, await readFile(join(process.cwd(), "tests", "gateway", "fixtures", "apps", "mode-b-app.yaml"), "utf8"), "utf8");
+    await writeFile(configPath, `port: 4800\napps:\n  - name: app\n    config: ./app.yaml\n    channels:\n      - type: api\n        path: /app\n`, "utf8");
+
+    await expect(startGateway(configPath)).rejects.toMatchObject({
+      code: "CONFIG_INVALID",
+      message: "App Gateway execution composition is required when provider-adapter Apps are configured.",
+    });
+  });
+
+  it("releases a supplied App Gateway composition when startup fails before resource registration", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-gateway-app-execution-"));
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(configPath, "not: [valid", "utf8");
+    const close = vi.fn();
+
+    await expect(startGateway(configPath, {
+      appGatewayExecution: { close } as never,
+    })).rejects.toBeDefined();
+
+    expect(close).toHaveBeenCalledOnce();
   });
 });
 

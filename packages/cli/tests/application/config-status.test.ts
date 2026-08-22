@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,8 +11,9 @@ import {
   type ReadConfigStatusOptions,
   type ReadConfigStatusViewOptions,
 } from "../../src/application/config-status.js";
-import type { KilnConfigReadView, KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
+import { KilnConfigActivationStatusSchema, type KilnConfigReadView, type KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
+import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
 import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
 import { recordMcpDiscovery } from "../../src/config/mcp-runtime-state.js";
 import {
@@ -142,6 +144,7 @@ describe("config-status", () => {
     expect(snapshot.project.kilnYaml.status).toBe("valid");
     expect(snapshot.global.status).toBe("valid");
     expect(snapshot.effectiveConfigStatus).toBe("valid");
+    expect(snapshot.activationStatus).toMatchObject({ state: "not-started", activeRevision: null });
     expect(snapshot.effectiveConfig?.fields).toContainEqual(expect.objectContaining({
       identity: "/provider",
       value: "codex-oauth",
@@ -195,6 +198,60 @@ describe("config-status", () => {
         "sync-global-instruction-shims",
       ]),
     });
+  });
+
+  it("derives activation status from the current canonical lineage and settlement evidence", async () => {
+    writeProjectConfig(tempDir);
+    const projectConfigPath = join(tempDir, ".kiln", "kiln.yaml");
+    const projectBytes = readFileSync(projectConfigPath, "utf-8");
+    const projectRevision = `sha256:${createHash("sha256").update(projectBytes).digest("hex")}`;
+    const settlement: StoredConfigMutationSettlement = {
+      proposalId: "cfg-status-reconcile",
+      approvalId: null,
+      scope: "project",
+      operation: "setting.set",
+      settledAt: "2026-05-07T12:00:00.000Z",
+      outcome: "committed",
+      baseRevision: "absent",
+      committedRevision: projectRevision,
+      appliedWrites: [{ path: projectConfigPath, previousHash: null, nextHash: projectRevision }],
+      reconciliationEffects: [],
+      diagnostics: [],
+      rollbackToken: "cfg-status-reconcile",
+      activation: "reconcile",
+      activationObservation: {
+        state: "active",
+        boundary: "reconcile",
+        committedRevision: projectRevision,
+        activeRevision: projectRevision,
+        summary: "Projection converged.",
+      },
+      reconciliationGenerations: [],
+      restore: [],
+    };
+    new ConfigMutationStore(tempDir).settle(settlement);
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    expect(snapshot.activationStatus).toMatchObject({
+      state: "active",
+      boundary: "reconcile",
+      entries: [{ proposalId: "cfg-status-reconcile", evidence: "reconciliation" }],
+    });
+  });
+
+  it("uses a deterministic schema-valid revision id when activation evidence degrades", async () => {
+    writeProjectConfig(tempDir);
+    const globalPath = join(tempDir, "xdg", "kiln", "config.yaml");
+    writeFileSync(globalPath, "version: [", "utf8");
+
+    const first = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const second = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const firstStatus = first.activationStatus;
+
+    expect(firstStatus).toMatchObject({ state: "unsupported", boundary: null, activeRevision: null });
+    expect(firstStatus?.desiredRevisionSetId).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(firstStatus?.desiredRevisionSetId).toBe(second.activationStatus?.desiredRevisionSetId);
+    expect(() => KilnConfigActivationStatusSchema.parse(firstStatus)).not.toThrow();
   });
 
   it("projects the shared settings snapshot with inherited and modified state", async () => {

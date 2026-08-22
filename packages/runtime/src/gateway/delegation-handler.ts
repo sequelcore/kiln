@@ -1,6 +1,7 @@
 // Cross-app cognitive delegation handler
 
-import type { ProviderAdapter } from "@kilnai/core";
+import type { AgentResponse } from "@kilnai/core";
+import type { CreateMessageOptions } from "@kilnai/core/agents";
 import type {
   AppDelegation,
   AppDelegationResult,
@@ -26,8 +27,13 @@ const A2A_CANCEL_TIMEOUT_MS = 5_000;
 /** Minimal info about a loaded app available as delegation target */
 export interface DelegationTarget {
   readonly appName: string;
-  readonly provider: ProviderAdapter;
   readonly systemPrompt: string;
+  /** Runtime-owned admitted execution; raw provider material never escapes the target boundary. */
+  readonly execute: (input: {
+    readonly fromApp: string;
+    readonly task: string;
+    readonly request: CreateMessageOptions;
+  }) => Promise<AgentResponse>;
 }
 
 /** Registry of apps available for delegation */
@@ -209,11 +215,15 @@ export async function executeKilnDelegation(
     const timeoutMs = delegation.timeout ?? DEFAULT_TIMEOUT_MS;
 
     const response = await Promise.race([
-      target.provider.createMessage({
+      target.execute({
+        fromApp,
+        task: delegation.task,
+        request: {
         system: systemPrompt,
         messages: [{ role: "user" as const, parts: [{ type: "text" as const, text: delegation.task }] }],
         outputSchema: delegation.schema,
         maxTokens: DELEGATION_MAX_TOKENS,
+        },
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("DELEGATION_TIMEOUT")), timeoutMs),

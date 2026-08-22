@@ -54,6 +54,8 @@ import type {
   RunSessionRouteCandidate,
 } from "../application/run-session.js";
 import { createCanonicalRunSessionDispatcher } from "../application/canonical-run-session-dispatcher.js";
+import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
+import { captureOperatorExecutionCatalogSnapshot } from "../application/operator-turn-dispatch-composition.js";
 import {
   buildRunJsonOutputEnvelope,
   computeDelegationCapabilityGap,
@@ -69,9 +71,10 @@ import { buildCliVerifiedEfficiencyEvidence } from "../application/verified-effi
 import {
   TranscriptStore,
 } from "../wrapper/session-store.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
 import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
-import { readGlobalConfig, readGlobalExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalConfigSnapshot, readGlobalExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
@@ -1623,6 +1626,15 @@ export async function runCommand(
     cwd,
     executionId: sessionId,
     routeId: selectedExecutionRoute.routeId,
+    configurationRevision: readRuntimeConfigurationRevision(cwd),
+    authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
+    sessionTurnBudget,
+    captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
+      projectPath: cwd,
+      readConfigSnapshot: readGlobalConfigSnapshot,
+      readConfigurationRevision: readRuntimeConfigurationRevision,
+      readExecutionCatalog: readGlobalExecutionCatalog,
+    }),
   });
   cleanupRegistry.register(async () => canonicalRunDispatcher.close());
   let runtimeCleanup: Promise<void> | undefined;

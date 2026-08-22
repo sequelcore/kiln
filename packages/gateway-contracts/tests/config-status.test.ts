@@ -9,6 +9,7 @@ import {
   TRUSTED_EXECUTION_PROOF_STATUSES,
   KilnConfigSetupSnapshotSchema,
   KilnConfigStatusSnapshotSchema,
+  KilnConfigActivationStatusSchema,
   KilnProjectionTargetSnapshotSchema,
   KilnSkillCatalogSnapshotSchema,
   TrustedExecutionIntegritySchema,
@@ -68,6 +69,59 @@ describe("KilnEffectiveConfigSnapshotSchema", () => {
       schemaRevision: KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION,
       health: "current",
       fields: [{ ...publicField, identity: "/mcp", sensitivity: "secret-reference", value: "secret" }],
+    })).toThrow();
+  });
+});
+
+describe("KilnConfigActivationStatusSchema", () => {
+  const digest = (letter: string) => `sha256:${letter.repeat(64)}`;
+  const activeEntry = {
+    proposalId: "cfg-active",
+    scope: "project" as const,
+    path: ".kiln/kiln.yaml",
+    committedRevision: digest("a"),
+    boundary: "reconcile" as const,
+    state: "active" as const,
+    activeRevision: digest("a"),
+    evidence: "reconciliation" as const,
+    reconciliationGenerations: [{ target: "native-skills" as const, generation: digest("e") }],
+    summary: "Projection converged.",
+  };
+  const activeStatus = {
+    desiredRevisionSetId: digest("d"),
+    state: "active" as const,
+    boundary: "reconcile" as const,
+    activeRevision: digest("d"),
+    entries: [activeEntry],
+    summary: "Projection converged.",
+  };
+
+  it("rejects malformed revisions and reconciliation generation digests", () => {
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      entries: [{ ...activeEntry, committedRevision: "not-a-digest" }],
+    })).toThrow();
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      entries: [{ ...activeEntry, reconciliationGenerations: [{ target: "native-skills", generation: "not-a-digest" }] }],
+    })).toThrow();
+  });
+
+  it("rejects active entries whose active revision does not equal the committed revision", () => {
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      entries: [{ ...activeEntry, activeRevision: digest("b") }],
+    })).toThrow();
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      entries: [{ ...activeEntry, state: "scheduled", activeRevision: digest("a") }],
+    })).toThrow();
+  });
+
+  it("rejects an active aggregate whose active revision does not equal its desired revision set", () => {
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      activeRevision: digest("a"),
     })).toThrow();
   });
 });

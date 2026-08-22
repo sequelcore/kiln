@@ -30,6 +30,7 @@ import {
 } from "@kilnai/core/engine";
 import type { EventBus } from "@kilnai/core/events";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -550,6 +551,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
     tenantRegistry.create(makeTenantConfig());
 
     const provider = makeMockProvider();
+    const sessionRegistry = new SessionRegistry();
     const loadedApp: LoadedApp = {
       name: "atendia",
       app: makeApp("atendia"),
@@ -561,8 +563,9 @@ describe("createGatewayApp multi-tenant wiring", () => {
       registry: new ChannelRegistry(),
       tenantRuntime: {
         appName: "atendia",
-        orchestrator: new RuntimeSessionOrchestrator({ provider }),
-        sessionRegistry: new SessionRegistry(),
+        orchestrator: new RuntimeSessionOrchestrator({ provider, model: provider.name }),
+        sessionRegistry,
+        gatewayAdmission: makeGatewayTestAdmission(sessionRegistry, provider),
         tenantRegistry,
       },
     };
@@ -723,20 +726,18 @@ describe("createGatewayApp multi-tenant wiring", () => {
 
   it("projects provider-adapter WebSocket messages through the governed context seam", async () => {
     const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
-    const session = {
-      id: "sess-web-1",
-      userContext: { plan: "enterprise" },
-    };
-    const sessionRegistry = {
-      getOrCreate: vi.fn().mockResolvedValue(session),
-    } as unknown as SessionRegistry;
+    const sessionRegistry = new SessionRegistry();
+    const session = await sessionRegistry.getOrCreate({ appName: "standard", tenantId: "_default", userId: "user-1", systemPrompt: "test", sessionId: "sess-web-1" });
+    session.updateUserContext({ plan: "enterprise" });
     const orchestrator = {
+      bindProvider: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("mock response"),
         inputTokens: 1,
         outputTokens: 1,
       }),
     } as unknown as RuntimeSessionOrchestrator;
+    vi.mocked(orchestrator.bindProvider).mockReturnValue(orchestrator);
     const loadedApp: LoadedApp = {
       name: "standard",
       app: makeApp("standard"),
@@ -751,6 +752,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
         appName: "standard",
         orchestrator,
         sessionRegistry,
+        gatewayAdmission: makeGatewayTestAdmission(sessionRegistry),
         billing: undefined,
         systemPrompt: "test",
       },
@@ -779,20 +781,17 @@ describe("createGatewayApp multi-tenant wiring", () => {
 
   it("projects provider-adapter WebSocket coordination context through the governed seam", async () => {
     const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
-    const session = {
-      id: "sess-web-2",
-      userContext: {},
-    };
-    const sessionRegistry = {
-      getOrCreate: vi.fn().mockResolvedValue(session),
-    } as unknown as SessionRegistry;
+    const sessionRegistry = new SessionRegistry();
+    await sessionRegistry.getOrCreate({ appName: "standard", tenantId: "_default", userId: "user-2", systemPrompt: "test", sessionId: "sess-web-2" });
     const orchestrator = {
+      bindProvider: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("mock response"),
         inputTokens: 1,
         outputTokens: 1,
       }),
     } as unknown as RuntimeSessionOrchestrator;
+    vi.mocked(orchestrator.bindProvider).mockReturnValue(orchestrator);
     const coordinationContextProvider = vi.fn().mockResolvedValue([
       {
         kind: "coordination" as const,
@@ -815,6 +814,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
         appName: "standard",
         orchestrator,
         sessionRegistry,
+        gatewayAdmission: makeGatewayTestAdmission(sessionRegistry),
         billing: undefined,
         systemPrompt: "test",
         coordinationContextProvider,
@@ -856,12 +856,14 @@ describe("createGatewayApp multi-tenant wiring", () => {
     tenantRegistry.create(makeTenantConfig({ widgetId: "widget-a" }));
     const sessionRegistry = new SessionRegistry();
     const orchestrator = {
+      bindProvider: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("mock response"),
         inputTokens: 1,
         outputTokens: 1,
       }),
     } as unknown as RuntimeSessionOrchestrator;
+    vi.mocked(orchestrator.bindProvider).mockReturnValue(orchestrator);
     const sttAdapter: SttAdapter = {
       name: "test-stt",
       transcribe: vi.fn().mockResolvedValue({ text: "transcribed audio", confidence: 0.95, durationMs: 1000 }),
@@ -885,6 +887,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
         orchestrator,
         sessionRegistry,
         tenantRegistry,
+        gatewayAdmission: makeGatewayTestAdmission(sessionRegistry),
       },
     };
 

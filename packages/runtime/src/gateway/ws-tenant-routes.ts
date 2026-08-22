@@ -18,7 +18,7 @@ import {
   extractText,
   hasModality,
 } from "@kilnai/core";
-import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
@@ -26,7 +26,6 @@ import type { AgentHandoffSummarizer } from "../session/support/summarization/ag
 import type { EventBus } from "@kilnai/core";
 import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
-import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -49,7 +48,10 @@ import type { AdmittedTurnContext } from "./message-pipeline/index.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import { sanitizeVisitorInfo, formatVisitorContext } from "./visitor-sanitizer.js";
 import type { SanitizedVisitorInfo } from "./visitor-sanitizer.js";
-import { authorityFromCapability } from "./tool-authority.js";
+import {
+  type GatewayAuthorityAdmissionCommit,
+  type GatewayAuthorityAdmissionPort,
+} from "./gateway-authority-admission.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -69,6 +71,8 @@ export interface WsTenantRoutesConfig {
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly coordinationContextProvider?: AdmittedTurnContext["coordinationContextProvider"];
+  /** Required Runtime owner for durable authority admission before WS dispatch. */
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
 
 /** Heartbeat state tracked per WebSocket connection */
@@ -195,6 +199,30 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
 
+              // The session is the identity anchor required by admission;
+              // all consequential processing below remains inside one
+              // callback, including media/STT, provider, session writes and
+              // the outbound WebSocket frames.
+              const sessionAnchor = await config.sessionRegistry.getOrCreate({
+                appName: config.appName,
+                tenantId: tenant.tenantId,
+                userId,
+                systemPrompt: "",
+                idleTimeoutMs: tenant.idleTimeoutMs,
+              });
+              try {
+                await config.gatewayAdmission.execute({
+                  ingressId: crypto.randomUUID(),
+                  appName: config.appName,
+                  tenantId: tenant.tenantId,
+                  userId,
+                  sessionId: sessionAnchor.id,
+                  channel: "web",
+                  userParts,
+                  requestedAuthority: parsed.requestedAuthority,
+                }, async (admitted: GatewayAuthorityAdmissionCommit) => {
+                  const session = admitted.session;
+
               if (config.artifactStore) {
                 try {
                   userParts = await captureMultimodalArtifacts(userParts, {
@@ -283,15 +311,6 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   }
                 }
 
-                // Get or create session first (needed for ping-pong guard)
-                const session = await config.sessionRegistry.getOrCreate({
-                  appName: config.appName,
-                  tenantId: tenant.tenantId,
-                  userId,
-                  systemPrompt: "",
-                  idleTimeoutMs: tenant.idleTimeoutMs,
-                });
-
                 // Resolve agent context (multi-agent routing with ping-pong guard)
                 const agentCtx = await resolveAgentContextAsync(
                   tenant, userParts, session,
@@ -365,26 +384,23 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
                 }
 
-                const perCallConfig = projectRequestedAuthorityPerCallConfig({
-                  toolAllowlist: tenantToolCtx.toolAllowlist,
-                  rateLimiter: tenantToolCtx.rateLimiter,
-                  tenantId: tenant.tenantId,
-                  toolAuthority: tenantToolCtx.toolAuthority,
-                  additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-                  perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-                  ...(communicationIntent ? { communicationIntent } : {}),
-                }, parsed.requestedAuthority);
-
-                const result = await config.orchestrator.processMessage(
-                  session,
+                const admittedSession = admitted.session;
+                const result = await config.orchestrator.bindProvider(
+                  admitted.provider,
+                  admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+                ).processMessage(
+                  admittedSession,
                   userParts,
                   projectedTurnContext,
                   tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-                  perCallConfig,
+                  {
+                    ...admitted.perCallConfig,
+                    ...(communicationIntent ? { communicationIntent } : {}),
+                  },
                 );
 
                 // Persist mutated session (required for non-reference stores like Redis)
-                await config.sessionRegistry.save(session);
+                await config.sessionRegistry.save(admittedSession);
 
                 // Emit handoff events when message was queued
                 if (result.queued && config.eventEmitter) {
@@ -526,6 +542,15 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   message: "Something went wrong. Please try again.",
                 }));
               }
+                  // Admission rejection is deliberately handled by the
+                  // outer catch without emitting an outbound fallback.
+                }).catch(() => {
+                  // Fail closed: no response is sent when authority admission
+                  // itself rejects the message.
+                });
+              } catch {
+                // Discard malformed or rejected messages without egress.
+              }
             }
           } catch {
             // Discard malformed messages
@@ -536,19 +561,6 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
   );
 
   return app;
-}
-
-function projectRequestedAuthorityPerCallConfig(
-  config: PerCallToolConfig,
-  requestedAuthority: OperatorTurnRequestedAuthority | undefined,
-): PerCallToolConfig {
-  return projectEffectiveTurnAuthorityPerCallConfig({
-    config,
-    executionMode: "execute",
-    requestedAuthority,
-    reason: "websocket tenant message requested turn authority",
-    authorityDescriptorFromCapability: authorityFromCapability,
-  }) ?? config;
 }
 
 function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAuthority | undefined {

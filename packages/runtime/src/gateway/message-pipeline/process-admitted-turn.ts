@@ -182,10 +182,16 @@ import {
   type RuntimeConfigurationRevisionProvider,
   type RuntimeConfigurationRevisionSnapshot,
 } from "../../session/runtime-configuration-revision-pin.js";
+import {
+  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../session/effective-authority-admission-bundle.js";
 
 export interface AdmittedTurnContext {
   readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
+  /** Exact Runtime session already bound and persisted by the authority-admission owner. */
+  readonly admittedSession?: RuntimeSession;
   readonly appName: string;
   readonly tenantId: string;
   readonly userId: string;
@@ -212,6 +218,8 @@ export interface AdmittedTurnContext {
   readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
+  /** Committed Runtime authority; when present it is the sole execution-authority source. */
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   /** Reads the current secret-free configuration revision once per admitted turn. */
   readonly runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
   readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
@@ -445,7 +453,9 @@ async function resolveSessionAndAgentContext(
       ? await captureRuntimeConfigurationRevision(ctx.runtimeConfigurationRevisionProvider)
       : undefined);
 
-  const shouldAttemptResumeHydration = ctx.sessionId !== undefined && ctx.resumeSessionHydrator !== undefined;
+  const shouldAttemptResumeHydration = ctx.admittedSession === undefined
+    && ctx.sessionId !== undefined
+    && ctx.resumeSessionHydrator !== undefined;
   const existingResumeTarget = shouldAttemptResumeHydration && ctx.sessionId
     ? await ctx.sessionRegistry.getById(ctx.sessionId)
     : undefined;
@@ -453,7 +463,7 @@ async function resolveSessionAndAgentContext(
     && (existingResumeTarget === undefined || existingResumeTarget.isExpired);
 
   // Get or create session
-  const session = await ctx.sessionRegistry.getOrCreate({
+  const session = ctx.admittedSession ?? await ctx.sessionRegistry.getOrCreate({
     appName: ctx.appName,
     tenantId: effectiveTenantId,
     userId: ctx.userId,
@@ -461,6 +471,13 @@ async function resolveSessionAndAgentContext(
     systemPrompt: initialSystemPrompt,
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
+  if (ctx.admittedSession
+    && (session.id !== ctx.authorityAdmission?.sessionId
+      || session.appName !== ctx.appName
+      || session.tenantId !== effectiveTenantId
+      || session.userId !== ctx.userId)) {
+    throw new Error("Authority-admitted Runtime session does not match the admitted turn identity.");
+  }
   const runtimeSessionConfigurationRevision = runtimeConfigurationRevision
     ? session.bindRuntimeConfigurationRevision(runtimeConfigurationRevision)
     : session.runtimeConfigurationRevision;
@@ -797,7 +814,7 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
     session,
     projectedPerCallConfig?.turnCorrelationId,
   );
-  const perCallConfig: PerCallToolConfig = {
+  let perCallConfig: PerCallToolConfig = {
     ...projectedPerCallConfig,
     turnId: canonicalTurn.turnId,
     ...(state.runtimeConfigurationRevision
@@ -807,6 +824,18 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
       ? { runtimeSessionConfigurationRevision: state.runtimeSessionConfigurationRevision }
       : {}),
   };
+  if (ctx.authorityAdmission) {
+    if (ctx.authorityAdmission.sessionId !== session.id) {
+      throw new Error("Committed authority admission does not belong to the admitted Runtime session.");
+    }
+    if (ctx.authorityAdmission.turnId !== canonicalTurn.turnId) {
+      throw new Error("Committed authority admission does not belong to the canonical Runtime turn.");
+    }
+    perCallConfig = applyEffectiveAuthorityAdmissionBundleToPerCallConfig(
+      ctx.authorityAdmission,
+      perCallConfig,
+    );
+  }
   // These values are runtime authority transport, not model-facing request
   // configuration. Keep them directly readable by the orchestrator while
   // preventing accidental projection into provider/tool request snapshots.
@@ -918,7 +947,13 @@ async function invokeOrchestratorWithLedgerCapture(
   // ids (request/live/attempt) remain correlation-only and are never authority.
   // A sink is mandatory whenever governed goal tools are available; callers
   // that provide one also get the canonical decision for non-governed turns.
-  if (governedGoalTools || ctx.persistCanonicalSessionEvent) {
+  const admittedAdoptionDecision = perCallConfig?.operatorAdoptionDecision;
+  if (admittedAdoptionDecision) {
+    if (admittedAdoptionDecision.ownerSessionId !== session.id
+      || admittedAdoptionDecision.operatorTurnId !== canonicalTurnIdentity.turnId) {
+      throw new Error("Committed operator adoption decision does not belong to the canonical Runtime turn.");
+    }
+  } else if (governedGoalTools || ctx.persistCanonicalSessionEvent) {
     const persist = requireOperatorAdoptionDecisionPersistence(ctx.persistCanonicalSessionEvent);
     const prepared = await prepareOperatorAdoptionTurn({
       session,

@@ -18,6 +18,9 @@ import type {
   ManagedEconomicReservation,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
+import { assertPersistableAuthorityAdmissionBundle } from "../../session/authority-admission-evidence.js";
+import type { ManagedChildAuthorityAdmissionContract } from "./child-authority-admission.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 
 export type ManagedAgentRuntimeRecoveryLeaseStage =
   | "worktree"
@@ -54,6 +57,8 @@ export interface ManagedAgentRuntimeRecoveryCheckpoint {
   readonly adapterStarted: boolean;
   readonly accountLease?: ManagedAccountLeaseEvidence;
   readonly economicDispatch?: ManagedAgentRuntimeEconomicDispatchCheckpoint;
+  /** Secret-free parent bundle required to replay a committed managed child. */
+  readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   readonly record?: ManagedAgentInvocationRecord;
   readonly error?: {
     readonly message: string;
@@ -217,6 +222,9 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   }
   const decision = validateAdmittedDecision(input.decision);
   const request = defineManagedAgentInvocationRequest(input.request as ManagedAgentInvocationRequest);
+  const childAuthorityAdmission = input.childAuthorityAdmission === undefined
+    ? undefined
+    : validateChildAuthorityAdmission(input.childAuthorityAdmission, request);
   const checkpoint: ManagedAgentRuntimeRecoveryCheckpoint = {
     version: 2,
     lifecycleState: input.lifecycleState,
@@ -237,6 +245,7 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     ...(input.economicDispatch !== undefined
       ? { economicDispatch: validateEconomicDispatchCheckpoint(input.economicDispatch) }
       : {}),
+    ...(childAuthorityAdmission !== undefined ? { childAuthorityAdmission } : {}),
     ...(input.record !== undefined ? { record: defineManagedAgentInvocationRecord(input.record as ManagedAgentInvocationRecord) } : {}),
     ...(isRecord(input.error) && typeof input.error.message === "string" ? { error: { message: input.error.message } } : {}),
     updatedAt: validateIsoTimestamp(input.updatedAt, "Managed runtime recovery checkpoint update timestamp is required"),
@@ -283,6 +292,20 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery account lease invocation identity does not match");
   }
   return checkpoint;
+}
+
+function validateChildAuthorityAdmission(
+  input: unknown,
+  request: ManagedAgentInvocationRequest,
+): ManagedChildAuthorityAdmissionContract {
+  if (!isRecord(input) || !isRecord(input.bundle)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery child authority admission must contain a bundle");
+  }
+  const bundle = assertPersistableAuthorityAdmissionBundle(input.bundle as unknown as EffectiveAuthorityAdmissionBundle);
+  if (bundle.sessionId !== request.parentSessionId || bundle.turnId !== request.parentTurnId) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery child authority admission identity does not match its parent");
+  }
+  return { bundle };
 }
 
 function validateEconomicDispatchCheckpoint(input: unknown): ManagedAgentRuntimeEconomicDispatchCheckpoint {

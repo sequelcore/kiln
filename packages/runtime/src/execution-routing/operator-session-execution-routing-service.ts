@@ -19,6 +19,14 @@ import {
   normalizeRuntimeConfigurationRevision,
   type RuntimeConfigurationRevisionSnapshot,
 } from "../session/runtime-configuration-revision-pin.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundleInput,
+  type EconomicCommitmentReference,
+  type TurnBudgetAdmission,
+} from "../session/effective-authority-admission-bundle.js";
+import { evaluateExecutionTargetDataPolicy, type SanitizedExecutionRouteDataPolicyDecision } from "./execution-route-data-policy-authority.js";
 
 /** Candidate evidence is prepared without resolving credential material or constructing a provider adapter. */
 export interface OperatorSessionExecutionCandidate {
@@ -76,12 +84,41 @@ export interface OperatorSessionExecutionCatalogSource {
   activate(snapshot: OperatorSessionExecutionCatalogSnapshot): void | Promise<void>;
 }
 
+/** Authority facets are supplied by the Runtime composition owner; execution identity is added only after fencing. */
+export interface OperatorSessionAuthorityAdmissionFacets {
+  readonly sessionId: string;
+  /** Canonical Runtime turn identity reserved by the session/adoption owner. */
+  readonly turnId: string;
+  readonly sessionRevision: RuntimeConfigurationRevisionSnapshot;
+  readonly session: EffectiveAuthorityAdmissionBundleInput["session"];
+  readonly turn: Omit<EffectiveAuthorityAdmissionBundleInput["turn"], "execution" | "budget">;
+  readonly economicCommitment?: EconomicCommitmentReference;
+}
+
+export interface OperatorSessionAuthorityAdmissionPort<Payload = unknown> {
+  preflight(input: {
+    readonly request: OperatorSessionExecutionRequest<Payload>;
+  }): TurnBudgetAdmission | Promise<TurnBudgetAdmission>;
+  prepare(input: {
+    readonly request: OperatorSessionExecutionRequest<Payload>;
+    readonly admission: AdmittedExecutionRoute;
+    readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+    readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+    readonly dataPolicy: SanitizedExecutionRouteDataPolicyDecision;
+  }): OperatorSessionAuthorityAdmissionFacets | Promise<OperatorSessionAuthorityAdmissionFacets>;
+  persist(bundle: EffectiveAuthorityAdmissionBundle): void | Promise<void>;
+  /** Releases any pre-dispatch authority reservation after admission fails. */
+  abort(executionId: string): void | Promise<void>;
+}
+
 export interface OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result> {
   readonly catalogSource: OperatorSessionExecutionCatalogSource;
   readonly candidates: OperatorSessionExecutionCandidatePort;
   /** Must be a SqliteManagedAccountLeaseAuthority configured with participantKind: operator-session. */
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly credentials: OperatorSessionCredentialPort<Credential>;
+  /** Sole Runtime authority-admission composition port; required for every committed turn. */
+  readonly authorityAdmission: OperatorSessionAuthorityAdmissionPort<Payload>;
   /** Adapter construction and the existing session/orchestrator pipeline are composition-owned. */
   readonly dispatch: OperatorSessionExecutionDispatch<Credential, Payload, Result>;
   readonly now?: () => Date;
@@ -96,10 +133,13 @@ const operatorSessionCommitmentBrand: unique symbol = Symbol("operator-session-c
 
 export interface OperatorSessionCommittedExecution<Credential, Payload> {
   readonly [operatorSessionCommitmentBrand]: typeof operatorSessionCommitmentBrand;
+  /** Routing reservation identity; distinct from the canonical Runtime turn when adoption owns that identity. */
+  readonly executionId: string;
   readonly admission: AdmittedExecutionRoute;
   readonly accountId: string;
   readonly lease: AccountCapacityRecord;
   readonly credential: Credential;
+  readonly authorityAdmission: EffectiveAuthorityAdmissionBundle;
   readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   readonly payload: Payload;
@@ -142,6 +182,11 @@ export class OperatorSessionExecutionRoutingError extends Error {
   override name = "OperatorSessionExecutionRoutingError";
 }
 
+/** Known cancellation before the committed bridge begins provider/effect dispatch. */
+export class OperatorSessionPreDispatchCancellationError extends Error {
+  override readonly name = "OperatorSessionPreDispatchCancellationError";
+}
+
 /**
  * Applies the Core execution-routing contract to one operator turn and commits
  * shared SQLite capacity before any provider adapter or credential is materialized.
@@ -168,8 +213,10 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     let account: ExecutionCatalog["accounts"][number];
     let fenceId: string;
     let fenced: AccountCapacityRecord;
+    let budgetAdmission: TurnBudgetAdmission;
     let capacityAcquired = false;
     try {
+      budgetAdmission = await this.#options.authorityAdmission.preflight({ request });
       snapshot = await this.#captureAndNormalizeSnapshot();
       await this.#options.catalogSource.activate(snapshot);
       admission = admitOperatorExecutionIntent(snapshot.catalog, request.intent);
@@ -187,11 +234,14 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
       try {
         if (capacityAcquired) this.#releasePreFenceOrThrow(request.executionId, error);
       } finally {
+        await this.#options.authorityAdmission.abort(request.executionId);
         releaseAdmissionOnce();
       }
       throw error;
     }
     let credential: Credential;
+    let binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+    let authorityAdmission: EffectiveAuthorityAdmissionBundle;
     try {
       const resolved = await this.#options.credentials.resolve({
         routeId: admission.routeId,
@@ -202,39 +252,93 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         configurationRevision: snapshot.configurationRevision,
       });
       if (resolved.credentialId !== account.credentialId || resolved.credentialRevisionId !== fenced.credentialRevisionId) {
-        this.#settleUnknown(request.executionId, fenceId, "credential-identity-drift");
         throw new OperatorSessionExecutionRoutingError("The post-fence credential identity does not match the committed account lease.");
       }
       credential = resolved.credential;
-    } catch (error) {
-      try {
-        if (!(error instanceof OperatorSessionExecutionRoutingError)) {
-          this.#settleUnknown(request.executionId, fenceId, "credential-resolution-failed");
-        }
-      } finally {
-        releaseAdmissionOnce();
-      }
-      throw error;
-    }
-    // Provider dispatch remains concurrent; only effective-config admission is
-    // serialized through credential identity resolution and the dispatch fence.
-    releaseAdmissionOnce();
-    try {
-      const binding = Object.freeze({
+
+      binding = Object.freeze({
         status: "bound" as const,
         routeId: admission.routeId,
         accountId: account.id,
         credentialId: account.credentialId,
         credentialRevision: fenced.credentialRevisionId,
       });
+      const route = snapshot.catalog.routes.find(({ id }) => id === admission.routeId);
+      const dataPolicy = evaluateExecutionTargetDataPolicy({
+        routeId: admission.routeId,
+        providerId: admission.providerId,
+        providerModelId: admission.providerModelId,
+        requestedClassification: route?.dataClassification ?? "restricted",
+        evidence: route?.dataPolicyEvidence,
+        now: this.#now(),
+      });
+      if (dataPolicy.decision.status !== "admitted") {
+        throw new OperatorSessionExecutionRoutingError(`Execution route data policy denied execution: ${dataPolicy.decision.reason}.`);
+      }
+      const facets = await this.#options.authorityAdmission.prepare({ request, admission, snapshot, binding, dataPolicy });
+      authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
+        sessionId: facets.sessionId,
+        turnId: facets.turnId,
+        admittedAt: this.#now().toISOString(),
+        configuration: {
+          sessionRevision: facets.sessionRevision,
+          turnRevision: snapshot.configurationRevision,
+        },
+        session: facets.session,
+        turn: {
+          authority: facets.turn.authority,
+          workGovernance: facets.turn.workGovernance,
+          operatorAdoption: facets.turn.operatorAdoption,
+          tools: facets.turn.tools,
+          effectCeiling: facets.turn.effectCeiling,
+          budget: budgetAdmission,
+          execution: {
+            status: "routed",
+            route: admission,
+            dataPolicy,
+            binding,
+            ...(facets.economicCommitment ? { economicCommitment: facets.economicCommitment } : {}),
+          },
+        },
+      });
+      await this.#options.authorityAdmission.persist(authorityAdmission);
+    } catch (error) {
+      let settlementFailure: unknown;
+      try {
+        this.#settleCancelledPreserving(request.executionId, fenceId, error);
+      } catch (failure) {
+        settlementFailure = failure;
+      } finally {
+        try {
+          await this.#options.authorityAdmission.abort(request.executionId);
+        } catch (abortFailure) {
+          settlementFailure ??= abortFailure;
+        }
+        releaseAdmissionOnce();
+      }
+      if (settlementFailure) throw settlementFailure;
+      throw error;
+    }
+    if (authorityAdmission.turn.execution.status !== "routed") {
+      throw new OperatorSessionExecutionRoutingError("Authority admission did not produce a routed execution.");
+    }
+    const committedBinding = authorityAdmission.turn.execution.binding;
+    const committedRoute = authorityAdmission.turn.execution.route;
+    const committedConfigurationRevision = authorityAdmission.configuration.turnRevision;
+    // Provider dispatch remains concurrent; only effective-config admission is
+    // serialized through credential identity resolution and the dispatch fence.
+    releaseAdmissionOnce();
+    try {
       const committed = Object.freeze({
         [operatorSessionCommitmentBrand]: operatorSessionCommitmentBrand,
-        admission,
-        accountId: account.id,
+        executionId: request.executionId,
+        admission: committedRoute,
+        accountId: committedBinding.accountId,
         lease: fenced,
         credential,
-        configurationRevision: snapshot.configurationRevision,
-        binding,
+        authorityAdmission,
+        configurationRevision: committedConfigurationRevision,
+        binding: committedBinding,
         payload: request.payload,
       }) as OperatorSessionCommittedExecution<Credential, Payload>;
       const result = await this.#options.dispatch.dispatchCommittedTurn(committed);
@@ -244,14 +348,14 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         { kind: "completed", outcome: "success", observedAt: this.#now().toISOString() },
       );
       return Object.freeze({
-        admission,
-        accountId: account.id,
+        admission: committedRoute,
+        accountId: committedBinding.accountId,
         leaseId: fenced.leaseId,
         evidence: Object.freeze({
-          routeId: admission.routeId,
-          accountId: account.id,
-          credentialId: account.credentialId,
-          credentialRevision: fenced.credentialRevisionId,
+          routeId: committedRoute.routeId,
+          accountId: committedBinding.accountId,
+          credentialId: committedBinding.credentialId,
+          credentialRevision: committedBinding.credentialRevision,
           capacityIdentity: fenced.capacityIdentity,
           leaseId: fenced.leaseId,
           dispatchFenceId: fenceId,
@@ -260,7 +364,22 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         result,
       });
     } catch (error) {
-      this.#settleUnknown(request.executionId, fenceId, "dispatch-outcome-unknown");
+      let settlementFailure: unknown;
+      try {
+        if (error instanceof OperatorSessionPreDispatchCancellationError) {
+          this.#settleCancelled(request.executionId, fenceId);
+        } else {
+          this.#settleUnknown(request.executionId, fenceId, "dispatch-outcome-unknown");
+        }
+      } catch (failure) {
+        settlementFailure = failure;
+      }
+      try {
+        await this.#options.authorityAdmission.abort(request.executionId);
+      } catch (failure) {
+        settlementFailure ??= failure;
+      }
+      if (settlementFailure) throw settlementFailure;
       throw error;
     }
   }
@@ -330,6 +449,24 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         throw new OperatorSessionExecutionRoutingError("The acquired account lease does not match the selected account binding.");
       }
       return account;
+    }
+  }
+
+  #settleCancelled(executionId: string, fenceId: string): void {
+    this.#options.accountCapacityAuthority.settleAccountCapacity(executionId, fenceId, {
+      kind: "completed",
+      outcome: "cancelled",
+      observedAt: this.#now().toISOString(),
+    });
+  }
+
+  #settleCancelledPreserving(executionId: string, fenceId: string, original: unknown): void {
+    try {
+      this.#settleCancelled(executionId, fenceId);
+    } catch (settlementError) {
+      throw new OperatorSessionExecutionRoutingError(
+        `${errorMessage(original)}; settlement error: ${errorMessage(settlementError)}`,
+      );
     }
   }
 

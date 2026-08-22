@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { ProviderModelRouteIdentity, ModelTurnResult } from "@kilnai/core";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import {
   abandonModelGatewayReplayClaim,
   commitModelGatewayReplayClaim,
@@ -41,6 +42,8 @@ export interface ModelGatewayReplayGuard {
   fingerprint(input: ModelGatewayReplayFingerprintInput): ModelGatewayReplayKey;
   claim(key: ModelGatewayReplayKey): ModelGatewayReplayDecision;
   markCommitted(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void;
+  /** Atomic model-gateway admission commit; implemented by the durable store. */
+  commitAdmission?(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, bundle: EffectiveAuthorityAdmissionBundle): void;
   settleUnknown(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void;
   complete(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, value: ModelGatewayReplayCompletedValue): void;
   abandon(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void;
@@ -140,6 +143,10 @@ export class InMemoryModelGatewayReplayGuard implements ModelGatewayReplayGuard 
     const entry = this.#require(key);
     entry.claim = commitModelGatewayReplayClaim(entry.claim, fence);
     entry.expiresAt = undefined;
+  }
+
+  commitAdmission(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, _bundle: EffectiveAuthorityAdmissionBundle): void {
+    this.markCommitted(key, fence);
   }
 
   settleUnknown(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void {

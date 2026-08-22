@@ -13,6 +13,10 @@ import { requireApiKey } from "./auth-middleware.js";
 import { processAdmittedTurn } from "./message-pipeline/index.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
+import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+import {
+  type GatewayAuthorityAdmissionPort,
+} from "./gateway-authority-admission.js";
 
 /** Runtime configuration for a provider-adapter app */
 export interface ProviderAdapterAppRuntime {
@@ -33,6 +37,9 @@ export interface ProviderAdapterAppRuntime {
   readonly groundingDeps?: import("./message-pipeline/index.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly coordinationContextProvider?: import("./message-pipeline/index.js").AdmittedTurnContext["coordinationContextProvider"];
+  /** Required Runtime owner for durable, complete authority admission. */
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
+  /** Transitional non-authority application hint; ignored by this route. */
   readonly toolAllowlist?: ReadonlySet<string>;
 }
 
@@ -112,14 +119,33 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
       }
     }
 
+    const session = await runtime.sessionRegistry.getOrCreate({
+      appName: runtime.appName,
+      tenantId,
+      userId: body.userId,
+      systemPrompt: runtime.tenant ? buildTenantSystemPrompt(runtime.tenant) : runtime.systemPrompt,
+    });
     let processResult;
     try {
-      processResult = await processAdmittedTurn({
-        orchestrator: runtime.orchestrator,
+      processResult = await runtime.gatewayAdmission.execute({
+          ingressId: crypto.randomUUID(),
+          appName: runtime.appName,
+          tenantId,
+          userId: body.userId,
+          sessionId: session.id,
+          channel: "api",
+          userParts,
+          requestedAuthority: body.requestedAuthority,
+        }, async (admitted) => processAdmittedTurn({
+        orchestrator: runtime.orchestrator.bindProvider(
+          admitted.provider,
+          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+        ),
         sessionRegistry: runtime.sessionRegistry,
         appName: runtime.appName,
         tenantId,
         userId: body.userId,
+        admittedSession: admitted.session,
         systemPrompt: runtime.systemPrompt,
         userParts,
         artifactStore: runtime.artifactStore,
@@ -127,7 +153,10 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         ttsAdapter: runtime.ttsAdapter,
         billing: runtime.billing,
         channel: "api",
-        requestedAuthority: body.requestedAuthority,
+        authorityAdmission: admitted.bundle,
+        // requestedAuthority is an ingress request, not an execution
+        // authority source. The committed bundle above is the sole authority.
+        requestedAuthority: undefined,
         userContext,
         knowledgePipeline: runtime.knowledgePipeline,
         knowledgeMode: runtime.knowledgeMode,
@@ -135,18 +164,17 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         handoffSummarizer: runtime.handoffSummarizer,
         eventBus: runtime.eventBus,
         groundingMode: runtime.tenant?.groundingMode,
-        groundingDeps: runtime.groundingDeps,
+        groundingDeps: runtime.groundingDeps ? {
+          ...runtime.groundingDeps,
+          providerPool: new Map([[admitted.provider.name, admitted.provider]]),
+        } : undefined,
         contextArtifactCache: runtime.contextArtifactCache,
         coordinationContextProvider: runtime.coordinationContextProvider,
-        ...(runtime.toolAllowlist || communicationIntent
-          ? {
-              perCallConfig: {
-                ...(runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
-                ...(communicationIntent ? { communicationIntent } : {}),
-              },
-            }
-          : {}),
-      });
+        perCallConfig: {
+          ...admitted.perCallConfig,
+          ...(communicationIntent ? { communicationIntent } : {}),
+        },
+      }));
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);
       return c.json({ error: String(err) }, 500);

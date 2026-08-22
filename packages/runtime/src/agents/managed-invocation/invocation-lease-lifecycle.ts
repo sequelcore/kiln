@@ -24,7 +24,11 @@ import {
   isRuntimeRecoveryCleanupResolved,
   recoveryCheckpointFromInvocationEntry,
 } from "./invocation-recovery-checkpoint.js";
-import type { ManagedAgentRuntimeInvocationEntry, RuntimeManagedAgentInvocationServiceOptions } from "./invocation-service.js";
+import type {
+  ManagedAgentRuntimeInvocationEntry,
+  ManagedAgentRuntimeInvocationRecord,
+  RuntimeManagedAgentInvocationServiceOptions,
+} from "./invocation-service.js";
 
 export function isSideEffectedLeaseAcquireError(error: unknown): boolean {
   return error instanceof ManagedAgentLeaseAcquireError && error.sideEffected;
@@ -262,7 +266,7 @@ export async function currentTerminalRecord(entry: ManagedAgentRuntimeInvocation
     return entry.leaseFinalization;
   }
   if (entry.record) {
-    return defineManagedAgentInvocationRecord(entry.record);
+    return attachRuntimeAuthorityAdmission(entry, defineManagedAgentInvocationRecord(entry.record));
   }
   throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no terminal record");
 }
@@ -277,7 +281,10 @@ async function finalizeTerminalLease(
     .reverse()
     .filter((stage) => !entry.releasedLeaseStages.includes(stage));
   if (!resourceLeaseForRelease || entry.acquiredLeaseStages.length === 0) {
-    const finalizedRecord = projectManagedInvocationRecordResources(defineManagedAgentInvocationRecord(record));
+    const finalizedRecord = attachRuntimeAuthorityAdmission(
+      entry,
+      projectManagedInvocationRecordResources(defineManagedAgentInvocationRecord(record)),
+    );
     await saveOrDeleteRuntimeRecoveryCheckpoint(options, entry, finalizedRecord);
     return finalizedRecord;
   }
@@ -331,8 +338,10 @@ async function finalizeTerminalLease(
   }
   const terminalResourceLease = sanitizeEnvironmentLeaseEvidence(resourceLease, entry.environmentValueLeakingUris);
   const terminalDiagnostics = sanitizeEnvironmentDiagnostics(diagnostics, entry.environmentValueLeakingUris);
-  const finalizedRecord = projectManagedInvocationRecordResources(
-    defineManagedAgentInvocationRecord({
+  const finalizedRecord = attachRuntimeAuthorityAdmission(
+    entry,
+    projectManagedInvocationRecordResources(
+      defineManagedAgentInvocationRecord({
       ...record,
       resourceLease: {
         ...terminalResourceLease,
@@ -345,10 +354,21 @@ async function finalizeTerminalLease(
           : {}),
       },
       ...(terminalDiagnostics.length > 0 ? { diagnostics: terminalDiagnostics } : {}),
-    }),
+      }),
+    ),
   );
   await saveOrDeleteRuntimeRecoveryCheckpoint(options, entry, finalizedRecord);
   return finalizedRecord;
+}
+
+/** Preserve runtime-owned bundle evidence across Core's canonical record projection. */
+function attachRuntimeAuthorityAdmission(
+  entry: ManagedAgentRuntimeInvocationEntry,
+  record: ManagedAgentInvocationRecord,
+): ManagedAgentRuntimeInvocationRecord {
+  return entry.childAuthorityAdmission === undefined
+    ? record
+    : { ...record, authorityAdmission: entry.childAuthorityAdmission.bundle };
 }
 
 async function releaseRuntimeResourceLeaseStage(

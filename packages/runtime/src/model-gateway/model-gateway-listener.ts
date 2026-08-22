@@ -11,6 +11,10 @@ import type {
 import type { ExecutionCatalog } from "@kilnai/core";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
 import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
+import type {
+  GovernedOneRoundAuthorityAdmissionPort,
+  GovernedOneRoundBudgetAdmissionPort,
+} from "../execution-kernel/governed-one-round-invocation.js";
 import pkg from "../../package.json" with { type: "json" };
 import { createCodexCompositeFetch } from "./codex-composite-router.js";
 import {
@@ -50,6 +54,10 @@ export interface StartModelGatewayListenerOptions {
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
+  /** Required live budget authority; omitted composition fails closed. */
+  readonly budgetAdmission?: GovernedOneRoundBudgetAdmissionPort;
+  /** Required Runtime bundle composer; omitted composition fails closed. */
+  readonly authorityAdmission?: GovernedOneRoundAuthorityAdmissionPort;
   readonly databasePath: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly identity?: ModelGatewayListenerIdentityInput;
@@ -78,6 +86,9 @@ export type ModelGatewayShutdownResult =
 /** Starts only the private model ingress and owns its listener/store lifecycle. */
 export async function startModelGatewayListener(options: StartModelGatewayListenerOptions): Promise<ModelGatewayListenerHandle> {
   const env = options.env ?? process.env;
+  if (!options.budgetAdmission || !options.authorityAdmission) {
+    throw new Error("Model gateway execution requires live budget and authority-admission composition.");
+  }
   const handle = await createModelGatewayIngress({
     config: options.config,
     executionCatalog: options.executionCatalog,
@@ -85,6 +96,8 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
     executionCandidates: options.executionCandidates,
     executionDispatcher: options.executionDispatcher,
     accountCapacityAuthority: options.accountCapacityAuthority,
+    budgetAdmission: options.budgetAdmission,
+    authorityAdmission: options.authorityAdmission,
     databasePath: options.databasePath,
     ...(options.env === undefined ? {} : { env: options.env }),
   });

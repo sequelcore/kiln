@@ -38,6 +38,7 @@ import type {
   ManagedEconomicDispatchPrepareInput,
   ManagedEconomicLifecycleEventPort,
 } from "../economic-dispatch-coordinator.js";
+import type { ManagedChildAuthorityAdmissionContract } from "../child-authority-admission.js";
 import type { ManagedEconomicCandidateSet } from "./economic-candidate-collection.js";
 
 export interface ManagedInvocationRouteProfile {
@@ -169,6 +170,8 @@ export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptio
 export interface ManagedInvocationToolAttachment {
   readonly options: ManagedInvocationToolOptions;
   readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
+  /** Narrow authority contract for this managed-child dispatch boundary. */
+  readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
   readonly governedScopeAdmission?: ManagedInvocationGovernedScopeAdmission;
   readonly boundedWorkAdmission?: ManagedInvocationBoundedWorkAdmission;
 }

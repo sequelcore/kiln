@@ -1,11 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
+  OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
   projectOperatorResourceReadPresentation,
   projectOperatorResourceReadResult,
 } from "../src/resource-inspector.js";
 
 describe("resource inspector contract", () => {
+  it("requires a session-scoped target for every resource read", () => {
+    expect(() => OperatorResourceReadRequestSchema.parse({
+      uri: "kiln://session/work-items/work-1",
+    })).toThrow();
+
+    expect(OperatorResourceReadRequestSchema.parse({
+      uri: "kiln://session/work-items/work-1",
+      target: {
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items/work-1",
+      },
+    })).toMatchObject({
+      target: {
+        sessionId: "session-1",
+      },
+    });
+  });
+
   it("projects provider text reads into a target-aware operator resource result", () => {
     const result = projectOperatorResourceReadResult({
       uri: "kiln://session/work-items/work-1",
