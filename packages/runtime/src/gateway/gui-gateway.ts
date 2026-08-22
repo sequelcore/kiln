@@ -80,12 +80,16 @@ import {
   KilnConfigurationOnboardingApplyRequestSchema,
   KilnConfigurationOnboardingResultSchema,
   KilnConfigurationOnboardingSnapshotSchema,
+  KilnSettingsApplyRequestSchema,
+  KilnSettingsMutationResultSchema,
+  KilnSettingsProposalRequestSchema,
+  KilnSettingsProposalProjectionSchema,
+  KilnSettingsSnapshotSchema,
   isGuiExecutableConfigSetupAction,
   OperatorResourceReadRequestSchema,
   buildOperatorToolResultPayload,
   projectOperatorResourceReadResult,
   isGuiProviderModeless,
-  isOperatorThemeName,
   type GuiDashboardSnapshot,
   type GuiBrowserOperatorInput,
   type GuiBrowserOperatorInputAckFrame,
@@ -103,6 +107,11 @@ import {
   type KilnConfigurationOnboardingApplyRequest,
   type KilnConfigurationOnboardingResult,
   type KilnConfigurationOnboardingSnapshot,
+  type KilnSettingsApplyRequest,
+  type KilnSettingsMutationResult,
+  type KilnSettingsProposalProjection,
+  type KilnSettingsProposalRequest,
+  type KilnSettingsSnapshot,
   type GuiMemoryLatticeScope,
   type GuiSessionDetail,
   type OperatorSessionSummary,
@@ -158,6 +167,13 @@ export interface StartGuiGatewayOptions {
   readonly applyConfigurationOnboarding?: (
     request: KilnConfigurationOnboardingApplyRequest,
   ) => Promise<KilnConfigurationOnboardingResult>;
+  readonly getSettingsSnapshot?: () => Promise<KilnSettingsSnapshot>;
+  readonly proposeSettingsMutation?: (
+    request: KilnSettingsProposalRequest,
+  ) => Promise<KilnSettingsProposalProjection>;
+  readonly applySettingsMutation?: (
+    request: KilnSettingsApplyRequest,
+  ) => Promise<KilnSettingsMutationResult>;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly discoverOperatorProviders?: () => Promise<readonly GuiProviderDiscoveryResult[]>;
   readonly initialOperatorDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -168,7 +184,6 @@ export interface StartGuiGatewayOptions {
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
   readonly workspaceExplorer?: OperatorWorkspaceExplorer;
-  readonly updateThemePreference?: (theme: string) => Promise<void> | void;
   /** Route selection is the only operator execution-selection authority. */
   readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
   readonly createExecutionRoute?: (request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, evidence: import("./execution-route-create-handler.js").ExecutionRouteCreationDiscoveryEvidence) => Promise<{ readonly status: "created" | "committed-refresh-failed"; readonly revision: string }>;
@@ -621,6 +636,47 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     ));
   });
 
+  app.get("/gui/api/config/settings", async (c) => {
+    if (!options.getSettingsSnapshot) {
+      return c.json({ error: "settings_unavailable" }, 404);
+    }
+    return c.json(KilnSettingsSnapshotSchema.parse(await options.getSettingsSnapshot()));
+  });
+
+  app.post("/gui/api/config/settings/proposals", async (c) => {
+    if (!options.proposeSettingsMutation) {
+      return c.json({ error: "settings_mutation_unavailable" }, 404);
+    }
+    if (!operatorTerminalCapability
+      || c.req.header("x-kiln-operator-token") !== operatorTerminalCapability) {
+      return c.json({ error: "operator_authorization_required" }, 403);
+    }
+    const parsed = KilnSettingsProposalRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "invalid_settings_proposal_request" }, 400);
+    }
+    return c.json(KilnSettingsProposalProjectionSchema.parse(
+      await options.proposeSettingsMutation(parsed.data),
+    ));
+  });
+
+  app.post("/gui/api/config/settings/apply", async (c) => {
+    if (!options.applySettingsMutation) {
+      return c.json({ error: "settings_mutation_unavailable" }, 404);
+    }
+    if (!operatorTerminalCapability
+      || c.req.header("x-kiln-operator-token") !== operatorTerminalCapability) {
+      return c.json({ error: "operator_authorization_required" }, 403);
+    }
+    const parsed = KilnSettingsApplyRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "invalid_settings_apply_request" }, 400);
+    }
+    return c.json(KilnSettingsMutationResultSchema.parse(
+      await options.applySettingsMutation(parsed.data),
+    ));
+  });
+
   app.get("/gui/api/workspace/tree", async (c) => {
     if (!options.workspaceExplorer) {
       return c.json({
@@ -657,19 +713,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       const { status, body } = workspaceErrorResponse(error);
       return c.json(body, status);
     }
-  });
-
-  app.post("/gui/api/preferences/theme", async (c) => {
-    if (!options.updateThemePreference) {
-      return c.json({ error: "unsupported" }, 404);
-    }
-    const payload = await c.req.json().catch(() => null) as { theme?: unknown } | null;
-    const theme = typeof payload?.theme === "string" ? payload.theme.trim() : "";
-    if (!isOperatorThemeName(theme)) {
-      return c.json({ error: "invalid_theme" }, 400);
-    }
-    await options.updateThemePreference(theme);
-    return c.json({ ok: true });
   });
 
   const handleManagedWindowClose = (c: { body: (data: null, status: 204) => Response }) => {

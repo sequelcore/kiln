@@ -17,9 +17,8 @@ import type {
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
 import { parse, parseDocument, stringify, type Document } from "yaml";
-import { defaultGlobalConfig, validateGlobalConfig } from "../config/global-config.js";
+import { validateGlobalConfig } from "../config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
-import { defaultKilnYaml } from "../kiln-yaml.js";
 import { isAlias, isCollection } from "yaml";
 import {
   projectExecutionCatalogFromIntent,
@@ -33,6 +32,7 @@ import {
   configSettingDescriptor,
   configSettingGovernance,
   configSettingKeys,
+  normalizeStringListRecord,
   parseConfigSettingValue,
 } from "./config-setting-descriptors.js";
 import { parseProjectConfigStructure } from "../config/project-config-schema.js";
@@ -318,10 +318,9 @@ function normalizeSettingSet(
     });
   }
 
-  const rawValue = requireText(payload.value, "value", diagnostics);
   let admitted: unknown;
-  if (descriptor && rawValue) {
-    const parsed = parseConfigSettingValue(descriptor, rawValue);
+  if (descriptor) {
+    const parsed = parseSettingInput(descriptor, payload.value);
     if (parsed.ok) {
       admitted = parsed.value;
     } else {
@@ -355,7 +354,7 @@ function normalizeSettingSet(
 
   return {
     scope,
-    payload: { scope, key, value: rawValue },
+    payload: { scope, key, value: admitted },
     path,
     nextContent,
     diagnostics,
@@ -367,6 +366,40 @@ function normalizeSettingSet(
     reconciliationTargets: descriptor?.reconciliationTargets ?? [],
     activation: governance.activation,
   };
+}
+
+function parseSettingInput(
+  descriptor: NonNullable<ReturnType<typeof configSettingDescriptor>>,
+  value: unknown,
+): ReturnType<typeof parseConfigSettingValue> {
+  if (typeof value === "string") {
+    return parseConfigSettingValue(descriptor, value);
+  }
+  switch (descriptor.value.kind) {
+    case "boolean":
+      return typeof value === "boolean"
+        ? { ok: true, value }
+        : { ok: false, message: `Invalid boolean value for ${descriptor.key}.` };
+    case "number":
+      return typeof value === "number" && Number.isFinite(value)
+        ? { ok: true, value }
+        : { ok: false, message: `Invalid numeric value for ${descriptor.key}.` };
+    case "string-list":
+      return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+        ? { ok: true, value: value.map((entry) => entry.trim()).filter(Boolean) }
+        : { ok: false, message: `Invalid value for ${descriptor.key}: expected a string array.` };
+    case "string-list-record":
+      return normalizeStringListRecord(value, descriptor.key);
+    case "json":
+      return value !== undefined
+        ? { ok: true, value }
+        : { ok: false, message: `Invalid value for ${descriptor.key}: expected JSON-compatible data.` };
+    case "text":
+    case "enum":
+    case "timezone":
+    case "operator-theme":
+      return { ok: false, message: `Invalid text value for ${descriptor.key}.` };
+  }
 }
 
 /** Scope must be stated exactly; a typo must never silently target another document. */
@@ -415,12 +448,7 @@ function admitProjectStructure(
   }
 }
 
-/**
- * Restores one configuration scope to its defaults.
- *
- * A reset can revert permission, governance, and interactive-use material in
- * one step, so it always counts as authority-affecting and requires approval.
- */
+/** Removes one descriptor-owned key and returns the document to inheritance. */
 function normalizeSettingReset(
   context: ConfigMutationContext,
   rawPayload: unknown,
@@ -428,24 +456,84 @@ function normalizeSettingReset(
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const scope = admitScope(payload.scope, diagnostics);
+  const key = requireText(payload.key, "key", diagnostics);
+  const descriptor = key ? configSettingDescriptor(key) : undefined;
+  if (key && !descriptor) {
+    diagnostics.push({
+      severity: "error",
+      field: "key",
+      message: `Unknown configuration key: ${key}. Supported keys: ${configSettingKeys().join(", ")}`,
+    });
+  }
+  if (descriptor && !descriptor.scopes.includes(scope)) {
+    diagnostics.push({
+      severity: "error",
+      field: "scope",
+      message: `${descriptor.key} cannot be reset in the ${scope} scope. Supported scopes: ${descriptor.scopes.join(", ")}.`,
+    });
+  }
   const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context.projectPath);
-  // Reset is an explicit request for defaults, so unlike a settings change it
-  // may establish a configuration that does not exist yet.
-
-  const defaults = scope === "global" ? defaultGlobalConfig() : defaultKilnYaml("generic");
+  const document = readCanonicalDocument(path, scope, diagnostics);
+  if (document && descriptor && descriptor.scopes.includes(scope)) {
+    if (targetsAlias(document, descriptor.path)) {
+      diagnostics.push({
+        severity: "error",
+        field: "key",
+        message: `${descriptor.key} resolves through a YAML alias. Edit the anchor directly instead.`,
+      });
+    } else if (!hasDocumentPath(document, descriptor.path)) {
+      diagnostics.push({
+        severity: "error",
+        field: "key",
+        message: `${descriptor.key} is already inherited in the ${scope} scope.`,
+      });
+    } else {
+      document.deleteIn([...descriptor.path]);
+      pruneEmptyParents(document, descriptor.path);
+    }
+  }
+  const nextContent = document?.toString() ?? "";
+  if (nextContent && diagnostics.every((entry) => entry.severity !== "error")) {
+    if (scope === "global") {
+      admitGlobalStructure(nextContent, diagnostics);
+    } else {
+      admitProjectStructure(nextContent, path, diagnostics);
+    }
+  }
+  const governance = descriptor
+    ? configSettingGovernance(descriptor, scope)
+    : { authorityBearing: true, activation: "next-session" as const, owners: [] };
   return {
     scope,
-    payload: { scope },
+    payload: { scope, key },
     path,
-    // Reset replaces the document outright, so comment preservation does not
-    // apply: the operator asked for defaults, not an edit of what they wrote.
-    nextContent: stringify(defaults),
+    nextContent,
     diagnostics,
-    authorityImpact: "unknown",
-    affectedOwners: scope === "global" ? ["operator-preferences", "permission-authority"] : ["project-composition", "permission-authority"],
-    reconciliationTargets: ["repo-shims"],
-    activation: "next-session",
+    authorityImpact: governance.authorityBearing ? "unknown" : "none",
+    affectedOwners: governance.owners,
+    reconciliationTargets: descriptor?.reconciliationTargets ?? [],
+    activation: governance.activation,
   };
+}
+
+function hasDocumentPath(document: Document, path: readonly string[]): boolean {
+  for (let depth = 1; depth <= path.length; depth += 1) {
+    const node = document.getIn(path.slice(0, depth), true);
+    if (node === undefined) return false;
+    if (depth < path.length && !isCollection(node)) return false;
+  }
+  return true;
+}
+
+/** Deletes empty mapping parents left behind by a keyed reset. */
+function pruneEmptyParents(document: Document, path: readonly string[]): void {
+  for (let depth = path.length - 1; depth > 0; depth -= 1) {
+    const parent = document.getIn(path.slice(0, depth), true);
+    if (!isCollection(parent)) break;
+    const items = (parent as { readonly items?: readonly unknown[] }).items;
+    if (!items || items.length !== 0) break;
+    document.deleteIn(path.slice(0, depth));
+  }
 }
 
 /**

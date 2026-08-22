@@ -229,17 +229,30 @@ describe("configCommand", () => {
     });
   });
 
-  it("reset writes default kiln.yaml", async () => {
+  it("reset removes one keyed override and preserves unrelated settings", async () => {
     seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "reset", ["--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "reset", ["domain", "--approve"], tempDir);
 
     const config = readKiln(tempDir);
-    expect(config.domain).toBe("generic");
-    expect(config).not.toHaveProperty("provider");
-    expect(config).not.toHaveProperty("model");
-    expect(config).not.toHaveProperty("mode");
+    expect(config).not.toHaveProperty("domain");
+    expect(config.teamMode).toBe("sequential");
+    expect(config.maxDepth).toBe(3);
     expect(config.permissions?.approval).toBe("on-request");
+  });
+
+  it("settings prints all sections and supports the client-side modified filter", async () => {
+    seedProjectConfig(tempDir);
+
+    await configCommand(MOCK_APP_CONFIG, "settings", ["--modified"], tempDir);
+
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
+    const value = JSON.parse(output) as { sections: readonly { id: string }[]; entries: readonly { key: string; modified: boolean }[] };
+    expect(value.sections.map((section) => section.id)).toEqual([
+      "general", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
+    ]);
+    expect(value.entries.length).toBeGreaterThan(0);
+    expect(value.entries.every((entry) => entry.modified)).toBe(true);
   });
 
   it("read projections prints canonical projection status", async () => {

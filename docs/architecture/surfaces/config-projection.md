@@ -597,7 +597,8 @@ The model-callable tool surface is deliberately small:
 ```ts
 kiln_config.read({
   view: "effective" | "providers" | "routes" | "agents" | "skills" |
-    "permissions" | "memory" | "projections" | "setup" | "health"
+    "permissions" | "memory" | "projections" | "setup" | "health" |
+    "settings"
 })
 
 kiln_config.propose_change({
@@ -627,9 +628,19 @@ changes by editing config files.
 `kiln config read` and the setup/status surfaces. The `effective` view returns
 the complete secret-free projection. Provider, route, permission, skill, and
 memory views select field records from that projection instead of rebuilding
-raw values. `kiln config explain <identity>` returns the same field record used
-by those views. The tool may report provider health, projection status, and
-setup recommendations, but it does not grant mutation authority.
+raw values. The `settings` view projects the same descriptor-backed snapshot
+consumed by `kiln config settings`, TUI `/settings [query]`, and GUI Settings.
+It has one schema revision and nine stable sections: General, Providers, Models,
+Permissions, Tools, Usage and Limits, Agents, Health, and Advanced. Entries
+carry effective value or redacted presence, source, override state, allowed
+write scopes, authority impact, activation, health, and canonical revisions.
+Each write target separately projects its current value, override state, owners,
+authority impact, approval requirement, and activation class; a multi-scope key
+never borrows project governance for a global write or vice versa. Entries
+never carry absolute operator paths or credential-like material.
+`kiln config explain <identity>` returns the same field record used by the
+bounded effective-config views. The tool may report provider health, projection
+status, and setup recommendations, but it does not grant mutation authority.
 
 `kiln_config.propose_change` returns a `KilnConfigMutationProposal`, not a
 patch string. A proposal records:
@@ -696,8 +707,21 @@ ownership ledger, that supplies its scope eligibility, value admission,
 activation class, owning bounded contexts, reconciliation targets, and ledger
 sensitivity. A key classified high or critical is treated as authority-affecting
 and requires an explicit approval; the authority does not guess whether a
-specific value widens or narrows. A reset replaces a whole scope and is always
-authority-affecting.
+specific value widens or narrows. A reset removes only the descriptor's exact
+canonical YAML path, rejects aliases, prunes newly empty parent mappings, and
+preserves unrelated keys, comments, ordering, and scalar style. Its authority,
+activation, ownership, and reconciliation requirements come from the same
+descriptor as `setting.set`; it is not a whole-scope replacement or a second
+mutation policy.
+
+Every settings proposal request carries the revision of the selected write
+scope from the snapshot the operator reviewed. Proposal creation rejects a
+mismatch before producing a valid mutation. The settings apply port accepts
+only stored `setting.set` and `setting.reset` proposals; proposal ids from any
+other mutation domain fail closed before approval. Durable proposal records are
+versioned. Unversioned records cannot begin a new write, while an old record
+whose in-progress marker proves its bytes already landed is settled honestly
+before that legacy lifecycle is retired.
 
 Settlement is write-once and keyed by proposal identity. A retried apply of an
 already committed proposal replays its stored settlement instead of writing

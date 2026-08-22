@@ -77,7 +77,7 @@ function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnaps
           <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">Skill diagnostics are unavailable from this setup snapshot.</p>
         ) : (
           <>
-            <dl aria-label="Skill identity summary" role="group" className="grid grid-cols-1 gap-px border-y border-border/70 bg-border/70 sm:grid-cols-3">
+            <dl aria-label="Skill identity summary" className="grid grid-cols-1 gap-px border-y border-border/70 bg-border/70 sm:grid-cols-3">
               <SkillIdentityMetric value={props.skills.equivalentDuplicates} label="Equivalent duplicate" />
               <SkillIdentityMetric value={props.skills.divergentCollisions} label="Divergent collision" />
               <SkillIdentityMetric value={props.skills.caseCollisions} label="Case collision" />

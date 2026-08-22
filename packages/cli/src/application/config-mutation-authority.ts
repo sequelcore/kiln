@@ -107,6 +107,16 @@ export function proposeConfigMutation(input: ProposeConfigMutationInput): Config
 
   const previousContent = existsSync(normalized.path) ? readFileSync(normalized.path, "utf-8") : null;
   const baseRevision = revisionOf(previousContent);
+  const expectedRevision = input.operation === "setting.set" || input.operation === "setting.reset"
+    ? expectedRevisionFromPayload(input.payload)
+    : { present: false } as const;
+  if (expectedRevision.present && expectedRevision.value !== baseRevision) {
+    diagnostics.push({
+      severity: "error",
+      field: "expectedRevision",
+      message: "Configuration changed after the settings snapshot was loaded. Refresh and propose again.",
+    });
+  }
   const status = diagnostics.some((diagnostic) => diagnostic.severity === "error") ? "invalid" : "valid";
   const removesPath = resolution.removesPath === true;
 
@@ -156,6 +166,7 @@ export function proposeConfigMutation(input: ProposeConfigMutationInput): Config
     : [];
 
   return {
+    recordVersion: 2,
     proposal,
     proposalHash: hashStable({
       proposal,
@@ -163,6 +174,16 @@ export function proposeConfigMutation(input: ProposeConfigMutationInput): Config
     }),
     writes,
   };
+}
+
+function expectedRevisionFromPayload(payload: unknown):
+  | { readonly present: false }
+  | { readonly present: true; readonly value: unknown } {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)
+    || !Object.prototype.hasOwnProperty.call(payload, "expectedRevision")) {
+    return { present: false };
+  }
+  return { present: true, value: (payload as Record<string, unknown>).expectedRevision };
 }
 
 /**
@@ -174,6 +195,9 @@ export function approveConfigMutation(input: ApproveConfigMutationInput): KilnCo
   const record = store.readProposal(input.proposalId);
   if (!record) {
     throw new Error(`Config proposal not found: ${input.proposalId}`);
+  }
+  if (record.recordVersion !== 2) {
+    throw new Error(`Legacy config proposal is retired: ${input.proposalId}`);
   }
   if (record.proposal.status !== "valid") {
     throw new Error(`Config proposal is not valid: ${input.proposalId}`);
@@ -282,6 +306,16 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
           && marker.path === write.path
           && currentRevision === marker.intendedRevision;
 
+        const retiredProposal = record.recordVersion !== 2
+          || (proposal.operation === "setting.reset" && typeof proposal.normalizedPayload.key !== "string");
+        if (retiredProposal && !interrupted) {
+          store.clearProgressMarker(proposal.proposalId);
+          return rejected(input, attemptedAt, proposal.scope, [diagnostic(
+            "proposal",
+            "Legacy configuration proposals are retired; create a new keyed settings proposal.",
+          )], proposal);
+        }
+
         if (interrupted) {
           // This exact proposal entered its commit window and the canonical path
           // already holds the content it intended. Resume settlement rather than
@@ -300,7 +334,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
             startedAt: attemptedAt,
           });
           commitOutcome = proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
-            ? commitGlobalWrite(record.writes, proposal.baseRevision, proposal.operation === "setting.reset")
+            ? commitGlobalWrite(record.writes, proposal.baseRevision)
             : commitProjectWrites(record.writes);
         }
       } catch (error) {
@@ -528,7 +562,6 @@ function commitProjectWrites(writes: readonly ConfigMutationWrite[]): {
 function commitGlobalWrite(
   writes: readonly ConfigMutationWrite[],
   baseRevision: string,
-  replaceInvalid: boolean,
 ): {
   readonly appliedWrites: readonly KilnConfigAppliedWrite[];
   readonly committedRevision: string;
@@ -544,7 +577,6 @@ function commitGlobalWrite(
   const result = commitGlobalConfigBytes({
     content: write.nextContent,
     expectedRevision: baseRevision,
-    ...(replaceInvalid ? { invalidCurrent: "backup-and-replace" as const } : {}),
   });
   return {
     appliedWrites: [{ path: write.path, previousHash: write.previousHash, nextHash: write.nextHash }],

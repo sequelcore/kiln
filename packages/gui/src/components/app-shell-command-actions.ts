@@ -25,8 +25,8 @@ interface AppShellCommandExecutorInput {
   readonly setSessionPopoverOpen: (open: boolean) => void;
   readonly setTargetedPlanMode: (enabled: boolean) => void;
   readonly setWorkbenchSurface: (surface: WorkbenchSurface) => void;
-  readonly setTheme: (theme: OperatorThemeName) => void;
-  readonly persistThemePreference: (theme: OperatorThemeName) => void;
+  readonly persistThemePreference: (theme: OperatorThemeName) => Promise<void>;
+  readonly onThemePersistenceFailed: (error: unknown) => void;
   readonly toggleOperatorTerminal: () => void;
 }
 
@@ -108,8 +108,7 @@ export function createAppShellCommandExecutor(input: AppShellCommandExecutorInpu
       default:
         if (isThemeCommand(command)) {
           const theme = command.id.slice("theme:".length) as OperatorThemeName;
-          input.setTheme(theme);
-          input.persistThemePreference(theme);
+          void input.persistThemePreference(theme).catch(input.onThemePersistenceFailed);
         }
         input.closePalette();
     }

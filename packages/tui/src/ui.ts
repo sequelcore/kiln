@@ -17,6 +17,7 @@ import {
 import { OPERATOR_ENTRY_PROMPT } from "@kilnai/gateway-contracts";
 import type { ReactiveState } from "./state.js";
 import type { KilnTheme } from "./theme.js";
+import { isLocallyHandledTuiInput } from "./local-command-routing.js";
 
 /**
  * Shortens a file path to parent/base format.
@@ -145,7 +146,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme" || text === "/target" || text === "/deliberation" || text === "/authority" || text === "/continue" || text === "/plan" || text === "/exec" || text === "/setup") {
+        if (isLocallyHandledTuiInput(text)) {
           return;
         }
         onSubmit(text);
@@ -185,7 +186,7 @@ export function initUI(
 
   const commandBarText = new TextRenderable(renderer, {
     id: "command-bar-text",
-    content: t`${fg(theme.textMuted)("/setup /theme /target  ctrl+shift+P commands")}`,
+    content: t`${fg(theme.textMuted)("/settings /setup /target  ctrl+shift+P commands")}`,
   });
   commandBar.add(commandBarText);
 

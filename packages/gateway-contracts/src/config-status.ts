@@ -108,6 +108,7 @@ export const KILN_CONFIG_READ_VIEWS = [
   "projections",
   "setup",
   "health",
+  "settings",
 ] as const;
 
 export type KilnConfigReadView = typeof KILN_CONFIG_READ_VIEWS[number];

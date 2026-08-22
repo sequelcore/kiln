@@ -95,6 +95,7 @@ path and the current platform boundaries.
 | Understand the product and its boundaries | [Core concepts](docs/concepts.md) |
 | Build and inspect the repository | [Getting started](docs/getting-started.md) |
 | Configure execution targets and providers | [Model routing](docs/guides/config/model-routing.md) |
+| Search effective settings or reset one override | [Global configuration](docs/guides/config/global-config.md#inspect-and-change-settings) |
 | Understand the cross-harness proxy | [Model Gateway](docs/architecture/providers/model-gateway.md) |
 | Choose a CLI, TUI, GUI, or gateway surface | [Operator surfaces](docs/guides/ops/operator-surfaces.md) |
 | Build an application on the runtime | [Examples](docs/examples/README.md) |

@@ -28,6 +28,39 @@ See [Config projection](../../architecture/surfaces/config-projection.md),
 [Agent context](../../architecture/context/agent-context.md) for the owning
 contracts.
 
+## Inspect and change settings
+
+Use the shared settings projection when you need searchable effective values
+and provenance without reading raw YAML:
+
+```bash
+kiln config settings
+kiln config settings permissions
+kiln config settings --modified
+```
+
+TUI `/settings [query]` renders the same snapshot. GUI Settings organizes it as
+General, Providers, Models, Permissions, Tools, Usage and Limits, Agents,
+Health, and Advanced. Every setting row identifies inheritance or override,
+write scope, authority impact, activation, and health. Provider allowance and
+economic lifecycle evidence remain read-only and absent until their runtime
+owner reports them; an absent observation never means unused allowance or zero
+spend.
+
+Change only descriptor-admitted keys through the governed mutation lifecycle:
+
+```bash
+kiln config set [--global] [--approve] <key> <value>
+kiln config reset [--global] [--approve] <key>
+```
+
+Reset removes that exact override so the inherited or default value becomes
+effective. It does not replace the project or global document. GUI reviews the
+same typed proposal before apply and refreshes the shared read model after the
+commit. Advanced mode may open canonical project YAML and export or validate a
+secret-free settings snapshot, but importing a snapshot never bypasses the
+mutation authority or revision fence.
+
 ## Global schema
 
 The main V4 fields are:

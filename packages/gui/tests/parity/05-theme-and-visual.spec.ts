@@ -3,8 +3,8 @@ import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 const COMPOSER_READY_TIMEOUT_MS = 15_000;
 
 test.describe("parity category 5 - theming and visual behavior", () => {
-  test("persists theme changes and visually differentiates user and assistant messages", async ({ page }) => {
-    await page.goto("/");
+  test("persists theme changes and visually differentiates user and assistant messages", async ({ page, operatorToken }) => {
+    await page.goto(`/#operatorToken=${encodeURIComponent(operatorToken)}`);
     await waitForGuiReady(page);
 
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
@@ -13,35 +13,37 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(composerSurface).toHaveCSS("opacity", "1");
 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page).toHaveURL(/\/settings\/configuration$/u);
+    await expect(page).toHaveURL(/\/settings\/general(?:\?.*)?$/u);
     const settingsSidebar = page.getByRole("complementary", { name: "Settings sidebar" });
-    await settingsSidebar.getByRole("button", { name: "Appearance" }).click();
-    await expect(page).toHaveURL(/\/settings\/appearance$/u);
-    const switcher = page.getByRole("combobox", { name: "Theme" });
+    const switcher = page.getByRole("combobox", { name: "Value for Theme" });
     await expect(switcher).toBeVisible();
 
-    await switcher.click();
-    await page.getByRole("option", { name: "Phosphor" }).click();
+    const applyTheme = async (label: string) => {
+      await switcher.selectOption({ label });
+      await page.getByRole("button", { name: "Save Theme" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Apply change" }).click();
+      await expect(page.getByRole("status")).toContainText("committed");
+    };
+
+    await applyTheme("Phosphor");
     await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "phosphor");
     const phosphorCanvas = await page.locator("html").evaluate((root) => (
       getComputedStyle(root).getPropertyValue("--color-background").trim()
     ));
 
-    await switcher.click();
-    await page.getByRole("option", { name: "Vesper" }).click();
+    await applyTheme("Vesper");
     await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "vesper");
     const vesperCanvas = await page.locator("html").evaluate((root) => (
       getComputedStyle(root).getPropertyValue("--color-background").trim()
     ));
     expect(vesperCanvas).not.toBe(phosphorCanvas);
 
-    await switcher.click();
-    await page.getByRole("option", { name: "Automata" }).click();
+    await applyTheme("Automata");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "automata");
 
     await settingsSidebar.getByRole("button", { name: "Back to workbench" }).press("Enter");
-    await expect(page).toHaveURL(/\/gui\/$/u);
+    await expect(page).toHaveURL(/\/gui\/(?:\?.*)?$/u);
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");

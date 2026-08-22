@@ -397,7 +397,7 @@ describe("SetupPanel", () => {
     );
 
     expect(screen.getByText("Incomplete inventory")).toBeInTheDocument();
-    const identitySummary = screen.getByRole("group", { name: "Skill identity summary" });
+    const identitySummary = screen.getByLabelText("Skill identity summary");
     expect(identitySummary).toHaveTextContent("Equivalent duplicates2");
     expect(identitySummary).toHaveTextContent("Divergent collision1");
     expect(identitySummary).toHaveTextContent("Case collisions3");

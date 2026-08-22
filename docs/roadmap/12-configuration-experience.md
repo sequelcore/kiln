@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slices 0-5 complete - Slice 6 is the next bounded product proof.
+Execution: Slices 0-6 complete - Slice 7 is the next bounded product proof.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -611,8 +611,8 @@ with spaces, and credential-like diagnostics.
 
 ### Slice 6 - Searchable Settings Foundation
 
-Status: Ready. Slices 1, 2, 4, and 5 provide the descriptor, effective-value,
-mutation, and first-run surface contracts.
+Status: Complete. Slices 1, 2, 4, and 5 provide the descriptor,
+effective-value, mutation, and first-run surface contracts.
 
 Build one cross-surface settings information architecture: General, Providers,
 Models, Permissions, Tools, Usage and Limits, Agents, Health, and Advanced.
@@ -631,9 +631,27 @@ Acceptance: keyboard, narrow-layout, screen-reader, pending, conflict,
 reconciliation-failure, and focus-restoration behavior pass on real flows;
 surface state always comes from the shared read model.
 
+Delivered one schema-revisioned, secret-free settings snapshot for CLI, TUI,
+and GUI with the nine canonical sections, descriptor-backed controls,
+provenance, write scope, authority impact, activation, health, and modified
+state. `kiln config settings [query] [--modified]` and TUI `/settings [query]` consume
+that snapshot; GUI adds keyboard search, narrow navigation, curated controls,
+proposal review, revision-fenced apply, keyed reset to inheritance, focused
+conflict and reconciliation feedback, safe export validation, and bounded
+open-YAML access. The superseded Appearance, Configuration, and Available
+Models settings routes and the whole-scope reset behavior were deleted.
+
+Usage and Limits does not manufacture economic facts. It renders admitted work
+limits and explicitly leaves provider allowance, observed usage, estimates,
+reservations, settlements, freshness, and confidence unreported until their
+existing runtime owners project them through Slice 7A. The category boundary is
+present now; economic evidence and managed-agent intent remain owned by Slice
+7A rather than becoming settings-local state.
+
 ### Slice 7 - Available Models Target Wizard
 
-Status: Blocked on Slices 3, 4, and 6.
+Status: Ready. Slices 3, 4, and 6 provide the required evidence, mutation, and
+settings-surface contracts.
 
 Replace raw target-material JSON with a guided wizard backed by current Available
 Models evidence. The operator selects a discovered model and answers only
@@ -675,7 +693,8 @@ are deleted in the same slice with no alias or dual read.
 
 ### Slice 8 - Live Activation And Reconciliation
 
-Status: Queued behind Slice 6's settings foundation.
+Status: Ready. Slice 6's settings foundation is complete; product sequence
+keeps Slice 7 ahead of this independent activation contract.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

@@ -37,16 +37,16 @@ interface AppShellFrameHandlerInput {
   ) => void;
   readonly setConnectionStatus: (status: "connecting" | "running" | "idle" | "error") => void;
   readonly setTheme: (theme: OperatorThemeName) => void;
-  readonly persistThemePreference: (theme: OperatorThemeName) => void;
+  readonly persistThemePreference: (theme: OperatorThemeName) => Promise<void>;
   readonly sendThemeResult: (frame: ThemeResultFrame) => void;
   readonly onManagedAgentControlResult: (frame: Extract<GuiInboundFrame, { type: "managed_agent_control_result" }>) => void;
   readonly invalidateMemoryLattice: () => void;
 }
 
-function handleOperatorThemeSet(
+async function handleOperatorThemeSet(
   frame: Extract<GuiInboundFrame, { type: "operator_theme_set" }>,
   input: AppShellFrameHandlerInput,
-): void {
+): Promise<void> {
   if (!isOperatorThemeName(frame.theme)) {
     input.sendThemeResult({
       type: "operator_theme_set_result",
@@ -56,9 +56,20 @@ function handleOperatorThemeSet(
     });
     return;
   }
-  input.setTheme(frame.theme);
-  if (frame.scope === "persisted") {
-    input.persistThemePreference(frame.theme);
+  try {
+    if (frame.scope === "persisted") {
+      await input.persistThemePreference(frame.theme);
+    } else {
+      input.setTheme(frame.theme);
+    }
+  } catch (error) {
+    input.sendThemeResult({
+      type: "operator_theme_set_result",
+      requestId: frame.requestId,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
   }
   input.sendThemeResult({
     type: "operator_theme_set_result",
@@ -76,7 +87,7 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         input.onOperatorTerminalAvailability(frame.operatorTerminalAvailable ?? false);
         return;
       case "operator_theme_set":
-        handleOperatorThemeSet(frame, input);
+        void handleOperatorThemeSet(frame, input);
         return;
       case "session_event":
         input.onSessionEvent(frame.event);

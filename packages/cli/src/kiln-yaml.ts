@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -68,11 +69,26 @@ export type {
 } from "./kiln-yaml-types.js";
 
 export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
+  return readKilnYamlSnapshot(kilnDir).config;
+}
+
+/** Reads project bytes once so parsed intent and optimistic revision cannot disagree. */
+export function readKilnYamlSnapshot(kilnDir: string): {
+  readonly config: KilnProjectConfig | null;
+  readonly revision: `sha256:${string}` | "absent";
+} {
   const path = join(kilnDir, "kiln.yaml");
   if (!existsSync(path)) {
-    return null;
+    return { config: null, revision: "absent" };
   }
   const raw = readFileSync(path, "utf-8");
+  return {
+    config: parseKilnYamlRaw(raw, path),
+    revision: `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+  };
+}
+
+function parseKilnYamlRaw(raw: string, path: string): KilnProjectConfig {
   try {
     const parsed = parseProjectConfigStructure(parse(raw), path);
     validateAgentScopeInheritance(parsed.permissions);

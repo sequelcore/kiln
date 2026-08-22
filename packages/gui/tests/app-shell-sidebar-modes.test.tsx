@@ -136,10 +136,6 @@ vi.mock("../src/components/command-palette.js", () => ({
   CommandPalette: () => null,
 }));
 
-vi.mock("../src/components/theme-switcher.js", () => ({
-  ThemeSwitcher: () => <button type="button">Theme</button>,
-}));
-
 vi.mock("../src/components/execution-route-picker.js", () => ({
   ExecutionRoutePicker: () => null,
 }));
@@ -844,12 +840,12 @@ describe("AppShell sidebar modes", () => {
 
   it("opens configuration health inside the routed settings context", async () => {
     function Harness() {
-      const [settingsSection, setSettingsSection] = useState<"configuration" | null>("configuration");
+      const [settingsSection, setSettingsSection] = useState<"health" | null>("health");
       return (
         <AppShell
           settingsSection={settingsSection}
           onCloseSettings={() => setSettingsSection(null)}
-          onOpenSettings={() => setSettingsSection("configuration")}
+          onOpenSettings={() => setSettingsSection("health")}
         />
       );
     }

@@ -32,6 +32,12 @@ describe("operator command contract", () => {
     expect(findOperatorCommand("provider", "gui")).toBeUndefined();
   });
 
+  it("publishes the shared settings foundation across operator surfaces", () => {
+    expect(findOperatorCommand("settings", "cli")?.id).toBe("settings");
+    expect(findOperatorCommand("settings", "gui")?.id).toBe("settings");
+    expect(findOperatorCommand("/settings", "tui")?.id).toBe("settings");
+  });
+
   it("publishes the embedded operator terminal only on the GUI surface", () => {
     expect(findOperatorCommand("terminal", "gui")?.id).toBe("terminal");
     expect(findOperatorCommand("terminal", "cli")).toBeUndefined();

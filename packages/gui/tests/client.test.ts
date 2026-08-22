@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH } from "@kilnai/gateway-contracts";
+import { GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH, KILN_SETTINGS_SECTION_IDS } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient, resolveCandidateBaseUrls } from "../src/api/client.js";
 
 describe("GuiGatewayClient", () => {
@@ -588,6 +588,71 @@ describe("GuiGatewayClient", () => {
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/json" },
       body: JSON.stringify({ action: "sync-repo-shims" }),
+    });
+  });
+
+  it("reads and mutates settings through validated capability-bearing requests", async () => {
+    const snapshot = {
+      schemaRevision: 1,
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      health: "current",
+      sections: KILN_SETTINGS_SECTION_IDS.map((id) => ({ id, label: id, description: id, entryKeys: [] })),
+      entries: [],
+      revisions: {},
+      modifiedCount: 0,
+    };
+    const proposal = {
+      proposalId: "cfg_settings",
+      createdAt: "2026-08-21T00:00:00.000Z",
+      scope: "project",
+      operation: "setting.reset",
+      key: "domain",
+      status: "valid",
+      baseRevision: "absent",
+      affectedOwners: ["project-configuration"],
+      reconciliation: [],
+      authorityImpact: "none",
+      approvalRequired: false,
+      activation: "next-session",
+      diagnostics: [],
+      rollback: { restorable: true, summary: "Restore the prior value." },
+    };
+    const result = {
+      proposalId: "cfg_settings",
+      scope: "project",
+      operation: "setting.reset",
+      outcome: "committed",
+      rejectionCode: null,
+      committedRevision: `sha256:${"b".repeat(64)}`,
+      activation: "next-session",
+      reconciliation: [],
+      diagnostics: [],
+      replayed: false,
+      readBack: { schemaRevision: 1, verified: true },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(snapshot))
+      .mockResolvedValueOnce(Response.json(proposal))
+      .mockResolvedValueOnce(Response.json(result));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810", "local-capability");
+    await expect(client.loadSettings()).resolves.toEqual(snapshot);
+    await expect(client.proposeSettingsMutation({
+      operation: "setting.reset",
+      scope: "project",
+      key: "domain",
+      expectedRevision: "absent",
+    })).resolves.toEqual(proposal);
+    await expect(client.applySettingsMutation({ proposalId: "cfg_settings" })).resolves.toEqual(result);
+
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({ "x-kiln-operator-token": "local-capability" }),
+    });
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({ "x-kiln-operator-token": "local-capability" }),
     });
   });
 

@@ -30,7 +30,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onOperatorTerminalFrame: vi.fn(),
     setConnectionStatus: vi.fn(),
     setTheme: vi.fn(),
-    persistThemePreference: vi.fn(),
+    persistThemePreference: vi.fn(async () => {}),
     sendThemeResult: vi.fn(),
     onManagedAgentControlResult: vi.fn(),
     invalidateMemoryLattice: vi.fn(),
@@ -39,7 +39,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
 }
 
 describe("createAppShellFrameHandler", () => {
-  it("applies valid persisted theme requests and acknowledges them", () => {
+  it("applies valid persisted theme requests and acknowledges them", async () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
@@ -50,14 +50,33 @@ describe("createAppShellFrameHandler", () => {
       scope: "persisted",
     } as never);
 
-    expect(input.setTheme).toHaveBeenCalledWith(OPERATOR_THEME_NAMES[0]);
     expect(input.persistThemePreference).toHaveBeenCalledWith(OPERATOR_THEME_NAMES[0]);
-    expect(input.sendThemeResult).toHaveBeenCalledWith({
+    await vi.waitFor(() => expect(input.sendThemeResult).toHaveBeenCalledWith({
       type: "operator_theme_set_result",
       requestId: "theme-1",
       ok: true,
       appliedTheme: OPERATOR_THEME_NAMES[0],
-    });
+    }));
+  });
+
+  it("reports persisted theme failures without claiming the theme was applied", async () => {
+    const input = createInput({ persistThemePreference: vi.fn(async () => { throw new Error("approval failed"); }) });
+    const handleFrame = createAppShellFrameHandler(input);
+
+    handleFrame({
+      type: "operator_theme_set",
+      requestId: "theme-failed",
+      theme: OPERATOR_THEME_NAMES[0],
+      scope: "persisted",
+    } as never);
+
+    await vi.waitFor(() => expect(input.sendThemeResult).toHaveBeenCalledWith({
+      type: "operator_theme_set_result",
+      requestId: "theme-failed",
+      ok: false,
+      error: "approval failed",
+    }));
+    expect(input.setTheme).not.toHaveBeenCalled();
   });
 
   it("rejects unknown theme requests without changing the active theme", () => {

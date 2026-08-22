@@ -20,8 +20,14 @@ import { textParts } from "@kilnai/core/engine";
 import type { ToolResourceProvider } from "@kilnai/core/tools";
 import {
   createOperatorCockpitReadOnlyViewState,
+  KILN_SETTINGS_SECTION_IDS,
   projectOperatorCockpitReadOnlyView,
   type KilnConfigSetupAction,
+  type KilnSettingsApplyRequest,
+  type KilnSettingsMutationResult,
+  type KilnSettingsProposalRequest,
+  type KilnSettingsProposalProjection,
+  type KilnSettingsSnapshot,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import { Hono } from "hono";
@@ -1586,6 +1592,119 @@ describe("startGuiGateway static mount", () => {
       expect(await applied.json()).toMatchObject({ status: "committed" });
       expect(applyConfigurationOnboarding).toHaveBeenCalledTimes(1);
       expect(applyConfigurationOnboarding).toHaveBeenCalledWith(requestBody);
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads shared settings and capability-gates proposal and apply mutations", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let appFetch: ((request: Request) => Promise<Response>) | undefined;
+    const settings = {
+      schemaRevision: 1,
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      health: "current",
+      sections: KILN_SETTINGS_SECTION_IDS.map((id) => ({
+        id,
+        label: id,
+        description: `${id} settings`,
+        entryKeys: [],
+      })),
+      entries: [],
+      revisions: {},
+      modifiedCount: 0,
+    } as KilnSettingsSnapshot;
+    const proposal = {
+      proposalId: "cfg_settings",
+      createdAt: "2026-08-21T00:00:00.000Z",
+      key: "domain",
+      scope: "project",
+      operation: "setting.set",
+      status: "valid",
+      baseRevision: "absent",
+      affectedOwners: ["project-configuration"],
+      reconciliation: [],
+      authorityImpact: "none",
+      approvalRequired: false,
+      activation: "next-session",
+      diagnostics: [],
+      rollback: { restorable: true, summary: "Restore the previous value." },
+    } as KilnSettingsProposalProjection;
+    const result = {
+      proposalId: "cfg_settings",
+      scope: "project",
+      operation: "setting.set",
+      outcome: "committed",
+      rejectionCode: null,
+      committedRevision: `sha256:${"b".repeat(64)}`,
+      activation: "next-session",
+      reconciliation: [],
+      diagnostics: [],
+      replayed: false,
+      readBack: { schemaRevision: 1, verified: true },
+    } as KilnSettingsMutationResult;
+    const proposeSettingsMutation = vi.fn(async (_request: KilnSettingsProposalRequest) => proposal);
+    const applySettingsMutation = vi.fn(async (_request: KilnSettingsApplyRequest) => result);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port, fetch }: { port?: number; fetch: typeof appFetch }) => {
+        appFetch = fetch;
+        return { port: port ?? 4810, stop };
+      }),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        workingDirectory: "C:/workspace/kiln",
+        getSnapshot: async () => ({}) as never,
+        getSettingsSnapshot: async () => settings,
+        proposeSettingsMutation,
+        applySettingsMutation,
+      });
+
+      const read = await appFetch!(new Request("http://localhost/gui/api/config/settings"));
+      expect(read.status).toBe(200);
+      expect(await read.json()).toEqual(settings);
+
+      const proposalRequest = {
+        operation: "setting.set",
+        scope: "project",
+        key: "domain",
+        expectedRevision: "absent",
+        value: "backend",
+      };
+      const deniedProposal = await appFetch!(new Request("http://localhost/gui/api/config/settings/proposals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(proposalRequest),
+      }));
+      expect(deniedProposal.status).toBe(403);
+
+      const authorizedHeaders = {
+        "content-type": "application/json",
+        "x-kiln-operator-token": gateway.operatorTerminalCapability!,
+      };
+      const proposed = await appFetch!(new Request("http://localhost/gui/api/config/settings/proposals", {
+        method: "POST",
+        headers: authorizedHeaders,
+        body: JSON.stringify(proposalRequest),
+      }));
+      expect(proposed.status).toBe(200);
+      expect(await proposed.json()).toEqual(proposal);
+      expect(proposeSettingsMutation).toHaveBeenCalledWith(proposalRequest);
+
+      const applied = await appFetch!(new Request("http://localhost/gui/api/config/settings/apply", {
+        method: "POST",
+        headers: authorizedHeaders,
+        body: JSON.stringify({ proposalId: "cfg_settings" }),
+      }));
+      expect(applied.status).toBe(200);
+      expect(await applied.json()).toEqual(result);
+      expect(applySettingsMutation).toHaveBeenCalledWith({ proposalId: "cfg_settings" });
     } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });

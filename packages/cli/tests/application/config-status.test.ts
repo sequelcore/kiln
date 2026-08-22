@@ -197,6 +197,46 @@ describe("config-status", () => {
     });
   });
 
+  it("projects the shared settings snapshot with inherited and modified state", async () => {
+    writeProjectConfig(tempDir);
+    const projectFile = join(tempDir, ".kiln", "kiln.yaml");
+    writeFileSync(projectFile, [
+      "# Preserve this comment",
+      'version: "1"',
+      "domain: backend",
+      "permissions:",
+      "  approval: on-request",
+      "  sandbox: read-only",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, view: "settings" });
+    writeFileSync(projectFile, 'version: "1"\ndomain: frontend\n', "utf-8");
+    const result = await readConfigStatusView(snapshot, "settings");
+    const settings = result.value as {
+      readonly sections: readonly { readonly id: string }[];
+      readonly entries: readonly {
+        readonly key: string;
+        readonly modified: boolean;
+        readonly inherited: boolean;
+        readonly effective: { readonly value?: unknown };
+        readonly writeTargets: readonly { readonly document: string; readonly current?: { readonly value?: unknown } }[];
+      }[];
+    };
+    expect(settings.sections.map((section) => section.id)).toEqual([
+      "general", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
+    ]);
+    expect(settings.entries.find((entry) => entry.key === "domain")).toMatchObject({
+      modified: true,
+      inherited: false,
+      effective: { value: "backend" },
+      writeTargets: [{ current: { value: "backend" } }],
+    });
+    expect(settings.entries.find((entry) => entry.key === "teamMode")).toMatchObject({ modified: false, inherited: true });
+    expect(settings.entries.flatMap((entry) => entry.writeTargets).map((target) => target.document)).not.toContain("C:\\");
+    expect(JSON.stringify(settings)).not.toContain(".kiln/kiln.yaml");
+  });
+
   it("projects one secret-free effective value and provenance contract", async () => {
     mkdirSync(join(tempDir, ".kiln"), { recursive: true });
     writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [

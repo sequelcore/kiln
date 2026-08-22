@@ -19,7 +19,7 @@ import type {
   KilnRepoShimProjectionSnapshot,
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYaml, readKilnYamlSnapshot } from "../kiln-yaml.js";
 import type { KilnProjectConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import {
   deriveEffectiveKilnYaml,
@@ -27,6 +27,7 @@ import {
 } from "../config/config-merger.js";
 import {
   readGlobalConfig,
+  readGlobalConfigSnapshot,
   resolveGlobalConfigPath,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
@@ -84,6 +85,7 @@ import {
   effectiveConfigField,
   projectEffectiveConfig,
 } from "./effective-config-projection.js";
+import { readSettingsSnapshot } from "./config-settings.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -98,6 +100,8 @@ export interface ReadConfigStatusOptions {
 export interface ReadConfigStatusViewOptions {
   readonly userHome?: string;
   readonly cwd?: string;
+  readonly query?: string;
+  readonly modified?: boolean;
   readonly pluginProvider?: SkillPluginProvider;
   readonly commandRunner?: SkillInventoryCommandRunner;
   readonly createManagedAgentRouteAdmissionResolver?:
@@ -107,6 +111,7 @@ export interface ReadConfigStatusViewOptions {
 interface ConfigLoadState {
   readonly source: KilnConfigSourceSnapshot;
   readonly config: KilnGlobalConfig | ResolvedKilnConfig | null;
+  readonly revision: `sha256:${string}` | "absent";
 }
 
 interface NativeAgentProjectionSummary {
@@ -130,6 +135,10 @@ const skillCatalogDetails = new WeakMap<
   ReturnType<typeof readSkillCatalogStatus>
 >();
 const resolvedConfigDetails = new WeakMap<KilnConfigStatusSnapshot, ResolvedKilnConfig>();
+const configSourceDetails = new WeakMap<KilnConfigStatusSnapshot, {
+  readonly global: ConfigLoadState;
+  readonly project: ConfigLoadState;
+}>();
 
 export async function readConfigStatusSnapshot(
   options: ReadConfigStatusOptions = {},
@@ -213,6 +222,7 @@ export async function readConfigStatusSnapshot(
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
   if (effectiveConfig) resolvedConfigDetails.set(snapshot, effectiveConfig);
+  configSourceDetails.set(snapshot, { global: globalState, project: projectState });
   if (skillCatalog) skillCatalogDetails.set(snapshot, skillCatalog);
   return snapshot;
 }
@@ -220,6 +230,11 @@ export async function readConfigStatusSnapshot(
 /** Internal runtime detail retained request-locally; never serialized to operator surfaces. */
 export function readResolvedConfigDetail(snapshot: KilnConfigStatusSnapshot): ResolvedKilnConfig | undefined {
   return resolvedConfigDetails.get(snapshot);
+}
+
+/** Request-local admitted source detail used to derive settings without reopening YAML. */
+export function readConfigSourceDetail(snapshot: KilnConfigStatusSnapshot) {
+  return configSourceDetails.get(snapshot);
 }
 
 function buildMcpStatus(
@@ -338,18 +353,22 @@ function readGlobalConfigState(): ConfigLoadState {
     return {
       source: { path, status: "missing" },
       config: null,
+      revision: "absent",
     };
   }
 
   try {
+    const captured = readGlobalConfigSnapshot();
     return {
       source: { path, status: "valid" },
-      config: readGlobalConfig(),
+      config: captured.config,
+      revision: captured.revision as `sha256:${string}` | "absent",
     };
   } catch (error) {
     return {
       source: { path, status: "invalid", error: errorMessage(error) },
       config: null,
+      revision: "absent",
     };
   }
 }
@@ -361,18 +380,22 @@ function readProjectConfigState(projectPath: string): ConfigLoadState {
     return {
       source: { path, status: "missing" },
       config: null,
+      revision: "absent",
     };
   }
 
   try {
+    const captured = readKilnYamlSnapshot(kilnDir);
     return {
       source: { path, status: "valid" },
-      config: readKilnYaml(kilnDir),
+      config: captured.config,
+      revision: captured.revision,
     };
   } catch (error) {
     return {
       source: { path, status: "invalid", error: errorMessage(error) },
       config: null,
+      revision: "absent",
     };
   }
 }
@@ -785,6 +808,11 @@ async function projectConfigView(
         mcp: snapshot.mcp,
         harnessCapabilities: snapshot.harnessCapabilities,
       };
+    case "settings":
+      return readSettingsSnapshot(snapshot, {
+        ...(options.query === undefined ? {} : { query: options.query }),
+        ...(options.modified === undefined ? {} : { modified: options.modified }),
+      });
   }
 }
 

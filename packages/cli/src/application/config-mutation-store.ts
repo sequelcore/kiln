@@ -17,6 +17,8 @@ export interface ConfigMutationRestorePoint {
 }
 
 export interface ConfigMutationProposalRecord {
+  /** Missing only on pre-keyed-reset records retained for honest crash recovery. */
+  readonly recordVersion?: 2;
   readonly proposal: KilnConfigMutationProposal;
   readonly proposalHash: string;
   readonly writes: readonly ConfigMutationWrite[];
@@ -154,7 +156,14 @@ export class ConfigMutationStore {
   }
 
   readProposal(proposalId: string): ConfigMutationProposalRecord | null {
-    return readJson<ConfigMutationProposalRecord>(this.proposalPath(proposalId));
+    const candidate = readJson<unknown>(this.proposalPath(proposalId));
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const record = candidate as Partial<ConfigMutationProposalRecord>;
+    if (!record.proposal
+      || typeof record.proposal !== "object"
+      || typeof record.proposalHash !== "string"
+      || !Array.isArray(record.writes)) return null;
+    return record as ConfigMutationProposalRecord;
   }
 
   saveApproval(approval: StoredConfigMutationApproval): void {

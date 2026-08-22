@@ -49,11 +49,22 @@ export async function configCommand(
       const viewArg = readPositionalArgs(args)[0] ?? "effective";
       if (!isConfigReadView(viewArg)) {
         console.log(`Unknown config read view: ${viewArg}`);
-        console.log("Valid views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
+        console.log("Valid views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health, settings");
         return;
       }
       const snapshot = await readConfigStatusSnapshot({ projectPath: root, view: viewArg });
       const result = await readConfigStatusView(snapshot, viewArg);
+      console.log(JSON.stringify(result.value, null, 2));
+      break;
+    }
+
+    case "settings": {
+      const query = readPositionalArgs(args)[0];
+      const snapshot = await readConfigStatusSnapshot({ projectPath: root, view: "settings" });
+      const result = await readConfigStatusView(snapshot, "settings", {
+        ...(query === undefined ? {} : { query }),
+        ...(args.includes("--modified") ? { modified: true } : {}),
+      });
       console.log(JSON.stringify(result.value, null, 2));
       break;
     }
@@ -123,12 +134,17 @@ export async function configCommand(
     }
 
     case "reset": {
+      const key = readPositionalArgs(args)[0];
+      if (!key) {
+        console.log(`Usage: kiln config reset [--global] <key>`);
+        return;
+      }
       await runGovernedConfigMutation({
         projectPath: root,
         operation: "setting.reset",
-        payload: { scope: hasGlobalFlag(args) ? "global" : "project" },
+        payload: { scope: hasGlobalFlag(args) ? "global" : "project", key },
         approve: hasApproveFlag(args),
-        describe: hasGlobalFlag(args) ? "Reset global configuration" : "Reset project configuration",
+        describe: `Reset ${key}`,
       });
       break;
     }
@@ -144,12 +160,13 @@ function printConfigHelp(): void {
   console.log("Subcommands:");
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");
+  console.log("  settings [query]  Print searchable settings (optionally --modified)");
   console.log("  explain <identity> Explain one effective field and its provenance");
   console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
-  console.log("  reset [--global]  Reset project config, or explicitly adopt clean global V4 defaults");
-  console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
+  console.log("  reset [--global] <key> Reset one setting to inherited/default state");
+  console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health, settings");
   console.log(`\nValid keys: ${configSettingKeys().join(", ")}`);
   console.log("");
 }
@@ -307,7 +324,7 @@ function readPositionalArgs(args: readonly string[]): readonly string[] {
       index += 1;
       continue;
     }
-    if (arg === "--apply" || arg.startsWith("--action=")) {
+    if (arg === "--apply" || arg === "--modified" || arg.startsWith("--action=")) {
       continue;
     }
     if (arg.startsWith("--project=") || arg.startsWith("--cwd=")) {

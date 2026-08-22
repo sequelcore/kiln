@@ -178,10 +178,6 @@ vi.mock("../src/components/command-palette.js", () => ({
   },
 }));
 
-vi.mock("../src/components/theme-switcher.js", () => ({
-  ThemeSwitcher: () => <button type="button">Theme</button>,
-}));
-
 vi.mock("../src/components/ai-elements/model-selector.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/components/ai-elements/model-selector.js")>();
   return {

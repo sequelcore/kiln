@@ -33,6 +33,7 @@ import {
   createTranscriptRuntimeSessionHydrator,
 } from "../application/runtime-session-rehydration.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
+import { readSettingsSnapshot } from "../application/config-settings.js";
 import {
   createCliTranscriptSessionTokenUsageReader,
   createRuntimeSessionTurnBudgetFromGlobalConfig,
@@ -1787,6 +1788,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     () => startupProfiler.mark("tui-first-frame-rendered"),
     bootstrap.providerModelDiscoveryRef,
     bootstrap.executionRouteCatalogRef,
+    async () => readSettingsSnapshot(
+      await readConfigStatusSnapshot({ projectPath: cwd, view: "settings" }),
+    ),
   );
 
   bootstrap.shutdown();

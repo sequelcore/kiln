@@ -9,6 +9,11 @@ import type {
   KilnConfigurationOnboardingApplyRequest,
   KilnConfigurationOnboardingResult,
   KilnConfigurationOnboardingSnapshot,
+  KilnSettingsApplyRequest,
+  KilnSettingsMutationResult,
+  KilnSettingsProposalProjection,
+  KilnSettingsProposalRequest,
+  KilnSettingsSnapshot,
   GuiProviderDescriptor,
   GuiContinuationInfo,
   GuiSessionDetail,
@@ -30,6 +35,11 @@ import {
   KilnConfigurationOnboardingApplyRequestSchema,
   KilnConfigurationOnboardingResultSchema,
   KilnConfigurationOnboardingSnapshotSchema,
+  KilnSettingsApplyRequestSchema,
+  KilnSettingsMutationResultSchema,
+  KilnSettingsProposalProjectionSchema,
+  KilnSettingsProposalRequestSchema,
+  KilnSettingsSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
   OperatorResourceReadRequestSchema,
@@ -52,6 +62,11 @@ export type {
   KilnConfigurationOnboardingApplyRequest,
   KilnConfigurationOnboardingResult,
   KilnConfigurationOnboardingSnapshot,
+  KilnSettingsApplyRequest,
+  KilnSettingsMutationResult,
+  KilnSettingsProposalProjection,
+  KilnSettingsProposalRequest,
+  KilnSettingsSnapshot,
   OperatorSessionSummary,
   GuiTelemetrySnapshot,
   OperatorResourceReadRequest,
@@ -303,6 +318,76 @@ export class GuiGatewayClient {
       : "Onboarding apply failed.");
   }
 
+  async loadSettings(): Promise<KilnSettingsSnapshot> {
+    return this.requestSettings(
+      "/gui/api/config/settings",
+      undefined,
+      KilnSettingsSnapshotSchema,
+      "Settings fetch failed",
+    );
+  }
+
+  async proposeSettingsMutation(
+    request: KilnSettingsProposalRequest,
+  ): Promise<KilnSettingsProposalProjection> {
+    const admittedRequest = KilnSettingsProposalRequestSchema.parse(request);
+    return this.requestSettings(
+      "/gui/api/config/settings/proposals",
+      admittedRequest,
+      KilnSettingsProposalProjectionSchema,
+      "Settings proposal failed",
+    );
+  }
+
+  async applySettingsMutation(
+    request: KilnSettingsApplyRequest,
+  ): Promise<KilnSettingsMutationResult> {
+    const admittedRequest = KilnSettingsApplyRequestSchema.parse(request);
+    return this.requestSettings(
+      "/gui/api/config/settings/apply",
+      admittedRequest,
+      KilnSettingsMutationResultSchema,
+      "Settings apply failed",
+    );
+  }
+
+  private async requestSettings<T>(
+    path: string,
+    body: unknown | undefined,
+    schema: { parse(value: unknown): T },
+    failureLabel: string,
+  ): Promise<T> {
+    const failures: string[] = [];
+    for (const candidateBaseUrl of this.resolveCandidateBaseUrls()) {
+      const url = new URL(path, candidateBaseUrl);
+      try {
+        const response = await fetch(url, body === undefined ? {
+          headers: { accept: "application/json" },
+        } : {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            ...(this.operatorToken ? { "x-kiln-operator-token": this.operatorToken } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = schema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+    throw new Error(failures.length > 0
+      ? `${failureLabel} (${failures.join(" | ")})`
+      : `${failureLabel}.`);
+  }
+
   async loadSessionDetail(sessionId: string): Promise<GuiSessionDetail | null> {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) {
@@ -341,26 +426,21 @@ export class GuiGatewayClient {
   }
 
   async saveThemePreference(theme: OperatorThemeName): Promise<void> {
-    const candidateBaseUrls = this.resolveCandidateBaseUrls();
-
-    for (const candidateBaseUrl of candidateBaseUrls) {
-      const url = new URL("/gui/api/preferences/theme", candidateBaseUrl);
-      try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json",
-          },
-          body: JSON.stringify({ theme }),
-        });
-        if (!response.ok) {
-          continue;
-        }
-        this.resolvedBaseUrl = candidateBaseUrl;
-        return;
-      } catch {
-      }
+    const snapshot = await this.loadSettings();
+    const proposal = await this.proposeSettingsMutation({
+      operation: "setting.set",
+      scope: "global",
+      key: "ui.theme",
+      expectedRevision: snapshot.revisions.global ?? "absent",
+      value: theme,
+    });
+    if (proposal.status !== "valid") {
+      throw new Error(proposal.diagnostics.map((diagnostic) => diagnostic.message).join(" ") || "Theme proposal is invalid.");
+    }
+    const result = await this.applySettingsMutation({ proposalId: proposal.proposalId });
+    if (result.outcome !== "committed") {
+      throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join(" ")
+        || (result.outcome === "rejected" ? "Theme change was rejected." : "Theme change committed but reconciliation failed."));
     }
   }
 

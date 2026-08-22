@@ -104,6 +104,22 @@ the same command model, but their placement is intentional: global commands are
 navigation/action commands, while slash commands are message-composition
 commands.
 
+## Settings
+
+`/settings` redirects to `/settings/general`. The settings workspace owns nine
+routes: General, Providers, Models, Permissions, Tools, Usage and Limits,
+Agents, Health, and Advanced. Desktop and narrow layouts use the same route and
+search model; `/` focuses settings search when the workspace is active.
+
+Rows consume the schema-validated `KilnSettingsSnapshot` from
+`GET /gui/api/config/settings`. They do not read YAML or derive configuration
+policy in React. Set and reset actions create a typed proposal, show its scope,
+authority and activation consequences, then apply through the authenticated
+local gateway. The page refetches effective state after commit and distinguishes
+rejection, revision conflict, and committed reconciliation failure. Advanced
+export is secret-free inspection; import validates an export but cannot write
+configuration.
+
 ## E2E tests (Playwright)
 
 Install the browser once:

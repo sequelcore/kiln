@@ -17,11 +17,18 @@ import {
   type CreateMemoryRecordInput,
   type MemoryProvenance,
 } from "@kilnai/core";
-import type {
-  GuiProviderDiscoveryResult,
-  GuiSessionDetail,
-  OperatorSessionSummary,
-  KilnConfigSetupSnapshot,
+import {
+  OPERATOR_THEME_LABELS,
+  OPERATOR_THEME_NAMES,
+  type OperatorThemeName,
+  type GuiProviderDiscoveryResult,
+  type GuiSessionDetail,
+  type OperatorSessionSummary,
+  type KilnConfigSetupSnapshot,
+  type KilnSettingsMutationResult,
+  type KilnSettingsProposalProjection,
+  type KilnSettingsProposalRequest,
+  type KilnSettingsSnapshot,
 } from "@kilnai/gateway-contracts";
 
 function parseGatewayPort(): number {
@@ -777,6 +784,101 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
   recommendedActions: ["none"],
 };
 
+const settingsRevision = `sha256:${"a".repeat(64)}` as const;
+let domainOverridden = true;
+let configuredTheme: OperatorThemeName = "system-follow";
+const settingsProposals = new Map<string, KilnSettingsProposalRequest>();
+
+function settingsSnapshot(): KilnSettingsSnapshot {
+  const sections: KilnSettingsSnapshot["sections"] = [
+    { id: "general", label: "General", description: "Identity, presentation, and project defaults.", entryKeys: ["ui.theme", "domain"] },
+    { id: "providers", label: "Providers", description: "Provider connections and routing intent.", entryKeys: [] },
+    { id: "models", label: "Models", description: "Model selection and behavior.", entryKeys: [] },
+    { id: "permissions", label: "Permissions", description: "Authority, approval, and sandbox policy.", entryKeys: [] },
+    { id: "tools", label: "Tools", description: "Interactive tools and admitted boundaries.", entryKeys: [] },
+    { id: "usage-and-limits", label: "Usage and Limits", description: "Work limits and governance controls.", entryKeys: [] },
+    { id: "agents", label: "Agents", description: "Skills, agents, and instruction profiles.", entryKeys: [] },
+    { id: "health", label: "Health", description: "Configuration and projection health.", entryKeys: [] },
+    { id: "advanced", label: "Advanced", description: "Descriptor-backed inspection and validation.", entryKeys: [] },
+  ];
+  return {
+    schemaRevision: 1,
+    generatedAt: new Date().toISOString(),
+    health: "current",
+    sections,
+    entries: [{
+      key: "ui.theme",
+      identity: "/ui/theme",
+      section: "general",
+      label: "Theme",
+      description: "Operator interface theme.",
+      searchTerms: ["appearance", "color"],
+      control: {
+        kind: "theme",
+        options: OPERATOR_THEME_NAMES.map((value) => ({ value, label: OPERATOR_THEME_LABELS[value] })),
+      },
+      supportedScopes: ["global"],
+      effective: { value: configuredTheme },
+      source: "global",
+      override: "overridden",
+      inherited: false,
+      modified: true,
+      writeTargets: [{
+        scope: "global",
+        document: "global-config",
+        override: "overridden",
+        modified: true,
+        current: { value: configuredTheme },
+        owners: ["operator-preferences"],
+        authorityImpact: "none",
+        approvalRequired: false,
+        activation: "hot",
+      }],
+      owners: ["operator-preferences"],
+      authorityImpact: "none",
+      approvalRequired: false,
+      activation: "hot",
+      health: "current",
+      capabilities: { read: true, set: true, reset: true },
+      revisions: { global: settingsRevision },
+    }, {
+      key: "domain",
+      identity: "/domain",
+      section: "general",
+      label: "Domain",
+      description: "Project domain used to select admitted context.",
+      searchTerms: ["domain", "project"],
+      control: { kind: "text" },
+      supportedScopes: ["project"],
+      effective: { value: domainOverridden ? "backend" : "default" },
+      source: domainOverridden ? "project" : "default",
+      override: domainOverridden ? "overridden" : "inherited",
+      inherited: !domainOverridden,
+      modified: domainOverridden,
+      writeTargets: [{
+        scope: "project",
+        document: "project-config",
+        override: domainOverridden ? "overridden" : "inherited",
+        modified: domainOverridden,
+        ...(domainOverridden ? { current: { value: "backend" } } : {}),
+        owners: ["project-configuration"],
+        authorityImpact: "none",
+        approvalRequired: false,
+        activation: "next-session",
+      }],
+      owners: ["project-configuration"],
+      authorityImpact: "none",
+      approvalRequired: false,
+      activation: "next-session",
+      health: "current",
+      capabilities: { read: true, set: true, reset: true },
+      revisions: { project: settingsRevision },
+    }],
+    revisions: { project: settingsRevision, global: settingsRevision },
+    modifiedCount: domainOverridden ? 2 : 1,
+  };
+}
+
 seedMemoryRepository(memoryRepository);
 
 async function main(): Promise<void> {
@@ -785,6 +887,7 @@ async function main(): Promise<void> {
 
   const gateway = await startGuiGateway({
     port,
+    workingDirectory: process.cwd(),
     getSnapshot: async () => ({
       providers: [
         { id: "claude", label: "Claude", group: "harness", free: false, models: ["claude-sonnet-4-6", "claude-opus-4-6"], available: true },
@@ -802,6 +905,52 @@ async function main(): Promise<void> {
     executionRouteSelection: operatorRouting.executionRouteSelection,
     discoverOperatorProviders: async () => operatorDiscovery,
     getSetupSnapshot: async () => setupSnapshot,
+    getSettingsSnapshot: async () => settingsSnapshot(),
+    proposeSettingsMutation: async (request): Promise<KilnSettingsProposalProjection> => {
+      await delay(150);
+      const proposalId = `cfg_${request.operation.replace("setting.", "")}_${request.key.replaceAll(".", "_")}`;
+      settingsProposals.set(proposalId, request);
+      return {
+        proposalId,
+        createdAt: new Date().toISOString(),
+        scope: request.scope,
+        operation: request.operation,
+        key: request.key,
+        status: "valid",
+        baseRevision: settingsRevision,
+        affectedOwners: request.key === "ui.theme" ? ["operator-preferences"] : ["project-configuration"],
+        reconciliation: [],
+        authorityImpact: "none",
+        approvalRequired: false,
+        activation: request.key === "ui.theme" ? "hot" : "next-session",
+        diagnostics: [],
+        rollback: { restorable: true, summary: "Restore the prior value." },
+      };
+    },
+    applySettingsMutation: async ({ proposalId }): Promise<KilnSettingsMutationResult> => {
+      await delay(150);
+      const request = settingsProposals.get(proposalId);
+      if (request?.operation === "setting.reset" && request.key === "domain") domainOverridden = false;
+      if (request?.operation === "setting.set"
+        && request.key === "ui.theme"
+        && typeof request.value === "string"
+        && (OPERATOR_THEME_NAMES as readonly string[]).includes(request.value)) {
+        configuredTheme = request.value as OperatorThemeName;
+      }
+      return {
+        proposalId,
+        scope: request?.scope ?? "project",
+        operation: request?.operation ?? "setting.set",
+        outcome: request ? "committed" : "rejected",
+        rejectionCode: request ? null : "invalid-request",
+        committedRevision: request ? settingsRevision : null,
+        activation: request?.key === "ui.theme" ? "hot" : "next-session",
+        reconciliation: [],
+        diagnostics: [],
+        replayed: false,
+        readBack: { schemaRevision: 1, verified: Boolean(request) },
+      };
+    },
     loadOperatorSessionHistory: async () => sessionSummaries,
     getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id
       ? restoredSessionDetail
@@ -838,7 +987,7 @@ async function main(): Promise<void> {
     },
   });
 
-  process.stdout.write(`READY ${gateway.port}\n`);
+  process.stdout.write(`READY ${gateway.port} ${gateway.operatorTerminalCapability ?? "none"}\n`);
 
   const shutdown = () => {
     memoryRepository.close();

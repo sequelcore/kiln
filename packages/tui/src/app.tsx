@@ -19,6 +19,7 @@ import {
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
   type KilnConfigSetupSnapshot,
+  type KilnSettingsSnapshot,
   type OperatorCommandDefinition,
   type OperatorSessionSummary,
   type OperatorTurnRequestedAuthority,
@@ -29,6 +30,7 @@ import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themeNames as listThemeNames, themes } from "./theme.js";
 import { formatSetupSnapshot } from "./setup-format.js";
+import { formatSettingsSnapshot } from "./settings-format.js";
 import {
   initUI,
   createThemePicker,
@@ -104,6 +106,7 @@ export async function startTui(
   onFirstFrame?: () => void,
   providerModelDiscoveryRef?: { current: GuiProviderModelDiscoveryProjection | null },
   executionRouteCatalogRef?: { current: ExecutionRouteCatalog | null },
+  loadSettingsSnapshot?: () => Promise<KilnSettingsSnapshot>,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -352,6 +355,11 @@ export async function startTui(
 
       if (text === "/setup") {
         void showSetupStatus();
+        return;
+      }
+
+      if (text === "/settings" || text.startsWith("/settings ")) {
+        void showSettings(text.slice("/settings".length).trim());
         return;
       }
 
@@ -1286,7 +1294,7 @@ export async function startTui(
 
     renderInput();
     renderCommandBarStatus();
-    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/setup /theme /target  ctrl+shift+P commands")}`;
+    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/settings [query] /setup /target  ctrl+shift+P commands")}`;
 
     for (const { msg, node } of messageNodes) {
       const parent = node.parent;
@@ -1410,6 +1418,25 @@ export async function startTui(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Setup status failed: ${message}`)}`;
+    }
+  }
+
+  async function showSettings(query = ""): Promise<void> {
+    if (!loadSettingsSnapshot) {
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)("Settings are unavailable in this TUI session")}`;
+      return;
+    }
+    try {
+      const snapshot = await loadSettingsSnapshot();
+      const node = new TextRenderable(renderer, {
+        content: t`${fg(currentTheme.accent)(query ? `settings · ${query}` : "settings")}\n${fg(currentTheme.text)(formatSettingsSnapshot(snapshot, query))}`,
+        width: "100%",
+      });
+      ui.chatScrollBox.content.add(node);
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Settings loaded")}`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Settings failed: ${message}`)}`;
     }
   }
 
@@ -1770,7 +1797,7 @@ export async function startTui(
         return;
       }
 
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/target" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/target" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup" || inputText === "/settings" || inputText.startsWith("/settings ")) {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1829,6 +1856,11 @@ export async function startTui(
 
           if (inputText === "/setup") {
             void showSetupStatus();
+            return;
+          }
+
+          if (inputText === "/settings" || inputText.startsWith("/settings ")) {
+            void showSettings(inputText.slice("/settings".length).trim());
             return;
           }
         }
@@ -1961,6 +1993,10 @@ export async function startTui(
           }
           if (cmd.id === "setup") {
             void showSetupStatus();
+            return;
+          }
+          if (cmd.id === "settings") {
+            void showSettings();
             return;
           }
           if (cmd.id === "goal") {

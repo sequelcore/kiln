@@ -10,6 +10,7 @@ export type OperatorCommandId =
   | "plan"
   | "exec"
   | "setup"
+  | "settings"
   | "goal"
   | "terminal";
 
@@ -94,6 +95,14 @@ export const OPERATOR_COMMANDS: readonly OperatorCommandDefinition[] = [
     description: "Open config and projection status.",
     keywords: ["config", "status", "shims", "projection"],
     surfaces: ["gui", "tui"],
+  },
+  {
+    id: "settings",
+    trigger: "settings",
+    title: "Settings",
+    description: "Search effective settings and inspect scope, source, and activation.",
+    keywords: ["config", "preferences", "scope", "source", "activation"],
+    surfaces: ["cli", "gui", "tui"],
   },
   {
     id: "goal",

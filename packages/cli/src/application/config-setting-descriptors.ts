@@ -2,6 +2,8 @@ import type {
   KilnConfigActivationClass,
   KilnConfigMutationScope,
   KilnConfigReconciliationTarget,
+  KilnSettingsControl,
+  KilnSettingsSectionId,
 } from "@kilnai/gateway-contracts";
 import { isOperatorThemeName } from "@kilnai/gateway-contracts";
 import {
@@ -25,6 +27,12 @@ export interface ConfigSettingDescriptor {
   readonly scopes: readonly KilnConfigMutationScope[];
   readonly value: ConfigSettingValueKind;
   readonly reconciliationTargets: readonly KilnConfigReconciliationTarget[];
+  /** Optional curated presentation metadata; omitted entries derive from key/schema facts. */
+  readonly section?: KilnSettingsSectionId;
+  readonly label?: string;
+  readonly description?: string;
+  readonly searchTerms?: readonly string[];
+  readonly control?: KilnSettingsControl;
   /**
    * Authority, activation, and owner for the global scope only. The global
    * configuration family has no runtime schema until Roadmap 12 Slice 9, so
@@ -105,6 +113,18 @@ export function configSettingDescriptor(key: string): ConfigSettingDescriptor | 
   return CONFIG_SETTING_DESCRIPTORS.get(key);
 }
 
+/** Stable read-only enumeration used by the cross-surface settings projection. */
+export function configSettingDescriptors(): readonly ConfigSettingDescriptor[] {
+  return [...CONFIG_SETTING_DESCRIPTORS.values()];
+}
+
+/** Schema-owned facts for a settable project field, when one exists. */
+export function projectConfigFieldForSetting(
+  descriptor: ConfigSettingDescriptor,
+): ProjectConfigFieldDescriptor | undefined {
+  return projectFieldDescriptor(descriptor.path);
+}
+
 export function configSettingKeys(): readonly string[] {
   return [...CONFIG_SETTING_DESCRIPTORS.keys()].sort();
 }
@@ -137,22 +157,7 @@ export function parseConfigSettingValue(
     case "string-list-record": {
       const parsed = parseJsonValue(raw, descriptor.key);
       if (!parsed.ok) return parsed;
-      const record = parsed.value;
-      if (!record || typeof record !== "object" || Array.isArray(record)) {
-        return { ok: false, message: `Invalid value for ${descriptor.key}: expected an object of string arrays.` };
-      }
-      const out: Record<string, readonly string[]> = {};
-      for (const [entryKey, entryValue] of Object.entries(record as Record<string, unknown>)) {
-        if (!Array.isArray(entryValue) || entryValue.some((item) => typeof item !== "string")) {
-          return { ok: false, message: `Invalid value for ${descriptor.key}: expected an object of string arrays.` };
-        }
-        const normalizedKey = entryKey.trim();
-        const normalizedValue = splitList((entryValue as readonly string[]).join(","));
-        if (normalizedKey && normalizedValue.length > 0) {
-          out[normalizedKey] = normalizedValue;
-        }
-      }
-      return { ok: true, value: out };
+      return normalizeStringListRecord(parsed.value, descriptor.key);
     }
     case "json":
       return parseJsonValue(raw, descriptor.key);
@@ -165,6 +170,23 @@ export function parseConfigSettingValue(
         ? { ok: true, value: raw }
         : { ok: false, message: `Unknown operator theme '${raw}'.` };
   }
+}
+
+/** Normalizes the shared object-of-string-arrays shape identically across CLI and typed callers. */
+export function normalizeStringListRecord(value: unknown, key: string): ConfigSettingParse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, message: `Invalid value for ${key}: expected an object of string arrays.` };
+  }
+  const out: Record<string, readonly string[]> = {};
+  for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(entryValue) || entryValue.some((item) => typeof item !== "string")) {
+      return { ok: false, message: `Invalid value for ${key}: expected an object of string arrays.` };
+    }
+    const normalizedKey = entryKey.trim();
+    const normalizedValue = splitList((entryValue as readonly string[]).join(","));
+    if (normalizedKey && normalizedValue.length > 0) out[normalizedKey] = normalizedValue;
+  }
+  return { ok: true, value: out };
 }
 
 function parseJsonValue(raw: string, key: string): ConfigSettingParse {
@@ -249,6 +271,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["skills", "builtin"],
     scopes: BOTH,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: ["native-skills"],
     global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
@@ -265,6 +288,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["skills", "visibility", "overrides"],
     scopes: GLOBAL,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: ["native-skills"],
     global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
@@ -273,6 +297,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["skills", "externalCatalog"],
     scopes: GLOBAL,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: ["native-skills"],
     global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
@@ -382,6 +407,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["permissions", "tools"],
     scopes: PROJECT,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: ["repo-shims"],
   }),
   descriptor({
@@ -389,6 +415,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["permissions", "commands"],
     scopes: PROJECT,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: ["repo-shims"],
   }),
   descriptor({
@@ -396,6 +423,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["permissions", "fileGovernance"],
     scopes: PROJECT,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: ["repo-shims"],
   }),
   descriptor({
@@ -403,6 +431,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["permissions", "dataFirewall"],
     scopes: PROJECT,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: [],
   }),
   descriptor({
@@ -410,6 +439,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["permissions", "agentScopes"],
     scopes: PROJECT,
     value: { kind: "json" },
+    section: "advanced",
     reconciliationTargets: [],
   }),
 
@@ -440,6 +470,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["interactiveUse", "applicationAliases"],
     scopes: PROJECT,
     value: { kind: "string-list-record" },
+    section: "advanced",
     reconciliationTargets: [],
   }),
   descriptor({

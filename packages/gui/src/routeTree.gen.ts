@@ -11,9 +11,15 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SettingsConfigurationRouteImport } from './routes/settings.configuration'
-import { Route as SettingsAvailableModelsRouteImport } from './routes/settings.available-models'
-import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
+import { Route as SettingsUsageAndLimitsRouteImport } from './routes/settings.usage-and-limits'
+import { Route as SettingsToolsRouteImport } from './routes/settings.tools'
+import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
+import { Route as SettingsPermissionsRouteImport } from './routes/settings.permissions'
+import { Route as SettingsModelsRouteImport } from './routes/settings.models'
+import { Route as SettingsHealthRouteImport } from './routes/settings.health'
+import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
+import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
+import { Route as SettingsAdvancedRouteImport } from './routes/settings.advanced'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -25,66 +31,132 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsConfigurationRoute = SettingsConfigurationRouteImport.update({
-  id: '/configuration',
-  path: '/configuration',
+const SettingsUsageAndLimitsRoute = SettingsUsageAndLimitsRouteImport.update({
+  id: '/usage-and-limits',
+  path: '/usage-and-limits',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsAvailableModelsRoute = SettingsAvailableModelsRouteImport.update({
-  id: '/available-models',
-  path: '/available-models',
+const SettingsToolsRoute = SettingsToolsRouteImport.update({
+  id: '/tools',
+  path: '/tools',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
-  id: '/appearance',
-  path: '/appearance',
+const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
+  id: '/providers',
+  path: '/providers',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsPermissionsRoute = SettingsPermissionsRouteImport.update({
+  id: '/permissions',
+  path: '/permissions',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsModelsRoute = SettingsModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsHealthRoute = SettingsHealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
+  id: '/general',
+  path: '/general',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAdvancedRoute = SettingsAdvancedRouteImport.update({
+  id: '/advanced',
+  path: '/advanced',
   getParentRoute: () => SettingsRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
-  '/settings/available-models': typeof SettingsAvailableModelsRoute
-  '/settings/configuration': typeof SettingsConfigurationRoute
+  '/settings/advanced': typeof SettingsAdvancedRoute
+  '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/general': typeof SettingsGeneralRoute
+  '/settings/health': typeof SettingsHealthRoute
+  '/settings/models': typeof SettingsModelsRoute
+  '/settings/permissions': typeof SettingsPermissionsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/tools': typeof SettingsToolsRoute
+  '/settings/usage-and-limits': typeof SettingsUsageAndLimitsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
-  '/settings/available-models': typeof SettingsAvailableModelsRoute
-  '/settings/configuration': typeof SettingsConfigurationRoute
+  '/settings/advanced': typeof SettingsAdvancedRoute
+  '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/general': typeof SettingsGeneralRoute
+  '/settings/health': typeof SettingsHealthRoute
+  '/settings/models': typeof SettingsModelsRoute
+  '/settings/permissions': typeof SettingsPermissionsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/tools': typeof SettingsToolsRoute
+  '/settings/usage-and-limits': typeof SettingsUsageAndLimitsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
-  '/settings/available-models': typeof SettingsAvailableModelsRoute
-  '/settings/configuration': typeof SettingsConfigurationRoute
+  '/settings/advanced': typeof SettingsAdvancedRoute
+  '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/general': typeof SettingsGeneralRoute
+  '/settings/health': typeof SettingsHealthRoute
+  '/settings/models': typeof SettingsModelsRoute
+  '/settings/permissions': typeof SettingsPermissionsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/tools': typeof SettingsToolsRoute
+  '/settings/usage-and-limits': typeof SettingsUsageAndLimitsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/settings'
-    | '/settings/appearance'
-    | '/settings/available-models'
-    | '/settings/configuration'
+    | '/settings/advanced'
+    | '/settings/agents'
+    | '/settings/general'
+    | '/settings/health'
+    | '/settings/models'
+    | '/settings/permissions'
+    | '/settings/providers'
+    | '/settings/tools'
+    | '/settings/usage-and-limits'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/settings'
-    | '/settings/appearance'
-    | '/settings/available-models'
-    | '/settings/configuration'
+    | '/settings/advanced'
+    | '/settings/agents'
+    | '/settings/general'
+    | '/settings/health'
+    | '/settings/models'
+    | '/settings/permissions'
+    | '/settings/providers'
+    | '/settings/tools'
+    | '/settings/usage-and-limits'
   id:
     | '__root__'
     | '/'
     | '/settings'
-    | '/settings/appearance'
-    | '/settings/available-models'
-    | '/settings/configuration'
+    | '/settings/advanced'
+    | '/settings/agents'
+    | '/settings/general'
+    | '/settings/health'
+    | '/settings/models'
+    | '/settings/permissions'
+    | '/settings/providers'
+    | '/settings/tools'
+    | '/settings/usage-and-limits'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -108,40 +180,94 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/configuration': {
-      id: '/settings/configuration'
-      path: '/configuration'
-      fullPath: '/settings/configuration'
-      preLoaderRoute: typeof SettingsConfigurationRouteImport
+    '/settings/usage-and-limits': {
+      id: '/settings/usage-and-limits'
+      path: '/usage-and-limits'
+      fullPath: '/settings/usage-and-limits'
+      preLoaderRoute: typeof SettingsUsageAndLimitsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/available-models': {
-      id: '/settings/available-models'
-      path: '/available-models'
-      fullPath: '/settings/available-models'
-      preLoaderRoute: typeof SettingsAvailableModelsRouteImport
+    '/settings/tools': {
+      id: '/settings/tools'
+      path: '/tools'
+      fullPath: '/settings/tools'
+      preLoaderRoute: typeof SettingsToolsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/appearance': {
-      id: '/settings/appearance'
-      path: '/appearance'
-      fullPath: '/settings/appearance'
-      preLoaderRoute: typeof SettingsAppearanceRouteImport
+    '/settings/providers': {
+      id: '/settings/providers'
+      path: '/providers'
+      fullPath: '/settings/providers'
+      preLoaderRoute: typeof SettingsProvidersRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/permissions': {
+      id: '/settings/permissions'
+      path: '/permissions'
+      fullPath: '/settings/permissions'
+      preLoaderRoute: typeof SettingsPermissionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/models': {
+      id: '/settings/models'
+      path: '/models'
+      fullPath: '/settings/models'
+      preLoaderRoute: typeof SettingsModelsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/health': {
+      id: '/settings/health'
+      path: '/health'
+      fullPath: '/settings/health'
+      preLoaderRoute: typeof SettingsHealthRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/general': {
+      id: '/settings/general'
+      path: '/general'
+      fullPath: '/settings/general'
+      preLoaderRoute: typeof SettingsGeneralRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/agents': {
+      id: '/settings/agents'
+      path: '/agents'
+      fullPath: '/settings/agents'
+      preLoaderRoute: typeof SettingsAgentsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/advanced': {
+      id: '/settings/advanced'
+      path: '/advanced'
+      fullPath: '/settings/advanced'
+      preLoaderRoute: typeof SettingsAdvancedRouteImport
       parentRoute: typeof SettingsRoute
     }
   }
 }
 
 interface SettingsRouteChildren {
-  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
-  SettingsAvailableModelsRoute: typeof SettingsAvailableModelsRoute
-  SettingsConfigurationRoute: typeof SettingsConfigurationRoute
+  SettingsAdvancedRoute: typeof SettingsAdvancedRoute
+  SettingsAgentsRoute: typeof SettingsAgentsRoute
+  SettingsGeneralRoute: typeof SettingsGeneralRoute
+  SettingsHealthRoute: typeof SettingsHealthRoute
+  SettingsModelsRoute: typeof SettingsModelsRoute
+  SettingsPermissionsRoute: typeof SettingsPermissionsRoute
+  SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsToolsRoute: typeof SettingsToolsRoute
+  SettingsUsageAndLimitsRoute: typeof SettingsUsageAndLimitsRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsAppearanceRoute: SettingsAppearanceRoute,
-  SettingsAvailableModelsRoute: SettingsAvailableModelsRoute,
-  SettingsConfigurationRoute: SettingsConfigurationRoute,
+  SettingsAdvancedRoute: SettingsAdvancedRoute,
+  SettingsAgentsRoute: SettingsAgentsRoute,
+  SettingsGeneralRoute: SettingsGeneralRoute,
+  SettingsHealthRoute: SettingsHealthRoute,
+  SettingsModelsRoute: SettingsModelsRoute,
+  SettingsPermissionsRoute: SettingsPermissionsRoute,
+  SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsToolsRoute: SettingsToolsRoute,
+  SettingsUsageAndLimitsRoute: SettingsUsageAndLimitsRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

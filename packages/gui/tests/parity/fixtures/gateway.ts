@@ -8,17 +8,20 @@ const RUNNER_RELATIVE_PATH = "packages/gui/tests/parity/fixtures/gateway-runner.
 
 interface GatewayFixture {
   gatewayPort: number;
+  operatorToken: string;
 }
+
+let activeOperatorToken = "";
 
 function resolveRepoRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "..");
 }
 
-async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<number> {
+async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<{ readonly port: number; readonly operatorToken: string }> {
   let stdoutBuffer = "";
   let stderrBuffer = "";
 
-  return await new Promise<number>((resolveReady, reject) => {
+  return await new Promise<{ readonly port: number; readonly operatorToken: string }>((resolveReady, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Gateway runner timed out waiting for READY line. Stderr:\n${stderrBuffer}`));
     }, READY_TIMEOUT_MS);
@@ -53,12 +56,15 @@ async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<numb
       const lines = stdoutBuffer.split(/\r?\n/);
       stdoutBuffer = lines.pop() ?? "";
       for (const line of lines) {
-        const match = /^READY\s+(\d+)$/.exec(line.trim());
+        const match = /^READY\s+(\d+)\s+(\S+)$/.exec(line.trim());
         if (!match) {
           continue;
         }
         cleanup();
-        resolveReady(Number.parseInt(match[1], 10));
+        resolveReady({
+          port: Number.parseInt(match[1]!, 10),
+          operatorToken: match[2] === "none" ? "" : match[2]!,
+        });
         return;
       }
     };
@@ -118,12 +124,18 @@ export const test = base.extend<Record<string, never>, GatewayFixture>({
     );
 
     try {
-      const readyPort = await waitForReady(runner);
-      await use(readyPort);
+      const ready = await waitForReady(runner);
+      activeOperatorToken = ready.operatorToken;
+      await use(ready.port);
     } finally {
+      activeOperatorToken = "";
       await stopRunner(runner);
     }
   }, { scope: "worker", auto: true }],
+  operatorToken: [async ({ gatewayPort }, use) => {
+    void gatewayPort;
+    await use(activeOperatorToken);
+  }, { scope: "worker" }],
 });
 
 export async function waitForGuiReady(page: Page): Promise<void> {

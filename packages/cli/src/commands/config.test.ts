@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { configCommand } from "./config.js";
@@ -96,7 +96,7 @@ describe("config command", () => {
     });
   });
 
-  it("explicitly resets an invalid global config to V3 and preserves a backup", async () => {
+  it("keeps keyless reset side-effect free instead of replacing a whole global document", async () => {
     const root = createTempRoot();
     process.env.XDG_CONFIG_HOME = join(root, "xdg");
     const configPath = resolveGlobalConfigPath();
@@ -105,7 +105,7 @@ describe("config command", () => {
 
     await configCommand({} as never, "reset", ["--global", "--approve"], root);
 
-    expect(readGlobalConfig()).toMatchObject({ version: "4" });
-    expect(consoleLog.mock.calls.flat().join("\n")).toContain("backed up");
+    expect(readFileSync(configPath, "utf-8")).toBe('version: "1"\nidentity:\n  name: Previous\n');
+    expect(consoleLog.mock.calls.flat().join("\n")).toContain("Usage: kiln config reset [--global] <key>");
   });
 });

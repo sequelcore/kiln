@@ -82,6 +82,33 @@ export {
 } from "./config-mutation.js";
 
 export type {
+  KilnSettingsApplyRequest,
+  KilnSettingsControl,
+  KilnSettingsControlKind,
+  KilnSettingsEntry,
+  KilnSettingsMutationResult,
+  KilnSettingsProposalProjection,
+  KilnSettingsProposalRequest,
+  KilnSettingsSection,
+  KilnSettingsSectionId,
+  KilnSettingsSnapshot,
+} from "./configuration-settings.js";
+export {
+  KILN_SETTINGS_CONTROL_KINDS,
+  KILN_SETTINGS_REJECTION_CODES,
+  KILN_SETTINGS_SCHEMA_REVISION,
+  KILN_SETTINGS_SECTION_IDS,
+  KilnSettingsApplyRequestSchema,
+  KilnSettingsControlSchema,
+  KilnSettingsMutationResultSchema,
+  KilnSettingsProposalProjectionSchema,
+  KilnSettingsProposalRequestSchema,
+  KilnSettingsSnapshotSchema,
+  projectKilnSettingsMutationResult,
+  projectKilnSettingsProposal,
+} from "./configuration-settings.js";
+
+export type {
   OperatorCommandDefinition,
   OperatorCommandId,
   OperatorCommandSurfaceKind,

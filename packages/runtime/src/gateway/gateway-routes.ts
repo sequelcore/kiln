@@ -236,7 +236,6 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     return c.json(detail);
   });
 
-  app.post("/gui/api/preferences/theme", (c) => c.json({ ok: false, reason: "Theme persistence is local to operator surfaces" }, 202));
   app.post("/gui/api/window-closed", (c) => c.json({ ok: true }));
 
   if (config.upgradeWebSocket) {

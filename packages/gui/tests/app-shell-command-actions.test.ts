@@ -19,8 +19,8 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellCommandE
     setSessionPopoverOpen: vi.fn(),
     setTargetedPlanMode: vi.fn(),
     setWorkbenchSurface: vi.fn(),
-    setTheme: vi.fn(),
-    persistThemePreference: vi.fn(),
+    persistThemePreference: vi.fn(async () => {}),
+    onThemePersistenceFailed: vi.fn(),
     toggleOperatorTerminal: vi.fn(),
     ...overrides,
   };
@@ -101,8 +101,6 @@ describe("createAppShellCommandExecutor", () => {
     execute({ id: "theme:system-follow", label: "System" });
     execute({ id: "theme:unknown", label: "Unknown" });
 
-    expect(input.setTheme).toHaveBeenCalledTimes(1);
-    expect(input.setTheme).toHaveBeenCalledWith("system-follow");
     expect(input.persistThemePreference).toHaveBeenCalledWith("system-follow");
     expect(input.closePalette).toHaveBeenCalledTimes(2);
   });

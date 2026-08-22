@@ -15,6 +15,13 @@ import { withWorkGovernanceContext } from "../application/work-governance-contex
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
 import {
+  applyConfigMutation,
+  approveConfigMutation,
+  proposeConfigMutation,
+} from "../application/config-mutation-authority.js";
+import { ConfigMutationStore } from "../application/config-mutation-store.js";
+import { admitSettingsProposalRecord, readSettingsSnapshot } from "../application/config-settings.js";
+import {
   applyConfigurationOnboarding,
   readConfigurationOnboarding,
 } from "../application/configuration-onboarding.js";
@@ -81,7 +88,7 @@ import {
   resolveOperatorContinuationBinding,
 } from "../application/operator-turn-dispatch-composition.js";
 import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
-import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
+import { resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
@@ -105,6 +112,8 @@ import {
   getGuiProviderMetadata,
   isGuiProviderModeless,
   projectOperatorCockpitReadOnlyView,
+  projectKilnSettingsMutationResult,
+  projectKilnSettingsProposal,
   type GuiProviderDiscoveryResult,
   type OperatorSessionEvent,
   type OperatorSessionSummary,
@@ -382,12 +391,45 @@ export async function guiCommand(
       approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
       approvalSurface: "gui",
     }),
+    getSettingsSnapshot: async () => readSettingsSnapshot(
+      await readConfigStatusSnapshot({ projectPath: cwd, view: "settings" }),
+    ),
+    proposeSettingsMutation: async (request) => {
+      const record = proposeConfigMutation({
+        projectPath: cwd,
+        operation: request.operation,
+        payload: request,
+      });
+      new ConfigMutationStore(cwd).saveProposal(record);
+      return projectKilnSettingsProposal(record.proposal);
+    },
+    applySettingsMutation: async (request) => {
+      const store = new ConfigMutationStore(cwd);
+      const record = admitSettingsProposalRecord(store.readProposal(request.proposalId), request.proposalId);
+      let approvalId = request.approvalId;
+      if (!approvalId && record?.proposal.approvalRequired) {
+        approvalId = approveConfigMutation({
+          projectPath: cwd,
+          proposalId: request.proposalId,
+          approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+          surface: "gui",
+        }).approvalId;
+      }
+      return projectKilnSettingsMutationResult(await applyConfigMutation({
+        projectPath: cwd,
+        proposalId: request.proposalId,
+        ...(approvalId ? { approvalId } : {}),
+        requester: "operator",
+        readEffectiveState: async (projectPath) => (
+          await readConfigStatusSnapshot({ projectPath, view: "effective" })
+        ).effectiveConfig,
+      }));
+    },
     loadOperatorSessionHistory: () => loadOperatorSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     workingDirectory: cwd,
     domainLabel: bootstrapContext.domainLabel,
     workspaceExplorer,
-    updateThemePreference: (theme) => persistGuiThemePreference(theme, { projectPath: cwd }),
     executionRouteSelection,
     createExecutionRoute: async (request, admittedEvidence) => {
       const result = await createCurrentExecutionRoute({

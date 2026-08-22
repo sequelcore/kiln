@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
+  isOperatorThemeName,
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceHomeProjection,
   listOperatorCommands,
@@ -96,8 +97,9 @@ import {
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../lib/timeline-visibility.js";
 import { Button } from "@/components/ui/button";
-import { AppearanceSettingsPanel } from "./appearance-settings-panel.js";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SettingsWorkspace } from "./settings-workspace.js";
+import { SettingsPage } from "./settings-page.js";
 import type { SettingsSection } from "./settings-navigation.js";
 import { SetupPanel } from "./setup-panel.js";
 import { AvailableModelsPanel } from "./available-models-panel.js";
@@ -220,6 +222,7 @@ export function AppShell(props: AppShellProps = {}) {
 function useAppShellRuntimeView(props: AppShellProps) {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const [themePreferenceError, setThemePreferenceError] = useState<string | null>(null);
   const [gatewayAttempt, setGatewayAttempt] = useState(0);
   const [commandSurfaces, dispatchCommandSurface] = useReducer(
     reduceCommandSurfaces,
@@ -629,7 +632,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "8") {
         event.preventDefault();
-        openSettings("configuration");
+        openSettings("general");
       }
       if (event.ctrlKey && event.code === "Backquote" && operatorTerminalAvailableRef.current) {
         event.preventDefault();
@@ -664,8 +667,9 @@ function useAppShellRuntimeView(props: AppShellProps) {
     };
   }, [gatewayClient]);
 
-  const persistThemePreference = (theme: OperatorThemeName) => {
-    void gatewayClient.saveThemePreference(theme);
+  const persistThemePreference = async (theme: OperatorThemeName): Promise<void> => {
+    await gatewayClient.saveThemePreference(theme);
+    setTheme(theme);
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("theme", theme);
     window.history.replaceState({}, "", nextUrl.toString());
@@ -779,13 +783,26 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const setupQuery = useQuery({
     queryKey: ["gui", "setup", gatewayReady ? "ready" : "waiting"],
     queryFn: async () => gatewayClient.loadConfigSetup(),
-    enabled: gatewayReady && settingsSection === "configuration",
+    enabled: gatewayReady && settingsSection === "health",
   });
   const onboardingQuery = useQuery({
     queryKey: ["gui", "configuration-onboarding", gatewayReady ? "ready" : "waiting"],
     queryFn: async () => gatewayClient.loadConfigurationOnboarding(),
-    enabled: gatewayReady && settingsSection === "configuration",
+    enabled: gatewayReady && settingsSection === "health",
   });
+  const settingsQuery = useQuery({
+    queryKey: ["gui", "settings", gatewayReady ? "ready" : "waiting"],
+    queryFn: async () => gatewayClient.loadSettings(),
+    enabled: gatewayReady && settingsSection !== null,
+  });
+  const settingsTheme = settingsQuery.data?.entries?.find((entry) => entry.key === "ui.theme")?.effective.value;
+  useEffect(() => {
+    if (!isOperatorThemeName(settingsTheme)) return;
+    setTheme(settingsTheme);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("theme", settingsTheme);
+    window.history.replaceState({}, "", nextUrl.toString());
+  }, [setTheme, settingsTheme]);
 
   const applyOnboarding = async (
     request: KilnConfigurationOnboardingApplyRequest,
@@ -986,7 +1003,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
     setPaletteQuery,
     setPaletteOpen,
     openExecutionRoutePicker,
-    openConfigurationSettings: () => openSettings("configuration"),
+    openConfigurationSettings: () => openSettings("general"),
     deliberationLevelOptions,
     selectedDeliberationLevel,
     setDeliberationLevel,
@@ -995,8 +1012,10 @@ function useAppShellRuntimeView(props: AppShellProps) {
     setSessionPopoverOpen,
     setTargetedPlanMode,
     setWorkbenchSurface: selectWorkbenchSurface,
-    setTheme,
     persistThemePreference,
+    onThemePersistenceFailed: (error) => {
+      setThemePreferenceError(error instanceof Error ? error.message : String(error));
+    },
     toggleOperatorTerminal,
   });
 
@@ -1109,29 +1128,56 @@ function useAppShellRuntimeView(props: AppShellProps) {
         />
       </Suspense>
 
+      {themePreferenceError ? (
+        <Alert variant="destructive" className="mx-4 mt-4">
+          <AlertTitle>Theme was not saved</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>{themePreferenceError}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => setThemePreferenceError(null)}>Dismiss</Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <WorkbenchBody>
         {settingsSection ? (
           <SettingsWorkspace
             section={settingsSection}
+            entries={settingsQuery.data?.entries ?? []}
             sidebarWidth={sidebarWidth}
             onSelectSection={openSettings}
+            onSearchResultSelect={({ section, targetId }) => {
+              window.setTimeout(() => document.getElementById(targetId ?? `settings-${section}-heading`)?.focus(), 0);
+            }}
             onBack={() => props.onCloseSettings?.()}
-            appearance={<AppearanceSettingsPanel onThemeSelected={persistThemePreference} />}
-            configuration={onboardingQuery.data?.status === "complete" ? (
-              <SetupPanel
-                snapshot={setupQuery.data ?? null}
-                loading={Boolean(setupQuery.isLoading)}
-                refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
-                error={setupQuery.error instanceof Error ? setupQuery.error : null}
-                onRefresh={() => void setupQuery.refetch()}
-                onExecuteAction={(action) => void executeSetupAction(action)}
-                onPreviewSource={(path) => void previewSetupSource(path)}
-                actionInFlight={setupActionInFlight}
-                actionFeedback={setupActionFeedback}
-              />
-            ) : (
-              <section aria-label="First-run configuration" className="h-full overflow-auto bg-workspace-viewer px-5 py-7 sm:px-8 sm:py-9">
-                <div className="mx-auto w-full max-w-3xl">
+          >
+            <SettingsPage
+              section={settingsSection}
+              snapshot={settingsQuery.data ?? null}
+              loading={Boolean(settingsQuery.isLoading || settingsQuery.isFetching)}
+              error={settingsQuery.error instanceof Error ? settingsQuery.error : null}
+              onRefresh={() => settingsQuery.refetch()}
+              onPropose={(request) => gatewayClient.proposeSettingsMutation(request)}
+              onApply={(request) => gatewayClient.applySettingsMutation(request)}
+              onOpenYaml={workingDirectory ? () => {
+                void previewSetupSource(`${workingDirectory.replace(/[\\/]+$/u, "")}/.kiln/kiln.yaml`);
+              } : undefined}
+              leadingContent={settingsSection === "models" ? (
+                <AvailableModelsPanel catalog={availableModels} catalogRevision={executionRouteCatalog.revision} creationResult={executionRouteCreationResult} send={outboundSend} />
+              ) : settingsSection === "health" ? (
+                onboardingQuery.data?.status === "complete" ? (
+                  <SetupPanel
+                    snapshot={setupQuery.data ?? null}
+                    loading={Boolean(setupQuery.isLoading)}
+                    refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
+                    error={setupQuery.error instanceof Error ? setupQuery.error : null}
+                    onRefresh={() => void setupQuery.refetch()}
+                    onExecuteAction={(action) => void executeSetupAction(action)}
+                    onPreviewSource={(path) => void previewSetupSource(path)}
+                    actionInFlight={setupActionInFlight}
+                    actionFeedback={setupActionFeedback}
+                  />
+                ) : (
+                  <section aria-label="First-run configuration" className="py-2">
                   <ConfigurationOnboardingPanel
                     snapshot={onboardingQuery.data ?? null}
                     loading={Boolean(onboardingQuery.isLoading)}
@@ -1141,11 +1187,11 @@ function useAppShellRuntimeView(props: AppShellProps) {
                     onRefresh={() => void onboardingQuery.refetch()}
                     onApply={(request) => void applyOnboarding(request)}
                   />
-                </div>
-              </section>
-            )}
-            availableModels={<AvailableModelsPanel catalog={availableModels} catalogRevision={executionRouteCatalog.revision} creationResult={executionRouteCreationResult} send={outboundSend} />}
-          />
+                  </section>
+                )
+              ) : undefined}
+            />
+          </SettingsWorkspace>
         ) : (
           <>
         {!isNarrow ? (
@@ -1169,7 +1215,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
             }}
             onSessionsOpenChange={setSessionPopoverOpen}
             onStartNewSession={startNewSession}
-            onOpenSettings={() => openSettings("configuration")}
+            onOpenSettings={() => openSettings("general")}
             sessions={sessionsPanel}
           />
         ) : null}
@@ -1190,7 +1236,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
                 }
               }}
               onStartNewSession={startNewSession}
-              onOpenSettings={() => openSettings("configuration")}
+              onOpenSettings={() => openSettings("general")}
               gatewayTargetSelector={(
                 <AppGatewayTargetSelector
                   apps={runtimeAppDescriptors}

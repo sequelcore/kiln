@@ -25,7 +25,7 @@ export function resolveStoredExecutionRouteSelectionRestore(
     return null;
   }
   const route = state.executionRouteCatalog.routes.find((candidate) => candidate.routeId === stored.routeId);
-  if (!route || route.availability !== "available") {
+  if (route?.availability !== "available") {
     return null;
   }
   if (!options.allowActiveOverride && state.activeRouteId) {

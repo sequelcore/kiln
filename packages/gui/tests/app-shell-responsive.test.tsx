@@ -80,10 +80,6 @@ vi.mock("../src/components/command-palette.js", () => ({
   CommandPalette: () => null,
 }));
 
-vi.mock("../src/components/theme-switcher.js", () => ({
-  ThemeSwitcher: () => <button type="button">Theme</button>,
-}));
-
 vi.mock("../src/components/execution-route-picker.js", () => ({
   ExecutionRoutePicker: () => null,
 }));
