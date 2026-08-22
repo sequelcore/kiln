@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main, codex/cross-harness-gateway]
+    branches: [main, dev, codex/cross-harness-gateway]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
