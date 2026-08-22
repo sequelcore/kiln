@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [12 - Configuration Experience](12-configuration-experience.md) | In progress | Urgent | Finish Slice 8 by making consequential runtime owners consume the pinned revision, projecting boundary convergence, and wiring supervisor drain/restart when Slice 9 admits a real restart-required family. Generation-fenced reconciliation is implemented; live validation remains unrun. |
+| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Blocked | Urgent | Do not continue Slice 8 integration. Complete the bounded resumption gates in order: #96 active-`dev` CI, the ownership-decision slice of #98, the Slice 8 synthetic-oracle subset of #97, and remote checkpoint plus green recorded fixture typechecking. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
@@ -79,6 +79,17 @@ roadmap reorganization.
   explanation, governed mutation, activation planning, and cross-surface
   settings parity. It consumes `11` capability identities but never owns
   capability eligibility or execution.
+- The 2026-08-22 operator dependency decision pauses `12` at its committed
+  Slice 8 checkpoint. Its pre-resumption gates are the default next work even
+  though they are tracked by GitHub issues rather than new roadmap tracks:
+  [#96](https://github.com/sequelcore/kiln/issues/96), the ownership-decision
+  slice of [#98](https://github.com/sequelcore/kiln/issues/98), and the bounded
+  synthetic-oracle subset of
+  [#97](https://github.com/sequelcore/kiln/issues/97). This decision does not
+  admit the complete Execution Kernel or reliability programs before `12`, does
+  not duplicate Slice 8 residuals outside
+  [#72](https://github.com/sequelcore/kiln/issues/72), and does not reprioritize
+  Kiln Connect without a separate operator decision.
 
 GUI execution presentation is canonical in
 [`docs/architecture/gui-execution-presentation.md`](../architecture/surfaces/gui-execution-presentation.md).

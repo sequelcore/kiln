@@ -1,11 +1,13 @@
 # 12 - Configuration Experience
 
-Status: In progress
+Status: Blocked at the Slice 8 checkpoint by an operator dependency decision
 Priority: Urgent
-Execution: Slices 0-7 and 7A are code/integration complete; Slice 8 is the
-next bounded product proof. Live provider/runtime validation remains unrun.
+Execution: Slices 0-7 and 7A are code/integration complete. Slice 8 has a
+committed incomplete checkpoint and must not resume until the pre-resumption
+gates below close. Live provider/runtime validation remains unrun.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
+Paused: 2026-08-22
 
 ## Objective
 
@@ -33,6 +35,15 @@ queue after each slice, then reassess Kiln Connect sequencing. This is a
 product sequence, not a claim that every slice in this track is a technical
 dependency of Connect. Roadmap 08.5 Slice 0 remains independently admissible
 safety hardening.
+
+The 2026-08-22 operator dependency decision pauses further Slice 8 integration
+until the active development branch has automatic CI, the Execution Kernel
+ownership boundary is fixed, and the exact Slice 8 crash/recovery invariants
+have a deterministic synthetic oracle. The pause prevents the admission bundle,
+dispatch fencing, and settlement lifecycle from being copied into more Runtime
+owners and then removed during later convergence. It does not transfer
+configuration ownership out of this roadmap or admit the complete Execution
+Kernel and reliability programs as prerequisites.
 
 ## Current Position
 
@@ -769,6 +780,40 @@ CLI (including the previously repaired stale mock), surface suites, and final
 Sol-high review were not rerun after the interrupted model/managed-child/webhook
 increments.
 
+#### Pre-resumption gates (operator decision 2026-08-22)
+
+No new Slice 8 production integration begins until all of these bounded gates
+are complete:
+
+1. **Active-branch CI** — [#96](https://github.com/sequelcore/kiln/issues/96)
+   runs the existing complete workflow for `dev` without deleting, weakening,
+   or allowing failure in a lane. This is validation reachability, not a new
+   release process.
+2. **Execution Kernel ownership** — only the decision slice of
+   [#98](https://github.com/sequelcore/kiln/issues/98) is required now. It maps
+   `admit -> acquire -> commit -> dispatch fence -> execute -> settle/reconcile`,
+   names where `EffectiveAuthorityAdmissionBundle` enters that boundary,
+   distinguishes shared lifecycle mechanics from workload-owned recovery, and
+   states that Kiln fences an external-harness invocation without claiming its
+   hidden inner effects. The full kernel migration is not a resumption gate.
+3. **Deterministic recovery oracle** — the bounded Slice 8 subset of
+   [#97](https://github.com/sequelcore/kiln/issues/97) covers configuration
+   mutation during an admitted turn, crash before and after the dispatch fence,
+   crash before settlement, duplicate replay/ingress, cancellation-settlement
+   races, and restart with active evidence. A generic chaos platform and the
+   complete credential-bearing live matrix are not resumption gates.
+4. **Recoverable checkpoint** — commit `bf43298b` exists on a remote checkpoint
+   ref before more production work starts, and the three recorded fixture groups
+   pass root test typechecking. This preserves the exact paused candidate and a
+   usable compile oracle; it is not Slice 8 completion evidence.
+
+The ownership decision must update the canonical Runtime architecture before
+its first consumer changes. The synthetic oracle must exercise existing
+observable contracts rather than introduce a second lifecycle or state owner.
+After these gates close, Slice 8 resumes by deleting the legacy
+`PerCallToolConfig` authority path and completing managed-child, Model Gateway,
+webhook, and tenant-WebSocket convergence against the decided boundary.
+
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their
 defined boundary. Reconcile changes update owned projections or runtime
@@ -780,9 +825,11 @@ In-flight executions retain their committed revision. No live setting may
 alter permissions, route, budget, data policy, or credential authority midway
 through an admitted effect.
 
-Acceptance: activation ordering, in-flight revision stability, drain, restart,
-projection failure, rollback, and status convergence are deterministic and
-visible from every surface.
+Acceptance: activation ordering, in-flight revision stability, projection
+failure, rollback, and status convergence are deterministic and visible from
+every surface. `restart-required` remains deterministically unsupported until
+Slice 9 admits a real configuration family, supervisor, and graceful-drain
+owner; Slice 8 must not simulate that proof.
 
 ### Slice 9 - Remaining Configuration Families
 
