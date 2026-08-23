@@ -59,11 +59,6 @@ export interface SttPricing {
   readonly ratePerMinute: number;
 }
 
-/** Embedding pricing (per million tokens) */
-export interface EmbeddingPricing {
-  readonly ratePerMToken: number;
-}
-
 /** Cost tracking summary */
 export interface CostSummary {
   readonly totalInputTokens: number;
@@ -80,7 +75,6 @@ export {
   CostTracker,
   MODEL_PRICING,
   STT_PRICING,
-  EMBEDDING_PRICING,
   computeUsageCostUsd,
   resolveExecutionCostEvidence,
   resolveExecutionPricing,

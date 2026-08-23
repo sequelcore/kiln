@@ -1,4 +1,4 @@
-import type { ActionEffectEnvelope, Capability } from "@kilnai/core";
+import type { ActionEffectEnvelope, Capability } from "@kilnai/core/engine";
 import { describe, expect, it } from "vitest";
 import { defineOperatorAuthorityAdmissionFacets } from "../../src/execution-routing/operator-authority-admission-facets.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";

@@ -2,7 +2,7 @@
 // Handles message processing, session listing, and session removal
 
 import { Hono } from "hono";
-import type { ArtifactResourceStore, ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache, TtsAdapter, VoiceConfig } from "@kilnai/core";
+import type { ArtifactResourceStore, ContentPart, TenantConfig, ContextArtifactCache, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import { resolveCommunicationIntent, textParts, extractText } from "@kilnai/core";
 import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
@@ -11,7 +11,6 @@ import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processAdmittedTurn } from "./message-pipeline/index.js";
-import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import {
@@ -29,12 +28,8 @@ export interface ProviderAdapterAppRuntime {
   readonly voiceConfig?: VoiceConfig;
   readonly ttsAdapter?: TtsAdapter;
   readonly apiKey?: string;
-  readonly knowledgePipeline?: RetrievalPipeline;
-  readonly knowledgeMode?: "auto" | "tool";
   readonly tenant?: TenantConfig;
-  readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
-  readonly groundingDeps?: import("./message-pipeline/index.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly coordinationContextProvider?: import("./message-pipeline/index.js").AdmittedTurnContext["coordinationContextProvider"];
   /** Required Runtime owner for durable, complete authority admission. */
@@ -154,24 +149,17 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         billing: runtime.billing,
         channel: "api",
         authorityAdmission: admitted.bundle,
+        runtimeMediaActionClaims: admitted.runtimeMediaActionClaims,
         // requestedAuthority is an ingress request, not an execution
         // authority source. The committed bundle above is the sole authority.
-        requestedAuthority: undefined,
         userContext,
-        knowledgePipeline: runtime.knowledgePipeline,
-        knowledgeMode: runtime.knowledgeMode,
         tenant: runtime.tenant,
-        handoffSummarizer: runtime.handoffSummarizer,
         eventBus: runtime.eventBus,
-        groundingMode: runtime.tenant?.groundingMode,
-        groundingDeps: runtime.groundingDeps ? {
-          ...runtime.groundingDeps,
-          providerPool: new Map([[admitted.provider.name, admitted.provider]]),
-        } : undefined,
         contextArtifactCache: runtime.contextArtifactCache,
         coordinationContextProvider: runtime.coordinationContextProvider,
         perCallConfig: {
           ...admitted.perCallConfig,
+          runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
           ...(communicationIntent ? { communicationIntent } : {}),
         },
       }));

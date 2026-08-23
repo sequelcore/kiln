@@ -6,6 +6,8 @@ import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { createOutboundRoutes } from "../../src/gateway/outbound-routes.js";
 import type { OutboundRoutesConfig } from "../../src/gateway/outbound-routes.js";
 import type { TenantConfig } from "@kilnai/core/engine";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 
 const ADMIN_TOKEN = "test-admin-token";
 
@@ -24,12 +26,14 @@ function createTenant(registry: TenantRegistry): TenantConfig {
 
 describe("createOutboundRoutes", () => {
   let tenantRegistry: TenantRegistry;
+  let sessionRegistry: SessionRegistry;
   let config: OutboundRoutesConfig;
 
   beforeEach(() => {
     const storageDir = join(tmpdir(), `kiln-outbound-test-${randomUUID()}`);
     tenantRegistry = new TenantRegistry(storageDir);
-    config = { tenantRegistry, appName: "test-app", adminToken: ADMIN_TOKEN };
+    sessionRegistry = new SessionRegistry();
+    config = { tenantRegistry, sessionRegistry, gatewayAdmission: makeGatewayTestAdmission(sessionRegistry), appName: "test-app", adminToken: ADMIN_TOKEN };
   });
 
   afterEach(() => {
@@ -39,13 +43,18 @@ describe("createOutboundRoutes", () => {
 
   function sendRequest(body: Record<string, unknown>, token = ADMIN_TOKEN) {
     const app = createOutboundRoutes(config);
+    const requestBody = {
+      callerId: "outbound-test",
+      idempotencyKey: `request-${String(body.tenantId ?? "unknown")}-${String(body.channel ?? "unknown")}-${String(body.type ?? "unknown")}`,
+      ...body,
+    };
     return app.request("/send", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     });
   }
 
@@ -238,7 +247,7 @@ describe("createOutboundRoutes", () => {
   });
 
   it("works without admin token (open mode)", async () => {
-    const openConfig: OutboundRoutesConfig = { tenantRegistry, appName: "test-app" };
+    const openConfig: OutboundRoutesConfig = { ...config, adminToken: undefined };
     const app = createOutboundRoutes(openConfig);
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -252,6 +261,8 @@ describe("createOutboundRoutes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tenantId: tenant.tenantId,
+        callerId: "outbound-test",
+        idempotencyKey: "open-request",
         channel: "whatsapp",
         to: "+1234567890",
         type: "text",

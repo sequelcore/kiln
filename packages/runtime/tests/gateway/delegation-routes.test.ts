@@ -73,6 +73,24 @@ describe("createDelegationRoutes", () => {
       expect(typeof body.durationMs).toBe("number");
     });
 
+    it("rejects removed A2A request fields instead of exposing a compatibility caller", async () => {
+      const registry = makeRegistry(makeTarget("app-b"));
+      const app = createDelegationRoutes({ registry });
+
+      const res = await app.request("/delegate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...validBody,
+          delegationType: "a2a",
+          agentUrl: "https://agent.example",
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "Unknown field: delegationType" });
+    });
+
     it("returns 400 when fromApp is missing", async () => {
       const registry = makeRegistry(makeTarget("app-b"));
       const app = createDelegationRoutes({ registry });

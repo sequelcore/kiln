@@ -6,7 +6,6 @@ import { join } from "node:path";
 import {
   CredentialPool,
   OpenCodeAdapter,
-  PooledProviderAdapter,
   type Credential,
   type CredentialOutcome,
   type CreateMessageOptions,
@@ -70,12 +69,6 @@ export interface OpenCodeExecutionCredential {
 export interface ClearOpenCodeCredentialsOptions {
   readonly tier?: OpenCodeTier;
   readonly id?: string;
-}
-
-export interface CreateOpenCodePooledAdapterOptions {
-  readonly tier: OpenCodeTier;
-  readonly defaultModel: string;
-  readonly createAdapter?: (auth: OpenCodeAuthFile) => ProviderAdapter;
 }
 
 export interface CreateExactOpenCodeAdapterOptions {
@@ -221,23 +214,6 @@ export class OpenCodeCredentialPoolService {
     }
   }
 
-  async createPooledAdapter(options: CreateOpenCodePooledAdapterOptions): Promise<ProviderAdapter> {
-    const pool = await this.createPool(options.tier);
-    this.observability?.register(options.tier === "zen" ? "opencode-zen" : "opencode-go", pool);
-    return new PooledProviderAdapter<OpenCodeAuthFile>({
-      name: options.tier === "zen" ? "opencode-zen" : "opencode-go",
-      deliberationTransport: "none",
-      pool,
-      createAdapter: options.createAdapter ?? ((auth) => new OpenCodeAdapter({
-        apiKey: auth.api_key,
-        tier: auth.tier,
-        defaultModel: options.defaultModel,
-        internalRetry: false,
-      })),
-      mapError: mapOpenCodeProviderError,
-    });
-  }
-
   /** Materializes one previously selected account revision without consulting pooled order. */
   async createExactAdapter(options: CreateExactOpenCodeAdapterOptions): Promise<ProviderAdapter> {
     const credential = await this.resolveExecutionCredential(options.selected);
@@ -298,6 +274,7 @@ export class OpenCodeCredentialPoolService {
     this.watcher?.onProviderChanged(OPENCODE_POOL_PROVIDER_ID, async () => {
       pool.reloadCredentials(await this.loadCredentialsForPool(tier));
     });
+    this.observability?.register(executionProviderId(tier), pool);
     return pool;
   }
 

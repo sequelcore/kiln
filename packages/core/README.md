@@ -28,7 +28,6 @@ work. It provides:
 - Governed execution, approval, authority, and verification contracts
 - **MCP client** (Streamable HTTP) for external tool integration
 - **Memory Lattice** governed memory records with scopes, layers, provenance, revisions, relations, lifecycle policy, recall, and bounded resource projection
-- **Knowledge (RAG)** with chunkers, embedding adapters, and retrieval pipeline
 - **Safety pipeline**: PII detection (6 types), content classification (6 categories), 4 policy rails
 - **Eval framework**: 12 scorer types, YAML-configured experiments
 - Typed error codes with context-aware suggestions
@@ -97,7 +96,6 @@ Engine.validateApp(app);
 | `Agents` | Provider adapters, MCP client, tool cache, circuit breaker |
 | `Memory` | Governed Memory Lattice records, repository-backed persistence, SQLite adapter, lifecycle policy, recall, resources |
 | `Safety` | PII scanner, content classifier, policy rails, pipeline |
-| `Knowledge` | Chunkers, embedding adapters, vector store, retrieval |
 | `Eval` | 12 scorers, dataset loader, experiment runner |
 | `Events` | EventBus (32 typed events), EventStore |
 | `Security` | Audit log, prompt injection detection, secrets |

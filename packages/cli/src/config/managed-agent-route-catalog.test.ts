@@ -675,6 +675,7 @@ describe("managed agent route catalog", () => {
       providerModelEligibility: observedProviderModels({
         codex: ["gpt-5.3-codex-spark"],
       }),
+      invocationService: new RuntimeManagedAgentInvocationService(),
       includeUnavailableRoutes: true,
     });
 
@@ -780,6 +781,7 @@ describe("managed agent route catalog", () => {
         codex: ["gpt-5.3-codex-spark"],
       }),
       includeUnavailableRoutes: true,
+      compositionMode: "candidate-admission",
     });
 
     expect(resolution.routeHealth[0]).toMatchObject({

@@ -6,24 +6,43 @@ import {
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { describe, expect, it, vi } from "vitest";
 import { createAnthropicMessagesRoutes, type AnthropicMessagesIngressConfig } from "../../src/model-gateway/anthropic-messages-routes.js";
-import type { GovernedOneRoundInvocationPorts } from "../../src/execution-kernel/governed-one-round-invocation.js";
+import type { GovernedIngressInvocationPorts } from "../../src/model-gateway/governed-ingress-executor.js";
 import { InMemoryModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
-import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const principal = { tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted" as const, evidenceId: "budget" } };
-const route = { providerId: "codex-oauth", providerModelId: "upstream", scope: "virtual:claude-kiln" };
+const route = { routeId: "claude-route", providerId: "codex-oauth", providerModelId: "upstream", scope: "virtual:claude-kiln" } as const;
 const admission = { routeId: "claude-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account", source: "route" as const } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "PROBE_OK" }], usage: { inputTokens: 4, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 }, stopReason: "completed" };
 
+function authorityBundle(): EffectiveAuthorityAdmissionBundle {
+  const revision = { revisionSetId: "anthropic-route-test", revisions: { modelGateway: ("sha256:" + "a".repeat(64)) as `sha256:${string}` } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "ns:session", turnId: "ns:turn", admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: { skillCatalog: { catalogId: "anthropic", revision: ("sha256:" + "b".repeat(64)) as `sha256:${string}`, skillIds: [] }, authorityCeiling: { maximumAuthority: "read_only", reason: "fixture" } },
+    turn: {
+      authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only", sourcePolicy: "runtime_surface_projection", reason: "fixture", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
+      workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
+      effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+      budget: { status: "not-configured" },
+      execution: { status: "routed", route: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } },
+    },
+  });
+}
+
 function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?: (input: OneRoundModelDispatchInput) => Promise<ModelTurnResult> } = {}) {
+  const { replayGuard: replayGuardOverride, ...configOverrides } = overrides;
+  const replayGuard = replayGuardOverride ?? new InMemoryModelGatewayReplayGuard({ hmacKey: "synthetic-anthropic-route-key-with-32-bytes" });
   const execute = vi.fn(overrides.execute ?? (async () => result));
   const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `anthropic-test-${crypto.randomUUID()}`, configurationRevision: "test" });
   const candidate = vi.fn(async (input) => ({ admission, candidates: [{ candidate: { accountId: "account", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }));
-  const invocationPorts: GovernedOneRoundInvocationPorts = {
+  const invocationPorts: GovernedIngressInvocationPorts = {
     candidateCatalog: { list: candidate }, accountCapacityAuthority: authority,
     attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: execute }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
     budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
-    authorityAdmission: { compose: async () => ({}) as EffectiveAuthorityAdmissionBundle },
+    authorityAdmission: { compose: async () => authorityBundle() },
   };
   const namespaceCorrelation = vi.fn(async () => ({ sessionId: "ns:session", turnId: "ns:turn" }));
   const config: AnthropicMessagesIngressConfig = {
@@ -31,8 +50,9 @@ function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?
     resolveVirtualModel: async ({ requestedModel }) => requestedModel === "claude-kiln" ? { route, capabilities: new Set(["text", "function-tools"]), affinity: { continuity: "none" } } : undefined,
     listVirtualModels: async () => [{ id: "claude-kiln", displayName: "Claude Kiln" }, { id: "internal-model", displayName: "Hidden" }],
     namespaceCorrelation, compatibilityEvidence: { record: async () => undefined }, invocationPorts,
-    createAttemptId: () => `attempt-${crypto.randomUUID()}`, createMessageId: () => "msg_kiln_1",
-    ...overrides,
+    createMessageId: () => "msg_kiln_1",
+    ...configOverrides,
+    replayGuard,
   };
   return { config, execute, candidate, namespaceCorrelation };
 }

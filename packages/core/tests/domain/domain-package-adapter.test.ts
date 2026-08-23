@@ -35,9 +35,6 @@ skills:
   - skills/test.md
 tools:
   server: tools/server.ts
-knowledge:
-  examples: knowledge/examples.yaml
-  gates: knowledge/gates.yaml
 `;
 
 const MINIMAL_PACKAGE_YAML = `
@@ -61,10 +58,6 @@ describe("parseDomainPackageYaml", () => {
     expect(manifest.installPath).toBe("/install/path");
     expect(manifest.skills).toEqual(["skills/refactor.md", "skills/test.md"]);
     expect(manifest.tools).toEqual({ server: "tools/server.ts" });
-    expect(manifest.knowledge).toEqual({
-      examples: "knowledge/examples.yaml",
-      gates: "knowledge/gates.yaml",
-    });
     expect(manifest.contentHash).toBeTruthy();
   });
 
@@ -86,11 +79,6 @@ describe("parseDomainPackageYaml", () => {
   it("defaults tools to null when not specified", () => {
     const manifest = parseDomainPackageYaml(MINIMAL_PACKAGE_YAML, "/path");
     expect(manifest.tools).toBeNull();
-  });
-
-  it("defaults knowledge to null when not specified", () => {
-    const manifest = parseDomainPackageYaml(MINIMAL_PACKAGE_YAML, "/path");
-    expect(manifest.knowledge).toBeNull();
   });
 
   it("computes content hash", () => {

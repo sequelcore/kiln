@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { InMemoryModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 
 const fingerprintInput = (overrides: Record<string, unknown> = {}) => ({
@@ -7,6 +8,23 @@ const fingerprintInput = (overrides: Record<string, unknown> = {}) => ({
   route: { providerId: "provider", providerModelId: "model", scope: "scope" },
   toolExecutionMode: "caller-owned", affinityKey: "affinity-a", ...overrides,
 });
+
+function bundle() {
+  const revision = { revisionSetId: "replay-guard-test", revisions: { modelGateway: ("sha256:" + "a".repeat(64)) as `sha256:${string}` } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "ns-session", turnId: "ns-turn", admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: { skillCatalog: { catalogId: "replay", revision: ("sha256:" + "b".repeat(64)) as `sha256:${string}`, skillIds: [] }, authorityCeiling: { maximumAuthority: "read_only", reason: "fixture" } },
+    turn: {
+      authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only", sourcePolicy: "runtime_surface_projection", reason: "fixture", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
+      workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
+      effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+      budget: { status: "not-configured" },
+      execution: { status: "routed", route: { routeId: "route", providerId: "provider", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) } },
+    },
+  });
+}
 
 describe("InMemoryModelGatewayReplayGuard", () => {
   it("distinguishes every trusted replay dimension and exact raw body", () => {
@@ -19,60 +37,63 @@ describe("InMemoryModelGatewayReplayGuard", () => {
     ]) expect(guard.fingerprint(fingerprintInput(changed))).not.toBe(original);
   });
 
-  it("fences transitions, keeps active committed work beyond TTL, and expires completed values", () => {
+  it("binds an attempt to an admission and one exact action, retaining the tombstone after payload expiry", () => {
     let now = 100;
     const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: "synthetic-test-key-with-32-bytes!!", now: () => now, ttlMs: 1_000, createFence: (() => { let id = 0; return () => `f-${++id}`; })() });
     const key = guard.fingerprint(fingerprintInput());
     const first = guard.claim(key);
     expect(first.kind).toBe("dispatch");
     if (first.kind !== "dispatch") throw new Error("fixture");
-    expect(guard.claim(key)).toMatchObject({ kind: "join-inflight", retryAfterSeconds: 1 });
-    now = 1_101;
-    const replacement = guard.claim(key);
-    expect(replacement.kind).toBe("dispatch");
-    expect(() => guard.markCommitted(key, first.fence)).toThrow("Stale replay fence");
-    if (replacement.kind !== "dispatch") throw new Error("fixture");
-    guard.markCommitted(key, replacement.fence);
-    now = 1_000_000;
+    expect(first.attemptId).toMatch(/^attempt-/);
+    const admitted = guard.persistAdmission(first.key, first.fence, bundle());
+    const permit = guard.claimAction(first.key, first.fence, { admissionId: admitted.admissionId, effectIdentity: "model-round:test" });
+    permit.consume();
+    expect(() => permit.consume()).toThrow("already been consumed");
+    expect(() => guard.claimAction(first.key, first.fence, { admissionId: admitted.admissionId, effectIdentity: "model-round:test" })).toThrow("current phase");
+    guard.complete(first.key, first.fence, { responseId: "resp-1", result: { parts: [], usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" } });
+    expect(guard.claim(key)).toMatchObject({ kind: "replay-completed" });
+    now = 2_000;
     expect(guard.claim(key)).toEqual({ kind: "committed-unknown" });
-    guard.complete(key, replacement.fence, { responseId: "resp-1", result: { parts: [], usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" } });
-    expect(guard.claim(key)).toMatchObject({ kind: "replay-completed", value: { responseId: "resp-1" } });
-    now += 1_001;
+  });
+
+  it("allows only pre-action abandonment and rejects stale fences", () => {
+    const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: "capacity-test-key-with-32-bytes!!" });
+    const key = guard.fingerprint(fingerprintInput());
+    const claim = guard.claim(key);
+    if (claim.kind !== "dispatch") throw new Error("fixture");
+    expect(() => guard.persistAdmission(key, claim.fence + "-stale" as never, bundle())).toThrow("Stale replay fence");
+    expect(() => guard.claimAction(key, claim.fence, { admissionId: "sha256:" + "a".repeat(64) as `sha256:${string}`, effectIdentity: "model-round:test" })).toThrow("current phase");
+    expect(guard.abandon(key, claim.fence)).toBeUndefined();
+  });
+
+  it("bounds admitted pre-action state without expiring the action tombstone", () => {
+    let now = 100;
+    const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: "admitted-expiry-test-key-with-32-bytes", now: () => now, ttlMs: 1_000 });
+    const key = guard.fingerprint(fingerprintInput({ rawBody: "admitted-expiry" }));
+    const claim = guard.claim(key);
+    if (claim.kind !== "dispatch") throw new Error("Expected a dispatch claim.");
+    guard.persistAdmission(claim.key, claim.fence, bundle());
+    now = 1_101;
     expect(guard.claim(key).kind).toBe("dispatch");
   });
 
-  it("expires committed-unknown, sweeps expired entries, and fails closed without evicting live claims", () => {
-    let now = 0;
-    const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: "capacity-test-key-with-32-bytes!!", now: () => now, ttlMs: 100, maxEntries: 2 });
+  it("does not let retained terminal tombstones consume pre-action capacity", () => {
+    const guard = new InMemoryModelGatewayReplayGuard({
+      hmacKey: "terminal-capacity-test-key-32-bytes",
+      maxEntries: 1,
+    });
     const firstKey = guard.fingerprint(fingerprintInput({ rawBody: "first" }));
-    const secondKey = guard.fingerprint(fingerprintInput({ rawBody: "second" }));
-    const thirdKey = guard.fingerprint(fingerprintInput({ rawBody: "third" }));
     const first = guard.claim(firstKey);
-    if (first.kind !== "dispatch") throw new Error("fixture");
-    guard.markCommitted(first.key, first.fence);
-    guard.claim(secondKey);
-    expect(() => guard.claim(thirdKey)).toThrow("capacity");
-    expect(guard.claim(firstKey)).toEqual({ kind: "committed-unknown" });
-    now = 101;
-    expect(guard.claim(thirdKey).kind).toBe("dispatch");
-    expect(guard.claim(firstKey)).toEqual({ kind: "committed-unknown" });
-    guard.settleUnknown(firstKey, first.fence);
-    now = 202;
-    expect(guard.claim(firstKey).kind).toBe("dispatch");
-  });
+    if (first.kind !== "dispatch") throw new Error("Expected the first dispatch claim.");
+    const admitted = guard.persistAdmission(first.key, first.fence, bundle());
+    guard.claimAction(first.key, first.fence, {
+      admissionId: admitted.admissionId,
+      effectIdentity: "model-round:first",
+    }).consume();
+    guard.settleUnknown(first.key, first.fence);
 
-  it("requires strong typed key material and copies Uint8Array keys defensively", () => {
-    for (const hmacKey of ["short", new Uint8Array(31), 42, null]) {
-      expect(() => new InMemoryModelGatewayReplayGuard({ hmacKey: hmacKey as never })).toThrow("HMAC key");
-    }
-    expect(() => new InMemoryModelGatewayReplayGuard({ hmacKey: "é".repeat(16) })).not.toThrow();
-    for (const maxEntries of [0, -1, 1.5, 1_000_001]) {
-      expect(() => new InMemoryModelGatewayReplayGuard({ hmacKey: "max-entry-test-key-with-32-bytes!", maxEntries })).toThrow("maxEntries");
-    }
-    const mutable = new Uint8Array(32).fill(7);
-    const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: mutable });
-    const before = guard.fingerprint(fingerprintInput());
-    mutable.fill(9);
-    expect(guard.fingerprint(fingerprintInput())).toBe(before);
+    const secondKey = guard.fingerprint(fingerprintInput({ rawBody: "second" }));
+    expect(guard.claim(secondKey).kind).toBe("dispatch");
+    expect(guard.claim(firstKey)).toEqual({ kind: "committed-unknown" });
   });
 });

@@ -24,10 +24,15 @@ import type { SessionRegistry } from "../../src/session/persistence/session-regi
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { prepareOperatorAdoptionTurn } from "../../src/session/operator-adoption-authority.js";
-import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
 import type { readRuntimeSupportArtifactsDetailed } from "../../src/session/support/artifacts/context-artifact-summary.js";
 import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.js";
+import { resolveCanonicalTurnIdentity } from "../../src/session/runtime-session-event-ledger.js";
+import { createRuntimeMediaActionClaimContext } from "../../src/execution-kernel/runtime-media-action-claim.js";
+import type {
+  RuntimeMediaActionClaim,
+  RuntimeMediaActionClaimPermit,
+} from "../../src/execution-kernel/runtime-media-action-claim.js";
 
 const processInboundMessage = processAdmittedTurn;
 
@@ -88,6 +93,9 @@ function makeMockSession(): RuntimeSession {
     },
     get exactArtifacts() { return _exactArtifacts; },
     get sessionEvents() { return _sessionEvents as any; },
+    bindRuntimeConfigurationRevision(revision: unknown) {
+      (session as unknown as { runtimeConfigurationRevision?: unknown }).runtimeConfigurationRevision = revision;
+    },
     nextSessionEventSequence() {
       const lastEvent = _sessionEvents[_sessionEvents.length - 1];
       return typeof lastEvent?.sequence === "number" ? (lastEvent.sequence as number) + 1 : 1;
@@ -122,22 +130,20 @@ function makeMockOrchestrator(): RuntimeSessionOrchestrator {
 
 function makeMockSessionRegistry(session?: RuntimeSession): SessionRegistry {
   const mockSession = session ?? makeMockSession();
-  return {
+  const registry = {
     getOrCreate: vi.fn().mockResolvedValue(mockSession),
     save: vi.fn().mockResolvedValue(undefined),
   } as unknown as SessionRegistry;
+  // Keep the synthetic admitted session discoverable by the fixture builder;
+  // production SessionRegistry has no such surface.
+  (registry as unknown as { __fixtureSession: RuntimeSession }).__fixtureSession = mockSession;
+  return registry;
 }
 
-function makeMockEventEmitter(): ConversationEventEmitter {
-  return {
-    emit: vi.fn(),
-  } as unknown as ConversationEventEmitter;
-}
 
 function makeBillingConfig(): BillingConfig {
   return {
     budgetEndpoint: "https://api.example.com/users/{userId}/ai-budget",
-    usageEndpoint: "https://api.example.com/users/{userId}/ai-usage",
     overBudgetMessage: "Budget exhausted.",
   };
 }
@@ -205,17 +211,146 @@ function makeGovernedWorkPerCallConfig(): NonNullable<AdmittedTurnContext["perCa
   };
 }
 
+function makePipelineFixtureAdmission(session: RuntimeSession, turnId = resolveCanonicalTurnIdentity(session, undefined).turnId) {
+  const revision = { revisionSetId: "message-pipeline-fixture", revisions: { fixture: "message-pipeline-fixture" } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: session.id,
+    turnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "message-pipeline-fixture", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "Message-pipeline fixture admission", subjectId: session.id },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "message-pipeline-fixture",
+        reason: "Message-pipeline fixture admission",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
+
 function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): AdmittedTurnContext {
+  const sessionRegistry = overrides.sessionRegistry ?? makeMockSessionRegistry();
+  const fixtureSession = overrides.admittedSession
+    ?? (sessionRegistry as unknown as { __fixtureSession?: RuntimeSession }).__fixtureSession
+    ?? makeMockSession();
+  const authorityAdmission = overrides.authorityAdmission
+    ?? overrides.perCallConfig?.authorityAdmission
+    ?? makePipelineFixtureAdmission(fixtureSession);
+  const perCallConfig: NonNullable<AdmittedTurnContext["perCallConfig"]> = {
+    ...(overrides.perCallConfig ?? {}),
+    turnId: authorityAdmission.turnId,
+    authorityAdmission: overrides.perCallConfig?.authorityAdmission ?? authorityAdmission,
+  };
   return {
     orchestrator: makeMockOrchestrator(),
-    sessionRegistry: makeMockSessionRegistry(),
+    sessionRegistry,
     appName: "test-app",
     tenantId: "test-tenant",
     userId: "user-1",
     systemPrompt: "You are a test assistant.",
     userParts: textParts("hello"),
     channel: "api",
+    perCallConfig,
+    authorityAdmission,
     ...overrides,
+    sessionRegistry,
+    perCallConfig,
+    authorityAdmission,
+  };
+}
+
+function makeMediaAdmission(session: RuntimeSession): Pick<AdmittedTurnContext, "authorityAdmission" | "runtimeMediaActionClaims" | "perCallConfig"> {
+  const turnId = `${session.id}:turn:1`;
+  const revision = { revisionSetId: "message-pipeline-media-test", revisions: { fixture: "message-pipeline-media-test" } } as const;
+  const bundle = defineEffectiveAuthorityAdmissionBundle({
+    sessionId: session.id,
+    turnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "message-pipeline-media-test", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "Media test admission", subjectId: session.id },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
+        sourcePolicy: "message-pipeline-media-test", reason: "Media test admission", completeness: "authoritative",
+        toolCount: 0, deniedToolCount: 0, sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+        identityUse: "none", consequences: [], idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+  const consumed = new WeakSet<object>();
+  const store = {
+    claim(input: RuntimeMediaActionClaim): RuntimeMediaActionClaimPermit {
+      const permit = {
+        claimId: input.claimId,
+        consume: () => {
+          if (consumed.has(permit)) throw new Error("Media test permit already consumed.");
+          consumed.add(permit);
+        },
+      } as RuntimeMediaActionClaimPermit;
+      return permit;
+    },
+    settle(permit: RuntimeMediaActionClaimPermit): void {
+      if (!consumed.has(permit)) throw new Error("Media test permit was not consumed.");
+    },
+  };
+  const claims = createRuntimeMediaActionClaimContext({
+    ownerGeneration: "message-pipeline-media-test",
+    store,
+    readAdmission: async ({ admissionId, sessionId, turnId: requestedTurnId }) =>
+      admissionId === bundle.admissionId && sessionId === bundle.sessionId && requestedTurnId === bundle.turnId
+        ? bundle
+        : undefined,
+  });
+  const runtimeModelRoundDispatch = {
+    admission: bundle,
+    intentFingerprint: `sha256:${"c".repeat(64)}`,
+    attemptId: "message-pipeline-media-attempt",
+    routeId: "message-pipeline-media-route",
+    accountId: "message-pipeline-media-account",
+    credentialRevision: "message-pipeline-media-credential",
+    readAdmission: async () => bundle,
+    store: {} as never,
+    state: { claimed: false },
+  } as NonNullable<AdmittedTurnContext["perCallConfig"]>["runtimeModelRoundDispatch"];
+  return {
+    authorityAdmission: bundle,
+    runtimeMediaActionClaims: claims,
+    perCallConfig: { authorityAdmission: bundle, turnId, runtimeModelRoundDispatch },
   };
 }
 
@@ -322,10 +457,47 @@ describe("processAdmittedTurn", () => {
       undefined,
       expect.objectContaining({
         turnId: adoption.turnId,
-        operatorAdoptionDecision: adoption.operatorAdoptionDecision,
-        toolAllowlist: new Set(),
+        authorityAdmission: bundle,
       }),
     );
+  });
+
+  it("rejects a same-ID mutated per-call authority bundle before projection", async () => {
+    const session = new RuntimeSession({
+      sessionId: "session-authority-mutation",
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    const bundle = makePipelineFixtureAdmission(session);
+    const mutated = defineEffectiveAuthorityAdmissionBundle({
+      ...bundle,
+      turn: {
+        ...bundle.turn,
+        authority: {
+          ...bundle.turn.authority,
+          reason: "mutated same-ID authority",
+        },
+      },
+    });
+    // Preserve the original persisted ID while changing the canonical body.
+    // The nested bundle is otherwise a valid immutable admission value.
+    const sameIdMutation = Object.freeze({ ...mutated, admissionId: bundle.admissionId });
+    const orchestrator = makeMockOrchestrator();
+    const sessionRegistry = makeMockSessionRegistry(session);
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      authorityAdmission: bundle,
+      perCallConfig: {
+        authorityAdmission: sameIdMutation,
+      },
+    }))).rejects.toThrow("Admitted turn config must carry the exact EffectiveAuthorityAdmissionBundle.");
+
+    expect(sessionRegistry.getOrCreate).not.toHaveBeenCalled();
+    expect(orchestrator.processMessage).not.toHaveBeenCalled();
   });
 
   it("ignores caller turn ids and allocates the next canonical runtime ordinal", async () => {
@@ -471,18 +643,10 @@ describe("processAdmittedTurn", () => {
       userContext: undefined,
       cachedRuntimeSummary: undefined,
       recalledMemoryCandidates: undefined,
-      knowledgeContext: undefined,
-      contactContext: "contact profile",
       visitorContext: "visitor browser state",
-      groundingMode: undefined,
     });
 
-    expect(renderContextBlocks(projected.evidence)).toContain("contact profile");
     expect(renderContextBlocks(projected.evidence)).toContain("visitor browser state");
-    expect(projected.audit?.blocks).toContainEqual(expect.objectContaining({
-      source: "runtime-contact-context",
-      decision: "admitted",
-    }));
     expect(projected.audit?.blocks).toContainEqual(expect.objectContaining({
       source: "runtime-visitor-context",
       decision: "admitted",
@@ -538,9 +702,6 @@ describe("processAdmittedTurn", () => {
       userContext: undefined,
       cachedRuntimeSummary: undefined,
       recalledMemoryCandidates: undefined,
-      knowledgeContext: undefined,
-      contactContext: undefined,
-      groundingMode: undefined,
       proceduralContextCandidates: [{
         kind: "procedural",
         modelFacingSemantics: "guidance",
@@ -569,9 +730,6 @@ describe("processAdmittedTurn", () => {
       userContext: undefined,
       cachedRuntimeSummary: "historical summary",
       recalledMemoryCandidates: undefined,
-      knowledgeContext: undefined,
-      contactContext: undefined,
-      groundingMode: undefined,
       proceduralContextCandidates: [
         { kind: "procedural", modelFacingSemantics: "directive", source: "runtime-plan", content: "Plan mode is read only.", required: true, score: 1 },
         { kind: "procedural", modelFacingSemantics: "guidance", source: "runtime-skill", content: "Suggested workflow.", required: false, score: 0.7 },
@@ -581,38 +739,6 @@ describe("processAdmittedTurn", () => {
     expect(renderContextBlocks(projected.directives)).toContain("Plan mode is read only.");
     expect(renderContextBlocks(projected.guidance)).toContain("Suggested workflow.");
     expect(renderContextBlocks(projected.evidence)).toContain("historical summary");
-  });
-
-  it("admits grounding as a budgeted directive with auditable identity under overflow", () => {
-    const projected = projectAdmittedTurnContext({
-      userContext: undefined,
-      cachedRuntimeSummary: undefined,
-      recalledMemoryCandidates: undefined,
-      knowledgeContext: undefined,
-      contactContext: undefined,
-      groundingMode: "strict",
-      proceduralContextCandidates: [{
-        kind: "procedural",
-        modelFacingSemantics: "directive",
-        source: "oversized-required-directive",
-        content: "x".repeat(10_000),
-        required: true,
-        score: 1,
-      }],
-    });
-
-    const grounding = projected.directives.find((block) => block.source === "runtime-grounding-policy");
-    const audit = projected.audit;
-    expect(grounding).toMatchObject({ kind: "procedural", modelFacingSemantics: "directive", required: true });
-    expect(audit?.blocks).toContainEqual(expect.objectContaining({
-      id: grounding?.id,
-      source: "runtime-grounding-policy",
-      kind: "procedural",
-      modelFacingSemantics: "directive",
-      decision: "admitted",
-    }));
-    expect(audit?.overflow).toBe(true);
-    expect(audit?.requiredTokens).toBeGreaterThan(audit?.tokenBudget ?? 0);
   });
 
   it("keeps lifecycle attribution out of the provider request and task outcome", async () => {
@@ -658,7 +784,6 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
       recalledMemoryCandidates: memoryCandidates("Relevant durable memory."),
-      knowledgeContext: "Verified knowledge context.",
       userParts: textParts("Prove request neutrality."),
     }));
 
@@ -696,10 +821,6 @@ describe("processAdmittedTurn", () => {
         records: expect.arrayContaining([
           expect.objectContaining({
             source: "memory",
-            quality: "estimated",
-          }),
-          expect.objectContaining({
-            source: "knowledge",
             quality: "estimated",
           }),
           expect.objectContaining({
@@ -838,6 +959,7 @@ describe("processAdmittedTurn", () => {
     await expect(processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
+      ...makeMediaAdmission(session),
       voiceConfig: {
         stt: { provider: "openai" },
         tts: { provider: "openai", command: "failing-tts" },
@@ -852,7 +974,7 @@ describe("processAdmittedTurn", () => {
       },
       ttsAdapter,
       turnCapture: { abort },
-    }))).rejects.toThrow("TTS unavailable");
+    }))).rejects.toThrow("media action was claimed");
 
     expect(abort).toHaveBeenCalledWith(session.id);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
@@ -1084,6 +1206,7 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       sessionRegistry: makeMockSessionRegistry(session),
       orchestrator,
+      ...makeMediaAdmission(session),
       artifactStore,
       voiceConfig,
       sttAdapter,
@@ -1099,7 +1222,11 @@ describe("processAdmittedTurn", () => {
         content: "[Voice note transcription]: hello from microphone",
       });
     }
-    expect(sttAdapter.transcribe).toHaveBeenCalledWith(expect.any(Uint8Array), "audio/webm");
+    expect(sttAdapter.transcribe).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      "audio/webm",
+      { signal: undefined },
+    );
     expect(orchestrator.processMessage).toHaveBeenCalledWith(
       expect.anything(),
       [{ type: "text", text: "[Voice note transcription]: hello from microphone" }],
@@ -1594,43 +1721,7 @@ describe("processAdmittedTurn", () => {
     }));
   });
 
-  it("reports usage when billing is configured", async () => {
-    const ctx = makeBaseContext({ billing: makeBillingConfig() });
 
-    await processInboundMessage(ctx);
-
-    // fetch called twice: budget check + usage report
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-
-    const usageCall = fetchMock.mock.calls[1];
-    expect(usageCall![0]).toBe("https://api.example.com/users/{userId}/ai-usage");
-    expect(usageCall![1]).toMatchObject({ method: "POST" });
-    const usageBody = JSON.parse(usageCall![1].body as string);
-    expect(usageBody.tenantId).toBe("test-tenant");
-    expect(usageBody.messages).toBe(1);
-    expect(usageBody.tokens).toBe(150); // 100 input + 50 output
-    expect(usageBody.model).toBe("claude-sonnet-4-20250514");
-  });
-
-  it("emits MESSAGE_RECEIVED event when eventEmitter is present", async () => {
-    const emitter = makeMockEventEmitter();
-    const ctx = makeBaseContext({
-      eventEmitter: emitter,
-      tenantId: "tenant-1",
-    });
-
-    await processInboundMessage(ctx);
-
-    expect(emitter.emit).toHaveBeenCalledTimes(1);
-    expect(emitter.emit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: "MESSAGE_RECEIVED",
-        tenantId: "tenant-1",
-        channel: "api",
-        externalUserId: "user-1",
-      }),
-    );
-  });
 
   it("creates session via sessionRegistry.getOrCreate", async () => {
     const sessionRegistry = makeMockSessionRegistry();
@@ -1765,7 +1856,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        directives: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Authority mode: auto.") })]),
+        directives: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Authority mode: read_only.") })]),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       builtinTools,
@@ -1773,36 +1864,10 @@ describe("processAdmittedTurn", () => {
     );
   });
 
-  it("retrieves knowledge context in auto mode and appends it to governed context", async () => {
-    const orchestrator = makeMockOrchestrator();
-    const sessionRegistry = makeMockSessionRegistry();
-    const knowledgePipeline = {
-      retrieve: vi.fn().mockResolvedValue([
-        { content: "Fact A" },
-        { content: "Fact B" },
-      ]),
-    };
-    const ctx = makeBaseContext({
-      orchestrator,
-      sessionRegistry,
-      knowledgePipeline: knowledgePipeline as unknown as AdmittedTurnContext["knowledgePipeline"],
-      knowledgeMode: "auto",
-    });
-
-    await processInboundMessage(ctx);
-
-    expect(knowledgePipeline.retrieve).toHaveBeenCalledWith("hello", { topK: 5 });
-    const governedContextContent = getGovernedContextContent(orchestrator);
-    expect(governedContextContent).toContain("[Knowledge context]:");
-    expect(governedContextContent).toContain("Fact A");
-    expect(governedContextContent).toContain("Fact B");
-  });
-
   it("resolves tenant agent context in pipeline and forwards tenant tool context to orchestrator call", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry(session);
-    const emitter = makeMockEventEmitter();
     const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>([
       ["mock_tool", vi.fn(async (input) => input)],
     ]);
@@ -1874,7 +1939,6 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      eventEmitter: emitter,
       tenantId: "_default",
       tenant,
       perCallConfig: { toolAllowlist: new Set(["mock_tool", "other_tenant_tool"]) },
@@ -1885,38 +1949,32 @@ describe("processAdmittedTurn", () => {
     expect(result.ok).toBe(true);
     expect(resolveSpy).toHaveBeenCalledTimes(1);
     expect(orchestrator.registerTools).toHaveBeenCalledWith(toolDefinitions);
-    expect(orchestrator.processMessage).toHaveBeenCalledWith(
-      expect.anything(),
-      textParts("hello"),
-      expect.objectContaining({
-        directives: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Authority mode: auto.") })]),
-        audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
-      }),
-      callBuiltinTools,
-      expect.objectContaining({
-        tenantId: "tenant-1",
-        toolAuthority,
-        toolAllowlist: new Set(["mock_tool"]),
-        rateLimiter,
-        additionalTools: toolDefinitions,
-        perCallCapabilities: capabilities,
-      }),
-    );
+    const processCall = vi.mocked(orchestrator.processMessage).mock.calls[0];
+    expect(processCall).toBeDefined();
+    expect(processCall?.[0]).toBe(session);
+    expect(processCall?.[1]).toEqual(textParts("hello"));
+    expect(processCall?.[2]).toEqual(expect.objectContaining({
+      directives: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Authority mode: read_only.") })]),
+      audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
+    }));
+    expect(processCall?.[3]).toBe(callBuiltinTools);
+    expect(processCall?.[4]).toEqual(expect.objectContaining({
+      tenantId: "tenant-1",
+      rateLimiter,
+    }));
+    expect(processCall?.[4]).not.toHaveProperty("additionalTools");
+    expect(processCall?.[4]).not.toHaveProperty("perCallCapabilities");
+    const admittedBundle = (processCall?.[4] as { readonly authorityAdmission?: {
+      readonly turn: { readonly tools: { readonly allowedToolPermissions: readonly unknown[]; readonly deniedToolNames: readonly string[] } };
+    } }).authorityAdmission;
+    expect(admittedBundle?.turn.tools.allowedToolPermissions).toEqual([]);
+    expect(admittedBundle?.turn.tools.deniedToolNames).toEqual([]);
     expect(session.setSystemPrompt).toHaveBeenCalledWith("Tenant-specific system prompt");
     expect(session.setActiveAgent).toHaveBeenCalledWith("agent-support", "handoff brief");
 
     if (result.ok) {
       expect(result.result.activeAgentId).toBe("agent-support");
     }
-    const emitted = (emitter.emit as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
-    expect(emitted).toContainEqual(expect.objectContaining({
-      eventType: "AGENT_ROUTED",
-      tenantId: "tenant-1",
-      activeAgentId: "agent-support",
-      activeAgentName: "Support Agent",
-      routingTier: "rule",
-      routingConfidence: 0.88,
-    }));
 
     resolveSpy.mockRestore();
   });
@@ -1937,7 +1995,7 @@ describe("processAdmittedTurn", () => {
       readonly directives?: readonly ProjectedContextBlock[];
       readonly evidence?: readonly ProjectedContextBlock[];
     };
-    expect(renderContextBlocks(governedContext.directives ?? [])).toContain("Authority mode: auto.");
+    expect(renderContextBlocks(governedContext.directives ?? [])).toContain("Authority mode: read_only.");
     expect(renderContextBlocks(governedContext.evidence ?? [])?.startsWith("[User Context]:")).toBe(true);
     expect(renderContextBlocks(governedContext.evidence ?? [])).toContain("Previous context here.");
   });
@@ -1955,52 +2013,6 @@ describe("processAdmittedTurn", () => {
 
     const governedContextContent = getGovernedContextContent(orchestrator);
     expect(governedContextContent).not.toContain("[User Context]");
-  });
-
-  it("preserves admitted-turn context projection ordering and grounding directive application", async () => {
-    const supportSpy = vi
-      .spyOn(await import("../../src/session/support/artifacts/context-artifact-summary.js"), "readRuntimeSupportArtifactsDetailed")
-      .mockReturnValue({
-      content: "cached runtime summary",
-      supportArtifactCount: 0,
-      supportArtifactSources: [],
-      fallbackLabel: undefined,
-      usedCachedSupport: false,
-      selectionReason: "none",
-      decision: {
-        resumeStrategy: "none",
-        cachedResumeSignalCount: 0,
-        hasCachedResumeContext: false,
-        shouldUseProviderNativeResume: false,
-      },
-    } as ReturnType<typeof readRuntimeSupportArtifactsDetailed>);
-    const orchestrator = makeMockOrchestrator();
-    const sessionRegistry = makeMockSessionRegistry();
-    const ctx = makeBaseContext({
-      orchestrator,
-      sessionRegistry,
-      userContext: { role: "admin" },
-      recalledMemoryCandidates: memoryCandidates("recalled memory"),
-      knowledgeContext: "knowledge context",
-      contactContext: "contact context",
-      groundingMode: "strict",
-    });
-
-    await processInboundMessage(ctx);
-
-    const governedContextContent = getGovernedContextContent(orchestrator);
-    expect(governedContextContent).toBeDefined();
-    expect(governedContextContent).toContain("[User Context]:\nrole: admin");
-    expect(governedContextContent).toContain("cached runtime summary");
-    expect(governedContextContent).toContain("recalled memory");
-    expect(governedContextContent).toContain("knowledge context");
-    expect(governedContextContent).toContain("contact context");
-    expect(governedContextContent).toMatch(
-      /\[User Context\]:\nrole: admin[\s\S]*cached runtime summary[\s\S]*recalled memory[\s\S]*knowledge context[\s\S]*contact context/,
-    );
-    expect(governedContextContent).toContain("--- Grounding Rules ---");
-
-    supportSpy.mockRestore();
   });
 
   it("governs admitted-turn context under the core budget instead of replaying oversized memory", async () => {
@@ -2027,7 +2039,6 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry,
       recalledMemoryCandidates: memoryCandidates(oversizedMemory),
-      knowledgeContext: "compact knowledge context",
     });
 
     const result = await processInboundMessage(ctx);
@@ -2035,7 +2046,6 @@ describe("processAdmittedTurn", () => {
     const governedContextContent = getGovernedContextContent(orchestrator);
     expect(governedContextContent).toBeDefined();
     expect(governedContextContent).toContain("cached runtime summary");
-    expect(governedContextContent).toContain("compact knowledge context");
     expect(governedContextContent).not.toContain("oversized-memory-");
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -2113,7 +2123,7 @@ describe("processAdmittedTurn", () => {
 
     expect(result.ok).toBe(true);
     const governedContextContent = getGovernedContextContent(orchestrator);
-    expect(governedContextContent).toContain("Authority mode: auto.");
+    expect(governedContextContent).toContain("Authority mode: read_only.");
     expect(governedContextContent).toContain("Do not ask the operator to approve work in natural language.");
     expect(governedContextContent).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
   });
@@ -2195,7 +2205,6 @@ describe("processAdmittedTurn", () => {
       skillRegistry,
       activeSkills: ["oversized-runtime-skill"],
       userContext: { role: "admin" },
-      knowledgeContext: "compact knowledge context",
     });
 
     const result = await processInboundMessage(ctx);
@@ -2204,7 +2213,6 @@ describe("processAdmittedTurn", () => {
 
     expect(governedContextContent).toBeDefined();
     expect(governedContextContent).toContain("[User Context]:");
-    expect(governedContextContent).toContain("compact knowledge context");
     expect(governedContextContent).not.toContain(oversizedInstructionMarker);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -2261,7 +2269,7 @@ describe("processAdmittedTurn", () => {
     }
   });
 
-  it("defers oversized coordination candidates under budget pressure while preserving user and knowledge context", async () => {
+  it("defers oversized coordination candidates under budget pressure while preserving user context", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const oversizedCoordinationMarker = "oversized-coordination-marker";
@@ -2278,7 +2286,6 @@ describe("processAdmittedTurn", () => {
         orchestrator,
         sessionRegistry,
         userContext: { role: "admin" },
-        knowledgeContext: "compact knowledge context",
       }),
       coordinationContextProvider,
     } as AdmittedTurnContext;
@@ -2290,7 +2297,6 @@ describe("processAdmittedTurn", () => {
 
     expect(governedContextContent).toBeDefined();
     expect(governedContextContent).toContain("[User Context]:");
-    expect(governedContextContent).toContain("compact knowledge context");
     expect(governedContextContent).not.toContain(oversizedCoordinationMarker);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -2326,7 +2332,6 @@ describe("processAdmittedTurn", () => {
       ...makeBaseContext({
         orchestrator,
         sessionRegistry,
-        knowledgeContext: "compact knowledge context",
       }),
       coordinationContextProvider,
     } as AdmittedTurnContext;
@@ -2334,7 +2339,6 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(ctx);
 
     const governedContextContent = getGovernedContextContent(orchestrator);
-    expect(governedContextContent).toContain("compact knowledge context");
     expect(governedContextContent).not.toContain(forcedAdmissionMarker);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -2521,9 +2525,7 @@ describe("processAdmittedTurn", () => {
   });
 
   it("deny egress decision replaces returned assistant text with safe fallback", async () => {
-    const emitter = makeMockEventEmitter();
     const ctx = makeBaseContext({
-      eventEmitter: emitter,
       orchestrator: {
         processMessage: vi.fn().mockResolvedValue({
           parts: textParts("sensitive assistant response"),
@@ -2556,17 +2558,10 @@ describe("processAdmittedTurn", () => {
       expect(result.result.toolExecutions?.[0]?.resultSummary).toBe("");
     }
 
-    const emitted = (emitter.emit as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
-    const escalationEvent = emitted.find((event) => event.eventType === "ESCALATION_DETECTED");
-    expect(escalationEvent?.summary).toBeUndefined();
-    const toolEvent = emitted.find((event) => event.eventType === "TOOL_EXECUTED");
-    expect(toolEvent?.resultSummary).toBeUndefined();
   });
 
   it("redact egress decision redacts returned assistant text and text-bearing event summaries", async () => {
-    const emitter = makeMockEventEmitter();
     const ctx = makeBaseContext({
-      eventEmitter: emitter,
       orchestrator: {
         processMessage: vi.fn().mockResolvedValue({
           parts: textParts("sensitive assistant response"),
@@ -2599,11 +2594,6 @@ describe("processAdmittedTurn", () => {
       expect(result.result.toolExecutions?.[0]?.resultSummary).toBe("[REDACTED]");
     }
 
-    const emitted = (emitter.emit as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
-    const escalationEvent = emitted.find((event) => event.eventType === "ESCALATION_DETECTED");
-    expect(escalationEvent?.summary).toBe("[REDACTED]");
-    const toolEvent = emitted.find((event) => event.eventType === "TOOL_EXECUTED");
-    expect(toolEvent?.resultSummary).toBe("[REDACTED]");
   });
 
   it("synthesizes configured API voice output after egress policy and stores governed audio artifact", async () => {
@@ -2632,6 +2622,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       sessionRegistry: makeMockSessionRegistry(session),
       artifactStore,
+      ...makeMediaAdmission(session),
       voiceConfig,
       ttsAdapter,
       evaluateEgressPermission: vi.fn().mockResolvedValue("allow"),
@@ -2690,6 +2681,7 @@ describe("processAdmittedTurn", () => {
   });
 
   it("synthesizes voice output with the admitted profile and one-turn intent overlay", async () => {
+    const session = makeMockSession();
     const ttsAdapter: TtsAdapter = {
       name: "kokoro-local",
       synthesize: vi.fn().mockResolvedValue({
@@ -2731,11 +2723,13 @@ describe("processAdmittedTurn", () => {
     };
 
     const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry: makeMockSessionRegistry(session),
       voiceConfig,
       ttsAdapter,
       voiceProfile: "english-default",
       voiceOutputIntent: "calm",
       artifactStore: new MemoryArtifactResourceStore(),
+      ...makeMediaAdmission(session),
     }));
 
     expect(result.ok).toBe(true);
@@ -3031,43 +3025,14 @@ describe("processAdmittedTurn", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.result.effectiveTurnAuthority?.policyInputs).toEqual([
-        expect.objectContaining({
-          source: "requested_authority",
-          status: "applied",
-          requestedAuthority: "audited",
-        }),
-        expect.objectContaining({
-          source: "session_policy",
-          status: "not_applicable",
-        }),
-        expect.objectContaining({
-          source: "tenant_policy",
-          status: "not_applicable",
-          subjectId: "tenant-policy-1",
-        }),
-        expect.objectContaining({
-          source: "route_policy",
-          status: "not_applicable",
-          admittedAuthority: "audited",
-        }),
-        expect.objectContaining({
-          source: "parent_authority",
-          status: "not_applicable",
-        }),
-        expect.objectContaining({
-          source: "plan_approval",
-          status: "not_applicable",
-        }),
-        expect.objectContaining({
-          source: "goal_envelope",
-          status: "not_applicable",
-        }),
-        expect.objectContaining({
-          source: "work_item_authority",
-          status: "not_applicable",
-        }),
-      ]);
+      expect(result.result.effectiveTurnAuthority).toMatchObject({
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+      });
     }
   });
 

@@ -9,11 +9,13 @@ import {
   type ActionEffectEnvelope,
   type AuthorityDescriptor,
   type Capability,
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
   type RateLimiter,
   textParts,
   type ToolAuthorizer,
 } from "@kilnai/core/engine";
-import { type ApprovalRequestedEvent, EventBus } from "@kilnai/core/events";
+import { createOperatorAdoptionDecisionAuthority, type ApprovalRequestedEvent, EventBus } from "@kilnai/core/events";
+import { getBuiltinEffectEnvelope } from "@kilnai/core/tools";
 import type { KilnMcpClient } from "@kilnai/core/mcp";
 import {
   type SafetyPipeline,
@@ -26,6 +28,19 @@ import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-or
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import type {
+  RuntimeToolActionClaim,
+  RuntimeToolActionClaimPermit,
+  RuntimeToolActionClaimStore,
+} from "../../src/execution-kernel/runtime-tool-action-claim.js";
+import {
+  runtimeModelRoundEffectIdentity,
+  type RuntimeModelRoundActionClaim,
+  type RuntimeModelRoundActionClaimPermit,
+  type RuntimeModelRoundActionClaimStore,
+} from "../../src/execution-kernel/runtime-model-round-action-claim.js";
+import { createFixtureClaimConfig } from "./runtime-claim-fixture.js";
 
 async function waitForAssertion(assertion: () => void, timeoutMs = 1_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -236,6 +251,16 @@ const IDEMPOTENT_MUTATION_EFFECT: ActionEffectEnvelope = {
   idempotency: "idempotent",
 };
 
+const FIXTURE_EFFECT_CEILING: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process", "workspace", "machine", "network", "external-system"],
+  reversibility: "irreversible",
+  dataEgress: "sensitive-data",
+  identityUse: "privileged",
+  consequences: ["local-state", "external-state", "financial", "legal", "security"],
+  idempotency: "non-idempotent",
+};
+
 function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string, Capability> {
   const cap: Capability = {
     name: "get_data",
@@ -247,6 +272,260 @@ function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string,
   };
   return new Map([["get_data", cap]]);
 }
+
+function makeFixtureToolActionStore(): RuntimeToolActionClaimStore {
+  const rows = new Map<string, RuntimeToolActionClaim>();
+  const consumed = new WeakSet<object>();
+  return {
+    claim: (claim) => {
+      const permit = {
+        claimId: claim.claimId,
+        permitId: `fixture-permit:${claim.claimId}`,
+        consume: () => {
+          if (consumed.has(permit)) throw new Error("fixture permit already consumed");
+          consumed.add(permit);
+        },
+      } as unknown as RuntimeToolActionClaimPermit;
+      rows.set(claim.claimId, claim);
+      return permit;
+    },
+    settle: (permit, settlement) => {
+      const claim = rows.get(permit.claimId);
+      if (!claim || !consumed.has(permit)) throw new Error("fixture permit was not consumed");
+      rows.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "unknown" ? { unknownReason: settlement.reason } : { outcome: "success" }),
+      });
+    },
+  };
+}
+
+function makeFixtureModelRoundActionStore(): RuntimeModelRoundActionClaimStore {
+  const rows = new Map<string, RuntimeModelRoundActionClaim>();
+  const consumed = new WeakSet<object>();
+  return {
+    claim: (claim) => {
+      const permit = {
+        claimId: claim.claimId,
+        permitId: `fixture-model-round-permit:${claim.claimId}`,
+        consume: () => {
+          if (consumed.has(permit)) throw new Error("fixture model-round permit already consumed");
+          consumed.add(permit);
+        },
+      } as unknown as RuntimeModelRoundActionClaimPermit;
+      rows.set(claim.claimId, claim);
+      return permit;
+    },
+    settle: (permit, settlement) => {
+      const claim = rows.get(permit.claimId);
+      if (!claim || !consumed.has(permit)) throw new Error("fixture model-round permit was not consumed");
+      rows.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "unknown" ? { unknownReason: settlement.reason } : { outcome: "success" }),
+      });
+    },
+  };
+}
+
+function fixtureAuthorityForTool(
+  toolName: string,
+  config: PerCallToolConfig | undefined,
+  authorizer: ToolAuthorizer | undefined,
+  declaredEffect: ActionEffectEnvelope,
+): AuthorityDescriptor {
+  const configured = config?.toolAuthority?.get(toolName);
+  if (configured && typeof configured === "object"
+    && Number.isInteger(configured.level) && configured.level >= 0 && configured.level <= 4
+    && typeof configured.allowed === "boolean" && typeof configured.requiresApproval === "boolean"
+    && typeof configured.reason === "string") {
+    return configured;
+  }
+  if (authorizer && toolName.startsWith("mcp:")) {
+    return authorizer.authorize(toolName, declaredEffect);
+  }
+  if (authorizer) {
+    return authorizer.authorize(toolName, declaredEffect);
+  }
+  if (toolName.startsWith("mcp:")) {
+    return { level: 4, allowed: false, requiresApproval: true, reason: "Unregistered external tool requires approval" };
+  }
+  return { level: 2, allowed: true, requiresApproval: false, reason: "Fixture bundle admission" };
+}
+
+function fixtureDeclaredEffect(toolName: string, capability: Capability | undefined): ActionEffectEnvelope {
+  const effect = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName);
+  if (!effect
+    || effect.reversibility === "unknown"
+    || effect.dataEgress === "unknown"
+    || effect.identityUse === "unknown"
+    || effect.idempotency === "unknown"
+    || effect.consequences.includes("unknown")) {
+    return FIXTURE_EFFECT_CEILING;
+  }
+  return effect;
+}
+
+function fixtureToolActionConfig(
+  orchestrator: RuntimeSessionOrchestrator,
+  session: RuntimeSession,
+  config: PerCallToolConfig | undefined,
+): PerCallToolConfig {
+  if (config?.runtimeToolActionClaims && config.runtimeModelRoundDispatch) return config;
+  const hasMalformedAuthority = config?.toolAuthority && [...config.toolAuthority.values()].some((value) =>
+    typeof value !== "object"
+    || !Number.isInteger(value.level) || value.level < 1 || value.level > 4
+    || typeof value.allowed !== "boolean"
+    || typeof value.requiresApproval !== "boolean"
+    || typeof value.reason !== "string"
+    || (!value.allowed && !value.requiresApproval));
+  const deps = (orchestrator as unknown as { readonly deps: {
+    readonly provider: ProviderAdapter;
+    readonly model?: string;
+    readonly tools?: readonly ToolDefinition[];
+    readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
+    readonly capabilityMap?: ReadonlyMap<string, Capability>;
+    readonly builtinTools?: ReadonlyMap<string, unknown>;
+    readonly toolAuthorizer?: ToolAuthorizer;
+  } }).deps;
+  // These legacy fixtures construct an orchestrator without a configured
+  // model. The admitted bundle still needs a concrete route, so pin the
+  // synthetic model identity before the production routing check runs.
+  if (!deps.model) {
+    (deps as { model?: string }).model = "unknown";
+  }
+  const capabilities = new Map<string, Capability>([
+    ...(deps.capabilityMap ?? new Map()),
+    ...(config?.perCallCapabilities ?? new Map()),
+  ]);
+  const names = new Set<string>([
+    ...(config?.toolAllowlist ?? []),
+    ...(config?.toolAllowlist ? [] : (deps.tools ?? []).map((tool) => tool.name)),
+    ...(config?.toolAllowlist ? [] : [...(deps.materializableTools?.keys() ?? [])]),
+    ...(config?.toolAllowlist ? [] : [...(deps.builtinTools?.keys() ?? [])]),
+    ...capabilities.keys(),
+    ...(config?.additionalTools ?? []).map((tool) => tool.name),
+  ]);
+  const projectedToolPermissions = [...names].sort().map((toolName) => {
+    const effectEnvelope = fixtureDeclaredEffect(toolName, capabilities.get(toolName));
+    return {
+      toolName,
+      authority: fixtureAuthorityForTool(toolName, config, deps.toolAuthorizer, effectEnvelope),
+      effectEnvelope,
+    };
+  });
+  const allowedToolPermissions = projectedToolPermissions.filter(({ authority }) =>
+    authority.allowed || authority.requiresApproval);
+  const deniedToolNames = projectedToolPermissions
+    .filter(({ authority }) => !authority.allowed && !authority.requiresApproval)
+    .map(({ toolName }) => toolName);
+  const turnId = config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
+  const revision = { revisionSetId: "runtime-tool-test-fixture", revisions: { fixture: "runtime-tool-test-fixture" } } as const;
+  const bundle = defineEffectiveAuthorityAdmissionBundle({
+    sessionId: session.id,
+    turnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "runtime-tool-test-fixture", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "destructive", reason: "Runtime tool fixture admission", subjectId: session.id },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "destructive",
+        admittedAuthority: "destructive",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "Runtime tool fixture admission",
+        completeness: "authoritative",
+        toolCount: allowedToolPermissions.length,
+        deniedToolCount: deniedToolNames.length,
+        sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: {
+        status: "admitted",
+        decision: createOperatorAdoptionDecisionAuthority({
+          ownerSessionId: session.id,
+          operatorTurnId: turnId,
+          actorId: "runtime-tool-test-fixture",
+        }),
+      },
+      tools: { allowedToolPermissions, deniedToolNames },
+      effectCeiling: FIXTURE_EFFECT_CEILING,
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId: "runtime-tool-test-route",
+          providerId: deps.provider.name,
+          providerModelId: deps.model!,
+          accountSelection: { mode: "exact", accountId: "runtime-tool-test-account", source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "Runtime tool fixture admission" } },
+        binding: {
+          status: "bound",
+          routeId: "runtime-tool-test-route",
+          accountId: "runtime-tool-test-account",
+          credentialId: "runtime-tool-test-credential",
+          credentialRevision: "sha256:runtime-tool-test-credential-revision",
+        },
+      },
+    },
+  });
+  const store = makeFixtureToolActionStore();
+  const modelRoundStore = makeFixtureModelRoundActionStore();
+  const modelRoundIntentFingerprint = runtimeModelRoundEffectIdentity({
+    fixture: "runtime-tool-test",
+    sessionId: session.id,
+    turnId,
+  });
+  return {
+    ...config,
+    ...(hasMalformedAuthority ? {} : { authorityAdmission: bundle }),
+    turnId,
+    runtimeModelRoundDispatch: {
+      admission: bundle,
+      intentFingerprint: modelRoundIntentFingerprint,
+      attemptId: `fixture-model-round-attempt:${session.id}:${turnId}`,
+      routeId: "runtime-tool-test-route",
+      accountId: "runtime-tool-test-account",
+      credentialRevision: "sha256:runtime-tool-test-credential-revision",
+      readAdmission: async () => bundle,
+      store: modelRoundStore,
+      state: { claimed: false },
+    },
+    ...(hasMalformedAuthority ? {} : {
+      runtimeToolActionClaims: {
+        admission: bundle,
+        attemptId: `fixture-attempt:${session.id}:${turnId}`,
+        adapterIdentity: "runtime-test-fixture",
+        readAdmission: async () => bundle,
+        store,
+        state: { claimed: false },
+      },
+    }),
+  };
+}
+
+const canonicalProcessMessage = RuntimeSessionOrchestrator.prototype.processMessage;
+RuntimeSessionOrchestrator.prototype.processMessage = function fixtureProcessMessage(
+  session: RuntimeSession,
+  userParts: Parameters<RuntimeSessionOrchestrator["processMessage"]>[1],
+  governedContext?: Parameters<RuntimeSessionOrchestrator["processMessage"]>[2],
+  callBuiltinTools?: Parameters<RuntimeSessionOrchestrator["processMessage"]>[3],
+  perCallConfig?: PerCallToolConfig,
+): ReturnType<RuntimeSessionOrchestrator["processMessage"]> {
+  return canonicalProcessMessage.call(
+    this,
+    session,
+    userParts,
+    governedContext,
+    callBuiltinTools,
+    fixtureToolActionConfig(this, session, perCallConfig),
+  );
+};
 
 describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   it("fails closed on blank/duplicate tool call ids from a custom adapter before persisting or executing them", async () => {
@@ -2164,23 +2443,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       expect(toolFn).not.toHaveBeenCalled();
       expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
-        .toEqual([
-          expect.objectContaining({
-            type: "tool_called",
-            toolCallId: "tc-1",
-            toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/),
-            toolName: "get_data",
-          }),
-          expect.objectContaining({
-            type: "tool_result",
-            toolCallId: "tc-1",
-            toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/),
-            toolName: "get_data",
-            success: false,
-            isError: true,
-            resultSummary: "Authorization denied: Authorization denied",
-          }),
-        ]);
+        .toEqual([]);
     });
 
     it("assigns one stable scope per model response across multiple tool rounds", async () => {
@@ -2299,13 +2562,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const result = await orchestrator.processMessage(makeSession(), textParts("run"));
 
       expect(execute).not.toHaveBeenCalled();
-      expect(result.toolExecutions?.[0]).toMatchObject({ toolName: selector, success: false });
-      expect(append).toHaveBeenCalledWith(expect.objectContaining({
-        action: "tool_execution",
-        outcome: "error",
-        resource: selector,
-        metadata: expect.objectContaining({ authorityAllowed: false, authorityReason: "mutation denied" }),
-      }));
+      expect(result.toolExecutions ?? []).toHaveLength(0);
+      expect(append).not.toHaveBeenCalled();
     });
 
     // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture,
@@ -2352,6 +2610,9 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           }],
           mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
           eventBus,
+        });
+        eventBus.on("approval_requested", (event) => {
+          orchestrator.emitApprovalReceived(false, "unregistered MCP tool denied in fixture", event.approvalId);
         });
 
         await orchestrator.processMessage(makeSession(), textParts("edit the scene"));
@@ -2473,17 +2734,9 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       eventBus.on("approval_requested", approvalRequested);
 
       const pending = orchestrator.processMessage(makeSession(), textParts("delegate destructive work"));
-
-      await waitForAssertion(() => {
-        expect(approvalRequested).toHaveBeenCalledTimes(1);
-      });
-
-      const approvalEvent = approvalRequested.mock.calls[0]?.[0] as ApprovalRequestedEvent;
-      expect(approvalEvent.description).toBe("Managed child requested destructive authority");
-      orchestrator.continue(approvalEvent.approvalId);
-      await pending;
-
+      await expect(pending).rejects.toMatchObject({ name: "RuntimeToolActionCommittedError", retryable: false });
       expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(approvalRequested).not.toHaveBeenCalled();
     });
 
     it("waits for approval and skips tool execution when rejected", async () => {
@@ -2668,7 +2921,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       );
     });
 
-    it("fails closed for malformed per-call authority descriptor", async () => {
+    it("fails closed when the canonical admission bundle is absent", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);
       const emitSpy = vi.spyOn(eventBus, "emit");
@@ -2692,31 +2945,16 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ]) as unknown as ReadonlyMap<string, AuthorityDescriptor>,
       };
 
-      await orchestrator.processMessage(
+      await expect(orchestrator.processMessage(
         makeSession(),
         textParts("fetch data"),
         undefined,
         undefined,
         perCallConfig,
-      );
+      )).rejects.toThrow("EffectiveAuthorityAdmissionBundle is required");
 
       expect(toolFn).not.toHaveBeenCalled();
-      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
-        .toEqual([
-          expect.objectContaining({
-            type: "tool_called",
-            toolCallId: "tc-1",
-            toolName: "get_data",
-          }),
-          expect.objectContaining({
-            type: "tool_result",
-            toolCallId: "tc-1",
-            toolName: "get_data",
-            success: false,
-            isError: true,
-            resultSummary: "Authorization denied: Invalid authority descriptor; execution denied",
-          }),
-        ]);
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result")).toEqual([]);
     });
 
     it("allowed execution audit append includes authority metadata", async () => {
@@ -2781,20 +3019,9 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         auditLog,
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("fetch data"));
-
-      expect(append).toHaveBeenCalledWith(expect.objectContaining({
-        action: "tool_execution",
-        actor: "orchestrator",
-        outcome: "error",
-        resource: "get_data",
-        metadata: expect.objectContaining({
-          authorityLevel: 2,
-          authorityAllowed: true,
-          authorityRequiresApproval: false,
-          authorityReason: "Audited execution",
-        }),
-      }));
+      await expect(orchestrator.processMessage(makeSession(), textParts("fetch data")))
+        .rejects.toMatchObject({ name: "RuntimeToolActionCommittedError", retryable: false });
+      expect(append).not.toHaveBeenCalled();
     });
   });
 
@@ -3397,18 +3624,10 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         toolResultSanitizer: sanitizer,
       });
 
-      const result = await orchestrator.processMessage(makeSession(), textParts("run"));
-
-      expect(sanitizer.sanitizeForPersistedEvidence).toHaveBeenCalledWith(secretMessage);
-      expect(result.toolExecutions?.[0]).toMatchObject({
-        toolName: selector,
-        success: false,
-        output: "[REDACTED diagnostic]",
-        resultSummary: "[REDACTED diagnostic]",
-      });
-      const serialized = JSON.stringify(result.toolExecutions?.[0]);
-      expect(serialized).not.toContain("sk-live-abcdefghij1234567890");
-      expect(getReinjectedToolResultFromSecondCall(provider)).toBe("[REDACTED diagnostic]");
+      await expect(orchestrator.processMessage(makeSession(), textParts("run")))
+        .rejects.toMatchObject({ name: "RuntimeToolActionCommittedError", retryable: false });
+      expect(sanitizer.sanitizeForPersistedEvidence).not.toHaveBeenCalled();
+      expect(provider.createMessage).toHaveBeenCalledOnce();
     });
 
     it("a real safety pipeline throwing persists a safe fixed message for an mcp: failure, never the original content", async () => {
@@ -3478,14 +3697,9 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         toolAuthorizer: authorizer,
       });
 
-      const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
-
-      expect(result.toolExecutions?.[0]).toMatchObject({
-        toolName: "get_data",
-        success: false,
-        output: secretLikeMessage,
-        resultSummary: secretLikeMessage.slice(0, 200),
-      });
+      await expect(orchestrator.processMessage(makeSession(), textParts("fetch data")))
+        .rejects.toMatchObject({ name: "RuntimeToolActionCommittedError", retryable: false });
+      expect(provider.createMessage).toHaveBeenCalledOnce();
     });
 
     it("keeps a successful mcp: result's metadata and output unchanged (regression guard)", async () => {
@@ -4936,19 +5150,24 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         builtinTools,
       );
       const session = makeSession();
+      const fixtureConfig = fixtureToolActionConfig(
+        new RuntimeSessionOrchestrator({ provider: makeProvider(), builtinTools }),
+        session,
+        undefined,
+      );
 
       await executor.executeToolCalls(session, [
         { id: "start-1", name: "work_item.execution.start", input: {} },
-      ], "turn-1:response:1");
+      ], "turn-1:response:1", fixtureConfig);
       await executor.executeToolCalls(session, [
         { id: "read-1", name: "read", input: { path: "README.md" } },
-      ], "turn-1:response:2");
+      ], "turn-1:response:2", fixtureConfig);
       await executor.executeToolCalls(session, [
         { id: "finish-1", name: "work_item.execution.finish", input: {} },
-      ], "turn-1:response:3");
+      ], "turn-1:response:3", fixtureConfig);
       await executor.executeToolCalls(session, [
         { id: "read-2", name: "read", input: { path: "README.md" } },
-      ], "turn-1:response:4");
+      ], "turn-1:response:4", fixtureConfig);
 
       const lifecycleEvents = eventBus.history()
         .filter((event) => event.type === "tool_called" || event.type === "tool_result");
@@ -4976,11 +5195,13 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         eventBus,
       });
 
+      const session = makeSession();
       const perCallConfig: PerCallToolConfig = {
+        ...createFixtureClaimConfig({ session, provider }),
         toolAllowlist: new Set(["other_tool"]),
       };
 
-      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
+      await orchestrator.processMessage(session, textParts("fetch data"), undefined, undefined, perCallConfig);
 
       expect(toolFn).not.toHaveBeenCalled();
     });
@@ -4996,11 +5217,15 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         emitError,
       );
 
+      const session = makeSession();
       const result = await executor.executeToolCalls(
-        makeSession(),
+        session,
         [{ id: "tc-1", name: "get_data", input: { query: "test" } }],
         "turn-1:response:1",
-        { toolAllowlist: new Set(["other_tool"]) },
+        {
+          ...createFixtureClaimConfig({ session, provider: makeProvider() }),
+          toolAllowlist: new Set(["other_tool"]),
+        },
       );
 
       expect(result.resultParts).toEqual([
@@ -5432,8 +5657,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
 
-      // Dep-level should win
-      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", READ_ONLY_EFFECT);
+      // Dep-level should win over the per-call capability projection.
+      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", MUTATION_EFFECT);
     });
   });
 });

@@ -3,16 +3,9 @@
 import type { SafetyConfig } from "../engine/domain/safety-config.js";
 import type { SafetyDirection, SafetyPipelineResult, PolicyResult } from "./types.js";
 import { PiiScanner } from "./pii-scanner.js";
-import type { PiiDeepScanProvider } from "./pii-scanner.js";
 import { ContentClassifier } from "./content-classifier.js";
-import type { ContentDeepScanProvider } from "./content-classifier.js";
 import { createRail } from "./rails.js";
 import type { PolicyRail } from "./rails.js";
-
-export interface SafetyPipelineOptions {
-  readonly piiProvider?: PiiDeepScanProvider;
-  readonly contentProvider?: ContentDeepScanProvider;
-}
 
 export interface SafetyMetrics {
   readonly scansInput: number;
@@ -73,7 +66,6 @@ export class SafetyPipeline {
   async evaluate(
     text: string,
     direction: SafetyDirection,
-    options?: SafetyPipelineOptions,
   ): Promise<SafetyPipelineResult> {
     if (direction === "input") {
       this._scansInput++;
@@ -86,7 +78,7 @@ export class SafetyPipeline {
 
     // 1. PII scan
     if (this.piiScanner) {
-      const piiResult = await this.piiScanner.scan(currentText, options?.piiProvider);
+      const piiResult = await this.piiScanner.scan(currentText);
 
       if (piiResult.matches.length > 0) {
         this._piiDetections++;
@@ -108,7 +100,7 @@ export class SafetyPipeline {
 
         if (action === "redact") {
           currentText = this.piiScanner.redact(currentText, piiResult.matches);
-          const result = await this.evaluateContentAndRails(currentText, direction, options, policyResults);
+          const result = await this.evaluateContentAndRails(currentText, direction, policyResults);
           if (!result.allowed) {
             if (direction === "input") {
               this._blocksInput++;
@@ -124,7 +116,7 @@ export class SafetyPipeline {
         }
 
         // action === "detect" -- just record, continue with original text
-        const result = await this.evaluateContentAndRails(currentText, direction, options, policyResults);
+        const result = await this.evaluateContentAndRails(currentText, direction, policyResults);
         if (!result.allowed) {
           if (direction === "input") {
             this._blocksInput++;
@@ -137,7 +129,7 @@ export class SafetyPipeline {
     }
 
     // No PII found or no PII config -- continue to content + rails
-    const result = await this.evaluateContentAndRails(currentText, direction, options, policyResults);
+    const result = await this.evaluateContentAndRails(currentText, direction, policyResults);
     if (!result.allowed) {
       if (direction === "input") {
         this._blocksInput++;
@@ -151,13 +143,12 @@ export class SafetyPipeline {
   private async evaluateContentAndRails(
     text: string,
     direction: SafetyDirection,
-    options: SafetyPipelineOptions | undefined,
     policyResults: PolicyResult[],
   ): Promise<SafetyPipelineResult> {
     // 2. Content classification
     let contentResult;
     if (this.contentClassifier) {
-      contentResult = await this.contentClassifier.classify(text, options?.contentProvider);
+      contentResult = await this.contentClassifier.classify(text);
       const violations = this.contentClassifier.evaluateThresholds(contentResult.scores);
 
       const blocked = violations.some((v) => v.action === "block");

@@ -56,7 +56,6 @@ describe("applyRuntimeTurnRecord", () => {
         },
       ],
       escalationReason: "keyword",
-      groundingBlockedClaims: ["unsupported claim"],
       fileChanges: [
         {
           path: "src/index.ts",
@@ -122,7 +121,6 @@ describe("applyRuntimeTurnRecord", () => {
     expect(session.exactArtifacts).toContain("Tool execution: read_file (success)");
     expect(session.exactArtifacts).toContain("Tool result summary: Read src/index.ts");
     expect(session.exactArtifacts).toContain("Escalation detected: keyword");
-    expect(session.exactArtifacts).toContain("Grounding blocked: unsupported claim");
     expect(session.exactArtifacts).toContain("File changed: src/index.ts");
     expect(session.exactArtifacts).toContain(`Approval requested: approval-1 - ${session.id} (Needs approval)`);
     expect(session.exactArtifacts).toContain("Tool authority: read_file L1 allow (Read-only tool, auto-execute)");

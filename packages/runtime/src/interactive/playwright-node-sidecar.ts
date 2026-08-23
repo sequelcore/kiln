@@ -23,69 +23,14 @@ interface WireRequest {
   readonly config: PlaywrightNodeSidecarConfig;
   readonly request:
     | InteractiveUseRequest
-    | { readonly operation: "close_all" }
-    | BrowserSessionControlRequest
-    | BrowserOperatorInputRequest;
+    | { readonly operation: "close_all" };
 }
 
 interface WireResponse {
   readonly id: number;
   readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult | BrowserSessionState | BrowserOperatorInputAck;
+  readonly result?: InteractiveUseProviderResult;
   readonly error?: string;
-}
-
-interface BrowserSessionControlRequest {
-  readonly operation: "browser_session_control";
-  readonly action: "takeover" | "release";
-  readonly gatewayTargetId?: string;
-  readonly sessionId?: string;
-  readonly operatorId?: string;
-  readonly reason?: string;
-}
-
-type BrowserOperatorInput =
-  | {
-      readonly kind: "pointer";
-      readonly phase: "move" | "down" | "up" | "click";
-      readonly x: number;
-      readonly y: number;
-      readonly button?: "left" | "middle" | "right" | "back" | "forward" | "none";
-      readonly clickCount?: number;
-    }
-  | {
-      readonly kind: "wheel";
-      readonly x: number;
-      readonly y: number;
-      readonly deltaX: number;
-      readonly deltaY: number;
-    }
-  | {
-      readonly kind: "key";
-      readonly phase: "down" | "up" | "press";
-      readonly key: string;
-      readonly text?: string;
-    }
-  | {
-      readonly kind: "text";
-      readonly text: string;
-    };
-
-interface BrowserOperatorInputRequest {
-  readonly operation: "browser_operator_input";
-  readonly requestId: string;
-  readonly gatewayTargetId?: string;
-  readonly sessionId: string;
-  readonly operatorId?: string;
-  readonly input: BrowserOperatorInput;
-}
-
-interface BrowserOperatorInputAck {
-  readonly requestId: string;
-  readonly sessionId?: string;
-  readonly status: "accepted" | "blocked" | "failed" | "stale-session";
-  readonly reason?: string;
-  readonly handledAt: string;
 }
 
 interface BrowserSessionUpdatedWireEvent {
@@ -102,7 +47,7 @@ interface BrowserSessionState {
   readonly operation?: string;
   readonly url?: string;
   readonly title?: string;
-  readonly ownership: "agent" | "operator" | "released";
+  readonly ownership: "agent" | "released";
   readonly viewMode: "snapshot" | "live";
   readonly stream: {
     readonly status: "starting" | "live" | "paused" | "ended" | "failed";
@@ -206,7 +151,6 @@ const sessions = new Map<string, BrowserSession>();
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const cdpStreams = new Map<string, BrowserCdpScreencastStream>();
-const operatorLocks = new Map<string, { readonly operatorId?: string; readonly reason?: string; readonly acquiredAt: string }>();
 let activeSessionId: string | undefined;
 let sequence = 0;
 let sidecarExitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -228,11 +172,7 @@ async function handleLine(line: string): Promise<void> {
   try {
     const result = message.request.operation === "close_all"
       ? await closeAll()
-      : message.request.operation === "browser_session_control"
-        ? await controlBrowserSession(message.config, message.request)
-        : message.request.operation === "browser_operator_input"
-          ? await handleBrowserOperatorInput(message.config, message.request)
-          : await execute(message.config, message.request);
+      : await execute(message.config, message.request);
     write({ id: message.id, ok: true, result });
   } catch (error) {
     write({ id: message.id, ok: false, error: errorMessage(error) });
@@ -284,7 +224,6 @@ async function startSession(
     cancelSidecarExit();
     activeSessionId = existingSession.id;
     if (request.url && existingSession.page.url() !== request.url) {
-      assertAgentBrowserControl(existingSession);
       await existingSession.page.goto(request.url, {
         timeout: request.timeoutMs ?? config.defaultTimeoutMs,
         waitUntil: "domcontentloaded",
@@ -338,7 +277,6 @@ async function navigate(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
-    assertAgentBrowserControl(session);
     if (!request.url) {
       throw new Error("browser_navigate requires url.");
     }
@@ -381,7 +319,6 @@ async function click(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
-    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     const action = request.action;
     if (action?.selector) {
@@ -415,7 +352,6 @@ async function type(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
-    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     const text = readText(request.input);
     if (request.action?.selector) {
@@ -442,7 +378,6 @@ async function keypress(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
-    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     for (const key of request.action?.keys ?? []) {
       await session.page.keyboard.press(key);
@@ -464,7 +399,6 @@ async function scroll(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
-    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     const { deltaX, deltaY } = scrollDelta(request);
     await session.page.mouse.wheel(deltaX, deltaY);
@@ -506,258 +440,9 @@ async function closeAll(): Promise<InteractiveUseProviderResult> {
   }
   streamTimers.clear();
   await Promise.allSettled([...cdpStreams.keys()].map(stopCdpScreencast));
-  operatorLocks.clear();
   activeSessionId = undefined;
   await Promise.allSettled(activeSessions.map(closeSession));
   return { provider: "playwright", output: "Stopped all Playwright browser sessions." };
-}
-
-async function controlBrowserSession(
-  config: PlaywrightNodeSidecarConfig,
-  request: BrowserSessionControlRequest,
-): Promise<BrowserSessionState> {
-  const session = requireSession(request.sessionId);
-  if (request.action === "takeover") {
-    operatorLocks.set(session.id, {
-      ...(request.operatorId ? { operatorId: request.operatorId } : {}),
-      ...(request.reason ? { reason: request.reason } : {}),
-      acquiredAt: new Date().toISOString(),
-    });
-    try {
-      const [title, screenshot] = await Promise.all([
-        session.page.title().catch(() => undefined),
-        captureScreenshot(session),
-      ]);
-      const state = emitBrowserSessionState({
-        session,
-        operation: "operator_takeover",
-        title,
-        ownership: "operator",
-        viewMode: "live",
-        stream: { status: "live" },
-        latestCaptureDataUrl: screenshot.dataUrl,
-        latestCaptureWidth: screenshot.width,
-        latestCaptureHeight: screenshot.height,
-      });
-      scheduleStreamCapture(config, session, "observe");
-      scheduleIdleClose(config, session);
-      return state;
-    } catch (error) {
-      const state = emitBrowserSessionState({
-        session,
-        operation: "operator_takeover",
-        ownership: "operator",
-        viewMode: "live",
-        stream: {
-          status: "failed",
-          reason: errorMessage(error),
-        },
-      });
-      scheduleIdleClose(config, session);
-      return state;
-    }
-  }
-
-  operatorLocks.delete(session.id);
-  try {
-    const [title, screenshot] = await Promise.all([
-      session.page.title().catch(() => undefined),
-      captureScreenshot(session),
-    ]);
-    const state = emitBrowserSessionState({
-      session,
-      operation: "operator_release",
-      title,
-      ownership: "agent",
-      viewMode: "live",
-      stream: { status: "live" },
-      latestCaptureDataUrl: screenshot.dataUrl,
-      latestCaptureWidth: screenshot.width,
-      latestCaptureHeight: screenshot.height,
-    });
-    scheduleStreamCapture(config, session, "observe");
-    scheduleIdleClose(config, session);
-    return state;
-  } catch (error) {
-    const state = emitBrowserSessionState({
-      session,
-      operation: "operator_release",
-      ownership: "agent",
-      viewMode: "live",
-      stream: {
-        status: "failed",
-        reason: errorMessage(error),
-      },
-    });
-    scheduleIdleClose(config, session);
-    return state;
-  }
-}
-
-async function handleBrowserOperatorInput(
-  config: PlaywrightNodeSidecarConfig,
-  request: BrowserOperatorInputRequest,
-): Promise<BrowserOperatorInputAck> {
-  const handledAt = new Date().toISOString();
-  const session = sessions.get(request.sessionId);
-  if (!session) {
-    return {
-      requestId: request.requestId,
-      sessionId: request.sessionId,
-      status: "stale-session",
-      reason: "Browser session is not active.",
-      handledAt,
-    };
-  }
-  if (!operatorLocks.has(session.id)) {
-    return {
-      requestId: request.requestId,
-      sessionId: session.id,
-      status: "blocked",
-      reason: "Operator does not own the browser session.",
-      handledAt,
-    };
-  }
-  try {
-    assertCurrentUrlAllowed(config, session);
-    await dispatchOperatorInput(session, request.input);
-    await captureAndEmitLiveFrame(config, session, "observe");
-    scheduleIdleClose(config, session);
-    return {
-      requestId: request.requestId,
-      sessionId: session.id,
-      status: "accepted",
-      handledAt,
-    };
-  } catch (error) {
-    return {
-      requestId: request.requestId,
-      sessionId: session.id,
-      status: "failed",
-      reason: errorMessage(error),
-      handledAt,
-    };
-  }
-}
-
-async function dispatchOperatorInput(session: BrowserSession, input: BrowserOperatorInput): Promise<void> {
-  const cdpStream = cdpStreams.get(session.id);
-  if (cdpStream) {
-    await dispatchCdpOperatorInput(cdpStream.session, input);
-    return;
-  }
-  switch (input.kind) {
-    case "pointer": {
-      assertViewportCoordinate(input.x, input.y);
-      const button = input.button === "none" || input.button === "back" || input.button === "forward"
-        ? undefined
-        : input.button;
-      if (input.phase === "click") {
-        await session.page.mouse.click(input.x, input.y, {
-          ...(button ? { button } : {}),
-          ...(input.clickCount ? { clickCount: input.clickCount } : {}),
-        });
-        return;
-      }
-      if (input.phase === "move") {
-        if (!session.page.mouse.move) {
-          throw new Error("Pointer move is not supported by the active browser provider.");
-        }
-        await session.page.mouse.move(input.x, input.y);
-        return;
-      }
-      if (input.phase === "down") {
-        if (!session.page.mouse.move || !session.page.mouse.down) {
-          throw new Error("Pointer down is not supported by the active browser provider.");
-        }
-        await session.page.mouse.move(input.x, input.y);
-        await session.page.mouse.down(button ? { button } : undefined);
-        return;
-      }
-      if (!session.page.mouse.move || !session.page.mouse.up) {
-        throw new Error("Pointer up is not supported by the active browser provider.");
-      }
-      await session.page.mouse.move(input.x, input.y);
-      await session.page.mouse.up(button ? { button } : undefined);
-      return;
-    }
-    case "wheel":
-      assertViewportCoordinate(input.x, input.y);
-      if (session.page.mouse.move) {
-        await session.page.mouse.move(input.x, input.y);
-      }
-      await session.page.mouse.wheel(input.deltaX, input.deltaY);
-      return;
-    case "key":
-      if (input.phase === "press") {
-        await session.page.keyboard.press(input.key);
-        return;
-      }
-      throw new Error("Key down/up operator input requires the CDP transport slice.");
-    case "text":
-      await session.page.keyboard.type(input.text);
-      return;
-    default:
-      throw new Error("Unsupported browser operator input.");
-  }
-}
-
-async function dispatchCdpOperatorInput(cdpSession: CdpSession, input: BrowserOperatorInput): Promise<void> {
-  switch (input.kind) {
-    case "pointer": {
-      assertViewportCoordinate(input.x, input.y);
-      const button = input.button === "none" || input.button === "back" || input.button === "forward"
-        ? "none"
-        : input.button ?? "left";
-      if (input.phase === "click") {
-        await cdpSession.send("Input.dispatchMouseEvent", {
-          type: "mousePressed",
-          x: input.x,
-          y: input.y,
-          button,
-          clickCount: input.clickCount ?? 1,
-        });
-        await cdpSession.send("Input.dispatchMouseEvent", {
-          type: "mouseReleased",
-          x: input.x,
-          y: input.y,
-          button,
-          clickCount: input.clickCount ?? 1,
-        });
-        return;
-      }
-      await cdpSession.send("Input.dispatchMouseEvent", {
-        type: input.phase === "move" ? "mouseMoved" : input.phase === "down" ? "mousePressed" : "mouseReleased",
-        x: input.x,
-        y: input.y,
-        button,
-        clickCount: input.clickCount ?? (input.phase === "move" ? 0 : 1),
-      });
-      return;
-    }
-    case "wheel":
-      assertViewportCoordinate(input.x, input.y);
-      await cdpSession.send("Input.dispatchMouseEvent", {
-        type: "mouseWheel",
-        x: input.x,
-        y: input.y,
-        deltaX: input.deltaX,
-        deltaY: input.deltaY,
-      });
-      return;
-    case "key":
-      await cdpSession.send("Input.dispatchKeyEvent", {
-        type: input.phase === "up" ? "keyUp" : input.phase === "down" ? "rawKeyDown" : "keyDown",
-        key: input.key,
-        ...(input.text ? { text: input.text } : {}),
-      });
-      return;
-    case "text":
-      await cdpSession.send("Input.insertText", { text: input.text });
-      return;
-    default:
-      throw new Error("Unsupported browser operator input.");
-  }
 }
 
 function requireSession(sessionId: string | undefined): BrowserSession {
@@ -888,12 +573,6 @@ function readText(input: Record<string, unknown>): string {
   return value;
 }
 
-function assertViewportCoordinate(x: number, y: number): void {
-  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
-    throw new Error("Browser operator input coordinates must be finite viewport-relative pixels.");
-  }
-}
-
 function scrollDelta(request: InteractiveUseRequest): { readonly deltaX: number; readonly deltaY: number } {
   if (typeof request.action?.deltaX === "number" || typeof request.action?.deltaY === "number") {
     return {
@@ -947,7 +626,6 @@ async function closeSession(session: BrowserSession): Promise<void> {
   clearIdleTimer(session.id);
   clearStreamTimer(session.id);
   await stopCdpScreencast(session.id);
-  operatorLocks.delete(session.id);
   sessions.delete(session.id);
   if (activeSessionId === session.id) {
     activeSessionId = sessions.keys().next().value;
@@ -1034,7 +712,7 @@ async function handleCdpScreencastFrame(
       session,
       operation,
       title: await session.page.title().catch(() => undefined),
-      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
+      ownership: "agent",
       viewMode: "live",
       stream: { status: "live" },
       latestCaptureDataUrl: `data:image/png;base64,${frame.data}`,
@@ -1046,7 +724,7 @@ async function handleCdpScreencastFrame(
     emitBrowserSessionState({
       session,
       operation,
-      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
+      ownership: "agent",
       viewMode: "live",
       stream: {
         status: "failed",
@@ -1102,7 +780,7 @@ async function captureAndEmitLiveFrame(
       session,
       operation,
       title,
-      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
+      ownership: "agent",
       viewMode: "live",
       stream: { status: "live" },
       latestCaptureDataUrl: screenshot.dataUrl,
@@ -1113,7 +791,7 @@ async function captureAndEmitLiveFrame(
     emitBrowserSessionState({
       session,
       operation,
-      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
+      ownership: "agent",
       viewMode: "live",
       stream: {
         status: "failed",
@@ -1195,13 +873,6 @@ function clearStreamTimer(sessionId: string): void {
   }
   clearTimeout(timer);
   streamTimers.delete(sessionId);
-}
-
-function assertAgentBrowserControl(session: BrowserSession): void {
-  if (!operatorLocks.has(session.id)) {
-    return;
-  }
-  throw new Error(`Browser session ${session.id} is under operator control.`);
 }
 
 function scheduleSidecarExitIfIdle(): void {

@@ -8,7 +8,6 @@ describe("validateSafetyConfig", () => {
       pii: {
         detect: ["email", "phone"],
         action: "redact",
-        deepScan: false,
         allowlist: ["noreply@example.com"],
       },
       content: {
@@ -17,7 +16,6 @@ describe("validateSafetyConfig", () => {
           hate: { threshold: 0.8, action: "block" },
           violence: { threshold: 0.5, action: "warn" },
         },
-        deepScan: false,
       },
       rails: [
         { type: "topic", block: ["gambling"] },

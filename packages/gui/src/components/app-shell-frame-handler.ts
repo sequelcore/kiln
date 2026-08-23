@@ -30,11 +30,6 @@ interface AppShellFrameHandlerInput {
   readonly onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
   readonly onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
   readonly onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
-  readonly onBrowserOperatorInputAck: (frame: Extract<GuiInboundFrame, { type: "browser_operator_input_ack" }>) => void;
-  readonly onOperatorTerminalAvailability: (available: boolean) => void;
-  readonly onOperatorTerminalFrame: (
-    frame: Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>,
-  ) => void;
   readonly setConnectionStatus: (status: "connecting" | "running" | "idle" | "error") => void;
   readonly setTheme: (theme: OperatorThemeName) => void;
   readonly persistThemePreference: (theme: OperatorThemeName) => Promise<void>;
@@ -84,7 +79,6 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
     switch (frame.type) {
       case "welcome":
         input.onWelcome(frame);
-        input.onOperatorTerminalAvailability(frame.operatorTerminalAvailable ?? false);
         return;
       case "operator_theme_set":
         void handleOperatorThemeSet(frame, input);
@@ -154,15 +148,6 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         return;
       case "browser_live_viewport_frame":
         input.onBrowserLiveViewportFrame(frame);
-        return;
-      case "browser_operator_input_ack":
-        input.onBrowserOperatorInputAck(frame);
-        return;
-      case "operator_terminal_opened":
-      case "operator_terminal_output":
-      case "operator_terminal_exited":
-      case "operator_terminal_error":
-        input.onOperatorTerminalFrame(frame);
         return;
       case "managed_agent_control_result":
         input.onManagedAgentControlResult(frame);

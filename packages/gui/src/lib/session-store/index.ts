@@ -72,7 +72,6 @@ const initialState: SessionStoreState = {
   interactiveUseSnapshot: null,
   browserSessionState: null,
   browserLiveViewportFrame: null,
-  browserOperatorInputAck: null,
   outboundSend: null,
   clearTimeoutId: null,
   executionRouteSelectionTimeoutId: null,

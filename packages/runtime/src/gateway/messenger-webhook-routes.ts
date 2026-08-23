@@ -2,25 +2,24 @@
 // Resolves tenant by Messenger Page ID, processes messages via provider-adapter runtime orchestrator, replies via Messenger Send API
 
 import { Hono } from "hono";
-import type { ContentPart, ToolDefinition } from "@kilnai/core";
+import type { ContentPart } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import { toMessengerFormat } from "../channels/message-formatter.js";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
-import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { ArtifactResourceStore, EventBus, MemoryRepository } from "@kilnai/core";
-import { sendMessengerMediaMessage, sendMessengerMessage } from "../channels/messenger-api.js";
-import { checkBudget, reportUsage } from "./budget-middleware.js";
+import { sendMessengerMediaMessage, sendMessengerMessage, MESSENGER_GRAPH_API_VERSION } from "../channels/messenger-api.js";
+import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
+import { checkBudget } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
-import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
-import type { SttAdapter, RetrievalPipeline, ContactMemoryService, TtsAdapter, VoiceConfig } from "@kilnai/core";
+import type { SttAdapter, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import {
   AudioTransformError,
   createGatewayAudioTransformSessionId,
@@ -28,11 +27,10 @@ import {
   emitAudioTransformRoutingEvents,
   transformAudioParts,
 } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline/index.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import { resolveOutboundAudioMedia } from "./public-media-delivery.js";
-import type { OutboundMediaPublisher } from "./public-media-delivery.js";
+import type { SignedArtifactMediaOptions } from "./public-media-delivery.js";
 import {
   createTenantConversationMemoryRepository,
   TenantConversationMemory,
@@ -47,18 +45,13 @@ export interface MessengerWebhookConfig {
   readonly verifyToken: string;
   readonly appSecret?: string;
   readonly billing?: BillingConfig;
-  readonly eventEmitter?: ConversationEventEmitter;
   readonly memoryBasePath?: string;
   readonly sttAdapter?: SttAdapter;
   readonly artifactStore?: ArtifactResourceStore;
   readonly voiceConfig?: VoiceConfig;
   readonly ttsAdapter?: TtsAdapter;
-  readonly outboundMediaPublisher?: OutboundMediaPublisher;
-  readonly knowledgePipeline?: RetrievalPipeline;
-  readonly knowledgeMode?: "auto" | "tool";
-  readonly contactMemoryService?: ContactMemoryService;
+  readonly publicMedia?: SignedArtifactMediaOptions;
   readonly dedup?: WebhookDedup;
-  readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
@@ -103,23 +96,6 @@ function getConversationMemory(memoryBasePath: string, eventBus?: EventBus): Ten
     ...(eventBus ? { eventBus } : {}),
   });
 }
-
-/** Tool definition for knowledge_search -- injected when knowledge mode is "tool" */
-const KNOWLEDGE_SEARCH_TOOL: ToolDefinition = {
-  name: "knowledge_search",
-  description: "Search the knowledge base for relevant information. Use this when the user asks a question that may be answered by stored documents or knowledge.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "The search query to find relevant knowledge.",
-      },
-    },
-    required: ["query"],
-  },
-  tags: new Set(["builtin"]),
-};
 
 /** Parse a Messenger messaging entry into ContentPart[] */
 function parseMessengerMessageParts(entry: MessengerMessagingEntry): readonly ContentPart[] | null {
@@ -175,6 +151,7 @@ export function createMessengerWebhookRoutes(config: MessengerWebhookConfig): Ho
       for (const messaging of entry.messaging) {
         // Filter echo messages (business-sent messages echoed back)
         if (messaging.message?.is_echo) continue;
+        if (!messaging.message?.mid) continue;
 
         // Deduplicate -- Meta uses at-least-once delivery
         if (messaging.message?.mid && config.dedup?.isDuplicate(messaging.message.mid)) {
@@ -201,6 +178,7 @@ export function createMessengerWebhookRoutes(config: MessengerWebhookConfig): Ho
           tenant.tenantId,
           senderId,
           msgParts,
+          messaging.message.mid,
           tenant.messengerAccessToken,
         );
         processPromises.push(promise);
@@ -223,11 +201,36 @@ export function createMessengerWebhookRoutes(config: MessengerWebhookConfig): Ho
   return app;
 }
 
+async function dispatchMessengerEgress<T>(input: {
+  readonly config: MessengerWebhookConfig;
+  readonly admitted: GatewayAuthorityAdmissionCommit;
+  readonly messageId: string;
+  readonly recipient: string;
+  readonly slot: string;
+  readonly payload: unknown;
+  readonly send: () => Promise<T>;
+}): Promise<T> {
+  return dispatchChannelEgress({
+    context: input.config.gatewayAdmission.channelEgressActionClaims,
+    authorityAdmission: input.admitted.bundle,
+    attemptId: input.admitted.runtimeModelRoundDispatch.attemptId,
+    callerId: `messenger:webhook:${input.messageId}`,
+    idempotencyKey: input.messageId,
+    logicalSendSlot: input.slot,
+    channel: "messenger",
+    destination: `messenger:me:${input.recipient}`,
+    adapterIdentity: `messenger-graph:${MESSENGER_GRAPH_API_VERSION}:me`,
+    payload: input.payload,
+    send: input.send,
+  });
+}
+
 async function processMessengerMessage(
   config: MessengerWebhookConfig,
   tenantId: string,
   senderId: string,
   messageParts: readonly ContentPart[],
+  messageId: string,
   accessToken?: string,
   admitted?: GatewayAuthorityAdmissionCommit,
 ): Promise<void> {
@@ -250,14 +253,14 @@ async function processMessengerMessage(
       idleTimeoutMs: tenant.idleTimeoutMs,
     });
     await config.gatewayAdmission.execute({
-      ingressId: crypto.randomUUID(),
+      ingressId: `messenger:${messageId}`,
       appName: config.appName,
       tenantId,
       userId: senderId,
       sessionId: session.id,
       channel: "messenger",
       userParts: messageParts,
-    }, (commit) => processMessengerMessage(config, tenantId, senderId, messageParts, accessToken, commit));
+    }, (commit) => processMessengerMessage(config, tenantId, senderId, messageParts, messageId, accessToken, commit));
     return;
   }
 
@@ -286,6 +289,12 @@ async function processMessengerMessage(
       const transformed = await transformAudioParts(processedParts, config.sttAdapter, mediaDownloader, {
         artifactStore: config.artifactStore,
         sourceIdPrefix: `${config.appName}:${tenantId}:${senderId}`,
+        mediaActionClaims: admitted.runtimeMediaActionClaims,
+        authorityAdmission: admitted.bundle,
+        attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+        callerId: `messenger:webhook:${messageId}:voice-input`,
+        idempotencyKey: messageId,
+        logicalSendSlotPrefix: "inbound-stt",
       });
       processedParts = transformed.parts;
       emitAudioTransformRoutingEvents({
@@ -304,7 +313,15 @@ async function processMessengerMessage(
         }, err.transforms);
         trace.warn("messenger", "Audio transform failed", { error: err.message });
         try {
-          await sendMessengerMessage(resolvedAccessToken, senderId, "I could not process that voice note. Please try again or send text.");
+          await dispatchMessengerEgress({
+            config,
+            admitted,
+            messageId,
+            recipient: senderId,
+            slot: "audio-transform-failure",
+            payload: { messaging_type: "RESPONSE", recipient: { id: senderId }, message: { text: "I could not process that voice note. Please try again or send text." } },
+            send: () => sendMessengerMessage(resolvedAccessToken, senderId, "I could not process that voice note. Please try again or send text."),
+          });
         } catch (sendErr) {
           trace.warn("messenger", "Failed to send audio transform failure reply", {
             error: sendErr instanceof Error ? sendErr.message : String(sendErr),
@@ -335,55 +352,13 @@ async function processMessengerMessage(
     }
   }
 
-  // --- Knowledge: retrieve relevant context ---
-  let knowledgeContext: string | undefined;
-  if (config.knowledgePipeline && messageText.length > 0) {
-    const knowledgeMode = config.knowledgeMode ?? "auto";
-    if (knowledgeMode === "auto") {
-      try {
-        const results = await config.knowledgePipeline.retrieve(messageText, { topK: 5 });
-        knowledgeContext = formatKnowledgeContext(results);
-      } catch (err) {
-        trace.warn("messenger", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
-      }
-    }
-  }
-
-  // --- Contact memory: recall persistent facts about this user ---
-  let contactContext: string | undefined;
-  if (config.contactMemoryService) {
-    try {
-      const facts = await config.contactMemoryService.recall(senderId, tenantId);
-      contactContext = formatContactContext(facts);
-    } catch (err) {
-      trace.warn("messenger", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // --- Tools: build per-call builtin tools ---
-  const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
-
-  // Register knowledge_search tool for "tool" mode
-  if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "tool") {
-    callTools.set("knowledge_search", async (input: Record<string, unknown>) => {
-      const query = String(input.query ?? "");
-      const results = await config.knowledgePipeline!.retrieve(query, { topK: 5 });
-      return results.map((r) => ({ content: r.content, score: r.score }));
-    });
-
-    const hasKnowledgeTool = config.orchestrator.tools?.some((t) => t.name === "knowledge_search");
-    if (!hasKnowledgeTool) {
-      config.orchestrator.registerTools([KNOWLEDGE_SEARCH_TOOL]);
-    }
-  }
-
   const session = admitted.session;
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
     tenant, processedParts, session,
-    { handoffSummarizer: config.handoffSummarizer, eventBus: config.eventBus },
-    "messenger", callTools,
+    { eventBus: config.eventBus },
+    "messenger",
   );
 
   // Update session with resolved prompt and agent
@@ -396,9 +371,6 @@ async function processMessengerMessage(
     userContext: session.userContext,
     cachedRuntimeSummary: undefined,
     recalledMemoryCandidates: recalledMemory?.candidates,
-    knowledgeContext,
-    contactContext,
-    groundingMode: tenant.groundingMode,
   });
 
   const tenantToolCtx = agentCtx.tenantToolContext;
@@ -419,7 +391,15 @@ async function processMessengerMessage(
         ?? activeBilling.overBudgetMessage ?? "Budget exhausted.";
       trace.log("messenger", "Budget exhausted", { tenantId, sender: senderId });
       try {
-        await sendMessengerMessage(resolvedAccessToken, senderId, overBudgetMsg);
+        await dispatchMessengerEgress({
+          config,
+          admitted,
+          messageId,
+          recipient: senderId,
+          slot: "budget-exhausted",
+          payload: { messaging_type: "RESPONSE", recipient: { id: senderId }, message: { text: overBudgetMsg } },
+          send: () => sendMessengerMessage(resolvedAccessToken, senderId, overBudgetMsg),
+        });
       } catch (err) {
         trace.warn("messenger", "Failed to send over-budget reply", { error: err instanceof Error ? err.message : String(err) });
       }
@@ -427,19 +407,6 @@ async function processMessengerMessage(
     }
   }
 
-  // Emit MESSAGE_RECEIVED event (fire-and-forget)
-  if (config.eventEmitter) {
-    config.eventEmitter.emit({
-      eventType: "MESSAGE_RECEIVED",
-      tenantId,
-      channel: "messenger",
-      externalUserId: senderId,
-      messageContent: messageText,
-      messageRole: "USER",
-      traceId: trace.traceId,
-      timestamp: new Date().toISOString(),
-    });
-  }
 
   let replyText: string;
   let replyAudioUrls: string[] = [];
@@ -452,95 +419,21 @@ async function processMessengerMessage(
       processedParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      admitted.perCallConfig,
+      {
+        ...admitted.perCallConfig,
+        runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
+      },
     );
 
     // Persist mutated session while the account fence is still held.
     await config.sessionRegistry.save(admitted.session);
 
-    // Emit handoff events when message was queued
-    if (result.queued && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "HANDOFF_MESSAGE_QUEUED",
-        tenantId,
-        channel: "messenger",
-        externalUserId: senderId,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
-    // Emit escalation event when detected
-    if (result.escalation && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "ESCALATION_DETECTED",
-        tenantId,
-        channel: "messenger",
-        externalUserId: senderId,
-        escalationReason: result.escalation.reason,
-        escalationDetail: result.escalation.detail,
-        summary: result.contextSummary,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
-    // Emit TOOL_EXECUTED events
-    if (result.toolExecutions && config.eventEmitter) {
-      for (const exec of result.toolExecutions) {
-        config.eventEmitter.emit({
-          eventType: "TOOL_EXECUTED",
-          tenantId,
-          channel: "messenger",
-          externalUserId: senderId,
-          toolName: exec.toolName,
-          durationMs: exec.durationMs,
-          success: exec.success,
-          resultSummary: exec.resultSummary,
-          traceId: trace.traceId,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
 
     // Emit AGENT_ROUTED when multi-agent routing is active
-    if (agentCtx.activeAgentId && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "AGENT_ROUTED",
-        tenantId,
-        channel: "messenger",
-        externalUserId: senderId,
-        activeAgentId: agentCtx.activeAgentId,
-        activeAgentName: agentCtx.activeAgentName,
-        routingTier: agentCtx.routingResult?.tier,
-        routingConfidence: agentCtx.routingResult?.confidence,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
-    if ((agentCtx.isHandoff || agentCtx.pingPongBlocked) && config.eventEmitter) {
-      const fromAgent = tenant.agents?.find((a) => a.id === agentCtx.previousAgentId);
-      const toAgent = tenant.agents?.find((a) => a.id === agentCtx.activeAgentId);
-      config.eventEmitter.emit({
-        eventType: "AGENT_HANDOFF",
-        tenantId,
-        channel: "messenger",
-        externalUserId: senderId,
-        fromAgentId: agentCtx.previousAgentId,
-        fromAgentName: fromAgent?.name,
-        toAgentId: agentCtx.activeAgentId,
-        toAgentName: toAgent?.name,
-        handoffBrief: agentCtx.handoffBrief,
-        handoffBlocked: agentCtx.pingPongBlocked,
-        handoffBlockReason: agentCtx.pingPongReason,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     const voiceSynthesis = await synthesizeVoiceOutput(
       result.parts,
@@ -555,15 +448,17 @@ async function processMessengerMessage(
         sessionId: session.id,
         model: config.orchestrator.model ?? "gateway-transform",
         retentionMaxArtifacts: config.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+        mediaActionClaims: admitted.runtimeMediaActionClaims,
+        authorityAdmission: admitted.bundle,
+        attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+        callerId: `messenger:webhook:${messageId}:voice-output`,
+        idempotencyKey: messageId,
+        logicalSendSlot: "assistant-tts",
       },
     );
     const responseParts = voiceSynthesis.parts;
     const audioMedia = await resolveOutboundAudioMedia(responseParts, {
-      publisher: config.outboundMediaPublisher,
-      appName: config.appName,
-      tenantId,
-      userId: senderId,
-      channel: "messenger",
+      publicMedia: config.publicMedia,
     });
     for (const failure of audioMedia.failures) {
       trace.warn("messenger", "Audio media delivery skipped", {
@@ -575,29 +470,6 @@ async function processMessengerMessage(
     replyAudioUrls = audioMedia.deliveries.map((delivery) => delivery.url);
     replyText = toMessengerFormat(extractText(responseParts));
 
-    // Report usage (fire-and-forget)
-    if (activeBilling) {
-      reportUsage(activeBilling, {
-        tenantId,
-        messages: 1,
-        tokens: result.inputTokens + result.outputTokens,
-        model: config.orchestrator.model ?? "unknown",
-      });
-    }
-
-    // Emit MESSAGE_SENT event (fire-and-forget)
-    if (config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "MESSAGE_SENT",
-        tenantId,
-        channel: "messenger",
-        externalUserId: senderId,
-        messageContent: replyText,
-        messageRole: "ASSISTANT",
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
   } catch (err) {
     trace.error("messenger", "Orchestrator error", { tenantId, error: err instanceof Error ? err.message : String(err) });
     replyText = "Something went wrong. Please try again.";
@@ -605,12 +477,32 @@ async function processMessengerMessage(
 
   // Reply via Messenger Send API
   try {
-    await sendMessengerMessage(resolvedAccessToken, senderId, replyText);
-    for (const audioUrl of replyAudioUrls) {
-      await sendMessengerMediaMessage(resolvedAccessToken, senderId, audioUrl, "audio");
-    }
+    await dispatchMessengerEgress({
+      config,
+      admitted,
+      messageId,
+      recipient: senderId,
+      slot: "assistant-text",
+      payload: { messaging_type: "RESPONSE", recipient: { id: senderId }, message: { text: replyText } },
+      send: () => sendMessengerMessage(resolvedAccessToken, senderId, replyText),
+    });
   } catch (err) {
     trace.warn("messenger", "Failed to send reply", { recipient: senderId, error: err instanceof Error ? err.message : String(err) });
+  }
+  for (const [index, audioUrl] of replyAudioUrls.entries()) {
+    try {
+      await dispatchMessengerEgress({
+        config,
+        admitted,
+        messageId,
+        recipient: senderId,
+        slot: `assistant-audio:${index}`,
+        payload: { messaging_type: "RESPONSE", recipient: { id: senderId }, message: { attachment: { type: "audio", payload: { url: audioUrl } } } },
+        send: () => sendMessengerMediaMessage(resolvedAccessToken, senderId, audioUrl, "audio"),
+      });
+    } catch (err) {
+      trace.warn("messenger", "Failed to send audio reply", { recipient: senderId, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   // --- Memory: save what was learned from this exchange ---

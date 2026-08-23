@@ -87,10 +87,9 @@ In App Gateway attach mode, GUI target selection is backed by
 and the runtime validates the target identity before routing.
 Managed-agent cancel and prompt controls carry the projected `gatewayTargetId`
 when the cockpit item includes one.
-Browser session takeover/release controls and brokered browser operator input
-also carry the projected `gatewayTargetId` when the browser session includes
-one. Runtime browser evidence includes that target identity for audit and
-inspection.
+Browser session observation also carries the projected `gatewayTargetId` when
+the browser session includes one. Runtime browser evidence includes that
+target identity for audit and inspection.
 Approval approve/reject actions carry the selected `gatewayTargetId` when the
 workspace has an explicit target selection.
 Plan/execute mode transitions also carry the selected `gatewayTargetId` when

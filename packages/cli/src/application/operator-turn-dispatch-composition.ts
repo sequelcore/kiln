@@ -26,10 +26,16 @@ import {
   readGlobalExecutionCatalog,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
+import { SqliteRuntimeMediaActionClaimStore } from "./runtime-media-action-claim-store.js";
 
 export interface OperatorTurnDispatchComposition<Payload, Result> {
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
   readonly accountCapacityAuthority: SqliteManagedAccountLeaseAuthority;
+  readonly modelRoundActionClaims: SqliteRuntimeModelRoundActionClaimStore;
+  readonly toolActionClaims: SqliteRuntimeToolActionClaimStore;
+  readonly mediaActionClaims: SqliteRuntimeMediaActionClaimStore;
   readonly bridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, any, Result>;
   readonly authorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<Payload>;
   readonly dispatcher: OperatorTurnDispatchPort<Payload, Result>;
@@ -48,10 +54,20 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
   readonly captureCatalogSnapshot: () => OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
   readonly cwd: string;
   readonly credentialRootDir?: string;
+  readonly readDispatchOutcome?: (result: Result) => "completed" | "unknown";
 }): OperatorTurnDispatchComposition<Payload, Result> {
   mkdirSync(join(input.cwd, ".kiln", "runtime"), { recursive: true });
   const authority = createOperatorSessionAccountCapacityAuthority({
     path: join(input.cwd, ".kiln", "runtime", "operator-session-account-capacity.sqlite"),
+  });
+  const modelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+    path: join(input.cwd, ".kiln", "runtime", "operator-session-model-round-claims.sqlite"),
+  });
+  const toolActionClaims = new SqliteRuntimeToolActionClaimStore({
+    path: join(input.cwd, ".kiln", "runtime", "operator-session-tool-action-claims.sqlite"),
+  });
+  const mediaActionClaims = new SqliteRuntimeMediaActionClaimStore({
+    path: join(input.cwd, ".kiln", "runtime", "operator-session-media-action-claims.sqlite"),
   });
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
     catalog: input.initialCatalog,
@@ -70,10 +86,14 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
     credentials: accountRuntime.operatorSessionCredentials,
     authorityAdmission: authorityAdmissionBridge,
     dispatch: bridge,
+    ...(input.readDispatchOutcome ? { readDispatchOutcome: input.readDispatchOutcome } : {}),
   });
   return {
     accountRuntime,
     accountCapacityAuthority: authority,
+    modelRoundActionClaims,
+    toolActionClaims,
+    mediaActionClaims,
     bridge,
     authorityAdmissionBridge,
     dispatcher: new OperatorTurnDispatcher(routing),
@@ -88,7 +108,12 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
         };
       });
     },
-    close: () => authority.close(),
+    close: () => {
+      modelRoundActionClaims.close();
+      toolActionClaims.close();
+      mediaActionClaims.close();
+      authority.close();
+    },
   };
 }
 

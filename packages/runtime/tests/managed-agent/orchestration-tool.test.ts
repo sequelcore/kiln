@@ -16,6 +16,7 @@ import type {
   EffectiveTurnAuthoritySnapshot,
   RuntimeBuiltinToolExecutionContext,
 } from "../../src/session/runtime-session-orchestrator.types.js";
+import { managedEconomicAdmissionContract } from "./managed-economic-admission-fixture.js";
 
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
@@ -153,7 +154,10 @@ describe("managed_agent.orchestrate", () => {
         },
       }),
       economicDispatch: { prepare },
-    });
+    }, managedEconomicAdmissionContract({
+      sessionId: "session-test",
+      turnId: "turn-test",
+    }));
 
     expect(result.isError, result.output).toBe(false);
     expect(prepare).toHaveBeenCalledTimes(2);
@@ -184,7 +188,11 @@ describe("managed_agent.orchestrate", () => {
   });
 });
 
-async function execute(input: Record<string, unknown>, optionOverrides: ManagedInvocationToolAttachment["options"] = {}): Promise<{
+async function execute(
+  input: Record<string, unknown>,
+  optionOverrides: ManagedInvocationToolAttachment["options"] = {},
+  childAuthorityAdmission?: ManagedInvocationToolAttachment["childAuthorityAdmission"],
+): Promise<{
   readonly output: string;
   readonly isError: boolean;
   readonly metadata: Record<string, unknown>;
@@ -201,6 +209,7 @@ async function execute(input: Record<string, unknown>, optionOverrides: ManagedI
       surface: "test",
       attachmentId: "attachment:test",
     },
+    ...(childAuthorityAdmission ? { childAuthorityAdmission } : {}),
   };
   const executor = createManagedInvocationLifecycleToolExecutors(attachment)
     .get("managed_agent.orchestrate");

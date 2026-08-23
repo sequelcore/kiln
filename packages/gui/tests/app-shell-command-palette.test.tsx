@@ -17,7 +17,6 @@ const executionRoutePickerPropsLog: Array<{
   onOpenChange: (open: boolean) => void;
 }> = [];
 const dashboardRefetchMock = vi.fn();
-let appShellFrameInput: { onOperatorTerminalAvailability: (available: boolean) => void } | null = null;
 const dashboardData = {
   providers: [],
   telemetry: {
@@ -120,21 +119,7 @@ vi.mock("../src/lib/use-gui-ws.js", () => ({
 }));
 
 vi.mock("../src/components/app-shell-frame-handler.js", () => ({
-  createAppShellFrameHandler: (input: { onOperatorTerminalAvailability: (available: boolean) => void }) => {
-    appShellFrameInput = input;
-    return vi.fn();
-  },
-}));
-
-vi.mock("../src/components/operator-terminal-dock.js", () => ({
-  OperatorTerminalDock: ({ expanded }: { expanded: boolean }) => (
-    <section
-      id="operator-terminal-panel"
-      aria-label="Operator terminal"
-      data-expanded={String(expanded)}
-      hidden={!expanded}
-    />
-  ),
+  createAppShellFrameHandler: () => vi.fn(),
 }));
 
 vi.mock("../src/lib/wait-for-gateway.js", () => ({
@@ -335,7 +320,6 @@ describe("AppShell command palette and telemetry regressions", () => {
     executionRoutePickerPropsLog.length = 0;
     vi.restoreAllMocks();
     wsState = "open";
-    appShellFrameInput = null;
     commandPalettePropsLog.length = 0;
     installMatchMedia(false);
     resetStore();
@@ -461,27 +445,6 @@ describe("AppShell command palette and telemetry regressions", () => {
     await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(false));
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
-  });
-
-  it("toggles one persistent terminal panel across workbench surfaces with Ctrl+`", async () => {
-    render(<AppShell />);
-
-    await waitFor(() => {
-      expect(appShellFrameInput).not.toBeNull();
-    });
-    act(() => appShellFrameInput?.onOperatorTerminalAvailability(true));
-
-    const openTerminal = await screen.findByRole("button", { name: "Open terminal" });
-    fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
-    expect(openTerminal).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByLabelText("Operator terminal")).toHaveAttribute("data-expanded", "true");
-
-    fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    expect(screen.getByLabelText("Operator terminal")).toHaveAttribute("data-expanded", "true");
-
-    fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
-    expect(screen.getByRole("button", { name: "Open terminal" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByLabelText("Operator terminal")).not.toBeVisible();
   });
 
   it("keeps composer-triggered commands out of the global palette", async () => {

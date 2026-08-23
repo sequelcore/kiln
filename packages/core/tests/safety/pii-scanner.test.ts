@@ -1,7 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { PiiScanner } from "../../src/safety/pii-scanner.js";
 import type { PiiConfig } from "../../src/engine/domain/safety-config.js";
-import type { PiiDeepScanProvider } from "../../src/safety/pii-scanner.js";
 
 function makeConfig(overrides: Partial<PiiConfig> = {}): PiiConfig {
   return {
@@ -113,45 +112,10 @@ describe("PiiScanner", () => {
     });
   });
 
-  describe("scanDeep", () => {
-    it("merges with heuristic results via scan()", async () => {
-      const scanner = new PiiScanner(makeConfig({ detect: ["email"], deepScan: true }));
-      const provider: PiiDeepScanProvider = {
-        scan: vi.fn().mockResolvedValue([
-          { type: "ssn", value: "123-45-6789", startIndex: 50, endIndex: 61 },
-        ]),
-      };
-      const result = await scanner.scan("user@example.com", provider);
-      expect(result.tier).toBe("deep");
-      expect(result.matches.some((m) => m.type === "email")).toBe(true);
-      expect(result.matches.some((m) => m.type === "ssn")).toBe(true);
-    });
-
-    it("fail-open: provider throws, returns empty deep result", async () => {
-      const scanner = new PiiScanner(makeConfig({ detect: ["email"], deepScan: true }));
-      const provider: PiiDeepScanProvider = {
-        scan: vi.fn().mockRejectedValue(new Error("Provider down")),
-      };
-      const result = await scanner.scanDeep("user@example.com", provider);
-      expect(result.matches).toHaveLength(0);
-      expect(result.tier).toBe("deep");
-    });
-  });
-
-  describe("scan (combined)", () => {
-    it("tier is 'deep' when deepScan enabled and provider supplied", async () => {
-      const scanner = new PiiScanner(makeConfig({ detect: ["email"], deepScan: true }));
-      const provider: PiiDeepScanProvider = {
-        scan: vi.fn().mockResolvedValue([]),
-      };
-      const result = await scanner.scan("user@example.com", provider);
-      expect(result.tier).toBe("deep");
-    });
-
-    it("tier is 'heuristic' when deepScan disabled", async () => {
-      const scanner = new PiiScanner(makeConfig({ detect: ["email"], deepScan: false }));
-      const result = await scanner.scan("user@example.com");
-      expect(result.tier).toBe("heuristic");
-    });
+  it("scan remains deterministic", async () => {
+    const scanner = new PiiScanner(makeConfig({ detect: ["email"] }));
+    const result = await scanner.scan("user@example.com");
+    expect(result.tier).toBe("heuristic");
+    expect(result.matches).toHaveLength(1);
   });
 });

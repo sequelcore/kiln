@@ -1,4 +1,4 @@
-// Content Classifier: two-tier classification (heuristic patterns + optional LLM deep scan)
+// Deterministic content classifier.
 
 import type { ContentConfig, ContentCategory, ContentAction } from "../engine/domain/safety-config.js";
 import type { ContentScore, ContentClassificationResult } from "./types.js";
@@ -43,11 +43,6 @@ export const CONTENT_PATTERNS: readonly ContentPattern[] = [
   },
 ];
 
-/** Provider interface for Tier 2 deep classification */
-export interface ContentDeepScanProvider {
-  classify(input: string): Promise<ContentScore[]>;
-}
-
 export class ContentClassifier {
   private readonly config: ContentConfig;
 
@@ -76,37 +71,8 @@ export class ContentClassifier {
     return { scores, tier: "heuristic", scannedAt: new Date() };
   }
 
-  /** Tier 2: LLM-based classification (fail-open) */
-  async classifyDeep(input: string, provider: ContentDeepScanProvider): Promise<ContentClassificationResult> {
-    try {
-      const scores = await provider.classify(input);
-      return { scores, tier: "deep", scannedAt: new Date() };
-    } catch {
-      return { scores: [], tier: "deep", scannedAt: new Date() };
-    }
-  }
-
-  /** Combined classification: always Tier 1, Tier 2 if config.deepScan */
-  async classify(input: string, provider?: ContentDeepScanProvider): Promise<ContentClassificationResult> {
-    const heuristic = this.classifyHeuristic(input);
-
-    if (this.config.deepScan && provider) {
-      const deep = await this.classifyDeep(input, provider);
-      // Merge: take the higher confidence for each category
-      const merged = new Map<ContentCategory, number>();
-      for (const s of heuristic.scores) merged.set(s.category, s.confidence);
-      for (const s of deep.scores) {
-        const existing = merged.get(s.category) ?? 0;
-        merged.set(s.category, Math.max(existing, s.confidence));
-      }
-      const scores: ContentScore[] = [];
-      for (const [category, confidence] of merged) {
-        scores.push({ category, confidence });
-      }
-      return { scores, tier: "deep", scannedAt: new Date() };
-    }
-
-    return heuristic;
+  async classify(input: string): Promise<ContentClassificationResult> {
+    return this.classifyHeuristic(input);
   }
 
   /** Compare scores against configured thresholds. Returns categories that exceed threshold. */

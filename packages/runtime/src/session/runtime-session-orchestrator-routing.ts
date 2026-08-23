@@ -6,7 +6,6 @@ import type {
   ComplexityScore,
   ModelRoutingDiagnostic,
   ModelRoutingRankingEvidence,
-  Capability,
   ExecutionIdentity,
   DeliberationResolution,
   ModelDeliberationCapabilities,
@@ -34,6 +33,11 @@ import {
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
 } from "../agents/managed-invocation/index.js";
+import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
+import {
+  executeDefaultRuntimeMultimodalTransform,
+  runtimeMultimodalTransformEffectMode,
+} from "./runtime-multimodal-transforms.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import type {
   ModelRoutingPolicyConfig,
@@ -44,6 +48,10 @@ import type {
   RuntimeMultimodalTransformSourcePart,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
+import {
+  readExecutionRoute,
+  readExecutionToolAllowlist,
+} from "./effective-authority-admission-bundle.js";
 
 export interface RuntimeSessionRoutingResolution {
   readonly effectiveProvider: ProviderAdapter;
@@ -61,6 +69,11 @@ export interface RuntimeSessionRoutingResolution {
 
 const MODALITY_CAPABILITIES = new ModelCapabilityRegistry();
 const MANAGED_MULTIMODAL_DELEGATION_TOOL_NAME = "managed_agent.invoke";
+
+function isExternalHarnessAdapter(adapter: ManagedAgentRuntimeAdapter): boolean {
+  return adapter.descriptor.adapterKind === "harness"
+    && adapter.descriptor.supportedExecutionModes.some((mode) => mode === "cli-harness" || mode === "remote-harness");
+}
 
 export interface RuntimeMultimodalDelegationExecutionResult {
   readonly parts: readonly ContentPart[];
@@ -111,9 +124,8 @@ export async function resolveRuntimeSessionRouting(
   const userText = extractText(userParts);
 
   let mergedTools = mergeAdditionalTools(baseTools, perCallConfig?.additionalTools);
-  if (perCallConfig?.toolAllowlist) {
-    mergedTools = mergedTools?.filter((tool) => perCallConfig.toolAllowlist?.has(tool.name));
-  }
+  const admittedToolAllowlist = readExecutionToolAllowlist(perCallConfig);
+  mergedTools = mergedTools?.filter((tool) => admittedToolAllowlist.has(tool.name));
   const hasToolSurface = (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
   const projectedCompletedTurnDepth = session.messageCount + 2;
   let routingComplexity = scoreComplexity({
@@ -121,24 +133,6 @@ export async function resolveRuntimeSessionRouting(
     toolCount: mergedTools?.length ?? 0,
     turnDepth: projectedCompletedTurnDepth,
   });
-
-  if (deps.toolRAG && deps.capabilityMap && mergedTools && mergedTools.length > 30) {
-    try {
-      const allCapabilities = Array.from(deps.capabilityMap.values());
-      const selected = await deps.toolRAG.selectTools(userText, allCapabilities);
-      if (selected.length > 0) {
-        const selectedNames = new Set(selected.map((capability: Capability) => capability.name));
-        mergedTools = mergedTools.filter((tool) => selectedNames.has(tool.name));
-        routingComplexity = scoreComplexity({
-          messageText: userText,
-          toolCount: mergedTools.length,
-          turnDepth: projectedCompletedTurnDepth,
-        });
-      }
-    } catch {
-      // Fail-open: use all tools if ToolRAG fails.
-    }
-  }
 
   let effectiveProvider: ProviderAdapter = deps.provider;
   let routingDecision: RoutingDecision | undefined;
@@ -203,15 +197,22 @@ export async function resolveRuntimeSessionRouting(
     }
   }
 
+  const admittedRoute = readExecutionRoute(perCallConfig);
+  if (!admittedRoute) {
+    throw new Error("Runtime model execution requires a routed EffectiveAuthorityAdmissionBundle.");
+  }
+  // CliSubscriptionExecutor exposes a transport label, not the provider/model
+  // selected by the outer operator dispatch. The persisted admission is the
+  // canonical identity for that already-bound transport.
+  const usesCliSubscriptionAdapter = deps.provider.name.startsWith("cli-subscription:");
   const executionIdentity = resolveExecutionIdentity({
-    configuredProvider: deps.provider.name,
-    configuredModel: deps.model,
+    configuredProvider: usesCliSubscriptionAdapter ? admittedRoute?.providerId : deps.provider.name,
+    configuredModel: deps.model ?? (usesCliSubscriptionAdapter ? admittedRoute?.providerModelId : undefined),
     routedProvider: routedProviderIdentity,
     routedModel: routedModelIdentity,
     routedCanonicalModel: routingDecision?.canonicalModel,
     routedBillingMode: routingDecision?.billingMode,
   });
-  const admittedRoute = perCallConfig?.admittedExecutionRoute;
   if (admittedRoute
     && (executionIdentity?.provider !== admittedRoute.providerId
       || executionIdentity.model !== admittedRoute.providerModelId)) {
@@ -301,7 +302,15 @@ export async function resolveRuntimeSessionRouting(
     capabilityRegistry: deps.modelCapabilityRegistry ?? MODALITY_CAPABILITIES,
     session,
     delegationRoutes: deps.multimodalDelegationRoutes ?? [],
+    externalActionClaim: deps.externalActionClaim,
+    externalAuthorityAdmission: deps.externalAuthorityAdmission,
     transformRoutes: deps.multimodalTransformRoutes ?? [],
+    mediaActionClaims: perCallConfig?.runtimeMediaActionClaims,
+    authorityAdmission: perCallConfig?.runtimeMediaActionAdmission,
+    attemptId: perCallConfig?.runtimeMediaActionAttemptId,
+    callerId: perCallConfig?.runtimeMediaActionCallerId,
+    idempotencyKey: perCallConfig?.runtimeMediaActionIdempotencyKey,
+    abortSignal: perCallConfig?.abortSignal,
     emitDecision: (route) => emitMultimodalRouted?.(session.id, route),
     beforeDelegation: async () => { await beforeMultimodalDelegation?.(session.id); },
   });
@@ -342,7 +351,15 @@ async function resolveRuntimeMultimodalRoute(input: {
   readonly capabilityRegistry: ModelCapabilityRegistry;
   readonly session: RuntimeSession;
   readonly delegationRoutes: readonly RuntimeMultimodalDelegationRoute[];
+  readonly externalActionClaim: OrchestratorDeps["externalActionClaim"];
+  readonly externalAuthorityAdmission: OrchestratorDeps["externalAuthorityAdmission"];
   readonly transformRoutes: readonly RuntimeMultimodalTransformRoute[];
+  readonly mediaActionClaims: PerCallToolConfig["runtimeMediaActionClaims"];
+  readonly authorityAdmission: PerCallToolConfig["runtimeMediaActionAdmission"];
+  readonly attemptId?: string;
+  readonly callerId?: string;
+  readonly idempotencyKey?: string;
+  readonly abortSignal?: AbortSignal;
   readonly emitDecision?: (input: {
     readonly provider: string;
     readonly model: string;
@@ -401,6 +418,8 @@ async function resolveRuntimeMultimodalRoute(input: {
         route: requireDelegationRoute(input.delegationRoutes, decision.delegation.routeId),
         requirements,
         decision,
+        externalActionClaim: input.externalActionClaim,
+        externalAuthorityAdmission: input.externalAuthorityAdmission,
       }),
     };
   }
@@ -410,6 +429,12 @@ async function resolveRuntimeMultimodalRoute(input: {
       route: requireTransformRoute(input.transformRoutes, decision.transform.transform),
       requirements,
       decision,
+      mediaActionClaims: input.mediaActionClaims,
+      authorityAdmission: input.authorityAdmission,
+      attemptId: input.attemptId,
+      callerId: input.callerId,
+      idempotencyKey: input.idempotencyKey,
+      abortSignal: input.abortSignal,
     });
     input.emitDecision?.({
       provider: capabilities.provider,
@@ -468,6 +493,12 @@ async function executeRuntimeMultimodalTransform(input: {
   readonly route: RuntimeMultimodalTransformRoute;
   readonly requirements: RuntimeMultimodalRequirements;
   readonly decision: ReturnType<typeof planMultimodalRoute>;
+  readonly mediaActionClaims: PerCallToolConfig["runtimeMediaActionClaims"];
+  readonly authorityAdmission: PerCallToolConfig["runtimeMediaActionAdmission"];
+  readonly attemptId?: string;
+  readonly callerId?: string;
+  readonly idempotencyKey?: string;
+  readonly abortSignal?: AbortSignal;
 }): Promise<{
   readonly parts: readonly ContentPart[];
   readonly toolExecution: ToolExecutionSummary;
@@ -486,11 +517,29 @@ async function executeRuntimeMultimodalTransform(input: {
   const sourceParts = sourceArtifacts.map((artifact) => artifact.part).filter(isTransformSourcePart);
   try {
     assertTransformSourcesAreCurrentTurnParts(input.requirements.userParts, sourceParts);
-    const result = await input.route.execute({
+    if (runtimeMultimodalTransformEffectMode(input.route) === "consequential"
+      && (!input.mediaActionClaims || !input.authorityAdmission || !input.attemptId
+        || !input.callerId || !input.idempotencyKey)) {
+      throw new KilnError(
+        "UNSUPPORTED_MODALITY",
+        `Multimodal transform '${input.route.transform}' requires a workload-owned media action claim bound to the complete authority admission.`,
+      );
+    }
+    const result = await executeDefaultRuntimeMultimodalTransform({
+      route: input.route,
+      execution: {
       requestedCapability: input.requirements.requestedCapability,
       sourceArtifacts,
       sourceParts,
       userParts: input.requirements.userParts,
+      mediaActionClaims: input.mediaActionClaims,
+      authorityAdmission: input.authorityAdmission,
+      attemptId: input.attemptId,
+      callerId: input.callerId,
+      idempotencyKey: input.idempotencyKey,
+      logicalSendSlotPrefix: `multimodal:${input.route.transform}`,
+      abortSignal: input.abortSignal,
+      },
     });
     return {
       parts: result.parts,
@@ -533,9 +582,23 @@ async function invokeManagedMultimodalDelegation(input: {
   readonly route: RuntimeMultimodalDelegationRoute;
   readonly requirements: RuntimeMultimodalRequirements;
   readonly decision: ReturnType<typeof planMultimodalRoute>;
+  readonly externalActionClaim: OrchestratorDeps["externalActionClaim"];
+  readonly externalAuthorityAdmission: OrchestratorDeps["externalAuthorityAdmission"];
 }): Promise<RuntimeMultimodalDelegationExecutionResult> {
   const adapter = input.route.adapter;
   const observedRuntimeAuthority = input.route.observedRuntimeAuthority;
+  const requiresExternalClaim = isExternalHarnessAdapter(adapter);
+  const externalHarnessContext = requiresExternalClaim
+    ? (() => {
+        if (input.externalActionClaim === undefined || input.externalAuthorityAdmission === undefined) {
+          throw new Error("External CLI/remote multimodal adapters require full external action claim context and persisted authority admission.");
+        }
+        return {
+          externalActionClaim: input.externalActionClaim,
+          externalAuthorityAdmission: input.externalAuthorityAdmission,
+        };
+      })()
+    : undefined;
   const service = new RuntimeManagedAgentInvocationService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
       allowedRouteIds: runtimeMultimodalCredentialRouteIds(input.route),
@@ -547,6 +610,7 @@ async function invokeManagedMultimodalDelegation(input: {
           },
         }
       : {}),
+    ...(externalHarnessContext ? { externalActionClaim: externalHarnessContext.externalActionClaim } : {}),
   });
   const resourceUris = input.requirements.artifacts.map((artifact) => artifact.uri);
   const invocationId = createRuntimeMultimodalDelegationInvocationId(
@@ -600,29 +664,31 @@ async function invokeManagedMultimodalDelegation(input: {
 
   const startedAt = Date.now();
   const result = await service.invoke(request, adapter, {
-    routeId: input.route.route.routeId,
-    routeSource: "explicit-managed-route",
-    routeHealth: {
-      status: "healthy",
-      reason: `${input.route.route.routeHealth.evidence} routeSource=explicit-managed-route.`,
-    },
-    providerModelProof: {
-      status: "configured",
-      source: "multimodal-delegation-route",
-      requiresToolCalls: adapter.descriptor.adapterKind === "direct",
-    },
-    resourcePlane: {
-      available: true,
-      resourceUris,
-      reason: "Runtime multimodal delegation admitted resource artifact URIs.",
-    },
-    childIdentity: {
-      agentId: `${input.route.route.routeId}:${input.route.profile}`,
-      ...(input.route.agentProfile ?? input.route.route.agentProfile
-        ? { requestedAgentProfile: input.route.agentProfile ?? input.route.route.agentProfile }
-        : {}),
-    },
-  });
+      routeId: input.route.route.routeId,
+      routeSource: "explicit-managed-route",
+      routeHealth: {
+        status: "healthy",
+        reason: `${input.route.route.routeHealth.evidence} routeSource=explicit-managed-route.`,
+      },
+      providerModelProof: {
+        status: "configured",
+        source: "multimodal-delegation-route",
+        requiresToolCalls: adapter.descriptor.adapterKind === "direct",
+      },
+      resourcePlane: {
+        available: true,
+        resourceUris,
+        reason: "Runtime multimodal delegation admitted resource artifact URIs.",
+      },
+      childIdentity: {
+        agentId: `${input.route.route.routeId}:${input.route.profile}`,
+        ...(input.route.agentProfile ?? input.route.route.agentProfile
+          ? { requestedAgentProfile: input.route.agentProfile ?? input.route.route.agentProfile }
+          : {}),
+      },
+    }, externalHarnessContext
+      ? { childAuthorityAdmission: { bundle: externalHarnessContext.externalAuthorityAdmission } }
+      : undefined);
 
   if (result.status === "denied") {
     throw new KilnError(

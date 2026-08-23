@@ -26,12 +26,6 @@ function mcpRequest(method: string, params: Record<string, unknown> = {}, extraH
 
 function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
   return {
-    searchKnowledge: vi.fn(async () => ({
-      results: [{ content: "knowledge chunk", score: 0.95, source: "docs.md" }],
-    })),
-    listKnowledgeSources: vi.fn(() => ({
-      sources: [{ id: "s1", name: "docs", type: "file" }],
-    })),
     getCostSummary: vi.fn(() => ({
       totalInputTokens: 1000,
       totalOutputTokens: 500,
@@ -45,7 +39,6 @@ function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
     listIntegrations: vi.fn(() => [
       { provider: "stripe", version: "1.0.0", operations: [{ name: "create_link", description: "Create payment link" }] },
     ]),
-    executeIntegration: vi.fn(async () => ({ paymentUrl: "https://pay.stripe.com/abc" })),
     testRouting: vi.fn(async () => ({
       agentId: "support",
       agentName: "Support Agent",
@@ -55,16 +48,7 @@ function makeDeps(overrides?: Partial<GatewayMcpDeps>): GatewayMcpDeps {
       allRules: [{ pattern: "help|support", agent: "support", matched: true }],
     })),
     evalScore: vi.fn(async () => [{ name: "exact_match", score: 1.0, reasoning: "Exact match" }]),
-    evalScoreLlm: vi.fn(async () => [{ name: "faithfulness", score: 0.9, reasoning: "Grounded in context" }]),
-    getEnrichment: vi.fn(async () => ({
-      sessionId: "sess-1", tenantId: "t-1", summary: "User asked about billing", effortScore: 3,
-    })),
-    listEnrichments: vi.fn(async () => ({
-      enrichments: [{ sessionId: "sess-1", tenantId: "t-1", summary: "Billing question" }],
-      nextCursor: undefined,
-    })),
     checkBudget: vi.fn(async () => ({ allowed: true, remaining: 500, unit: "tokens" })),
-    reportUsage: vi.fn(async () => undefined),
     swarmJoin: vi.fn(async () => ({ members: ["agent-1", "agent-2"] })),
     swarmLeave: vi.fn(async () => undefined),
     swarmStatus: vi.fn(async () => ({
@@ -142,8 +126,8 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tool schemas", () => {
-    it("defines 20 gateway tools after memory moved to the core resource plane", () => {
-      expect(GATEWAY_MCP_TOOLS).toHaveLength(20);
+    it("defines the governed gateway tools", () => {
+      expect(GATEWAY_MCP_TOOLS).toHaveLength(13);
     });
 
     it("all tools have name, description, and inputSchema", () => {
@@ -162,11 +146,11 @@ describe("GatewayMcpServer", () => {
   });
 
   describe("tools/list", () => {
-    it("returns gateway tools without legacy memory contracts", async () => {
+    it("returns gateway tools without legacy memory or budget-reporting contracts", async () => {
       const server = new GatewayMcpServer({ deps: makeDeps() });
       await server.initialize();
       const response = await listTools(server);
-      expect(response.result.tools).toHaveLength(20);
+      expect(response.result.tools).toHaveLength(13);
       const names = response.result.tools.map((t) => t.name);
       expect(names).not.toContain("memory_recall");
       expect(names).not.toContain("memory_store");
@@ -174,24 +158,18 @@ describe("GatewayMcpServer", () => {
       expect(names).not.toContain("memory_search");
       expect(names).not.toContain("memory_list");
       expect(names).not.toContain("memory_forget");
-      expect(names).toContain("knowledge_search");
-      expect(names).toContain("knowledge_sources");
-      expect(names).toContain("knowledge_ingest");
       expect(names).toContain("cost_summary");
       expect(names).toContain("safety_metrics");
       expect(names).toContain("safety_check");
       expect(names).toContain("integration_list");
-      expect(names).toContain("integration_execute");
       expect(names).toContain("routing_test");
       expect(names).toContain("eval_score");
-      expect(names).toContain("enrichment_get");
-      expect(names).toContain("enrichment_list");
       expect(names).not.toContain("cross_agent_memory_recall");
       expect(names).not.toContain("cross_agent_memory_store");
       expect(names).not.toContain("cross_agent_memory_list");
       expect(names).not.toContain("cross_agent_memory_delete");
       expect(names).toContain("budget_check");
-      expect(names).toContain("budget_report");
+      expect(names).not.toContain("budget_report");
       expect(names).toContain("swarm_join");
       expect(names).toContain("swarm_leave");
       expect(names).toContain("swarm_status");
@@ -209,22 +187,6 @@ describe("GatewayMcpServer", () => {
       deps = makeDeps();
       server = new GatewayMcpServer({ deps });
       await server.initialize();
-    });
-
-    it("knowledge_search calls searchKnowledge", async () => {
-      const response = await callTool(server, "knowledge_search", {
-        appName: "my-app", query: "how to deploy", limit: 3,
-      });
-      expect(deps.searchKnowledge).toHaveBeenCalledWith("my-app", "how to deploy", 3);
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.results[0].content).toBe("knowledge chunk");
-    });
-
-    it("knowledge_sources calls listKnowledgeSources", async () => {
-      const response = await callTool(server, "knowledge_sources", { appName: "my-app" });
-      expect(deps.listKnowledgeSources).toHaveBeenCalledWith("my-app");
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.sources).toHaveLength(1);
     });
 
     it("cost_summary returns cost data", async () => {
@@ -256,15 +218,6 @@ describe("GatewayMcpServer", () => {
       expect(parsed[0].operations).toHaveLength(1);
     });
 
-    it("integration_execute calls executeIntegration with correct args", async () => {
-      const response = await callTool(server, "integration_execute", {
-        provider: "stripe", operation: "create_link", tenantId: "t-1", input: { amount: 100 },
-      });
-      expect(deps.executeIntegration).toHaveBeenCalledWith("stripe", "create_link", "t-1", { amount: 100 });
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.paymentUrl).toBe("https://pay.stripe.com/abc");
-    });
-
     it("routing_test calls testRouting with correct args", async () => {
       const response = await callTool(server, "routing_test", { tenantId: "t-1", message: "I need help" });
       expect(deps.testRouting).toHaveBeenCalledWith("t-1", "I need help");
@@ -273,82 +226,18 @@ describe("GatewayMcpServer", () => {
       expect(parsed.tier).toBe("rule");
     });
 
-    it("eval_score with rule-based scorer calls evalScore, not evalScoreLlm", async () => {
+    it("eval_score with rule-based scorer calls evalScore", async () => {
       const response = await callTool(server, "eval_score", {
         input: "What is 2+2?", output: "4", expected: "4", scorers: ["exact_match"],
       });
       expect(deps.evalScore).toHaveBeenCalledWith("What is 2+2?", "4", "4", ["exact_match"]);
-      expect(deps.evalScoreLlm).not.toHaveBeenCalled();
       const parsed = JSON.parse(response.result.content[0]!.text);
       expect(parsed.scores[0].score).toBe(1.0);
     });
 
-    it("eval_score with LLM scorer calls evalScoreLlm, not evalScore", async () => {
-      const response = await callTool(server, "eval_score", {
-        input: "Question", output: "Answer", scorers: ["faithfulness"],
-      });
-      expect(deps.evalScore).not.toHaveBeenCalled();
-      expect(deps.evalScoreLlm).toHaveBeenCalledWith("Question", "Answer", undefined, undefined, ["faithfulness"], undefined);
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.scores[0].name).toBe("faithfulness");
-    });
-
-    it("eval_score without scorers only calls evalScore (not evalScoreLlm)", async () => {
+    it("eval_score without scorers calls evalScore", async () => {
       await callTool(server, "eval_score", { input: "q", output: "a" });
       expect(deps.evalScore).toHaveBeenCalledWith("q", "a", undefined, undefined);
-      expect(deps.evalScoreLlm).not.toHaveBeenCalled();
-    });
-
-    it("eval_score passes context to evalScoreLlm", async () => {
-      await callTool(server, "eval_score", {
-        input: "q",
-        output: "a",
-        scorers: ["faithfulness"],
-        context: ["chunk 1", "chunk 2"],
-      });
-      expect(deps.evalScoreLlm).toHaveBeenCalledWith("q", "a", undefined, ["chunk 1", "chunk 2"], ["faithfulness"], undefined);
-    });
-
-    it("eval_score returns error when LLM scorer requested but evalScoreLlm dep is missing", async () => {
-      const depsWithoutLlm = makeDeps({ evalScoreLlm: undefined });
-      const serverWithoutLlm = new GatewayMcpServer({ deps: depsWithoutLlm });
-      await serverWithoutLlm.initialize();
-
-      const response = await callTool(serverWithoutLlm, "eval_score", {
-        input: "q",
-        output: "a",
-        scorers: ["faithfulness"],
-      });
-
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("LLM eval scoring not available");
-    });
-
-    it("enrichment_get returns enrichment data", async () => {
-      const response = await callTool(server, "enrichment_get", { sessionId: "sess-1" });
-      expect(deps.getEnrichment).toHaveBeenCalledWith("sess-1");
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.sessionId).toBe("sess-1");
-    });
-
-    it("enrichment_get returns error when session not found", async () => {
-      const notFoundDeps = makeDeps({
-        getEnrichment: vi.fn(async () => undefined),
-      });
-      const notFoundServer = new GatewayMcpServer({ deps: notFoundDeps });
-      await notFoundServer.initialize();
-      const response = await callTool(notFoundServer, "enrichment_get", { sessionId: "sess-missing" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toContain("sess-missing");
-    });
-
-    it("enrichment_list calls listEnrichments with correct args", async () => {
-      const response = await callTool(server, "enrichment_list", {
-        tenantId: "t-1", limit: 10, cursor: "2026-01-01T00:00:00.000Z",
-      });
-      expect(deps.listEnrichments).toHaveBeenCalledWith("t-1", 10, "2026-01-01T00:00:00.000Z");
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.enrichments).toHaveLength(1);
     });
 
     it("budget_check calls checkBudget with correct args", async () => {
@@ -357,15 +246,6 @@ describe("GatewayMcpServer", () => {
       const parsed = JSON.parse(response.result.content[0]!.text);
       expect(parsed.allowed).toBe(true);
       expect(parsed.remaining).toBe(500);
-    });
-
-    it("budget_report calls reportUsage and returns ok", async () => {
-      const response = await callTool(server, "budget_report", {
-        tenantId: "t-1", appName: "my-app", messages: 1, tokens: 200, model: "claude-sonnet-4-5",
-      });
-      expect(deps.reportUsage).toHaveBeenCalledWith("t-1", "my-app", 1, 200, "claude-sonnet-4-5");
-      const parsed = JSON.parse(response.result.content[0]!.text);
-      expect(parsed.ok).toBe(true);
     });
 
     it("swarm_join calls swarmJoin with correct args", async () => {
@@ -430,18 +310,6 @@ describe("GatewayMcpServer", () => {
       await server.initialize();
     });
 
-    it("knowledge_search returns error when dep missing", async () => {
-      const response = await callTool(server, "knowledge_search", { appName: "a", query: "q" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Knowledge search not available");
-    });
-
-    it("knowledge_sources returns error when dep missing", async () => {
-      const response = await callTool(server, "knowledge_sources", { appName: "a" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Knowledge sources not available");
-    });
-
     it("cost_summary returns error when dep missing", async () => {
       const response = await callTool(server, "cost_summary");
       expect(response.result.isError).toBe(true);
@@ -460,14 +328,6 @@ describe("GatewayMcpServer", () => {
       expect(response.result.content[0]!.text).toBe("Integration list not available");
     });
 
-    it("integration_execute returns error when dep missing", async () => {
-      const response = await callTool(server, "integration_execute", {
-        provider: "stripe", operation: "op", tenantId: "t", input: {},
-      });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Integration execute not available");
-    });
-
     it("routing_test returns error when dep missing", async () => {
       const response = await callTool(server, "routing_test", { tenantId: "t", message: "hi" });
       expect(response.result.isError).toBe(true);
@@ -480,30 +340,10 @@ describe("GatewayMcpServer", () => {
       expect(response.result.content[0]!.text).toBe("Eval scoring not available");
     });
 
-    it("enrichment_get returns error when dep missing", async () => {
-      const response = await callTool(server, "enrichment_get", { sessionId: "s" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Enrichment get not available");
-    });
-
-    it("enrichment_list returns error when dep missing", async () => {
-      const response = await callTool(server, "enrichment_list", { tenantId: "t" });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Enrichment list not available");
-    });
-
     it("budget_check returns error when dep missing", async () => {
       const response = await callTool(server, "budget_check", { tenantId: "t", appName: "a" });
       expect(response.result.isError).toBe(true);
       expect(response.result.content[0]!.text).toBe("Budget check not available");
-    });
-
-    it("budget_report returns error when dep missing", async () => {
-      const response = await callTool(server, "budget_report", {
-        tenantId: "t", appName: "a", messages: 1, tokens: 1, model: "m",
-      });
-      expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("Budget reporting not available");
     });
 
     it("swarm_join returns error when dep missing", async () => {
@@ -546,14 +386,14 @@ describe("GatewayMcpServer", () => {
   describe("error handling", () => {
     it("catches exceptions from deps and returns error result", async () => {
       const deps = makeDeps({
-        searchKnowledge: vi.fn(async () => { throw new Error("retrieval pipeline lost"); }),
+        evalScore: vi.fn(async () => { throw new Error("eval backend lost"); }),
       });
       const server = new GatewayMcpServer({ deps });
       await server.initialize();
 
-      const response = await callTool(server, "knowledge_search", { appName: "app", query: "deploy" });
+      const response = await callTool(server, "eval_score", { input: "q", output: "a" });
       expect(response.result.isError).toBe(true);
-      expect(response.result.content[0]!.text).toBe("retrieval pipeline lost");
+      expect(response.result.content[0]!.text).toBe("eval backend lost");
     });
   });
 

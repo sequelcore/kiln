@@ -6,7 +6,7 @@ export {
 export { FilesystemAgentTaskStore, InMemoryAgentTaskStore } from "./stores.js";
 export { AGENT_TASK_SCHEMA_VERSION, AGENT_TASK_RECOVERY_POLICY } from "./contracts.js";
 export type {
-  AgentTaskDiagnosticCode, AgentTaskDataPolicyProof, AgentTaskCommitmentRecoveryPort,
+  AgentTaskActionClaim, AgentTaskDiagnosticCode, AgentTaskDataPolicyProof, AgentTaskCommitmentRecoveryPort,
   AgentTaskCommitmentRecoveryState, AgentTaskEconomicAdoption, AgentTaskEconomicAdoptionPort,
   AgentTaskEconomicReplay, AgentTaskEconomicReplayPort, AgentTaskEconomicCommitmentPort,
   AgentTaskExecutionContext, AgentTaskExecutionFailureClassification, AgentTaskFailureEvidence,

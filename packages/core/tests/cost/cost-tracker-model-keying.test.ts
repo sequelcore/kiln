@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   CostTracker,
   STT_PRICING,
-  EMBEDDING_PRICING,
   resolveExecutionPricing,
   resolveExecutionCostEvidence,
   resolveModelPricing,
@@ -77,25 +76,6 @@ describe("CostTracker model-keying", () => {
     expect(tracker.costForRole("worker")).toBeCloseTo(3.8, 6);
   });
 
-  it("recordEmbedding tracks embedding costs", () => {
-    const tracker = new CostTracker();
-
-    // text-embedding-3-small: $0.02/M tokens
-    tracker.recordEmbedding("text-embedding-3-small", 1_000_000);
-
-    const summary = tracker.summary;
-    expect(summary.totalCostUsd).toBeCloseTo(0.02, 8);
-  });
-
-  it("recordEmbedding ignores unknown models", () => {
-    const tracker = new CostTracker();
-
-    tracker.recordEmbedding("unknown-embedding", 1_000_000);
-
-    const summary = tracker.summary;
-    expect(summary.totalCostUsd).toBe(0);
-  });
-
   it("recordStt tracks STT costs", () => {
     const tracker = new CostTracker();
 
@@ -125,7 +105,7 @@ describe("CostTracker model-keying", () => {
     expect(summary.totalCostUsd).toBe(0);
   });
 
-  it("totalCostUsd includes LLM + embedding + STT costs", () => {
+  it("totalCostUsd includes LLM + STT costs", () => {
     const tracker = new CostTracker();
 
     // LLM: Sonnet $3/M input
@@ -136,21 +116,17 @@ describe("CostTracker model-keying", () => {
       cacheWriteTokens: 0,
     });
 
-    // Embedding: $0.02/M tokens
-    tracker.recordEmbedding("text-embedding-3-small", 1_000_000);
-
     // STT: $0.006/min * 1 min
     tracker.recordStt("gpt-4o-transcribe", 60);
 
     const summary = tracker.summary;
-    // $3.00 + $0.02 + $0.006 = $3.026
-    expect(summary.totalCostUsd).toBeCloseTo(3.026, 6);
+    // $3.00 + $0.006 = $3.006
+    expect(summary.totalCostUsd).toBeCloseTo(3.006, 6);
   });
 
-  it("reset clears embedding and STT costs", () => {
+  it("reset clears STT costs", () => {
     const tracker = new CostTracker();
 
-    tracker.recordEmbedding("text-embedding-3-small", 1_000_000);
     tracker.recordStt("gpt-4o-transcribe", 60);
     tracker.record("worker", "claude-sonnet-4-6", {
       inputTokens: 1000,
@@ -171,13 +147,6 @@ describe("CostTracker model-keying", () => {
     expect(STT_PRICING.has("nova-3")).toBe(true);
     expect(STT_PRICING.get("gpt-4o-transcribe")!.ratePerMinute).toBe(0.006);
     expect(STT_PRICING.get("nova-3")!.ratePerMinute).toBe(0.0043);
-  });
-
-  it("EMBEDDING_PRICING has expected models", () => {
-    expect(EMBEDDING_PRICING.has("text-embedding-3-small")).toBe(true);
-    expect(EMBEDDING_PRICING.has("text-embedding-3-large")).toBe(true);
-    expect(EMBEDDING_PRICING.get("text-embedding-3-small")!.ratePerMToken).toBe(0.02);
-    expect(EMBEDDING_PRICING.get("text-embedding-3-large")!.ratePerMToken).toBe(0.13);
   });
 
   it("resolveExecutionPricing uses canonical model metadata instead of provider-qualified aliases", () => {

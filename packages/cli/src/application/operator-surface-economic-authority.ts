@@ -38,8 +38,10 @@ export function createOperatorSurfaceEconomicAuthority(
       acquire: (input) => resolveAuthority().acquire(input),
       releasePreFence: (jobId, economicAttemptId) =>
         resolveAuthority().releasePreFence(jobId, economicAttemptId),
-      fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) =>
-        resolveAuthority().fenceDispatch(jobId, economicAttemptId, dispatchFenceId),
+      fenceDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) =>
+        resolveAuthority().fenceDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim),
+      readDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) =>
+        resolveAuthority().readDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim),
       settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) =>
         resolveAuthority().settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
       recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>

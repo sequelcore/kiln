@@ -35,8 +35,6 @@ export type KilnErrorCode =
   | "INTERRUPT_TIMEOUT"
   // Security (Phase 3)
   | "INJECTION_DETECTED"
-  | "GUARDIAN_BLOCKED"
-  | "GUARDIAN_UNAVAILABLE"
   | "SECRET_DECRYPTION_FAILED"
   | "SECRET_NOT_FOUND"
   | "AUDIT_WRITE_FAILED"
@@ -60,16 +58,10 @@ export type KilnErrorCode =
   | "EVAL_DATASET_INVALID"
   | "EVAL_SCORER_FAILED"
   | "EVAL_EXPERIMENT_FAILED"
-  // A2A + MCP (Phase 11)
-  | "A2A_INVALID_REQUEST"
-  | "A2A_TASK_NOT_FOUND"
-  | "A2A_TASK_FAILED"
-  | "A2A_TIMEOUT"
-  | "A2A_CLIENT_FAILED"
+  // MCP (Phase 11)
   | "MCP_CONNECTION_FAILED"
   | "MCP_DISCOVERY_FAILED"
   | "MCP_SERVER_ERROR"
-  | "TOOL_RAG_FAILED"
   // Multimodal (Phase 9)
   | "UNSUPPORTED_MODALITY"
   | "CONTENT_PART_INVALID"
@@ -79,14 +71,6 @@ export type KilnErrorCode =
   // Session
   | "INVALID_SESSION_TRANSITION"
   | "CONCURRENT_SESSION_MODIFICATION"
-  // Knowledge enrichment (Phase 4b)
-  | "ENRICHMENT_FAILED"
-  // Knowledge sources (Phase 4c)
-  | "SOURCE_NOT_FOUND"
-  | "SOURCE_EXTRACTION_FAILED"
-  | "SOURCE_ALREADY_EXISTS"
-  // Contact memory (Phase 4d)
-  | "CONTACT_MEMORY_EXTRACTION_FAILED"
   // Tool execution (Phase 5a)
   | "TOOL_AUTHORIZATION_DENIED"
   // Tool execution (Phase 9a)
@@ -111,7 +95,6 @@ export type KilnErrorCode =
   // Routing (Phase 8)
   | "ROUTING_FAILED"
   | "ROUTING_AGENT_NOT_FOUND"
-  | "AGENT_RAG_FAILED"
   // Generic
   | "INTERNAL_ERROR";
 

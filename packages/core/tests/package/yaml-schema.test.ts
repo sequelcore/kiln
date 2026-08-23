@@ -94,15 +94,6 @@ describe("validatePackageYaml", () => {
       expect(errors.some((e) => e.field === "tools.server")).toBe(true);
     });
 
-    it("accepts domain package with knowledge", () => {
-      const errors = validatePackageYaml({ ...validDomainPackage, knowledge: { examples: "ex.yaml" } });
-      expect(errors).toHaveLength(0);
-    });
-
-    it("rejects non-object knowledge", () => {
-      const errors = validatePackageYaml({ ...validDomainPackage, knowledge: "not-object" });
-      expect(errors.some((e) => e.field === "knowledge")).toBe(true);
-    });
   });
 
   describe("skill package fields", () => {

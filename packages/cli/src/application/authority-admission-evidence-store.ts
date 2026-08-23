@@ -51,4 +51,18 @@ export class TranscriptAuthorityAdmissionEvidenceStore implements AuthorityAdmis
     }
     return admittedFacet;
   }
+
+  async readAdmission(input: {
+    readonly admissionId: string;
+    readonly sessionId: string;
+    readonly turnId: string;
+  }): Promise<EffectiveAuthorityAdmissionBundle | undefined> {
+    const records = await this.transcriptStore.readAuthorityAdmissions(input.sessionId);
+    const record = records.find((entry) =>
+      entry.admissionId === input.admissionId
+      && entry.sessionId === input.sessionId
+      && entry.turnId === input.turnId,
+    );
+    return record ? assertPersistableAuthorityAdmissionBundle(record.bundle) : undefined;
+  }
 }

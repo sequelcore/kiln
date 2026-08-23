@@ -320,10 +320,6 @@
               {
                 "const": "memory",
                 "type": "string"
-              },
-              {
-                "const": "knowledge",
-                "type": "string"
               }
             ]
           },

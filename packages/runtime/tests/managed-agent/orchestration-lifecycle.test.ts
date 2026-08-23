@@ -18,6 +18,7 @@ import {
   type ManagedAgentWorktreeLeaseReleaseInput,
 } from "../../src/agents/managed-invocation/index.js";
 import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool/index.js";
+import { managedEconomicAdmissionBundle } from "./managed-economic-admission-fixture.js";
 
 const WRITE_AUTHORITY_DESCRIPTOR = {
   proposalSupported: true,
@@ -422,6 +423,10 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       profile: "foundation-apply-approved-writes",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
+      authorityAdmission: managedEconomicAdmissionBundle({
+        sessionId: "parent-session",
+        turnId: "parent-turn",
+      }),
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("durable economic commitment");
 
@@ -652,6 +657,10 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       profile: "foundation-apply-approved-writes",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
+      authorityAdmission: managedEconomicAdmissionBundle({
+        sessionId: "parent-session",
+        turnId: "parent-turn",
+      }),
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
 
@@ -670,6 +679,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       profile: "foundation-apply-approved-writes",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
+      authorityAdmission: managedInvocation.authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("already dispatch-fenced");
 
@@ -686,6 +696,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         profile: "foundation-apply-approved-writes",
         callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
         requestedAuthority: "audited",
+        authorityAdmission: managedInvocation.authorityAdmission,
         economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
       });
 
@@ -723,6 +734,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       profile: "foundation-apply-approved-writes",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
+      authorityAdmission: managedInvocation.authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("synthetic second preparation failure");
 
@@ -760,6 +772,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       profile: "foundation-apply-approved-writes",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
+      authorityAdmission: managedInvocation.authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
 
@@ -776,6 +789,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       profile: "foundation-apply-approved-writes",
       callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
       requestedAuthority: "audited",
+      authorityAdmission: managedInvocation.authorityAdmission,
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("already dispatch-fenced");
 
@@ -1033,6 +1047,10 @@ function createEconomicManagedInvocation(input: {
     prepare,
     recordExecutionSettlementPending,
     invoked,
+    authorityAdmission: managedEconomicAdmissionBundle({
+      sessionId: "parent-session",
+      turnId: "parent-turn",
+    }),
   };
 }
 

@@ -3553,26 +3553,6 @@ describe("session-store", () => {
     });
   });
 
-  it("sends browser session control requests through the outbound socket", () => {
-    const outboundSend = vi.fn();
-    useSessionStore.setState({ outboundSend });
-
-    const result = useSessionStore.getState().requestBrowserSessionControl("takeover", {
-      sessionId: "browser-1",
-      gatewayTargetId: "gateway:browser-app",
-      reason: "Inspect before continuing.",
-    });
-
-    expect(result).toBe(true);
-    expect(outboundSend).toHaveBeenCalledWith({
-      type: "browser_session_control",
-      action: "takeover",
-      sessionId: "browser-1",
-      gatewayTargetId: "gateway:browser-app",
-      reason: "Inspect before continuing.",
-    });
-  });
-
   it("stores live viewport frames for the visible browser session", () => {
     useSessionStore.setState({
       status: "running",
@@ -3613,7 +3593,7 @@ describe("session-store", () => {
         kilnSessionId: "session-browser-live",
         provider: "playwright",
         sessionId: "browser-1",
-        ownership: "operator",
+        ownership: "agent",
         viewMode: "live",
         stream: { status: "live" },
       },
@@ -3650,47 +3630,6 @@ describe("session-store", () => {
 
     expect(useSessionStore.getState().browserSessionState).toBeNull();
     expect(useSessionStore.getState().browserLiveViewportFrame).toBeNull();
-  });
-
-  it("sends brokered browser operator input and stores acknowledgements", () => {
-    const outboundSend = vi.fn();
-    useSessionStore.setState({ outboundSend });
-
-    const sent = useSessionStore.getState().sendBrowserOperatorInput({
-      sessionId: "browser-1",
-      gatewayTargetId: "gateway:browser-app",
-      input: {
-        kind: "text",
-        text: "hello",
-      },
-    });
-
-    expect(sent).toBe(true);
-    expect(outboundSend).toHaveBeenCalledWith({
-      type: "browser_operator_input",
-      requestId: expect.stringMatching(/^browser-input:/),
-      sessionId: "browser-1",
-      gatewayTargetId: "gateway:browser-app",
-      input: {
-        kind: "text",
-        text: "hello",
-      },
-    });
-
-    useSessionStore.getState().onBrowserOperatorInputAck({
-      type: "browser_operator_input_ack",
-      requestId: "browser-input-1",
-      sessionId: "browser-1",
-      status: "blocked",
-      reason: "Operator does not own the session.",
-      handledAt: "2026-05-13T12:00:00.000Z",
-    });
-
-    expect(useSessionStore.getState().browserOperatorInputAck).toMatchObject({
-      requestId: "browser-input-1",
-      status: "blocked",
-      reason: "Operator does not own the session.",
-    });
   });
 
   it("sends approval responses with explicit gateway target identity when provided", () => {
@@ -3794,7 +3733,6 @@ describe("session-store", () => {
       outputTokens: 50,
       authorityStatus: { requested: "audited", effective: "audited" },
       browserLiveViewportFrame: { sessionId: "removed-session" },
-      browserOperatorInputAck: { sessionId: "removed-session" },
     } as never);
 
     useSessionStore.getState().setSessionList([]);
@@ -3810,7 +3748,6 @@ describe("session-store", () => {
       outputTokens: 0,
       authorityStatus: null,
       browserLiveViewportFrame: null,
-      browserOperatorInputAck: null,
     });
   });
 });

@@ -37,7 +37,7 @@ from `required`, score, source, or body content:
 - `guidance` is admitted but lower-precedence procedure: an admitted skill is
   guidance and yields to the active task, directives, and policy constraints.
 - `evidence` is non-authoritative historical or retrieved material: memory,
-  summaries, knowledge, coordination, artifacts, ledgers, and managed resource
+  summaries, coordination, artifacts, ledgers, and managed resource
   content remain evidence even when required for budget admission.
 
 `procedural` is intentionally ambiguous and must explicitly declare its

@@ -1,4 +1,4 @@
-import type { ActionEffectEnvelope } from "@kilnai/core";
+import type { ActionEffectEnvelope } from "@kilnai/core/engine";
 import { describe, expect, it, vi } from "vitest";
 import { OperatorAuthorityAdmissionCoordinator } from "../../src/execution-routing/operator-authority-admission-coordinator.js";
 import type {

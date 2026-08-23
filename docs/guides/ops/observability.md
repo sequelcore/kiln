@@ -27,7 +27,7 @@ The mapper produces 4 operation types:
 |-----------|----------|
 | `startSpan` | Phase transitions, task starts, tool calls, worker assignments, webhook triggers |
 | `endSpan` | Task completions, tool results, errors, trigger failures, conversation close |
-| `addEvent` | Thinking blocks, verification results, memory ops, approvals, security events, safety events, routing decisions, enrichment |
+| `addEvent` | Thinking blocks, verification results, memory ops, approvals, security events, safety events, and routing decisions |
 | `setAttributes` | Cost updates (token counts, USD totals) |
 
 ### gen_ai.* Semantic Conventions
@@ -91,7 +91,7 @@ The `PrometheusCollector` implements `EventStore` and translates events into Pro
 
 ### Cardinality Protection
 
-`tenant_id` is intentionally excluded from all metric labels. In a multi-tenant gateway with hundreds of tenants, including tenant ID as a label would cause cardinality explosion in Prometheus. Per-tenant analytics should use the enrichment pipeline or the conversation event webhook instead.
+`tenant_id` is intentionally excluded from all metric labels. In a multi-tenant gateway with hundreds of tenants, including tenant ID as a label would cause cardinality explosion in Prometheus. Per-tenant analytics should use the session and event stores instead.
 
 ### /metrics Endpoint
 
@@ -199,11 +199,10 @@ For the architecture contract, see
 
 Costs are computed using `MODEL_PRICING`, which derives rates from the same `MODEL_CATALOG` used by the capability registry. Anthropic models receive cache-aware pricing (cache read at 10% of input rate, cache write at 125%).
 
-### Embedding and STT Cost
+### STT Cost
 
 | Method | Pricing Source |
 |--------|---------------|
-| `recordEmbedding(model, tokens)` | `text-embedding-3-small`: $0.02/1M tokens, `text-embedding-3-large`: $0.13/1M tokens |
 | `recordStt(model, durationSeconds)` | `gpt-4o-transcribe`: $0.006/min, `nova-3`: $0.0043/min |
 
 ### Cost Summary
@@ -211,7 +210,7 @@ Costs are computed using `MODEL_PRICING`, which derives rates from the same `MOD
 `CostTracker.summary` returns a `CostSummary` with:
 
 - `totalInputTokens`, `totalOutputTokens`, `totalCacheReadTokens`, `totalCacheWriteTokens`
-- `totalCostUsd` (includes LLM + embedding + STT)
+- `totalCostUsd` (includes LLM + STT)
 - `byRoleModel` -- keyed by `"role:model"` for precise per-model attribution
 
 ## Event Reference
@@ -224,7 +223,6 @@ Costs are computed using `MODEL_PRICING`, which derives rates from the same `MOD
 | `model_routed` | phase | Model routing decision with provider, model, tier, reason |
 | `agent_routed` | state | Agent routing decision with agent ID, tier, confidence |
 | `conversation_closed` | state | Session end with closedBy, turnCount, durationMs, effortScore |
-| `conversation_enriched` | state | Enrichment complete with enrichmentId |
 | `tool_called` | tool | Tool invocation start |
 | `tool_result` | tool | Tool invocation end with success/failure and duration |
 | `tool_cache_hit` | tool | Tool result served from cache |
@@ -232,14 +230,10 @@ Costs are computed using `MODEL_PRICING`, which derives rates from the same `MOD
 
 ### External Conversation Events
 
-| Event | Emitted By | Description |
-|-------|-----------|-------------|
-| `SESSION_STARTED` | SessionRegistry | New session created |
-| `CONVERSATION_ABANDONED` | SessionRegistry | Session expired via cleanup |
-| `MODEL_ROUTED` | Message pipeline | Model routing metadata for analytics |
-| `CONVERSATION_ENRICHED` | EnrichmentRunner | Enrichment data available for fetch |
-
-All conversation events are delivered via `ConversationEventEmitter` to configured product webhooks with exponential backoff retry (3 attempts, 1s/2s/4s, 5xx only).
+There is no external conversation-event webhook or automatic retry path. Canonical
+session and turn evidence remains owned by the runtime event stores; consequential
+external sends use the claimed channel-egress path with workload-local durable
+idempotency.
 
 ## CLI Cost Tracking
 
@@ -276,6 +270,5 @@ Kiln monitors token output across continuations to detect when a session is prod
 - [Model Routing](../config/model-routing.md) -- per-request model selection and routing rules
 - [Provider Credentials](../config/provider-credentials.md) -- credential-pool operation and status
 - [Provider Credential Pools](../../architecture/safety/provider-credential-pools.md) -- credential-pool architecture
-- [Enrichment](../knowledge/enrichment.md) -- post-conversation analysis pipeline
 - [Multi-Tenant](../config/multi-tenant.md) -- tenant configuration and billing
 - [Gateway Configuration](../../configuration/gateway-yaml.md) -- gateway setup and deployment

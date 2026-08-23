@@ -6,20 +6,22 @@ import { KilnError, textParts } from "@kilnai/core";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { sendWhatsAppMessage } from "../channels/whatsapp-api.js";
-import { sendInstagramMessage } from "../channels/instagram-api.js";
-import { sendMessengerMessage } from "../channels/messenger-api.js";
+import { WHATSAPP_GRAPH_API_VERSION } from "../channels/whatsapp-api.js";
+import { sendInstagramMessage, INSTAGRAM_GRAPH_API_VERSION } from "../channels/instagram-api.js";
+import { sendMessengerMessage, MESSENGER_GRAPH_API_VERSION } from "../channels/messenger-api.js";
+import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
+import type { GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { requireBearer } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 
 export interface HandoffRoutesConfig {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
   readonly appName: string;
   readonly adminToken?: string;
   readonly webChannel?: WebChannel;
-  readonly eventEmitter?: ConversationEventEmitter;
 }
 
 interface HandoffRequest {
@@ -39,6 +41,10 @@ interface ReleaseRequest {
 interface OperatorMessageRequest {
   readonly tenantId: string;
   readonly userId: string;
+  /** Stable caller-owned identity for the logical operator send. */
+  readonly callerId: string;
+  /** Stable caller-owned idempotency key for the logical operator send. */
+  readonly idempotencyKey: string;
   readonly message: string;
   readonly channel: "whatsapp" | "web" | "instagram" | "messenger" | "email";
   readonly operatorId?: string;
@@ -87,19 +93,6 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
       throw err;
     }
 
-    if (config.eventEmitter && session.tenantId) {
-      config.eventEmitter.emit({
-        eventType: "HANDOFF_INITIATED",
-        tenantId: session.tenantId,
-        channel: "api",
-        externalUserId: body.userId,
-        sessionMode: session.sessionMode,
-        escalationReason: body.reason,
-        operatorId: body.operatorId,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     trace.log("handoff", "Handoff complete", { sessionId: session.id, previousMode, newMode: session.sessionMode });
 
@@ -148,18 +141,6 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
       throw err;
     }
 
-    if (config.eventEmitter && session.tenantId) {
-      config.eventEmitter.emit({
-        eventType: "HANDOFF_RELEASED",
-        tenantId: session.tenantId,
-        channel: "api",
-        externalUserId: body.userId,
-        sessionMode: "ai_active",
-        summary: body.contextSummary,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     trace.log("handoff", "Release complete", { sessionId: session.id, previousMode });
 
@@ -188,6 +169,9 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         400,
       );
     }
+    if (!body.callerId || !body.idempotencyKey) {
+      return c.json({ success: false, error: "Missing required fields: callerId, idempotencyKey" }, 400);
+    }
 
     trace.log("handoff", "Sending operator message", { tenantId: body.tenantId, userId: body.userId, channel: body.channel });
 
@@ -209,16 +193,35 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
 
     // Deliver via channel
     if (body.channel === "web") {
-      if (config.webChannel) {
-        const payload = JSON.stringify({
-          type: "output",
-          text: body.message,
-          parts: textParts(body.message),
-          target: "session",
-          userId: body.userId,
-        });
-        config.webChannel.sendToUser(body.userId, payload);
-      }
+      if (!config.webChannel) return c.json({ success: false, error: "Web channel is unavailable" }, 503);
+      const payload = {
+        type: "output",
+        text: body.message,
+        parts: textParts(body.message),
+        target: "session",
+        userId: body.userId,
+      };
+      await config.gatewayAdmission.execute({
+        ingressId: `handoff:${body.callerId}:${body.idempotencyKey}`,
+        appName: config.appName,
+        tenantId: body.tenantId,
+        userId: session.userId,
+        sessionId: session.id,
+        channel: body.channel,
+        userParts: textParts(body.message),
+      }, (admitted) => dispatchChannelEgress({
+        context: config.gatewayAdmission.channelEgressActionClaims,
+        authorityAdmission: admitted.bundle,
+        attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+        callerId: body.callerId,
+        idempotencyKey: body.idempotencyKey,
+        logicalSendSlot: "operator-message",
+        channel: body.channel,
+        destination: `web:${config.appName}:${body.tenantId}:${body.userId}`,
+        adapterIdentity: "web-channel:session-output",
+        payload,
+        send: async () => { config.webChannel!.sendToUser(body.userId, JSON.stringify(payload)); },
+      }));
     } else if (body.channel === "whatsapp") {
       const tenant = config.tenantRegistry.get(body.tenantId);
       if (!tenant || !tenant.whatsappPhoneNumberId || !tenant.whatsappAccessToken) {
@@ -230,10 +233,30 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         : tenant.whatsappAccessToken;
 
       try {
-        await sendWhatsAppMessage(tenant.whatsappPhoneNumberId, accessToken, body.userId, {
-          type: "text",
-          text: { body: body.message },
-        });
+        const payload = { messaging_product: "whatsapp", to: body.userId, type: "text", text: { body: body.message } };
+        await config.gatewayAdmission.execute({
+          ingressId: `handoff:${body.callerId}:${body.idempotencyKey}`,
+          appName: config.appName,
+          tenantId: body.tenantId,
+          userId: session.userId,
+          sessionId: session.id,
+          channel: body.channel,
+          userParts: textParts(body.message),
+        }, (admitted) => dispatchChannelEgress({
+          context: config.gatewayAdmission.channelEgressActionClaims,
+          authorityAdmission: admitted.bundle,
+          attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+          callerId: body.callerId,
+          idempotencyKey: body.idempotencyKey,
+          logicalSendSlot: "operator-message",
+          channel: body.channel,
+          destination: `whatsapp:${tenant.whatsappPhoneNumberId}:${body.userId}`,
+          adapterIdentity: `whatsapp-cloud:${WHATSAPP_GRAPH_API_VERSION}:${tenant.whatsappPhoneNumberId}`,
+          payload,
+          send: async () => {
+            await sendWhatsAppMessage(tenant.whatsappPhoneNumberId!, accessToken, body.userId, { type: "text", text: { body: body.message } });
+          },
+        }));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return c.json({ success: false, error: `WhatsApp delivery failed: ${message}` }, 502);
@@ -249,7 +272,28 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         : tenant.instagramAccessToken;
 
       try {
-        await sendInstagramMessage(tenant.instagramPageId, accessToken, body.userId, body.message);
+        const payload = { recipient: { id: body.userId }, message: { text: body.message } };
+        await config.gatewayAdmission.execute({
+          ingressId: `handoff:${body.callerId}:${body.idempotencyKey}`,
+          appName: config.appName,
+          tenantId: body.tenantId,
+          userId: session.userId,
+          sessionId: session.id,
+          channel: body.channel,
+          userParts: textParts(body.message),
+        }, (admitted) => dispatchChannelEgress({
+          context: config.gatewayAdmission.channelEgressActionClaims,
+          authorityAdmission: admitted.bundle,
+          attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+          callerId: body.callerId,
+          idempotencyKey: body.idempotencyKey,
+          logicalSendSlot: "operator-message",
+          channel: body.channel,
+          destination: `instagram:${tenant.instagramPageId}:${body.userId}`,
+          adapterIdentity: `instagram-graph:${INSTAGRAM_GRAPH_API_VERSION}:${tenant.instagramPageId}`,
+          payload,
+          send: () => sendInstagramMessage(tenant.instagramPageId!, accessToken, body.userId, body.message),
+        }));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return c.json({ success: false, error: `Instagram delivery failed: ${message}` }, 502);
@@ -265,7 +309,28 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
         : tenant.messengerAccessToken;
 
       try {
-        await sendMessengerMessage(accessToken, body.userId, body.message);
+        const payload = { messaging_type: "RESPONSE", recipient: { id: body.userId }, message: { text: body.message } };
+        await config.gatewayAdmission.execute({
+          ingressId: `handoff:${body.callerId}:${body.idempotencyKey}`,
+          appName: config.appName,
+          tenantId: body.tenantId,
+          userId: session.userId,
+          sessionId: session.id,
+          channel: body.channel,
+          userParts: textParts(body.message),
+        }, (admitted) => dispatchChannelEgress({
+          context: config.gatewayAdmission.channelEgressActionClaims,
+          authorityAdmission: admitted.bundle,
+          attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+          callerId: body.callerId,
+          idempotencyKey: body.idempotencyKey,
+          logicalSendSlot: "operator-message",
+          channel: body.channel,
+          destination: `messenger:me:${body.userId}`,
+          adapterIdentity: `messenger-graph:${MESSENGER_GRAPH_API_VERSION}:me`,
+          payload,
+          send: () => sendMessengerMessage(accessToken, body.userId, body.message),
+        }));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return c.json({ success: false, error: `Messenger delivery failed: ${message}` }, 502);
@@ -276,19 +341,6 @@ export function createHandoffRoutes(config: HandoffRoutesConfig): Hono {
       trace.log("handoff", "Email operator message recorded in session (delivery via email client)");
     }
 
-    if (config.eventEmitter && session.tenantId) {
-      config.eventEmitter.emit({
-        eventType: "OPERATOR_MESSAGE_SENT",
-        tenantId: session.tenantId,
-        channel: body.channel,
-        externalUserId: body.userId,
-        messageContent: body.message,
-        messageRole: "operator",
-        operatorId: body.operatorId,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     trace.log("handoff", "Operator message delivered", { channel: body.channel });
 

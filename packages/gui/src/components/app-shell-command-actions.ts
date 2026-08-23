@@ -27,7 +27,6 @@ interface AppShellCommandExecutorInput {
   readonly setWorkbenchSurface: (surface: WorkbenchSurface) => void;
   readonly persistThemePreference: (theme: OperatorThemeName) => Promise<void>;
   readonly onThemePersistenceFailed: (error: unknown) => void;
-  readonly toggleOperatorTerminal: () => void;
 }
 
 function nextFromCycle<T>(items: readonly T[], current: T | null): T | null {
@@ -99,10 +98,6 @@ export function createAppShellCommandExecutor(input: AppShellCommandExecutorInpu
         return;
       case "goal":
         input.setWorkbenchSurface("work");
-        input.closePalette();
-        return;
-      case "terminal":
-        input.toggleOperatorTerminal();
         input.closePalette();
         return;
       default:

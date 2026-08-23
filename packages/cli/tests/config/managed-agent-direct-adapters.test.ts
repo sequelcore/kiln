@@ -11,14 +11,111 @@ import { createSessionBuiltinToolOptions, type ToolResourceProvider } from "@kil
 import {
   ManagedDirectProviderRuntimeAdapter,
   RuntimeManagedAgentInvocationService,
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+  type RuntimeModelRoundActionClaim,
+  type RuntimeModelRoundActionClaimPermit,
+  type RuntimeModelRoundActionClaimStore,
+  type RuntimeToolActionClaim,
+  type RuntimeToolActionClaimPermit,
+  type RuntimeToolActionClaimStore,
   type ManagedCommittedInvocationRequest,
   type ManagedInvocationRouteProfile,
 } from "@kilnai/runtime";
-import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
+import {
+  createManagedDirectProviderAdapterFactory as createProductionManagedDirectProviderAdapterFactory,
+  type ManagedDirectProviderAdapterFactoryOptions,
+} from "../../src/config/managed-agent-direct-adapters.js";
 import type {
   DirectProviderAdapterOptions,
   DirectProviderCredentialBinding,
 } from "../../src/wrapper/direct-provider-adapter-factory.js";
+
+const CLI_TEST_ADMISSIONS = new Map<string, EffectiveAuthorityAdmissionBundle>();
+
+function cliTestModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const claims = new Map<string, RuntimeModelRoundActionClaim>();
+  const permitStates = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("CLI test model-round claim already exists");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `cli-test-model-round:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("CLI test model-round permit already consumed");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeModelRoundActionClaimPermit;
+      claims.set(input.claimId, input);
+      permitStates.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = permitStates.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("CLI test model-round permit was not consumed");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success"
+          ? { outcome: "success" as const }
+          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+      });
+      permitStates.delete(permit);
+    },
+  };
+}
+
+function cliTestToolActionStore(): RuntimeToolActionClaimStore {
+  const claims = new Map<string, RuntimeToolActionClaim>();
+  const permitStates = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("CLI test tool-action claim already exists");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `cli-test-tool-action:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("CLI test tool-action permit already consumed");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeToolActionClaimPermit;
+      claims.set(input.claimId, input);
+      permitStates.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = permitStates.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("CLI test tool-action permit was not consumed");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success"
+          ? { outcome: "success" as const }
+          : { unknownReason: settlement.reason }),
+      });
+      permitStates.delete(permit);
+    },
+  };
+}
+
+type CliTestFactoryOptions = Omit<
+  ManagedDirectProviderAdapterFactoryOptions,
+  "readAuthorityAdmission" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims"
+> & Partial<Pick<ManagedDirectProviderAdapterFactoryOptions, "readAuthorityAdmission" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims">>;
+
+function createManagedDirectProviderAdapterFactory(options: CliTestFactoryOptions) {
+  return createProductionManagedDirectProviderAdapterFactory({
+    ...options,
+    readAuthorityAdmission: options.readAuthorityAdmission ?? (({ admissionId }) => CLI_TEST_ADMISSIONS.get(admissionId)),
+    runtimeModelRoundActionClaims: options.runtimeModelRoundActionClaims ?? cliTestModelRoundStore(),
+    runtimeToolActionClaims: options.runtimeToolActionClaims ?? cliTestToolActionStore(),
+  });
+}
 
 function committedRequestFor(
   routeId: string,
@@ -90,6 +187,94 @@ const READONLY_PROFILE: ManagedInvocationRouteProfile = {
 
 function profileWith(input: Partial<ManagedInvocationRouteProfile>): ManagedInvocationRouteProfile {
   return { ...READONLY_PROFILE, ...input };
+}
+
+function cliTestAdmission(input: {
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly credentialBinding: DirectProviderCredentialBinding;
+  readonly economicCommitmentId?: string;
+}): EffectiveAuthorityAdmissionBundle {
+  const observeEffect = {
+    operation: "observe" as const,
+    boundaries: ["process", "workspace", "machine", "network", "external-system"] as const,
+    reversibility: "reversible" as const,
+    dataEgress: "sensitive-data" as const,
+    identityUse: "privileged" as const,
+    consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
+    idempotency: "idempotent" as const,
+  };
+  const toolPermissions = [{
+    toolName: "read",
+    authority: {
+      level: 1 as const,
+      allowed: true,
+      requiresApproval: false,
+      reason: "CLI direct provider test admission",
+    },
+    effectEnvelope: observeEffect,
+  }];
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: input.parentSessionId,
+    turnId: input.parentTurnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "cli-direct-test", revisions: { tests: "cli-direct-test" } },
+      turnRevision: { revisionSetId: "cli-direct-test", revisions: { tests: "cli-direct-test" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "cli-direct-test", revision: "cli-direct-test", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "destructive", reason: "CLI direct provider test admission" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "destructive",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "CLI direct provider test admission",
+        completeness: "authoritative",
+        toolCount: toolPermissions.length,
+        deniedToolCount: 0,
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: toolPermissions, deniedToolNames: [] },
+      effectCeiling: {
+        operation: "mutate",
+        boundaries: ["process", "workspace", "machine", "network", "external-system"],
+        reversibility: "irreversible",
+        dataEgress: "sensitive-data",
+        identityUse: "privileged",
+        consequences: ["local-state", "external-state", "financial", "legal", "security"],
+        idempotency: "non-idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId: input.routeId,
+          providerId: input.providerId,
+          providerModelId: input.modelId,
+          accountSelection: { mode: "exact", accountId: input.credentialBinding.accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
+        binding: {
+          status: "bound",
+          routeId: input.routeId,
+          accountId: input.credentialBinding.accountId,
+          credentialId: input.credentialBinding.credentialId,
+          credentialRevision: input.credentialBinding.credentialRevision ?? "revision-1",
+        },
+        ...(input.economicCommitmentId
+          ? { economicCommitment: { commitmentId: input.economicCommitmentId, authorityRevision: "cli-direct-test-authority-revision" } }
+          : {}),
+      },
+    },
+  });
 }
 
 function provider(): ProviderAdapter {
@@ -316,7 +501,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     });
     const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(defineManagedAgentInvocationRequest({
+    const invocationRequest = defineManagedAgentInvocationRequest({
       invocationId: "cli-direct-resource-1",
       agentId: "openai-readonly:foundation-readonly-plan",
       parentSessionId: "cli-parent-session",
@@ -360,11 +545,26 @@ describe("createManagedDirectProviderAdapterFactory", () => {
           mode: "resources",
         },
       },
-    }), adapter!, {
+    });
+    const credentialBinding = credentialBindingFor("openai-readonly");
+    const economicDispatch = economicDispatchFor("openai-readonly", "openai", "gpt-5.4-mini");
+    const admission = cliTestAdmission({
+      parentSessionId: invocationRequest.parentSessionId,
+      parentTurnId: invocationRequest.parentTurnId,
+      routeId: "openai-readonly",
+      providerId: "openai",
+      modelId: "gpt-5.4-mini",
+      credentialBinding,
+      economicCommitmentId: "commitment-cli-direct-test",
+    });
+    CLI_TEST_ADMISSIONS.set(admission.admissionId, admission);
+
+    const result = await service.invoke(invocationRequest, adapter!, {
       routeId: "openai-readonly",
       routeSource: "explicit-managed-route",
     }, {
-      economicDispatch: economicDispatchFor("openai-readonly", "openai", "gpt-5.4-mini"),
+      childAuthorityAdmission: { bundle: admission },
+      economicDispatch,
     });
 
     expect(result.status).toBe("completed");

@@ -118,6 +118,9 @@ export type {
 export {
   ManagedRemoteHarnessAdapter,
 } from "./remote-harness-adapter.js";
+export {
+  isManagedExternalInvocationPermit,
+} from "./external-invocation-action-claim.js";
 export type {
   ManagedRemoteHarnessAdapterConfig,
   ManagedRemoteHarnessTransport,
@@ -271,11 +274,13 @@ export type {
   ManagedAgentRuntimeAuthorityObservationInput,
   ManagedAgentRuntimeAuthorityObserver,
   ManagedAgentRuntimeCancellationInput,
+  ManagedAgentRuntimeCancellationResult,
   ManagedAgentRuntimeInvocationCancelResult,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationLifecycleOptions,
   ManagedAgentRuntimeInvocationProgressEvent,
   ManagedAgentRuntimeInvocationProgressObserver,
+  ManagedAgentRuntimeResultPendingEvidence,
   ManagedAgentRuntimeInvocationResult,
   ManagedAgentRuntimeInvocationRecord,
   ManagedAgentRuntimeInvocationSnapshot,

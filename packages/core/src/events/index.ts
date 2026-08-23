@@ -72,7 +72,6 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   interrupt_resumed: "phase",
   // Security (Phase 3)
   injection_scanned: "phase",
-  guardian_reviewed: "phase",
   audit_entry: "state",
   tenant_isolation_violation: "phase",
   security_alert: "state",
@@ -85,10 +84,6 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   pii_detected: "phase",
   content_classified: "phase",
   policy_evaluated: "phase",
-  grounding_evaluated: "phase",
-  // Knowledge (Phase 14)
-  knowledge_gap: "state",
-  knowledge_source_failed: "state",
   precompact: "state",
   postcompact: "state",
   // Routing (Phase 8)
@@ -97,7 +92,6 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   model_routed: "phase",
   multimodal_routed: "phase",
   conversation_closed: "state",
-  conversation_enriched: "state",
   // Domain apps
   domain_event: "tool",
 };
@@ -145,7 +139,6 @@ export type EventType =
   | "interrupt_resumed"
   // Security (Phase 3)
   | "injection_scanned"
-  | "guardian_reviewed"
   | "audit_entry"
   | "tenant_isolation_violation"
   | "security_alert"
@@ -158,10 +151,6 @@ export type EventType =
   | "pii_detected"
   | "content_classified"
   | "policy_evaluated"
-  | "grounding_evaluated"
-  // Knowledge (Phase 14)
-  | "knowledge_gap"
-  | "knowledge_source_failed"
   | "precompact"
   | "postcompact"
   // Routing (Phase 8)
@@ -170,7 +159,6 @@ export type EventType =
   | "model_routed"
   | "multimodal_routed"
   | "conversation_closed"
-  | "conversation_enriched"
   // Domain apps
   | "domain_event";
 
@@ -490,18 +478,8 @@ export interface InjectionScannedEvent extends KilnEvent {
   readonly type: "injection_scanned";
   readonly safe: boolean;
   readonly threats: number;
-  readonly tier: "heuristic" | "deep";
+  readonly tier: "heuristic";
   readonly inputPreview: string;
-}
-
-/** Guardian reviewed event (security) */
-export interface GuardianReviewedEvent extends KilnEvent {
-  readonly type: "guardian_reviewed";
-  readonly approved: boolean;
-  readonly capabilityName: string;
-  readonly agentName: string;
-  readonly riskLevel: string;
-  readonly reason: string;
 }
 
 /** Audit entry event (security) */
@@ -570,7 +548,7 @@ export interface PiiDetectedEvent extends KilnEvent {
   readonly piiTypes: readonly string[];
   readonly action: string;
   readonly count: number;
-  readonly tier: "heuristic" | "deep";
+  readonly tier: "heuristic";
 }
 
 /** Content classified event (safety) */
@@ -579,7 +557,7 @@ export interface ContentClassifiedEvent extends KilnEvent {
   readonly direction: "input" | "output";
   readonly categories: Record<string, number>;
   readonly blocked: boolean;
-  readonly tier: "heuristic" | "deep";
+  readonly tier: "heuristic";
 }
 
 /** Policy evaluated event (safety) */
@@ -591,42 +569,13 @@ export interface PolicyEvaluatedEvent extends KilnEvent {
   readonly direction: "input" | "output";
 }
 
-/** Grounding verification event (safety) */
-export interface GroundingEvaluatedEvent extends KilnEvent {
-  readonly type: "grounding_evaluated";
-  readonly grounded: boolean;
-  readonly confidence: number;
-  readonly ungroundedClaims: readonly string[];
-  readonly durationMs: number;
-  readonly model: string;
-}
-
-/** Knowledge gap detected event -- query had low or no results */
-export interface KnowledgeGapEvent extends KilnEvent {
-  readonly type: "knowledge_gap";
-  readonly query: string;
-  readonly topScore: number;
-  readonly threshold: number;
-  readonly retrievedCount: number;
-}
-
-/** Knowledge source ingestion failed event */
-export interface KnowledgeSourceFailedEvent extends KilnEvent {
-  readonly type: "knowledge_source_failed";
-  readonly sourceId: string;
-  readonly sourceName: string;
-  readonly sourceType: string;
-  readonly error: string;
-  readonly appName: string;
-}
-
 /** Agent routed event (multi-agent routing) */
 export interface AgentRoutedEvent extends KilnEvent {
   readonly type: "agent_routed";
   readonly agentId: string;
   readonly agentName: string;
   readonly previousAgentId?: string;
-  readonly routingTier: "rule" | "embedding" | "fallback";
+  readonly routingTier: "rule" | "fallback";
   readonly matchedPattern?: string;
   readonly confidence?: number;
 }
@@ -676,12 +625,6 @@ export interface ConversationClosedInternalEvent extends KilnEvent {
   readonly effortScore?: number;
 }
 
-/** Conversation enriched event (post-conversation enrichment completed) */
-export interface ConversationEnrichedEvent extends KilnEvent {
-  readonly type: "conversation_enriched";
-  readonly enrichmentId: string;
-}
-
 /** Custom domain event for app-specific event types */
 export interface DomainEventData extends KilnEvent {
   readonly type: "domain_event";
@@ -726,7 +669,6 @@ export interface EventMap {
   interrupt_resumed: InterruptResumedEvent;
   // Security (Phase 3)
   injection_scanned: InjectionScannedEvent;
-  guardian_reviewed: GuardianReviewedEvent;
   audit_entry: AuditEntryEvent;
   tenant_isolation_violation: TenantIsolationViolationEvent;
   security_alert: SecurityAlertEvent;
@@ -739,17 +681,12 @@ export interface EventMap {
   pii_detected: PiiDetectedEvent;
   content_classified: ContentClassifiedEvent;
   policy_evaluated: PolicyEvaluatedEvent;
-  grounding_evaluated: GroundingEvaluatedEvent;
-  // Knowledge (Phase 14)
-  knowledge_gap: KnowledgeGapEvent;
-  knowledge_source_failed: KnowledgeSourceFailedEvent;
   // Routing (Phase 8)
   agent_routed: AgentRoutedEvent;
   // Intelligence (Phase 9)
   model_routed: ModelRoutedEvent;
   multimodal_routed: MultimodalRoutedEvent;
   conversation_closed: ConversationClosedInternalEvent;
-  conversation_enriched: ConversationEnrichedEvent;
   // Domain apps
   domain_event: DomainEventData;
 }

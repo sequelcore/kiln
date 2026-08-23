@@ -57,6 +57,7 @@ export function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): M
     ...(entry.progressEvents.length > 0 ? { progressEvents: cloneJson(entry.progressEvents) } : {}),
     ...(entry.promptInbox.length > 0 ? { promptInbox: cloneJson(entry.promptInbox) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
+    ...(entry.resultPending !== undefined ? { resultPending: cloneJson(entry.resultPending) } : {}),
   };
 }
 

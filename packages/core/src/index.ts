@@ -14,7 +14,6 @@ export * from "./verification/index.js";
 export * from "./cost/index.js";
 export * from "./security/index.js";
 export * from "./observability/index.js";
-export * from "./knowledge/index.js";
 export * from "./eval/index.js";
 export * from "./efficiency/index.js";
 export * from "./safety/index.js";
@@ -180,6 +179,7 @@ export {
 } from "./engine/domain/capture-manifest.js";
 export type {
   SttAdapter,
+  SttOptions,
   SttResult,
   TtsAdapter,
   TtsOptions,
@@ -231,13 +231,11 @@ export type { ObservabilityConfig, ObservabilityExporter } from "./engine/gatewa
 export { validateObservabilityConfig } from "./engine/gateway/observability-config.js";
 export type { GatewayAuthConfig, JwtAlgorithm, GatewayAuthValidationError } from "./engine/gateway/auth-config.js";
 export { validateGatewayAuthConfig } from "./engine/gateway/auth-config.js";
-export type { GatewayMcpConfig, GatewayMcpAuthConfig, GatewayMcpEvalConfig, GatewayMcpValidationError } from "./engine/gateway/mcp-config.js";
+export type { GatewayMcpConfig, GatewayMcpAuthConfig, GatewayMcpValidationError } from "./engine/gateway/mcp-config.js";
 export { validateGatewayMcpConfig } from "./engine/gateway/mcp-config.js";
 
 // App loader re-exported for direct access by runtime gateway
 export type { App, MemoryConfig, AppValidationError } from "./engine/composites/app.js";
-export type { EventsConfig } from "./engine/gateway/events-config.js";
-export { parseEventsConfig } from "./engine/gateway/events-loader.js";
 export { AppLoaderError, parseAppYaml, validateAppGraph } from "./engine/loader/app-loader.js";
 
 // Preset loader re-exported for direct access by tests and tooling
@@ -250,7 +248,6 @@ export type {
   BillingConfig,
   BillingTier,
   BudgetResponse,
-  UsageReport,
   RuntimeModeConfig,
   RuntimeModeValidationError,
 } from "./engine/gateway/runtime-mode-config.js";
@@ -309,7 +306,6 @@ export type {
   WhatsAppCoexistenceConfig,
   EmailTransportConfig,
   TenantValidationError,
-  GroundingMode,
 } from "./engine/gateway/tenant-config.js";
 export { validateTenantConfig } from "./engine/gateway/tenant-config.js";
 
@@ -327,13 +323,6 @@ export type {
   ToolSelectionValidationError,
 } from "./engine/domain/tool-selection-config.js";
 export { validateToolSelectionConfig } from "./engine/domain/tool-selection-config.js";
-
-// Conversation event types re-exported for direct access by runtime
-export type {
-  ConversationEventType,
-  ConversationEvent,
-  ConversationEventBatch,
-} from "./engine/gateway/conversation-event.js";
 
 // Safety config types re-exported for direct access by runtime
 export type {
@@ -354,52 +343,6 @@ export type {
   ComplianceRailConfig,
 } from "./engine/domain/safety-config.js";
 export { validateSafetyConfig } from "./engine/domain/safety-config.js";
-
-// Knowledge config types re-exported for direct access by runtime gateway
-export type {
-  KnowledgeConfig,
-  KnowledgeEmbeddingConfig,
-  KnowledgeStoreConfig,
-  KnowledgeChunkingConfig,
-  KnowledgeSourceConfig,
-  ContextualConfig,
-  KnowledgeRerankerConfig,
-  ContactMemoryConfig,
-} from "./engine/domain/knowledge-config.js";
-export { validateKnowledgeConfig } from "./engine/domain/knowledge-config.js";
-
-// Contact memory types re-exported for direct access by runtime
-export type {
-  ContactFact,
-  ExtractedFact,
-  FactCategory,
-  FactAction,
-  ContactMemoryService,
-} from "./engine/domain/contact-memory.js";
-
-// Knowledge source types re-exported for direct access by runtime
-export type {
-  KnowledgeSource,
-  KnowledgeSourceType,
-  KnowledgeSourceStatus,
-  ExtractedContent,
-  ExtractionOptions,
-  ContentExtractor,
-  SourceStore,
-} from "./engine/domain/knowledge-source.js";
-
-// Source manager re-exported for direct access by runtime
-export { SourceManager } from "./knowledge/source-manager.js";
-export type { SourceManagerConfig } from "./knowledge/source-manager.js";
-
-// Vector store types re-exported for direct access by runtime
-export type { VectorStore, VectorEntry, VectorResult, VectorQueryOptions } from "./engine/domain/vector-store.js";
-
-// Embedding adapter type re-exported for direct access by runtime
-export type { EmbeddingAdapter } from "./engine/domain/embedding.js";
-
-// Chunker types re-exported for direct access by runtime
-export type { ChunkEnricher } from "./engine/domain/chunker.js";
 
 // Capability types re-exported for direct access by runtime
 export type { Capability } from "./engine/domain/capability.js";

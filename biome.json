@@ -107,16 +107,6 @@
           }
         }
       }
-    },
-    {
-      "includes": ["packages/gui/tests/operator-terminal-dock.test.tsx"],
-      "linter": {
-        "rules": {
-          "correctness": {
-            "noConstructorReturn": "off"
-          }
-        }
-      }
     }
   ]
 }

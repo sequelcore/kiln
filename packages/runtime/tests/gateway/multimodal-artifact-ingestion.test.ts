@@ -70,7 +70,7 @@ describe("captureMultimodalArtifacts", () => {
       filename: "report.pdf",
       artifactUri: "kiln://artifacts/inbound-multimodal/artifact_1/content",
     }]);
-    expect(downloader.download).toHaveBeenCalledWith("https://cdn.example.com/report.pdf");
+    expect(downloader.download).toHaveBeenCalledWith("https://cdn.example.com/report.pdf", undefined);
     expect(store.get("inbound-multimodal", "artifact_1")).toMatchObject({
       mimeType: "application/pdf",
       content: { type: "blob", blob: Buffer.from(new Uint8Array([1, 2, 3, 4])).toString("base64") },
@@ -79,6 +79,27 @@ describe("captureMultimodalArtifacts", () => {
         source: { kind: "webhook-attachment", id: "whatsapp:tenant:user-1:part:0" },
       },
     });
+  });
+
+  it("does not invoke a URL downloader when the active turn is already cancelled", async () => {
+    const store = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
+    const downloader = makeDownloader();
+    const abort = new AbortController();
+    abort.abort();
+
+    await expect(captureMultimodalArtifacts([
+      { type: "image", mimeType: "image/png", url: "https://cdn.example.com/image.png" },
+    ], {
+      artifactStore: store,
+      downloader,
+      sourceKind: "uploaded-file",
+      sourceIdPrefix: "api:test:user-1",
+      producerName: "gateway-api-ingress",
+      abortSignal: abort.signal,
+    })).rejects.toThrow();
+
+    expect(downloader.download).not.toHaveBeenCalled();
+    expect(store.list("inbound-multimodal")).toEqual([]);
   });
 
   it("normalizes multimodal tool-result payloads while preserving existing artifact URIs", async () => {

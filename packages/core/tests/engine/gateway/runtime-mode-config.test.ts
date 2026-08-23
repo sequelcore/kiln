@@ -9,7 +9,6 @@ function makeProviderConfig() {
 function makeBillingConfig() {
   return {
     budgetEndpoint: "https://api.example.com/users/{userId}/ai-budget",
-    usageEndpoint: "https://api.example.com/users/{userId}/ai-usage",
     overBudgetMessage: "Budget exhausted.",
     tiers: {
       free: { agents: ["fast"] },
@@ -61,14 +60,6 @@ describe("RuntimeModeConfig", () => {
       expect(errors.some((e) => e.field === "billing.budgetEndpoint")).toBe(true);
     });
 
-    it("reports error for empty usageEndpoint", () => {
-      const config = makeRuntimeModeConfig({
-        billing: { ...makeBillingConfig(), usageEndpoint: "" },
-      });
-      const errors = validateRuntimeModeConfig(config);
-      expect(errors.some((e) => e.field === "billing.usageEndpoint")).toBe(true);
-    });
-
     it("reports error for empty overBudgetMessage", () => {
       const config = makeRuntimeModeConfig({
         billing: { ...makeBillingConfig(), overBudgetMessage: "" },
@@ -94,12 +85,11 @@ describe("RuntimeModeConfig", () => {
         provider: { name: "" },
         billing: {
           budgetEndpoint: "",
-          usageEndpoint: "",
           overBudgetMessage: "",
         },
       };
       const errors = validateRuntimeModeConfig(config);
-      expect(errors.length).toBeGreaterThanOrEqual(4);
+      expect(errors.length).toBeGreaterThanOrEqual(3);
     });
 
     it("accepts provider-adapter config without billing (billing is optional)", () => {

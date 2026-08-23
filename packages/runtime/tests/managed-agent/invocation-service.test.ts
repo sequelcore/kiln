@@ -1941,6 +1941,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       routeSource: "explicit-managed-route",
     });
     const cancelled = await service.cancel("invocation-1", "Operator cancelled before artifact-directory acquisition completed.");
+    if (cancelled.status !== "cancelled") throw new Error("expected pre-start cancellation");
     const joinedBeforeAcquirePromise = service.join("invocation-1");
     await flushMicrotasks();
     const joinedBeforeAcquire = await Promise.race([
@@ -3330,6 +3331,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       routeSource: "explicit-managed-route",
     });
     const cancelled = await service.cancel("write-1", "Operator cancelled before lease acquisition completed.");
+    if (cancelled.status !== "cancelled") throw new Error("expected pre-start cancellation");
 
     expect(cancelled.record.resourceLease).toBeUndefined();
     expect(adapter.invoke).not.toHaveBeenCalled();
@@ -3377,6 +3379,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     expect(started.status).toBe("started");
     const cancelled = await service.cancel("write-1", "Operator cancelled isolated worktree run.");
+    if (cancelled.status !== "cancelled") throw new Error("expected isolated worktree cancellation");
 
     expect(cancelled.record.resourceLease).toMatchObject({
       healthStatus: "released",
@@ -5497,6 +5500,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     expect(adapterSignal?.aborted).toBe(true);
     expect(cancelled.status).toBe("cancelled");
+    if (cancelled.status !== "cancelled") throw new Error("expected child cancellation");
     expect(cancelled.record.lifecycleState).toBe("cancelled");
     expect(service.status("invocation-1")).toMatchObject({
       invocationId: "invocation-1",
@@ -5771,6 +5775,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     ]);
 
     expect(adapterSignal?.aborted).toBe(true);
+    if (cancelled.status !== "cancelled") throw new Error("expected child cancellation");
     expect(cancelled.record.lifecycleState).toBe("cancelled");
     expect(joinedState).toBe("cancelled");
     expect(service.status("invocation-1")?.record?.resultHandoff?.summary)

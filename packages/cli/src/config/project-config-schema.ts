@@ -504,7 +504,6 @@ const contextGovernance = strictObject({
     Type.Literal("artifact"),
     Type.Literal("summary"),
     Type.Literal("memory"),
-    Type.Literal("knowledge"),
   ]))),
   summaryAggressiveness: Type.ReadonlyOptional(Type.Union([
     Type.Literal("low"),

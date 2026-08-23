@@ -7,7 +7,6 @@ export type PiiAction = "detect" | "redact" | "block";
 export interface PiiConfig {
   readonly detect: readonly PiiType[];
   readonly action: PiiAction;
-  readonly deepScan?: boolean;
   readonly allowlist?: readonly string[];
 }
 
@@ -23,7 +22,6 @@ export interface ContentCategoryConfig {
 export interface ContentConfig {
   readonly enabled: boolean;
   readonly categories: Partial<Record<ContentCategory, ContentCategoryConfig>>;
-  readonly deepScan?: boolean;
 }
 
 export type RailType = "topic" | "competitor" | "escalation" | "compliance";

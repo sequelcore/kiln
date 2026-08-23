@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -24,6 +25,7 @@ import {
 } from "@kilnai/core/cost";
 import type { ManagedEconomicCandidateSet } from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import { ManagedEconomicDispatchCoordinator } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const now = new Date("2026-07-29T18:00:00.000Z");
 const submission = {
@@ -38,6 +40,49 @@ const query = {
 } as const;
 const testProfileAuthorityDigest = `sha256:${"9".repeat(64)}`;
 
+function testAdmissionBundle(): EffectiveAuthorityAdmissionBundle {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "test-session",
+    turnId: "test-turn",
+    admittedAt: now.toISOString(),
+    configuration: {
+      sessionRevision: { revisionSetId: "session-revision", revisions: { routes: "1", skills: "1" } },
+      turnRevision: { revisionSetId: "turn-revision", revisions: { routes: "1", skills: "1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "test-skills", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "test-session" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "test",
+        reason: "test",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "workspace_read",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -46,6 +91,60 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, reject, resolve };
+}
+
+class PausingFilesystemAgentTaskStore extends FilesystemAgentTaskStore {
+  private paused = false;
+
+  constructor(
+    root: string,
+    staleLockMs: number,
+    private readonly entered: () => void,
+    private readonly resume: Promise<void>,
+  ) {
+    super(root, staleLockMs);
+  }
+
+  protected override async afterLockAcquired(): Promise<void> {
+    if (this.paused) return;
+    this.paused = true;
+    this.entered();
+    await this.resume;
+  }
+
+  protected override async readProcessStartIdentity(): Promise<string> {
+    return "test-live-incarnation";
+  }
+}
+
+class PausingBeforePublishFilesystemAgentTaskStore extends FilesystemAgentTaskStore {
+  private paused = false;
+
+  constructor(
+    root: string,
+    staleLockMs: number,
+    private readonly entered: (staging: string) => void,
+    private readonly resume: Promise<void>,
+  ) {
+    super(root, staleLockMs);
+  }
+
+  protected override async beforeLockPublish(staging: string): Promise<void> {
+    if (this.paused) return;
+    this.paused = true;
+    this.entered(staging);
+    await this.resume;
+  }
+}
+
+class FixedProcessIdentityFilesystemAgentTaskStore extends FilesystemAgentTaskStore {
+  constructor(root: string, private readonly identity: string, staleLockMs = 1) {
+    super(root, staleLockMs);
+  }
+
+  protected override async readProcessStartIdentity(): Promise<string> {
+    return this.identity;
+  }
 }
 
 function profile(
@@ -107,7 +206,7 @@ function createOptions(input: {
       }),
       admit: async () => ({
         admitted: true,
-        admissionId: "admission-001",
+        admissionBundle: testAdmissionBundle(),
         source: "kiln-work-governance",
       }),
     },
@@ -282,12 +381,33 @@ function nativeStoredJob(input: {
   readonly dispatchFenceId?: string;
 }): AgentTaskRecord {
   const updatedAt = now.toISOString();
+  const admissionBundle = testAdmissionBundle();
+  const actionClaim = input.dispatchFenceId
+    ? {
+        version: 1 as const,
+        attemptId: `agent-run:${input.id}`,
+        intentFingerprint: digestManagedEconomicValue({
+          kind: "agent-task-native-harness-launch",
+          jobId: input.id,
+          runId: `agent-run:${input.id}`,
+          requestFingerprint: digestManagedEconomicValue({ kind: "native-harness", id: input.id }),
+          admissionId: admissionBundle.admissionId,
+          route: nativeHarnessRoute,
+        }),
+        admissionId: admissionBundle.admissionId,
+        admissionBundle,
+        ownerGeneration: "agent-task-owner:test",
+        effectIdentity: `agent-task:${nativeHarnessRoute.adapterCapabilityId}:external-launch`,
+      }
+    : undefined;
   const dispatch = {
     ...nativeHarnessRoute,
+    admissionBundle,
     ...(input.dispatchFenceId ? { dispatchFenceId: input.dispatchFenceId } : {}),
+    ...(actionClaim ? { actionClaim } : {}),
   };
   return {
-    version: 13,
+    version: 14,
     run: {
       runId: `agent-run:${input.id}`,
       state: input.state,
@@ -303,7 +423,8 @@ function nativeStoredJob(input: {
     admissionProfileId: nativeHarnessProfile.admissionProfileId,
     dispatch,
     governanceSource: "kiln-work-governance",
-    admissionId: "admission-001",
+    admissionId: admissionBundle.admissionId,
+    admissionBundle,
     requestFingerprint: digestManagedEconomicValue({ kind: "native-harness", id: input.id }),
     idempotencyKeyHash: digestManagedEconomicValue({ kind: "native-harness-idempotency", id: input.id }),
     createdAt: updatedAt,
@@ -329,7 +450,7 @@ async function dispatchAccepted(
   return accepted;
 }
 
-describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
+describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
   it("holds approved-write work awaiting approval and never dispatches it without an attached receipt", async () => {
     const execute = vi.fn();
     const service = new AgentTaskApplicationService({
@@ -347,7 +468,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
 
     const accepted = await service.accept(submission);
-    expect(accepted).toMatchObject({ version: 13, state: "awaiting_approval" });
+    expect(accepted).toMatchObject({ version: 14, state: "awaiting_approval" });
     await expect(service.attachWriteApproval(query, accepted.id, "approval-000001")).rejects.toMatchObject({
       code: "admission_denied",
     });
@@ -571,7 +692,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
   });
 
-  it("aborts active execution and ignores a late successful result after cancellation", async () => {
+  it("aborts active execution but keeps the post-claim projection nonterminal", async () => {
     const execution = deferred<{
       readonly runtimeInvocationId: string;
       readonly completedAt: string;
@@ -607,7 +728,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     const dispatch = service.dispatch(accepted.id);
     await vi.waitFor(() => expect(observedSignal).toBeDefined());
 
-    await expect(service.cancel(query, accepted.id)).resolves.toMatchObject({ state: "cancelled", diagnostic: "cancelled" });
+    await expect(service.cancel(query, accepted.id)).resolves.toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
     expect(observedSignal?.aborted).toBe(true);
     execution.resolve({
       runtimeInvocationId: "runtime-invocation-late",
@@ -629,12 +750,11 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
 
     const cancelled = await dispatch;
-    expect(cancelled).toMatchObject({ state: "cancelled" });
+    expect(cancelled).toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
     expect(cancelled).not.toHaveProperty("result");
     await expect(service.getResult(query, accepted.id)).resolves.toMatchObject({
-      availability: "failed",
-      lifecycleState: "cancelled",
-      diagnostic: "cancelled",
+      availability: "unresolved",
+      lifecycleState: "interrupted",
     });
   });
 
@@ -709,7 +829,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
 
     expect(job).toMatchObject({
-      version: 13,
+      version: 14,
       state: "succeeded",
       dispatch: {
         kind: "native-harness",
@@ -863,7 +983,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     expect(resolveRoute).not.toHaveBeenCalled();
   });
 
-  it("persists sanitized terminal failure evidence identically in status, result, replay, and lifecycle", async () => {
+  it("keeps post-claim harness failures nonterminal without persisting child error payloads", async () => {
     const store = new InMemoryAgentTaskStore();
     const service = new AgentTaskApplicationService({
       ...createOptions({ store }),
@@ -887,12 +1007,12 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
       classification: "harness_version_mismatch",
       diagnosticUri: "kiln://diagnostics/agent-tasks/harness-version-mismatch",
     };
-    expect(job).toMatchObject({ state: "failed", failureEvidence: expectedEvidence });
-    expect(job.lifecycle.at(-1)).toMatchObject({ state: "failed", failureEvidence: expectedEvidence });
+    expect(job).toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+    expect(job).not.toHaveProperty("failureEvidence");
     expect(JSON.stringify(job)).not.toContain("secret payload");
-    await expect(service.getStatus(query, job.id)).resolves.toMatchObject({ failureEvidence: expectedEvidence });
-    await expect(service.getResult(query, job.id)).resolves.toMatchObject({ availability: "failed", failureEvidence: expectedEvidence });
-    await expect(service.getReplay(query, job.id)).resolves.toMatchObject({ resultAvailability: "failed", failureEvidence: expectedEvidence });
+    await expect(service.getStatus(query, job.id)).resolves.toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+    await expect(service.getResult(query, job.id)).resolves.toMatchObject({ availability: "unresolved", lifecycleState: "interrupted" });
+    await expect(service.getReplay(query, job.id)).resolves.toMatchObject({ lifecycleState: "interrupted" });
   });
 
   it("fails closed to sanitized unknown evidence for invalid diagnostic URIs and untyped errors", async () => {
@@ -910,12 +1030,14 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     const invalidUri = await dispatchAccepted(makeService(), { ...submission, configuredAgentProfileId: nativeHarnessProfile.id, idempotencyKey: "failure-invalid-uri" });
     const unknown = await dispatchAccepted(makeService(), { ...submission, configuredAgentProfileId: nativeHarnessProfile.id, idempotencyKey: "failure-unknown" });
 
-    expect(invalidUri.failureEvidence).toEqual({ version: 1, classification: "native_session_error" });
-    expect(unknown.failureEvidence).toEqual({ version: 1, classification: "unknown_failure" });
+    expect(invalidUri.state).toBe("interrupted");
+    expect(unknown.state).toBe("interrupted");
+    expect(invalidUri).not.toHaveProperty("failureEvidence");
+    expect(unknown).not.toHaveProperty("failureEvidence");
     expect(JSON.stringify([invalidUri, unknown])).not.toContain("provider-secret");
   });
 
-  it("preserves a typed provider timeout as the terminal timed_out diagnostic", async () => {
+  it("keeps a typed provider timeout post-claim nonterminal", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-timeout-"));
     try {
       const store = new FilesystemAgentTaskStore(root);
@@ -947,26 +1069,17 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
         idempotencyKey: "typed-provider-timeout",
       });
 
-      expect(job).toMatchObject({
-        state: "timed_out",
-        diagnostic: "provider_timeout",
-        failureEvidence: {
-          version: 1,
-          classification: "provider_timeout",
-          diagnosticUri: "kiln://managed-agents/invocations/timeout-test/resources/timeout",
-          transportPhase: "first_byte",
-        },
-      });
+      expect(job).toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+      expect(job).not.toHaveProperty("failureEvidence");
       await expect(service.getResult(query, job.id)).resolves.toMatchObject({
-        availability: "failed",
-        diagnostic: "provider_timeout",
+        availability: "unresolved",
+        lifecycleState: "interrupted",
       });
       await expect(service.getReplay(query, job.id)).resolves.toMatchObject({
-        lifecycleState: "timed_out",
+        lifecycleState: "interrupted",
       });
       await expect(new FilesystemAgentTaskStore(root).get(job.id)).resolves.toMatchObject({
-        state: "timed_out",
-        failureEvidence: { classification: "provider_timeout", transportPhase: "first_byte" },
+        state: "interrupted",
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -977,9 +1090,9 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     const store = new InMemoryAgentTaskStore();
     const events: string[] = [];
     const fence = store.fenceNativeHarness.bind(store);
-    const fenceSpy = vi.spyOn(store, "fenceNativeHarness").mockImplementation(async (id, dispatchFenceId, updatedAt) => {
+    const fenceSpy = vi.spyOn(store, "fenceNativeHarness").mockImplementation(async (id, dispatchFenceId, updatedAt, actionClaim) => {
       events.push("fence");
-      return fence(id, dispatchFenceId, updatedAt);
+      return fence(id, dispatchFenceId, updatedAt, actionClaim);
     });
     const execution = vi.fn(async (input: Parameters<NonNullable<AgentTaskApplicationOptions["nativeHarnessExecution"]>["execute"]>[0]) => {
       events.push("process");
@@ -1045,9 +1158,24 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
     const accepted = await service.accept({ ...submission, configuredAgentProfileId: nativeHarnessProfile.id });
 
+    const actionClaim = {
+      version: 1 as const,
+      attemptId: accepted.run.runId,
+      intentFingerprint: digestManagedEconomicValue({
+        kind: "agent-task-native-harness-launch",
+        jobId: accepted.id,
+        runId: accepted.run.runId,
+        requestFingerprint: accepted.requestFingerprint,
+        admissionId: accepted.admissionId,
+        route: nativeHarnessRoute,
+      }),
+      admissionId: accepted.admissionId,
+      ownerGeneration: "agent-task-owner:test",
+      effectIdentity: `agent-task:${nativeHarnessRoute.adapterCapabilityId}:external-launch`,
+    };
     const [first, second] = await Promise.all([
-      store.fenceNativeHarness(accepted.id, "native-harness-dispatch:concurrent-000001"),
-      store.fenceNativeHarness(accepted.id, "native-harness-dispatch:concurrent-000002"),
+      store.fenceNativeHarness(accepted.id, "native-harness-dispatch:concurrent-000001", now.toISOString(), actionClaim),
+      store.fenceNativeHarness(accepted.id, "native-harness-dispatch:concurrent-000002", now.toISOString(), actionClaim),
     ]);
 
     expect([first.kind, second.kind].sort()).toEqual(["acquired", "existing"]);
@@ -1057,13 +1185,249 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     expect(existing.job).toEqual(acquired.job);
   });
 
+  it("does not displace a live paused owner whose lease looks stale", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-live-lease-"));
+    try {
+      const seedStore = new FilesystemAgentTaskStore(root);
+      const service = new AgentTaskApplicationService({
+        ...createOptions({ store: seedStore }),
+        profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+        routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
+      });
+      const accepted = await service.accept({ ...submission, configuredAgentProfileId: nativeHarnessProfile.id });
+      const actionClaim = {
+        version: 1 as const,
+        attemptId: accepted.run.runId,
+        intentFingerprint: digestManagedEconomicValue({
+          kind: "agent-task-native-harness-launch",
+          jobId: accepted.id,
+          runId: accepted.run.runId,
+          requestFingerprint: accepted.requestFingerprint,
+          admissionId: accepted.admissionId,
+          route: nativeHarnessRoute,
+        }),
+        admissionId: accepted.admissionId,
+        admissionBundle: accepted.admissionBundle,
+        ownerGeneration: "agent-task-owner:live-lease-test",
+        effectIdentity: `agent-task:${nativeHarnessRoute.adapterCapabilityId}:external-launch`,
+      };
+      const entered = deferred<void>();
+      const resume = deferred<void>();
+      const firstStore = new PausingFilesystemAgentTaskStore(
+        root,
+        1_000,
+        () => entered.resolve(),
+        resume.promise,
+      );
+      const secondStore = new FixedProcessIdentityFilesystemAgentTaskStore(root, "test-live-incarnation", 1_000);
+      const first = firstStore.fenceNativeHarness(
+        accepted.id,
+        "native-harness-dispatch:live-owner-000001",
+        now.toISOString(),
+        actionClaim,
+      );
+
+      await entered.promise;
+      const lock = join(root, ".agent-tasks.lock");
+      await utimes(lock, new Date(0), new Date(0));
+      const ownerFile = (await readdir(lock)).find((entry) => entry.startsWith("owner-") && entry.endsWith(".json"));
+      expect(ownerFile).toBeDefined();
+      const ownerPath = join(lock, ownerFile!);
+      const owner = JSON.parse(await readFile(ownerPath, "utf8")) as Record<string, unknown>;
+      await writeFile(ownerPath, `${JSON.stringify({ ...owner, heartbeatAt: 1 })}\n`, "utf8");
+
+      let secondSettled = false;
+      const second = secondStore.fenceNativeHarness(
+        accepted.id,
+        "native-harness-dispatch:live-owner-000002",
+        now.toISOString(),
+        actionClaim,
+      ).finally(() => {
+        secondSettled = true;
+      });
+      await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 25));
+      expect(secondSettled).toBe(false);
+
+      resume.resolve();
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.kind).toBe("acquired");
+      expect(secondResult.kind).toBe("existing");
+      expect(secondResult.job).toEqual(firstResult.job);
+      await expect(new FilesystemAgentTaskStore(root).get(accepted.id)).resolves.toMatchObject({
+        state: "running",
+        dispatch: { dispatchFenceId: "native-harness-dispatch:live-owner-000001" },
+      });
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers a stale lease only after its recorded owner process exits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-dead-lease-"));
+    try {
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => undefined, 25)"], {
+        stdio: "ignore",
+      });
+      const childPid = child.pid;
+      expect(childPid).toBeGreaterThan(0);
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        child.once("error", rejectPromise);
+        child.once("exit", () => resolvePromise());
+      });
+
+      const lock = join(root, ".agent-tasks.lock");
+      await mkdir(lock, { recursive: true });
+      await writeFile(join(lock, "owner-dead-owner.json"), `${JSON.stringify({
+        version: 1,
+        ownerToken: "dead-owner",
+        leaseGeneration: "dead-generation",
+        pid: childPid,
+        processStartIdentity: "dead-incarnation",
+        heartbeatAt: 1,
+      })}\n`, "utf8");
+
+      await expect(new FilesystemAgentTaskStore(root, 1).get("missing-job")).resolves.toBeUndefined();
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a pre-publication staging lease nonblocking without exposing an ownerless lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-lock-staging-"));
+    try {
+      const entered = deferred<string>();
+      const resume = deferred<void>();
+      const firstStore = new PausingBeforePublishFilesystemAgentTaskStore(
+        root,
+        1_000,
+        (staging) => entered.resolve(staging),
+        resume.promise,
+      );
+      const first = firstStore.get("missing-job");
+      const staging = await entered.promise;
+      const lock = join(root, ".agent-tasks.lock");
+
+      const stagedEntries = await readdir(staging);
+      expect(stagedEntries).toEqual([expect.stringMatching(/^owner-.+\.json$/u)]);
+      await expect(JSON.parse(await readFile(join(staging, stagedEntries[0]!)))).toMatchObject({
+        version: 1,
+        ownerToken: expect.any(String),
+        leaseGeneration: expect.any(String),
+        processStartIdentity: expect.any(String),
+      });
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+
+      await expect(new FilesystemAgentTaskStore(root, 1_000).get("missing-job")).resolves.toBeUndefined();
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+
+      resume.resolve();
+      await expect(first).resolves.toBeUndefined();
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves only nonblocking staging debris when a process crashes before lock publication", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-lock-crash-"));
+    const marker = join(root, "staging-path.txt");
+    try {
+      const storesModule = new URL("../../src/agent-tasks/stores.ts", import.meta.url).href;
+      const childScript = `
+        import { writeFile } from "node:fs/promises";
+        import { FilesystemAgentTaskStore } from ${JSON.stringify(storesModule)};
+        class CrashBeforePublicationStore extends FilesystemAgentTaskStore {
+          protected async beforeLockPublish(staging) {
+            await writeFile(${JSON.stringify(marker)}, staging, "utf8");
+            process.exit(0);
+          }
+        }
+        await new CrashBeforePublicationStore(${JSON.stringify(root)}, 1000).get("missing-job");
+      `;
+      const child = spawn("bun", ["-e", childScript], { stdio: "ignore" });
+      const childExit = new Promise<void>((resolvePromise, rejectPromise) => {
+        child.once("error", rejectPromise);
+        child.once("exit", () => resolvePromise());
+      });
+      await childExit;
+      const staging = await readFile(marker, "utf8");
+      const lock = join(root, ".agent-tasks.lock");
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+      const stagedEntries = await readdir(staging);
+      expect(stagedEntries).toEqual([expect.stringMatching(/^owner-.+\.json$/u)]);
+      await expect(JSON.parse(await readFile(join(staging, stagedEntries[0]!)))).toMatchObject({
+        version: 1,
+        ownerToken: expect.any(String),
+        leaseGeneration: expect.any(String),
+        processStartIdentity: expect.any(String),
+      });
+
+      await expect(new FilesystemAgentTaskStore(root, 1_000).get("missing-job")).resolves.toBeUndefined();
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers an empty canonical lock left by a crash after owner-marker release", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-lock-release-crash-"));
+    try {
+      const lock = join(root, ".agent-tasks.lock");
+      await mkdir(lock, { recursive: true });
+      const store = new FilesystemAgentTaskStore(root);
+
+      await expect(store.get("missing-job")).resolves.toBeUndefined();
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a stale lock when its live PID belongs to a different process incarnation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-task-incarnation-"));
+    try {
+      const lock = join(root, ".agent-tasks.lock");
+      await mkdir(lock, { recursive: true });
+      await writeFile(join(lock, "owner-old-incarnation.json"), `${JSON.stringify({
+        version: 1,
+        ownerToken: "old-incarnation",
+        leaseGeneration: "old-generation",
+        pid: process.pid,
+        processStartIdentity: "process-incarnation:old",
+        heartbeatAt: 1,
+      })}\n`, "utf8");
+
+      await expect(new FixedProcessIdentityFilesystemAgentTaskStore(root, "process-incarnation:new").get("missing-job")).resolves.toBeUndefined();
+      await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns one atomic economic fence owner and mirrors the persisted run dispatch", async () => {
     const store = new InMemoryAgentTaskStore();
     const accepted = await new AgentTaskApplicationService(createOptions({ store })).accept(submission);
+    const actionClaim = {
+      version: 1 as const,
+      attemptId: "attempt-economic-concurrent",
+      intentFingerprint: digestManagedEconomicValue({
+        kind: "agent-task-economic-dispatch",
+        jobId: accepted.id,
+        runId: accepted.run.runId,
+        requestFingerprint: accepted.requestFingerprint,
+        admissionId: accepted.admissionId,
+      }),
+      admissionId: accepted.admissionId,
+      admissionBundle: accepted.admissionBundle,
+      ownerGeneration: "agent-task-owner:test",
+      effectIdentity: "agent-task:managed-economic-provider-dispatch",
+    };
 
     const [first, second] = await Promise.all([
-      store.fenceEconomic(accepted.id, "managed-economic-dispatch:concurrent-000001", now.toISOString()),
-      store.fenceEconomic(accepted.id, "managed-economic-dispatch:concurrent-000002", now.toISOString()),
+      store.projectEconomicDispatch(accepted.id, "managed-economic-dispatch:concurrent-000001", now.toISOString(), actionClaim),
+      store.projectEconomicDispatch(accepted.id, "managed-economic-dispatch:concurrent-000002", now.toISOString(), actionClaim),
     ]);
 
     expect([first.kind, second.kind].sort()).toEqual(["acquired", "existing"]);
@@ -1079,7 +1443,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
 
   it("settles a fenced economic commitment when task-fence persistence fails before provider execution", async () => {
     const store = new InMemoryAgentTaskStore();
-    const fenceEconomic = vi.spyOn(store, "fenceEconomic").mockRejectedValue(
+    const projectEconomicDispatch = vi.spyOn(store, "projectEconomicDispatch").mockRejectedValue(
       new AgentTaskApplicationError("job_persistence_unavailable", "Persist the economic task fence."),
     );
     const recordExecutionSettlementPending = vi.fn(async () => undefined);
@@ -1102,13 +1466,156 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
     const accepted = await service.accept(submission);
 
-    await expect(service.dispatch(accepted.id)).rejects.toMatchObject({ code: "job_persistence_unavailable" });
-    expect(fenceEconomic).toHaveBeenCalledOnce();
+    await expect(service.dispatch(accepted.id)).resolves.toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+    expect(projectEconomicDispatch).toHaveBeenCalledOnce();
     expect(recordExecutionSettlementPending).toHaveBeenCalledWith("agent-task-economic-fence-persistence-failed");
     expect(execute).not.toHaveBeenCalled();
+    await expect(store.get(accepted.id)).resolves.toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+  });
+
+  it("enforces paid-spend approval and consumes the write receipt in one pre-fence callback", async () => {
+    const approvalOrder: string[] = [];
+    let receipt: import("../../src/managed-write-approvals/sqlite-managed-write-approval-authority.js").ManagedWriteApprovalReceipt | undefined;
+    const consume = vi.fn(() => {
+      if (!receipt) throw new Error("missing approval receipt");
+      approvalOrder.push("write");
+      receipt = {
+        ...receipt,
+        state: "consumed",
+        consumedAt: now.toISOString(),
+        consumedBy: "agent-task:job-000000001",
+      };
+      return receipt;
+    });
+    const requestEconomicApproval = vi.fn(async () => {
+      approvalOrder.push("spend");
+      return { approved: true } as const;
+    });
+    const prepare = vi.fn(async (input: {
+      readonly validateAndConsumeApprovalBeforeFence?: (value: { readonly commitment: unknown }) => Promise<void>;
+    }) => {
+      await input.validateAndConsumeApprovalBeforeFence?.({
+        commitment: {
+          reservation: {
+            amounts: [{ atoms: "1", scale: 0, unit: "request", scheme: { kind: "currency", currency: "USD" } }],
+            selectedIdentity: { route: { routeId: "codex-primary" } },
+          },
+        },
+      });
+      return { status: "denied" as const, decision: {} as never };
+    });
+    const writeProfile = {
+      ...profile(),
+      admissionProfileId: "foundation-apply-approved-writes" as const,
+      economicSpendApproval: "required" as const,
+    };
+    const writeCandidates = {
+      ...candidateSet(),
+      admissionProfileId: "foundation-apply-approved-writes" as const,
+    };
+    const service = new AgentTaskApplicationService({
+      ...createOptions({
+        currentProfile: () => writeProfile,
+        currentCandidates: () => writeCandidates,
+      }),
+      economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+      economicDispatch: { prepare } as unknown as ManagedEconomicDispatchCoordinator,
+      economicExecution: { execute: vi.fn() },
+      requestEconomicApproval,
+      writeApprovals: {
+        inspect: () => receipt,
+        consume,
+        revoke: () => { throw new Error("not used"); },
+      },
+    });
+    const accepted = await service.accept(submission);
+    if (accepted.dispatch.kind !== "economic") throw new Error("Expected an economic task.");
+    const candidate = accepted.dispatch.candidateSet.candidates[0];
+    if (!candidate) throw new Error("Expected one economic candidate.");
+    receipt = {
+      approvalId: "managed-write-approval:combined-001",
+      state: "issued",
+      binding: {
+        projectId: accepted.projectId,
+        jobId: accepted.id,
+        callerId: accepted.callerId,
+        workItemFingerprint: accepted.requestFingerprint,
+        configuredAgentProfileId: accepted.configuredAgentProfileId,
+        admissionProfileId: "foundation-apply-approved-writes",
+        routeId: candidate.routeId,
+        providerId: candidate.providerId,
+        model: candidate.model,
+        adapterCapabilityId: candidate.adapterCapabilityId,
+        adapterCapabilityVersion: candidate.adapterCapabilityVersion,
+        authorityDigest: `sha256:${"a".repeat(64)}`,
+        effectDigest: `sha256:${"b".repeat(64)}`,
+        revisionDigest: `sha256:${"c".repeat(64)}`,
+      },
+      issuedAt: now.toISOString(),
+      expiresAt: "2099-08-10T00:00:00.000Z",
+      approverId: "operator",
+    };
+    await service.attachWriteApproval(query, accepted.id, receipt.approvalId);
+
+    await service.dispatch(accepted.id);
+
+    expect(requestEconomicApproval).toHaveBeenCalledOnce();
+    expect(consume).toHaveBeenCalledOnce();
+    expect(approvalOrder).toEqual(["spend", "write"]);
+  });
+
+  it("closes a queued projection when the economic authority races past the recovery read", async () => {
+    const store = new InMemoryAgentTaskStore();
+    const prepare = vi.fn(async () => ({
+      status: "already-dispatched" as const,
+      record: {} as never,
+    }));
+    const execute = vi.fn();
+    const service = new AgentTaskApplicationService({
+      ...createOptions({ store }),
+      economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+      economicDispatch: { prepare } as unknown as ManagedEconomicDispatchCoordinator,
+      economicExecution: { execute },
+    });
+    const accepted = await service.accept(submission);
+
+    await expect(service.dispatch(accepted.id)).resolves.toMatchObject({
+      state: "interrupted",
+      diagnostic: "result_pending",
+    });
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
     await expect(store.get(accepted.id)).resolves.toMatchObject({
-      state: "queued",
-      dispatch: expect.not.objectContaining({ dispatchFenceId: expect.any(String) }),
+      state: "interrupted",
+      diagnostic: "result_pending",
+    });
+  });
+
+  it("marks unknown when the economic coordinator fences then fails before returning a claim", async () => {
+    const store = new InMemoryAgentTaskStore();
+    const recoveryQuery = vi.fn()
+      .mockReturnValueOnce("absent" as const)
+      .mockReturnValue("dispatch-fenced" as const);
+    const prepare = vi.fn(async () => {
+      throw new Error("coordinator failed after durable fence");
+    });
+    const service = new AgentTaskApplicationService({
+      ...createOptions({ store }),
+      commitmentRecovery: { query: recoveryQuery },
+      economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+      economicDispatch: { prepare } as unknown as ManagedEconomicDispatchCoordinator,
+      economicExecution: { execute: vi.fn() },
+    });
+    const accepted = await service.accept(submission);
+
+    await expect(service.dispatch(accepted.id)).resolves.toMatchObject({
+      state: "interrupted",
+      diagnostic: "result_pending",
+    });
+    expect(recoveryQuery).toHaveBeenCalledTimes(2);
+    await expect(store.get(accepted.id)).resolves.toMatchObject({
+      state: "interrupted",
+      diagnostic: "result_pending",
     });
   });
 
@@ -1411,7 +1918,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
       ["native-job-queued", "interrupted"],
       ["native-job-running", "interrupted"],
     ]);
-    expect(recovered.every((job) => job.diagnostic === "invocation_failed")).toBe(true);
+    expect(recovered.every((job) => job.diagnostic === "result_pending")).toBe(true);
     expect(execution).not.toHaveBeenCalled();
     await expect(store.get("native-job-running")).resolves.toMatchObject({
       state: "interrupted",
@@ -1429,7 +1936,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     await expect(store.get(accepted.id)).resolves.toMatchObject({ state: "queued" });
   });
 
-  it("holds an economic record with a persisted dispatch fence without redispatch", async () => {
+  it("marks a queued economic projection with a persisted dispatch fence unresolved without redispatch", async () => {
     const store = new InMemoryAgentTaskStore();
     const accepted = await new AgentTaskApplicationService(createOptions({ store })).accept(submission);
     const execute = vi.fn();
@@ -1438,8 +1945,58 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
       economicExecution: { execute },
     });
 
-    await expect(service.dispatch(accepted.id)).resolves.toMatchObject({ state: "queued" });
+    await expect(service.dispatch(accepted.id)).resolves.toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+    await expect(store.get(accepted.id)).resolves.toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("cancels a queued economic projection with a canonical fence as unresolved", async () => {
+    const store = new InMemoryAgentTaskStore();
+    const accepted = await new AgentTaskApplicationService(createOptions({ store })).accept(submission);
+    const service = new AgentTaskApplicationService(createOptions({ store, commitmentState: "dispatch-fenced" }));
+
+    await expect(service.cancel(query, accepted.id)).resolves.toMatchObject({
+      state: "interrupted",
+      diagnostic: "result_pending",
+    });
+    await expect(store.get(accepted.id)).resolves.toMatchObject({
+      state: "interrupted",
+      diagnostic: "result_pending",
+    });
+  });
+
+  it("persists the unknown economic projection across reopen and never retries it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-economic-recovery-"));
+    try {
+      const firstStore = new FilesystemAgentTaskStore(root);
+      const first = new AgentTaskApplicationService(createOptions({
+        store: firstStore,
+        commitmentState: "dispatch-fenced",
+      }));
+      const accepted = await first.accept(submission);
+
+      // Simulate a process dying after the economic ledger fence but before
+      // the task projection write. The next owner must close the queued view
+      // durably before any retry can reach provider execution.
+      const reopenedStore = new FilesystemAgentTaskStore(root);
+      const reopened = new AgentTaskApplicationService(createOptions({
+        store: reopenedStore,
+        commitmentState: "dispatch-fenced",
+      }));
+      const recovered = await reopened.dispatch(accepted.id);
+      expect(recovered).toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
+      await expect(new FilesystemAgentTaskStore(root).get(accepted.id)).resolves.toMatchObject({
+        state: "interrupted",
+        diagnostic: "result_pending",
+      });
+      await expect(reopened.dispatch(accepted.id)).resolves.toMatchObject({
+        state: "interrupted",
+        diagnostic: "result_pending",
+      });
+      expect(await reopened.recoverInterrupted()).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("replays native route identity and fence without economic evidence", async () => {
@@ -1472,7 +2029,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     const job = await dispatchAccepted(service, submission);
 
     expect(job).toMatchObject({
-      version: 13,
+      version: 14,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       dispatch: {
@@ -1567,7 +2124,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ dispatch: { kind: "economic", economic: { availability: "unavailable", reason: "evidence-unprojectable" } } });
   });
 
-  it("persists one V13 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
+  it("persists one V14 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();
     const selectedCommitment = {
@@ -1662,7 +2219,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
 
     const completed = await dispatchAccepted(service, submission);
     expect(completed).toMatchObject({
-      version: 13,
+      version: 14,
       state: "succeeded",
       objective: submission.objective,
       dispatch: {
@@ -1755,7 +2312,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     }));
   });
 
-  it("returns the persisted V13 run identity and decision time on a later replay", async () => {
+  it("returns the persisted V14 run identity and decision time on a later replay", async () => {
     let currentTime = now;
     const store = new InMemoryAgentTaskStore();
     const service = new AgentTaskApplicationService(createOptions({
@@ -1769,7 +2326,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
 
     expect(replay).toEqual(first);
     expect(replay).toMatchObject({
-      version: 13,
+      version: 14,
       dispatch: { kind: "economic", economicAttemptId: "economic-attempt:attempt-000000001" },
       adoptedDecisionAt: now.toISOString(),
     });
@@ -1849,7 +2406,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
   });
 
-  it("preserves V13 idempotency across a filesystem restart", async () => {
+  it("preserves V14 idempotency across a filesystem restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-v9-"));
     try {
       const first = new AgentTaskApplicationService(createOptions({
@@ -1866,7 +2423,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
         await readFile(join(root, "agent-tasks", "agent-tasks.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 13 });
+      expect(persisted[0]).toMatchObject({ version: 14 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1893,7 +2450,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     }])).rejects.toMatchObject({ code: "job_persistence_corrupt" });
   });
 
-  it("fails closed for corrupt V13 candidate evidence", async () => {
+  it("fails closed for corrupt V14 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-agent-tasks-corrupt-"));
     try {
       const service = new AgentTaskApplicationService(createOptions({
@@ -1932,7 +2489,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
           throw new Error("unused");
         },
         listNonterminal: async () => [],
-        fenceEconomic: async () => {
+        projectEconomicDispatch: async () => {
           throw new Error("unused");
         },
         fenceNativeHarness: async () => {

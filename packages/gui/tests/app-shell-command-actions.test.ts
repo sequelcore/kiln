@@ -21,7 +21,6 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellCommandE
     setWorkbenchSurface: vi.fn(),
     persistThemePreference: vi.fn(async () => {}),
     onThemePersistenceFailed: vi.fn(),
-    toggleOperatorTerminal: vi.fn(),
     ...overrides,
   };
 }
@@ -82,16 +81,6 @@ describe("createAppShellCommandExecutor", () => {
     expect(input.setTargetedPlanMode).toHaveBeenCalledWith(true);
     expect(input.setWorkbenchSurface).toHaveBeenNthCalledWith(1, "chat");
     expect(input.openConfigurationSettings).toHaveBeenCalledOnce();
-  });
-
-  it("toggles the local operator terminal from the shared GUI command", () => {
-    const input = createInput();
-    const execute = createAppShellCommandExecutor(input);
-
-    execute({ id: "terminal", label: "Terminal" });
-
-    expect(input.toggleOperatorTerminal).toHaveBeenCalledOnce();
-    expect(input.closePalette).toHaveBeenCalledOnce();
   });
 
   it("applies recognized theme commands and ignores unknown command ids", () => {

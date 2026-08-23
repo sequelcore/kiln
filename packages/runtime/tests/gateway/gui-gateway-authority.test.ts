@@ -3,6 +3,7 @@ import { defineDeliberationLevelId, type ProviderAdapter, resolveCommunicationIn
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { createFixtureClaimConfig, createFixtureToolPermission } from "../session/runtime-claim-fixture.js";
 
 vi.mock("hono/bun", () => ({
   createBunWebSocket: () => ({
@@ -481,16 +482,28 @@ describe("GUI authority forwarding", () => {
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "gpt-5.4-mini",
       tools: [{ name: "glob", description: "Match files by glob pattern.", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["glob", toolFn]]),
     });
+    const currentSession = makeSession();
+    const candidateConfig = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
+    const { modelOverride: _modelOverride, ...candidateWithoutOverride } = candidateConfig;
 
     await orchestrator.processMessage(
-      makeSession(),
+      currentSession,
       textParts("run dangerous tool"),
       undefined,
       undefined,
-      buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
+      {
+        ...candidateWithoutOverride,
+        ...createFixtureClaimConfig({
+          session: currentSession,
+          provider,
+          model: "gpt-5.4-mini",
+          toolPermissions: [createFixtureToolPermission("glob")],
+        }),
+      },
     );
 
     expect(toolFn).toHaveBeenCalledTimes(1);

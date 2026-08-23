@@ -10,6 +10,7 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+import { managedEconomicAdmissionContract } from "./managed-economic-admission-fixture.js";
 
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
@@ -135,6 +136,10 @@ function approvalProducerAttachment(
       invocationService: service,
       economicDispatch: { prepare },
     },
+    childAuthorityAdmission: managedEconomicAdmissionContract({
+      sessionId: "session-approval-producer",
+      turnId: "turn-approval-producer",
+    }),
     callerIdentity: {
       kind: "kiln-runtime",
       surface: "test",
@@ -566,6 +571,10 @@ describe("managed economic candidate admission", () => {
           },
         },
       },
+      childAuthorityAdmission: managedEconomicAdmissionContract({
+        sessionId: "session-test",
+        turnId: "turn-test",
+      }),
       callerIdentity: {
         kind: "kiln-runtime",
         surface: "test",

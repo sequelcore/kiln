@@ -231,11 +231,6 @@ export { type CatalogPricing, MODEL_CATALOG, CODEX_DEFAULT_MODEL } from "./model
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
 export { ToolCache } from "./tool-cache.js";
-export { compressContext } from "./context-compressor.js";
-export type { CompressOptions } from "./context-compressor.js";
-export { ToolRAG } from "./tool-rag.js";
-export { AgentRAG } from "./agent-rag.js";
-export type { AgentDescription, AgentRagResult } from "./agent-rag.js";
 export { OpenAISttAdapter } from "./infrastructure/openai-stt.js";
 export type { OpenAISttConfig } from "./infrastructure/openai-stt.js";
 export { DeepgramSttAdapter } from "./infrastructure/deepgram-stt.js";
@@ -340,7 +335,6 @@ export type {
 } from "./execution-identity.js";
 export {
   admitOperatorExecutionIntent,
-  dispatchOneModelRound,
   defineExecutionCatalog,
   decideExecutionRouteDataPolicy,
   defineExecutionDataClassification,
@@ -468,7 +462,6 @@ export type {
 } from "./provider-model-eligibility.js";
 export {
   CredentialPool,
-  PooledProviderAdapter,
   AllCredentialsExhaustedError,
   isOk,
   isRetryable,
@@ -498,8 +491,6 @@ export type {
   PoolMetrics,
   CredentialPoolSnapshot,
   CredentialPoolEntrySnapshot,
-  ErrorOutcomeMapper,
-  PooledProviderAdapterConfig,
 } from "./credential-pool/index.js";
 export * from "./managed-invocation/index.js";
 export {

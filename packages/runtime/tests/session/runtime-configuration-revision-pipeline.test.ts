@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "../../src/session/runtime-configuration-revision-pin.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
@@ -10,7 +11,52 @@ function makeContext(
   orchestrator: RuntimeSessionOrchestrator,
   sessionRegistry: SessionRegistry,
   provider: NonNullable<AdmittedTurnContext["runtimeConfigurationRevisionProvider"]>,
+  options: {
+    readonly sessionId?: string;
+    readonly turnOrdinal?: number;
+    readonly revision?: RuntimeConfigurationRevisionSnapshot;
+  } = {},
 ): AdmittedTurnContext {
+  const sessionId = options.sessionId ?? "revision-test-session";
+  const turnId = `${sessionId}:turn:${options.turnOrdinal ?? 1}`;
+  const revision = options.revision ?? { revisionSetId: "R1", revisions: { route: "route-R1" } };
+  const authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
+    sessionId,
+    turnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "revision-test", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "Revision pipeline fixture", subjectId: sessionId },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "revision-test",
+        reason: "Revision pipeline fixture",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
   return {
     orchestrator,
     sessionRegistry,
@@ -19,7 +65,10 @@ function makeContext(
     userId: "operator",
     channel: "test",
     userParts: textParts("hello"),
+    sessionId,
     runtimeConfigurationRevisionProvider: provider,
+    authorityAdmission,
+    perCallConfig: { authorityAdmission, turnId },
   };
 }
 
@@ -33,17 +82,15 @@ describe("admitted-turn configuration revision", () => {
     const sessionRegistry = new SessionRegistry();
     const provider = vi.fn(() => ({ revisionSetId: "R2", revisions: { route: "route-R2" } }));
 
-    await processAdmittedTurn({
-      ...makeContext(orchestrator, sessionRegistry, provider),
-      perCallConfig: {
-        runtimeConfigurationRevision: { revisionSetId: "R1", revisions: { route: "route-R1" } },
-      },
-    });
+    await processAdmittedTurn(makeContext(orchestrator, sessionRegistry, provider));
 
     expect(provider).not.toHaveBeenCalled();
     expect(processMessage.mock.calls[0]?.[4]).toMatchObject({
-      runtimeConfigurationRevision: { revisionSetId: "R1" },
-      runtimeSessionConfigurationRevision: { revisionSetId: "R1" },
+      authorityAdmission: expect.objectContaining({
+        configuration: expect.objectContaining({
+          turnRevision: expect.objectContaining({ revisionSetId: "R1" }),
+        }),
+      }),
     });
   });
 
@@ -52,18 +99,7 @@ describe("admitted-turn configuration revision", () => {
       revisionSetId: "R1",
       revisions: { route: "route-R1" },
     };
-    let providerStarted!: () => void;
-    const started = new Promise<void>((resolve) => { providerStarted = resolve; });
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => { release = resolve; });
-    let reads = 0;
-    const provider = async (): Promise<RuntimeConfigurationRevisionSnapshot> => {
-      reads += 1;
-      providerStarted();
-      const admitted = current;
-      await blocked;
-      return admitted;
-    };
+    const provider = vi.fn(async (): Promise<RuntimeConfigurationRevisionSnapshot> => current);
     const processMessage = vi.fn().mockResolvedValue({
       parts: textParts("done"),
       inputTokens: 1,
@@ -76,30 +112,31 @@ describe("admitted-turn configuration revision", () => {
     const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = new SessionRegistry();
 
-    const firstTurn = processAdmittedTurn(makeContext(orchestrator, sessionRegistry, provider));
-    await started;
+    await processAdmittedTurn(makeContext(orchestrator, sessionRegistry, provider, {
+      revision: current,
+      turnOrdinal: 1,
+    }));
     current = { revisionSetId: "R2", revisions: { route: "route-R2" } };
-    release();
-    await firstTurn;
-    await processAdmittedTurn(makeContext(orchestrator, sessionRegistry, () => current));
+    await processAdmittedTurn(makeContext(orchestrator, sessionRegistry, provider, {
+      revision: current,
+      turnOrdinal: 2,
+    }));
 
-    expect(reads).toBe(1);
+    expect(provider).not.toHaveBeenCalled();
     expect(processMessage).toHaveBeenCalledTimes(2);
     expect(processMessage.mock.calls[0]?.[4]).toMatchObject({
-      runtimeConfigurationRevision: {
-        revisionSetId: "R1",
-        revisions: { route: "route-R1" },
-      },
+      authorityAdmission: expect.objectContaining({
+        configuration: expect.objectContaining({
+          turnRevision: expect.objectContaining({ revisionSetId: "R1", revisions: { route: "route-R1" } }),
+        }),
+      }),
     });
     expect(processMessage.mock.calls[1]?.[4]).toMatchObject({
-      runtimeConfigurationRevision: {
-        revisionSetId: "R2",
-        revisions: { route: "route-R2" },
-      },
-      runtimeSessionConfigurationRevision: {
-        revisionSetId: "R1",
-        revisions: { route: "route-R1" },
-      },
+      authorityAdmission: expect.objectContaining({
+        configuration: expect.objectContaining({
+          turnRevision: expect.objectContaining({ revisionSetId: "R2", revisions: { route: "route-R2" } }),
+        }),
+      }),
     });
   });
 
@@ -116,14 +153,17 @@ describe("admitted-turn configuration revision", () => {
     const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = new SessionRegistry();
 
-    await processAdmittedTurn({
-      ...makeContext(orchestrator, sessionRegistry, () => ({ revisionSetId: "R2", revisions: { route: "route-R2" } })),
+    await processAdmittedTurn(makeContext(orchestrator, sessionRegistry, () => ({ revisionSetId: "R2", revisions: { route: "route-R2" } }), {
       sessionId: "new-session",
-    });
+      revision: { revisionSetId: "R2", revisions: { route: "route-R2" } },
+    }));
 
     expect(processMessage.mock.calls[0]?.[4]).toMatchObject({
-      runtimeConfigurationRevision: { revisionSetId: "R2" },
-      runtimeSessionConfigurationRevision: { revisionSetId: "R2" },
+      authorityAdmission: expect.objectContaining({
+        configuration: expect.objectContaining({
+          turnRevision: expect.objectContaining({ revisionSetId: "R2" }),
+        }),
+      }),
     });
   });
 });

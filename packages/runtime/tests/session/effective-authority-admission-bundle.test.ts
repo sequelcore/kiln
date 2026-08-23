@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
   defineEffectiveAuthorityAdmissionBundle,
   projectToolPermissionAdmissionFromPerCallConfig,
+  readExecutionBinding,
+  readExecutionConfigurationRevision,
+  readExecutionOperatorAdoptionDecision,
+  readExecutionRoute,
+  readExecutionToolAllowlist,
+  readExecutionToolAuthority,
+  readExecutionTurnAuthority,
+  readExecutionTurnId,
   type EffectiveAuthorityAdmissionBundleInput,
 } from "../../src/session/effective-authority-admission-bundle.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.types.js";
-import type { ActionEffectEnvelope, AuthorityDescriptor, Capability } from "@kilnai/core";
+import { projectEffectiveTurnAuthorityPerCallConfig } from "../../src/session/effective-turn-authority.js";
+import type { ActionEffectEnvelope, AuthorityDescriptor, Capability } from "@kilnai/core/engine";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 
 const READ_AUTHORITY: AuthorityDescriptor = { level: 1, allowed: true, requiresApproval: false, reason: "read-only tool admitted" };
@@ -137,7 +145,7 @@ describe("EffectiveAuthorityAdmissionBundle", () => {
     })).toThrow(/work governance.*operator-adoption/iu);
   });
 
-  it("transports an admitted adoption decision through the temporary per-call seam", () => {
+  it("reads every execution authority facet from the committed bundle", () => {
     const turnId = canonicalTurnId("session-1", 1);
     const decision = createOperatorAdoptionDecisionAuthority({
       ownerSessionId: "session-1", operatorTurnId: turnId, actorId: "operator",
@@ -146,67 +154,31 @@ describe("EffectiveAuthorityAdmissionBundle", () => {
       ...input(), turnId,
       turn: { ...input().turn, operatorAdoption: { status: "admitted", decision } },
     });
-    const projected = applyEffectiveAuthorityAdmissionBundleToPerCallConfig(bundle, {
-      perCallCapabilities: new Map(bundle.turn.tools.allowedToolPermissions.map((entry) => [entry.toolName, {
-        name: entry.toolName, description: entry.toolName, schema: {}, tags: [], effectEnvelope: entry.effectEnvelope,
-      }])),
-    });
-    expect(projected.operatorAdoptionDecision).toEqual(decision);
-    expect(() => applyEffectiveAuthorityAdmissionBundleToPerCallConfig(bundle, {
-      operatorAdoptionDecision: createOperatorAdoptionDecisionAuthority({
-        ownerSessionId: "session-1", operatorTurnId: turnId, actorId: "different-operator",
-      }),
-    })).toThrow(/operator-adoption.*mismatch/iu);
-  });
-
-  it("projects exact execution facets from the committed bundle over matching legacy transport", () => {
-    const bundle = defineEffectiveAuthorityAdmissionBundle(input());
-    const capabilities = new Map<string, Capability>(bundle.turn.tools.allowedToolPermissions.map((entry) => [entry.toolName, {
-      name: entry.toolName, description: entry.toolName, schema: { type: "object" }, tags: [], effectEnvelope: entry.effectEnvelope,
-    }]));
-    const legacy = {
-      toolAllowlist: new Set(["read_file", "write_file"]),
-      toolAuthority: new Map([["read_file", READ_AUTHORITY], ["write_file", WRITE_AUTHORITY]]),
-      perCallCapabilities: capabilities,
-      effectiveTurnAuthority: bundle.turn.authority,
-      runtimeConfigurationRevision: bundle.configuration.turnRevision,
-      executionBinding: bundle.turn.execution.status === "routed" ? bundle.turn.execution.binding : undefined,
-      additionalTools: [
-        { name: "read_file", description: "read", inputSchema: { type: "object" } },
-        { name: "write_file", description: "write", inputSchema: { type: "object" } },
-        { name: "unadmitted", description: "extra", inputSchema: { type: "object" } },
-      ],
-      toolCallMetadata: new Map([
-        ["read_file", () => ({})],
-        ["unadmitted", () => ({})],
-      ]),
-    } satisfies PerCallToolConfig;
-
-    const projected = applyEffectiveAuthorityAdmissionBundleToPerCallConfig(bundle, legacy);
-    expect([...projected.toolAllowlist ?? []]).toEqual(["read_file", "write_file"]);
-    expect(projected.toolAuthority?.get("write_file")).toEqual(WRITE_AUTHORITY);
-    expect(projected.perCallCapabilities?.get("write_file")?.effectEnvelope).toEqual(WRITE_EFFECT);
-    expect(projected.effectiveTurnAuthority).toEqual(bundle.turn.authority);
-    expect(projected.runtimeConfigurationRevision).toEqual(bundle.configuration.turnRevision);
-    expect(projected.admittedExecutionRoute).toEqual(
+    const config = { authorityAdmission: bundle };
+    expect([...readExecutionToolAllowlist(config) ?? []]).toEqual(["read_file", "write_file"]);
+    expect(readExecutionToolAuthority(config, "write_file")).toEqual(WRITE_AUTHORITY);
+    expect(readExecutionTurnAuthority(config)).toEqual(bundle.turn.authority);
+    expect(readExecutionConfigurationRevision(config)).toEqual(bundle.configuration.turnRevision);
+    expect(readExecutionBinding(config)).toEqual(
+      bundle.turn.execution.status === "routed" ? bundle.turn.execution.binding : undefined,
+    );
+    expect(readExecutionRoute(config)).toEqual(
       bundle.turn.execution.status === "routed" ? bundle.turn.execution.route : undefined,
     );
-    expect(projected.additionalTools?.map((tool) => tool.name)).toEqual(["read_file", "write_file"]);
-    expect([...projected.toolCallMetadata?.keys() ?? []]).toEqual(["read_file"]);
+    expect(readExecutionOperatorAdoptionDecision(config)).toEqual(decision);
+    expect(readExecutionTurnId(config)).toBe(turnId);
   });
 
-  it("rejects a mismatched legacy authority transport during migration", () => {
-    const bundle = defineEffectiveAuthorityAdmissionBundle(input());
-    expect(() => applyEffectiveAuthorityAdmissionBundleToPerCallConfig(bundle, {
-      toolAllowlist: new Set(["read_file"]),
-    })).toThrow(/mismatch/iu);
-    expect(() => applyEffectiveAuthorityAdmissionBundleToPerCallConfig(bundle, {
-      admittedExecutionRoute: {
-        routeId: "other-route",
-        providerId: "other-provider",
-        providerModelId: "other-model",
-      },
-    })).toThrow(/route mismatch/iu);
+  it("rejects every execution-authority read without the canonical bundle", () => {
+    const config = {} as PerCallToolConfig;
+    expect(() => readExecutionToolAllowlist(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionToolAuthority(config, "read_file")).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionTurnAuthority(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionConfigurationRevision(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionBinding(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionRoute(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionOperatorAdoptionDecision(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionTurnId(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
   });
 
   it("creates a deterministic content-addressed plain value", () => {

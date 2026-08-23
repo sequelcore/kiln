@@ -8,8 +8,6 @@ import type {
   ArtifactResourceStore,
   ContentPart,
   SttAdapter,
-  RetrievalPipeline,
-  ContactMemoryService,
 } from "@kilnai/core";
 import {
   projectFinalEffectivePromptObservation,
@@ -22,13 +20,11 @@ import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orch
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
-import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
 import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
-import { checkBudget, reportUsage } from "./budget-middleware.js";
+import { checkBudget } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
-import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import {
@@ -38,7 +34,6 @@ import {
   emitAudioTransformRoutingEvents,
   transformAudioParts,
 } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import {
   appendCoordinationProviderFailureAudit,
   projectAdmittedTurnContext,
@@ -52,6 +47,7 @@ import {
   type GatewayAuthorityAdmissionCommit,
   type GatewayAuthorityAdmissionPort,
 } from "./gateway-authority-admission.js";
+import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
 
 export interface WsTenantRoutesConfig {
   readonly webChannel: WebChannel;
@@ -61,14 +57,9 @@ export interface WsTenantRoutesConfig {
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
   readonly billing?: BillingConfig;
-  readonly eventEmitter?: ConversationEventEmitter;
   readonly allowedOrigins?: readonly string[];
   readonly sttAdapter?: SttAdapter;
   readonly artifactStore?: ArtifactResourceStore;
-  readonly knowledgePipeline?: RetrievalPipeline;
-  readonly knowledgeMode?: "auto" | "tool";
-  readonly contactMemoryService?: ContactMemoryService;
-  readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly coordinationContextProvider?: AdmittedTurnContext["coordinationContextProvider"];
   /** Required Runtime owner for durable authority admission before WS dispatch. */
@@ -172,32 +163,37 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
             }
 
             if (parsed.type === "message") {
-              if (!isRequestedAuthority(parsed.requestedAuthority)) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: "requestedAuthority must be auto, read_only, audited, or destructive",
-                }));
-                return;
-              }
+              const requestedAuthorityValid = isRequestedAuthority(parsed.requestedAuthority);
               const parsedCommunication = parsed.communicationIntent === undefined
                 ? undefined
                 : CommunicationIntentSchema.safeParse(parsed.communicationIntent);
-              if (parsedCommunication && !parsedCommunication.success) {
-                ws.send(JSON.stringify({ type: "error", message: "communicationIntent is invalid" }));
-                return;
-              }
+              const communicationIntentValid = parsedCommunication === undefined || parsedCommunication.success;
               const communicationIntent = parsedCommunication?.success
                 ? resolveCommunicationIntent([{ source: "user", intent: parsedCommunication.data }])
                 : undefined;
               const trace = new TraceContext();
               trace.log("ws", "Message received", { tenantId: tenant.tenantId, userId });
+              const clientMessageId = typeof parsed.messageId === "string"
+                ? parsed.messageId
+                : typeof parsed.requestId === "string"
+                  ? parsed.requestId
+                  : typeof parsed.id === "string" ? parsed.id : undefined;
+              const ingressId = clientMessageId
+                ? `ws:${tenant.tenantId}:${userId}:${clientMessageId}`
+                : crypto.randomUUID();
 
               const visitor = visitors.get(ws);
-              const displayName = visitor?.displayName;
 
               let userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
+
+              // A consequential inbound STT action needs a stable caller and
+              // idempotency identity. Do not manufacture a random replay key
+              // for an audio frame that the client cannot identify.
+              if (config.sttAdapter && hasModality(userParts, "audio") && !clientMessageId) {
+                return;
+              }
 
               // The session is the identity anchor required by admission;
               // all consequential processing below remains inside one
@@ -212,18 +208,42 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
               });
               try {
                 await config.gatewayAdmission.execute({
-                  ingressId: crypto.randomUUID(),
+                  ingressId,
                   appName: config.appName,
                   tenantId: tenant.tenantId,
-                  userId,
-                  sessionId: sessionAnchor.id,
-                  channel: "web",
-                  userParts,
-                  requestedAuthority: parsed.requestedAuthority,
-                }, async (admitted: GatewayAuthorityAdmissionCommit) => {
-                  const session = admitted.session;
+                   userId,
+                   sessionId: sessionAnchor.id,
+                   channel: "web",
+                   userParts,
+                   ...(requestedAuthorityValid ? { requestedAuthority: parsed.requestedAuthority as OperatorTurnRequestedAuthority | undefined } : {}),
+                 }, async (admitted: GatewayAuthorityAdmissionCommit) => {
+                   const session = admitted.session;
 
-              if (config.artifactStore) {
+               if (!requestedAuthorityValid) {
+                 await dispatchWsTenantEgress(config, admitted, ws, {
+                   tenantId: tenant.tenantId,
+                   userId,
+                   ingressId,
+                   slot: "error",
+                   frame: {
+                     type: "error",
+                     message: "requestedAuthority must be auto, read_only, audited, or destructive",
+                   },
+                 });
+                 return;
+               }
+               if (!communicationIntentValid) {
+                 await dispatchWsTenantEgress(config, admitted, ws, {
+                   tenantId: tenant.tenantId,
+                   userId,
+                   ingressId,
+                   slot: "error",
+                   frame: { type: "error", message: "communicationIntent is invalid" },
+                 });
+                 return;
+               }
+
+               if (config.artifactStore) {
                 try {
                   userParts = await captureMultimodalArtifacts(userParts, {
                     artifactStore: config.artifactStore,
@@ -232,13 +252,19 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     sourceIdPrefix: `${config.appName}:${tenant.tenantId}:${userId}:web`,
                     producerName: "gateway-web-ingress",
                   });
-                } catch (err) {
-                  ws.send(JSON.stringify({
-                    type: "error",
-                    message: err instanceof Error ? err.message : String(err),
-                  }));
-                  return;
-                }
+                 } catch (err) {
+                   await dispatchWsTenantEgress(config, admitted, ws, {
+                     tenantId: tenant.tenantId,
+                     userId,
+                     ingressId,
+                     slot: "error",
+                     frame: {
+                       type: "error",
+                       message: err instanceof Error ? err.message : String(err),
+                     },
+                   });
+                   return;
+                 }
               }
 
               // Governed audio transform route via STT.
@@ -250,6 +276,12 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   const transformed = await transformAudioParts(userParts, config.sttAdapter, createGenericMediaDownloader(), {
                     artifactStore: config.artifactStore,
                     sourceIdPrefix: `${config.appName}:${tenant.tenantId}:${userId}`,
+                    mediaActionClaims: admitted.runtimeMediaActionClaims,
+                    authorityAdmission: admitted.bundle,
+                    attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+                    callerId: `ws:${tenant.tenantId}:${userId}:voice-input`,
+                    idempotencyKey: ingressId,
+                    logicalSendSlotPrefix: "inbound-stt",
                   });
                   userParts = transformed.parts;
                   emitAudioTransformRoutingEvents({
@@ -266,11 +298,17 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                       tenantId: tenant.tenantId,
                       model: config.sttAdapter.name,
                     }, err.transforms);
-                    ws.send(JSON.stringify({
-                      type: "error",
-                      message: "I could not process that voice note. Please try again or send text.",
-                    }));
-                    return;
+                     await dispatchWsTenantEgress(config, admitted, ws, {
+                       tenantId: tenant.tenantId,
+                       userId,
+                       ingressId,
+                       slot: "error",
+                       frame: {
+                         type: "error",
+                         message: "I could not process that voice note. Please try again or send text.",
+                       },
+                     });
+                     return;
                   }
                   throw err;
                 }
@@ -281,40 +319,32 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 ? (tenant.billing as unknown as BillingConfig)
                 : config.billing;
 
-              // Emit MESSAGE_RECEIVED event (fire-and-forget)
-              if (config.eventEmitter) {
-                config.eventEmitter.emit({
-                  eventType: "MESSAGE_RECEIVED",
-                  tenantId: tenant.tenantId,
-                  channel: "web",
-                  externalUserId: userId,
-                  displayName,
-                  messageContent: extractText(userParts),
-                  messageRole: "USER",
-                  traceId: trace.traceId,
-                  timestamp: new Date().toISOString(),
-                });
-              }
 
               try {
                 // Budget check
                 if (activeBilling) {
                   const budgetResult = await checkBudget(activeBilling, tenant.tenantId);
-                  if (!budgetResult.allowed) {
-                    ws.send(JSON.stringify({
-                      type: "error",
-                      code: "BUDGET_EXHAUSTED",
-                      message: tenant.billing?.overBudgetMessage
-                        ?? activeBilling.overBudgetMessage ?? "Budget exhausted.",
-                    }));
-                    return;
+                   if (!budgetResult.allowed) {
+                     await dispatchWsTenantEgress(config, admitted, ws, {
+                       tenantId: tenant.tenantId,
+                       userId,
+                       ingressId,
+                       slot: "error",
+                       frame: {
+                         type: "error",
+                         code: "BUDGET_EXHAUSTED",
+                         message: tenant.billing?.overBudgetMessage
+                           ?? activeBilling.overBudgetMessage ?? "Budget exhausted.",
+                       },
+                     });
+                     return;
                   }
                 }
 
                 // Resolve agent context (multi-agent routing with ping-pong guard)
                 const agentCtx = await resolveAgentContextAsync(
                   tenant, userParts, session,
-                  { handoffSummarizer: config.handoffSummarizer, eventBus: config.eventBus },
+                  { eventBus: config.eventBus },
                   "web",
                 );
 
@@ -322,31 +352,6 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 session.setSystemPrompt(agentCtx.systemPrompt);
                 if (agentCtx.activeAgentId) {
                   session.setActiveAgent(agentCtx.activeAgentId, agentCtx.handoffBrief);
-                }
-
-                // Knowledge retrieval (auto mode)
-                let knowledgeContext: string | undefined;
-                if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "auto") {
-                  const queryText = extractText(userParts);
-                  if (queryText.length > 0) {
-                    try {
-                      const results = await config.knowledgePipeline.retrieve(queryText, { topK: 5 });
-                      knowledgeContext = formatKnowledgeContext(results);
-                    } catch {
-                      // fail-open
-                    }
-                  }
-                }
-
-                // Contact memory recall (fail-open)
-                let contactContext: string | undefined;
-                if (config.contactMemoryService) {
-                  try {
-                    const facts = await config.contactMemoryService.recall(userId, tenant.tenantId);
-                    contactContext = formatContactContext(facts);
-                  } catch {
-                    // fail-open
-                  }
                 }
 
                 const coordinationContext = await resolveCoordinationContextCandidates(config.coordinationContextProvider, {
@@ -363,10 +368,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   userContext: session.userContext,
                   cachedRuntimeSummary: undefined,
                   recalledMemoryCandidates: undefined,
-                  knowledgeContext,
-                  contactContext,
                   visitorContext,
-                  groundingMode: tenant.groundingMode,
                   coordinationContextCandidates: coordinationContext.candidates,
                 });
                 const projectedTurnContext = {
@@ -395,6 +397,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
                   {
                     ...admitted.perCallConfig,
+                    runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
                     ...(communicationIntent ? { communicationIntent } : {}),
                   },
                 );
@@ -402,145 +405,55 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 // Persist mutated session (required for non-reference stores like Redis)
                 await config.sessionRegistry.save(admittedSession);
 
-                // Emit handoff events when message was queued
-                if (result.queued && config.eventEmitter) {
-                  config.eventEmitter.emit({
-                    eventType: "HANDOFF_MESSAGE_QUEUED",
-                    tenantId: tenant.tenantId,
-                    channel: "web",
-                    externalUserId: userId,
-                    displayName,
-                    sessionMode: session.sessionMode,
-                    traceId: trace.traceId,
-                    timestamp: new Date().toISOString(),
-                  });
-                }
 
-                // Emit escalation event when detected
-                if (result.escalation && config.eventEmitter) {
-                  config.eventEmitter.emit({
-                    eventType: "ESCALATION_DETECTED",
-                    tenantId: tenant.tenantId,
-                    channel: "web",
-                    externalUserId: userId,
-                    displayName,
-                    escalationReason: result.escalation.reason,
-                    escalationDetail: result.escalation.detail,
-                    summary: result.contextSummary,
-                    sessionMode: session.sessionMode,
-                    traceId: trace.traceId,
-                    timestamp: new Date().toISOString(),
-                  });
-                }
 
-                // Emit TOOL_EXECUTED events for product backend visibility
-                if (result.toolExecutions && config.eventEmitter) {
-                  for (const exec of result.toolExecutions) {
-                    config.eventEmitter.emit({
-                      eventType: "TOOL_EXECUTED",
-                      tenantId: tenant.tenantId,
-                      channel: "web",
-                      externalUserId: userId,
-                      displayName,
-                      toolName: exec.toolName,
-                      durationMs: exec.durationMs,
-                      success: exec.success,
-                      resultSummary: exec.resultSummary,
-                      traceId: trace.traceId,
-                      timestamp: new Date().toISOString(),
-                    });
-                  }
-                }
 
                 // Emit AGENT_ROUTED when multi-agent routing is active
-                if (agentCtx.activeAgentId && config.eventEmitter) {
-                  config.eventEmitter.emit({
-                    eventType: "AGENT_ROUTED",
-                    tenantId: tenant.tenantId,
-                    channel: "web",
-                    externalUserId: userId,
-                    displayName,
-                    activeAgentId: agentCtx.activeAgentId,
-                    activeAgentName: agentCtx.activeAgentName,
-                    routingTier: agentCtx.routingResult?.tier,
-                    routingConfidence: agentCtx.routingResult?.confidence,
-                    traceId: trace.traceId,
-                    timestamp: new Date().toISOString(),
-                  });
-                }
 
                 // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
-                if ((agentCtx.isHandoff || agentCtx.pingPongBlocked) && config.eventEmitter) {
-                  const fromAgent = tenant.agents?.find((a) => a.id === agentCtx.previousAgentId);
-                  const toAgent = tenant.agents?.find((a) => a.id === agentCtx.activeAgentId);
-                  config.eventEmitter.emit({
-                    eventType: "AGENT_HANDOFF",
-                    tenantId: tenant.tenantId,
-                    channel: "web",
-                    externalUserId: userId,
-                    displayName,
-                    fromAgentId: agentCtx.previousAgentId,
-                    fromAgentName: fromAgent?.name,
-                    toAgentId: agentCtx.activeAgentId,
-                    toAgentName: toAgent?.name,
-                    handoffBrief: agentCtx.handoffBrief,
-                    handoffBlocked: agentCtx.pingPongBlocked,
-                    handoffBlockReason: agentCtx.pingPongReason,
-                    traceId: trace.traceId,
-                    timestamp: new Date().toISOString(),
-                  });
-                }
-
-                // Report usage (fire-and-forget)
-                if (activeBilling) {
-                  reportUsage(activeBilling, {
-                    tenantId: tenant.tenantId,
-                    messages: 1,
-                    tokens: result.inputTokens + result.outputTokens,
-                    model: config.orchestrator.model ?? "unknown",
-                  });
-                }
 
                 const { content: responseContent, suggestions: followUpSuggestions } =
                   extractSuggestions(extractText(result.parts));
 
-                ws.send(JSON.stringify({
-                  type: "done",
-                  content: responseContent,
-                  parts: result.parts,
-                  inputTokens: result.inputTokens,
-                  outputTokens: result.outputTokens,
-                  outcome: result.outcome,
-                  communicationResolution: result.communicationResolution,
-                  effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
-                }));
+                const assistantSent = await dispatchWsTenantEgress(config, admitted, ws, {
+                  tenantId: tenant.tenantId,
+                  userId,
+                  ingressId,
+                  slot: "assistant",
+                  frame: {
+                    type: "done",
+                    content: responseContent,
+                    parts: result.parts,
+                    inputTokens: result.inputTokens,
+                    outputTokens: result.outputTokens,
+                    outcome: result.outcome,
+                    communicationResolution: result.communicationResolution,
+                    effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
+                  },
+                });
+                if (!assistantSent) return;
 
                 if (followUpSuggestions.length > 0) {
-                  ws.send(JSON.stringify({
-                    type: "suggestions",
-                    items: followUpSuggestions,
-                  }));
-                }
-
-                // Emit MESSAGE_SENT event (fire-and-forget)
-                if (config.eventEmitter) {
-                  config.eventEmitter.emit({
-                    eventType: "MESSAGE_SENT",
+                  await dispatchWsTenantEgress(config, admitted, ws, {
                     tenantId: tenant.tenantId,
-                    channel: "web",
-                    externalUserId: userId,
-                    displayName,
-                    messageContent: responseContent,
-                    messageRole: "ASSISTANT",
-                    traceId: trace.traceId,
-                    timestamp: new Date().toISOString(),
+                    userId,
+                    ingressId,
+                    slot: "suggestions",
+                    frame: {
+                      type: "suggestions",
+                      items: followUpSuggestions,
+                    },
                   });
                 }
+
               } catch {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: "Something went wrong. Please try again.",
-                }));
+                await dispatchWsTenantEgress(config, admitted, ws, {
+                  tenantId: tenant.tenantId,
+                  userId,
+                  ingressId,
+                  slot: "error",
+                  frame: { type: "error", message: "Something went wrong. Please try again." },
+                });
               }
                   // Admission rejection is deliberately handled by the
                   // outer catch without emitting an outbound fallback.
@@ -569,4 +482,48 @@ function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAut
     || value === "read_only"
     || value === "audited"
     || value === "destructive";
+}
+
+type WsTenantEgressFrame = Record<string, unknown>;
+
+/**
+ * WebSocket assistant delivery is an external channel effect. The claim is
+ * consumed immediately before the one socket call; a closed socket or a
+ * duplicate claim is an unknown/no-redispatch outcome, never a fallback send.
+ */
+async function dispatchWsTenantEgress(
+  config: WsTenantRoutesConfig,
+  admitted: GatewayAuthorityAdmissionCommit,
+  ws: WSContext,
+  input: {
+    readonly tenantId: string;
+    readonly userId: string;
+    readonly ingressId: string;
+    readonly slot: "assistant" | "suggestions" | "error";
+    readonly frame: WsTenantEgressFrame;
+  },
+): Promise<boolean> {
+  try {
+    await dispatchChannelEgress({
+      context: config.gatewayAdmission.channelEgressActionClaims,
+      authorityAdmission: admitted.bundle,
+      attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+      callerId: `ws:${config.appName}:${input.tenantId}:${input.userId}`,
+      idempotencyKey: input.ingressId,
+      logicalSendSlot: input.slot,
+      channel: "web",
+      destination: `web:${config.appName}:${input.tenantId}:${input.userId}`,
+      adapterIdentity: "websocket:tenant",
+      payload: input.frame,
+      send: async () => {
+        if (ws.readyState !== 1) throw new Error("WebSocket is not open.");
+        ws.send(JSON.stringify(input.frame));
+      },
+    });
+    return true;
+  } catch {
+    // dispatchChannelEgress has already settled unknown when the socket call
+    // was reached. No error frame is attempted because that would be a retry.
+    return false;
+  }
 }

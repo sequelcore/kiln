@@ -4,10 +4,6 @@ import type {
   ArtifactResourceStore,
   SessionLimitsConfig,
   SkillRegistry,
-  GroundingMode,
-  GroundingResult,
-  ProviderAdapter,
-  ModelCapabilityRegistry,
   EventBus,
   ContextArtifactCache,
   ContextCandidate,
@@ -21,12 +17,12 @@ import type {
   ToolCalledEvent,
   ToolResultEvent,
   TenantConfig,
-  RetrievalPipeline,
   SttAdapter,
   TtsAdapter,
   VoiceConfig,
   CanonicalSessionEvent,
   SessionTurnOutcome,
+  EffectiveTurnAuthoritySnapshot,
   EffectivePromptObservation,
   CommunicationResolution,
 } from "@kilnai/core";
@@ -34,7 +30,6 @@ import {
   estimateTextTokens,
   extractText,
   textParts,
-  GroundingRail,
   skillConfigToContextCandidate,
   projectFinalEffectivePromptObservation,
 } from "@kilnai/core";
@@ -58,12 +53,8 @@ import type {
   BillingConfig
 } from "../budget-middleware.js";
 import {
-  checkBudget,
-  reportUsage
+  checkBudget
 } from "../budget-middleware.js";
-import type {
-  ConversationEventEmitter
-} from "../conversation-event-emitter.js";
 import type {
   SessionMode
 } from "../../session/session-mode.js";
@@ -73,9 +64,6 @@ import type {
 import {
   TraceContext
 } from "../trace-context.js";
-import {
-  formatKnowledgeContext
-} from "../context-formatter.js";
 import {
   formatRuntimeContinuityPresentation,
   normalizeRuntimeTaskShape,
@@ -97,8 +85,6 @@ import {
 } from "../../session/runtime-session-event-ledger.js";
 import {
   hasGovernedGoalTools,
-  prepareOperatorAdoptionTurn,
-  requireOperatorAdoptionDecisionPersistence,
   type OperatorAdoptionDecisionPersistence,
 } from "../../session/operator-adoption-authority.js";
 import {
@@ -111,11 +97,7 @@ import {
   buildTenantSystemPrompt
 } from "../../tenant/system-prompt-builder.js";
 import type {
-  AgentHandoffSummarizer
-} from "../../session/support/summarization/agent-handoff-summarizer.js";
-import type {
-  OperatorExecutionMode,
-  OperatorTurnRequestedAuthority
+  OperatorExecutionMode
 } from "@kilnai/gateway-contracts";
 import type {
   RuntimeSession
@@ -143,7 +125,6 @@ import {
   buildGovernedWorkMaterializationContextCandidate,
   buildWebSourceAttributionContextCandidate,
   hasWebToolAvailable,
-  projectRequestedAuthorityPerCallConfig,
   shouldIncludeGovernedWorkCloseoutContext
 } from "./procedural-context-candidates.js";
 import {
@@ -177,15 +158,21 @@ import {
 import {
   resolveVoiceInputParts
 } from "./voice-input-resolver.js";
-import {
-  captureRuntimeConfigurationRevision,
-  type RuntimeConfigurationRevisionProvider,
-  type RuntimeConfigurationRevisionSnapshot,
+import type {
+  RuntimeConfigurationRevisionProvider,
+  RuntimeConfigurationRevisionSnapshot,
 } from "../../session/runtime-configuration-revision-pin.js";
 import {
-  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
+  readExecutionBinding,
+  readExecutionConfigurationRevision,
+  readExecutionOperatorAdoptionDecision,
+  readExecutionToolAllowlist,
+  readExecutionTurnAuthority,
+  readExecutionTurnId,
   type EffectiveAuthorityAdmissionBundle,
 } from "../../session/effective-authority-admission-bundle.js";
+import { assertPersistableAuthorityAdmissionBundle } from "../../session/authority-admission-evidence.js";
+import type { RuntimeMediaActionClaimContext } from "../../execution-kernel/runtime-media-action-claim.js";
 
 export interface AdmittedTurnContext {
   readonly orchestrator: RuntimeSessionOrchestrator;
@@ -203,23 +190,18 @@ export interface AdmittedTurnContext {
   readonly sttAdapter?: SttAdapter;
   readonly ttsAdapter?: TtsAdapter;
   readonly billing?: BillingConfig;
-  readonly eventEmitter?: ConversationEventEmitter;
   readonly channel: string;
-  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly idleTimeoutMs?: number;
   readonly recalledMemoryCandidates?: readonly ContextCandidate[];
-  readonly knowledgeContext?: string;
-  readonly knowledgePipeline?: RetrievalPipeline;
-  readonly knowledgeMode?: "auto" | "tool";
-  readonly contactContext?: string;
   readonly tenant?: TenantConfig;
-  readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
-  readonly perCallConfig?: PerCallToolConfig;
-  /** Committed Runtime authority; when present it is the sole execution-authority source. */
-  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+  readonly perCallConfig: PerCallToolConfig;
+  /** Committed Runtime authority; the sole execution-authority source. */
+  readonly authorityAdmission: EffectiveAuthorityAdmissionBundle;
+  /** Workload-owned durable owner for consequential STT/TTS effects. */
+  readonly runtimeMediaActionClaims?: RuntimeMediaActionClaimContext;
   /** Reads the current secret-free configuration revision once per admitted turn. */
   readonly runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
   readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
@@ -235,7 +217,7 @@ export interface AdmittedTurnContext {
   readonly handoffBrief?: string;
   readonly pingPongBlocked?: boolean;
   readonly pingPongReason?: string;
-  readonly routingTier?: "rule" | "embedding" | "fallback";
+  readonly routingTier?: "rule" | "fallback";
   readonly routingConfidence?: number;
   readonly sessionLimits?: SessionLimitsConfig;
   readonly abuseDetection?: AbuseDetectionConfig;
@@ -245,13 +227,6 @@ export interface AdmittedTurnContext {
   readonly userContext?: Record<string, string>;
   readonly providerValidation?: readonly RuntimeTurnProviderValidation[];
   readonly executionMode?: OperatorExecutionMode;
-  readonly groundingMode?: GroundingMode;
-  readonly groundingDeps?: {
-    readonly rail: GroundingRail;
-    readonly providerPool: ReadonlyMap<string, ProviderAdapter>;
-    readonly modelRegistry: ModelCapabilityRegistry;
-    readonly eventBus?: EventBus;
-  };
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly coordinationContextProvider?: (input: {
@@ -334,7 +309,6 @@ export interface AdmittedTurnResult {
     readonly rationale?: import("@kilnai/core").ModelRoutingRationale;
   };
   readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
-  readonly groundingResult?: GroundingResult;
   readonly voiceOutput?: {
     readonly artifactUris: readonly string[];
     readonly provider: string;
@@ -353,7 +327,7 @@ export interface AdmittedTurnResult {
     readonly selectionReason?: string;
   };
   readonly contextAudit?: RuntimeContextAudit;
-  readonly effectiveTurnAuthority?: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>;
+  readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly communicationResolution?: CommunicationResolution;
   readonly effectivePromptObservation?: EffectivePromptObservation;
 }
@@ -382,12 +356,11 @@ interface SessionAdmissionState {
   readonly userParts: readonly ContentPart[];
   readonly userText: string;
   readonly taskShape: ReturnType<typeof normalizeRuntimeTaskShape>;
-  readonly effectiveKnowledgeContext?: string;
   readonly effectiveCallBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly effectivePerCallConfig?: PerCallToolConfig;
   readonly effectiveActiveAgentId?: string;
   readonly effectiveActiveAgentName?: string;
-  readonly effectiveRoutingTier?: "rule" | "embedding" | "fallback";
+  readonly effectiveRoutingTier?: "rule" | "fallback";
   readonly effectiveRoutingConfidence?: number;
   readonly effectiveIsHandoff?: boolean;
   readonly effectivePreviousAgentId?: string;
@@ -399,7 +372,7 @@ interface SessionAdmissionState {
 
 /**
  * Turn admission / session resolution: budget gate, session get-or-create (with
- * optional resume hydration), voice-input transcription, knowledge retrieval, and
+ * optional resume hydration), and voice-input transcription.
  * multi-agent routing/tool registration. Returns either a terminal budget-denied
  * result or the admitted state consumed by the remaining phases.
  */
@@ -410,6 +383,26 @@ async function resolveSessionAndAgentContext(
   | { readonly kind: "stop"; readonly result: ProcessResult }
   | { readonly kind: "continue"; readonly state: SessionAdmissionState }
 > {
+  // Validate both transported admission values before artifact, tenant, or
+  // provider work. The persistence assertion recomputes each complete bundle
+  // digest and returns its canonical normalized value; comparing those values
+  // prevents an authority-id-only match or object-identity shortcut from
+  // admitting a mutated per-call bundle.
+  const admittedAuthority = assertPersistableAuthorityAdmissionBundle(ctx.authorityAdmission);
+  const perCallAuthority = ctx.perCallConfig.authorityAdmission;
+  if (perCallAuthority === undefined) {
+    throw new Error("Admitted turn config must carry the exact EffectiveAuthorityAdmissionBundle.");
+  }
+  let canonicalPerCallAuthority: EffectiveAuthorityAdmissionBundle;
+  try {
+    canonicalPerCallAuthority = assertPersistableAuthorityAdmissionBundle(perCallAuthority);
+  } catch {
+    throw new Error("Admitted turn config must carry the exact EffectiveAuthorityAdmissionBundle.");
+  }
+  if (JSON.stringify(canonicalPerCallAuthority) !== JSON.stringify(admittedAuthority)) {
+    throw new Error("Admitted turn config must carry the exact EffectiveAuthorityAdmissionBundle.");
+  }
+
   let userParts = ctx.artifactStore
     ? await captureMultimodalArtifacts(ctx.userParts, {
       artifactStore: ctx.artifactStore,
@@ -417,6 +410,7 @@ async function resolveSessionAndAgentContext(
       sourceKind: "uploaded-file",
       sourceIdPrefix: `${ctx.appName}:${ctx.tenantId}:${ctx.userId}:${ctx.channel}`,
       producerName: `gateway-${ctx.channel}-ingress`,
+      abortSignal: ctx.perCallConfig?.abortSignal,
     })
     : ctx.userParts;
   const turnStartedAt = new Date();
@@ -448,10 +442,7 @@ async function resolveSessionAndAgentContext(
   // Capture once after the ingress budget gate and before work that can span
   // the turn. Later phases receive this exact frozen value and never reread
   // live configuration.
-  const runtimeConfigurationRevision = ctx.perCallConfig?.runtimeConfigurationRevision
-    ?? (ctx.runtimeConfigurationRevisionProvider
-      ? await captureRuntimeConfigurationRevision(ctx.runtimeConfigurationRevisionProvider)
-      : undefined);
+  const runtimeConfigurationRevision = readExecutionConfigurationRevision(ctx.perCallConfig);
 
   const shouldAttemptResumeHydration = ctx.admittedSession === undefined
     && ctx.sessionId !== undefined
@@ -523,24 +514,19 @@ async function resolveSessionAndAgentContext(
     userId: ctx.userId,
     channel: ctx.channel,
     sessionId: session.id,
+    mediaActionClaims: ctx.runtimeMediaActionClaims,
+    authorityAdmission: ctx.authorityAdmission,
+    attemptId: ctx.perCallConfig?.runtimeModelRoundDispatch?.attemptId,
+    callerId: `${ctx.channel}:voice-input:${ctx.userId}:${session.id}`,
+    idempotencyKey: ctx.authorityAdmission?.turnId ?? session.id,
+    logicalSendSlotPrefix: "inbound-stt",
+    abortSignal: ctx.perCallConfig?.abortSignal,
   });
   userParts = voiceInput.parts;
   preAdmissionRuntimeEvents = voiceInput.events;
 
   const userText = extractText(userParts);
   const taskShape = normalizeRuntimeTaskShape(userText);
-
-  let effectiveKnowledgeContext = ctx.knowledgeContext;
-  if (!effectiveKnowledgeContext && ctx.knowledgePipeline && (ctx.knowledgeMode ?? "auto") === "auto") {
-    if (userText.length > 0) {
-      try {
-        const results = await ctx.knowledgePipeline.retrieve(userText, { topK: 5 });
-        effectiveKnowledgeContext = formatKnowledgeContext(results);
-      } catch {
-        // fail-open
-      }
-    }
-  }
 
   let effectiveCallBuiltinTools = ctx.callBuiltinTools;
   let effectivePerCallConfig = ctx.perCallConfig;
@@ -560,7 +546,7 @@ async function resolveSessionAndAgentContext(
       ctx.tenant,
       userParts,
       session,
-      { handoffSummarizer: ctx.handoffSummarizer, eventBus: ctx.eventBus },
+      { eventBus: ctx.eventBus },
       undefined,
       effectiveCallBuiltinTools,
       session.userContext,
@@ -588,21 +574,41 @@ async function resolveSessionAndAgentContext(
       effectiveCallBuiltinTools = tenantToolCtx.callBuiltinTools;
     }
 
-    const baseToolAllowlist = effectivePerCallConfig?.toolAllowlist;
-    const tenantToolAllowlist = tenantToolCtx.toolAllowlist;
-    const narrowedToolAllowlist = baseToolAllowlist && tenantToolAllowlist
-      ? new Set([...tenantToolAllowlist].filter((name) => baseToolAllowlist.has(name)))
-      : tenantToolAllowlist ?? baseToolAllowlist;
-    effectivePerCallConfig = {
-      ...effectivePerCallConfig,
-      tenantId: effectiveTenantId,
-      toolAuthority: tenantToolCtx.toolAuthority,
-      toolAllowlist: narrowedToolAllowlist,
-      rateLimiter: tenantToolCtx.rateLimiter,
-      additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
-      perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-      ...(tenantToolCtx.executionEnvelope ? { executionEnvelope: tenantToolCtx.executionEnvelope } : {}),
-    };
+    if (effectivePerCallConfig?.authorityAdmission) {
+      // Tenant routing may contribute model-visible definitions and runtime
+      // limits, but it cannot replace any committed authority facet. Keep
+      // only definitions/capabilities already named by the immutable bundle.
+      const committedToolAllowlist = readExecutionToolAllowlist(effectivePerCallConfig);
+      const admittedTenantTools = tenantToolCtx.toolDefinitions.filter((tool) => committedToolAllowlist?.has(tool.name));
+      const admittedTenantCapabilities = new Map(
+        [...tenantToolCtx.capabilities.entries()].filter(([name]) => committedToolAllowlist?.has(name)),
+      );
+      effectivePerCallConfig = {
+        ...effectivePerCallConfig,
+        tenantId: effectiveTenantId,
+        rateLimiter: tenantToolCtx.rateLimiter,
+        ...(admittedTenantTools.length > 0
+          ? { additionalTools: admittedTenantTools, perCallCapabilities: admittedTenantCapabilities }
+          : {}),
+        ...(tenantToolCtx.executionEnvelope ? { executionEnvelope: tenantToolCtx.executionEnvelope } : {}),
+      };
+    } else {
+      const baseToolAllowlist = effectivePerCallConfig?.toolAllowlist;
+      const tenantToolAllowlist = tenantToolCtx.toolAllowlist;
+      const narrowedToolAllowlist = baseToolAllowlist && tenantToolAllowlist
+        ? new Set([...tenantToolAllowlist].filter((name) => baseToolAllowlist.has(name)))
+        : tenantToolAllowlist ?? baseToolAllowlist;
+      effectivePerCallConfig = {
+        ...effectivePerCallConfig,
+        tenantId: effectiveTenantId,
+        toolAuthority: tenantToolCtx.toolAuthority,
+        toolAllowlist: narrowedToolAllowlist,
+        rateLimiter: tenantToolCtx.rateLimiter,
+        additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
+        perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+        ...(tenantToolCtx.executionEnvelope ? { executionEnvelope: tenantToolCtx.executionEnvelope } : {}),
+      };
+    }
 
     session.setSystemPrompt(agentCtx.systemPrompt);
     if (agentCtx.activeAgentId) {
@@ -628,7 +634,6 @@ async function resolveSessionAndAgentContext(
       userParts,
       userText,
       taskShape,
-      effectiveKnowledgeContext,
       effectiveCallBuiltinTools,
       effectivePerCallConfig,
       effectiveActiveAgentId,
@@ -655,26 +660,11 @@ async function applyTurnGuards(
   state: SessionAdmissionState,
   trace: TraceContext,
 ): Promise<ProcessResult | undefined> {
-  const { session, effectiveTenantId, userText } = state;
+  const { session, userText } = state;
 
   // Session turn limit check
   if (ctx.sessionLimits?.maxTurns && session.userTurnCount >= ctx.sessionLimits.maxTurns) {
     trace.warn("pipeline", "Session turn limit reached", { turns: session.userTurnCount, max: ctx.sessionLimits.maxTurns });
-    if (ctx.eventEmitter) {
-      ctx.eventEmitter.emit({
-        eventType: "SESSION_LIMIT_REACHED",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        limitType: "turns",
-        limitValue: session.userTurnCount,
-        limitMax: ctx.sessionLimits.maxTurns,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
     session.setSessionMode("human_active");
     await ctx.sessionRegistry.save(session);
     return {
@@ -696,21 +686,6 @@ async function applyTurnGuards(
   // Session token limit check
   if (ctx.sessionLimits?.maxTokens && session.totalTokens >= ctx.sessionLimits.maxTokens) {
     trace.warn("pipeline", "Session token limit reached", { tokens: session.totalTokens, max: ctx.sessionLimits.maxTokens });
-    if (ctx.eventEmitter) {
-      ctx.eventEmitter.emit({
-        eventType: "SESSION_LIMIT_REACHED",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        limitType: "tokens",
-        limitValue: session.totalTokens,
-        limitMax: ctx.sessionLimits.maxTokens,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
     session.setSessionMode("human_active");
     await ctx.sessionRegistry.save(session);
     return {
@@ -734,20 +709,6 @@ async function applyTurnGuards(
     const abuse = detectRepetitiveAbuse(userText, session.conversationHistory, ctx.abuseDetection);
     if (abuse) {
       trace.warn("pipeline", "Abuse detected", { type: abuse.type, confidence: abuse.confidence });
-      if (ctx.eventEmitter) {
-        ctx.eventEmitter.emit({
-          eventType: "SESSION_LIMIT_REACHED",
-          tenantId: effectiveTenantId,
-          channel: ctx.channel,
-          externalUserId: ctx.userId,
-          sessionId: session.id,
-          schemaVersion: "1",
-          limitType: "abuse",
-          limitValue: abuse.confidence,
-          traceId: trace.traceId,
-          timestamp: new Date().toISOString(),
-        });
-      }
       session.setSessionMode("human_active");
       await ctx.sessionRegistry.save(session);
       return {
@@ -801,40 +762,28 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
 
-  const authorityPerCallConfig = projectRequestedAuthorityPerCallConfig(
-    effectivePerCallConfig,
-    executionMode,
-    ctx.requestedAuthority,
-    "gateway admitted turn requested authority",
-  );
-  const projectedPerCallConfig = ctx.contextPolicy
-    ? { ...authorityPerCallConfig, contextPolicy: ctx.contextPolicy }
-    : authorityPerCallConfig;
-  const canonicalTurn = resolveCanonicalTurnIdentity(
-    session,
-    projectedPerCallConfig?.turnCorrelationId,
-  );
-  let perCallConfig: PerCallToolConfig = {
-    ...projectedPerCallConfig,
-    turnId: canonicalTurn.turnId,
-    ...(state.runtimeConfigurationRevision
-      ? { runtimeConfigurationRevision: state.runtimeConfigurationRevision }
-      : {}),
-    ...(state.runtimeSessionConfigurationRevision
-      ? { runtimeSessionConfigurationRevision: state.runtimeSessionConfigurationRevision }
-      : {}),
-  };
-  if (ctx.authorityAdmission) {
-    if (ctx.authorityAdmission.sessionId !== session.id) {
-      throw new Error("Committed authority admission does not belong to the admitted Runtime session.");
-    }
-    if (ctx.authorityAdmission.turnId !== canonicalTurn.turnId) {
-      throw new Error("Committed authority admission does not belong to the canonical Runtime turn.");
-    }
-    perCallConfig = applyEffectiveAuthorityAdmissionBundleToPerCallConfig(
-      ctx.authorityAdmission,
-      perCallConfig,
-    );
+  if (!effectivePerCallConfig?.authorityAdmission) {
+    throw new Error("Admitted turn execution config is missing its EffectiveAuthorityAdmissionBundle.");
+  }
+  const canonicalTurn = resolveCanonicalTurnIdentity(session, effectivePerCallConfig.turnCorrelationId);
+  if (ctx.authorityAdmission.sessionId !== session.id || ctx.authorityAdmission.turnId !== canonicalTurn.turnId) {
+    throw new Error("Committed authority admission does not belong to the canonical Runtime turn.");
+  }
+  let perCallConfig: PerCallToolConfig = ctx.contextPolicy
+    ? { ...effectivePerCallConfig, contextPolicy: ctx.contextPolicy }
+    : effectivePerCallConfig;
+  // Preserve the exact full bundle and workload-owned media owner through the
+  // model-facing per-call projection. Legacy authority facets are deliberately
+  // not reconstructed here.
+  if (ctx.runtimeMediaActionClaims) {
+    perCallConfig = {
+      ...perCallConfig,
+      runtimeMediaActionClaims: ctx.runtimeMediaActionClaims,
+      runtimeMediaActionAdmission: ctx.authorityAdmission,
+      runtimeMediaActionAttemptId: ctx.perCallConfig?.runtimeModelRoundDispatch?.attemptId,
+      runtimeMediaActionCallerId: `${ctx.channel}:multimodal:${ctx.userId}:${session.id}`,
+      runtimeMediaActionIdempotencyKey: ctx.authorityAdmission?.turnId ?? session.id,
+    };
   }
   // These values are runtime authority transport, not model-facing request
   // configuration. Keep them directly readable by the orchestrator while
@@ -865,7 +814,7 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
   }
   proceduralContextCandidates.push(buildAuthorityGuidanceContextCandidate(perCallConfig, {
     executionMode,
-    requestedAuthority: ctx.requestedAuthority,
+    requestedAuthority: readExecutionTurnAuthority(perCallConfig).requestedAuthority,
   }));
   if (perCallConfig?.governedWorkRequirement) {
     proceduralContextCandidates.push(
@@ -899,9 +848,6 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
     userContext: session.userContext,
     cachedRuntimeSummary,
     recalledMemoryCandidates: ctx.recalledMemoryCandidates,
-    knowledgeContext: state.effectiveKnowledgeContext,
-    contactContext: ctx.contactContext,
-    groundingMode: ctx.groundingMode,
     proceduralContextCandidates,
     coordinationContextCandidates: coordinationContext.candidates,
     contextPolicy: ctx.contextPolicy,
@@ -938,35 +884,31 @@ async function invokeOrchestratorWithLedgerCapture(
   const { projectedTurnContext, runtimeContinuityPresentation, canonicalTurnIdentity } = assembled;
   let perCallConfig = assembled.perCallConfig;
 
+  const executionToolAllowlist = readExecutionToolAllowlist(perCallConfig);
   const governedGoalTools = hasGovernedGoalTools({
-    toolAllowlist: perCallConfig?.toolAllowlist,
-    additionalTools: perCallConfig?.additionalTools,
-    builtinToolNames: state.effectiveCallBuiltinTools?.keys(),
+    toolAllowlist: executionToolAllowlist,
+    additionalTools: perCallConfig?.authorityAdmission
+      ? perCallConfig.additionalTools?.filter((tool) => executionToolAllowlist?.has(tool.name))
+      : perCallConfig?.additionalTools,
+    // A committed bundle enumerates the executable tool authority. Do not
+    // treat the complete builtin registry as an adoption trigger after the
+    // commit boundary, or a legacy decision would be prepared here.
+    builtinToolNames: perCallConfig?.authorityAdmission ? undefined : state.effectiveCallBuiltinTools?.keys(),
   });
   // A1 authority is durable before the first model/tool round. Ingress turn
   // ids (request/live/attempt) remain correlation-only and are never authority.
   // A sink is mandatory whenever governed goal tools are available; callers
   // that provide one also get the canonical decision for non-governed turns.
-  const admittedAdoptionDecision = perCallConfig?.operatorAdoptionDecision;
+  const admittedAdoptionDecision = readExecutionOperatorAdoptionDecision(perCallConfig);
   if (admittedAdoptionDecision) {
     if (admittedAdoptionDecision.ownerSessionId !== session.id
       || admittedAdoptionDecision.operatorTurnId !== canonicalTurnIdentity.turnId) {
       throw new Error("Committed operator adoption decision does not belong to the canonical Runtime turn.");
     }
-  } else if (governedGoalTools || ctx.persistCanonicalSessionEvent) {
-    const persist = requireOperatorAdoptionDecisionPersistence(ctx.persistCanonicalSessionEvent);
-    const prepared = await prepareOperatorAdoptionTurn({
-      session,
-      actorId: ctx.userId,
-      identity: canonicalTurnIdentity,
-      persist,
-    });
-    perCallConfig = {
-      ...perCallConfig,
-      turnId: prepared.turnId,
-      ...(prepared.correlationId ? { turnCorrelationId: prepared.correlationId } : {}),
-      operatorAdoptionDecision: prepared.operatorAdoptionDecision,
-    };
+  } else {
+    if (governedGoalTools) {
+      throw new Error("Committed authority admission lacks an admitted operator-adoption decision for governed tools.");
+    }
   }
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
@@ -1053,8 +995,8 @@ async function invokeOrchestratorWithLedgerCapture(
       : [...retainedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
     const failureEvents = appendCanonicalTurnEvents({
       session,
-      executionRouteId: perCallConfig?.executionBinding?.routeId,
-      turnId: perCallConfig?.turnId,
+      executionRouteId: readExecutionBinding(perCallConfig)?.routeId,
+      turnId: readExecutionTurnId(perCallConfig),
       channel: ctx.channel,
       userMessageContent: state.userText,
       queued: false,
@@ -1094,76 +1036,6 @@ async function invokeOrchestratorWithLedgerCapture(
 type OrchestrationOutcome = Awaited<ReturnType<typeof invokeOrchestratorWithLedgerCapture>>;
 
 /**
- * Post-generation grounding verification (Tier 2): re-checks the assistant response
- * against retrieved knowledge chunks with a cheap structured-output judge model, and
- * replaces the response with a fallback message when it is found ungrounded.
- * Fails open on any evaluation error.
- */
-async function verifyGroundedResponse(
-  ctx: AdmittedTurnContext,
-  state: SessionAdmissionState,
-  orchestration: OrchestrationOutcome,
-  trace: TraceContext,
-): Promise<{ resultParts: readonly ContentPart[]; groundingResult: GroundingResult | undefined }> {
-  const { result } = orchestration;
-  let groundingResult: GroundingResult | undefined;
-  let resultParts = result.parts;
-
-  if (
-    ctx.groundingMode === "verified" &&
-    ctx.groundingDeps &&
-    state.effectiveKnowledgeContext &&
-    !result.queued &&
-    extractText(result.parts)
-  ) {
-    const chunks = state.effectiveKnowledgeContext.split("\n---\n").filter(Boolean);
-    const responseText = extractText(result.parts);
-    try {
-      // Select cheapest model with structured output support
-      const groundingCandidates = ctx.groundingDeps.modelRegistry
-        .all()
-        .filter((p) => p.supportsStructuredOutput)
-        .sort((a, b) => a.inputPer1M - b.inputPer1M);
-      const judge = groundingCandidates[0];
-      const provider = judge ? ctx.groundingDeps.providerPool.get(judge.provider) : undefined;
-      if (provider && judge) {
-        groundingResult = await ctx.groundingDeps.rail.evaluate(responseText, chunks, provider, judge.model);
-        // Emit internal event
-        if (ctx.groundingDeps.eventBus) {
-          const evt: import("@kilnai/core").GroundingEvaluatedEvent = {
-            type: "grounding_evaluated",
-            timestamp: new Date(),
-            sessionId: state.session.id,
-            tenantId: ctx.tenantId,
-            grounded: groundingResult.grounded,
-            confidence: groundingResult.confidence,
-            ungroundedClaims: groundingResult.ungroundedClaims,
-            durationMs: groundingResult.durationMs,
-            model: groundingResult.model,
-          };
-          ctx.groundingDeps.eventBus.emit(evt);
-        }
-        // Replace response if ungrounded
-        if (!groundingResult.grounded) {
-          trace.warn("pipeline", "Grounding check failed", {
-            confidence: groundingResult.confidence,
-            claims: groundingResult.ungroundedClaims.length,
-          });
-          resultParts = textParts("I don't have enough verified information to answer that accurately. Let me connect you with our team for a precise answer.");
-        }
-      }
-    } catch (err) {
-      // Fail-open: grounding check error does not block the response
-      trace.warn("pipeline", "Grounding check error (fail-open)", { error: String(err) });
-    }
-  }
-
-  return { resultParts, groundingResult };
-}
-
-type GroundedResponse = Awaited<ReturnType<typeof verifyGroundedResponse>>;
-
-/**
  * Egress sanitization + voice synthesis + turn-record persistence: merges tool
  * execution evidence, extracts governed-work artifacts, applies egress permission
  * decisions to the assistant response/summary/tool results, synthesizes voice
@@ -1174,14 +1046,12 @@ async function finalizeEgressAndPersistTurn(
   state: SessionAdmissionState,
   assembled: AssembledTurnContext,
   orchestration: OrchestrationOutcome,
-  grounded: GroundedResponse,
   runtimeFinalOutputText: string,
 ) {
   const { session, effectiveTenantId, executionMode, userText, taskShape } = state;
   const { perCallConfig, runtimeSupport, runtimeContinuityPresentation, projectedContextAudit } = assembled;
   const { result, approvalTransitions, authorityDecisions, capturedRuntimeEvents, externalTurnCapture } = orchestration;
-  let resultParts = grounded.resultParts;
-  const groundingResult = grounded.groundingResult;
+  let resultParts = result.parts;
 
   const turnToolExecutions = resolveTurnToolExecutions(
     result.toolExecutions,
@@ -1228,7 +1098,7 @@ async function finalizeEgressAndPersistTurn(
     ? extractPlanAnalysisReports(turnToolExecutions)
     : [];
   const authorityMutationViolation = buildAuthorityMutationViolation(
-    perCallConfig?.effectiveTurnAuthority,
+    readExecutionTurnAuthority(perCallConfig),
     mergedFileChanges,
   );
 
@@ -1314,6 +1184,13 @@ async function finalizeEgressAndPersistTurn(
       voiceOutputIntent: ctx.voiceOutputIntent,
       escalationReason: result.escalation?.reason,
       retentionMaxArtifacts: ctx.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+      mediaActionClaims: ctx.runtimeMediaActionClaims,
+      authorityAdmission: ctx.authorityAdmission,
+      attemptId: ctx.perCallConfig?.runtimeModelRoundDispatch?.attemptId,
+      callerId: `${ctx.channel}:voice-output:${ctx.userId}:${session.id}`,
+      idempotencyKey: ctx.authorityAdmission?.turnId ?? session.id,
+      logicalSendSlot: "assistant-tts",
+      abortSignal: ctx.perCallConfig?.abortSignal,
     },
   );
   resultParts = voiceSynthesis.parts;
@@ -1334,9 +1211,6 @@ async function finalizeEgressAndPersistTurn(
     toolExecutions: turnToolExecutions,
     routingDecision: result.routingDecision,
     escalationReason: result.escalation?.reason,
-    groundingBlockedClaims: groundingResult && !groundingResult.grounded
-      ? groundingResult.ungroundedClaims
-      : undefined,
     activeAgentId: state.effectiveActiveAgentId,
     routingTierHint: state.effectiveRoutingTier,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
@@ -1355,8 +1229,8 @@ async function finalizeEgressAndPersistTurn(
   });
   const completedTurnEvents = appendCanonicalTurnEvents({
     session,
-    executionRouteId: perCallConfig?.executionBinding?.routeId,
-    turnId: perCallConfig?.turnId,
+    executionRouteId: readExecutionBinding(perCallConfig)?.routeId,
+    turnId: readExecutionTurnId(perCallConfig),
     channel: ctx.channel,
     userMessageContent: userText,
     assistantMessageContent: extractText(resultParts),
@@ -1387,7 +1261,7 @@ async function finalizeEgressAndPersistTurn(
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
     contextUsage: projectCompletedTurnContextUsage({
       result,
-      turnId: perCallConfig?.turnId,
+      turnId: readExecutionTurnId(perCallConfig),
       contextWindow: ctx.contextUsageWindow,
     }),
     providerRequests: result.providerRequests,
@@ -1405,196 +1279,25 @@ async function finalizeEgressAndPersistTurn(
 type FinalizedTurn = Awaited<ReturnType<typeof finalizeEgressAndPersistTurn>>;
 
 /**
- * Event emission: persists the session, reports billing usage, emits gateway
- * conversation events (message received, handoff, escalation, tool execution,
- * agent routing, model routing, grounding block) and returns the final
- * `AdmittedTurnResult`.
+ * Persist the session and publish canonical session evidence, then return the
+ * final `AdmittedTurnResult`.
  */
-async function finalizeAndEmitTurnEvents(
+async function finalizeAndPersistTurn(
   ctx: AdmittedTurnContext,
   state: SessionAdmissionState,
   assembled: AssembledTurnContext,
   orchestration: OrchestrationOutcome,
-  grounded: GroundedResponse,
   finalized: FinalizedTurn,
   trace: TraceContext,
 ): Promise<ProcessResult> {
-  const { session, effectiveTenantId, userText } = state;
+  const { session, userText } = state;
   const { projectedContextAudit, perCallConfig } = assembled;
   const { result } = orchestration;
-  const { groundingResult } = grounded;
   const { resultParts, egressContextSummary, egressToolExecutions, voiceSynthesis, completedTurnEvents } = finalized;
-  const {
-    effectiveActiveAgentId,
-    effectiveActiveAgentName,
-    effectiveRoutingTier,
-    effectiveRoutingConfidence,
-    effectiveIsHandoff,
-    effectivePreviousAgentId,
-    effectivePreviousAgentName,
-    effectiveHandoffBrief,
-    effectivePingPongBlocked,
-    effectivePingPongReason,
-  } = state;
-
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);
   ctx.publishCanonicalSessionEvents?.(completedTurnEvents);
 
-  // Report usage (fire-and-forget)
-  if (ctx.billing) {
-    reportUsage(ctx.billing, {
-      tenantId: effectiveTenantId,
-      messages: 1,
-      tokens: result.inputTokens + result.outputTokens,
-      model: result.routingDecision?.model ?? ctx.orchestrator.model ?? "unknown",
-    });
-  }
-
-  // Emit events (fire-and-forget)
-  if (ctx.eventEmitter) {
-    ctx.eventEmitter.emit({
-      eventType: "MESSAGE_RECEIVED",
-      tenantId: effectiveTenantId,
-      channel: ctx.channel,
-      externalUserId: ctx.userId,
-      sessionId: session.id,
-      schemaVersion: "1",
-      turnNumber: session.messageCount,
-      traceId: trace.traceId,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Emit HANDOFF_MESSAGE_QUEUED when message was queued (session not ai_active)
-    if (result.queued) {
-      ctx.eventEmitter.emit({
-        eventType: "HANDOFF_MESSAGE_QUEUED",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    // Emit ESCALATION_DETECTED when escalation signal is present
-    if (result.escalation) {
-      trace.warn("pipeline", "Escalation detected", { reason: result.escalation.reason });
-      ctx.eventEmitter.emit({
-        eventType: "ESCALATION_DETECTED",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        escalationReason: result.escalation.reason,
-        escalationDetail: result.escalation.detail,
-        summary: egressContextSummary,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    // Emit TOOL_EXECUTED events for product backend visibility
-    if (egressToolExecutions) {
-      for (const exec of egressToolExecutions) {
-        ctx.eventEmitter.emit({
-          eventType: "TOOL_EXECUTED",
-          tenantId: effectiveTenantId,
-          channel: ctx.channel,
-          externalUserId: ctx.userId,
-          sessionId: session.id,
-          schemaVersion: "1",
-          toolName: exec.toolName,
-          durationMs: exec.durationMs,
-          success: exec.success,
-          resultSummary: exec.resultSummary || undefined,
-          traceId: trace.traceId,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
-
-    // Emit AGENT_ROUTED when multi-agent routing is active
-    if (effectiveActiveAgentId) {
-      ctx.eventEmitter.emit({
-        eventType: "AGENT_ROUTED",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        activeAgentId: effectiveActiveAgentId,
-        activeAgentName: effectiveActiveAgentName,
-        routingTier: effectiveRoutingTier,
-        routingConfidence: effectiveRoutingConfidence,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
-    if (effectiveIsHandoff || effectivePingPongBlocked) {
-      ctx.eventEmitter.emit({
-        eventType: "AGENT_HANDOFF",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        fromAgentId: effectivePreviousAgentId,
-        fromAgentName: effectivePreviousAgentName,
-        toAgentId: effectiveActiveAgentId,
-        toAgentName: effectiveActiveAgentName,
-        handoffBrief: effectiveHandoffBrief,
-        handoffBlocked: effectivePingPongBlocked,
-        handoffBlockReason: effectivePingPongReason,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    // Emit MODEL_ROUTED when model routing occurred
-    if (result.routingDecision) {
-      ctx.eventEmitter.emit({
-        eventType: "MODEL_ROUTED",
-        tenantId: effectiveTenantId,
-        channel: ctx.channel,
-        externalUserId: ctx.userId,
-        selectedProvider: result.routingDecision.provider,
-        selectedModel: result.routingDecision.model,
-        routingTier: result.routingDecision.routingTier,
-        selectionMode: result.routingDecision.selectionMode,
-        deliberationResolution: result.routingDecision.deliberationResolution,
-        routingRationale: result.routingDecision.rationale,
-        sessionId: session.id,
-        schemaVersion: "1",
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }
-
-  // Emit GROUNDING_BLOCKED when response was replaced
-  if (groundingResult && !groundingResult.grounded && ctx.eventEmitter) {
-    ctx.eventEmitter.emit({
-      eventType: "GROUNDING_BLOCKED",
-      tenantId: effectiveTenantId,
-      channel: ctx.channel,
-      externalUserId: ctx.userId,
-      sessionId: session.id,
-      schemaVersion: "1",
-      confidence: groundingResult.confidence,
-      ungroundedClaims: groundingResult.ungroundedClaims,
-      model: groundingResult.model,
-      traceId: trace.traceId,
-      timestamp: new Date().toISOString(),
-    });
-  }
 
   trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
 
@@ -1615,7 +1318,7 @@ async function finalizeAndEmitTurnEvents(
       contextSummary: egressContextSummary,
       toolExecutions: egressToolExecutions,
       traceId: trace.traceId,
-      activeAgentId: effectiveActiveAgentId,
+      activeAgentId: state.effectiveActiveAgentId,
       routingDecision: result.routingDecision
         ? {
             provider: result.routingDecision.provider,
@@ -1627,11 +1330,10 @@ async function finalizeAndEmitTurnEvents(
             rationale: result.routingDecision.rationale,
           }
         : undefined,
-      groundingResult,
       voiceOutput: voiceSynthesis.voiceOutput,
       runtimeContinuity: assembled.runtimeContinuityPresentation.runtimeContinuity,
       contextAudit: projectedContextAudit,
-      effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
+      effectiveTurnAuthority: readExecutionTurnAuthority(perCallConfig),
       communicationResolution: result.communicationResolution,
       effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
     },
@@ -1654,15 +1356,18 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   }
 
   const assembled = await assembleTurnContext(ctx, state, trace);
+  if (ctx.authorityAdmission?.turn.execution.status === "routed"
+    && !assembled.perCallConfig?.runtimeModelRoundDispatch) {
+    throw new Error("App Gateway admitted provider turns require a durable Runtime model-round claim.");
+  }
   const orchestration = await invokeOrchestratorWithLedgerCapture(ctx, state, assembled);
   const runtimeFinalOutputText = extractText(orchestration.result.parts);
 
   let canonicalTurnEventsAppended = false;
   try {
-    const grounded = await verifyGroundedResponse(ctx, state, orchestration, trace);
-    const finalized = await finalizeEgressAndPersistTurn(ctx, state, assembled, orchestration, grounded, runtimeFinalOutputText);
+    const finalized = await finalizeEgressAndPersistTurn(ctx, state, assembled, orchestration, runtimeFinalOutputText);
     canonicalTurnEventsAppended = true;
-    return await finalizeAndEmitTurnEvents(ctx, state, assembled, orchestration, grounded, finalized, trace);
+    return await finalizeAndPersistTurn(ctx, state, assembled, orchestration, finalized, trace);
   } catch (error) {
     if (!canonicalTurnEventsAppended) {
       const turnFailedAt = new Date();
@@ -1671,8 +1376,8 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         : [...orchestration.capturedRuntimeEvents, runtimeFailureEvent(error, state.session.id, turnFailedAt)];
       const failureEvents = appendCanonicalTurnEvents({
         session: state.session,
-        executionRouteId: assembled.perCallConfig?.executionBinding?.routeId,
-        turnId: assembled.perCallConfig?.turnId,
+        executionRouteId: readExecutionBinding(assembled.perCallConfig)?.routeId,
+        turnId: readExecutionTurnId(assembled.perCallConfig),
         channel: ctx.channel,
         userMessageContent: state.userText,
         assistantMessageContent: runtimeFinalOutputText,

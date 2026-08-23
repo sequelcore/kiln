@@ -160,7 +160,7 @@ describe("KilnMcpClient", () => {
       })),
     });
     const conservative = new KilnMcpClient(server(), { sdkClient: sdk, makeTransport: () => ({ close: async () => undefined }) });
-    expect((await conservative.discoverTools())[0]?.effectEnvelope?.operation).toBe("mutate");
+    expect((await conservative.discoverProviderCapabilities())[0]?.effectEnvelope?.operation).toBe("mutate");
 
     const readOnly = new KilnMcpClient(server({
       admission: {
@@ -178,7 +178,7 @@ describe("KilnMcpClient", () => {
         },
       },
     }), { sdkClient: sdkClient(), makeTransport: () => ({ close: async () => undefined }) });
-    expect((await readOnly.discoverTools())[0]?.effectEnvelope?.operation).toBe("observe");
+    expect((await readOnly.discoverProviderCapabilities())[0]?.effectEnvelope?.operation).toBe("observe");
   });
 
   it("passes cancellation and configured request timeout to every request", async () => {

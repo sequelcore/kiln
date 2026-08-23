@@ -82,6 +82,8 @@ function withAdmissionFenceObservation(
 ): void {
   const base = config.gatewayAdmission;
   config.gatewayAdmission = {
+    channelEgressActionClaims: base.channelEgressActionClaims,
+    runtimeMediaActionClaims: base.runtimeMediaActionClaims,
     async execute<Result>(request, dispatch) {
       return base.execute(request, async (commit) => {
         state.active = true;
@@ -263,6 +265,7 @@ describe("createMessengerWebhookRoutes", () => {
 
       const rejectedConfig = makeConfig({
         gatewayAdmission: {
+          channelEgressActionClaims: config.gatewayAdmission.channelEgressActionClaims,
           async execute<Result>() {
             throw new Error("admission rejected");
           },
@@ -302,18 +305,17 @@ describe("createMessengerWebhookRoutes", () => {
           durationMs: 1200,
         }),
       };
-      const outboundMediaPublisher = {
-        publish: vi.fn().mockResolvedValue({
-          url: "https://media.example.com/test-app/voice-synthesis/artifact_1.mp3",
-          mimeType: "audio/mpeg",
-          artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
-        }),
-      };
       const config = makeConfig({
         artifactStore: new MemoryArtifactResourceStore(),
         voiceConfig,
         ttsAdapter,
-        outboundMediaPublisher,
+        publicMedia: {
+          appName: "test-app",
+          publicBaseUrl: "https://media.example.com",
+          signingSecret: "secret",
+          now: () => 0,
+          ttlMs: 300_000,
+        },
       });
       config.tenantRegistry.create(makeTenantConfig());
       const app = createMessengerWebhookRoutes(config);
@@ -333,18 +335,9 @@ describe("createMessengerWebhookRoutes", () => {
       const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
 
       expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock messenger response", { voice: "alloy" });
-      expect(outboundMediaPublisher.publish).toHaveBeenCalledWith(expect.objectContaining({
-        channel: "messenger",
-        appName: "test-app",
-        tenantId: "msg-tenant",
-        userId: "psid-sender",
-        mimeType: "audio/mpeg",
-        artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
-        purpose: "assistant-output",
-      }));
       expect(textBody.message.text).toBe("mock messenger response");
       expect(audioBody.message.attachment.type).toBe("audio");
-      expect(audioBody.message.attachment.payload.url).toBe("https://media.example.com/test-app/voice-synthesis/artifact_1.mp3");
+      expect(audioBody.message.attachment.payload.url).toMatch(/^https:\/\/media\.example\.com\/media\/test-app\/voice-synthesis\/artifact_1\/content\?expires=300000&sig=/u);
     });
 
     it("filters echo messages", async () => {
@@ -425,35 +418,6 @@ describe("createMessengerWebhookRoutes", () => {
       expect(res.status).toBe(200);
     });
 
-    it("emits events when emitter is configured", async () => {
-      const emitFn = vi.fn();
-      const config = makeConfig({
-        eventEmitter: { emit: emitFn } as unknown as MessengerWebhookConfig["eventEmitter"],
-      });
-      config.tenantRegistry.create(makeTenantConfig());
-      const app = createMessengerWebhookRoutes(config);
-
-      const payload = makeMessengerPayload("psid-sender", "fb-page-789", "Hola");
-      await app.request("/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await new Promise((r) => setTimeout(r, 50));
-
-      const received = emitFn.mock.calls.find(
-        (c: unknown[]) => (c[0] as Record<string, string>).eventType === "MESSAGE_RECEIVED",
-      );
-      expect(received).toBeDefined();
-      expect(received![0].channel).toBe("messenger");
-
-      const sent = emitFn.mock.calls.find(
-        (c: unknown[]) => (c[0] as Record<string, string>).eventType === "MESSAGE_SENT",
-      );
-      expect(sent).toBeDefined();
-      expect(sent![0].channel).toBe("messenger");
-    });
 
     it("uses the model-only admitted tool authority instead of tenant hints", async () => {
       const config = makeConfig();
@@ -476,7 +440,9 @@ describe("createMessengerWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toEqual(new Map());
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: { authority: { admittedAuthority: "fail_closed" } },
+      });
     });
 
     it("captures Messenger attachments as replay artifacts before provider invocation", async () => {

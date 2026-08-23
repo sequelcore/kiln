@@ -23,12 +23,16 @@ import type {
 import {
   authorityFromCapability
 } from "../tool-authority.js";
+import {
+  readExecutionToolAllowlist,
+  readExecutionTurnAuthority,
+} from "../../session/effective-authority-admission-bundle.js";
 
 const WEB_TOOL_NAMES = ["web_search", "web_fetch", "web_extract"] as const;
 
 export function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToolConfig | undefined, input: {
   readonly executionMode: OperatorExecutionMode;
-  readonly requestedAuthority: OperatorTurnRequestedAuthority | undefined;
+  readonly requestedAuthority: import("@kilnai/core").EffectiveTurnAuthoritySnapshot["requestedAuthority"] | undefined;
 }): ContextCandidate {
   return {
     kind: "procedural",
@@ -37,7 +41,7 @@ export function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToo
     required: true,
     score: 1,
     content: formatEffectiveTurnAuthorityGuidance(describeEffectiveTurnAuthorityActionability({
-      authority: perCallConfig?.effectiveTurnAuthority,
+      authority: readExecutionTurnAuthority(perCallConfig),
       executionMode: input.executionMode,
       requestedAuthority: input.requestedAuthority,
     })),
@@ -96,7 +100,7 @@ export function buildWebSourceAttributionContextCandidate(): ContextCandidate {
 
 export function hasWebToolAvailable(perCallConfig: PerCallToolConfig | undefined): boolean {
   const toolNames = new Set<string>([
-    ...(perCallConfig?.toolAllowlist ? Array.from(perCallConfig.toolAllowlist) : []),
+    ...(readExecutionToolAllowlist(perCallConfig) ? Array.from(readExecutionToolAllowlist(perCallConfig)!) : []),
     ...(perCallConfig?.additionalTools?.map((tool) => tool.name) ?? []),
     ...(perCallConfig?.perCallCapabilities ? Array.from(perCallConfig.perCallCapabilities.keys()) : []),
   ]);
@@ -256,5 +260,3 @@ export function projectRequestedAuthorityPerCallConfig(
     authorityDescriptorFromCapability: authorityFromCapability,
   });
 }
-
-

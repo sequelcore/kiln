@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, posix, resolve, win32 } from "node:path";
@@ -100,6 +100,9 @@ import {
   type ClaudePrivatePlanArtifactCapability,
 } from "../wrapper/claude-private-plan-artifacts.js";
 import type { DirectProviderCredentialBinding } from "../wrapper/direct-provider-adapter-factory.js";
+import { TranscriptStore } from "../wrapper/session-store.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
+import { SqliteManagedExternalInvocationActionClaimStore } from "../application/managed-external-invocation-action-claim-store.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
 import { readSkillCatalogStatus } from "./skill-catalog-status.js";
@@ -749,7 +752,13 @@ export async function resolveManagedInvocationToolOptions(
   if (managedAccountComposition && config.executionCatalog) {
     managedAccountComposition.updateCatalog(config.executionCatalog);
   }
+  // Standalone resolution has no owner lifecycle when every route failed
+  // admission, so it must not claim a fixed-path external action-claim store
+  // that cannot be returned to a caller. The staged route catalog explicitly
+  // asks for unavailable routes and owns the service across its refreshes, so
+  // it may construct the service while provider evidence is still pending.
   const invocationService = executionComposition
+    && (routes.length > 0 || context.includeUnavailableRoutes === true)
     ? createManagedInvocationService(
         config,
         context.cwd,
@@ -817,8 +826,10 @@ export function createManagedEconomicDispatchComposition(
     acquire: (input) => composition.authority.acquireCommitment(input),
     releasePreFence: (jobId, economicAttemptId) =>
       composition.authority.releaseCommitmentPreFence(jobId, economicAttemptId),
-    fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) =>
-      composition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId),
+    fenceDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) =>
+      composition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim),
+    readDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) =>
+      composition.authority.readDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim),
     settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) =>
       composition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
     recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
@@ -866,6 +877,7 @@ function createManagedEconomicDispatchWithAuthority(
           economicPolicyRevision: input.candidateSet.economicPolicyRevision,
           candidateSet: input.candidateSet,
           constraints: input.candidateSet.constraints,
+          admissionBundle: input.admissionBundle,
         },
         adoptedDecisionAt: input.adoptedDecisionAt,
         projectId,
@@ -879,6 +891,8 @@ function createManagedEconomicDispatchWithAuthority(
         jobId: input.jobId,
         economicAttemptId: input.economicAttemptId,
         intentFingerprint: input.intentFingerprint,
+        admissionBundle: input.admissionBundle,
+        effectIdentity: input.effectIdentity,
         adoption,
         admissionProfile: input.candidateSet.admissionProfileId,
         authorityProfileId: input.authorityProfileId,
@@ -2350,11 +2364,18 @@ function createManagedInvocationService(
   managedEconomicAuthorityAvailable = false,
 ): RuntimeManagedAgentInvocationService | undefined {
   const serviceKey = managedInvocationServiceKey(config, cwd) ?? `managed-invocation:${resolve(cwd)}`;
+  const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
+  const hasExternalHarnessRoute = routeConfigs.some((route) => route.kind === "harness");
   if (existingService && existingServiceKey === serviceKey) {
+    if (hasExternalHarnessRoute && !existingService.hasExternalActionClaimConfigured()) {
+      existingService.configureExternalActionClaim(createManagedExternalActionClaimContext(cwd));
+    }
     return existingService;
   }
+  const externalActionClaim = hasExternalHarnessRoute
+    ? createManagedExternalActionClaimContext(cwd)
+    : undefined;
   const leaseConfig = config.managedAgents?.worktreeLease;
-  const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) =>
     route.authorityProfiles.some((profile) => profile.workingDirectory === "isolated-worktree")
   );
@@ -2363,7 +2384,6 @@ function createManagedInvocationService(
   if (credentialRouteIds.length > 0 && managedAccountComposition === undefined && !managedEconomicAuthorityAvailable) {
     throw new Error("Runtime-selected managed routes require a configured execution account policy.");
   }
-
   return new RuntimeManagedAgentInvocationService({
     authorityObserver: createCliManagedRuntimeAuthorityObserver(),
     ...(needsWorktreeLease && leaseConfig ? {
@@ -2385,7 +2405,21 @@ function createManagedInvocationService(
         rootPath: join(cwd, ".kiln", "runtime", "managed-invocation-recovery"),
       }),
     } : {}),
+    ...(externalActionClaim !== undefined ? { externalActionClaim } : {}),
   });
+}
+
+function createManagedExternalActionClaimContext(cwd: string) {
+  const transcriptEvidence = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(cwd));
+  const store = new SqliteManagedExternalInvocationActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-external-invocation-action-claims.sqlite"),
+  });
+  return {
+    ownerGeneration: `managed-external-owner:${process.pid}:${randomUUID()}`,
+    store,
+    readAdmission: (input: Parameters<NonNullable<NonNullable<import("@kilnai/runtime").ManagedAgentRuntimeInvocationInput["externalActionClaim"]>["readAdmission"]>>[0]) =>
+      transcriptEvidence.readAdmission(input),
+  };
 }
 
 export function createManagedAccountRuntimeComposition(
@@ -2486,21 +2520,27 @@ function observedSandboxForManagedAuthority(
     : "read-only";
 }
 
-function managedInvocationServiceKey(
+export function managedInvocationServiceKey(
   config: ManagedAgentRouteConfigSource,
   cwd: string,
 ): string | undefined {
   const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
+  const hasExternalHarnessRoute = routeConfigs.some((route) => route.kind === "harness");
   const leaseConfig = config.managedAgents?.worktreeLease;
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) =>
     route.authorityProfiles.some((profile) => profile.workingDirectory === "isolated-worktree")
   );
   const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs, config.executionCatalog);
-  if (!needsWorktreeLease && !needsSandboxLease && credentialRouteIds.length === 0) {
+  if (!hasExternalHarnessRoute && !needsWorktreeLease && !needsSandboxLease && credentialRouteIds.length === 0) {
     return undefined;
   }
   return JSON.stringify({
+    ...(hasExternalHarnessRoute ? {
+      externalActionClaim: {
+        rootPath: normalizeManagedRoutePath(cwd, cwd),
+      },
+    } : {}),
     ...(needsWorktreeLease && leaseConfig ? {
       worktreeLease: {
         mode: leaseConfig.mode,

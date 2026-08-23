@@ -3,7 +3,6 @@ export type ProjectedContextBlockKind =
   | "memory"
   | "summary"
   | "artifact"
-  | "knowledge"
   | "ledger"
   | "procedural"
   | "coordination";

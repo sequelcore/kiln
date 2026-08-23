@@ -25,6 +25,7 @@ import type {
   ManagedInvocationToolResult,
   ManagedInvocationToolRoute,
 } from "./types.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../../session/effective-authority-admission-bundle.js";
 import { unique } from "./catalog-descriptions.js";
 import { MANAGED_AGENT_ORCHESTRATION_PROFILES } from "./tool-schema.js";
 import { errorResult, readText } from "./input-parsing.js";
@@ -53,6 +54,7 @@ export async function executeManagedAgentOrchestrationTool(
   context: RuntimeBuiltinToolExecutionContext | undefined,
   callerIdentity: ManagedAgentCallerAttachmentIdentity,
   options: ManagedInvocationToolOptionsWithService,
+  authorityAdmission?: EffectiveAuthorityAdmissionBundle,
 ): Promise<ManagedInvocationToolResult> {
   const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   if (!session.ok) return session.result;
@@ -182,6 +184,9 @@ export async function executeManagedAgentOrchestrationTool(
       requestedAuthority: managedOrchestrationRequestedAuthority(profile),
       callerIdentity: effectiveCallerIdentity,
       economicAdoptedDecisionAt: session.context.session.createdAt.toISOString(),
+      ...(authorityAdmission
+        ? { authorityAdmission }
+        : {}),
       ...(session.context.abortSignal ? { abortSignal: session.context.abortSignal } : {}),
       lifecycleObserver: {
         onAdmissionResolved: async ({ request, decision: admissionDecision }) => {

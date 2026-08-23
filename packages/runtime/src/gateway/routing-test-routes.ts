@@ -2,16 +2,14 @@
 // POST /tenants/:tenantId/routing/test returns which agent would handle a message
 
 import { Hono } from "hono";
-import type { AgentRAG } from "@kilnai/core";
 import { textParts, extractText, listRoutingTemplates } from "@kilnai/core";
-import { DefaultTenantRouter, EmbeddingTenantRouter } from "../tenant/tenant-router.js";
+import { DefaultTenantRouter } from "../tenant/tenant-router.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { requireBearer } from "./auth-middleware.js";
 
 export interface RoutingTestRoutesConfig {
   readonly tenantRegistry: TenantRegistry;
   readonly adminToken?: string;
-  readonly agentRag?: AgentRAG;
 }
 
 interface RuleResult {
@@ -74,14 +72,8 @@ export function createRoutingTestRoutes(config: RoutingTestRoutesConfig): Hono {
     }
 
     // Run actual routing
-    let result;
-    if (config.agentRag) {
-      const router = new EmbeddingTenantRouter(tenant.routing, config.agentRag, tenant.agents);
-      result = await router.routeAsync(userParts);
-    } else {
-      const router = new DefaultTenantRouter(tenant.routing);
-      result = router.route(userParts);
-    }
+    const router = new DefaultTenantRouter(tenant.routing);
+    const result = router.route(userParts);
 
     // Resolve agent name
     const agent = tenant.agents.find((a) => a.id === result.agentId);

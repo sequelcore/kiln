@@ -7,12 +7,9 @@ import {
   CodexOAuthAdapter,
   CodexOAuthAuth,
   CredentialPool,
-  AllCredentialsExhaustedError,
   KilnError,
-  PooledProviderAdapter,
   type CodexOAuthTokenFile,
   type Credential,
-  type CredentialExhaustionDiagnostic,
   type CredentialOutcome,
   type CreateMessageOptions,
   type ProviderUsageSnapshot,
@@ -72,11 +69,6 @@ export interface CodexOAuthExecutionCredential {
   readonly accessToken: string;
   /** Observed provider transport header value; never selection authority. */
   readonly chatgptAccountId: string;
-}
-
-export interface CreateCodexOAuthPooledAdapterOptions {
-  readonly defaultModel: string;
-  readonly createAdapter?: (credential: CodexOAuthPoolCredential) => ProviderAdapter;
 }
 
 export interface CreateExactCodexOAuthAdapterOptions {
@@ -264,6 +256,32 @@ export class CodexOAuthCredentialPoolService {
     return accounts;
   }
 
+  /**
+   * Refreshes expiring credentials before candidate admission, then returns
+   * only fresh, secret-free account snapshots. Exact resolution after the
+   * account fence is deliberately read-only and never adopts a new revision.
+   */
+  async prepareExecutionAccounts(): Promise<readonly CodexOAuthExecutionAccount[]> {
+    const credentials = await this.readCredentials();
+    await Promise.all(credentials.map(async (credential) => {
+      if (!credentialNeedsRefresh(credential.tokenFile)) return;
+      await this.withCredentialLocks([credential.id], async () => {
+        try {
+          await this.refreshExpiringCredential(credential.id);
+        } catch {
+          // A credential that cannot be refreshed is omitted from this
+          // admission snapshot and may not be committed for execution.
+        }
+      });
+    }));
+    const freshCredentialIds = new Set(
+      (await this.readCredentials())
+        .filter((credential) => !credentialNeedsRefresh(credential.tokenFile))
+        .map((credential) => credential.id),
+    );
+    return (await this.listExecutionAccounts()).filter((account) => freshCredentialIds.has(account.credentialId));
+  }
+
   /** Secret-free exact-account evidence restricted to credentials admitted by pooled execution. */
   async listExecutableAccounts(): Promise<readonly CodexOAuthExecutionAccount[]> {
     const executableIds = new Set(
@@ -280,38 +298,31 @@ export class CodexOAuthCredentialPoolService {
     if (!/^[a-f0-9]{64}$/.test(selected.revision)) throw new Error("Selected Codex OAuth account revision is invalid.");
     const credentialId = selected.credentialId;
     return this.withCredentialLocks([credentialId], async () => {
-    const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
-    if (health.some((entry) => entry.credentialId === credentialId && (entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now()))) {
-      throw new Error("Selected Codex OAuth credential is unhealthy.");
-    }
-    const tokenPath = this.credentialFilePath(credentialId);
-    let handle: FileHandle | undefined;
-    try {
-      const before = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
-      if (before.identity !== selected.fileIdentity || before.revision !== selected.revision) throw new Error("revision");
-      handle = await openSelectedCredential(tokenPath);
-      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
-      const tokenFile = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, tokenPath);
-      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), before)) throw new Error("revision");
-      const initialAccountId = readCodexOAuthAccountId(tokenFile.access_token);
-      if (initialAccountId === null) throw new Error("shape");
-      let accessToken = tokenFile.access_token;
-      if (new Date(tokenFile.expires_at).getTime() <= Date.now() + EXPIRING_SOON_MS) {
-        const refreshed = await new CodexOAuthAuth({ tokenPath }).refreshToken(tokenFile);
-        if (readCodexOAuthAccountId(refreshed.access_token) !== initialAccountId) throw new Error("account");
-        await persistRefreshOnSelectedHandle(handle, tokenPath, before, refreshed);
-        accessToken = refreshed.access_token;
+      const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
+      if (health.some((entry) => entry.credentialId === credentialId && (entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now()))) {
+        throw new Error("Selected Codex OAuth credential is unhealthy.");
       }
-      const chatgptAccountId = readCodexOAuthAccountId(accessToken);
-      if (chatgptAccountId === null) throw new Error("shape");
-      return { credentialId, accessToken, chatgptAccountId };
-    } catch (error) {
-      if (isNodeError(error) && error.code === "ENOENT") throw new Error("Selected Codex OAuth credential is unavailable.");
-      if (error instanceof Error && error.message === "revision") throw new Error("Selected Codex OAuth credential revision changed.");
-      throw new Error("Selected Codex OAuth credential is invalid.");
-    } finally {
-      await handle?.close();
-    }
+      const tokenPath = this.credentialFilePath(credentialId);
+      let handle: FileHandle | undefined;
+      try {
+        const before = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
+        if (before.identity !== selected.fileIdentity || before.revision !== selected.revision) throw new Error("revision");
+        handle = await openSelectedCredential(tokenPath);
+        if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+        const tokenFile = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, tokenPath);
+        if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), before)) throw new Error("revision");
+        const chatgptAccountId = readCodexOAuthAccountId(tokenFile.access_token);
+        if (chatgptAccountId === null) throw new Error("shape");
+        if (credentialNeedsRefresh(tokenFile)) throw new Error("refresh-required");
+        return { credentialId, accessToken: tokenFile.access_token, chatgptAccountId };
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") throw new Error("Selected Codex OAuth credential is unavailable.");
+        if (error instanceof Error && error.message === "revision") throw new Error("Selected Codex OAuth credential revision changed.");
+        if (error instanceof Error && error.message === "refresh-required") throw new Error("Selected Codex OAuth credential requires refresh before admission.");
+        throw new Error("Selected Codex OAuth credential is invalid.");
+      } finally {
+        await handle?.close();
+      }
     });
   }
 
@@ -413,38 +424,6 @@ export class CodexOAuthCredentialPoolService {
     });
   }
 
-  async createPooledAdapter(options: CreateCodexOAuthPooledAdapterOptions): Promise<ProviderAdapter> {
-    const status = await this.listStatus();
-    const executable = status.filter(isExecutableCredentialStatus);
-    if (executable.length === 0) {
-      throw new AllCredentialsExhaustedError(
-        undefined,
-        undefined,
-        buildCodexOAuthExhaustionDiagnostic(status),
-      );
-    }
-    if (executable.length !== 1) {
-      throw new KilnError(
-        "CONFIG_INVALID",
-        "Codex OAuth pooled execution requires exactly one executable credential; select an account through an explicit direct model binding.",
-        { context: { availableCredentials: executable.map((entry) => entry.id) }, suggestion: buildAmbiguousAccountSuggestion(executable) },
-      );
-    }
-    const pool = await this.#createPool();
-    this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
-    return new PooledProviderAdapter<CodexOAuthPoolCredential>({
-      name: CODEX_OAUTH_POOL_PROVIDER_ID,
-      deliberationTransport: "native-level",
-      pool,
-      createAdapter: options.createAdapter ?? ((credential) => new CodexOAuthAdapter({
-        auth: new CodexOAuthAuth({ tokenPath: credential.tokenPath }),
-        defaultModel: options.defaultModel,
-      })),
-      mapError: mapCodexOAuthProviderError,
-      shouldRetryOutcome: isRetryableCodexOAuthOutcome,
-    });
-  }
-
   /** Materializes one previously selected account revision without consulting pooled order. */
   async createExactAdapter(options: CreateExactCodexOAuthAdapterOptions): Promise<ProviderAdapter> {
     const credential = await this.resolveExecutionCredential(options.selected);
@@ -465,6 +444,7 @@ export class CodexOAuthCredentialPoolService {
     const delegate = options.createAdapter?.(credential) ?? new CodexOAuthAdapter({
       auth: { getValidAccessToken: async () => credential.accessToken },
       defaultModel: options.defaultModel,
+      internalRetry: false,
     });
     const recordOutcome = async (error?: unknown): Promise<void> => {
       await this.recordProviderOutcome(credential.credentialId, error);
@@ -494,7 +474,7 @@ export class CodexOAuthCredentialPoolService {
     };
   }
 
-  async #createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {
+  async createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {
     const pool = new CredentialPool<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID, {
       strategy: "round-robin",
       credentials: await this.loadCredentialsForPool(),
@@ -503,6 +483,7 @@ export class CodexOAuthCredentialPoolService {
     this.watcher?.onProviderChanged(CODEX_OAUTH_POOL_PROVIDER_ID, async () => {
       pool.reloadCredentials(await this.loadCredentialsForPool());
     });
+    this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
     return pool;
   }
 
@@ -531,6 +512,29 @@ export class CodexOAuthCredentialPoolService {
           softLeaseCount: 0,
         };
       });
+  }
+
+  private async refreshExpiringCredential(credentialId: string): Promise<void> {
+    const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
+    if (!record || !credentialNeedsRefresh(record.tokenFile)) return;
+    let handle: FileHandle | undefined;
+    try {
+      const tokenPath = record.tokenPath;
+      const before = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
+      handle = await openSelectedCredential(tokenPath, constants.O_RDWR);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+      const tokenFile = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, tokenPath);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), before)) throw new Error("revision");
+      if (!credentialNeedsRefresh(tokenFile)) return;
+      const initialAccountId = readCodexOAuthAccountId(tokenFile.access_token);
+      if (initialAccountId === null) throw new Error("shape");
+      const refreshed = await new CodexOAuthAuth({ tokenPath }).refreshToken(tokenFile);
+      validateCodexOAuthTokenFile(refreshed, tokenPath);
+      if (readCodexOAuthAccountId(refreshed.access_token) !== initialAccountId) throw new Error("account");
+      await persistRefreshOnSelectedHandle(handle, tokenPath, before, refreshed);
+    } finally {
+      await handle?.close();
+    }
   }
 
   private async readCredentials(): Promise<ReadonlyArray<CodexOAuthCredentialRecord & {
@@ -647,12 +651,12 @@ function sameSnapshot(left: CredentialFileSnapshot, right: CredentialFileSnapsho
 }
 
 /** O_NOFOLLOW is not supported by every Windows filesystem; identity checks remain mandatory on fallback. */
-async function openSelectedCredential(tokenPath: string): Promise<FileHandle> {
+async function openSelectedCredential(tokenPath: string, access = constants.O_RDONLY): Promise<FileHandle> {
   try {
-    return await open(tokenPath, constants.O_RDWR | constants.O_NOFOLLOW);
+    return await open(tokenPath, access | constants.O_NOFOLLOW);
   } catch (error) {
     if (!isNodeError(error) || !["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes(error.code ?? "")) throw error;
-    return open(tokenPath, constants.O_RDWR);
+    return open(tokenPath, access);
   }
 }
 
@@ -741,10 +745,6 @@ function readCodexOAuthProfileEmail(accessToken: string): string | null {
   }
 }
 
-function isRetryableCodexOAuthOutcome(_outcome: CredentialOutcome): boolean {
-  return false;
-}
-
 export function mapCodexOAuthProviderError(error: unknown): CredentialOutcome {
   const status = readStatus(error);
   if (status === 429) {
@@ -822,46 +822,16 @@ function describeExpiry(expiresAt: string): "valid" | "expiring-soon" | "expired
   return "valid";
 }
 
+function credentialNeedsRefresh(tokenFile: CodexOAuthTokenFile): boolean {
+  return new Date(tokenFile.expires_at).getTime() <= Date.now() + EXPIRING_SOON_MS;
+}
+
 function isExecutableTokenFile(tokenFile: CodexOAuthTokenFile): boolean {
   return describeExpiry(tokenFile.expires_at) !== "expired";
 }
 
 function isExecutableCredentialStatus(status: CodexOAuthCredentialStatus): boolean {
   return status.status === "valid" || status.status === "expiring-soon";
-}
-
-function buildAmbiguousAccountSuggestion(executable: readonly CodexOAuthCredentialStatus[]): string {
-  const ids = executable.map((entry) => entry.id).join(", ");
-  return `Add one account per executable credential id (${ids}) to executionCatalog.accounts, group the eligible accounts in an account policy, and select that policy from an execution route. Operator surfaces select the route; Kiln selects the account automatically unless the operator explicitly narrows it.`;
-}
-
-function buildCodexOAuthExhaustionDiagnostic(
-  statuses: readonly CodexOAuthCredentialStatus[],
-): CredentialExhaustionDiagnostic {
-  const availableCredentials = statuses.filter(isExecutableCredentialStatus).length;
-  return {
-    providerId: CODEX_OAUTH_POOL_PROVIDER_ID,
-    reason: "no-executable-credentials",
-    totalCredentials: statuses.length,
-    availableCredentials,
-    unavailableCredentials: statuses.length - availableCredentials,
-    lastOutcome: null,
-    entries: statuses.map((status) => ({
-      id: status.id,
-      label: status.label,
-      health: status.status === "valid" || status.status === "expiring-soon" ? "ok" : status.status,
-      expiresAt: status.expiresAt,
-      ...(status.invalidReason ? { invalidReason: status.invalidReason } : {}),
-      ...(status.health
-        ? {
-            requestCount: status.health.requestCount,
-            lastSuccess: status.health.lastSuccess,
-            lastExhausted: status.health.lastExhausted,
-            cooldownUntil: status.health.cooldownUntil,
-          }
-        : {}),
-    })),
-  };
 }
 
 function errorMessage(error: unknown): string {

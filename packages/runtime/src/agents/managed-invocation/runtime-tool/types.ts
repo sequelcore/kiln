@@ -39,6 +39,7 @@ import type {
   ManagedEconomicLifecycleEventPort,
 } from "../economic-dispatch-coordinator.js";
 import type { ManagedChildAuthorityAdmissionContract } from "../child-authority-admission.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../../session/effective-authority-admission-bundle.js";
 import type { ManagedEconomicCandidateSet } from "./economic-candidate-collection.js";
 
 export interface ManagedInvocationRouteProfile {
@@ -145,6 +146,8 @@ export interface ManagedInvocationToolOptions {
       readonly jobId: string;
       readonly economicAttemptId: string;
       readonly intentFingerprint: string;
+      readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+      readonly effectIdentity: string;
       readonly adoptedDecisionAt: string;
       readonly parentSessionId: string;
       readonly parentTurnId: string;

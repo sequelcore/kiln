@@ -9,6 +9,8 @@ import type {
   OperatorTurnTuiDispatchPayload,
 } from "../execution-routing/operator-turn-dispatcher.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
+import type { RuntimeModelRoundActionClaimStore } from "../execution-kernel/runtime-model-round-action-claim.js";
+import type { RuntimeToolActionClaimStore } from "../execution-kernel/runtime-tool-action-claim.js";
 
 export interface OperatorGateway extends TuiGateway {}
 
@@ -24,6 +26,9 @@ type BaseOperatorSessionTransportOptions<Payload> = Omit<Pick<
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, Payload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<Payload>;
   readonly authorityAdmissionEvidenceStore: AuthorityAdmissionEvidenceStore;
+  readonly runtimeModelRoundActionClaims: RuntimeModelRoundActionClaimStore;
+  readonly runtimeToolActionClaims: RuntimeToolActionClaimStore;
+  readonly runtimeMediaActionClaims: import("../execution-kernel/runtime-media-action-claim.js").RuntimeMediaActionClaimContext;
 };
 
 export type OperatorSessionTransportOptions<Payload = OperatorTurnTuiDispatchPayload> = BaseOperatorSessionTransportOptions<Payload> & {

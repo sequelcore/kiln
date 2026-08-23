@@ -13,7 +13,6 @@ provider:
 
 billing:
   budgetEndpoint: https://api.example.com/users/{userId}/ai-budget
-  usageEndpoint: https://api.example.com/users/{userId}/ai-usage
   overBudgetMessage: "Budget exhausted."
   tiers:
     free:
@@ -73,7 +72,6 @@ teams:
     expect(config!.provider.apiKeyEnv).toBe("ANTHROPIC_API_KEY");
     expect(config!.billing).toBeDefined();
     expect(config!.billing!.budgetEndpoint).toBe("https://api.example.com/users/{userId}/ai-budget");
-    expect(config!.billing!.usageEndpoint).toBe("https://api.example.com/users/{userId}/ai-usage");
     expect(config!.billing!.overBudgetMessage).toBe("Budget exhausted.");
   });
 
@@ -106,7 +104,6 @@ provider:
   name: anthropic
 billing:
   budgetEndpoint: ""
-  usageEndpoint: ""
   overBudgetMessage: ""
 `;
     expect(() => parseRuntimeModeConfig(yaml)).toThrow(RuntimeModeLoaderError);

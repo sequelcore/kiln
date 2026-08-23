@@ -27,7 +27,6 @@ export interface TenantAppRuntime {
   readonly ttsAdapter?: TtsAdapter;
   readonly billing?: BillingConfig;
   readonly apiKey?: string;
-  readonly groundingDeps?: import("./message-pipeline/index.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly coordinationContextProvider?: import("./message-pipeline/index.js").AdmittedTurnContext["coordinationContextProvider"];
   /** Required Runtime owner for durable, complete authority admission. */
@@ -138,19 +137,15 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
         channel: "api",
         tenant,
         authorityAdmission: admitted.bundle,
+        runtimeMediaActionClaims: admitted.runtimeMediaActionClaims,
         // requestedAuthority remains request context only; the committed
         // bundle is the sole authority source crossing into execution.
-        requestedAuthority: undefined,
         perCallConfig: {
           ...admitted.perCallConfig,
+          runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
           ...(communicationIntent ? { communicationIntent } : {}),
         },
         idleTimeoutMs: tenant.idleTimeoutMs,
-        groundingMode: tenant.groundingMode,
-        groundingDeps: runtime.groundingDeps ? {
-          ...runtime.groundingDeps,
-          providerPool: new Map([[admitted.provider.name, admitted.provider]]),
-        } : undefined,
         contextArtifactCache: runtime.contextArtifactCache,
         coordinationContextProvider: runtime.coordinationContextProvider,
       }));

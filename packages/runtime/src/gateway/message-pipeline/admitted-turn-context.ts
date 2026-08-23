@@ -3,7 +3,6 @@ import type {
   ContextAuditEntry,
   ContextCandidate,
   ContextUsageProjection,
-  GroundingMode
 } from "@kilnai/core";
 import type { AdmittedTurnContext } from "./process-admitted-turn.js";
 import {
@@ -14,9 +13,6 @@ import type {
   OrchestrateResult,
   PerCallToolConfig
 } from "../../session/runtime-session-orchestrator.js";
-import {
-  formatUserContext
-} from "../context-formatter.js";
 import {
   normalizeContextUsageProjection,
   type ContextUsageWindowEvidence
@@ -34,10 +30,7 @@ export interface AdmittedTurnContextProjectionInput {
   readonly userContext: Record<string, string> | undefined;
   readonly cachedRuntimeSummary: string | undefined;
   readonly recalledMemoryCandidates?: readonly ContextCandidate[];
-  readonly knowledgeContext: string | undefined;
-  readonly contactContext: string | undefined;
   readonly visitorContext?: string | undefined;
-  readonly groundingMode: GroundingMode | undefined;
   readonly proceduralContextCandidates?: readonly ContextCandidate[];
   readonly coordinationContextCandidates?: readonly ContextCandidate[];
   readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
@@ -50,7 +43,9 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
   readonly audit?: ContextAuditEntry;
 } {
   const candidates: ContextCandidate[] = [];
-  const userContext = formatUserContext(input.userContext);
+  const userContext = input.userContext && Object.keys(input.userContext).length > 0
+    ? "[User Context]:\n" + Object.entries(input.userContext).map(([key, value]) => `${key}: ${value}`).join("\n")
+    : undefined;
 
   if (userContext) {
     candidates.push({
@@ -70,22 +65,6 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
     });
   }
   candidates.push(...(input.recalledMemoryCandidates ?? []));
-  if (input.knowledgeContext) {
-    candidates.push({
-      kind: "knowledge",
-      source: "runtime-knowledge-context",
-      content: input.knowledgeContext,
-      score: 0.7,
-    });
-  }
-  if (input.contactContext) {
-    candidates.push({
-      kind: "memory",
-      source: "runtime-contact-context",
-      content: input.contactContext,
-      score: 0.6,
-    });
-  }
   if (input.visitorContext) {
     candidates.push({
       kind: "memory",
@@ -94,27 +73,12 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
       score: 0.6,
     });
   }
-  if (input.groundingMode === "strict" || input.groundingMode === "verified") {
-    candidates.push({
-      kind: "procedural",
-      modelFacingSemantics: "directive",
-      source: "runtime-grounding-policy",
-      content: [
-        "--- Grounding Rules ---",
-        "Answer ONLY from the knowledge context, configured services, and FAQs provided above.",
-        "If the answer is not in your provided context, say you don't have that information and offer to connect the user with the human team.",
-        "Never fabricate specific data (regulations, prices, dates, legal references).",
-      ].join("\n"),
-      required: true,
-      score: 1,
-    });
-  }
   candidates.push(...(input.proceduralContextCandidates ?? []));
   candidates.push(...(input.coordinationContextCandidates ?? []));
 
   const projectedContext = new DefaultContextGovernor<
     never,
-    "memory" | "summary" | "knowledge" | "procedural" | "coordination",
+    "memory" | "summary" | "procedural" | "coordination",
     never
   >().project({
     artifacts: candidates,

@@ -3,7 +3,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useEffectEvent,
   useMemo,
   useReducer,
   useRef,
@@ -23,7 +22,6 @@ import {
   type GuiAppDescriptor,
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
-  type GuiInboundFrame,
   type GuiDeliberationLevelId,
   type ExecutionRouteCatalog,
   type KilnConfigSetupAction,
@@ -64,7 +62,6 @@ import {
   resolveGatewayHttpBaseUrl,
   readOperatorToken,
   toWsUrl,
-  OPERATOR_TERMINAL_PANEL_ID,
 } from "./app-shell-runtime.js";
 import {
   persistSidebarCollapsedPreference,
@@ -109,11 +106,6 @@ const CommandPalette = lazy(async () => {
   const module = await import("./command-palette.js");
   return { default: module.CommandPalette };
 });
-const OperatorTerminalDock = lazy(async () => {
-  const module = await import("./operator-terminal-dock.js");
-  return { default: module.OperatorTerminalDock };
-});
-
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const EMPTY_DELIBERATION_LEVELS: readonly GuiDeliberationLevelId[] = [];
@@ -291,51 +283,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const [onboardingApplying, setOnboardingApplying] = useState(false);
   const [onboardingFeedback, setOnboardingFeedback] = useState<string | null>(null);
   const [managedAgentActionFailure, setManagedAgentActionFailure] = useState<ManagedAgentActionFailure | null>(null);
-  const [operatorTerminalAvailable, setOperatorTerminalAvailable] = useState(false);
-  const [operatorTerminalExpanded, setOperatorTerminalExpandedState] = useState(false);
-  const operatorTerminalAvailableRef = useRef(false);
-  const operatorTerminalExpandedRef = useRef(false);
-  const operatorTerminalFocusOriginRef = useRef<HTMLElement | null>(null);
-  const operatorTerminalListenersRef = useRef(new Set<(
-    frame: Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>,
-  ) => void>());
   const sendRef = useRef<((frame: GuiOutboundFrame) => void) | null>(null);
-  const subscribeOperatorTerminal = useCallback((listener: (
-    frame: Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>,
-  ) => void) => {
-    operatorTerminalListenersRef.current.add(listener);
-    return () => operatorTerminalListenersRef.current.delete(listener);
-  }, []);
-  const setOperatorTerminalExpanded = useCallback((expanded: boolean) => {
-    if (expanded) {
-      const activeElement = document.activeElement;
-      if (activeElement instanceof HTMLElement
-        && !activeElement.closest(`#${OPERATOR_TERMINAL_PANEL_ID}`)) {
-        operatorTerminalFocusOriginRef.current = activeElement;
-      }
-    }
-    operatorTerminalExpandedRef.current = expanded;
-    setOperatorTerminalExpandedState(expanded);
-    if (!expanded) {
-      queueMicrotask(() => {
-        const origin = operatorTerminalFocusOriginRef.current;
-        const fallback = document.querySelector<HTMLElement>(`[aria-controls="${OPERATOR_TERMINAL_PANEL_ID}"]`);
-        (origin?.isConnected ? origin : fallback)?.focus();
-      });
-    }
-  }, []);
-  const setOperatorTerminalCapability = useCallback((available: boolean) => {
-    operatorTerminalAvailableRef.current = available;
-    setOperatorTerminalAvailable(available);
-    if (!available && operatorTerminalExpandedRef.current) {
-      setOperatorTerminalExpanded(false);
-    }
-  }, [setOperatorTerminalExpanded]);
-  const toggleOperatorTerminal = useCallback(() => {
-    if (!operatorTerminalAvailableRef.current) return;
-    setOperatorTerminalExpanded(!operatorTerminalExpandedRef.current);
-  }, [setOperatorTerminalExpanded]);
-  const toggleOperatorTerminalFromShortcut = useEffectEvent(toggleOperatorTerminal);
 
   const status = useSessionStore((state) => state.status);
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
@@ -392,9 +340,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const onInteractiveUseUpdated = useSessionStore((state) => state.onInteractiveUseUpdated);
   const onBrowserSessionUpdated = useSessionStore((state) => state.onBrowserSessionUpdated);
   const onBrowserLiveViewportFrame = useSessionStore((state) => state.onBrowserLiveViewportFrame);
-  const onBrowserOperatorInputAck = useSessionStore((state) => state.onBrowserOperatorInputAck);
-  const requestBrowserSessionControl = useSessionStore((state) => state.requestBrowserSessionControl);
-  const sendBrowserOperatorInput = useSessionStore((state) => state.sendBrowserOperatorInput);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const cancelActiveTurn = useSessionStore((state) => state.cancelActiveTurn);
@@ -634,10 +579,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
         event.preventDefault();
         openSettings("general");
       }
-      if (event.ctrlKey && event.code === "Backquote" && operatorTerminalAvailableRef.current) {
-        event.preventDefault();
-        toggleOperatorTerminalFromShortcut();
-      }
       if ((event.ctrlKey || event.metaKey) && event.key === "9") {
         event.preventDefault();
         selectWorkbenchSurface("agents");
@@ -699,11 +640,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
       onInteractiveUseUpdated,
       onBrowserSessionUpdated,
       onBrowserLiveViewportFrame,
-      onBrowserOperatorInputAck,
-      onOperatorTerminalAvailability: setOperatorTerminalCapability,
-      onOperatorTerminalFrame: (frame) => {
-        for (const listener of operatorTerminalListenersRef.current) listener(frame);
-      },
       setConnectionStatus,
       setTheme,
       persistThemePreference,
@@ -730,10 +666,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
         }
         setGatewayError(null);
       } else if (state === "connecting" || state === "reconnecting") {
-        setOperatorTerminalCapability(false);
         setConnectionStatus("connecting");
       } else if (state === "closed") {
-        setOperatorTerminalCapability(false);
         setConnectionStatus("error");
         setGatewayError("Gateway disconnected.");
       }
@@ -953,12 +887,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const themeCommands: readonly CommandPaletteItem[] = OPERATOR_THEME_NAMES.map((theme) => (
     themeToPaletteItem(theme, OPERATOR_THEME_LABELS[theme])
   ));
-  const rootCommands: CommandPaletteItem[] = [];
-  for (const command of listOperatorCommands("gui")) {
-    if (command.id !== "terminal" || operatorTerminalAvailable) {
-      rootCommands.push(operatorCommandToPaletteItem(command));
-    }
-  }
+  const rootCommands: readonly CommandPaletteItem[] = listOperatorCommands("gui").map(operatorCommandToPaletteItem);
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
   const runtimeBootstrapReady = gatewayReady && wsState === "open" && providerCatalogStatus === "ready";
   const bootstrapTitle = gatewayError || providerCatalogStatus === "error"
@@ -1016,7 +945,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
     onThemePersistenceFailed: (error) => {
       setThemePreferenceError(error instanceof Error ? error.message : String(error));
     },
-    toggleOperatorTerminal,
   });
 
   if (!runtimeBootstrapReady) {
@@ -1255,10 +1183,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   onSelectGatewayTarget={setSelectedGatewayTargetId}
                 />
               )}
-              operatorTerminalAvailable={operatorTerminalAvailable}
-              operatorTerminalExpanded={operatorTerminalExpanded}
-              operatorTerminalPanelId={OPERATOR_TERMINAL_PANEL_ID}
-              onToggleOperatorTerminal={toggleOperatorTerminal}
             />
           ) : null}
           {!isNarrow ? (
@@ -1283,13 +1207,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   onSelectGatewayTarget={setSelectedGatewayTargetId}
                 />
               )}
-              operatorTerminalAvailable={operatorTerminalAvailable}
-              operatorTerminalExpanded={operatorTerminalExpanded}
-              operatorTerminalPanelId={OPERATOR_TERMINAL_PANEL_ID}
-              onToggleOperatorTerminal={toggleOperatorTerminal}
             />
           ) : null}
-          <div className={isNarrow && operatorTerminalExpanded ? "hidden" : "contents"}>
           <WorkbenchSurfaces
             activeSurface={workbenchSurface}
             chatWorkbench={{
@@ -1309,12 +1228,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
               browserSession: browserSessionState,
               browserLiveViewportFrame,
               loadResourceDataUrl: (uri) => gatewayClient.loadResourceDataUrl(uri, cockpitActions.resourceTarget(uri)),
-              onBrowserSessionControl: (action, options) => {
-                requestBrowserSessionControl(action, options);
-              },
-              onBrowserOperatorInput: (request) => {
-                sendBrowserOperatorInput(request);
-              },
               memoryOpen: memorySurfaceOpen,
               files: workspaceDocuments.documents,
               selectedPath: workspaceDocuments.selectedPath,
@@ -1461,20 +1374,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
               onSelectRecord: setSelectedMemoryRecordId,
             }}
           />
-          </div>
-          {operatorTerminalAvailable ? (
-            <Suspense fallback={null}>
-              <OperatorTerminalDock
-                available
-                expanded={operatorTerminalExpanded}
-                layout={isNarrow ? "surface" : "drawer"}
-                workspaceScope={workingDirectory ?? window.location.origin}
-                onExpandedChange={setOperatorTerminalExpanded}
-                send={send}
-                subscribe={subscribeOperatorTerminal}
-              />
-            </Suspense>
-          ) : null}
         </WorkbenchMain>
         {!isNarrow && inspectorOpen ? (
           <InspectorRail>

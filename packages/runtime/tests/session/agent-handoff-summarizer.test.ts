@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { DefaultAgentHandoffSummarizer } from "../../src/session/support/summarization/agent-handoff-summarizer.js";
@@ -7,116 +7,43 @@ function makeSession(): RuntimeSession {
   return new RuntimeSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "test" });
 }
 
-function makeProvider() {
-  return {
-    createMessage: vi.fn().mockResolvedValue({
-      parts: [{ type: "text", text: "Summary text" }],
-      inputTokens: 10,
-      outputTokens: 20,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      toolCalls: [],
-    }),
-  };
-}
-
 describe("DefaultAgentHandoffSummarizer", () => {
-  it("generates brief with correct system prompt", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
-    const session = makeSession();
-    session.addUserMessage(textParts("Hello"));
-
-    await summarizer.summarize(session, "SalesBot", "SupportBot");
-
-    const call = provider.createMessage.mock.calls[0][0];
-    expect(call.system).toContain("SalesBot");
-    expect(call.system).toContain("SupportBot");
-    expect(call.system).toContain("handoff brief");
-  });
-
-  it("passes last 10 messages to provider", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
-    const session = makeSession();
-
-    for (let i = 0; i < 15; i++) {
-      session.addUserMessage(textParts(`Message ${i}`));
-    }
-
-    await summarizer.summarize(session, "A", "B");
-
-    const call = provider.createMessage.mock.calls[0][0];
-    expect(call.messages).toHaveLength(10);
-  });
-
-  it("returns empty string for empty history", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
-    const session = makeSession();
-
-    const result = await summarizer.summarize(session, "A", "B");
-
-    expect(result).toBe("");
-    expect(provider.createMessage).not.toHaveBeenCalled();
-  });
-
-  it("formats response as [Handoff from X]: ...", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
-    const session = makeSession();
-    session.addUserMessage(textParts("Help me"));
-
-    const result = await summarizer.summarize(session, "SalesBot", "SupportBot");
-
-    expect(result).toBe("[Handoff from SalesBot]: Summary text");
-  });
-
-  it("sets maxTokens to 150", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
-    const session = makeSession();
-    session.addUserMessage(textParts("Hello"));
-
-    await summarizer.summarize(session, "A", "B");
-
-    const call = provider.createMessage.mock.calls[0][0];
-    expect(call.maxTokens).toBe(150);
-  });
-
-  it("produces brief for single message session", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
+  it("creates a bounded deterministic brief with both agent names", async () => {
     const session = makeSession();
     session.addUserMessage(textParts("I need a refund"));
 
-    const result = await summarizer.summarize(session, "Greeter", "Refunds");
-
-    expect(result).toBe("[Handoff from Greeter]: Summary text");
-    const call = provider.createMessage.mock.calls[0][0];
-    expect(call.messages).toHaveLength(1);
+    await expect(new DefaultAgentHandoffSummarizer().summarize(session, "SalesBot", "SupportBot")).resolves.toBe(
+      "[Handoff from SalesBot to SupportBot]: user: I need a refund",
+    );
   });
 
-  it("propagates provider errors for caller to handle", async () => {
-    const provider = makeProvider();
-    provider.createMessage.mockRejectedValue(new Error("Provider down"));
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
+  it("uses only the recent ten messages", async () => {
     const session = makeSession();
-    session.addUserMessage(textParts("Hello"));
+    for (let i = 0; i < 15; i++) session.addUserMessage(textParts(`Message ${i}`));
 
-    await expect(summarizer.summarize(session, "A", "B")).rejects.toThrow("Provider down");
+    const result = await new DefaultAgentHandoffSummarizer().summarize(session, "A", "B");
+    expect(result).not.toContain("Message 0");
+    expect(result).toContain("Message 5");
+    expect(result).toContain("Message 14");
   });
 
-  it("includes from and to agent names in prompt", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultAgentHandoffSummarizer(provider as any);
+  it("returns an empty brief for empty history", async () => {
+    await expect(new DefaultAgentHandoffSummarizer().summarize(makeSession(), "A", "B")).resolves.toBe("");
+  });
+
+  it("bounds long handoff briefs", async () => {
     const session = makeSession();
-    session.addUserMessage(textParts("Hi"));
+    session.addUserMessage(textParts("x".repeat(5000)));
+    const result = await new DefaultAgentHandoffSummarizer().summarize(session, "A", "B");
+    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(result.endsWith("...")).toBe(true);
+  });
 
-    await summarizer.summarize(session, "BillingAgent", "TechSupport");
-
-    const call = provider.createMessage.mock.calls[0][0];
-    expect(call.system).toContain('"BillingAgent"');
-    expect(call.system).toContain('"TechSupport"');
+  it("keeps long agent names bounded", async () => {
+    const session = makeSession();
+    session.addUserMessage(textParts("x".repeat(5000)));
+    const result = await new DefaultAgentHandoffSummarizer().summarize(session, "from-".repeat(500), "to-".repeat(500));
+    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(result.endsWith("...")).toBe(true);
   });
 });

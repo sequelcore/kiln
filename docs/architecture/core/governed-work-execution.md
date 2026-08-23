@@ -18,6 +18,11 @@ This doctrine refines [`identity.md`](identity.md),
 [`agent-tasks.md`](../coordination/agent-tasks.md). It does not create a second workflow,
 route, job, evidence, or replay owner.
 
+[`execution-kernel.md`](execution-kernel.md) owns the narrower irreversible
+dispatch contract inside an admitted execution. The outer work lifecycle does
+not itself fence every provider, tool, process, or remote effect performed by a
+Kiln-owned inner loop.
+
 ## Bounded Work Contract
 
 [`bounded-work-authority.md`](bounded-work-authority.md) owns the contract that

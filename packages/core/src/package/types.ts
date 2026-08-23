@@ -9,12 +9,6 @@ export interface PackageToolsConfig {
   readonly server: string;
 }
 
-/** Knowledge file references for a package */
-export interface PackageKnowledgeConfig {
-  readonly examples?: string;
-  readonly gates?: string;
-}
-
 /** Base manifest for any installable package */
 export interface PackageManifest {
   readonly name: string;
@@ -31,7 +25,6 @@ export interface DomainPackageManifest extends PackageManifest {
   readonly config: DomainConfig;
   readonly skills: readonly string[];
   readonly tools: PackageToolsConfig | null;
-  readonly knowledge: PackageKnowledgeConfig | null;
 }
 
 /** Manifest for an installed skill package */

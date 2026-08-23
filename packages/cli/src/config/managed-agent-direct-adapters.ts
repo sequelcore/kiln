@@ -19,6 +19,11 @@ import {
   type RuntimeExecutionEnvelope,
   type ManagedAgentRuntimeAdapter,
 } from "@kilnai/runtime";
+import type {
+  EffectiveAuthorityAdmissionBundle,
+  RuntimeModelRoundActionClaimStore,
+  RuntimeToolActionClaimStore,
+} from "@kilnai/runtime";
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
 import {
   createDirectProviderAdapter,
@@ -54,10 +59,19 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
     disconnect?(): Promise<void>;
   };
   readonly createProviderAdapter?: (options: DirectProviderAdapterOptions) => Promise<ProviderAdapter>;
+  readonly runtimeToolActionClaims: RuntimeToolActionClaimStore;
+  readonly readAuthorityAdmission: (input: {
+    readonly admissionId: string;
+    readonly sessionId: string;
+    readonly turnId: string;
+  }) => EffectiveAuthorityAdmissionBundle | undefined | Promise<EffectiveAuthorityAdmissionBundle | undefined>;
+  readonly runtimeModelRoundActionClaims: RuntimeModelRoundActionClaimStore;
+  readonly modelRoundAdapterIdentity?: string;
+  readonly toolActionAdapterIdentity?: string;
 }
 
 export function createManagedDirectProviderAdapterFactory(
-  options: ManagedDirectProviderAdapterFactoryOptions = {},
+  options: ManagedDirectProviderAdapterFactoryOptions,
 ): (
   route: ResolvedManagedTargetConfig,
   credentialBinding: DirectProviderCredentialBinding | undefined,
@@ -98,6 +112,8 @@ export function createManagedDirectProviderAdapterFactory(
         configEnv: options.configEnv,
         runtimeEnv: options.runtimeEnv,
         processEnv: options.processEnv,
+        // The managed action claim is the retry boundary. Provider-level
+        // automatic retries would be a second unclaimed effect.
       });
     throwIfAborted(abortSignal);
     const builtinToolSurface = resolveBuiltinToolSurface();
@@ -157,6 +173,11 @@ export function createManagedDirectProviderAdapterFactory(
       ...(executionEnvelope ? { executionEnvelope } : {}),
       economicIdentity: committedRequest.commitment.reservation.selectedIdentity,
       ...(profile.writeAllowed === true ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
+       runtimeToolActionClaims: options.runtimeToolActionClaims,
+       readAuthorityAdmission: options.readAuthorityAdmission,
+       runtimeModelRoundActionClaims: options.runtimeModelRoundActionClaims,
+       ...(options.modelRoundAdapterIdentity ? { modelRoundAdapterIdentity: options.modelRoundAdapterIdentity } : {}),
+       ...(options.toolActionAdapterIdentity ? { toolActionAdapterIdentity: options.toolActionAdapterIdentity } : {}),
     });
   };
 }

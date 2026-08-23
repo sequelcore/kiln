@@ -55,6 +55,12 @@ export function invocationEntryFromRecoveryCheckpoint(
     ...(validated.childAuthorityAdmission !== undefined
       ? { childAuthorityAdmission: cloneJson(validated.childAuthorityAdmission) }
       : {}),
+    ...(validated.resultPending !== undefined
+      ? { resultPending: cloneJson(validated.resultPending) }
+      : {}),
+    ...(validated.externalActionClaim !== undefined
+      ? { externalActionClaim: cloneJson(validated.externalActionClaim) }
+      : {}),
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
     ...(validated.error !== undefined ? { error: new Error(validated.error.message) } : {}),
@@ -84,6 +90,12 @@ export function recoveryCheckpointFromInvocationEntry(
       : {}),
     ...(entry.childAuthorityAdmission !== undefined
       ? { childAuthorityAdmission: cloneJson(entry.childAuthorityAdmission) }
+      : {}),
+    ...(entry.resultPending !== undefined
+      ? { resultPending: cloneJson(entry.resultPending) }
+      : {}),
+    ...(entry.externalActionClaim !== undefined
+      ? { externalActionClaim: cloneJson(entry.externalActionClaim) }
       : {}),
     ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),

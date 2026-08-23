@@ -1,6 +1,5 @@
-import type { SttAdapter, SttResult } from "../../engine/domain/speech-config.js";
+import type { SttAdapter, SttOptions, SttResult } from "../../engine/domain/speech-config.js";
 import { KilnError } from "../../engine/errors.js";
-import { withRetry } from "./retry.js";
 
 export interface OpenAISttConfig {
   readonly apiKey: string;
@@ -30,7 +29,7 @@ export class OpenAISttAdapter implements SttAdapter {
     this.language = config.language;
   }
 
-  async transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult> {
+  async transcribe(audio: Uint8Array, mimeType: string, options: SttOptions = {}): Promise<SttResult> {
     const filename = MIME_TO_EXT[mimeType] ?? "audio.bin";
     const formData = new FormData();
     formData.append("file", new Blob([audio.buffer as ArrayBuffer], { type: mimeType }), filename);
@@ -40,42 +39,20 @@ export class OpenAISttAdapter implements SttAdapter {
       formData.append("language", this.language);
     }
 
-    const data = await withRetry(
-      async () => {
-        const response = await fetch(
-          "https://api.openai.com/v1/audio/transcriptions",
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${this.apiKey}` },
-            body: formData,
-          },
-        );
-
-        if (!response.ok) {
-          const status = response.status;
-          if (status === 429 || status >= 500) {
-            const err = new Error(`OpenAI STT returned ${status}`);
-            (err as unknown as Record<string, number>).status = status;
-            throw err;
-          }
-          const body = await response.text();
-          throw new KilnError("STT_FAILED", `OpenAI STT error ${status}: ${body}`, {
-            context: { provider: "openai", status },
-            retryable: false,
-          });
-        }
-
-        return response.json() as Promise<{ text: string; duration?: number }>;
-      },
-      {
-        maxRetries: 3,
-        baseDelayMs: 1000,
-        isRetryable: (error: unknown) =>
-          !(error instanceof KilnError) &&
-          error instanceof Error &&
-          "status" in error,
-      },
-    );
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+      body: formData,
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      const status = response.status;
+      const body = await response.text();
+      throw new KilnError("STT_FAILED", `OpenAI STT error ${status}: ${body}`, {
+        context: { provider: "openai", status }, retryable: false,
+      });
+    }
+    const data = await response.json() as { text: string; duration?: number };
 
     return {
       text: data.text,

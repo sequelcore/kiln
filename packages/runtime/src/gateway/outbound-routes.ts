@@ -3,11 +3,15 @@
 // Kilvo (and future products) own the policy (when to send, to whom, compliance).
 
 import { Hono } from "hono";
+import { textParts } from "@kilnai/core";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
-import { sendWhatsAppMessage, sendWhatsAppTemplate } from "../channels/whatsapp-api.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
+import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
+import { sendWhatsAppMessage, sendWhatsAppTemplate, WHATSAPP_GRAPH_API_VERSION } from "../channels/whatsapp-api.js";
 import type { WhatsAppTemplateComponent, WhatsAppSendResult } from "../channels/whatsapp-api.js";
-import { sendInstagramMessage } from "../channels/instagram-api.js";
-import { sendMessengerMessage } from "../channels/messenger-api.js";
+import { sendInstagramMessage, INSTAGRAM_GRAPH_API_VERSION } from "../channels/instagram-api.js";
+import { sendMessengerMessage, MESSENGER_GRAPH_API_VERSION } from "../channels/messenger-api.js";
+import type { GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { requireBearer } from "./auth-middleware.js";
 
 function resolveEnvToken(token: string): string {
@@ -16,6 +20,8 @@ function resolveEnvToken(token: string): string {
 
 export interface OutboundRoutesConfig {
   readonly tenantRegistry: TenantRegistry;
+  readonly sessionRegistry: SessionRegistry;
+  readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
   readonly appName: string;
   readonly adminToken?: string;
   readonly evaluateOutboundPermission?: (
@@ -38,6 +44,10 @@ interface OutboundPermissionRequest {
 
 interface OutboundSendRequest {
   readonly tenantId: string;
+  /** Stable caller-owned identity for the logical outbound request. */
+  readonly callerId: string;
+  /** Stable caller-owned idempotency key for this request. */
+  readonly idempotencyKey: string;
   readonly channel: "whatsapp" | "instagram" | "messenger";
   readonly to: string;
   readonly type: "template" | "text";
@@ -79,6 +89,9 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
     if (!body.tenantId || !body.channel || !body.to || !body.type) {
       return c.json({ success: false, error: "Missing required fields: tenantId, channel, to, type" }, 400);
     }
+    if (!body.callerId || !body.idempotencyKey) {
+      return c.json({ success: false, error: "Missing required fields: callerId, idempotencyKey" }, 400);
+    }
 
     const supportedChannels = ["whatsapp", "instagram", "messenger"];
     if (!supportedChannels.includes(body.channel)) {
@@ -116,6 +129,21 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
     const outboundText = outboundDecision === "redact" ? REDACTED_OUTBOUND_TEXT : body.text;
 
     try {
+      const session = await config.sessionRegistry.getOrCreate({
+        appName: config.appName,
+        tenantId: body.tenantId,
+        userId: `outbound:${body.callerId}`,
+        systemPrompt: "",
+      });
+      return await config.gatewayAdmission.execute({
+        ingressId: `outbound:${body.callerId}:${body.idempotencyKey}`,
+        appName: config.appName,
+        tenantId: body.tenantId,
+        userId: session.userId,
+        sessionId: session.id,
+        channel: body.channel,
+        userParts: textParts(outboundText ?? body.template?.name ?? "template"),
+      }, async (admitted) => {
       if (body.channel === "whatsapp") {
         if (!tenant.whatsappPhoneNumberId || !tenant.whatsappAccessToken) {
           return c.json({ success: false, error: "Tenant has no WhatsApp credentials configured" }, 422);
@@ -128,30 +156,65 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
           if (!body.template?.name || !body.template?.language) {
             return c.json({ success: false, error: "Template sends require template.name and template.language" }, 400);
           }
-          result = await sendWhatsAppTemplate(
-            tenant.whatsappPhoneNumberId,
-            accessToken,
-            body.to,
-            body.template.name,
-            body.template.language,
-            body.template.components,
-          );
+          const templatePayload = {
+            messaging_product: "whatsapp",
+            to: body.to,
+            type: "template",
+            template: {
+              name: body.template.name,
+              language: { code: body.template.language },
+              ...(body.template.components ? { components: body.template.components } : {}),
+            },
+          };
+          result = await dispatchChannelEgress({
+            context: config.gatewayAdmission.channelEgressActionClaims,
+            authorityAdmission: admitted.bundle,
+            attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+            callerId: body.callerId,
+            idempotencyKey: body.idempotencyKey,
+            logicalSendSlot: "outbound-message",
+            channel: body.channel,
+            destination: `whatsapp:${tenant.whatsappPhoneNumberId}:${body.to}`,
+            adapterIdentity: `whatsapp-cloud:${WHATSAPP_GRAPH_API_VERSION}:${tenant.whatsappPhoneNumberId}`,
+            payload: templatePayload,
+            send: () => sendWhatsAppTemplate(
+              tenant.whatsappPhoneNumberId!,
+              accessToken,
+              body.to,
+              body.template!.name,
+              body.template!.language,
+              body.template!.components,
+            ),
+          });
         } else {
           if (!outboundText) {
             return c.json({ success: false, error: "Text sends require text field" }, 400);
           }
-          const res = await sendWhatsAppMessage(
-            tenant.whatsappPhoneNumberId,
-            accessToken,
-            body.to,
-            { type: "text", text: { body: outboundText } },
-          );
-          const json = (await res.json()) as { messages?: Array<{ id: string }> };
-          const messageId = json.messages?.[0]?.id;
-          if (!messageId) {
-            throw new Error("WhatsApp API returned no message ID");
-          }
-          result = { whatsappMessageId: messageId };
+          const payload = {
+            messaging_product: "whatsapp",
+            to: body.to,
+            type: "text",
+            text: { body: outboundText },
+          };
+          result = await dispatchChannelEgress({
+            context: config.gatewayAdmission.channelEgressActionClaims,
+            authorityAdmission: admitted.bundle,
+            attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+            callerId: body.callerId,
+            idempotencyKey: body.idempotencyKey,
+            logicalSendSlot: "outbound-message",
+            channel: body.channel,
+            destination: `whatsapp:${tenant.whatsappPhoneNumberId}:${body.to}`,
+            adapterIdentity: `whatsapp-cloud:${WHATSAPP_GRAPH_API_VERSION}:${tenant.whatsappPhoneNumberId}`,
+            payload,
+            send: async () => {
+              const res = await sendWhatsAppMessage(tenant.whatsappPhoneNumberId!, accessToken, body.to, { type: "text", text: { body: outboundText } });
+              const json = (await res.json()) as { messages?: Array<{ id: string }> };
+              const messageId = json.messages?.[0]?.id;
+              if (!messageId) throw new Error("WhatsApp API returned no message ID");
+              return { whatsappMessageId: messageId };
+            },
+          });
         }
 
         return c.json({ success: true, messageId: result.whatsappMessageId });
@@ -164,7 +227,20 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
         }
 
         const accessToken = resolveEnvToken(tenant.instagramAccessToken);
-        const result = await sendInstagramMessage(tenant.instagramPageId, accessToken, body.to, outboundText);
+        const payload = { recipient: { id: body.to }, message: { text: outboundText } };
+        const result = await dispatchChannelEgress({
+          context: config.gatewayAdmission.channelEgressActionClaims,
+          authorityAdmission: admitted.bundle,
+          attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+          callerId: body.callerId,
+          idempotencyKey: body.idempotencyKey,
+          logicalSendSlot: "outbound-message",
+          channel: body.channel,
+          destination: `instagram:${tenant.instagramPageId}:${body.to}`,
+          adapterIdentity: `instagram-graph:${INSTAGRAM_GRAPH_API_VERSION}:${tenant.instagramPageId}`,
+          payload,
+          send: () => sendInstagramMessage(tenant.instagramPageId!, accessToken, body.to, outboundText),
+        });
         return c.json({ success: true, messageId: result.messageId });
       } else if (body.channel === "messenger") {
         if (!tenant.messengerAccessToken) {
@@ -175,9 +251,24 @@ export function createOutboundRoutes(config: OutboundRoutesConfig): Hono {
         }
 
         const accessToken = resolveEnvToken(tenant.messengerAccessToken);
-        const result = await sendMessengerMessage(accessToken, body.to, outboundText);
+        const payload = { messaging_type: "RESPONSE", recipient: { id: body.to }, message: { text: outboundText } };
+        const result = await dispatchChannelEgress({
+          context: config.gatewayAdmission.channelEgressActionClaims,
+          authorityAdmission: admitted.bundle,
+          attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+          callerId: body.callerId,
+          idempotencyKey: body.idempotencyKey,
+          logicalSendSlot: "outbound-message",
+          channel: body.channel,
+          destination: `messenger:me:${body.to}`,
+          adapterIdentity: `messenger-graph:${MESSENGER_GRAPH_API_VERSION}:me`,
+          payload,
+          send: () => sendMessengerMessage(accessToken, body.to, outboundText),
+        });
         return c.json({ success: true, messageId: result.messageId });
       }
+      throw new Error("Unsupported outbound channel");
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[outbound] Send failed tenant=${body.tenantId} channel=${body.channel} to=${body.to}: ${message}`);

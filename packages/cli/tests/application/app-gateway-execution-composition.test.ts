@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { defineExecutionCatalog } from "@kilnai/core";
+import { defineExecutionCatalog } from "@kilnai/core/agents";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { createAppGatewayExecutionComposition } from "../../src/application/app-gateway-execution-composition.js";
@@ -29,6 +29,7 @@ describe("createAppGatewayExecutionComposition", () => {
     expect(composition.bundle.snapshot.catalog).toBe(snapshot.catalog);
     expect(composition.bundle.accountRuntime).toBeDefined();
     expect(composition.bundle.evidenceStore).toBeDefined();
+    expect(composition.bundle.modelRoundActionClaims).toBeDefined();
     expect(composition.bundle.snapshot.configurationRevision.revisions["app-gateway:gateway"]).toMatch(/^sha256:/u);
     expect(composition.bundle.snapshot.configurationRevision.revisionSetId).not.toBe(snapshot.configurationRevision.revisionSetId);
 
@@ -54,6 +55,7 @@ describe("createAppGatewayExecutionComposition", () => {
     expect(transcript).toHaveLength(1);
     expect(transcript[0]).toMatchObject({ kind: "operator_adoption_decision", turnId });
     expect(await readFile(join(projectPath, ".kiln", "runtime", "operator-session-account-capacity.sqlite"))).toBeDefined();
+    expect(await readFile(join(projectPath, ".kiln", "runtime", "app-gateway-model-round-claims.sqlite"))).toBeDefined();
     composition.close();
   });
 
@@ -68,7 +70,7 @@ describe("createAppGatewayExecutionComposition", () => {
         configurationRevision: { revisionSetId: "sha256:r1", revisions: { global: "sha256:g1" } },
       }),
       readGlobalConfigSnapshot: () => ({
-        config: { sessionTurnBudget: { tokenLimit: 100, action: "stop" } },
+        config: { version: "4", sessionTurnBudget: { tokenLimit: 100, action: "stop" } },
         revision: "sha256:g1",
       }),
     });

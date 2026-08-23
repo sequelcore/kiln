@@ -39,7 +39,6 @@ import {
 } from "@kilnai/core";
 import {
   buildEffectiveTurnAuthorityPolicyInputs,
-  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
   createAttachedRuntimeBuiltinToolSurface,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
@@ -47,12 +46,14 @@ import {
   type OperatorSurfaceController,
   type OrchestrateResult,
   type PerCallToolConfig,
+  type RuntimeAuthorityAdmissionCandidateConfig,
   type RuntimeSessionTurnBudgetAuthority,
   type RuntimeExecutionEnvelope,
-  prepareOperatorAdoptionTurn,
-  hasGovernedGoalTools,
+  readExecutionTurnAuthority,
   type OperatorAdoptionRuntimeBinding,
   type EffectiveAuthorityAdmissionBundle,
+  RuntimeModelRoundDispatchService,
+  runtimeModelRoundEffectIdentity,
   type RuntimeSession,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
@@ -304,6 +305,8 @@ export class ProviderSession implements IKilnSession {
   private readonly eventBus: EventBus;
   private _communicationResolution: import("@kilnai/core").CommunicationResolution | undefined;
   private _effectivePromptObservation: EffectivePromptObservation | undefined;
+  private _runtimeModelRoundClaimed = false;
+  private _runtimeModelRoundOutcome: "unknown" | undefined;
   private readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
   private disposePromise?: Promise<void>;
 
@@ -363,7 +366,7 @@ export class ProviderSession implements IKilnSession {
     readonly toolSandbox?: unknown;
     readonly externalTools?: readonly ToolDefinition[];
     readonly externalCapabilities?: ReadonlyMap<string, Capability>;
-  }): PerCallToolConfig {
+  }): RuntimeAuthorityAdmissionCandidateConfig {
     return this.buildPerCallConfig(
       input.deliberationResolution,
       input.communicationIntent,
@@ -397,8 +400,18 @@ export class ProviderSession implements IKilnSession {
     return this._effectivePromptObservation;
   }
 
+  get runtimeModelRoundClaimed(): boolean {
+    return this._runtimeModelRoundClaimed;
+  }
+
+  get runtimeModelRoundOutcome(): "unknown" | undefined {
+    return this._runtimeModelRoundOutcome;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     const startedAt = Date.now();
+    this._runtimeModelRoundClaimed = false;
+    this._runtimeModelRoundOutcome = undefined;
 
     if (options.abortSignal?.aborted) {
       yield {
@@ -441,6 +454,14 @@ export class ProviderSession implements IKilnSession {
       }
       yield* this.runTextOnly(options, startedAt);
     } catch (err) {
+      if (isRuntimeModelRoundCommittedError(err)) {
+        this._runtimeModelRoundOutcome = "unknown";
+      }
+      const modelRoundState = this.config.authorityAdmissionContext?.perCallConfig?.runtimeModelRoundDispatch?.state;
+      this._runtimeModelRoundClaimed = modelRoundState?.claimed === true;
+      if (modelRoundState?.outcome === "unknown") {
+        this._runtimeModelRoundOutcome = "unknown";
+      }
       const code = this.executionMode === "kiln-executable"
         ? "EXECUTABLE_SESSION_ERROR"
         : "PROVIDER_SESSION_ERROR";
@@ -461,6 +482,14 @@ export class ProviderSession implements IKilnSession {
         outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
         isPreflightCrash: false,
       };
+    } finally {
+      // `runSession` can intentionally abandon this iterator after a denied
+      // live tool event. Async delegation closes the inner Runtime iterator
+      // first; publish its durable claim outcome before fallback is decided.
+      const modelRoundState = this.config.authorityAdmissionContext?.perCallConfig?.runtimeModelRoundDispatch?.state;
+      if (modelRoundState !== undefined) {
+        this.syncRuntimeModelRoundState(modelRoundState);
+      }
     }
   }
 
@@ -489,7 +518,7 @@ export class ProviderSession implements IKilnSession {
 
   private buildSystemAndPrompt(
     options: SessionRunOptions,
-    effectiveTurnAuthority?: PerCallToolConfig["effectiveTurnAuthority"],
+    effectiveTurnAuthority?: RuntimeAuthorityAdmissionCandidateConfig["effectiveTurnAuthority"],
   ): {
     readonly systemPrompt: string;
     readonly userPrompt: string;
@@ -562,6 +591,17 @@ export class ProviderSession implements IKilnSession {
 
   private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     let outcome: SessionTurnOutcome = "completed";
+    const authorityAdmissionContext = this.config.authorityAdmissionContext;
+    const admittedPerCallConfig = authorityAdmissionContext?.perCallConfig;
+    if (!authorityAdmissionContext
+      || !admittedPerCallConfig?.authorityAdmission
+      || admittedPerCallConfig.authorityAdmission !== authorityAdmissionContext.bundle) {
+      throw new Error("Direct provider text-only execution requires the exact persisted Runtime authority admission bundle.");
+    }
+    const modelRoundDispatch = admittedPerCallConfig.runtimeModelRoundDispatch;
+    if (!modelRoundDispatch) {
+      throw new Error("Direct provider text-only execution requires a complete admitted Runtime model-round claim context.");
+    }
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
@@ -571,7 +611,22 @@ export class ProviderSession implements IKilnSession {
       runtimeEnv: options.env,
     });
     const executionBinding = directProviderExecutionBinding(adapter);
-    const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
+    if (executionBinding !== undefined && (
+      executionBinding.routeId !== modelRoundDispatch.routeId
+      || executionBinding.accountId !== modelRoundDispatch.accountId
+      || executionBinding.credentialRevision !== modelRoundDispatch.credentialRevision
+    )) {
+      throw new DirectProviderBindingError({
+        routeId: modelRoundDispatch.routeId,
+        accountId: modelRoundDispatch.accountId,
+        credentialId: executionBinding?.credentialId ?? "unbound",
+        credentialRevision: modelRoundDispatch.credentialRevision,
+      });
+    }
+    const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(
+      options,
+      readExecutionTurnAuthority(admittedPerCallConfig),
+    );
     const messages = this.buildConversationMessages(userPrompt, options.messages);
     const communicationIntent = options.communicationIntent ?? this.config.communicationIntent;
     const communicationResolution = communicationIntent
@@ -608,15 +663,41 @@ export class ProviderSession implements IKilnSession {
       };
     }
 
-    for await (const event of adapter.streamMessage({
+    const providerRequestId = `kiln:runtime-model-round:${modelRoundDispatch.admission.admissionId}:${modelRoundDispatch.attemptId}:0`;
+    const request = {
       system: effectiveSystemPrompt,
       messages,
       deliberationResolution: options.deliberationResolution ?? this.config.deliberationResolution,
       ...(communicationResolution ? { communicationResolution } : {}),
       ...(options.abortSignal ? { signal: options.abortSignal } : {}),
-    })) {
+      requestIdentity: { requestId: providerRequestId },
+    };
+    const stream = new RuntimeModelRoundDispatchService(modelRoundDispatch.store).dispatchStream({
+      admission: modelRoundDispatch.admission,
+      sessionId: modelRoundDispatch.admission.sessionId,
+      turnId: modelRoundDispatch.admission.turnId,
+      attemptId: modelRoundDispatch.attemptId,
+      round: 0,
+      intentFingerprint: modelRoundDispatch.intentFingerprint,
+      effectIdentity: runtimeModelRoundEffectIdentity({ provider: this.config.provider, request }),
+      providerRequestId,
+      routeId: modelRoundDispatch.routeId,
+      accountId: modelRoundDispatch.accountId,
+      credentialRevision: modelRoundDispatch.credentialRevision,
+      readAdmission: modelRoundDispatch.readAdmission,
+      provider: adapter,
+      request,
+      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+      ...(modelRoundDispatch.state ? { state: modelRoundDispatch.state } : {}),
+    });
+
+    for await (const event of stream) {
       if (options.abortSignal?.aborted) {
         outcome = "cancelled";
+        // Closing the claimed Runtime iterator runs its settlement finally.
+        // Read the shared state only after that durable outcome is known.
+        await stream.return(undefined);
+        this.syncRuntimeModelRoundState(modelRoundDispatch.state);
         yield { type: "error", code: "ABORTED", message: "Aborted during execution", isRetryable: false };
         yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
         return;
@@ -650,6 +731,11 @@ export class ProviderSession implements IKilnSession {
         const inputTokens = typeof doneEvent.inputTokens === "number" ? doneEvent.inputTokens : 0;
         const outputTokens = typeof doneEvent.outputTokens === "number" ? doneEvent.outputTokens : 0;
         this.contextTracker.update(inputTokens, outputTokens);
+        // The dispatch generator settles success from its finally when the
+        // consumer closes after the terminal event. Do that before projecting
+        // the outcome to the session/capacity owner.
+        await stream.return(undefined);
+        this.syncRuntimeModelRoundState(modelRoundDispatch.state);
         yield {
           type: "cost_update",
           usd: 0,
@@ -675,7 +761,18 @@ export class ProviderSession implements IKilnSession {
       canonicalModel: this.resolvedModel,
       billingMode: resolveProviderDefaultBillingMode(this.config.provider),
     };
+    this.syncRuntimeModelRoundState(modelRoundDispatch.state);
     yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
+  }
+
+  private syncRuntimeModelRoundState(
+    state: NonNullable<PerCallToolConfig["runtimeModelRoundDispatch"]>["state"],
+  ): void {
+    // Projection is monotonic within one run. A committed-error catch may
+    // conservatively derive unknown when durable settlement itself failed;
+    // an incomplete shared-state write must never erase that evidence.
+    if (state?.claimed === true) this._runtimeModelRoundClaimed = true;
+    if (state?.outcome === "unknown") this._runtimeModelRoundOutcome = "unknown";
   }
 
   private buildPerCallConfig(
@@ -688,7 +785,7 @@ export class ProviderSession implements IKilnSession {
     toolSandbox: unknown,
     externalTools: readonly ToolDefinition[] = [],
     externalCapabilities: ReadonlyMap<string, Capability> = new Map(),
-  ): PerCallToolConfig {
+  ): RuntimeAuthorityAdmissionCandidateConfig {
     const runtimeExecutionMode = this.config.runtimeExecutionMode ?? "execute";
     const effectiveRequestedAuthority = runtimeExecutionMode === "plan" ? "read_only" : requestedAuthority;
     const combinedToolDefinitions = [...this.toolDefinitions, ...externalTools];
@@ -812,12 +909,23 @@ export class ProviderSession implements IKilnSession {
   }
 
   private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
-    const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
+    const { RuntimeSessionOrchestrator } = await import("@kilnai/runtime");
 
-    const mcpCapabilities = this.config.authorityAdmissionContext?.mcpCapabilities
-      ?? (await Promise.all(
-        (this.config.mcpClients ?? []).map((client) => client.discoverProviderCapabilities()),
-      )).flat();
+    const authorityAdmissionContext = this.config.authorityAdmissionContext;
+    if (!authorityAdmissionContext) {
+      throw new Error("Direct provider execution requires a canonical Runtime authority admission context.");
+    }
+    const perCallConfig = authorityAdmissionContext.perCallConfig;
+    if (!perCallConfig
+      || !perCallConfig.authorityAdmission
+      || perCallConfig.authorityAdmission !== authorityAdmissionContext.bundle) {
+      throw new Error("Direct provider execution requires the exact persisted Runtime authority admission bundle.");
+    }
+    if (!perCallConfig.runtimeModelRoundDispatch) {
+      throw new Error("Authority-admitted provider sessions require a durable Runtime model-round claim.");
+    }
+
+    const mcpCapabilities = authorityAdmissionContext.mcpCapabilities;
     const externalTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
       name: capability.name,
       description: capability.description,
@@ -826,19 +934,10 @@ export class ProviderSession implements IKilnSession {
       ...(capability.effectEnvelope ? { effectEnvelope: capability.effectEnvelope } : {}),
     }));
     const externalCapabilityMap = new Map(mcpCapabilities.map((capability) => [capability.name, capability]));
-    const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
-    let perCallConfig = this.config.authorityAdmissionContext?.perCallConfig ?? this.buildPerCallConfig(
-      options.deliberationResolution ?? this.config.deliberationResolution,
-      options.communicationIntent ?? this.config.communicationIntent,
-      requestedAuthority,
-      options.abortSignal,
-      options.turnId,
-      options.cwd ?? this.config.cwd,
-      options.toolSandbox,
-      externalTools,
-      externalCapabilityMap,
+    const { userPrompt } = this.buildSystemAndPrompt(
+      options,
+      readExecutionTurnAuthority(perCallConfig),
     );
-    const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options, perCallConfig.effectiveTurnAuthority);
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
@@ -862,59 +961,7 @@ export class ProviderSession implements IKilnSession {
     }
     const authorizer = new PermissionPolicyAuthorizer(this.config.permissionPolicy);
 
-    const runtimeSessionId = options.kilnSessionId ?? this.config.runtimeSessionId ?? this.sessionId;
-    const cliSession = this.config.authorityAdmissionContext?.runtimeSession ?? new RuntimeSession({
-      appName: "kiln-cli",
-      tenantId: "cli-session",
-      userId: this.sessionId,
-      sessionId: runtimeSessionId,
-      systemPrompt,
-      idleTimeoutMs: 30 * 60 * 1000,
-    });
-
-    const replayEvents = this.config.authorityAdmissionContext
-      ? []
-      : this.config.operatorAdoption?.replayCanonicalSessionEvents
-      ? await this.config.operatorAdoption.replayCanonicalSessionEvents(runtimeSessionId)
-      : [];
-    const canonicalReplayEvents = replayEvents
-      .filter((event) => event.kilnSessionId === runtimeSessionId)
-      .sort((left, right) => left.sequence - right.sequence);
-    if (canonicalReplayEvents.length > 0) {
-      cliSession.appendSessionEvents(canonicalReplayEvents);
-    }
-
-    const governedGoalTools = hasGovernedGoalTools({
-      toolAllowlist: perCallConfig.toolAllowlist,
-      additionalTools: perCallConfig.additionalTools,
-      builtinToolNames: this.builtinTools.keys(),
-    });
-    if (!this.config.authorityAdmissionContext && (governedGoalTools || this.config.operatorAdoption)) {
-      if (!this.config.operatorAdoption) {
-        throw new Error(
-          "Governed operator turns require a durable transcript-backed adoption decision sink.",
-        );
-      }
-      const prepared = await prepareOperatorAdoptionTurn({
-        session: cliSession,
-        actorId: this.config.operatorAdoption.actorId ?? runtimeSessionId,
-        correlationId: options.operatorTurnCorrelationId,
-        persist: this.config.operatorAdoption.persist,
-      });
-      perCallConfig = {
-        ...perCallConfig,
-        turnId: prepared.turnId,
-        ...(prepared.correlationId ? { turnCorrelationId: prepared.correlationId } : {}),
-        operatorAdoptionDecision: prepared.operatorAdoptionDecision,
-      };
-    }
-
-    if (this.config.authorityAdmissionContext) {
-      perCallConfig = applyEffectiveAuthorityAdmissionBundleToPerCallConfig(
-        this.config.authorityAdmissionContext.bundle,
-        perCallConfig,
-      );
-    }
+    const cliSession = authorityAdmissionContext.runtimeSession;
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: adapter,
@@ -930,9 +977,6 @@ export class ProviderSession implements IKilnSession {
       // Canonical direct dispatch admits the session budget in Runtime before
       // credential resolution; forwarding the authority's source here would
       // perform a second, post-fence budget admission.
-      ...(!this.config.authorityAdmissionContext && this.config.sessionTurnBudget
-        ? { sessionTurnBudget: this.config.sessionTurnBudget }
-        : {}),
       ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
     });
 
@@ -988,6 +1032,18 @@ export class ProviderSession implements IKilnSession {
     this.eventBus.on("tool_result", onToolResult);
     this.eventBus.on("approval_requested", onApprovalRequested);
 
+    const executionAbortController = new AbortController();
+    const abortExecutableTurn = (): void => {
+      if (!executionAbortController.signal.aborted) {
+        executionAbortController.abort(options.abortSignal?.reason ?? new Error("Executable provider session was cancelled."));
+      }
+    };
+    if (options.abortSignal?.aborted) abortExecutableTurn();
+    else options.abortSignal?.addEventListener("abort", abortExecutableTurn, { once: true });
+    const executablePerCallConfig = {
+      ...perCallConfig,
+      abortSignal: executionAbortController.signal,
+    };
     let result: OrchestrateResult | undefined;
     let processError: unknown;
     let processSettled = false;
@@ -996,7 +1052,7 @@ export class ProviderSession implements IKilnSession {
       promptParts,
       undefined,
       undefined,
-      perCallConfig,
+      executablePerCallConfig,
     ).then((nextResult) => {
       result = nextResult;
     }).catch((err: unknown) => {
@@ -1020,6 +1076,14 @@ export class ProviderSession implements IKilnSession {
       }
       await processPromise;
     } finally {
+      if (!processSettled) {
+        executionAbortController.abort(new Error("Executable provider session consumer stopped before terminal settlement."));
+      }
+      // Do not let caller teardown race a still-running Runtime turn. The
+      // composed abort signal closes provider/tool work, then this join makes
+      // the shared claim outcome authoritative before outer projection.
+      await processPromise;
+      options.abortSignal?.removeEventListener("abort", abortExecutableTurn);
       this.eventBus.off("tool_called", onToolCalled);
       this.eventBus.off("tool_output", onToolOutput);
       this.eventBus.off("tool_result", onToolResult);
@@ -1027,11 +1091,15 @@ export class ProviderSession implements IKilnSession {
     }
 
     if (processError) {
+      const state = perCallConfig.runtimeModelRoundDispatch?.state;
+      this.syncRuntimeModelRoundState(state);
       throw processError;
     }
     if (!result) {
       throw new Error("Runtime session orchestrator did not return a result.");
     }
+    const state = perCallConfig.runtimeModelRoundDispatch?.state;
+    this.syncRuntimeModelRoundState(state);
     this._communicationResolution = result.communicationResolution;
 
     for (const toolExec of result.toolExecutions ?? []) {
@@ -1109,6 +1177,10 @@ export class ProviderSession implements IKilnSession {
       isPreflightCrash: false,
     };
   }
+}
+
+function isRuntimeModelRoundCommittedError(error: unknown): boolean {
+  return error instanceof Error && error.name === "RuntimeModelRoundCommittedError";
 }
 
 function formatExecutableSessionError(error: unknown): string {

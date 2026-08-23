@@ -82,7 +82,7 @@ describe("mapEventToSpan - safety events", () => {
       piiTypes: ["ssn", "credit_card"],
       action: "block",
       count: 3,
-      tier: "deep",
+      tier: "heuristic",
     });
     const op = mapEventToSpan(event);
 
@@ -92,7 +92,7 @@ describe("mapEventToSpan - safety events", () => {
       expect(op.attributes["piiTypes"]).toBe("ssn,credit_card");
       expect(op.attributes["action"]).toBe("block");
       expect(op.attributes["count"]).toBe(3);
-      expect(op.attributes["tier"]).toBe("deep");
+      expect(op.attributes["tier"]).toBe("heuristic");
     }
   });
 
@@ -100,7 +100,7 @@ describe("mapEventToSpan - safety events", () => {
     const event = makeContentClassifiedEvent({
       direction: "input",
       blocked: true,
-      tier: "deep",
+      tier: "heuristic",
     });
     const op = mapEventToSpan(event);
 
@@ -108,7 +108,7 @@ describe("mapEventToSpan - safety events", () => {
     if (op.action === "addEvent") {
       expect(op.attributes["direction"]).toBe("input");
       expect(op.attributes["blocked"]).toBe(true);
-      expect(op.attributes["tier"]).toBe("deep");
+      expect(op.attributes["tier"]).toBe("heuristic");
     }
   });
 

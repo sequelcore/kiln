@@ -1,5 +1,5 @@
 // Budget enforcement middleware for provider-adapter apps
-// Checks remaining budget before LLM calls and reports usage after
+// Checks remaining budget before LLM calls.
 //
 // DESIGN RATIONALE (Fail-Closed):
 // This middleware intentionally fails CLOSED (blocks requests when budget API is unavailable).
@@ -29,7 +29,6 @@ export interface TierCheckResult {
 /** Billing configuration (matches RuntimeModeConfig.billing from @kilnai/core) */
 export interface BillingConfig {
   readonly budgetEndpoint: string;
-  readonly usageEndpoint: string;
   readonly overBudgetMessage: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly tiers?: Readonly<Record<string, { readonly agents: readonly string[] }>>;
@@ -41,14 +40,6 @@ interface BudgetResponse {
   readonly remaining: number;
   readonly unit: string;
   readonly reason?: string;
-}
-
-/** Usage report sent to product API */
-interface UsageReport {
-  readonly tenantId: string;
-  readonly messages: number;
-  readonly tokens: number;
-  readonly model: string;
 }
 
 /** Shared circuit breaker for budget API calls */
@@ -104,29 +95,6 @@ export async function checkBudget(
     });
   } catch {
     return { allowed: false, remaining: -1, unit: "unknown" };
-  }
-}
-
-/**
- * Report token usage to the product API.
- * Fire-and-forget: errors are logged but not thrown.
- */
-export async function reportUsage(
-  billing: BillingConfig,
-  usage: UsageReport,
-): Promise<void> {
-  const url = billing.usageEndpoint;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: buildHeaders(billing, "application/json"),
-      body: JSON.stringify(usage),
-    });
-    if (!res.ok) {
-      console.warn(`[billing] reportUsage failed: ${res.status} ${res.statusText} (tenant=${usage.tenantId})`);
-    }
-  } catch (err) {
-    console.warn(`[billing] reportUsage error (tenant=${usage.tenantId}):`, err);
   }
 }
 

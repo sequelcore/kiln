@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExecutionCatalog } from "@kilnai/core";
 import { parseGatewayYaml, parseRuntimeModeConfig } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
+  createRuntimeMediaActionClaimContext,
   createOperatorSessionAccountCapacityAuthority,
   type AppGatewayExecutionBundle,
   type OperatorSessionExecutionCatalogSnapshot,
@@ -15,6 +17,10 @@ import { createRuntimeConfigurationRevisionSetId, readRuntimeConfigurationRevisi
 import { captureOperatorExecutionCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
+import { createChannelEgressActionClaimContext, SqliteChannelEgressActionClaimStore } from "./channel-egress-action-claim-store.js";
+import { SqliteRuntimeMediaActionClaimStore } from "./runtime-media-action-claim-store.js";
 import { canonicalSessionEventsFromTranscript } from "./runtime-session-rehydration.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "./operator-transcript-projection.js";
 import {
@@ -72,13 +78,41 @@ export function createAppGatewayExecutionComposition(input: {
     createCliTranscriptSessionTokenUsageReader(transcriptStore),
   );
   const evidenceStore = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+  const modelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-model-round-claims.sqlite"),
+  });
+  const toolActionClaims = new SqliteRuntimeToolActionClaimStore({
+    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-tool-action-claims.sqlite"),
+  });
+  const channelEgressActionClaimsStore = new SqliteChannelEgressActionClaimStore({
+    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-channel-egress-claims.sqlite"),
+  });
+  const channelEgressActionClaims = createChannelEgressActionClaimContext({
+    ownerGeneration: `app-gateway:${randomUUID()}`,
+    store: channelEgressActionClaimsStore,
+    readAdmission: (readInput) => evidenceStore.readAdmission(readInput),
+  });
+  const runtimeMediaActionClaimsStore = new SqliteRuntimeMediaActionClaimStore({
+    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-media-action-claims.sqlite"),
+  });
+  const runtimeMediaActionClaims = createRuntimeMediaActionClaimContext({
+    ownerGeneration: `app-gateway:media:${randomUUID()}`,
+    store: runtimeMediaActionClaimsStore,
+    readAdmission: (readInput) => evidenceStore.readAdmission(readInput),
+  });
   const persistOperatorAdoptionDecision = async (event: Parameters<NonNullable<StartGatewayOptions["appGatewayExecution"]>["persistOperatorAdoptionDecision"]>[0]): Promise<void> => {
     await transcriptStore.appendManyNext(
       event.kilnSessionId,
       [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
     );
   };
-  const close = (): void => capacityAuthority.close();
+  const close = (): void => {
+    channelEgressActionClaimsStore.close();
+    runtimeMediaActionClaimsStore.close();
+    toolActionClaims.close();
+    modelRoundActionClaims.close();
+    capacityAuthority.close();
+  };
 
   return {
     bundle: {
@@ -86,6 +120,10 @@ export function createAppGatewayExecutionComposition(input: {
       accountRuntime,
       accountCapacityAuthority: capacityAuthority,
       evidenceStore,
+      modelRoundActionClaims,
+      toolActionClaims,
+      channelEgressActionClaims,
+      runtimeMediaActionClaims,
       persistOperatorAdoptionDecision,
       ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
       close,

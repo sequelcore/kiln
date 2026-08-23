@@ -25,7 +25,6 @@ import type {
     InterruptRequestedEvent,
     InterruptResumedEvent,
     InjectionScannedEvent,
-    GuardianReviewedEvent,
     AuditEntryEvent,
     TenantIsolationViolationEvent,
     SecurityAlertEvent,
@@ -39,14 +38,10 @@ import type {
     DomainEventData,
     ToolAuthorizedEvent,
     ToolCacheHitEvent,
-    KnowledgeGapEvent,
-    KnowledgeSourceFailedEvent,
     AgentRoutedEvent,
     ModelRoutedEvent,
     MultimodalRoutedEvent,
     ConversationClosedInternalEvent,
-    ConversationEnrichedEvent,
-    GroundingEvaluatedEvent,
     PrecompactEvent,
     PostcompactEvent,
 } from "../events/index.js";
@@ -338,20 +333,6 @@ function mapInjectionScanned(e: InjectionScannedEvent): SpanOperation {
     };
 }
 
-function mapGuardianReviewed(e: GuardianReviewedEvent): SpanOperation {
-    return {
-        action: "addEvent",
-        name: "security.guardian_review",
-        attributes: {
-            approved: e.approved,
-            capabilityName: e.capabilityName,
-            agentName: e.agentName,
-            riskLevel: e.riskLevel,
-            reason: e.reason.slice(0, 256),
-        },
-    };
-}
-
 function mapAuditEntry(e: AuditEntryEvent): SpanOperation {
     return {
         action: "addEvent",
@@ -452,20 +433,6 @@ function mapPolicyEvaluated(e: PolicyEvaluatedEvent): SpanOperation {
     };
 }
 
-function mapGroundingEvaluated(e: GroundingEvaluatedEvent): SpanOperation {
-    return {
-        action: "addEvent",
-        name: "safety.grounding_evaluated",
-        attributes: {
-            grounded: e.grounded,
-            confidence: e.confidence,
-            ungroundedClaimsCount: e.ungroundedClaims.length,
-            durationMs: e.durationMs,
-            model: e.model,
-        },
-    };
-}
-
 function mapAgentRouted(e: AgentRoutedEvent): SpanOperation {
     return {
         action: "addEvent",
@@ -529,16 +496,6 @@ function mapConversationClosed(e: ConversationClosedInternalEvent): SpanOperatio
     };
 }
 
-function mapConversationEnriched(e: ConversationEnrichedEvent): SpanOperation {
-    return {
-        action: "addEvent",
-        name: "conversation_enriched",
-        attributes: {
-            enrichmentId: e.enrichmentId,
-        },
-    };
-}
-
 function mapDomainEvent(e: DomainEventData): SpanOperation {
     return {
         action: "addEvent",
@@ -556,33 +513,6 @@ function mapToolCacheHit(e: ToolCacheHitEvent): SpanOperation {
         attributes: {
             toolName: e.toolName,
             cacheTtl: e.cacheTtl,
-        },
-    };
-}
-
-function mapKnowledgeGap(e: KnowledgeGapEvent): SpanOperation {
-    return {
-        action: "addEvent",
-        name: "knowledge_gap",
-        attributes: {
-            query: e.query,
-            topScore: e.topScore,
-            threshold: e.threshold,
-            retrievedCount: e.retrievedCount,
-        },
-    };
-}
-
-function mapKnowledgeSourceFailed(e: KnowledgeSourceFailedEvent): SpanOperation {
-    return {
-        action: "addEvent",
-        name: "knowledge_source_failed",
-        attributes: {
-            sourceId: e.sourceId,
-            sourceName: e.sourceName,
-            sourceType: e.sourceType,
-            error: e.error,
-            appName: e.appName,
         },
     };
 }
@@ -658,8 +588,6 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapInterruptResumed(event as InterruptResumedEvent);
         case "injection_scanned":
             return mapInjectionScanned(event as InjectionScannedEvent);
-        case "guardian_reviewed":
-            return mapGuardianReviewed(event as GuardianReviewedEvent);
         case "audit_entry":
             return mapAuditEntry(event as AuditEntryEvent);
         case "tenant_isolation_violation":
@@ -680,12 +608,6 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapContentClassified(event as ContentClassifiedEvent);
         case "policy_evaluated":
             return mapPolicyEvaluated(event as PolicyEvaluatedEvent);
-        case "grounding_evaluated":
-            return mapGroundingEvaluated(event as GroundingEvaluatedEvent);
-        case "knowledge_gap":
-            return mapKnowledgeGap(event as KnowledgeGapEvent);
-        case "knowledge_source_failed":
-            return mapKnowledgeSourceFailed(event as KnowledgeSourceFailedEvent);
         case "agent_routed":
             return mapAgentRouted(event as AgentRoutedEvent);
         case "model_routed":
@@ -694,8 +616,6 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapMultimodalRouted(event as MultimodalRoutedEvent);
         case "conversation_closed":
             return mapConversationClosed(event as ConversationClosedInternalEvent);
-        case "conversation_enriched":
-            return mapConversationEnriched(event as ConversationEnrichedEvent);
         case "domain_event":
             return mapDomainEvent(event as DomainEventData);
         default: {

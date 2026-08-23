@@ -414,6 +414,17 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       ),
     };
   }
+  const admissionBundle = attachment.childAuthorityAdmission?.bundle;
+  if (!admissionBundle) {
+    return {
+      ok: false,
+      result: errorResult(
+        "Managed economic invocation requires the owning EffectiveAuthorityAdmissionBundle.",
+        { errorCode: "admission_denied", status: "denied", candidateSet },
+        toolName,
+      ),
+    };
+  }
   const economicIdentity = digestManagedEconomicValue({
     parentSessionId: context.session.id,
     parentTurnId: context.turnId ?? context.toolCall.id,
@@ -433,6 +444,8 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     jobId: `managed-economic-job:${economicIdentity}`,
     economicAttemptId: `economic-attempt:${economicIdentity}`,
     intentFingerprint: digestManagedEconomicValue({ candidateSet, economicIdentity }),
+    admissionBundle,
+    effectIdentity: "managed-invocation:provider-dispatch",
     adoptedDecisionAt: context.session.createdAt.toISOString(),
     parentSessionId: context.session.id,
     parentTurnId: context.turnId ?? context.toolCall.id,

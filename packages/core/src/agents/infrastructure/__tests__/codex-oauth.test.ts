@@ -216,7 +216,7 @@ async function resolveAfterIncompleteIdle<T>(
   }
 }
 
-async function createAdapter(defaultModel = "gpt-5.4") {
+async function createAdapter(defaultModel = "gpt-5.4", internalRetry?: boolean) {
   const { CodexOAuthAdapter } = await import("../codex-oauth.js");
   const { CodexOAuthAuth } = await import("../codex-oauth-auth.js");
   const auth = new CodexOAuthAuth() as unknown as {
@@ -225,6 +225,7 @@ async function createAdapter(defaultModel = "gpt-5.4") {
   const adapter = new CodexOAuthAdapter({
     auth,
     defaultModel,
+    ...(internalRetry !== undefined ? { internalRetry } : {}),
   });
   return { adapter, auth };
 }
@@ -1185,6 +1186,29 @@ describe("CodexOAuthAdapter", () => {
       expect(response.parts).toEqual([{ type: "text", text: "Recovered answer" }]);
       expect(response.inputTokens).toBe(9);
       expect(response.outputTokens).toBe(3);
+    });
+
+    it("does not replay an effect when direct one-round mode disables automatic retries", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([]));
+
+      const { adapter } = await createAdapter("gpt-5.4", false);
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not refresh and replay a 401 when direct one-round mode disables automatic retries", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "unauthorized" }));
+
+      const { adapter } = await createAdapter("gpt-5.4", false);
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_AUTH_FAILED",
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
+      expect(mockGetValidAccessToken).toHaveBeenCalledOnce();
     });
 
     it("returns streamed text when a stream stalls after output_text.done", async () => {

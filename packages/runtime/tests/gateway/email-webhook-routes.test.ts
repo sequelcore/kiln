@@ -303,7 +303,6 @@ describe("createEmailWebhookRoutes", () => {
       const mockTransport = { send: vi.fn().mockResolvedValue({ messageId: "<r@b.com>" }) };
       const billing = {
         budgetEndpoint: "http://billing.test/check?user={userId}",
-        usageEndpoint: "http://billing.test/usage",
         overBudgetMessage: "No budget.",
       };
       const config = makeConfig({ emailTransport: mockTransport, billing });
@@ -333,40 +332,6 @@ describe("createEmailWebhookRoutes", () => {
       expect(mockTransport.send).not.toHaveBeenCalled();
     });
 
-    it("emits MESSAGE_RECEIVED and MESSAGE_SENT events", async () => {
-      const emitFn = vi.fn();
-      const mockTransport = { send: vi.fn().mockResolvedValue({ messageId: "<r@b.com>" }) };
-      const config = makeConfig({
-        emailTransport: mockTransport,
-        eventEmitter: { emit: emitFn } as unknown as EmailWebhookConfig["eventEmitter"],
-      });
-      const tenant = makeTenantConfig();
-      config.tenantRegistry.create(tenant);
-      (config.tenantRegistry as unknown as Record<string, unknown>).resolveByEmailAddress = vi.fn().mockReturnValue(tenant);
-
-      const app = createEmailWebhookRoutes(config);
-      const payload = makeEmailPayload();
-      await app.request("/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await new Promise((r) => setTimeout(r, 100));
-
-      const received = emitFn.mock.calls.find(
-        (c: unknown[]) => (c[0] as Record<string, string>).eventType === "MESSAGE_RECEIVED",
-      );
-      expect(received).toBeDefined();
-      expect(received![0].channel).toBe("email");
-      expect(received![0].externalUserId).toBe("customer@example.com");
-
-      const sent = emitFn.mock.calls.find(
-        (c: unknown[]) => (c[0] as Record<string, string>).eventType === "MESSAGE_SENT",
-      );
-      expect(sent).toBeDefined();
-      expect(sent![0].channel).toBe("email");
-    });
 
     it("returns 200 for malformed JSON", async () => {
       const config = makeConfig();
@@ -427,7 +392,9 @@ describe("createEmailWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toEqual(new Map());
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: { authority: { admittedAuthority: "fail_closed" } },
+      });
     });
   });
 });

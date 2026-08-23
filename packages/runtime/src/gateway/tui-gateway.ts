@@ -16,8 +16,18 @@ import {
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../session/runtime-session.js";
+import {
+  readRuntimeModelRoundAdmission,
+  type RuntimeModelRoundDispatchContext,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+import type { RuntimeToolActionClaimsContext } from "../execution-kernel/runtime-tool-action-claim.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeAuthorityAdmissionCandidateConfig } from "../session/runtime-session-orchestrator.types.js";
 import type { RuntimeConfigurationRevisionProvider } from "../session/runtime-configuration-revision-pin.js";
+import {
+  readExecutionToolAllowlist,
+  readExecutionTurnAuthority,
+} from "../session/effective-authority-admission-bundle.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
@@ -151,6 +161,9 @@ export interface TuiGatewayOptions {
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<OperatorTurnTuiDispatchPayload>;
   readonly authorityAdmissionEvidenceStore: AuthorityAdmissionEvidenceStore;
+  readonly runtimeModelRoundActionClaims: import("../execution-kernel/runtime-model-round-action-claim.js").RuntimeModelRoundActionClaimStore;
+  readonly runtimeToolActionClaims: import("../execution-kernel/runtime-tool-action-claim.js").RuntimeToolActionClaimStore;
+  readonly runtimeMediaActionClaims: import("../execution-kernel/runtime-media-action-claim.js").RuntimeMediaActionClaimContext;
   /** Optional context-artifact cache used to hydrate and persist runtime summaries. */
   readonly contextArtifactCache?: ContextArtifactCache;
   /** Artifact store used to persist replayable multimodal turn inputs. */
@@ -224,17 +237,20 @@ function tuiProviderAuthDebug(message: string, context?: Record<string, unknown>
 
 export type TuiAuthorityStatus = GuiAuthorityStatus;
 
-export function buildTuiPerCallToolConfig(): PerCallToolConfig {
+export function buildTuiPerCallToolConfig(): RuntimeAuthorityAdmissionCandidateConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
   });
 }
 
 export function deriveTuiAuthorityStatusFromPerCallConfig(
-  config: PerCallToolConfig,
+  config: PerCallToolConfig | RuntimeAuthorityAdmissionCandidateConfig,
 ): TuiAuthorityStatus {
-  if (config.effectiveTurnAuthority) {
-    const authority = config.effectiveTurnAuthority;
+  const effectiveTurnAuthority = "authorityAdmission" in config && config.authorityAdmission
+    ? readExecutionTurnAuthority(config)
+    : (config as RuntimeAuthorityAdmissionCandidateConfig).effectiveTurnAuthority;
+  if (effectiveTurnAuthority) {
+    const authority = effectiveTurnAuthority;
     return {
       effective: authority.admittedAuthority,
       admittedAuthority: authority.admittedAuthority,
@@ -248,9 +264,14 @@ export function deriveTuiAuthorityStatusFromPerCallConfig(
       completeness: authority.completeness,
     };
   }
-  const hasAllowlist = config.toolAllowlist !== undefined;
-  const allowlistSize = config.toolAllowlist?.size ?? 0;
-  const authorityMap = config.toolAuthority;
+  const allowlist = "authorityAdmission" in config && config.authorityAdmission
+    ? readExecutionToolAllowlist(config)
+    : (config as RuntimeAuthorityAdmissionCandidateConfig).toolAllowlist;
+  const hasAllowlist = allowlist !== undefined;
+  const allowlistSize = allowlist?.size ?? 0;
+  const authorityMap = "authorityAdmission" in config && config.authorityAdmission
+    ? new Map(config.authorityAdmission.turn.tools.allowedToolPermissions.map((entry) => [entry.toolName, entry.authority]))
+    : config.toolAuthority;
   const hasAuthorityMap = authorityMap instanceof Map;
   const authoritySize = authorityMap?.size ?? 0;
 
@@ -287,8 +308,8 @@ export function deriveTuiAuthorityStatusFromPerCallConfig(
 }
 
 export function deriveTuiDoneAuthorityStatus(
-  turnPerCallConfig: PerCallToolConfig | undefined,
-  fallbackPerCallConfig: PerCallToolConfig = buildTuiPerCallToolConfig(),
+  turnPerCallConfig: RuntimeAuthorityAdmissionCandidateConfig | undefined,
+  fallbackPerCallConfig: RuntimeAuthorityAdmissionCandidateConfig = buildTuiPerCallToolConfig(),
 ): TuiAuthorityStatus {
   return deriveTuiAuthorityStatusFromPerCallConfig(turnPerCallConfig ?? fallbackPerCallConfig);
 }
@@ -333,7 +354,7 @@ export function buildTuiTurnPerCallConfig(
   requestedAuthority?: OperatorTurnRequestedAuthority,
   temporalContext?: TurnTemporalContext,
   communicationIntent?: PerCallToolConfig["communicationIntent"],
-): PerCallToolConfig {
+): RuntimeAuthorityAdmissionCandidateConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
     activeProvider,
@@ -517,7 +538,16 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     builtinTools: builtinToolSurface.callBuiltinTools,
   });
   const sessionRegistry = new SessionRegistry();
-  const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
+  const voiceSynthesisSources = new Map<string, {
+    readonly parts: readonly ContentPart[];
+    readonly sessionId: string;
+    readonly authorityAdmission?: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
+    readonly attemptId?: string;
+  }>();
+  const latestMediaAdmissionBySession = new Map<string, {
+    readonly authorityAdmission: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
+    readonly attemptId: string;
+  }>();
   activityStreamer.bindApprovalBridge({
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
@@ -526,7 +556,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     OperatorTurnTuiDispatchPayload,
     {
       readonly payload: OperatorTurnTuiDispatchPayload;
-      readonly perCallConfig: PerCallToolConfig;
+      readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig;
       readonly turnBuiltinToolSurface: AttachedRuntimeBuiltinToolSurface;
       readonly executionMode: OperatorExecutionMode;
       readonly activeModelCapabilities: GuiProviderModelCapabilities | undefined;
@@ -571,7 +601,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           ),
           executionBinding: binding,
           runtimeConfigurationRevision: snapshot.configurationRevision,
-        } satisfies PerCallToolConfig;
+        } satisfies RuntimeAuthorityAdmissionCandidateConfig;
         const adoption = await prepareOperatorAdoptionTurn({
           session,
           actorId: payload.userId,
@@ -583,7 +613,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           turnId: adoption.turnId,
           turnCorrelationId: adoption.correlationId,
           operatorAdoptionDecision: adoption.operatorAdoptionDecision,
-        } satisfies PerCallToolConfig;
+        } satisfies RuntimeAuthorityAdmissionCandidateConfig;
         const workGovernance = hasGovernedGoalTools({
           toolAllowlist: admittedPerCallConfig.toolAllowlist,
           additionalTools: admittedPerCallConfig.additionalTools,
@@ -618,15 +648,87 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   options.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnTuiDispatchPayload>) => {
     const prepared = authorityCoordinator.consume(committed.executionId, committed.authorityAdmission);
     const { payload, runtimeSession, turnBuiltinToolSurface, executionMode, activeModelCapabilities } = prepared;
+    const readAdmission = options.authorityAdmissionEvidenceStore.readAdmission;
+    if (!readAdmission) throw new Error("Operator TUI has no durable admission readback for model-round claiming.");
+    const bundle = await readRuntimeModelRoundAdmission({
+      readAdmission: (request) => readAdmission.call(options.authorityAdmissionEvidenceStore, request),
+      admissionId: committed.authorityAdmission.admissionId,
+      sessionId: committed.authorityAdmission.sessionId,
+      turnId: committed.authorityAdmission.turnId,
+      expected: {
+        routeId: committed.binding.routeId,
+        accountId: committed.binding.accountId,
+        credentialRevision: committed.binding.credentialRevision,
+      },
+    });
+    const runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext = {
+      admission: bundle,
+      intentFingerprint: committed.intentFingerprint as `sha256:${string}`,
+      attemptId: committed.executionId,
+      routeId: committed.binding.routeId,
+      accountId: committed.binding.accountId,
+      credentialRevision: committed.binding.credentialRevision,
+      readAdmission: () => readRuntimeModelRoundAdmission({
+        readAdmission: (request) => readAdmission.call(options.authorityAdmissionEvidenceStore, request),
+        admissionId: bundle.admissionId,
+        sessionId: bundle.sessionId,
+        turnId: bundle.turnId,
+        expected: {
+          routeId: committed.binding.routeId,
+          accountId: committed.binding.accountId,
+          credentialRevision: committed.binding.credentialRevision,
+        },
+      }),
+      store: options.runtimeModelRoundActionClaims,
+      state: { claimed: false },
+    };
+    const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
+      admission: bundle,
+      attemptId: committed.executionId,
+      adapterIdentity: `tui:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
+      readAdmission: (request) => readRuntimeModelRoundAdmission({
+        readAdmission: (readRequest) => readAdmission.call(options.authorityAdmissionEvidenceStore, readRequest),
+        admissionId: request.admissionId,
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        expected: {
+          routeId: committed.binding.routeId,
+          accountId: committed.binding.accountId,
+          credentialRevision: committed.binding.credentialRevision,
+        },
+      }),
+      store: options.runtimeToolActionClaims,
+      state: { claimed: false },
+    };
     resourceSurfaces.push({
       surface: turnBuiltinToolSurface,
       sessionId: committed.authorityAdmission.sessionId,
     });
+    latestMediaAdmissionBySession.set(committed.authorityAdmission.sessionId, {
+      authorityAdmission: bundle,
+      attemptId: committed.executionId,
+    });
     options.sessionManager.setProvider(committed.admission.providerId);
     options.sessionManager.setModel(committed.admission.providerModelId);
+    const {
+      turnId: _candidateTurnId,
+      operatorAdoptionDecision: _candidateAdoptionDecision,
+      executionBinding: _candidateExecutionBinding,
+      admittedExecutionRoute: _candidateExecutionRoute,
+      effectiveTurnAuthority: _candidateTurnAuthority,
+      authorityContext: _candidateAuthorityContext,
+      runtimeConfigurationRevision: _candidateConfigurationRevision,
+      runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
+      toolAllowlist: _candidateToolAllowlist,
+      toolAuthority: _candidateToolAuthority,
+      ...admittedExecutionConfig
+    } = prepared.perCallConfig;
     const perCallConfig = {
-      ...prepared.perCallConfig,
+      ...admittedExecutionConfig,
+      authorityAdmission: bundle,
       executionCredential: committed.credential,
+      runtimeModelRoundDispatch,
+      runtimeToolActionClaims,
     } satisfies PerCallToolConfig;
     return processAdmittedTurn({
       orchestrator,
@@ -656,7 +758,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       ttsAdapter: options.ttsAdapter,
       callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
       perCallConfig,
-      authorityAdmission: committed.authorityAdmission,
+      authorityAdmission: bundle,
+      runtimeMediaActionClaims: options.runtimeMediaActionClaims,
       runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
       turnCapture: {
         start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
@@ -938,6 +1041,12 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                     sessionId: source.sessionId,
                     model: options.sessionManager.getModel() || "gateway-transform",
                     retentionMaxArtifacts: options.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+                    mediaActionClaims: options.runtimeMediaActionClaims,
+                    authorityAdmission: source.authorityAdmission,
+                    attemptId: source.attemptId,
+                    callerId: `tui:on-demand-tts:${sourceMessageId}`,
+                    idempotencyKey: requestId,
+                    logicalSendSlot: "on-demand-tts",
                   },
                 );
                 if (!voiceSynthesis.voiceOutput) {
@@ -953,6 +1062,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 voiceSynthesisSources.set(sourceMessageId, {
                   parts: voiceSynthesis.parts,
                   sessionId: source.sessionId,
+                  authorityAdmission: source.authorityAdmission,
+                  attemptId: source.attemptId,
                 });
                 ws.send(JSON.stringify({
                   type: "voice_synthesis_completed",
@@ -1068,6 +1179,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             voiceSynthesisSources.set(sourceMessageId, {
               parts: output.parts,
               sessionId: output.sessionId,
+              authorityAdmission: latestMediaAdmissionBySession.get(output.sessionId)?.authorityAdmission,
+              attemptId: latestMediaAdmissionBySession.get(output.sessionId)?.attemptId,
             });
             if (voiceSynthesisSources.size > 50) {
               const oldest = voiceSynthesisSources.keys().next().value;

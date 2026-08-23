@@ -13,7 +13,6 @@ import {
   evaluateProviderSubsystemHealth,
 } from "../../src/gateway/gateway-server.js";
 import { CredentialPoolObservabilityRegistry } from "../../src/agents/credential-pool/credential-pool-observability.js";
-import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
@@ -61,7 +60,6 @@ function makeLoadedApp(name: string, channelType: string, path?: string): Loaded
       config: `apps/${name}.yaml`,
       channels: [{ type: channelType, ...(path ? { path } : {}) }],
     },
-    registry: new ChannelRegistry(),
   };
 }
 
@@ -560,7 +558,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/atendia.yaml",
         channels: [{ type: "api", path: "/api/atendia", multiTenant: true }],
       },
-      registry: new ChannelRegistry(),
       tenantRuntime: {
         appName: "atendia",
         orchestrator: new RuntimeSessionOrchestrator({ provider, model: provider.name }),
@@ -601,7 +598,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
           { type: "whatsapp", multiTenant: true, verifyTokenEnv: "WA_VERIFY" },
         ],
       },
-      registry: new ChannelRegistry(),
       whatsappWebhookConfig: {
         appName: "atendia",
         orchestrator: new RuntimeSessionOrchestrator({ provider }),
@@ -635,7 +631,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/atendia.yaml",
         channels: [{ type: "api", path: "/api/atendia", multiTenant: true }],
       },
-      registry: new ChannelRegistry(),
       tenantAdminConfig: {
         tenantRegistry,
         appName: "atendia",
@@ -661,7 +656,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/atendia.yaml",
         channels: [{ type: "api", path: "/api/atendia", multiTenant: true }],
       },
-      registry: new ChannelRegistry(),
     };
 
     const honoApp = createGatewayApp(makeConfig([loadedApp]));
@@ -694,7 +688,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/atendia.yaml",
         channels: [{ type: "api", path: "/api/atendia", multiTenant: true }],
       },
-      registry: new ChannelRegistry(),
       // Both set -- tenant should win
       tenantRuntime: {
         appName: "atendia",
@@ -746,7 +739,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/standard.yaml",
         channels: [{ type: "web" }],
       },
-      registry: new ChannelRegistry(),
       webChannel: new WebChannel(),
       providerAdapterRuntime: {
         appName: "standard",
@@ -808,7 +800,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/standard.yaml",
         channels: [{ type: "web" }],
       },
-      registry: new ChannelRegistry(),
       webChannel: new WebChannel(),
       providerAdapterRuntime: {
         appName: "standard",
@@ -878,7 +869,6 @@ describe("createGatewayApp multi-tenant wiring", () => {
         config: "apps/atendia.yaml",
         channels: [{ type: "web", multiTenant: true }],
       },
-      registry: new ChannelRegistry(),
       webChannel: new WebChannel(),
       sttAdapter,
       artifactStore,
@@ -902,6 +892,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
       new MessageEvent("message", {
         data: JSON.stringify({
           type: "message",
+          messageId: "audio-message-1",
           parts: [{ type: "audio", mimeType: "audio/ogg", data: "YXVkaW8=" }],
         }),
       }),

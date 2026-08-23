@@ -1,7 +1,5 @@
 import type {
   GuiBrowserLiveViewportFrame,
-  GuiBrowserOperatorInput,
-  GuiBrowserOperatorInputAckFrame,
   GuiBrowserSessionState,
   GuiDeliberationIntent,
   GuiInboundFrame,
@@ -154,7 +152,6 @@ export interface SessionStoreState {
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
   readonly browserSessionState: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame: GuiBrowserLiveViewportFrame | null;
-  readonly browserOperatorInputAck: GuiBrowserOperatorInputAckFrame | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly executionRouteSelectionTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -222,18 +219,6 @@ export interface InteractiveUseActions {
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
   onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
   onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
-  onBrowserOperatorInputAck: (frame: Extract<GuiInboundFrame, { type: "browser_operator_input_ack" }>) => void;
-  sendBrowserOperatorInput: (
-    request: {
-      readonly sessionId: string;
-      readonly gatewayTargetId?: string;
-      readonly input: GuiBrowserOperatorInput;
-    },
-  ) => boolean;
-  requestBrowserSessionControl: (
-    action: "takeover" | "release",
-    options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
-  ) => boolean;
 }
 
 export interface VoiceActions {

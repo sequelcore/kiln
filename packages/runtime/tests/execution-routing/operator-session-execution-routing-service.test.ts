@@ -6,7 +6,7 @@ import {
   type ExecutionAccountAdmissionCandidate,
   type ExecutionCatalog,
 } from "@kilnai/core/agents";
-import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import {
   OperatorSessionPreDispatchCancellationError,
   OperatorSessionExecutionRoutingService,
@@ -149,6 +149,25 @@ function catalogForRevision(revisionSetId: string): ExecutionCatalog {
 }
 
 describe("OperatorSessionExecutionRoutingService", () => {
+  it("settles capacity unknown when committed dispatch reports an unknown provider outcome", async () => {
+    const { routing, authority } = service({
+      readDispatchOutcome: () => "unknown",
+    });
+
+    await expect(routing.execute({
+      executionId: "turn-1",
+      intentFingerprint: `sha256:${"b".repeat(64)}`,
+      intent: { routeId: "terra" },
+      payload: undefined,
+    })).resolves.toMatchObject({ evidence: { status: "unknown" }, result: "done" });
+
+    expect(authority.settleAccountCapacity).toHaveBeenCalledWith(
+      "turn-1",
+      "turn-1:dispatch",
+      expect.objectContaining({ kind: "unknown" }),
+    );
+  });
+
   it("admits one effective authority bundle after credential identity is bound and carries it separately", async () => {
     const prepare = vi.fn(async () => authorityFacets());
     const persist = vi.fn(async () => undefined);

@@ -9,7 +9,7 @@ import { DefaultContextGovernor, InMemoryContextArtifactCache } from "../../src/
 
 // Test-local policy types (parameterization compile check — test 6)
 type TestLedger = { entries: string[] };
-type TestSource = "ledger" | "artifact" | "summary" | "memory" | "knowledge";
+type TestSource = "ledger" | "artifact" | "summary" | "memory";
 type TestAggressiveness = "low" | "medium" | "high";
 
 const DEFAULT_POLICY: Record<

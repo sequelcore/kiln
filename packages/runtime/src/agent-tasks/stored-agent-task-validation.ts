@@ -1,4 +1,6 @@
 import type { ManagedAgentAdmissionProfile } from "@kilnai/core";
+import { digestManagedEconomicValue } from "@kilnai/core/cost";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import {
   AGENT_TASK_SCHEMA_VERSION,
   AGENT_TASK_STATES,
@@ -62,7 +64,7 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
   const allowed = [
     "version", "id", "adoptedDecisionAt", "state", "objective", "projectId", "callerId",
     "configuredAgentProfileId", "admissionProfileId", "dispatch", "governanceSource", "admissionId",
-    "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic",
+    "admissionBundle", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic",
     "failureEvidence", "result", "writeApproval", "lifecycle", "run",
   ];
   if (
@@ -88,7 +90,9 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     || !v.dispatch(value.run.dispatch)
     || JSON.stringify(value.run.dispatch) !== JSON.stringify(value.dispatch)
     || !v.identifier(value.governanceSource)
-    || !v.identifier(value.admissionId)
+    || !v.canonicalHash(value.admissionId)
+    || !isValidAuthorityAdmissionBundle(value.admissionBundle)
+    || value.admissionBundle.admissionId !== value.admissionId
     || !v.canonicalHash(value.requestFingerprint)
     || !v.canonicalHash(value.idempotencyKeyHash)
     || !v.iso(value.createdAt)
@@ -109,19 +113,37 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
       || task.dispatch.candidateSet.economicPolicyRevision !== task.dispatch.economicPolicyRevision
       || task.dispatch.candidateSet.admissionProfileId !== task.admissionProfileId
       || !v.sameConstraints(task.dispatch.candidateSet.constraints, task.dispatch.constraints)
+      || !isValidAuthorityAdmissionBundle(task.dispatch.admissionBundle)
+      || task.dispatch.admissionBundle.admissionId !== task.admissionId
       || (task.state === "queued" && task.dispatch.dispatchFenceId !== undefined)
-      || (task.state === "running" && task.dispatch.dispatchFenceId === undefined)
+      || (task.state === "queued" && task.dispatch.actionClaim !== undefined)
+      || (task.state === "running" && (task.dispatch.dispatchFenceId === undefined || task.dispatch.actionClaim === undefined))
+      || (task.dispatch.actionClaim !== undefined
+        && (task.dispatch.actionClaim.admissionId !== task.admissionId
+          || task.dispatch.actionClaim.admissionBundle.admissionId !== task.admissionId
+          || task.dispatch.actionClaim.attemptId !== task.dispatch.economicAttemptId
+          || task.dispatch.actionClaim.effectIdentity !== "agent-task:managed-provider-dispatch"))
     ) : (
       task.dispatch.admissionProfileId !== task.admissionProfileId
       || (task.dispatch.dispatchFenceId !== undefined && !v.nativeFenceId(task.dispatch.dispatchFenceId))
+      || (task.state === "running" && task.dispatch.actionClaim === undefined)
+      || (task.dispatch.actionClaim !== undefined
+        && (task.dispatch.actionClaim.admissionId !== task.admissionId
+          || task.dispatch.actionClaim.admissionBundle.admissionId !== task.admissionId
+          || task.dispatch.actionClaim.attemptId !== task.run.runId
+          || task.dispatch.actionClaim.intentFingerprint !== nativeActionClaimIntent(task)
+          || task.dispatch.actionClaim.effectIdentity !== `agent-task:${task.dispatch.adapterCapabilityId}:external-launch`
+          || !task.dispatch.actionClaim.ownerGeneration.startsWith("agent-task-owner:")))
       || (task.state === "queued" && task.dispatch.dispatchFenceId !== undefined)
       || (task.state === "running" && task.dispatch.dispatchFenceId === undefined)
+      || (task.state === "interrupted" && task.dispatch.dispatchFenceId !== undefined && task.dispatch.actionClaim === undefined)
     )
     || (task.state === "succeeded" && !task.result)
     || (task.state !== "succeeded" && task.result !== undefined)
     || (v.approvedWriteProfile(task.admissionProfileId) && task.state !== "awaiting_approval" && task.writeApproval === undefined)
     || (!v.approvedWriteProfile(task.admissionProfileId) && task.writeApproval !== undefined)
     || (task.state !== "failed" && task.state !== "timed_out" && task.failureEvidence !== undefined)
+    || (task.state === "interrupted" && task.diagnostic !== "result_pending")
     || (task.failureEvidence === undefined && task.lifecycle.some((entry) => entry.failureEvidence !== undefined))
     || (task.failureEvidence !== undefined && JSON.stringify(task.lifecycle.at(-1)?.failureEvidence) !== JSON.stringify(task.failureEvidence))
     || (task.result !== undefined && !v.result(task.result, task, task.updatedAt))
@@ -138,6 +160,42 @@ export function validateStoredAgentTask(value: unknown, v: StoredAgentTaskValida
     || JSON.stringify(task.run.dataPolicyProof) !== JSON.stringify(task.result?.dataPolicyProof)
   ) throw new Error("invalid_stored_agent_task");
   return task;
+}
+
+function nativeActionClaimIntent(
+  task: AgentTaskRecord,
+): string {
+  if (task.dispatch.kind !== "native-harness") throw new Error("native action claim requires a native dispatch");
+  return digestManagedEconomicValue({
+    kind: "agent-task-native-harness-launch",
+    jobId: task.id,
+    runId: task.run.runId,
+    requestFingerprint: task.requestFingerprint,
+    admissionId: task.admissionId,
+    route: {
+      kind: task.dispatch.kind,
+      admissionProfileId: task.dispatch.admissionProfileId,
+      routeId: task.dispatch.routeId,
+      routeRevision: task.dispatch.routeRevision,
+      providerId: task.dispatch.providerId,
+      model: task.dispatch.model,
+      adapterCapabilityId: task.dispatch.adapterCapabilityId,
+      adapterCapabilityVersion: task.dispatch.adapterCapabilityVersion,
+      acknowledgement: task.dispatch.acknowledgement,
+      ...(task.dispatch.deliberationResolution
+        ? { deliberationResolution: task.dispatch.deliberationResolution }
+        : {}),
+    },
+  });
+}
+
+function isValidAuthorityAdmissionBundle(value: unknown): value is EffectiveAuthorityAdmissionBundle {
+  if (!isRecord(value)) return false;
+  try {
+    return defineEffectiveAuthorityAdmissionBundle(value as unknown as EffectiveAuthorityAdmissionBundle).admissionId === value.admissionId;
+  } catch {
+    return false;
+  }
 }
 
 function validParent(value: unknown, v: StoredAgentTaskValidators): boolean {

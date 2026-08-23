@@ -60,7 +60,17 @@ describe("OpenAISttAdapter", () => {
     expect(formData.get("response_format")).toBe("verbose_json");
   });
 
-  it("retries on 429", async () => {
+  it("forwards the active-turn cancellation signal to fetch", async () => {
+    const mockFetch = mockFetchResponse(makeTranscriptionResponse());
+    vi.stubGlobal("fetch", mockFetch);
+    const abort = new AbortController();
+
+    await adapter.transcribe(audio, "audio/ogg", { signal: abort.signal });
+
+    expect(mockFetch.mock.calls[0]![1].signal).toBe(abort.signal);
+  });
+
+  it("does not retry after a 429 response", async () => {
     const failResponse = {
       ok: false,
       status: 429,
@@ -80,13 +90,8 @@ describe("OpenAISttAdapter", () => {
       .mockResolvedValueOnce(successResponse);
     vi.stubGlobal("fetch", mockFetch);
 
-    // Use adapter with instant sleep to avoid test slowness
-    // withRetry uses defaultSleep internally; we can't override it directly,
-    // so we accept the retry with the error-based approach
-    const result = await adapter.transcribe(audio, "audio/ogg");
-
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(result.text).toBe("Hello world");
+    await expect(adapter.transcribe(audio, "audio/ogg")).rejects.toThrow(KilnError);
+    expect(mockFetch).toHaveBeenCalledOnce();
   });
 
   it("throws KilnError on 401", async () => {

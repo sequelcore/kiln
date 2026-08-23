@@ -943,20 +943,14 @@ future remote stream. Do not call either mode an embedded browser. If
 Chromium window is expected; that window is governed by Kiln but it is still
 outside the operator app.
 
-The GUI can request operator takeover or release for a browser session.
-Takeover is a provider-owned lock: agent browser mutations are blocked while
-ownership is `operator`. During that window, GUI sends viewport-relative
-pointer, wheel, text, and key intents through `browser_operator_input`; runtime
-and provider code validate the active session before accepting or rejecting the
-input. Release captures a fresh artifact-backed observation before agent
-actions resume.
+The GUI only observes the governed browser session. Browser mutations remain
+claimed model tool actions through Runtime; the GUI does not dispatch pointer,
+wheel, text, or key input directly to a browser provider.
 
 Browser evidence is durable but bounded. Persisted evidence should identify
-the browser session, ownership transitions, input summaries or
-acknowledgements, fresh observations, artifact links, and the active transport
-such as `snapshot-polling` or `cdp-screencast`. Text input evidence records
-text length rather than raw text. CLI, TUI, SDK, and replay surfaces may
-degrade browser monitoring to status plus resource links.
+the browser session, fresh observations, artifact links, and the active
+transport such as `snapshot-polling` or `cdp-screencast`. CLI, TUI, SDK, and
+replay surfaces may degrade browser monitoring to status plus resource links.
 
 Computer use should target explicit allowed applications instead of requiring
 the operator to manually focus the right window first. Pass `application` and,
@@ -1421,40 +1415,8 @@ monitors remain session-owned and are not cancelled with an individual turn.
 GUI uses the source-owned AI Elements terminal presentation for the bounded
 operator log. TUI updates the matching tool node by `toolCallId`, and CLI writes
 live command output to stderr so answer and JSON stdout remain machine-clean.
-This output presentation is read-only; an interactive operator terminal is a
-separate PTY capability with independent input, resize, and lifecycle authority.
-
-### Interactive operator terminal
-
-The local GUI launcher creates an ephemeral terminal capability and passes it
-in the GUI URL fragment. The fragment is projected into the WebSocket query by
-the loaded GUI, but is not sent in the initial HTTP request. Only a connection
-holding that capability may open a PTY. Each PTY is then owned by that specific
-WebSocket connection and is terminated when the operator closes it, the socket
-disconnects, or the gateway shuts down.
-
-The runtime terminal service uses Bun's platform PTY primitive (ConPTY on
-Windows and `openpty()` on Linux/macOS) and enforces these invariants:
-
-- the canonical working directory is the project workspace or a real directory
-  beneath it; traversal and symlink escapes fail closed
-- input and resize requests are bounded and validated at the gateway and service
-  boundaries
-- output is live and bounded per frame; it is not persisted in the session
-  ledger or supplied to the model
-- PTYs inherit the local launcher process authority, never the selected turn or
-  agent authority
-- a terminal ID is scoped to its owning connection; another connection receives
-  the same not-found response as an unknown ID
-
-GUI renders the bidirectional stream with xterm.js and forwards resize events to
-the PTY. Its workbench panel is persistent across GUI surfaces, defaults closed,
-and stores only the operator's preferred panel height per workspace. On narrow
-layouts the same PTY occupies the workbench surface rather than opening a second
-terminal implementation. CLI and TUI already run inside a native terminal, so
-operator shell use remains native to their host rather than being projected as
-transcript events. The runtime service and gateway frame vocabulary remain
-surface-neutral for future native and IDE consumers.
+This output presentation is read-only; shell execution remains governed by
+the normal claimed tool path.
 
 ---
 
@@ -1467,14 +1429,6 @@ Tool results can flow through the safety pipeline before they are reinjected int
 - indirect prompt-injection scanning on returned content
 
 The pipeline is intentionally fail-open so a safety-service outage does not freeze tool execution.
-
----
-
-## Tool selection and scaling
-
-When a session has many tools, Kiln can reduce the prompt footprint by ranking relevant tools before each round. Tool descriptions and declared effect envelopes still remain the source of truth; ToolRAG only narrows the candidate set.
-
-For large installations, that matters because developer tools, webhook tools, integration tools, and MCP tools all compete for context budget.
 
 ---
 

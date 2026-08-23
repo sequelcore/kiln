@@ -151,7 +151,7 @@ To reduce context window pressure, MCP tools are split into two tiers at the gat
 | Tier | Tools | Loading Strategy |
 |------|-------|------------------|
 | Eager (8) | memory_*, cost_*, budget_*, swarm join/leave/status/broadcast | Loaded at session start |
-| Deferred (18) | knowledge_*, safety_*, integration_*, eval_*, enrichment_*, etc. | Loaded on demand when agent needs them |
+| Deferred | safety_*, integration_*, eval_*, and other management tools | Loaded on demand when needed |
 
 This split is configured at the gateway level and surfaced through the MCP server's tool discovery.
 

@@ -40,7 +40,6 @@ function makeRuntime(overrides: Partial<ProviderAdapterAppRuntime> = {}): Provid
 function makeBillingConfig() {
   return {
     budgetEndpoint: "https://api.example.com/users/{userId}/ai-budget",
-    usageEndpoint: "https://api.example.com/users/{userId}/ai-usage",
     overBudgetMessage: "Budget exhausted.",
     tiers: {
       free: { agents: ["fast"] },
@@ -212,7 +211,7 @@ describe("createProviderAdapterRoutes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("reports usage after successful message processing", async () => {
+    it("performs only the admission budget check after successful message processing", async () => {
       const runtime = makeRuntime({ billing: makeBillingConfig() });
       const app = createProviderAdapterRoutes(runtime);
 
@@ -222,18 +221,13 @@ describe("createProviderAdapterRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1" }),
       });
 
-      // fetch called twice: budget check + usage report
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-
-      const usageCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
-      expect(usageCall[0]).toBe("https://api.example.com/users/{userId}/ai-usage");
-      expect(usageCall[1]).toMatchObject({
-        method: "POST",
-      });
-      const usageBody = JSON.parse(usageCall[1].body as string);
-      expect(usageBody.tenantId).toBe("_default");
-      expect(usageBody.messages).toBe(1);
-      expect(usageBody.tokens).toBe(150); // 100 input + 50 output
+      // Usage reporting is deliberately absent: there is no stable admitted
+      // outbound identity for a post-turn fire-and-forget request.
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://api.example.com/users/_default/ai-budget",
+        { headers: {} },
+      );
     });
 
     it("skips budget check and usage report when no billing configured", async () => {
@@ -361,64 +355,6 @@ describe("createProviderAdapterRoutes", () => {
       vi.resetModules();
     });
 
-    it("forwards tenant and knowledge configuration into processAdmittedTurn", async () => {
-      vi.resetModules();
-
-      const processAdmittedTurnMock = vi.fn().mockResolvedValue({
-        ok: true,
-        result: {
-          parts: textParts("tenant response"),
-          inputTokens: 11,
-          outputTokens: 7,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-          queued: false,
-          sessionId: "session-tenant",
-          sessionMode: "ai_active",
-          traceId: "trace-tenant",
-        },
-      });
-
-      vi.doMock("../../src/gateway/message-pipeline/index.js", () => ({
-        processAdmittedTurn: processAdmittedTurnMock,
-      }));
-
-      const { createProviderAdapterRoutes: createProviderAdapterRoutesWithMocks } = await import("../../src/gateway/provider-adapter-routes.js");
-
-      const knowledgePipeline = {
-        retrieve: vi.fn().mockResolvedValue([]),
-      };
-      const runtime = makeRuntime({
-        tenant: {
-          tenantId: "tenant-1",
-        } as ProviderAdapterAppRuntime["tenant"],
-        knowledgePipeline: knowledgePipeline as ProviderAdapterAppRuntime["knowledgePipeline"],
-        knowledgeMode: "auto",
-        toolAllowlist: new Set(["mcp:docs:tool:search"]),
-      });
-      const app = createProviderAdapterRoutesWithMocks(runtime);
-
-      const res = await app.request("/message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "hello tenant", userId: "user-tenant", requestedAuthority: "audited" }),
-      });
-
-      expect(res.status).toBe(200);
-      expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
-
-      const forwarded = processAdmittedTurnMock.mock.calls[0]![0];
-      expect(forwarded.tenant).toEqual(runtime.tenant);
-      expect(forwarded.knowledgePipeline).toBe(knowledgePipeline);
-      expect(forwarded.knowledgeMode).toBe("auto");
-      expect(forwarded.requestedAuthority).toBeUndefined();
-      expect(forwarded.authorityAdmission?.turn.authority.admittedAuthority).toBe("fail_closed");
-      expect(forwarded.callBuiltinTools).toBeUndefined();
-      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set());
-
-      vi.doUnmock("../../src/gateway/message-pipeline/index.js");
-      vi.resetModules();
-    });
   });
 
   describe("GET /sessions", () => {

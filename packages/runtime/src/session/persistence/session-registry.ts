@@ -1,7 +1,6 @@
 import { KilnError } from "@kilnai/core";
 import { RuntimeSession } from "../runtime-session.js";
 import type { RuntimeSessionConfig } from "../runtime-session.js";
-import type { ConversationEventEmitter } from "../../gateway/conversation-event-emitter.js";
 import type { SessionStore } from "./session-store.js";
 import { InMemorySessionStore } from "./in-memory-session-store.js";
 
@@ -9,7 +8,6 @@ export class SessionRegistry {
   private readonly store: SessionStore;
   private readonly defaultIdleTimeoutMs?: number;
   private readonly activeSessionIds = new Map<string, string>();
-  eventEmitter?: ConversationEventEmitter;
   onSessionExpired?: (session: RuntimeSession) => void;
 
   constructor(defaultIdleTimeoutMs?: number, store?: SessionStore) {
@@ -35,18 +33,6 @@ export class SessionRegistry {
     await this.store.set(session.id, session);
     this.activeSessionIds.set(conversationKey, session.id);
 
-    // Emit SESSION_STARTED for new sessions
-    if (this.eventEmitter) {
-      this.eventEmitter.emit({
-        eventType: "SESSION_STARTED",
-        tenantId: sessionConfig.tenantId,
-        channel: "unknown",
-        externalUserId: sessionConfig.userId,
-        sessionId: session.id,
-        schemaVersion: "1",
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     return session;
   }
@@ -129,7 +115,7 @@ export class SessionRegistry {
     for (const key of allKeys) {
       const session = await this.store.get(key);
       if (session && session.isExpired) {
-        // Trigger contact memory extraction before deleting
+        // Notify the owning lifecycle observer before deleting.
         if (this.onSessionExpired) {
           try { this.onSessionExpired(session); } catch { /* fire-and-forget */ }
         }
@@ -142,29 +128,6 @@ export class SessionRegistry {
         }
         removed++;
 
-        if (this.eventEmitter) {
-          this.eventEmitter.emit({
-            eventType: "SESSION_EXPIRED",
-            tenantId: session.tenantId,
-            channel: "unknown",
-            externalUserId: session.userId,
-            sessionId: session.id,
-            schemaVersion: "1",
-            timestamp: new Date().toISOString(),
-          });
-
-          this.eventEmitter.emit({
-            eventType: "CONVERSATION_ABANDONED",
-            tenantId: session.tenantId,
-            channel: "unknown",
-            externalUserId: session.userId,
-            sessionId: session.id,
-            schemaVersion: "1",
-            closedBy: "session_timeout",
-            turnCount: session.messageCount,
-            timestamp: new Date().toISOString(),
-          });
-        }
       }
     }
     return removed;

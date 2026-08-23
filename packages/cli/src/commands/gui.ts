@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -68,6 +69,8 @@ import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../application/operator-transcript-projection.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
 import {
   createDefaultRegistry,
   getRuntimeProviderAvailability,
@@ -77,6 +80,7 @@ import {
 import { makeMultiProviderSessionFactory } from "./tui.js";
 import {
   getProjectContextArtifactCache,
+  createRuntimeMediaActionClaimContext,
   type OperatorTurnDispatchResult,
   type OperatorTurnGuiDispatchPayload,
   type GuiGateway,
@@ -195,6 +199,13 @@ export async function guiCommand(
   const provider = parseStartupProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
   const transcriptStore = new TranscriptStore(cwd);
+  const managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-direct-tool-action-claims.sqlite"),
+  });
+  const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-direct-model-round-action-claims.sqlite"),
+  });
+  const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
   await recoverStaleOpenTranscriptSessions({
     transcriptStore,
     sessionStore,
@@ -265,6 +276,9 @@ export async function guiCommand(
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
         canonicalMcpServers: admittedMcpServers,
+        runtimeToolActionClaims: managedDirectToolActionClaims,
+        readAuthorityAdmission: (request) => managedDirectAdmissionEvidence.readAdmission(request),
+        runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
@@ -368,6 +382,8 @@ export async function guiCommand(
       () => stagedManagedInvocation?.dispose(),
       () => operatorEconomicAuthority?.close(),
       () => boundedWork.close(),
+      () => managedDirectToolActionClaims.close(),
+      () => managedDirectModelRoundActionClaims.close(),
     ]);
     return cleanupPromise;
   };
@@ -513,7 +529,14 @@ export async function guiCommand(
       operatorTurnDispatcher: operatorTurnComposition.dispatcher,
       operatorTurnExecutionBridge: operatorTurnComposition.bridge,
       operatorAuthorityAdmissionBridge: operatorTurnComposition.authorityAdmissionBridge,
-      authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
+      authorityAdmissionEvidenceStore: managedDirectAdmissionEvidence,
+      runtimeModelRoundActionClaims: operatorTurnComposition.modelRoundActionClaims,
+      runtimeToolActionClaims: operatorTurnComposition.toolActionClaims,
+      runtimeMediaActionClaims: createRuntimeMediaActionClaimContext({
+        ownerGeneration: `operator-gui:media:${randomUUID()}`,
+        store: operatorTurnComposition.mediaActionClaims,
+        readAdmission: (readInput) => managedDirectAdmissionEvidence.readAdmission(readInput),
+      }),
       systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
       persistCanonicalSessionEvent: async (event) => {
@@ -576,7 +599,7 @@ export async function guiCommand(
     const guiUrl = buildGuiUrl(
       mode === "dev" ? devGuiUrl : gatewayUrl,
       themePreference,
-      gateway.operatorTerminalCapability,
+      gateway.operatorCapability,
     );
     printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl }, output);
     startupProfiler.mark("startup-banner-printed", { mode });

@@ -41,6 +41,9 @@ export type GovernedIngressExecution<T> =
   | { readonly kind: "join-inflight"; readonly retryAfterSeconds: number }
   | { readonly kind: "committed-unknown" };
 
+/** Base runtime ports; the executor binds the durable per-attempt claim ports. */
+export type GovernedIngressInvocationPorts = Omit<GovernedOneRoundInvocationPorts, "admissionEvidence" | "dispatchClaim">;
+
 export interface GovernedIngressExecutorInput<T> {
   readonly protocol: ModelGatewayIngressId;
   readonly rawBody: string;
@@ -52,10 +55,9 @@ export interface GovernedIngressExecutorInput<T> {
   readonly toolExecutionMode: "caller-owned";
   readonly turn: ModelTurn;
   readonly signal: AbortSignal;
-  readonly invocationPorts: GovernedOneRoundInvocationPorts;
-  readonly createAttemptId: () => string;
+  readonly invocationPorts: GovernedIngressInvocationPorts;
   readonly createResponseId: () => string;
-  readonly replayGuard?: ModelGatewayReplayGuard;
+  readonly replayGuard: ModelGatewayReplayGuard;
   readonly projectSuccess: (input: { readonly responseId: string; readonly result: ModelTurnResult; readonly replayed: boolean }) => T;
 }
 
@@ -65,43 +67,50 @@ export interface GovernedIngressExecutorInput<T> {
  */
 export async function executeGovernedIngress<T>(input: GovernedIngressExecutorInput<T>): Promise<GovernedIngressExecution<T>> {
   let dispatch: Extract<ModelGatewayReplayDecision, { kind: "dispatch" }> | undefined;
-  let commitAttempted = false;
+  let actionClaimed = false;
   let dispatched = false;
   try {
-    if (input.replayGuard !== undefined) {
-      const key = input.replayGuard.fingerprint({
-        rawBody: input.rawBody,
-        ingress: input.protocol,
-        tenantId: input.identity.tenantId,
-        applicationId: input.identity.applicationId,
-        callerId: input.identity.callerId,
-        sessionId: input.identity.sessionId,
-        turnId: input.identity.turnId,
-        route: input.route,
-        toolExecutionMode: input.toolExecutionMode,
-        ...(input.affinity.continuity === "none" ? {} : { affinityKey: input.affinity.key }),
-      });
-      const decision = input.replayGuard.claim(key);
-      if (decision.kind === "join-inflight") return decision;
-      if (decision.kind === "committed-unknown") return decision;
-      if (decision.kind === "replay-completed") {
-        return { kind: "success", value: input.projectSuccess({ responseId: decision.value.responseId, result: decision.value.result, replayed: true }), replayed: true };
-      }
-      dispatch = decision;
+    const key = input.replayGuard.fingerprint({
+      rawBody: input.rawBody,
+      ingress: input.protocol,
+      tenantId: input.identity.tenantId,
+      applicationId: input.identity.applicationId,
+      callerId: input.identity.callerId,
+      sessionId: input.identity.sessionId,
+      turnId: input.identity.turnId,
+      route: input.route,
+      toolExecutionMode: input.toolExecutionMode,
+      ...(input.affinity.continuity === "none" ? {} : { affinityKey: input.affinity.key }),
+    });
+    const decision = input.replayGuard.claim(key);
+    if (decision.kind === "join-inflight") return decision;
+    if (decision.kind === "committed-unknown") return decision;
+    if (decision.kind === "replay-completed") {
+      return { kind: "success", value: input.projectSuccess({ responseId: decision.value.responseId, result: decision.value.result, replayed: true }), replayed: true };
     }
+    dispatch = decision;
 
     if (input.signal.aborted) throw new GovernedOneRoundInvocationError("aborted", "Request aborted.");
     const responseId = input.createResponseId();
+    const invocationPorts: GovernedOneRoundInvocationPorts = {
+      ...input.invocationPorts,
+      admissionEvidence: {
+        persistAndReadback: (bundle: EffectiveAuthorityAdmissionBundle) =>
+          input.replayGuard.persistAdmission(dispatch!.key, dispatch!.fence, bundle),
+      },
+      dispatchClaim: {
+        claim: (claim: { readonly admissionId: `sha256:${string}`; readonly effectIdentity: string }) => {
+          const permit = input.replayGuard.claimAction(dispatch!.key, dispatch!.fence, claim);
+          actionClaimed = true;
+          return permit;
+        },
+      },
+    };
     const result = await invokeGovernedOneRound({
-      attemptId: input.createAttemptId(), identity: input.identity, route: input.route,
+      attemptId: dispatch.attemptId, identity: input.identity, route: input.route,
       authority: input.authority, budget: input.budget, affinity: input.affinity,
       toolExecutionMode: input.toolExecutionMode, turn: input.turn, signal: input.signal,
-      ...(dispatch === undefined ? {} : { lifecycle: { afterCommittedBeforeDispatch: ({ bundle }: { readonly bundle: EffectiveAuthorityAdmissionBundle }) => {
-        if (input.replayGuard!.commitAdmission) input.replayGuard!.commitAdmission(dispatch!.key, dispatch!.fence, bundle);
-        else input.replayGuard!.markCommitted(dispatch!.key, dispatch!.fence);
-        commitAttempted = true;
-      } } }),
-    }, input.invocationPorts);
+    }, invocationPorts);
     dispatched = true;
     let value: T;
     try {
@@ -114,8 +123,8 @@ export async function executeGovernedIngress<T>(input: GovernedIngressExecutorIn
   } catch (error) {
     if (dispatch !== undefined) {
       try {
-        if (commitAttempted) input.replayGuard!.settleUnknown(dispatch.key, dispatch.fence);
-        else input.replayGuard!.abandon(dispatch.key, dispatch.fence);
+        if (actionClaimed) input.replayGuard.settleUnknown(dispatch.key, dispatch.fence);
+        else input.replayGuard.abandon(dispatch.key, dispatch.fence);
       } catch { /* stale/incompatible transitions preserve their conservative state */ }
     }
     if (dispatched && !(error instanceof GovernedIngressCommittedExecutionError)) {

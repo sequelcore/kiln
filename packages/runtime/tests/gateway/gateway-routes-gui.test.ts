@@ -88,7 +88,6 @@ describe("App Gateway GUI routes", () => {
           name: "support",
           app: {} as never,
           binding: { channels: [{ type: "api", path: "/api/support" }] },
-          registry: {} as never,
           tenantRuntime: {
             appName: "support",
             orchestrator: {} as never,
@@ -318,7 +317,6 @@ describe("App Gateway GUI routes", () => {
           name: "support",
           app: {} as never,
           binding: { channels: [{ type: "api", path: "/api/support" }] },
-          registry: {} as never,
           providerAdapterRuntime: {
             appName: "support",
             orchestrator: { bindProvider: vi.fn().mockReturnValue({}) } as never,
@@ -382,7 +380,6 @@ describe("App Gateway GUI routes", () => {
           name: "support",
           app: {} as never,
           binding: { channels: [{ type: "api", path: "/api/support" }] },
-          registry: {} as never,
           providerAdapterRuntime: {
             appName: "support",
             orchestrator: {} as never,
@@ -471,7 +468,6 @@ describe("App Gateway GUI routes", () => {
           name: "support",
           app: {} as never,
           binding: { channels: [{ type: "api", path: "/api/support" }] },
-          registry: {} as never,
           tenantRuntime: {
             appName: "support",
             orchestrator: { bindProvider: vi.fn().mockReturnValue({}) } as never,
@@ -534,7 +530,6 @@ describe("App Gateway GUI routes", () => {
           name: "support",
           app: {} as never,
           binding: { channels: [{ type: "api", path: "/api/support" }] },
-          registry: {} as never,
           providerAdapterRuntime: {
             appName: "support",
             orchestrator: {} as never,
@@ -624,7 +619,6 @@ describe("App Gateway GUI routes", () => {
           name: "support",
           app: {} as never,
           binding: { channels: [{ type: "api", path: "/api/support" }] },
-          registry: {} as never,
           providerAdapterRuntime: {
             appName: "support",
             orchestrator: { bindProvider: vi.fn().mockReturnValue({}) } as never,

@@ -8,12 +8,12 @@ export {
 export function buildGuiUrl(
   baseUrl: string,
   themePreference: OperatorThemePreference,
-  operatorTerminalCapability?: string,
+  operatorCapability?: string,
 ): string {
   const url = new URL(baseUrl);
   url.searchParams.set("theme", themePreference);
-  if (operatorTerminalCapability) {
-    url.hash = new URLSearchParams({ operatorToken: operatorTerminalCapability }).toString();
+  if (operatorCapability) {
+    url.hash = new URLSearchParams({ operatorToken: operatorCapability }).toString();
   }
   return url.toString();
 }

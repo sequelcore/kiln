@@ -16,6 +16,7 @@ export interface MultimodalArtifactCaptureOptions {
   readonly sourceIdPrefix: string;
   readonly producerName: string;
   readonly maxArtifacts?: number;
+  readonly abortSignal?: AbortSignal;
 }
 
 interface BinarySource {
@@ -133,7 +134,8 @@ async function resolveBinarySource(
         { context: { url: part.url, modality: modalityForPart(part) } },
       );
     }
-    const downloaded = await options.downloader.download(part.url);
+    options.abortSignal?.throwIfAborted();
+    const downloaded = await options.downloader.download(part.url, options.abortSignal);
     return {
       blob: Buffer.from(downloaded.data).toString("base64"),
       mimeType: downloaded.mimeType || part.mimeType,

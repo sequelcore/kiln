@@ -18,6 +18,10 @@ import type {
   ManagedEconomicCommitmentRecord,
   ManagedEconomicRouteCapacity,
 } from "../../managed-account-leases/managed-account-lease-authority.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../session/effective-authority-admission-bundle.js";
 
 export interface ManagedEconomicDispatchAdoption {
   readonly snapshot: ManagedEconomicAdoptedSnapshot;
@@ -35,7 +39,18 @@ export interface ManagedEconomicDispatchAuthorityPort {
     readonly routeCapacity: readonly ManagedEconomicRouteCapacity[];
   }): ManagedEconomicCommitmentAcquireResult | Promise<ManagedEconomicCommitmentAcquireResult>;
   releasePreFence(jobId: string, economicAttemptId: string): unknown | Promise<unknown>;
-  fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): unknown | Promise<unknown>;
+  fenceDispatch(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    actionClaim: ManagedEconomicActionClaim,
+  ): unknown | Promise<unknown>;
+  readDispatch(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    actionClaim: ManagedEconomicActionClaim,
+  ): ManagedEconomicCommitmentRecord | undefined | Promise<ManagedEconomicCommitmentRecord | undefined>;
   settleExecution(
     jobId: string,
     economicAttemptId: string,
@@ -48,6 +63,17 @@ export interface ManagedEconomicDispatchAuthorityPort {
     dispatchFenceId: string,
     reason: string,
   ): unknown | Promise<unknown>;
+}
+
+/** Immutable identity bound by the economic ledger's canonical action claim. */
+export interface ManagedEconomicActionClaim {
+  readonly version: 1;
+  readonly attemptId: string;
+  readonly admissionId: string;
+  readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+  readonly intentFingerprint: string;
+  readonly ownerGeneration: string;
+  readonly effectIdentity: string;
 }
 
 export interface ManagedEconomicLifecycleEventPort {
@@ -102,15 +128,19 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly authorityProfileId: string;
   readonly invocationId: string;
+  /** Persisted authority-admission receipt bound by the canonical claim. */
+  readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+  /** Named Runtime-owned effect at which the claim stops. */
+  readonly effectIdentity: string;
   readonly abortSignal?: AbortSignal;
   /** Optional bounded-intent duration cap, applied in addition to route timeout. */
   readonly workLimitDurationMs?: number;
   readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
-  /** Runs after held commitment acquisition and before dispatch fencing or adapter materialization. */
+  /** Runs after held commitment acquisition and before adapter materialization or fencing. */
   readonly validateAndConsumeApprovalBeforeFence?: (input: {
     readonly commitment: ManagedEconomicCommitment;
   }) => void | Promise<void>;
-  /** Runs after the durable fence and before any adapter materialization. */
+  /** Runs before adapter materialization and the durable action fence. */
   readonly validateExecutionProfile?: (input: {
     readonly commitment: ManagedEconomicCommitment;
     readonly dispatchFenceId: string;
@@ -130,6 +160,7 @@ export type ManagedEconomicDispatchPreparation =
       readonly status: "prepared";
       readonly commitment: ManagedEconomicCommitment;
       readonly dispatchFenceId: string;
+      readonly actionClaim: ManagedEconomicActionClaim;
       readonly adapter: ManagedAgentRuntimeAdapter;
       readonly abortSignal: AbortSignal;
       readonly recordExecutionSettlementPending: (reason: string) => Promise<void>;
@@ -144,6 +175,7 @@ export class ManagedEconomicDispatchCoordinator {
   constructor(private readonly options: ManagedEconomicDispatchCoordinatorOptions) {}
 
   async prepare(input: ManagedEconomicDispatchPrepareInput): Promise<ManagedEconomicDispatchPreparation> {
+    const admissionBundle = defineEffectiveAuthorityAdmissionBundle(input.admissionBundle);
     const policy = () => input.adoption.snapshot.policy;
     const result = await this.options.authority.acquire({
       jobId: input.jobId,
@@ -163,7 +195,16 @@ export class ManagedEconomicDispatchCoordinator {
       return { status: "already-dispatched", record: result.record };
     }
 
-    const dispatchFenceId = createManagedEconomicDispatchFenceId(result.record.commitment);
+    const actionClaim: ManagedEconomicActionClaim = {
+      version: 1,
+      attemptId: input.economicAttemptId,
+      admissionId: admissionBundle.admissionId,
+      admissionBundle,
+      intentFingerprint: input.intentFingerprint,
+      ownerGeneration: result.record.ownerGeneration,
+      effectIdentity: input.effectIdentity,
+    };
+    const dispatchFenceId = createManagedEconomicDispatchFenceId(result.record.commitment, actionClaim);
     let lifecycle: ReturnType<typeof createManagedEconomicLifecycleDeadline>;
     try {
       input.lifecycleEvents?.record({
@@ -188,18 +229,61 @@ export class ManagedEconomicDispatchCoordinator {
       await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;
     }
+
+    let adapter: ManagedAgentRuntimeAdapter;
     let dispatchFenced = false;
+    let fenceResponseAmbiguous = false;
     try {
       throwManagedEconomicAbort(lifecycle.signal);
-      await this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
-      dispatchFenced = true;
-      input.lifecycleEvents?.record({
-        transition: "dispatch-fenced",
-        policy: policy(),
+      await input.validateExecutionProfile?.({
         commitment: result.record.commitment,
         dispatchFenceId,
       });
-      await input.validateExecutionProfile?.({
+      const adoptedRoute = input.adoption.snapshot.routes.find((candidate) =>
+        candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId
+      );
+      if (!adoptedRoute) throw new Error("Committed managed economic route is absent from its adopted snapshot.");
+      const materialized = await awaitManagedEconomicMaterializationStep(this.options.createAdapter({
+        commitment: result.record.commitment,
+        dispatchFenceId,
+        abortSignal: lifecycle.signal,
+        authorityProfileId: input.authorityProfileId,
+        admissionProfile: input.admissionProfile,
+        profileAuthorityDigest: adoptedRoute.admittedIdentity.profileAuthorityDigest,
+        invocationId: input.invocationId,
+      }), lifecycle.signal);
+      if (!materialized) throw new Error("Committed managed route has no executable adapter.");
+      adapter = materialized;
+      throwManagedEconomicAbort(lifecycle.signal);
+      try {
+        await this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId, actionClaim);
+        dispatchFenced = true;
+      } catch (error) {
+        // A successful SQLite commit can be reported as a transport failure.
+        // Read back the exact claim before deciding that release is safe.
+        let readBack: ManagedEconomicCommitmentRecord | undefined;
+        try {
+          readBack = await this.options.authority.readDispatch(
+            input.jobId,
+            input.economicAttemptId,
+            dispatchFenceId,
+            actionClaim,
+          );
+        } catch {
+          // The claim state is now ambiguous. Releasing a held row here could
+          // permit a later owner to redispatch an already committed effect.
+          fenceResponseAmbiguous = true;
+          throw error;
+        }
+        if (readBack?.state === "dispatch-fenced" && readBack.dispatchFenceId === dispatchFenceId) {
+          dispatchFenced = true;
+        } else {
+          throw error;
+        }
+      }
+      input.lifecycleEvents?.record({
+        transition: "dispatch-fenced",
+        policy: policy(),
         commitment: result.record.commitment,
         dispatchFenceId,
       });
@@ -210,9 +294,9 @@ export class ManagedEconomicDispatchCoordinator {
           input.jobId,
           input.economicAttemptId,
           dispatchFenceId,
-          "post-fence-profile-authority-mismatch",
+          "post-fence-lifecycle-evidence-failed",
         );
-      } else {
+      } else if (!fenceResponseAmbiguous) {
         await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       }
       throw error;
@@ -244,37 +328,11 @@ export class ManagedEconomicDispatchCoordinator {
         : "registered-execution-settlement-missing").catch(() => undefined);
     };
     lifecycle.signal.addEventListener("abort", onAbort, { once: true });
-
-    let adapter: ManagedAgentRuntimeAdapter | undefined;
-    try {
-      const adoptedRoute = input.adoption.snapshot.routes.find((candidate) =>
-        candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId
-      );
-      if (!adoptedRoute) {
-        throw new Error("Committed managed economic route is absent from its adopted snapshot.");
-      }
-      adapter = await awaitManagedEconomicMaterializationStep(this.options.createAdapter({
-        commitment: result.record.commitment,
-        dispatchFenceId,
-        abortSignal: lifecycle.signal,
-        authorityProfileId: input.authorityProfileId,
-        admissionProfile: input.admissionProfile,
-        profileAuthorityDigest: adoptedRoute.admittedIdentity.profileAuthorityDigest,
-        invocationId: input.invocationId,
-      }), lifecycle.signal);
-      if (!adapter) throw new Error("Committed managed route has no executable adapter.");
-    } catch (error) {
-      lifecycle.signal.removeEventListener("abort", onAbort);
-      await recordSettlementPending(lifecycle.signal.aborted
-        ? "registered-execution-settlement-missing"
-        : "post-fence-adapter-materialization-failed");
-      lifecycle.dispose();
-      throw error;
-    }
     return {
       status: "prepared",
       commitment: result.record.commitment,
       dispatchFenceId,
+      actionClaim,
       adapter,
       abortSignal: lifecycle.signal,
       recordExecutionSettlementPending: recordSettlementPending,
@@ -408,11 +466,18 @@ function managedEconomicSettlementTransition(
   }
 }
 
-function createManagedEconomicDispatchFenceId(commitment: ManagedEconomicCommitment): string {
+function createManagedEconomicDispatchFenceId(
+  commitment: ManagedEconomicCommitment,
+  actionClaim: ManagedEconomicActionClaim,
+): string {
   return `managed-economic-dispatch:${digestManagedEconomicValue({
     commitmentId: commitment.commitmentId,
     reservationId: commitment.reservation.reservationId,
     jobId: commitment.reservation.jobId,
     economicAttemptId: commitment.reservation.economicAttemptId,
+    admissionId: actionClaim.admissionId,
+    intentFingerprint: actionClaim.intentFingerprint,
+    ownerGeneration: actionClaim.ownerGeneration,
+    effectIdentity: actionClaim.effectIdentity,
   }).slice("sha256:".length)}`;
 }

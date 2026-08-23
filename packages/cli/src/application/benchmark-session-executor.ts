@@ -100,6 +100,8 @@ import { createPrivateFormalScreeningWorkspaceLease } from "./private-formal-scr
 import type { ResolvedFormalScreeningConfig } from "../config/formal-screening-config.js";
 import { BACKEND_BENCHMARK_CASES } from "./benchmark-backend-cases.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import { readRuntimeConfigurationRevision } from "./runtime-configuration-revision.js";
 import { captureOperatorExecutionCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
@@ -279,6 +281,33 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       runtimePermissionObservationProjectPath: cwd,
     });
     const benchmarkCleanupRegistry = new CleanupRegistry();
+    const sessionId = randomUUID();
+    const transcriptStore = new TranscriptStore(benchmarkEvidenceRoot);
+    const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+    const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+      path: join(
+        benchmarkEvidenceRoot,
+        ".kiln",
+        "runtime",
+        `benchmark-${sessionId}-managed-direct-model-round-action-claims.sqlite`,
+      ),
+    });
+    let managedDirectToolActionClaims: SqliteRuntimeToolActionClaimStore;
+    try {
+      managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
+        path: join(
+          benchmarkEvidenceRoot,
+          ".kiln",
+          "runtime",
+          `benchmark-${sessionId}-managed-direct-tool-action-claims.sqlite`,
+        ),
+      });
+    } catch (error) {
+      managedDirectModelRoundActionClaims.close();
+      throw error;
+    }
+    benchmarkCleanupRegistry.register(async () => managedDirectToolActionClaims.close());
+    benchmarkCleanupRegistry.register(async () => managedDirectModelRoundActionClaims.close());
     const operatorEconomicAuthority = benchmarkWorkspace.kind === "repository" && !options.appConfig.managedInvocation
       ? createOperatorSurfaceEconomicAuthority("benchmark", cwd)
       : undefined;
@@ -402,6 +431,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           executionEnvelope: isFormalScreening
             ? FORMAL_SCREENING_EXECUTION_ENVELOPE
             : BENCHMARK_EXECUTION_ENVELOPE,
+          runtimeToolActionClaims: managedDirectToolActionClaims,
+          runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
+          readAuthorityAdmission: (request) => managedDirectAdmissionEvidence.readAdmission(request),
         }),
         builtinToolOptions: () => builtinToolOptions,
         artifactStore: builtinToolOptions.artifactResources?.store,
@@ -415,8 +447,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const managedInvocationAttachment = managedInvocationWithService
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
-    const sessionId = randomUUID();
-    const transcriptStore = new TranscriptStore(benchmarkEvidenceRoot);
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
       managedInvocationWithService ? {
@@ -526,7 +556,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               executionId: `${sessionId}:account:${index}`,
               routeId: configuredRouteCandidate.routeId,
               configurationRevision: readRuntimeConfigurationRevision(cwd),
-              authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
+              authorityAdmissionEvidenceStore: managedDirectAdmissionEvidence,
               captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
                 projectPath: cwd,
                 readConfigSnapshot: readGlobalConfigSnapshot,

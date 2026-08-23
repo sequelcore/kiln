@@ -10,8 +10,6 @@ import {
   type ProviderModelRouteIdentity,
 } from "../../src/agents/execution-routing/index.js";
 import {
-  dispatchOneModelRound,
-  type OneRoundModelDispatchInput,
   validateModelTurn,
   validateModelTurnResult,
   type ModelTurnResult,
@@ -252,7 +250,7 @@ describe("ExecutionAttempt", () => {
   });
 });
 
-describe("caller-owned one-round dispatcher", () => {
+describe("model-turn validation", () => {
   const customCall = {
     kind: "custom" as const,
     id: "call-1",
@@ -270,76 +268,6 @@ describe("caller-owned one-round dispatcher", () => {
     toolChoice: { kind: "tool" as const, name: "shell" },
     maxOutputTokens: 10,
   };
-
-  it("calls exactly once and preserves custom tool input byte-for-byte", async () => {
-    let calls = 0;
-    const input: OneRoundModelDispatchInput = {
-      account: createExecutionAccountRef("account-a"), route: route(), sessionId: "session-1",
-      turn,
-    };
-
-    const received = await dispatchOneModelRound({
-      dispatchOneRound: async (received) => {
-        calls += 1;
-        expect(received).toBe(input);
-        return result;
-      },
-    }, input);
-
-    expect(calls).toBe(1);
-    expect(received).toBe(result);
-    expect(received.parts[0]).toMatchObject({ call: { input: { kind: "raw-text", value: "echo  one\r\n  two" } } });
-  });
-
-  it("rejects denied deliberation before the one-round dispatcher", async () => {
-    let calls = 0;
-    await expect(dispatchOneModelRound({
-      dispatchOneRound: async () => {
-        calls += 1;
-        return result;
-      },
-    }, {
-      account: createExecutionAccountRef("account-a"),
-      route: route(),
-      sessionId: "session-denied",
-      turn: {
-        ...turn,
-        deliberationResolution: {
-          status: "denied",
-          requested: {
-            mode: "fixed",
-            preferredLevel: KNOWN_DELIBERATION_LEVEL_IDS.max,
-            onUnsupported: "deny",
-          },
-          source: "operator",
-          reason: "preferred-level-unsupported",
-        },
-      },
-    })).rejects.toThrow("Denied deliberation cannot execute");
-    expect(calls).toBe(0);
-  });
-
-  it("rejects undeclared or wrong-kind provider tool calls after the single dispatch", async () => {
-    const input: OneRoundModelDispatchInput = {
-      account: createExecutionAccountRef("account-a"), route: route(), sessionId: "session-1", turn,
-    };
-    let calls = 0;
-    await expect(dispatchOneModelRound({ dispatchOneRound: async () => {
-      calls += 1;
-      return { ...result, parts: [{ type: "tool-call", call: { ...customCall, name: "undeclared" } }] };
-    } }, input)).rejects.toThrow("declared");
-    await expect(dispatchOneModelRound({ dispatchOneRound: async () => {
-      calls += 1;
-      return {
-        ...result,
-        parts: [{ type: "tool-call", call: {
-          kind: "function", id: "call-wrong-kind", name: "shell",
-          input: { kind: "json-object", value: {} },
-        } }],
-      };
-    } }, input)).rejects.toThrow("kind");
-    expect(calls).toBe(2);
-  });
 
   it("validates unique tools, finite JSON, and function input objects", () => {
     expect(() => validateModelTurn({ ...turn, tools: [...turn.tools, turn.tools[0]!] })).toThrow("unique");

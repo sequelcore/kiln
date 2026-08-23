@@ -8,9 +8,15 @@ import type {
   SttAdapter,
 } from "@kilnai/core";
 import { projectMultimodalArtifactResource } from "@kilnai/core";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
+import {
+  dispatchRuntimeMediaAction,
+  RuntimeMediaActionClaimedError,
+  type RuntimeMediaActionClaimContext,
+} from "../execution-kernel/runtime-media-action-claim.js";
 
 export interface MediaDownloader {
-  download(url: string): Promise<{ data: Uint8Array; mimeType: string }>;
+  download(url: string, signal?: AbortSignal): Promise<{ data: Uint8Array; mimeType: string }>;
 }
 
 export type AudioTransformStatus = "succeeded" | "failed";
@@ -51,18 +57,29 @@ export interface AudioTransformOptions {
   readonly sourceIdPrefix: string;
   readonly artifactNamespace?: string;
   readonly maxArtifacts?: number;
+  /** Consequential STT calls require a workload-owned durable claim context. */
+  readonly mediaActionClaims?: RuntimeMediaActionClaimContext;
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+  readonly attemptId?: string;
+  readonly callerId?: string;
+  readonly idempotencyKey?: string;
+  readonly logicalSendSlotPrefix?: string;
+  readonly abortSignal?: AbortSignal;
 }
 
 export class AudioTransformError extends Error {
   readonly transforms: readonly AudioTranscriptionTransformEvidence[];
+  readonly actionClaimed: boolean;
 
   constructor(
     message: string,
     transforms: readonly AudioTranscriptionTransformEvidence[],
+    actionClaimed = false,
   ) {
     super(message);
     this.name = "AudioTransformError";
     this.transforms = transforms;
+    this.actionClaimed = actionClaimed;
   }
 }
 
@@ -71,9 +88,10 @@ const TRANSCRIPTION_DEGRADATION =
 
 export function createWhatsAppMediaDownloader(accessToken: string): MediaDownloader {
   return {
-    async download(url: string): Promise<{ data: Uint8Array; mimeType: string }> {
+    async download(url: string, signal?: AbortSignal): Promise<{ data: Uint8Array; mimeType: string }> {
       const metaRes = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal,
       });
       if (!metaRes.ok) {
         throw new Error(`WhatsApp media metadata fetch failed: ${metaRes.status}`);
@@ -82,6 +100,7 @@ export function createWhatsAppMediaDownloader(accessToken: string): MediaDownloa
 
       const mediaRes = await fetch(meta.url, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal,
       });
       if (!mediaRes.ok) {
         throw new Error(`WhatsApp media download failed: ${mediaRes.status}`);
@@ -95,8 +114,8 @@ export function createWhatsAppMediaDownloader(accessToken: string): MediaDownloa
 
 export function createGenericMediaDownloader(): MediaDownloader {
   return {
-    async download(url: string): Promise<{ data: Uint8Array; mimeType: string }> {
-      const res = await fetch(url);
+    async download(url: string, signal?: AbortSignal): Promise<{ data: Uint8Array; mimeType: string }> {
+      const res = await fetch(url, { signal });
       if (!res.ok) {
         throw new Error(`Media download failed: ${res.status}`);
       }
@@ -127,9 +146,30 @@ export async function transformAudioParts(
     const fallbackMimeType = part.mimeType || "application/octet-stream";
 
     try {
-      const source = await resolveAudioSource(part, downloader);
-      sourceArtifactUri = part.artifactUri ?? persistAudioSourceArtifact(index, source, options);
-      const transcription = await stt.transcribe(source.data, source.mimeType);
+      const outcome = await dispatchRuntimeMediaAction({
+        context: requireMediaActionContext(options),
+        authorityAdmission: options.authorityAdmission,
+        attemptId: options.attemptId!,
+        callerId: options.callerId!,
+        idempotencyKey: options.idempotencyKey!,
+        actionKind: "stt-transcribe",
+        sourceIdentity: sourceArtifactUri,
+        adapterIdentity: `stt:${stt.name}`,
+        logicalSendSlot: `${options.logicalSendSlotPrefix ?? "inbound-stt"}:${index}`,
+        payload: {
+          sourceArtifactUri,
+          sourceMimeType: fallbackMimeType,
+        },
+        abortSignal: options.abortSignal,
+        call: async () => {
+          const source = await resolveAudioSource(part, downloader, options.abortSignal);
+          const resolvedArtifactUri = part.artifactUri ?? persistAudioSourceArtifact(index, source, options);
+          const transcription = await stt.transcribe(source.data, source.mimeType, { signal: options.abortSignal });
+          return { source, sourceArtifactUri: resolvedArtifactUri, transcription };
+        },
+      });
+      const { source, transcription } = outcome;
+      sourceArtifactUri = outcome.sourceArtifactUri;
       transforms.push({
         transform: "transcription",
         status: "succeeded",
@@ -152,10 +192,14 @@ export async function transformAudioParts(
         sourceArtifactUri,
         sourceMimeType: fallbackMimeType,
         provider: stt.name,
-        errorMessage: err instanceof Error ? err.message : String(err),
+        errorMessage: mediaTransformErrorMessage(err),
       });
       const nextTransforms = [...transforms, failure];
-      throw new AudioTransformError("Audio transcription transform failed", nextTransforms);
+      throw new AudioTransformError(
+        "Audio transcription transform failed",
+        nextTransforms,
+        err instanceof RuntimeMediaActionClaimedError,
+      );
     }
   }
 
@@ -172,6 +216,24 @@ export function emitAudioTransformRoutingEvents(
   for (const event of createAudioTransformRoutingEvents(context, transforms)) {
     context.eventBus?.emit(event);
   }
+}
+
+function mediaTransformErrorMessage(error: unknown): string {
+  if (error instanceof RuntimeMediaActionClaimedError) {
+    const cause = (error as Error & { readonly cause?: unknown }).cause;
+    if (cause instanceof Error) return cause.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function requireMediaActionContext(options: AudioTransformOptions): RuntimeMediaActionClaimContext {
+  if (!options.mediaActionClaims || !options.authorityAdmission || !options.attemptId
+    || !options.callerId || !options.idempotencyKey) {
+    throw new Error(
+      "Consequential STT requires a workload-owned media action claim bound to the complete authority admission.",
+    );
+  }
+  return options.mediaActionClaims;
 }
 
 export function createAudioTransformRoutingEvents(
@@ -224,9 +286,10 @@ export function createGatewayAudioTransformSessionId(
 async function resolveAudioSource(
   part: Extract<ContentPart, { type: "audio" }>,
   downloader: MediaDownloader,
+  signal?: AbortSignal,
 ): Promise<{ data: Uint8Array; mimeType: string }> {
   if (part.url) {
-    return downloader.download(part.url);
+    return downloader.download(part.url, signal);
   }
   if (part.data) {
     return {

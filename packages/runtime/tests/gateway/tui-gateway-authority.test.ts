@@ -3,6 +3,7 @@ import type { ProviderAdapter } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { createFixtureClaimConfig, createFixtureToolPermission } from "../session/runtime-claim-fixture.js";
 
 vi.mock("hono/bun", () => ({
   createBunWebSocket: () => ({
@@ -442,16 +443,29 @@ describe("TUI authority forwarding", () => {
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "gpt-5.4-mini",
       tools: [{ name: "glob", description: "Match files by glob pattern.", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["glob", toolFn]]),
     });
 
+    const currentSession = makeSession();
+    const candidateConfig = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
+
     await orchestrator.processMessage(
-      makeSession(),
+      currentSession,
       textParts("run dangerous tool"),
       undefined,
       undefined,
-      buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
+      {
+        ...candidateConfig,
+        ...createFixtureClaimConfig({
+          session: currentSession,
+          provider,
+          model: "gpt-5.4-mini",
+          toolPermissions: [createFixtureToolPermission("glob")],
+          includeToolClaims: true,
+        }),
+      },
     );
 
     expect(toolFn).toHaveBeenCalledTimes(1);

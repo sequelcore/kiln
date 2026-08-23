@@ -11,13 +11,24 @@ import {
 } from "../execution-routing/operator-session-execution-routing-service.js";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
-import { applyEffectiveAuthorityAdmissionBundleToPerCallConfig, type EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import { prepareOperatorAdoptionTurn, requireOperatorAdoptionDecisionPersistence, type OperatorAdoptionDecisionPersistence } from "../session/operator-adoption-authority.js";
-import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.types.js";
+import type {
+  PerCallToolConfig,
+  RuntimeAuthorityAdmissionCandidateConfig,
+} from "../session/runtime-session-orchestrator.types.js";
 import type { ActionEffectEnvelope } from "@kilnai/core/engine";
 import type { RuntimeSession } from "../session/runtime-session.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
+import type {
+  RuntimeModelRoundActionClaimStore,
+  RuntimeModelRoundDispatchContext,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+import { readRuntimeModelRoundAdmission } from "../execution-kernel/runtime-model-round-action-claim.js";
+import type { RuntimeToolActionClaimStore, RuntimeToolActionClaimsContext } from "../execution-kernel/runtime-tool-action-claim.js";
+import type { ChannelEgressActionClaimContext } from "../channels/channel-egress-action-claim.js";
+import type { RuntimeMediaActionClaimContext } from "../execution-kernel/runtime-media-action-claim.js";
 
 export interface GatewayAuthorityAdmissionRequest {
   readonly ingressId: string;
@@ -36,11 +47,16 @@ export interface GatewayAuthorityAdmissionCommit {
   readonly bundle: EffectiveAuthorityAdmissionBundle;
   readonly perCallConfig: PerCallToolConfig;
   readonly provider: ProviderAdapter;
+  readonly runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext;
+  readonly runtimeToolActionClaims: RuntimeToolActionClaimsContext;
+  readonly runtimeMediaActionClaims: RuntimeMediaActionClaimContext;
   readonly evidence: { readonly status: "persisted"; readonly sessionId: string; readonly admissionId: string };
 }
 
 /** Productive execution remains inside this callback for the full account-fence lifetime. */
 export interface GatewayAuthorityAdmissionPort {
+  /** Mandatory workload-local durable owner for consequential channel sends. */
+  readonly channelEgressActionClaims: ChannelEgressActionClaimContext;
   execute<Result>(request: GatewayAuthorityAdmissionRequest, dispatch: (commit: GatewayAuthorityAdmissionCommit) => Promise<Result>): Promise<Result>;
 }
 
@@ -53,6 +69,14 @@ export interface FixedRouteGatewayAuthorityAdmissionOptions<Credential> {
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly credentials: OperatorSessionCredentialPort<Credential>;
   readonly evidenceStore: AuthorityAdmissionEvidenceStore;
+  /** Separate durable action-claim owner for App Gateway model rounds. */
+  readonly modelRoundActionClaims: RuntimeModelRoundActionClaimStore;
+  /** Separate durable action-claim owner for App Gateway tool/MCP effects. */
+  readonly toolActionClaims: RuntimeToolActionClaimStore;
+  /** Separate durable action-claim owner for App Gateway channel egress. */
+  readonly channelEgressActionClaims: ChannelEgressActionClaimContext;
+  /** Separate durable action-claim owner for App Gateway media effects. */
+  readonly runtimeMediaActionClaims: RuntimeMediaActionClaimContext;
   readonly persistOperatorAdoptionDecision: OperatorAdoptionDecisionPersistence;
   readonly createProvider: (input: { readonly credential: Credential; readonly admission: AdmittedExecutionRoute }) => ProviderAdapter | Promise<ProviderAdapter>;
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
@@ -60,15 +84,19 @@ export interface FixedRouteGatewayAuthorityAdmissionOptions<Credential> {
 }
 
 type PendingDispatch = (commit: GatewayAuthorityAdmissionCommit) => Promise<unknown>;
-type PreparedGatewayAdmission = { readonly session: RuntimeSession; readonly perCallConfig: PerCallToolConfig };
+type PreparedGatewayAdmission = { readonly session: RuntimeSession; readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig };
 
 /** Runtime-owned fixed-route composer for productive App Gateway ingress. */
 export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implements GatewayAuthorityAdmissionPort {
+  readonly channelEgressActionClaims: ChannelEgressActionClaimContext;
+  readonly runtimeMediaActionClaims: RuntimeMediaActionClaimContext;
   readonly #pending = new Map<string, PendingDispatch>();
   readonly #coordinator: OperatorAuthorityAdmissionCoordinator<GatewayAuthorityAdmissionRequest, PreparedGatewayAdmission>;
   readonly #routing: OperatorSessionExecutionRoutingService<Credential, GatewayAuthorityAdmissionRequest, unknown>;
 
   constructor(readonly options: FixedRouteGatewayAuthorityAdmissionOptions<Credential>) {
+    this.channelEgressActionClaims = options.channelEgressActionClaims;
+    this.runtimeMediaActionClaims = options.runtimeMediaActionClaims;
     const route = options.snapshot.catalog.routes.find((candidate) => candidate.id === options.routeId);
     if (!route) throw new Error(`App Gateway route '${options.routeId}' is unavailable.`);
     const matches = options.snapshot.catalog.routes.filter((candidate) => candidate.providerId === route.providerId && candidate.providerModelId === route.providerModelId);
@@ -89,7 +117,7 @@ export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implement
           correlationId: request.executionId,
           persist: requireOperatorAdoptionDecisionPersistence(options.persistOperatorAdoptionDecision),
         });
-        const perCallConfig: PerCallToolConfig = {
+        const perCallConfig: RuntimeAuthorityAdmissionCandidateConfig = {
           turnId: adoption.turnId,
           turnCorrelationId: adoption.correlationId,
           operatorAdoptionDecision: adoption.operatorAdoptionDecision,
@@ -148,12 +176,84 @@ export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implement
           if (!dispatch) throw new Error("App Gateway committed execution has no ingress dispatch owner.");
           const prepared = this.#coordinator.consume(committed.executionId, committed.authorityAdmission);
           const provider = await options.createProvider({ credential: committed.credential, admission: committed.admission });
+          const readAdmission = options.evidenceStore.readAdmission;
+          if (!readAdmission) throw new Error("App Gateway has no durable admission readback for model-round claiming.");
+          const bundle = await readRuntimeModelRoundAdmission({
+            readAdmission: (request) => readAdmission.call(options.evidenceStore, request),
+            admissionId: committed.authorityAdmission.admissionId,
+            sessionId: committed.authorityAdmission.sessionId,
+            turnId: committed.authorityAdmission.turnId,
+            expected: {
+              routeId: committed.binding.routeId,
+              accountId: committed.binding.accountId,
+              credentialRevision: committed.binding.credentialRevision,
+            },
+          });
+          const runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext = {
+            admission: bundle,
+            intentFingerprint: fingerprintGatewayIntent({ routeId: this.options.routeId }),
+            attemptId: committed.executionId,
+            routeId: committed.binding.routeId,
+            accountId: committed.binding.accountId,
+            credentialRevision: committed.binding.credentialRevision,
+            readAdmission: () => readRuntimeModelRoundAdmission({
+              readAdmission: (request) => readAdmission.call(options.evidenceStore, request),
+              admissionId: bundle.admissionId,
+              sessionId: bundle.sessionId,
+              turnId: bundle.turnId,
+              expected: {
+                routeId: committed.binding.routeId,
+                accountId: committed.binding.accountId,
+                credentialRevision: committed.binding.credentialRevision,
+              },
+            }),
+            store: options.modelRoundActionClaims,
+            state: { claimed: false },
+          };
+          const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
+            admission: bundle,
+            attemptId: committed.executionId,
+            adapterIdentity: `app-gateway:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
+            readAdmission: (request) => readRuntimeModelRoundAdmission({
+              readAdmission: (readRequest) => readAdmission.call(options.evidenceStore, readRequest),
+              admissionId: request.admissionId,
+              sessionId: request.sessionId,
+              turnId: request.turnId,
+              expected: {
+                routeId: committed.binding.routeId,
+                accountId: committed.binding.accountId,
+                credentialRevision: committed.binding.credentialRevision,
+              },
+            }),
+            store: options.toolActionClaims,
+            state: { claimed: false },
+          };
+          const {
+            turnId: _candidateTurnId,
+            operatorAdoptionDecision: _candidateAdoptionDecision,
+            executionBinding: _candidateExecutionBinding,
+            admittedExecutionRoute: _candidateExecutionRoute,
+            toolAllowlist: _candidateToolAllowlist,
+            toolAuthority: _candidateToolAuthority,
+            effectiveTurnAuthority: _candidateTurnAuthority,
+            runtimeConfigurationRevision: _candidateConfigurationRevision,
+            ...admittedExecutionConfig
+          } = prepared.perCallConfig;
           return dispatch({
             session: prepared.session,
-            bundle: committed.authorityAdmission,
-            perCallConfig: applyEffectiveAuthorityAdmissionBundleToPerCallConfig(committed.authorityAdmission, prepared.perCallConfig),
+            bundle,
+            // The persisted bundle is the sole committed authority source.
+            // Candidate authority fields are removed at this boundary rather
+            // than being carried as a second, potentially conflicting source.
+            perCallConfig: {
+              ...admittedExecutionConfig,
+              authorityAdmission: bundle,
+            },
             provider,
-            evidence: { status: "persisted", sessionId: committed.authorityAdmission.sessionId, admissionId: committed.authorityAdmission.admissionId },
+            runtimeModelRoundDispatch,
+            runtimeToolActionClaims,
+            runtimeMediaActionClaims: this.runtimeMediaActionClaims,
+            evidence: { status: "persisted", sessionId: bundle.sessionId, admissionId: bundle.admissionId },
           });
         },
       },
@@ -195,6 +295,6 @@ function gatewayTurnEffectCeiling(channel: string): ActionEffectEnvelope {
   };
 }
 
-function fingerprintGatewayIntent(intent: OperatorExecutionIntent): string {
+function fingerprintGatewayIntent(intent: OperatorExecutionIntent): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(JSON.stringify(intent), "utf8").digest("hex")}`;
 }

@@ -21,7 +21,7 @@ Use `app.yaml` documentation when you need to understand the currently supported
 runtime configuration surface:
 
 - routing and execution declarations
-- memory and knowledge configuration
+- memory configuration
 - voice configuration
 - safety and tool configuration
 - channel and trigger wiring
@@ -48,7 +48,7 @@ When reading configuration, reinterpret it through the current architecture:
 - routing declarations map to admission and allocation concerns
 - workflow and gates map to governed execution flows
 - tool and permission declarations map to safety and tool-execution concerns
-- memory and knowledge blocks map to layered memory and context governance
+- memory blocks map to layered memory and context governance
 - voice blocks map to the shared voice capability, multimodal transform, and
   artifact evidence model
 - model routing maps to control and adaptation policy, not product identity
@@ -72,7 +72,7 @@ canonical global/project server identities:
 
 ```yaml
 mcp:
-  servers: [support-tools, knowledge]
+  servers: [support-tools]
 ```
 
 App Gateway resolves these ids through Kiln configuration, discovers admitted

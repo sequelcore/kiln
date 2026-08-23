@@ -22,12 +22,22 @@ import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../session/runtime-session.js";
 import {
+  readRuntimeModelRoundAdmission,
+  type RuntimeModelRoundDispatchContext,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+import type { RuntimeToolActionClaimsContext } from "../execution-kernel/runtime-tool-action-claim.js";
+import {
   hasGovernedGoalTools,
   prepareOperatorAdoptionTurn,
   requireOperatorAdoptionDecisionPersistence,
 } from "../session/operator-adoption-authority.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeAuthorityAdmissionCandidateConfig } from "../session/runtime-session-orchestrator.types.js";
 import type { RuntimeConfigurationRevisionProvider } from "../session/runtime-configuration-revision-pin.js";
+import {
+  readExecutionToolAllowlist,
+  readExecutionTurnAuthority,
+} from "../session/effective-authority-admission-bundle.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
@@ -75,12 +85,6 @@ import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
-import { BunPtyAdapter } from "../operator-terminal/bun-pty-adapter.js";
-import { handleOperatorTerminalFrame } from "../operator-terminal/operator-terminal-gateway.js";
-import {
-  OperatorTerminalService,
-  type OperatorPtyAdapter,
-} from "../operator-terminal/operator-terminal-service.js";
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
@@ -98,8 +102,6 @@ import {
   projectOperatorResourceReadResult,
   isGuiProviderModeless,
   type GuiDashboardSnapshot,
-  type GuiBrowserOperatorInput,
-  type GuiBrowserOperatorInputAckFrame,
   type GuiBrowserSessionState,
   type GuiInboundFrame,
   type GuiManagedAgentControlAction,
@@ -209,7 +211,6 @@ export interface StartGuiGatewayOptions {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
-  readonly operatorTerminalAdapter?: OperatorPtyAdapter;
   readonly goalController?: GuiGoalController;
   /** Persisted sources retain provenance; a message-local user intent is added per turn. */
   readonly communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
@@ -235,7 +236,8 @@ export interface GuiGateway {
   readonly operatorModels?: Record<string, string[]>;
   readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly hasMountedGui: boolean;
-  readonly operatorTerminalCapability?: string;
+  /** Ephemeral capability for local configuration mutations and target setup. */
+  readonly operatorCapability?: string;
   shutdown(): void;
 }
 
@@ -285,26 +287,6 @@ interface BrowserSessionUpdateHandlerConsumer {
   setBrowserSessionUpdateHandler(handler: ((state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void) | undefined): void;
 }
 
-interface BrowserSessionControlConsumer {
-  requestBrowserSessionControl(request: {
-    readonly action: "takeover" | "release";
-    readonly gatewayTargetId?: string;
-    readonly sessionId?: string;
-    readonly operatorId?: string;
-    readonly reason?: string;
-  }): Promise<Omit<GuiBrowserSessionState, "kilnSessionId">>;
-}
-
-interface BrowserOperatorInputConsumer {
-  requestBrowserOperatorInput(request: {
-    readonly requestId: string;
-    readonly gatewayTargetId?: string;
-    readonly sessionId: string;
-    readonly operatorId?: string;
-    readonly input: GuiBrowserOperatorInput;
-  }): Promise<Omit<GuiBrowserOperatorInputAckFrame, "type">>;
-}
-
 function guiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
   if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
     return;
@@ -352,17 +334,20 @@ function workspaceErrorResponse(error: unknown): { readonly status: 400 | 403 | 
   };
 }
 
-export function buildGuiPerCallToolConfig(): PerCallToolConfig {
+export function buildGuiPerCallToolConfig(): RuntimeAuthorityAdmissionCandidateConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
   });
 }
 
 export function deriveGuiAuthorityStatusFromPerCallConfig(
-  config: PerCallToolConfig,
+  config: PerCallToolConfig | RuntimeAuthorityAdmissionCandidateConfig,
 ): GuiAuthorityStatus {
-  if (config.effectiveTurnAuthority) {
-    const authority = config.effectiveTurnAuthority;
+  const effectiveTurnAuthority = "authorityAdmission" in config && config.authorityAdmission
+    ? readExecutionTurnAuthority(config)
+    : (config as RuntimeAuthorityAdmissionCandidateConfig).effectiveTurnAuthority;
+  if (effectiveTurnAuthority) {
+    const authority = effectiveTurnAuthority;
     return {
       effective: authority.admittedAuthority,
       admittedAuthority: authority.admittedAuthority,
@@ -376,9 +361,14 @@ export function deriveGuiAuthorityStatusFromPerCallConfig(
       completeness: authority.completeness,
     };
   }
-  const hasAllowlist = config.toolAllowlist !== undefined;
-  const allowlistSize = config.toolAllowlist?.size ?? 0;
-  const authorityMap = config.toolAuthority;
+  const allowlist = "authorityAdmission" in config && config.authorityAdmission
+    ? readExecutionToolAllowlist(config)
+    : (config as RuntimeAuthorityAdmissionCandidateConfig).toolAllowlist;
+  const hasAllowlist = allowlist !== undefined;
+  const allowlistSize = allowlist?.size ?? 0;
+  const authorityMap = "authorityAdmission" in config && config.authorityAdmission
+    ? new Map(config.authorityAdmission.turn.tools.allowedToolPermissions.map((entry) => [entry.toolName, entry.authority]))
+    : config.toolAuthority;
   const hasAuthorityMap = authorityMap instanceof Map;
   const authoritySize = authorityMap?.size ?? 0;
 
@@ -433,36 +423,6 @@ function isBrowserSessionUpdateHandlerConsumer(value: unknown): value is Browser
   );
 }
 
-function getBrowserSessionControlConsumer(
-  builtinToolOptions: DefaultBuiltinToolRegistryOptions | undefined,
-): BrowserSessionControlConsumer | undefined {
-  const provider = builtinToolOptions?.browserUse?.provider;
-  return isBrowserSessionControlConsumer(provider) ? provider : undefined;
-}
-
-function getBrowserOperatorInputConsumer(
-  builtinToolOptions: DefaultBuiltinToolRegistryOptions | undefined,
-): BrowserOperatorInputConsumer | undefined {
-  const provider = builtinToolOptions?.browserUse?.provider;
-  return isBrowserOperatorInputConsumer(provider) ? provider : undefined;
-}
-
-function isBrowserSessionControlConsumer(value: unknown): value is BrowserSessionControlConsumer {
-  return Boolean(
-    value
-      && typeof value === "object"
-      && typeof (value as { requestBrowserSessionControl?: unknown }).requestBrowserSessionControl === "function",
-  );
-}
-
-function isBrowserOperatorInputConsumer(value: unknown): value is BrowserOperatorInputConsumer {
-  return Boolean(
-    value
-      && typeof value === "object"
-      && typeof (value as { requestBrowserOperatorInput?: unknown }).requestBrowserOperatorInput === "function",
-  );
-}
-
 function isManagedAgentControlAction(value: unknown): value is GuiManagedAgentControlAction {
   return value === "cancel" || value === "join" || value === "prompt";
 }
@@ -510,8 +470,8 @@ function managedAgentControlResult(input: {
 }
 
 export function deriveGuiDoneAuthorityStatus(
-  turnPerCallConfig: PerCallToolConfig | undefined,
-  fallbackPerCallConfig: PerCallToolConfig = buildGuiPerCallToolConfig(),
+  turnPerCallConfig: RuntimeAuthorityAdmissionCandidateConfig | undefined,
+  fallbackPerCallConfig: RuntimeAuthorityAdmissionCandidateConfig = buildGuiPerCallToolConfig(),
 ): GuiAuthorityStatus {
   return deriveGuiAuthorityStatusFromPerCallConfig(turnPerCallConfig ?? fallbackPerCallConfig);
 }
@@ -537,14 +497,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       ? options.initialOperatorDiscovery
       : markGuiProviderDiscoveryStale(options.initialOperatorDiscovery)
     : undefined;
-  const operatorTerminalCapability = options.workingDirectory
+  const operatorCapability = options.workingDirectory
     ? crypto.randomUUID()
-    : undefined;
-  const operatorTerminalService = transportOptions && operatorTerminalCapability && options.workingDirectory
-    ? new OperatorTerminalService({
-        workspaceRoot: options.workingDirectory,
-        adapter: options.operatorTerminalAdapter ?? new BunPtyAdapter(),
-      })
     : undefined;
   let activeConnections = 0;
 
@@ -661,8 +615,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     if (!options.applyConfigurationOnboarding) {
       return c.json({ error: "configuration_onboarding_unavailable" }, 404);
     }
-    if (!operatorTerminalCapability
-      || c.req.header("x-kiln-operator-token") !== operatorTerminalCapability) {
+    if (!operatorCapability
+      || c.req.header("x-kiln-operator-token") !== operatorCapability) {
       return c.json({ error: "operator_authorization_required" }, 403);
     }
     const parsed = KilnConfigurationOnboardingApplyRequestSchema.safeParse(
@@ -687,8 +641,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     if (!options.proposeSettingsMutation) {
       return c.json({ error: "settings_mutation_unavailable" }, 404);
     }
-    if (!operatorTerminalCapability
-      || c.req.header("x-kiln-operator-token") !== operatorTerminalCapability) {
+    if (!operatorCapability
+      || c.req.header("x-kiln-operator-token") !== operatorCapability) {
       return c.json({ error: "operator_authorization_required" }, 403);
     }
     const parsed = KilnSettingsProposalRequestSchema.safeParse(await c.req.json().catch(() => null));
@@ -704,8 +658,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     if (!options.applySettingsMutation) {
       return c.json({ error: "settings_mutation_unavailable" }, 404);
     }
-    if (!operatorTerminalCapability
-      || c.req.header("x-kiln-operator-token") !== operatorTerminalCapability) {
+    if (!operatorCapability
+      || c.req.header("x-kiln-operator-token") !== operatorCapability) {
       return c.json({ error: "operator_authorization_required" }, 403);
     }
     const parsed = KilnSettingsApplyRequestSchema.safeParse(await c.req.json().catch(() => null));
@@ -805,8 +759,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
       executionRouteSelection: options.executionRouteSelection,
       runExecutionTargetWizard: options.runExecutionTargetWizard,
-      operatorTerminalCapability,
-      operatorTerminalService,
+      operatorCapability,
       goalController: options.goalController,
       onReady: (url) => {
         operatorWsUrl = url;
@@ -885,9 +838,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       return operatorDiscovery;
     },
     hasMountedGui,
-    operatorTerminalCapability,
+    operatorCapability,
     shutdown: () => {
-      operatorTerminalService?.closeAll();
       server.stop();
       disposeOperatorResourceSurfaces?.();
     },
@@ -923,8 +875,7 @@ function wireOperatorTransport(
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
-    operatorTerminalCapability?: string;
-    operatorTerminalService?: OperatorTerminalService;
+    operatorCapability?: string;
     goalController?: GuiGoalController;
   },
 ): () => void {
@@ -937,6 +888,10 @@ function wireOperatorTransport(
   });
   const resourceSurfaces: GuiResourceSurfaceRegistration[] = [{ surface: builtinToolSurface }];
   const committedAuthoritySessionIds = new Set<string>();
+  const latestMediaAdmissionBySession = new Map<string, {
+    readonly authorityAdmission: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
+    readonly attemptId: string;
+  }>();
   const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
   bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
@@ -965,7 +920,7 @@ function wireOperatorTransport(
     OperatorTurnGuiDispatchPayload,
     {
       readonly payload: OperatorTurnGuiDispatchPayload;
-      readonly perCallConfig: PerCallToolConfig;
+      readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig;
       readonly turnBuiltinToolSurface: AttachedRuntimeBuiltinToolSurface;
       readonly executionMode: OperatorExecutionMode;
       readonly activeModelCapabilities: GuiProviderModelCapabilities | undefined;
@@ -1054,7 +1009,7 @@ function wireOperatorTransport(
           abortSignal: payload.abortSignal,
           executionBinding: binding,
           runtimeConfigurationRevision: snapshot.configurationRevision,
-        } satisfies PerCallToolConfig;
+        } satisfies RuntimeAuthorityAdmissionCandidateConfig;
         const adoption = await prepareOperatorAdoptionTurn({
           session,
           actorId: payload.userId,
@@ -1066,7 +1021,7 @@ function wireOperatorTransport(
           turnId: adoption.turnId,
           turnCorrelationId: adoption.correlationId,
           operatorAdoptionDecision: adoption.operatorAdoptionDecision,
-        } satisfies PerCallToolConfig;
+        } satisfies RuntimeAuthorityAdmissionCandidateConfig;
         const governedGoalTools = hasGovernedGoalTools({
           toolAllowlist: admittedPerCallConfig.toolAllowlist,
           additionalTools: admittedPerCallConfig.additionalTools,
@@ -1135,16 +1090,88 @@ function wireOperatorTransport(
     const prepared = authorityCoordinator.consume(committed.executionId, committed.authorityAdmission);
     priorActiveSessions.delete(prepared.runtimeSessionId);
     const { payload, runtimeSession, turnBuiltinToolSurface, executionMode, activeModelCapabilities } = prepared;
+    const readAdmission = input.transport.authorityAdmissionEvidenceStore.readAdmission;
+    if (!readAdmission) throw new Error("Operator GUI has no durable admission readback for model-round claiming.");
+    const bundle = await readRuntimeModelRoundAdmission({
+      readAdmission: (request) => readAdmission.call(input.transport.authorityAdmissionEvidenceStore, request),
+      admissionId: committed.authorityAdmission.admissionId,
+      sessionId: committed.authorityAdmission.sessionId,
+      turnId: committed.authorityAdmission.turnId,
+      expected: {
+        routeId: committed.binding.routeId,
+        accountId: committed.binding.accountId,
+        credentialRevision: committed.binding.credentialRevision,
+      },
+    });
+    const runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext = {
+      admission: bundle,
+      intentFingerprint: committed.intentFingerprint as `sha256:${string}`,
+      attemptId: committed.executionId,
+      routeId: committed.binding.routeId,
+      accountId: committed.binding.accountId,
+      credentialRevision: committed.binding.credentialRevision,
+      readAdmission: () => readRuntimeModelRoundAdmission({
+        readAdmission: (request) => readAdmission.call(input.transport.authorityAdmissionEvidenceStore, request),
+        admissionId: bundle.admissionId,
+        sessionId: bundle.sessionId,
+        turnId: bundle.turnId,
+        expected: {
+          routeId: committed.binding.routeId,
+          accountId: committed.binding.accountId,
+          credentialRevision: committed.binding.credentialRevision,
+        },
+      }),
+      store: input.transport.runtimeModelRoundActionClaims,
+      state: { claimed: false },
+    };
+    const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
+      admission: bundle,
+      attemptId: committed.executionId,
+      adapterIdentity: `gui:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
+      readAdmission: (request) => readRuntimeModelRoundAdmission({
+        readAdmission: (readRequest) => readAdmission.call(input.transport.authorityAdmissionEvidenceStore, readRequest),
+        admissionId: request.admissionId,
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        expected: {
+          routeId: committed.binding.routeId,
+          accountId: committed.binding.accountId,
+          credentialRevision: committed.binding.credentialRevision,
+        },
+      }),
+      store: input.transport.runtimeToolActionClaims,
+      state: { claimed: false },
+    };
     resourceSurfaces.push({
       surface: turnBuiltinToolSurface,
       sessionId: committed.authorityAdmission.sessionId,
     });
     committedAuthoritySessionIds.add(committed.authorityAdmission.sessionId);
+    latestMediaAdmissionBySession.set(committed.authorityAdmission.sessionId, {
+      authorityAdmission: bundle,
+      attemptId: committed.executionId,
+    });
     input.transport.sessionManager.setProvider(committed.admission.providerId);
     input.transport.sessionManager.setModel(committed.admission.providerModelId);
+    const {
+      turnId: _candidateTurnId,
+      operatorAdoptionDecision: _candidateAdoptionDecision,
+      executionBinding: _candidateExecutionBinding,
+      admittedExecutionRoute: _candidateExecutionRoute,
+      effectiveTurnAuthority: _candidateTurnAuthority,
+      authorityContext: _candidateAuthorityContext,
+      runtimeConfigurationRevision: _candidateConfigurationRevision,
+      runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
+      toolAllowlist: _candidateToolAllowlist,
+      toolAuthority: _candidateToolAuthority,
+      ...admittedExecutionConfig
+    } = prepared.perCallConfig;
     const perCallConfig = {
-      ...prepared.perCallConfig,
+      ...admittedExecutionConfig,
+      authorityAdmission: bundle,
       executionCredential: committed.credential,
+      runtimeModelRoundDispatch,
+      runtimeToolActionClaims,
     } satisfies PerCallToolConfig;
     return processAdmittedTurn({
       orchestrator,
@@ -1174,7 +1201,8 @@ function wireOperatorTransport(
       ttsAdapter: input.transport.ttsAdapter,
       callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
       perCallConfig,
-      authorityAdmission: committed.authorityAdmission,
+      authorityAdmission: bundle,
+      runtimeMediaActionClaims: input.transport.runtimeMediaActionClaims,
       runtimeConfigurationRevisionProvider: input.runtimeConfigurationRevisionProvider,
       turnCapture: {
         start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
@@ -1220,10 +1248,9 @@ function wireOperatorTransport(
     "/gui/ws",
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
-      const terminalOwnerId = crypto.randomUUID();
-      const terminalAuthorized = Boolean(
-        input.operatorTerminalCapability
-        && c.req.query("operatorToken") === input.operatorTerminalCapability,
+      const operatorAuthorized = Boolean(
+        input.operatorCapability
+        && c.req.query("operatorToken") === input.operatorCapability,
       );
       let discovery = [...input.initialDiscovery];
       const applyDiscovery = (nextDiscovery: readonly GuiProviderDiscoveryResult[]): readonly GuiProviderDiscoveryResult[] => {
@@ -1238,7 +1265,12 @@ function wireOperatorTransport(
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
       let selectedRouteIntent: { readonly routeId: string; readonly accountOverrideId?: string } | undefined;
-      const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
+      const voiceSynthesisSources = new Map<string, {
+        readonly parts: readonly ContentPart[];
+        readonly sessionId: string;
+        readonly authorityAdmission?: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
+        readonly attemptId?: string;
+      }>();
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame satisfies GuiInboundFrame));
       });
@@ -1267,7 +1299,6 @@ function wireOperatorTransport(
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
             authorityStatus: guiAuthorityStatus,
-            operatorTerminalAvailable: Boolean(input.operatorTerminalService && terminalAuthorized),
           } satisfies GuiInboundFrame));
         },
 
@@ -1283,16 +1314,6 @@ function wireOperatorTransport(
             }
 
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
-
-            if (input.operatorTerminalService && await handleOperatorTerminalFrame({
-              frame,
-              authorized: terminalAuthorized,
-              ownerId: terminalOwnerId,
-              service: input.operatorTerminalService,
-              send: (terminalFrame) => ws.send(JSON.stringify(terminalFrame)),
-            })) {
-              return;
-            }
 
             if (frame.type === "operator_theme_set_result") {
               operatorThemeBridge.resolve(frame as Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>);
@@ -1328,13 +1349,13 @@ function wireOperatorTransport(
             }
 
             if (frame.type === "execution_target_wizard") {
-              if (!terminalAuthorized) {
+              if (!operatorAuthorized) {
                 ws.send(JSON.stringify(executionTargetWizardDeniedResult(frame) satisfies GuiInboundFrame));
                 return;
               }
               const currentCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
               const responseFrames = await handleExecutionTargetWizard({
-                operatorAuthorized: terminalAuthorized,
+                operatorAuthorized,
                 frame,
                 discovery: projectGuiProviderModelDiscovery(discovery),
                 executionRouteCatalog: currentCatalog,
@@ -1743,113 +1764,6 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "browser_session_control") {
-              const action = frame.action === "takeover" || frame.action === "release" ? frame.action : undefined;
-              if (!action) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: "Browser session control action must be takeover or release.",
-                } satisfies GuiInboundFrame));
-                return;
-              }
-              const provider = getBrowserSessionControlConsumer(input.builtinToolOptions);
-              if (!provider) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: "Browser session control is not available for the configured provider.",
-                } satisfies GuiInboundFrame));
-                return;
-              }
-              try {
-                const state = await provider.requestBrowserSessionControl({
-                  action,
-                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
-                  ...(typeof frame.sessionId === "string" ? { sessionId: frame.sessionId } : {}),
-                  operatorId: userId,
-                  ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
-                });
-                activityStreamer.recordBrowserOperatorEvidence({
-                  action,
-                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
-                  browserSessionId: state.sessionId,
-                  status: "accepted",
-                  ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
-                });
-              } catch (error) {
-                activityStreamer.recordBrowserOperatorEvidence({
-                  action,
-                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
-                  ...(typeof frame.sessionId === "string" ? { browserSessionId: frame.sessionId } : {}),
-                  status: "failed",
-                  reason: error instanceof Error ? error.message : "Browser session control failed.",
-                });
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: error instanceof Error ? error.message : "Browser session control failed.",
-                } satisfies GuiInboundFrame));
-              }
-              return;
-            }
-
-            if (frame.type === "browser_operator_input") {
-              const requestId = typeof frame.requestId === "string" ? frame.requestId : "";
-              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : "";
-              const operatorInput = frame.input as GuiBrowserOperatorInput;
-              const provider = getBrowserOperatorInputConsumer(input.builtinToolOptions);
-              if (!provider) {
-                ws.send(JSON.stringify({
-                  type: "browser_operator_input_ack",
-                  requestId,
-                  sessionId,
-                  status: "failed",
-                  reason: "Browser operator input is not available for the configured provider.",
-                  handledAt: new Date().toISOString(),
-                } satisfies GuiInboundFrame));
-                return;
-              }
-              try {
-                const ack = await provider.requestBrowserOperatorInput({
-                  requestId,
-                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
-                  sessionId,
-                  operatorId: userId,
-                  input: operatorInput,
-                });
-                activityStreamer.recordBrowserOperatorEvidence({
-                  action: "operator_input",
-                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
-                  browserSessionId: ack.sessionId ?? sessionId,
-                  input: operatorInput,
-                  acknowledgement: ack,
-                });
-                ws.send(JSON.stringify({
-                  type: "browser_operator_input_ack",
-                  ...ack,
-                } satisfies GuiInboundFrame));
-              } catch (error) {
-                activityStreamer.recordBrowserOperatorEvidence({
-                  action: "operator_input",
-                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
-                  browserSessionId: sessionId,
-                  input: operatorInput,
-                  acknowledgement: {
-                    status: "failed",
-                    reason: error instanceof Error ? error.message : "Browser operator input failed.",
-                    handledAt: new Date().toISOString(),
-                  },
-                });
-                ws.send(JSON.stringify({
-                  type: "browser_operator_input_ack",
-                  requestId,
-                  sessionId,
-                  status: "failed",
-                  reason: error instanceof Error ? error.message : "Browser operator input failed.",
-                  handledAt: new Date().toISOString(),
-                } satisfies GuiInboundFrame));
-              }
-              return;
-            }
-
             if (frame.type === "voice_synthesis_request") {
               const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
               const sourceMessageId = typeof frame.sourceMessageId === "string" ? frame.sourceMessageId.trim() : "";
@@ -1878,6 +1792,12 @@ function wireOperatorTransport(
                     sessionId: source.sessionId,
                     model: input.transport.sessionManager.getModel() || "gateway-transform",
                     retentionMaxArtifacts: input.transport.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+                    mediaActionClaims: input.transport.runtimeMediaActionClaims,
+                    authorityAdmission: source.authorityAdmission,
+                    attemptId: source.attemptId,
+                    callerId: `gui:on-demand-tts:${sourceMessageId}`,
+                    idempotencyKey: requestId,
+                    logicalSendSlot: "on-demand-tts",
                   },
                 );
                 if (!voiceSynthesis.voiceOutput) {
@@ -1893,6 +1813,8 @@ function wireOperatorTransport(
                 voiceSynthesisSources.set(sourceMessageId, {
                   parts: voiceSynthesis.parts,
                   sessionId: source.sessionId,
+                  authorityAdmission: source.authorityAdmission,
+                  attemptId: source.attemptId,
                 });
                 ws.send(JSON.stringify({
                   type: "voice_synthesis_completed",
@@ -2080,6 +2002,8 @@ function wireOperatorTransport(
             voiceSynthesisSources.set(sourceMessageId, {
               parts: output.parts,
               sessionId: output.sessionId,
+              authorityAdmission: latestMediaAdmissionBySession.get(output.sessionId)?.authorityAdmission,
+              attemptId: latestMediaAdmissionBySession.get(output.sessionId)?.attemptId,
             });
             if (voiceSynthesisSources.size > 50) {
               const oldest = voiceSynthesisSources.keys().next().value;
@@ -2116,7 +2040,6 @@ function wireOperatorTransport(
         },
 
         onClose(_event: CloseEvent, ws: WSContext) {
-          input.operatorTerminalService?.closeOwner(terminalOwnerId);
           if (operatorSocket === ws) {
             operatorSocket = null;
           }
@@ -2149,7 +2072,7 @@ export function buildGuiTurnPerCallConfig(
   governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"],
   temporalContext?: TurnTemporalContext,
   communicationIntent?: PerCallToolConfig["communicationIntent"],
-): PerCallToolConfig {
+): RuntimeAuthorityAdmissionCandidateConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
     workingDirectory,
@@ -2266,43 +2189,6 @@ function contextUsageWindowEvidence(
   };
 }
 
-function summarizeBrowserOperatorInput(input: GuiBrowserOperatorInput): Record<string, unknown> {
-  switch (input.kind) {
-    case "pointer":
-      return {
-        kind: input.kind,
-        phase: input.phase,
-        x: input.x,
-        y: input.y,
-        ...(input.button ? { button: input.button } : {}),
-        ...(input.clickCount ? { clickCount: input.clickCount } : {}),
-      };
-    case "wheel":
-      return {
-        kind: input.kind,
-        x: input.x,
-        y: input.y,
-        deltaX: input.deltaX,
-        deltaY: input.deltaY,
-      };
-    case "key":
-      return {
-        kind: input.kind,
-        phase: input.phase,
-        key: input.key,
-        ...(input.code ? { code: input.code } : {}),
-        ...(input.text ? { textLength: input.text.length } : {}),
-      };
-    case "text":
-      return {
-        kind: input.kind,
-        textLength: input.text.length,
-      };
-    default:
-      return { kind: "unknown" };
-  }
-}
-
 class GuiActivityStreamer {
   private readonly pendingApprovals = new Set<string>();
   private capture: {
@@ -2322,7 +2208,6 @@ class GuiActivityStreamer {
   private authorizedHandler: ((event: KilnEvent) => void) | null = null;
   private memoryLatticeHandler: ((event: KilnEvent) => void) | null = null;
   private lastKnownKilnSessionId: string | undefined;
-  private outOfTurnBrowserEvidenceSequence = 0;
   /**
    * Fallback ordinal for tool_use/tool_result events forwarded outside any active turn capture
    * (e.g. an orphaned event arriving after `endTurnCapture`). Deterministic per connection --
@@ -2388,7 +2273,7 @@ class GuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "browser_operator_evidence";
+    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
@@ -2744,53 +2629,6 @@ class GuiActivityStreamer {
         instanceId: GUI_OPERATOR_COCKPIT_INSTANCE_ID,
       }) satisfies GuiInboundFrame));
     }
-  }
-
-  recordBrowserOperatorEvidence(input: {
-    readonly action: "takeover" | "release" | "operator_input";
-    readonly gatewayTargetId?: string;
-    readonly browserSessionId?: string;
-    readonly input?: GuiBrowserOperatorInput;
-    readonly acknowledgement?: Pick<GuiBrowserOperatorInputAckFrame, "status" | "reason" | "handledAt">;
-    readonly reason?: string;
-    readonly status?: "accepted" | "failed";
-  }): void {
-    if (!this.ws) return;
-    const kilnSessionId = this.capture?.sessionId ?? this.lastKnownKilnSessionId;
-    if (!kilnSessionId) return;
-    const sequence = this.nextLiveSequence() ?? ++this.outOfTurnBrowserEvidenceSequence;
-    this.ws.send(JSON.stringify({
-      type: "session_event",
-      event: {
-        eventId: `${kilnSessionId}:browser-operator:${sequence}`,
-        kilnSessionId,
-        sequence,
-        timestamp: input.acknowledgement?.handledAt ?? new Date().toISOString(),
-        kind: "browser_operator_evidence",
-        ...(this.capture?.sessionId === kilnSessionId ? { turnId: `${kilnSessionId}:turn:live` } : {}),
-        source: {
-          actor: "runtime",
-          surface: "gui",
-          component: "gui-gateway",
-        },
-        payload: {
-          action: input.action,
-          ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
-          ...(input.browserSessionId ? { browserSessionId: input.browserSessionId } : {}),
-          ...(input.reason ? { reason: input.reason } : {}),
-          ...(input.status ? { status: input.status } : {}),
-          ...(input.input ? { input: summarizeBrowserOperatorInput(input.input) } : {}),
-          ...(input.acknowledgement
-            ? {
-                acknowledgement: {
-                  status: input.acknowledgement.status,
-                  ...(input.acknowledgement.reason ? { reason: input.acknowledgement.reason } : {}),
-                },
-              }
-            : {}),
-        },
-      },
-    } satisfies GuiInboundFrame));
   }
 
   forwardBrowserSessionState(state: Omit<GuiBrowserSessionState, "kilnSessionId">): void {

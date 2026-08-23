@@ -47,6 +47,7 @@ interface MetaWebhookPayload {
         messaging_product: string;
         metadata?: { phone_number_id?: string };
         messages?: Array<{
+          id: string;
           from: string;
           type: string;
           text?: { body: string };
@@ -83,7 +84,7 @@ function makeWebhookPayload(phoneNumberId: string, from: string, text: string): 
             value: {
               messaging_product: "whatsapp",
               metadata: { phone_number_id: phoneNumberId },
-              messages: [{ from, type: "text", text: { body: text } }],
+              messages: [{ id: `incoming-${from}`, from, type: "text", text: { body: text } }],
             },
           },
         ],
@@ -262,18 +263,17 @@ describe("createWhatsAppWebhookRoutes", () => {
           durationMs: 1200,
         }),
       };
-      const outboundMediaPublisher = {
-        publish: vi.fn().mockResolvedValue({
-          url: "https://media.example.com/test-app/voice-synthesis/artifact_1.mp3",
-          mimeType: "audio/mpeg",
-          artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
-        }),
-      };
       const config = makeConfig({
         artifactStore: new MemoryArtifactResourceStore(),
         voiceConfig,
         ttsAdapter,
-        outboundMediaPublisher,
+        publicMedia: {
+          appName: "test-app",
+          publicBaseUrl: "https://media.example.com",
+          signingSecret: "secret",
+          now: () => 0,
+          ttlMs: 300_000,
+        },
       });
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -298,19 +298,10 @@ describe("createWhatsAppWebhookRoutes", () => {
       const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
 
       expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock response", { voice: "alloy" });
-      expect(outboundMediaPublisher.publish).toHaveBeenCalledWith(expect.objectContaining({
-        channel: "whatsapp",
-        appName: "test-app",
-        tenantId: "test-tenant",
-        userId: "+5211234567",
-        mimeType: "audio/mpeg",
-        artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
-        purpose: "assistant-output",
-      }));
       expect(textBody.type).toBe("text");
       expect(textBody.text.body).toBe("mock response");
       expect(audioBody.type).toBe("audio");
-      expect(audioBody.audio.link).toBe("https://media.example.com/test-app/voice-synthesis/artifact_1.mp3");
+      expect(audioBody.audio.link).toMatch(/^https:\/\/media\.example\.com\/media\/test-app\/voice-synthesis\/artifact_1\/content\?expires=300000&sig=/u);
     });
 
     it("silently ignores unknown phone number", async () => {
@@ -462,7 +453,9 @@ describe("createWhatsAppWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toEqual(new Map());
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: { authority: { admittedAuthority: "fail_closed" } },
+      });
     });
 
     it("captures WhatsApp media as replay artifacts before provider invocation", async () => {
@@ -637,36 +630,6 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(lastMsg?.role).toBe("assistant");
     });
 
-    it("emits HUMAN_TAKEOVER event", async () => {
-      const emitFn = vi.fn();
-      const config = makeConfig({ eventEmitter: { emit: emitFn } as any });
-      const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
-      config.tenantRegistry.create(tenant);
-
-      await config.sessionRegistry.getOrCreate({
-        appName: "test-app",
-        tenantId: "test-tenant",
-        userId: "521234567890",
-        systemPrompt: "You are a test assistant.",
-      });
-
-      const app = createWhatsAppWebhookRoutes(config);
-      const payload = makeCoexistencePayload("phone-123", "521234567890", "Taking over");
-
-      await app.request("/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await new Promise((r) => setTimeout(r, 50));
-
-      const takeoverEvent = emitFn.mock.calls.find((c: any) => c[0]?.eventType === "HUMAN_TAKEOVER");
-      expect(takeoverEvent).toBeDefined();
-      expect(takeoverEvent![0].handoffSource).toBe("whatsapp_coexistence");
-      expect(takeoverEvent![0].sessionMode).toBe("human_active");
-      expect(takeoverEvent![0].channel).toBe("whatsapp");
-    });
 
     it("does not transition when no session exists", async () => {
       const config = makeConfig();
@@ -786,39 +749,5 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(updatedSession?.sessionMode).toBe("human_active");
     });
 
-    it("emits HANDOFF_RELEASED on auto-release", async () => {
-      const emitFn = vi.fn();
-      const config = makeConfig({ eventEmitter: { emit: emitFn } as any });
-      const tenant = makeTenantConfig({
-        whatsappCoexistence: { enabled: true, autoReleaseMs: 1 },
-      });
-      config.tenantRegistry.create(tenant);
-
-      const session = await config.sessionRegistry.getOrCreate({
-        appName: "test-app",
-        tenantId: "test-tenant",
-        userId: "521234567890",
-        systemPrompt: "You are a test assistant.",
-      });
-      session.setSessionMode("human_active");
-      (session as any)._lastHumanMessageAt = Date.now() - 100;
-      await config.sessionRegistry.save(session);
-
-      const app = createWhatsAppWebhookRoutes(config);
-      const payload = makeWebhookPayload("phone-123", "521234567890", "Back again");
-
-      await app.request("/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await new Promise((r) => setTimeout(r, 100));
-
-      const releaseEvent = emitFn.mock.calls.find((c: any) => c[0]?.eventType === "HANDOFF_RELEASED");
-      expect(releaseEvent).toBeDefined();
-      expect(releaseEvent![0].handoffSource).toBe("whatsapp_coexistence");
-      expect(releaseEvent![0].sessionMode).toBe("ai_active");
-    });
   });
 });

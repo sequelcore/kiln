@@ -47,6 +47,10 @@ import {
   assertManagedChildAuthorityAdmissionBoundary,
   type ManagedChildAuthorityAdmissionContract,
 } from "./child-authority-admission.js";
+import type {
+  ManagedExternalInvocationActionClaim,
+  ManagedExternalInvocationActionClaimContext,
+} from "./external-invocation-action-claim.js";
 import {
   ManagedAgentRuntimeAuthorityObservationError,
   assertManagedEconomicCommitmentMatchesRequest,
@@ -167,8 +171,12 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
   /** Narrow parent-turn authority contract committed before child dispatch. */
   readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
+  /** Composition-owned claim boundary required by every external harness adapter. */
+  readonly externalActionClaim?: ManagedExternalInvocationActionClaimContext;
   readonly environment?: ManagedAgentEnvironmentVariables;
   readonly registerAdapterCompletion: (completion: PromiseLike<unknown>) => void;
+  /** Persists the exact external action claim before the adapter crosses its transport boundary. */
+  readonly registerExternalActionClaim?: (claim: ManagedExternalInvocationActionClaim) => Promise<void>;
   readonly registerEconomicSettlement?: (
     settlement: PromiseLike<ManagedEconomicSettlement>,
   ) => void;
@@ -182,7 +190,14 @@ export interface ManagedAgentRuntimeCancellationInput {
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly reason: string;
   readonly abortSignal: AbortSignal;
+  readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
+  readonly externalActionClaim?: ManagedExternalInvocationActionClaimContext;
 }
+
+export type ManagedAgentRuntimeCancellationResult =
+  | { readonly status: "requested" }
+  | { readonly status: "not-started" }
+  | { readonly status: "not-active" };
 
 export interface ManagedAgentRuntimeInvocationTerminalNotification {
   readonly request: ManagedAgentInvocationRequest;
@@ -237,7 +252,7 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
 export interface ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
-  cancel?(input: ManagedAgentRuntimeCancellationInput): Promise<void>;
+  cancel?(input: ManagedAgentRuntimeCancellationInput): Promise<ManagedAgentRuntimeCancellationResult>;
 }
 
 export interface ManagedAgentRuntimeAuthorityObservationInput {
@@ -260,8 +275,30 @@ export interface RuntimeManagedAgentInvocationServiceOptions {
   readonly credentialRouteLeaseManager?: ManagedAgentCredentialRouteLeaseManager;
   readonly recoveryStore?: ManagedAgentRuntimeRecoveryStore;
   readonly authorityObserver?: ManagedAgentRuntimeAuthorityObserver;
+  /** Durable owner for CLI/remote external action claims. */
+  readonly externalActionClaim?: ManagedExternalInvocationActionClaimContext;
   readonly clock?: () => Date;
 }
+
+/** Honest remote nonterminal evidence while authoritative terminal state is unproved. */
+export type ManagedAgentRuntimeResultPendingEvidence =
+  | {
+      readonly outcome: "unknown";
+      readonly basis: "cancellation-request";
+      readonly observedAt: string;
+      readonly reason: string;
+      readonly cancellation: {
+        readonly requestOutcome: "acknowledged" | "unknown" | "not-requested";
+        readonly failureMessage?: string;
+      };
+    }
+  | {
+      readonly outcome: "unknown";
+      readonly basis: "external-action-claim";
+      readonly observedAt: string;
+      readonly reason: string;
+      readonly externalClaimId: ManagedExternalInvocationActionClaim["claimId"];
+    };
 
 export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly invocationId: string;
@@ -285,6 +322,7 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly error?: {
     readonly message: string;
   };
+  readonly resultPending?: ManagedAgentRuntimeResultPendingEvidence;
 }
 
 export type ManagedAgentRuntimePromptDeliveryMode = "steer" | "queue";
@@ -379,11 +417,21 @@ export type ManagedAgentRuntimeInvocationStartResult =
     readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>;
   };
 
-export type ManagedAgentRuntimeInvocationCancelResult = {
-  readonly status: "cancelled";
-  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
-  readonly record: ManagedAgentRuntimeInvocationRecord;
-};
+export type ManagedAgentRuntimeInvocationCancelResult =
+  | {
+      readonly status: "cancelled";
+      readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+      readonly record: ManagedAgentRuntimeInvocationRecord;
+    }
+  | {
+      readonly status: "result_pending";
+      readonly outcome: "unknown";
+      readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+      readonly cancellation: Extract<
+        ManagedAgentRuntimeResultPendingEvidence,
+        { readonly basis: "cancellation-request" }
+      >["cancellation"];
+    };
 
 export interface ManagedAgentStaleRecoveryInput {
   readonly staleAfterMs: number;
@@ -438,14 +486,60 @@ export interface ManagedAgentRuntimeInvocationEntry {
   terminalObserverSettlement?: Promise<void>;
   adapterCompletion?: Promise<void>;
   adapterSettlement?: Promise<void>;
+  resultPending?: ManagedAgentRuntimeResultPendingEvidence;
+  externalActionClaim?: ManagedExternalInvocationActionClaim;
   readonly owner?: object;
   readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
 }
 
 export class RuntimeManagedAgentInvocationService {
   private readonly invocations = new Map<string, ManagedAgentRuntimeInvocationEntry>();
+  private externalActionClaim: ManagedExternalInvocationActionClaimContext | undefined;
+  #closed = false;
 
-  constructor(private readonly options: RuntimeManagedAgentInvocationServiceOptions = {}) {}
+  constructor(private readonly options: RuntimeManagedAgentInvocationServiceOptions = {}) {
+    this.externalActionClaim = options.externalActionClaim;
+  }
+
+  /** Releases composition-owned external action-claim state exactly once. */
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.externalActionClaim?.store.close();
+  }
+
+  /** Composition guard for routes whose adapter can cause an external effect. */
+  assertExternalActionClaimConfigured(): void {
+    if (this.externalActionClaim === undefined) {
+      throw new ManagedAgentRuntimeAdmissionError(
+        "Managed external harness routes require a durable external action-claim store.",
+      );
+    }
+  }
+
+  hasExternalActionClaimConfigured(): boolean {
+    return this.externalActionClaim !== undefined;
+  }
+
+  /**
+   * Attaches the composition-owned durable claim boundary before a route is
+   * exposed.  Route catalogs can discover an external harness after the
+   * service was first composed, so the boundary must be attachable without
+   * replacing the service (and its lease/recovery state).
+   */
+  configureExternalActionClaim(context: ManagedExternalInvocationActionClaimContext): void {
+    if (this.#closed) {
+      throw new ManagedAgentRuntimeAdmissionError(
+        "Cannot configure an external action-claim store after the managed invocation service is closed.",
+      );
+    }
+    if (this.externalActionClaim !== undefined && this.externalActionClaim !== context) {
+      throw new ManagedAgentRuntimeAdmissionError(
+        "Managed invocation service cannot be rebound to a different external action-claim store.",
+      );
+    }
+    this.externalActionClaim = context;
+  }
 
   async invoke(
     request: ManagedAgentInvocationRequest,
@@ -469,6 +563,9 @@ export class RuntimeManagedAgentInvocationService {
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
     lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationStartResult> {
+    if (this.#closed) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation service is closed");
+    }
     const recordEconomicPending = async (reason: string): Promise<void> => {
       await lifecycleOptions.economicDispatch?.recordExecutionSettlementPending(reason);
     };
@@ -649,8 +746,23 @@ export class RuntimeManagedAgentInvocationService {
           ...(committedAuthorityAdmission !== undefined
             ? { childAuthorityAdmission: { bundle: committedAuthorityAdmission } }
             : {}),
+          ...(this.externalActionClaim !== undefined
+            ? { externalActionClaim: this.externalActionClaim }
+            : {}),
           registerAdapterCompletion: (completion) => {
             registerAdapterCompletionOnEntry(entry, completion);
+          },
+          registerExternalActionClaim: async (claim) => {
+            if (claim.invocationId !== entry.request.invocationId || claim.effectKind !== "remote-invoke") {
+              throw new ManagedAgentRuntimeAdmissionError("Managed remote invocation registered a contradictory external action claim.");
+            }
+            entry.externalActionClaim = cloneJson(claim);
+            try {
+              await saveRuntimeRecoveryCheckpoint(this.options, entry);
+            } catch (error) {
+              delete entry.externalActionClaim;
+              throw error;
+            }
           },
           ...(lifecycleOptions.economicDispatch
             ? {
@@ -680,6 +792,7 @@ export class RuntimeManagedAgentInvocationService {
         throw error;
       });
     const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = authorityCheckedInvocation.then(async (record) => {
+      delete entry.resultPending;
       if (entry.lifecycleState === "failed" && entry.record) {
         const failedRecord = await currentTerminalRecord(entry);
         return {
@@ -707,7 +820,17 @@ export class RuntimeManagedAgentInvocationService {
             record: entry.record,
           } as const;
         }
-        entry.record = await finalizeTerminalLeaseStages(this.options, entry, entry.record);
+        if (record.lifecycleState === "failed") {
+          // An external harness may have consumed its action claim before the
+          // parent cancellation was observed. Preserve its explicit
+          // failed/unknown terminal record and evidence; successful or
+          // recovered late output cannot overwrite Runtime cancellation.
+          entry.finishedAt = new Date();
+          entry.lifecycleState = record.lifecycleState;
+          entry.record = await finalizeTerminalLeaseStages(this.options, entry, cloneJson(record));
+        } else {
+          entry.record = await finalizeTerminalLeaseStages(this.options, entry, entry.record);
+        }
         return {
           status: "completed",
           decision: registeredDecision,
@@ -741,6 +864,11 @@ export class RuntimeManagedAgentInvocationService {
         } as const;
       }
       const runtimeError = toError(error);
+      if (entry.resultPending !== undefined) {
+        entry.error = runtimeError;
+        await saveRuntimeRecoveryCheckpoint(this.options, entry);
+        return new Promise<never>(() => undefined);
+      }
       if (entry.lifecycleState === "stale" && entry.record) {
         const staleRecord = await currentTerminalRecord(entry);
         return {
@@ -836,8 +964,76 @@ export class RuntimeManagedAgentInvocationService {
         record: cloneJson(record),
       };
     }
+    if (entry.resultPending !== undefined) {
+      return resultPendingCancellation(entry);
+    }
     if (isTerminalLifecycleState(entry.lifecycleState)) {
       throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime invocation is already terminal: ${entry.lifecycleState}`);
+    }
+
+    if (entry.adapterStarted && entry.request.executionMode === "remote-harness") {
+      let cancellation: Extract<
+        ManagedAgentRuntimeResultPendingEvidence,
+        { readonly basis: "cancellation-request" }
+      >["cancellation"];
+      if (entry.adapter?.cancel === undefined) {
+        cancellation = {
+          requestOutcome: "not-requested",
+          failureMessage: "Remote adapter does not expose a cancellation request port.",
+        };
+      } else {
+        try {
+          const cancellationResult = await entry.adapter.cancel({
+            request: cloneJson(entry.request),
+            admission: cloneJson(entry.decision),
+            reason,
+            abortSignal: new AbortController().signal,
+            ...(entry.childAuthorityAdmission !== undefined
+              ? { childAuthorityAdmission: entry.childAuthorityAdmission }
+              : {}),
+            ...(this.externalActionClaim !== undefined
+              ? { externalActionClaim: this.externalActionClaim }
+              : {}),
+          });
+          if (cancellationResult.status === "not-started") {
+            entry.abortController.abort(reason);
+            entry.finishedAt = new Date();
+            entry.lifecycleState = "cancelled";
+            entry.record = await finalizeTerminalLeaseStages(
+              this.options,
+              entry,
+              createCancelledRecord(entry.request, entry.decision, reason),
+            );
+            entry.terminal?.resolve({ status: "completed", decision: entry.decision, record: entry.record });
+            notifyTerminalObserver(entry);
+            return {
+              status: "cancelled",
+              decision: cloneJson(entry.decision),
+              record: cloneJson(entry.record),
+            };
+          }
+          cancellation = cancellationResult.status === "requested"
+            ? { requestOutcome: "acknowledged" }
+            : {
+                requestOutcome: "not-requested",
+                failureMessage: "Remote invocation was no longer active before a cancellation action could be claimed.",
+              };
+        } catch (error) {
+          cancellation = {
+            requestOutcome: "unknown",
+            failureMessage: toError(error).message,
+          };
+        }
+      }
+      entry.resultPending = {
+        outcome: "unknown",
+        basis: "cancellation-request",
+        observedAt: this.now().toISOString(),
+        reason,
+        cancellation,
+      };
+      await saveRuntimeRecoveryCheckpoint(this.options, entry);
+      return resultPendingCancellation(entry);
     }
 
     if (entry.adapterStarted && entry.adapter?.cancel !== undefined) {
@@ -847,6 +1043,12 @@ export class RuntimeManagedAgentInvocationService {
           admission: cloneJson(entry.decision),
           reason,
           abortSignal: new AbortController().signal,
+          ...(entry.childAuthorityAdmission !== undefined
+            ? { childAuthorityAdmission: entry.childAuthorityAdmission }
+            : {}),
+          ...(this.externalActionClaim !== undefined
+            ? { externalActionClaim: this.externalActionClaim }
+            : {}),
         });
       } catch (error) {
         const runtimeError = toError(error);
@@ -903,6 +1105,10 @@ export class RuntimeManagedAgentInvocationService {
 
     await Promise.allSettled(activeEntries.map((entry) => this.cancel(entry.request.invocationId, reason)));
     await Promise.all(ownedEntries.map(async (entry) => {
+      if (entry.resultPending !== undefined) {
+        await saveRuntimeRecoveryCheckpoint(this.options, entry);
+        return;
+      }
       await waitForOwnerShutdownExecutionSettlement(entry);
       await entry.adapterSettlement;
       await entry.leaseFinalization;
@@ -941,7 +1147,7 @@ export class RuntimeManagedAgentInvocationService {
     const recovered: ManagedAgentRuntimeInvocationSnapshot[] = [];
 
     for (const entry of this.invocations.values()) {
-      if (isTerminalLifecycleState(entry.lifecycleState)) {
+      if (isTerminalLifecycleState(entry.lifecycleState) || entry.resultPending !== undefined) {
         continue;
       }
       const ageMs = now.getTime() - entry.startedAt.getTime();
@@ -1002,6 +1208,20 @@ export class RuntimeManagedAgentInvocationService {
         continue;
       }
       const entry = invocationEntryFromRecoveryCheckpoint(checkpoint);
+      if (entry.resultPending === undefined && entry.externalActionClaim?.effectKind === "remote-invoke") {
+        entry.resultPending = {
+          outcome: "unknown",
+          basis: "external-action-claim",
+          observedAt: checkpoint.updatedAt,
+          reason: "Remote invocation crossed its durable action-claim boundary without authoritative terminal evidence.",
+          externalClaimId: entry.externalActionClaim.claimId,
+        };
+      }
+      if (entry.resultPending !== undefined) {
+        this.invocations.set(entry.request.invocationId, entry);
+        recovered.push(snapshotInvocation(entry));
+        continue;
+      }
       const recoveryAuthority = classifyManagedAgentAuthorityEvidence(
         entry.decision.capabilitySnapshot.authorityEvidence,
         now.toISOString(),
@@ -1053,6 +1273,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
     readonly environment?: ManagedAgentEnvironmentVariables;
     readonly registerAdapterCompletion?: (completion: PromiseLike<unknown>) => void;
+    readonly registerExternalActionClaim?: (claim: ManagedExternalInvocationActionClaim) => Promise<void>;
     readonly registerEconomicSettlement?: (
       settlement: PromiseLike<ManagedEconomicSettlement>,
     ) => void;
@@ -1075,8 +1296,14 @@ export class RuntimeManagedAgentInvocationService {
       ...(input.childAuthorityAdmission !== undefined
         ? { childAuthorityAdmission: input.childAuthorityAdmission }
         : {}),
+      ...(this.externalActionClaim !== undefined
+        ? { externalActionClaim: this.externalActionClaim }
+        : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
       registerAdapterCompletion: input.registerAdapterCompletion ?? (() => undefined),
+      ...(input.registerExternalActionClaim === undefined
+        ? {}
+        : { registerExternalActionClaim: input.registerExternalActionClaim }),
       ...(input.registerEconomicSettlement === undefined
         ? {}
         : { registerEconomicSettlement: input.registerEconomicSettlement }),
@@ -1160,6 +1387,25 @@ export class RuntimeManagedAgentInvocationService {
       snapshot: snapshotInvocation(entry),
     };
   }
+}
+
+function resultPendingCancellation(
+  entry: ManagedAgentRuntimeInvocationEntry,
+): Extract<ManagedAgentRuntimeInvocationCancelResult, { readonly status: "result_pending" }> {
+  if (entry.resultPending === undefined) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed remote invocation has no result-pending evidence");
+  }
+  return {
+    status: "result_pending",
+    outcome: "unknown",
+    decision: cloneJson(entry.decision),
+    cancellation: entry.resultPending.basis === "cancellation-request"
+      ? cloneJson(entry.resultPending.cancellation)
+      : {
+          requestOutcome: "not-requested",
+          failureMessage: "This recovered remote invocation has no durable cancellation-request evidence.",
+        },
+  };
 }
 
 function assertConsumedWriteApproval(

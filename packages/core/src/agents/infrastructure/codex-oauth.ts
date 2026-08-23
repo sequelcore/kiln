@@ -33,6 +33,8 @@ interface AccessTokenProvider {
 interface CodexOAuthAdapterConfig {
   readonly auth?: AccessTokenProvider;
   readonly defaultModel: string;
+  /** Disable all automatic request replay for an outer one-effect claim. */
+  readonly internalRetry?: boolean;
 }
 
 interface ResponsesInputItem {
@@ -133,10 +135,12 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
   private readonly auth: AccessTokenProvider;
   private readonly model: string;
+  private readonly internalRetry: boolean;
 
   constructor(config: CodexOAuthAdapterConfig) {
     this.auth = config.auth ?? new CodexOAuthAuth();
     this.model = config.defaultModel.trim();
+    this.internalRetry = config.internalRetry ?? true;
     if (this.model.length === 0) {
       throw new KilnError("CONFIG_INVALID", "Codex OAuth adapter requires a selected model");
     }
@@ -147,7 +151,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     try {
       return await this.createMessageAttempt(request, options);
     } catch (error) {
-      if (!isEmptyTerminalStreamError(error)) {
+      if (!this.internalRetry || !isEmptyTerminalStreamError(error)) {
         throw error;
       }
     }
@@ -162,7 +166,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       yield* this.streamResponseAttempt(request, response, shouldBufferText);
       return;
     } catch (error) {
-      if (!isEmptyTerminalStreamError(error)) {
+      if (!this.internalRetry || !isEmptyTerminalStreamError(error)) {
         throw error;
       }
     }
@@ -578,6 +582,11 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   }
 
   private async postWithTransientRetry(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
+    if (!this.internalRetry) {
+      const response = await this.post(body, signal);
+      await this.ensureOk(response, body);
+      return response;
+    }
     return await withRetry(
       () => this.postWith401Retry(body, signal),
       {

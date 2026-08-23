@@ -47,7 +47,6 @@ export {
   mapDirectProviderError,
 } from "./direct-provider-credential-pool.js";
 export type {
-  CreateDirectProviderPooledAdapterOptions,
   DirectProviderAuth,
   DirectProviderCredentialPoolServiceConfig,
   DirectProviderCredentialStatus,
@@ -78,7 +77,6 @@ export type {
   CodexOAuthExecutionAccount,
   CodexOAuthExecutionCredential,
   CodexOAuthPoolCredential,
-  CreateCodexOAuthPooledAdapterOptions,
   CreateExactCodexOAuthAdapterOptions,
   LinkCodexOAuthCredentialOptions,
 } from "./codex-oauth-credential-pool.js";
@@ -89,7 +87,6 @@ export {
   mapOpenCodeProviderError,
 } from "./opencode-credential-pool.js";
 export type {
-  CreateOpenCodePooledAdapterOptions,
   CreateExactOpenCodeAdapterOptions,
   LinkOpenCodeCredentialOptions,
   OpenCodeCredentialPoolServiceConfig,

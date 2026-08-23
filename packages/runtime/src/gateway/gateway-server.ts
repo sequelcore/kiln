@@ -11,9 +11,7 @@ import {
   SafetyPipeline,
   SqliteMemoryRepository,
   AesSecretStore,
-  GroundingRail,
   MemoryArtifactResourceStore,
-  ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
   KilnMcpClient,
 } from "@kilnai/core";
@@ -28,7 +26,6 @@ import {
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer, ExecutionCatalog } from "@kilnai/core";
 import { ActionEffectAuthorizer } from "@kilnai/core";
 import { EventBus, CostTracker } from "@kilnai/core";
-import { ChannelRegistry } from "../channels/channel-registry.js";
 import { WebChannel } from "../channels/web-channel.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
@@ -41,11 +38,18 @@ import type {
   ModelGatewayExecutionRoutingPort,
 } from "../model-gateway/model-gateway-ingress.js";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
+import type { RuntimeModelRoundActionClaimStore } from "../execution-kernel/runtime-model-round-action-claim.js";
+import type { RuntimeToolActionClaimStore } from "../execution-kernel/runtime-tool-action-claim.js";
+import {
+  RuntimeModelRoundDispatchService,
+  runtimeModelRoundEffectIdentity,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
 import { ConfiguredExecutionAccountRuntime, type ConfiguredExecutionCredential } from "../managed-account-leases/configured-execution-account-runtime.js";
 import type { OperatorSessionExecutionCatalogSnapshot } from "../execution-routing/operator-session-execution-routing-service.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import type { OperatorAdoptionDecisionPersistence } from "../session/operator-adoption-authority.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
+import type { ChannelEgressActionClaimContext } from "../channels/channel-egress-action-claim.js";
 import { FixedRouteGatewayAuthorityAdmission } from "./gateway-authority-admission.js";
 import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
@@ -56,21 +60,15 @@ import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.
 import { TenantRegistry } from "../tenant/tenant-registry.js";
 import { assertValidStartupConfig } from "./config-validator.js";
 import { HealthRegistry } from "./health-registry.js";
-import { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { createSttAdapter } from "./stt-factory.js";
 import { createTtsAdapter } from "./tts-factory.js";
-import { createSignedArtifactMediaPublisher } from "./public-media-delivery.js";
-import { createKnowledgePipeline, createSourceManager, createContactMemoryService } from "./knowledge-factory.js";
-import type { KnowledgePipelineResult } from "./knowledge-factory.js";
-import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
-import type { ContactMemoryService } from "@kilnai/core";
-import { extractText, textPart, textParts } from "@kilnai/core";
+import type { SignedArtifactMediaOptions } from "./public-media-delivery.js";
+import { extractText, textParts } from "@kilnai/core";
 import { WebhookDedup } from "./webhook-dedup.js";
 import { IntegrationRegistry } from "./integration-registry.js";
 import { LocalCredentialResolver } from "./local-credential-resolver.js";
 import { configureIntegrationDeps, getIntegrationDeps } from "./tenant-tool-factory.js";
 import { SqliteEmailThreadStore } from "./sqlite-email-thread-store.js";
-import { SqliteEnrichmentStore } from "../enrichment/sqlite-enrichment-store.js";
 import { CompositeEventStore } from "../observability/composite-event-store.js";
 import { PrometheusCollector } from "../observability/prometheus-collector.js";
 import { createRuntimeToolResultSanitizer } from "./tool-result-sanitizer-factory.js";
@@ -176,6 +174,10 @@ export interface AppGatewayExecutionBundle {
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly evidenceStore: AuthorityAdmissionEvidenceStore;
+  readonly modelRoundActionClaims: RuntimeModelRoundActionClaimStore;
+  readonly toolActionClaims: RuntimeToolActionClaimStore;
+  readonly channelEgressActionClaims: ChannelEgressActionClaimContext;
+  readonly runtimeMediaActionClaims: import("../execution-kernel/runtime-media-action-claim.js").RuntimeMediaActionClaimContext;
   readonly persistOperatorAdoptionDecision: OperatorAdoptionDecisionPersistence;
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   /** Releases CLI-owned account-authority resources when the gateway stops or startup fails. */
@@ -314,22 +316,6 @@ function missingTools(
 function delay(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-class ProviderScorerLlmBridge {
-  constructor(
-    private readonly adapter: ProviderAdapter,
-    private readonly model: string,
-  ) {}
-
-  async evaluate(prompt: string): Promise<string> {
-    const response = await this.adapter.createMessage({
-      system: `You are an evaluation judge running as model ${this.model}.`,
-      messages: [{ role: "user", parts: [textPart(prompt)] }],
-      maxTokens: 512,
-    });
-    return extractText(response.parts);
-  }
 }
 
 export async function startGateway(configPath: string, options?: StartGatewayOptions): Promise<void> {
@@ -517,7 +503,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       name: resolved.name,
       app: resolved.app,
       binding: resolved.binding,
-      registry: new ChannelRegistry(),
       providerAdapterRuntime: undefined as undefined | import("./provider-adapter-routes.js").ProviderAdapterAppRuntime,
       tenantRuntime: undefined as undefined | import("./tenant-routes.js").TenantAppRuntime,
       whatsappWebhookConfig: undefined as undefined | import("./whatsapp-webhook-routes.js").WhatsAppWebhookConfig,
@@ -526,16 +511,10 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       emailWebhookConfig: undefined as undefined | import("./email-webhook-routes.js").EmailWebhookConfig,
       tenantAdminConfig: undefined as undefined | import("./tenant-admin-routes.js").TenantAdminRoutesConfig,
       webChannel: hasWebChannel ? new WebChannel() : undefined,
-      eventEmitter: undefined as undefined | ConversationEventEmitter,
       sttAdapter: undefined as undefined | SttAdapter,
       ttsAdapter: undefined as undefined | TtsAdapter,
       artifactStore: new MemoryArtifactResourceStore(),
       publicMediaSigningSecret: undefined as undefined | string,
-      knowledgePipeline: undefined as undefined | KnowledgePipelineResult,
-      knowledgeAdminConfig: undefined as undefined | KnowledgeAdminRoutesConfig,
-      contactMemoryService: undefined as undefined | ContactMemoryService,
-      contactMemoryAdminConfig: undefined as undefined | import("./contact-memory-admin-routes.js").ContactMemoryAdminRoutesConfig,
-      enrichmentAdminConfig: undefined as undefined | import("./enrichment-admin-routes.js").EnrichmentAdminRoutesConfig,
     };
   });
 
@@ -630,107 +609,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       }
     }
 
-    // Initialize knowledge pipeline if knowledge config is present
-    if (resolved.app.knowledge) {
-      try {
-        loaded.knowledgePipeline = await createKnowledgePipeline(resolved.app.knowledge);
-        console.log(`  ${loaded.name}: knowledge pipeline initialized (mode: ${resolved.app.knowledge.mode ?? "auto"})`);
-
-        // Initialize source manager for knowledge admin
-        const storageDir = join(resolved.memoryBasePath, "knowledge-sources");
-        const { sourceManager } = createSourceManager(
-          loaded.knowledgePipeline.pipeline,
-          loaded.knowledgePipeline.store,
-          storageDir,
-        );
-
-        // Register YAML-declared sources
-        for (const yamlSource of resolved.app.knowledge.sources) {
-          const type = yamlSource.type ?? "file";
-          try {
-            await sourceManager.addSource({
-              appName: loaded.name,
-              name: yamlSource.name,
-              type,
-              uri: yamlSource.path,
-            });
-          } catch {
-            // Source may already exist from previous run (JsonSourceStore)
-          }
-        }
-
-        // Resolve admin token from channel binding
-        const adminChannel = loaded.binding.channels.find((ch) => ch.adminTokenEnv);
-        const adminTokenEnv = adminChannel?.adminTokenEnv ?? "";
-        loaded.knowledgeAdminConfig = {
-          sourceManager,
-          appName: loaded.name,
-          adminToken: adminTokenEnv ? process.env[adminTokenEnv] ?? undefined : undefined,
-        };
-
-        // Initialize contact memory service if configured
-        if (resolved.app.knowledge.contactMemory?.enabled && loaded.knowledgePipeline) {
-          try {
-            loaded.contactMemoryService = createContactMemoryService({
-              contactMemoryConfig: resolved.app.knowledge.contactMemory,
-              vectorStore: loaded.knowledgePipeline.store,
-              embedder: loaded.knowledgePipeline.embedder,
-            });
-            console.log(`  ${loaded.name}: contact memory service initialized`);
-
-            // Wire contact memory admin routes (reuse same admin token as knowledge)
-            loaded.contactMemoryAdminConfig = {
-              contactMemoryService: loaded.contactMemoryService,
-              appName: loaded.name,
-              adminToken: adminTokenEnv ? process.env[adminTokenEnv] ?? undefined : undefined,
-            };
-          } catch (err) {
-            console.warn(`  ${loaded.name}: contact memory initialization failed: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-
-        // Fire-and-forget startup ingestion
-        sourceManager.ingestAll(loaded.name).then((results) => {
-          const indexed = results.filter((r) => r.status === "indexed").length;
-          const failedSources = results.filter((r) => r.status === "failed");
-          if (indexed > 0 || failedSources.length > 0) {
-            console.log(`  ${loaded.name}: knowledge sources ingested (${indexed} indexed, ${failedSources.length} failed)`);
-          }
-          for (const source of failedSources) {
-            const evt: import("@kilnai/core").KnowledgeSourceFailedEvent = {
-              type: "knowledge_source_failed",
-              timestamp: new Date(),
-              sessionId: "",
-              sourceId: source.sourceId,
-              sourceName: source.name,
-              sourceType: source.type,
-              error: source.error ?? "Unknown error",
-              appName: loaded.name,
-            };
-            gatewayEventBus.emit(evt);
-          }
-        }).catch((err) => {
-          console.warn(`  ${loaded.name}: knowledge ingestion failed: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      } catch (err) {
-        console.warn(`  ${loaded.name}: knowledge pipeline initialization failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    // Wire enrichment admin routes (always available for multi-tenant apps)
-    if (loaded.binding.channels.some((ch) => ch.multiTenant === true)) {
-      const enrichmentDbPath = join(resolved.memoryBasePath, "enrichments.db");
-      const enrichmentStore = new SqliteEnrichmentStore(enrichmentDbPath);
-      const adminChannel = loaded.binding.channels.find((ch) => ch.adminTokenEnv);
-      const enrichmentAdminTokenEnv = adminChannel?.adminTokenEnv ?? "";
-      loaded.enrichmentAdminConfig = {
-        enrichmentStore,
-        appName: loaded.name,
-        adminToken: enrichmentAdminTokenEnv ? process.env[enrichmentAdminTokenEnv] ?? undefined : undefined,
-      };
-      console.log(`  ${loaded.name}: enrichment admin routes enabled`);
-    }
-
     // Wire tool execution enhancements
     const toolAuthorizer = capabilityMap.size > 0 ? new ActionEffectAuthorizer() : undefined;
     const safetyPipeline = safetyPipelines.get(loaded.name);
@@ -781,6 +659,10 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       accountCapacityAuthority: appGatewayExecution!.accountCapacityAuthority,
       credentials: appGatewayExecution!.accountRuntime.operatorSessionCredentials,
       evidenceStore: appGatewayExecution!.evidenceStore,
+      modelRoundActionClaims: appGatewayExecution!.modelRoundActionClaims,
+      toolActionClaims: appGatewayExecution!.toolActionClaims,
+      channelEgressActionClaims: appGatewayExecution!.channelEgressActionClaims,
+      runtimeMediaActionClaims: appGatewayExecution!.runtimeMediaActionClaims,
       persistOperatorAdoptionDecision: appGatewayExecution!.persistOperatorAdoptionDecision,
       createProvider: ({ credential, admission }) => appGatewayExecution!.accountRuntime.createProviderAdapterFromCredential({
         providerId: admission.providerId,
@@ -789,17 +671,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       }),
       ...(appGatewayExecution!.sessionTurnBudget ? { sessionTurnBudget: appGatewayExecution!.sessionTurnBudget } : {}),
     });
-
-    // Build grounding deps (shared by all routes for this app)
-    const groundingRail = new GroundingRail();
-    const modelRegistry = new ModelCapabilityRegistry();
-    const groundingProviderPool = new Map<string, ProviderAdapter>([[provider.name, provider]]);
-    const groundingDeps = {
-      rail: groundingRail,
-      providerPool: groundingProviderPool as ReadonlyMap<string, ProviderAdapter>,
-      modelRegistry,
-      eventBus: gatewayEventBus,
-    };
 
     // Cross-app delegation is a child effect and therefore enters the same
     // persisted admission/fence as every other productive App execution.
@@ -824,44 +695,49 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
           channel: "delegation",
           userParts: textParts(task),
           requestedAuthority: "read_only",
-        }, async (admitted) => admitted.provider.createMessage({
-          ...request,
-          sessionId: admitted.session.id,
-          executionContext: admitted.bundle.turn.execution.status === "routed"
-            ? {
-                requestedAuthority: "read_only",
-                executionBinding: admitted.bundle.turn.execution.binding,
-              }
-            : undefined,
-        }));
+        }, async (admitted) => {
+          const dispatch = admitted.runtimeModelRoundDispatch;
+          const providerRequestId = request.requestIdentity?.requestId
+            ?? `kiln:runtime-model-round:${dispatch.admission.admissionId}:${dispatch.attemptId}:0`;
+          const delegatedRequest = {
+            ...request,
+            sessionId: admitted.session.id,
+            executionContext: admitted.bundle.turn.execution.status === "routed"
+              ? {
+                  requestedAuthority: "read_only" as const,
+                  executionBinding: admitted.bundle.turn.execution.binding,
+                }
+              : undefined,
+            requestIdentity: {
+              ...(request.requestIdentity ?? {}),
+              requestId: providerRequestId,
+            },
+          };
+          return new RuntimeModelRoundDispatchService(dispatch.store).dispatch({
+            admission: dispatch.admission,
+            sessionId: admitted.session.id,
+            turnId: dispatch.admission.turnId,
+            attemptId: dispatch.attemptId,
+            round: 0,
+            intentFingerprint: dispatch.intentFingerprint,
+            effectIdentity: runtimeModelRoundEffectIdentity({
+              provider: admitted.provider.name,
+              request: delegatedRequest,
+            }),
+            providerRequestId,
+            routeId: dispatch.routeId,
+            accountId: dispatch.accountId,
+            credentialRevision: dispatch.credentialRevision,
+            readAdmission: dispatch.readAdmission,
+            provider: admitted.provider,
+            request: delegatedRequest,
+            ...(dispatch.state ? { state: dispatch.state } : {}),
+          });
+        });
       },
     });
 
     const isMultiTenant = loaded.binding.channels.some((ch) => ch.multiTenant === true);
-
-    // Create event emitter if events config is present
-    const eventEmitter = resolved.eventsConfig
-      ? new ConversationEventEmitter(resolved.eventsConfig)
-      : undefined;
-
-    if (eventEmitter) {
-      sessionRegistry.eventEmitter = eventEmitter;
-      loaded.eventEmitter = eventEmitter;
-    }
-
-    // Wire contact memory extraction on session expiry
-    if (loaded.contactMemoryService) {
-      const cms = loaded.contactMemoryService;
-      sessionRegistry.onSessionExpired = (session) => {
-        if (session.tenantId && session.messageCount > 0) {
-          const history = session.conversationHistory
-            .map((m) => `${m.role}: ${extractText(m.parts)}`)
-            .join("\n");
-          cms.extractAndStore(history, session.userId, session.tenantId)
-            .catch((err) => console.warn(`Contact memory extraction failed: ${err}`));
-        }
-      };
-    }
 
     // Resolve API key from channel binding (shared across REST + WS for this app)
     const apiChannel = loaded.binding.channels.find((ch) => ch.type === "api");
@@ -884,11 +760,10 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         ttsAdapter: loaded.ttsAdapter,
         billing: resolved.runtimeModeConfig.billing,
         apiKey: resolvedApiKey,
-        groundingDeps,
         toolAllowlist,
       };
 
-      const createOutboundMediaPublisher = (channel: (typeof loaded.binding.channels)[number] | undefined) => {
+      const resolvePublicMediaConfig = (channel: (typeof loaded.binding.channels)[number] | undefined): SignedArtifactMediaOptions | undefined => {
         const publicMediaBaseUrlEnv = channel?.publicMediaBaseUrlEnv ?? "";
         const publicMediaSigningSecretEnv = channel?.publicMediaSigningSecretEnv ?? "";
         const publicMediaBaseUrl = publicMediaBaseUrlEnv ? process.env[publicMediaBaseUrlEnv] : undefined;
@@ -916,11 +791,11 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         if (!publicMediaBaseUrl || !publicMediaSigningSecret) {
           return undefined;
         }
-        return createSignedArtifactMediaPublisher({
+        return {
           appName: loaded.name,
           publicBaseUrl: publicMediaBaseUrl,
           signingSecret: publicMediaSigningSecret,
-        });
+        };
       };
 
       // WhatsApp webhook: find whatsapp channel with verifyTokenEnv
@@ -928,7 +803,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       if (whatsappChannel) {
         const verifyTokenEnv = whatsappChannel.verifyTokenEnv ?? "";
         const appSecretEnv = whatsappChannel.appSecretEnv ?? "";
-        const outboundMediaPublisher = createOutboundMediaPublisher(whatsappChannel);
+        const publicMedia = resolvePublicMediaConfig(whatsappChannel);
         loaded.whatsappWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -938,17 +813,13 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
           verifyToken: verifyTokenEnv ? process.env[verifyTokenEnv] ?? "" : "",
           appSecret: appSecretEnv ? process.env[appSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
-          eventEmitter,
           eventBus: gatewayEventBus,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
           artifactStore: loaded.artifactStore,
           voiceConfig: resolved.app.voice,
           ttsAdapter: loaded.ttsAdapter,
-          ...(outboundMediaPublisher ? { outboundMediaPublisher } : {}),
-          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
-          knowledgeMode: resolved.app.knowledge?.mode,
-          contactMemoryService: loaded.contactMemoryService,
+          ...(publicMedia ? { publicMedia } : {}),
           dedup: webhookDedup,
         };
       }
@@ -959,7 +830,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         // Instagram shares the same Meta App Secret as WhatsApp
         const igAppSecretEnv = instagramChannel.appSecretEnv ?? whatsappChannel?.appSecretEnv ?? "";
         const igVerifyTokenEnv = instagramChannel.verifyTokenEnv ?? "";
-        const outboundMediaPublisher = createOutboundMediaPublisher(instagramChannel);
+        const publicMedia = resolvePublicMediaConfig(instagramChannel);
         loaded.instagramWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -969,17 +840,13 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
           verifyToken: igVerifyTokenEnv ? process.env[igVerifyTokenEnv] ?? "" : "",
           appSecret: igAppSecretEnv ? process.env[igAppSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
-          eventEmitter,
           eventBus: gatewayEventBus,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
           artifactStore: loaded.artifactStore,
           voiceConfig: resolved.app.voice,
           ttsAdapter: loaded.ttsAdapter,
-          ...(outboundMediaPublisher ? { outboundMediaPublisher } : {}),
-          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
-          knowledgeMode: resolved.app.knowledge?.mode,
-          contactMemoryService: loaded.contactMemoryService,
+          ...(publicMedia ? { publicMedia } : {}),
           dedup: webhookDedup,
         };
       }
@@ -989,7 +856,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       if (messengerChannel) {
         const msgAppSecretEnv = messengerChannel.appSecretEnv ?? whatsappChannel?.appSecretEnv ?? "";
         const msgVerifyTokenEnv = messengerChannel.verifyTokenEnv ?? "";
-        const outboundMediaPublisher = createOutboundMediaPublisher(messengerChannel);
+        const publicMedia = resolvePublicMediaConfig(messengerChannel);
         loaded.messengerWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -999,17 +866,13 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
           verifyToken: msgVerifyTokenEnv ? process.env[msgVerifyTokenEnv] ?? "" : "",
           appSecret: msgAppSecretEnv ? process.env[msgAppSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
-          eventEmitter,
           eventBus: gatewayEventBus,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
           artifactStore: loaded.artifactStore,
           voiceConfig: resolved.app.voice,
           ttsAdapter: loaded.ttsAdapter,
-          ...(outboundMediaPublisher ? { outboundMediaPublisher } : {}),
-          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
-          knowledgeMode: resolved.app.knowledge?.mode,
-          contactMemoryService: loaded.contactMemoryService,
+          ...(publicMedia ? { publicMedia } : {}),
           dedup: webhookDedup,
         };
       }
@@ -1029,11 +892,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
           gatewayAdmission,
           webhookSecret: emailWebhookSecretEnv ? process.env[emailWebhookSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
-          eventEmitter,
           memoryBasePath: resolved.memoryBasePath,
-          knowledgePipeline: loaded.knowledgePipeline?.pipeline,
-          knowledgeMode: resolved.app.knowledge?.mode,
-          contactMemoryService: loaded.contactMemoryService,
           threadStore: emailThreadStore,
         };
       }
@@ -1063,9 +922,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         billing: resolved.runtimeModeConfig.billing,
         systemPrompt,
         apiKey: resolvedApiKey,
-        knowledgePipeline: loaded.knowledgePipeline?.pipeline,
-        knowledgeMode: resolved.app.knowledge?.mode,
-        groundingDeps,
         toolAllowlist,
       };
     }
@@ -1204,16 +1060,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         gatewayConfig.mcp.auth?.type === "api-key" && gatewayConfig.mcp.auth.keyEnv
           ? process.env[gatewayConfig.mcp.auth.keyEnv]
           : undefined;
-      const evalProvider = gatewayConfig.mcp.eval
-        ? await createProviderFromConfig({
-            name: gatewayConfig.mcp.eval.provider,
-            model: gatewayConfig.mcp.eval.model,
-            apiKeyEnv: gatewayConfig.mcp.eval.apiKeyEnv,
-          })
-        : undefined;
-      const evalBridge = evalProvider && gatewayConfig.mcp.eval
-        ? new ProviderScorerLlmBridge(evalProvider, gatewayConfig.mcp.eval.model ?? "claude-haiku-4-5-20251001")
-        : undefined;
       const { SwarmStore } = await import("../mcp/swarm-store.js");
       const swarmStore = swarmMemoryRepository
         ? new SwarmStore({ repository: swarmMemoryRepository, eventBus: gatewayEventBus })
@@ -1245,24 +1091,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
             ? (swarmId: string, agentId: string, resourceId: string) =>
                 swarmStore.release(swarmId, agentId, resourceId)
             : undefined,
-          searchKnowledge: async (appName: string, query: string, limit?: number) => {
-            const loaded = loadedApps.find((a) => a.name === appName);
-            if (!loaded?.knowledgePipeline) return { results: [] };
-            const results = await loaded.knowledgePipeline.pipeline.retrieve(query, { topK: limit });
-            return {
-              results: results.map((r) => ({
-                content: r.content,
-                score: r.score,
-                source: r.metadata?.source as string | undefined,
-              })),
-            };
-          },
-          listKnowledgeSources: (appName: string) => {
-            const loaded = loadedApps.find((a) => a.name === appName);
-            if (!loaded?.knowledgeAdminConfig) return { sources: [] };
-            const sources = loaded.knowledgeAdminConfig.sourceManager.list(appName);
-            return { sources: sources.map((s) => ({ ...s })) };
-          },
           getCostSummary: () => costTracker.summary,
           getSafetyMetrics: () => {
             if (safetyPipelines.size === 0) return { enabled: false };
@@ -1281,16 +1109,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
               operations: a.operations.map((op) => ({ name: op.name, description: op.description })),
             }));
           },
-          executeIntegration: async (provider: string, operation: string, tenantId: string, input: Record<string, unknown>) => {
-            const deps = getIntegrationDeps();
-            if (!deps) throw new KilnError("CONFIG_INVALID", "Integration runtime not configured");
-            const adapter = deps.registry.get(provider);
-            if (!adapter) throw new KilnError("CONFIG_INVALID", `Integration provider "${provider}" not registered`);
-            const { IntegrationExecutor } = await import("./integration-executor.js");
-            const executor = new IntegrationExecutor(adapter, deps.credentialResolver, tenantId, provider);
-            return executor.execute(operation, input);
-          },
-
           // Routing diagnostics
           testRouting: async (tenantId: string, message: string) => {
             for (const loaded of loadedApps) {
@@ -1344,115 +1162,6 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
             const results = await Promise.all(scorers.map((s) => s.score({ input, output, expected })));
             return results;
           },
-          evalScoreLlm: gatewayConfig.mcp?.eval
-            ? async (
-                input: string,
-                output: string,
-                expected?: string,
-                context?: readonly string[],
-                scorerNames?: readonly string[],
-                scorerOptions?: Record<string, unknown>,
-              ) => {
-                if (!evalBridge) return [];
-
-                const {
-                  FaithfulnessScorer,
-                  RelevanceScorer,
-                  CoherenceScorer,
-                  HallucinationScorer,
-                  ToxicityScorer,
-                  PolicyAdherenceScorer,
-                  ContextRelevanceScorer,
-                  ToolTrajectoryScorer,
-                  MultiTurnConsistencyScorer,
-                  SafetyPreservationScorer,
-                  HandoffQualityScorer,
-                  CustomPromptScorer,
-                } = await import("@kilnai/core");
-
-                type EvalLikeScorer = {
-                  readonly name: string;
-                  score(input: {
-                    input: string;
-                    output: string;
-                    expected?: string;
-                    context?: readonly string[];
-                    metadata?: Record<string, unknown>;
-                  }): Promise<{ name: string; score: number; reasoning?: string }>;
-                };
-
-                const isRecord = (v: unknown): v is Record<string, unknown> =>
-                  typeof v === "object" && v !== null && !Array.isArray(v);
-                const options = isRecord(scorerOptions) ? scorerOptions : {};
-                const policies =
-                  Array.isArray(options["policies"]) && (options["policies"] as unknown[]).every((p) => typeof p === "string")
-                    ? (options["policies"] as string[])
-                    : [];
-                const customPrompt =
-                  typeof options["prompt"] === "string" && options["prompt"].trim()
-                    ? options["prompt"]
-                    : `Evaluate this output quality.
-
-Input: {{input}}
-Output: {{output}}
-Expected: {{expected}}
-Context: {{context}}
-
-Respond EXACTLY in this format:
-SCORE: <number from 0.0 to 1.0>
-REASONING: <one sentence explanation>`;
-
-                const metadata: Record<string, unknown> = {};
-                if (isRecord(options["metadata"])) Object.assign(metadata, options["metadata"]);
-                for (const key of ["toolCalls", "conversationHistory", "handoffHistory", "attackType"]) {
-                  if (key in options) metadata[key] = options[key];
-                }
-
-                const allScorers: EvalLikeScorer[] = [
-                  new FaithfulnessScorer(evalBridge),
-                  new RelevanceScorer(evalBridge),
-                  new CoherenceScorer(evalBridge),
-                  new HallucinationScorer(evalBridge),
-                  new ToxicityScorer(evalBridge),
-                  new PolicyAdherenceScorer(evalBridge, policies),
-                  new ContextRelevanceScorer(evalBridge),
-                  new ToolTrajectoryScorer(evalBridge),
-                  new MultiTurnConsistencyScorer(evalBridge),
-                  new SafetyPreservationScorer(evalBridge),
-                  new HandoffQualityScorer(evalBridge),
-                  new CustomPromptScorer("custom-prompt", customPrompt, evalBridge),
-                ];
-
-                const scorers = scorerNames?.length
-                  ? allScorers.filter((s) => scorerNames.includes(s.name))
-                  : allScorers;
-
-                return Promise.all(scorers.map((s) => s.score({ input, output, expected, context, metadata })));
-              }
-            : undefined,
-
-          // Enrichment access
-          getEnrichment: async (sessionId: string) => {
-            for (const loaded of loadedApps) {
-              const store = loaded.enrichmentAdminConfig?.enrichmentStore;
-              if (!store) continue;
-              const enrichment = await store.get(sessionId);
-              if (enrichment) return enrichment as unknown as Record<string, unknown>;
-            }
-            return undefined;
-          },
-          listEnrichments: async (tenantId: string, limit?: number, cursor?: string) => {
-            for (const loaded of loadedApps) {
-              const store = loaded.enrichmentAdminConfig?.enrichmentStore;
-              if (!store) continue;
-              const result = await store.listByTenant(tenantId, limit ?? 20, cursor);
-              return {
-                enrichments: result.enrichments as unknown as readonly Record<string, unknown>[],
-                nextCursor: result.nextCursor,
-              };
-            }
-            return { enrichments: [] };
-          },
 
           // Budget enforcement
           checkBudget: async (tenantId: string, appName: string) => {
@@ -1461,13 +1170,6 @@ REASONING: <one sentence explanation>`;
             if (!billing) return { allowed: true, remaining: -1, unit: "unknown" };
             const { checkBudget: check } = await import("./budget-middleware.js");
             return check(billing, tenantId);
-          },
-          reportUsage: async (tenantId: string, appName: string, messages: number, tokens: number, model: string) => {
-            const loaded = loadedApps.find((a) => a.name === appName);
-            const billing = loaded?.tenantRuntime?.billing;
-            if (!billing) return;
-            const { reportUsage: report } = await import("./budget-middleware.js");
-            await report(billing, { tenantId, messages, tokens, model });
           },
         },
         apiKey: mcpApiKey,
@@ -1499,7 +1201,6 @@ REASONING: <one sentence explanation>`;
       () => modelGatewayRuntime?.close(),
       () => appGatewayExecution?.close?.(),
       ...ownedMcpClients.map((client) => () => client.disconnect()),
-      ...loadedApps.map((loaded) => () => loaded.knowledgePipeline?.close()),
     ]);
   };
 
@@ -1550,20 +1251,26 @@ async function createProviderFromConfig(
   };
 
   switch (config.name) {
-    case "codex-oauth":
-      return await new CodexOAuthCredentialPoolService({
+    case "codex-oauth": {
+      const service = new CodexOAuthCredentialPoolService({
         watcher: credentialWatcher,
         observability: credentialPoolObservability,
-      }).createPooledAdapter({ defaultModel: requireModel() });
-    case "opencode-go":
-    case "opencode-zen":
-      return await new OpenCodeCredentialPoolService({
-        watcher: credentialWatcher,
-        observability: credentialPoolObservability,
-      }).createPooledAdapter({
-        tier: config.name === "opencode-zen" ? "zen" : "go",
-        defaultModel: requireModel(),
       });
+      requireModel();
+      await service.createPool();
+      return createMetadataOnlyProviderAdapter(config.name);
+    }
+    case "opencode-go":
+    case "opencode-zen": {
+      const service = new OpenCodeCredentialPoolService({
+        watcher: credentialWatcher,
+        observability: credentialPoolObservability,
+      });
+      const tier = config.name === "opencode-zen" ? "zen" : "go";
+      requireModel();
+      await service.createPool(tier);
+      return createMetadataOnlyProviderAdapter(config.name);
+    }
     case "anthropic":
     case "openai":
     case "deepseek":
@@ -1573,20 +1280,43 @@ async function createProviderFromConfig(
       if (!isPooledDirectProviderId(config.name)) {
         throw new KilnError("CONFIG_INVALID", `Unsupported pooled provider: ${config.name}`);
       }
-      return await new DirectProviderCredentialPoolService({
+      const service = new DirectProviderCredentialPoolService({
         watcher: credentialWatcher,
         observability: credentialPoolObservability,
-      }).createPooledAdapter({
-        provider: config.name,
-        defaultModel: model,
-        openRouterAppUrl: process.env.OPENROUTER_APP_URL,
-        openRouterAppName: process.env.OPENROUTER_APP_NAME,
       });
+      await service.createPool(config.name);
+      return createMetadataOnlyProviderAdapter(config.name);
     default:
       throw new KilnError("CONFIG_INVALID", `Unknown provider: ${config.name}`, {
         context: { provider: config.name },
       });
   }
+}
+
+/**
+ * Startup builds only a provider identity for the base orchestrator. Productive
+ * calls are materialized from the exact credential admitted after the durable
+ * execution fence; this placeholder makes an accidental pre-admission call
+ * fail closed instead of dispatching through an unbound credential pool.
+ */
+function createMetadataOnlyProviderAdapter(name: string): ProviderAdapter {
+  const rejectDispatch = (): never => {
+    throw new KilnError(
+      "CONFIG_INVALID",
+      `Provider '${name}' requires canonical authority admission before dispatch.`,
+      { context: { provider: name } },
+    );
+  };
+  return {
+    name,
+    deliberationTransport: name === "codex-oauth" || name === "anthropic" || name === "openai"
+      ? "native-level"
+      : "none",
+    createMessage: async () => rejectDispatch(),
+    streamMessage: async function* () {
+      rejectDispatch();
+    },
+  };
 }
 
 /** Build a system prompt from an App composite using agent metadata */

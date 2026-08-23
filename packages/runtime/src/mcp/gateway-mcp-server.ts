@@ -8,12 +8,6 @@ import type { GatewayMcpToolName } from "./tool-schemas.js";
 
 const SERVER_NAME = "kilnai-gateway";
 const SERVER_VERSION = "0.1.0";
-const LLM_SCORER_NAMES = new Set([
-  "faithfulness", "relevance", "coherence", "hallucination", "toxicity",
-  "policy-adherence", "context-relevance", "tool-trajectory",
-  "multi-turn-consistency", "safety-preservation", "handoff-quality", "custom-prompt",
-]);
-
 export interface GatewayMcpServerOptions {
   readonly deps: GatewayMcpDeps;
   /** Optional API key for authentication (resolved from config.auth.keyEnv by the gateway) */
@@ -34,9 +28,7 @@ interface SdkModules {
   CallToolRequestSchema: unknown;
 }
 
-const EAGER_TOOL_NAMES = new Set([
-  "knowledge_search", "cost_summary", "safety_check",
-] as const);
+const EAGER_TOOL_NAMES = new Set(["cost_summary", "safety_check"] as const);
 
 function buildInstructionsText(
   allTools: ReadonlyArray<{ name: string; description: string }>,
@@ -56,16 +48,15 @@ function buildInstructionsText(
     "### Admin / Management Tools (Deferred — use when needed)",
     "",
     "The following additional admin tools are available but not listed here to save context:",
-    "knowledge (sources, search, ingest), integrations (list, execute), routing_test,",
-    "eval_score, enrichment (get, list),",
-    "budget (check, report), swarm (join, leave, status, broadcast, claim, release).",
-    "20 tools total — call listTools to see all schemas.",
+    "integrations (list), routing_test, eval_score,",
+    "budget (check), swarm (join, leave, status, broadcast, claim, release).",
+    "13 tools total — call listTools to see all schemas.",
     "",
     "## Usage Notes",
     "- Memory reads use the shared resource plane through resource tools and kiln://memory/... URIs.",
     "- Memory writes use the core governed memory tool surface, not Gateway MCP handlers.",
     "- swarm_* tools enable multi-agent coordination with optimistic locking",
-    "- budget_check/budget_report handle per-tenant billing",
+    "- budget_check observes per-tenant billing",
     "- All tools return JSON; isError=true indicates a failure",
   ].join("\n");
 }
@@ -103,7 +94,8 @@ const sdkWarmupPromise = loadSdkModules();
 void sdkWarmupPromise.catch(() => undefined);
 
 /**
- * MCP server that exposes gateway capabilities (memory, knowledge, cost, safety)
+ * MCP server that exposes governed gateway capabilities (cost, safety,
+ * integrations, routing, evaluation, budget, and swarm coordination)
  * as tools for external agents via Streamable HTTP transport.
  *
  * Each request creates a fresh Server+Transport pair (stateless mode) to comply with
@@ -205,12 +197,6 @@ export class GatewayMcpServer {
   ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
     try {
       switch (toolName) {
-        case "knowledge_search":
-          return await this.handleKnowledgeSearch(args);
-        case "knowledge_sources":
-          return await this.handleKnowledgeSources(args);
-        case "knowledge_ingest":
-          return await this.handleKnowledgeIngest(args);
         case "cost_summary":
           return this.handleCostSummary();
         case "safety_metrics":
@@ -218,20 +204,12 @@ export class GatewayMcpServer {
           return this.handleSafetyMetrics();
         case "integration_list":
           return this.handleIntegrationList();
-        case "integration_execute":
-          return await this.handleIntegrationExecute(args);
         case "routing_test":
           return await this.handleRoutingTest(args);
         case "eval_score":
           return await this.handleEvalScore(args);
-        case "enrichment_get":
-          return await this.handleEnrichmentGet(args);
-        case "enrichment_list":
-          return await this.handleEnrichmentList(args);
         case "budget_check":
           return await this.handleBudgetCheck(args);
-        case "budget_report":
-          return await this.handleBudgetReport(args);
         case "swarm_join":
           return await this.handleSwarmJoin(args);
         case "swarm_leave":
@@ -256,35 +234,6 @@ export class GatewayMcpServer {
   // Tool handlers
   // ---------------------------------------------------------------------------
 
-  private async handleKnowledgeSearch(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.searchKnowledge) return this.errorResult("Knowledge search not available");
-    const result = await this.deps.searchKnowledge(
-      args["appName"] as string,
-      args["query"] as string,
-      args["limit"] as number | undefined,
-    );
-    return this.jsonResult(result);
-  }
-
-  private async handleKnowledgeSources(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[] }> {
-    if (!this.deps.listKnowledgeSources) return this.errorResult("Knowledge sources not available");
-    const result = this.deps.listKnowledgeSources(args["appName"] as string);
-    return this.jsonResult(result);
-  }
-
-  private async handleKnowledgeIngest(
-    _args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    return this.errorResult(
-      "knowledge_ingest requires the knowledge pipeline to be configured. " +
-      "Use knowledge_sources to list available sources, or configure a SourceManager with ingestContent support.",
-    );
-  }
-
   private handleCostSummary(): { content: { type: "text"; text: string }[] } {
     if (!this.deps.getCostSummary) return this.errorResult("Cost summary not available");
     return this.jsonResult(this.deps.getCostSummary());
@@ -300,19 +249,6 @@ export class GatewayMcpServer {
   private handleIntegrationList(): { content: { type: "text"; text: string }[] } {
     if (!this.deps.listIntegrations) return this.errorResult("Integration list not available");
     return this.jsonResult(this.deps.listIntegrations());
-  }
-
-  private async handleIntegrationExecute(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.executeIntegration) return this.errorResult("Integration execute not available");
-    const result = await this.deps.executeIntegration(
-      args["provider"] as string,
-      args["operation"] as string,
-      args["tenantId"] as string,
-      (args["input"] as Record<string, unknown>) ?? {},
-    );
-    return this.jsonResult(result);
   }
 
   // -- MCP-First Orchestration Phase 2 -------------------------------------------
@@ -334,78 +270,14 @@ export class GatewayMcpServer {
     const scorers = Array.isArray(args["scorers"])
       ? (args["scorers"] as string[])
       : undefined;
-    const context = Array.isArray(args["context"])
-      ? (args["context"] as string[])
-      : undefined;
-    const scorerOptions =
-      typeof args["scorerOptions"] === "object" &&
-      args["scorerOptions"] !== null &&
-      !Array.isArray(args["scorerOptions"])
-        ? (args["scorerOptions"] as Record<string, unknown>)
-        : undefined;
-
-    const llmNames = scorers?.filter((name) => LLM_SCORER_NAMES.has(name)) ?? [];
-    const ruleNames = scorers?.filter((name) => !LLM_SCORER_NAMES.has(name));
-    const allScores: { name: string; score: number; reasoning?: string }[] = [];
-
-    if (!scorers) {
-      if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
-      const ruleScores = await this.deps.evalScore(
-        args["input"] as string,
-        args["output"] as string,
-        args["expected"] as string | undefined,
-        undefined,
-      );
-      allScores.push(...ruleScores);
-      return this.jsonResult({ scores: allScores });
-    }
-
-    if (ruleNames && ruleNames.length > 0) {
-      if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
-      const ruleScores = await this.deps.evalScore(
-        args["input"] as string,
-        args["output"] as string,
-        args["expected"] as string | undefined,
-        ruleNames,
-      );
-      allScores.push(...ruleScores);
-    }
-
-    if (llmNames.length > 0) {
-      if (!this.deps.evalScoreLlm) return this.errorResult("LLM eval scoring not available");
-      const llmScores = await this.deps.evalScoreLlm(
-        args["input"] as string,
-        args["output"] as string,
-        args["expected"] as string | undefined,
-        context,
-        llmNames,
-        scorerOptions,
-      );
-      allScores.push(...llmScores);
-    }
-
-    return this.jsonResult({ scores: allScores });
-  }
-
-  private async handleEnrichmentGet(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.getEnrichment) return this.errorResult("Enrichment get not available");
-    const result = await this.deps.getEnrichment(args["sessionId"] as string);
-    if (!result) return this.errorResult(`No enrichment found for session: ${args["sessionId"] as string}`);
-    return this.jsonResult(result);
-  }
-
-  private async handleEnrichmentList(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.listEnrichments) return this.errorResult("Enrichment list not available");
-    const result = await this.deps.listEnrichments(
-      args["tenantId"] as string,
-      args["limit"] as number | undefined,
-      args["cursor"] as string | undefined,
+    if (!this.deps.evalScore) return this.errorResult("Eval scoring not available");
+    const scores = await this.deps.evalScore(
+      args["input"] as string,
+      args["output"] as string,
+      args["expected"] as string | undefined,
+      scorers,
     );
-    return this.jsonResult(result);
+    return this.jsonResult({ scores });
   }
 
   private async handleBudgetCheck(
@@ -417,20 +289,6 @@ export class GatewayMcpServer {
       args["appName"] as string,
     );
     return this.jsonResult(result);
-  }
-
-  private async handleBudgetReport(
-    args: Record<string, unknown>,
-  ): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-    if (!this.deps.reportUsage) return this.errorResult("Budget reporting not available");
-    await this.deps.reportUsage(
-      args["tenantId"] as string,
-      args["appName"] as string,
-      args["messages"] as number,
-      args["tokens"] as number,
-      args["model"] as string,
-    );
-    return this.jsonResult({ ok: true });
   }
 
   private async handleSwarmJoin(

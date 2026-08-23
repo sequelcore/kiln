@@ -211,15 +211,14 @@ runtime schema.
 
 `parseAppYaml()` maps one `RawApp` contract
 ([`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts#L1549)),
-while runtime mode and events are parsed independently from the same bytes
-([`runtime-mode-loader.ts`](../../../packages/core/src/engine/gateway/runtime-mode-loader.ts#L124),
-[`events-loader.ts`](../../../packages/core/src/engine/gateway/events-loader.ts#L8)).
+while runtime mode is parsed independently from the same bytes
+([`runtime-mode-loader.ts`](../../../packages/core/src/engine/gateway/runtime-mode-loader.ts#L124)).
 
 The main loader does not call `validateAppGraph()`. Repository references to
 that validator were found only in its declaration and tests
 ([`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts#L1699)).
-Runtime resolution catches runtime-mode and event parse errors and continues
-without those sub-configurations
+Runtime resolution catches runtime-mode parse errors and continues without
+that sub-configuration
 ([`app-resolver.ts`](../../../packages/runtime/src/gateway/app-resolver.ts#L44)).
 
 The app pilot must distinguish structural fields, app-graph semantic admission,
@@ -227,19 +226,6 @@ and optional runtime degradation. It cannot encode all three as one oversized
 schema refinement.
 
 ### B5 — Declared app fields can be discarded by the loader
-
-The domain contract declares knowledge mode, reranker, contact memory,
-contextual chunking, source type, and evaluation scorer policies
-([`knowledge-config.ts`](../../../packages/core/src/engine/domain/knowledge-config.ts#L31),
-[`eval-config.ts`](../../../packages/core/src/engine/domain/eval-config.ts#L15)).
-The raw app shapes and mappers omit some of them
-([`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts#L153)).
-
-Runtime nevertheless reads some of the omitted knowledge fields from the typed
-app object
-([`gateway-server.ts`](../../../packages/runtime/src/gateway/gateway-server.ts#L584)).
-The inventory must resolve whether each field is supported intent, obsolete
-contract residue, or a missing reader path.
 
 ### B6 — Canonical writers did not share one mutation lifecycle
 

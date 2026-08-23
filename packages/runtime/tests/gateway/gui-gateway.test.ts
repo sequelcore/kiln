@@ -46,7 +46,6 @@ import {
   discoverOpencodeCliModelDiscovery,
   resolveOpenCodeExecutable,
   markGuiProviderDiscoveryStale,
-  probeCodexCliModelReadiness,
   projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   resolveGuiOperatorDiscoveryResults,
@@ -134,6 +133,34 @@ const guiTestRouting = vi.hoisted(() => ({
   create(providerId?: string, providerModelId?: string) {
     let handler: ((input: unknown) => Promise<unknown>) | undefined;
     let authorityHandler: any;
+    const persistedAdmissions = new Map<string, import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle>();
+    const createActionClaimStore = () => {
+      const permits = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+      return {
+        claim(claim: { readonly claimId: string }) {
+          const state = { claimId: claim.claimId, consumed: false };
+          const permit = {
+            claimId: claim.claimId,
+            permitId: `gui-test:${claim.claimId}`,
+            consume: () => {
+              if (state.consumed) throw new Error("GUI test action-claim permit already consumed.");
+              state.consumed = true;
+            },
+          };
+          permits.set(permit, state);
+          return permit;
+        },
+        settle(permit: { readonly claimId: string }) {
+          const state = permits.get(permit);
+          if (!state || state.claimId !== permit.claimId || !state.consumed) {
+            throw new Error("Unknown or unconsumed GUI test action-claim permit.");
+          }
+          permits.delete(permit);
+        },
+      };
+    };
+    const runtimeModelRoundActionClaims = createActionClaimStore();
+    const runtimeToolActionClaims = createActionClaimStore();
     const admission = {
       routeId: "test-route",
       providerId: providerId?.trim() || "claude",
@@ -203,9 +230,10 @@ const guiTestRouting = vi.hoisted(() => ({
         await authorityHandler.persist(authorityAdmission);
         let result: unknown;
         try {
-          result = await bridge.dispatchCommittedTurn({
-            executionId: request.executionId,
-            admission: selectedAdmission,
+           result = await bridge.dispatchCommittedTurn({
+             executionId: request.executionId,
+             intentFingerprint: request.intentFingerprint,
+             admission: selectedAdmission,
             accountId,
             binding,
             credential: { kind: "test" },
@@ -238,7 +266,22 @@ const guiTestRouting = vi.hoisted(() => ({
       operatorTurnDispatcher: dispatcher,
       operatorTurnExecutionBridge: bridge,
       operatorAuthorityAdmissionBridge: authorityBridge,
-      authorityAdmissionEvidenceStore: { persist: async () => undefined, loadSessionFacet: async () => undefined },
+      authorityAdmissionEvidenceStore: {
+        persist: async (bundle: import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle) => {
+          persistedAdmissions.set(bundle.admissionId, bundle);
+        },
+        loadSessionFacet: async () => undefined,
+        readAdmission: async ({ admissionId, sessionId, turnId }: {
+          readonly admissionId: string;
+          readonly sessionId: string;
+          readonly turnId: string;
+        }) => {
+          const bundle = persistedAdmissions.get(admissionId);
+          return bundle?.sessionId === sessionId && bundle.turnId === turnId ? bundle : undefined;
+        },
+      },
+      runtimeModelRoundActionClaims,
+      runtimeToolActionClaims,
       executionRouteSelection,
     };
   },
@@ -284,6 +327,8 @@ vi.mock("../../src/gateway/gui-gateway.js", async (importOriginal) => {
           operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as never,
           operatorAuthorityAdmissionBridge: routing.operatorAuthorityAdmissionBridge as never,
           authorityAdmissionEvidenceStore: input.operatorTransport.authorityAdmissionEvidenceStore,
+          runtimeModelRoundActionClaims: routing.runtimeModelRoundActionClaims as never,
+          runtimeToolActionClaims: routing.runtimeToolActionClaims as never,
         },
       });
     },
@@ -1621,7 +1666,7 @@ describe("startGuiGateway static mount", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-kiln-operator-token": gateway.operatorTerminalCapability!,
+          "x-kiln-operator-token": gateway.operatorCapability!,
         },
         body: JSON.stringify(requestBody),
       }));
@@ -1730,7 +1775,7 @@ describe("startGuiGateway static mount", () => {
 
       const authorizedHeaders = {
         "content-type": "application/json",
-        "x-kiln-operator-token": gateway.operatorTerminalCapability!,
+        "x-kiln-operator-token": gateway.operatorCapability!,
       };
       const proposed = await appFetch!(new Request("http://localhost/gui/api/config/settings/proposals", {
         method: "POST",
@@ -1878,7 +1923,10 @@ describe("startGuiGateway static mount", () => {
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const onClear = vi.fn().mockResolvedValue(undefined);
-    const persistAuthority = vi.fn().mockResolvedValue(undefined);
+    let persistedAuthorityBundle: import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle | undefined;
+    const persistAuthority = vi.fn(async (bundle: import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle) => {
+      persistedAuthorityBundle = bundle;
+    });
     const persistCanonicalSessionEvent = vi.fn().mockResolvedValue(undefined);
     const freshRouting = guiTestRouting.create();
     vi.mocked(processAdmittedTurn).mockReset();
@@ -1928,6 +1976,12 @@ describe("startGuiGateway static mount", () => {
           authorityAdmissionEvidenceStore: {
             persist: persistAuthority,
             loadSessionFacet: async () => undefined,
+            readAdmission: async ({ admissionId, sessionId, turnId }) =>
+              persistedAuthorityBundle?.admissionId === admissionId
+                && persistedAuthorityBundle.sessionId === sessionId
+                && persistedAuthorityBundle.turnId === turnId
+                ? persistedAuthorityBundle
+                : undefined,
           },
         },
       });
@@ -2150,11 +2204,23 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
-      const token = gateway.operatorTerminalCapability;
+      const token = gateway.operatorCapability;
       expect(token).toEqual(expect.any(String));
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1", operatorToken: token! });
       await handlers.onMessage!(new MessageEvent("message", {
-        data: JSON.stringify({ type: "execution_target_wizard", requestId: "request-authenticated" }),
+        data: JSON.stringify({
+          type: "execution_target_wizard",
+          requestId: "request-authenticated",
+          expectedRevision: `sha256:${"c".repeat(64)}`,
+          discoveryIdentity: {
+            providerId: "provider",
+            providerRouteId: "provider:direct",
+            providerModelId: "model",
+          },
+          dataClassification: "public",
+          dataPolicyConfirmed: true,
+          action: "preview",
+        }),
       }), wsCtx);
 
       expect(getCatalog).toHaveBeenCalledTimes(1);
@@ -2163,7 +2229,7 @@ describe("startGuiGateway static mount", () => {
         type: "execution_target_wizard_result",
         requestId: "request-authenticated",
         status: "rejected",
-        code: "TARGET_CREATE_REJECTED",
+        code: "TARGET_IDENTITY_CHANGED",
       });
     } finally {
       gateway?.shutdown();
@@ -2326,8 +2392,9 @@ describe("startGuiGateway static mount", () => {
       if (!managedInvoke) {
         throw new Error("managed_agent.invoke was not attached to the GUI turn surface");
       }
-      expect(input.perCallConfig?.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
-      expect(input.perCallConfig?.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
+      const managedInvokePermission = input.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions
+        .find((permission) => permission.toolName === "managed_agent.invoke");
+      expect(managedInvokePermission?.authority).toMatchObject({
         allowed: false,
         requiresApproval: true,
       });
@@ -2652,7 +2719,9 @@ describe("startGuiGateway static mount", () => {
       }));
       expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
       expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
-      expect(admittedTurn?.perCallConfig?.toolAllowlist?.has("managed_agent.start")).toBe(true);
+      expect(admittedTurn?.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions.some(
+        (permission) => permission.toolName === "managed_agent.start",
+      )).toBe(true);
       expect(admittedTurn?.perCallConfig?.additionalTools?.some((tool) => tool.name === "managed_agent.start")).toBe(
         true,
       );
@@ -2937,7 +3006,9 @@ describe("startGuiGateway static mount", () => {
       }));
       expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
       expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
-      expect(admittedTurn?.perCallConfig?.toolAllowlist?.has("managed_agent.start")).toBe(true);
+      expect(admittedTurn?.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions.some(
+        (permission) => permission.toolName === "managed_agent.start",
+      )).toBe(true);
       expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
         "tool_call_started",
         "tool_call_completed",
@@ -3389,7 +3460,9 @@ describe("startGuiGateway static mount", () => {
       }));
       expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
       expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
-      expect(admittedTurn?.perCallConfig?.toolAllowlist?.has("managed_agent.start")).toBe(true);
+      expect(admittedTurn?.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions.some(
+        (permission) => permission.toolName === "managed_agent.start",
+      )).toBe(true);
       expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
         "tool_call_started",
         "tool_call_completed",
@@ -3698,125 +3771,6 @@ describe("startGuiGateway static mount", () => {
       });
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("routes browser session control requests to the configured provider", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    let browserSessionUpdateHandler: ((state: {
-      readonly target: "browser";
-      readonly status: "running";
-      readonly updatedAt: string;
-      readonly provider: "playwright";
-      readonly sessionId: string;
-      readonly ownership: "operator";
-      readonly viewMode: "live";
-      readonly stream: { readonly status: "paused"; readonly reason: string };
-    }) => void) | undefined;
-    const requestBrowserSessionControl = vi.fn(async () => {
-      const state = {
-        target: "browser" as const,
-        status: "running" as const,
-        updatedAt: "2026-05-12T12:00:00.000Z",
-        provider: "playwright" as const,
-        sessionId: "browser-live",
-        ownership: "operator" as const,
-        viewMode: "live" as const,
-        stream: {
-          status: "paused" as const,
-          reason: "Inspect before continuing.",
-        },
-      };
-      browserSessionUpdateHandler?.(state);
-      return state;
-    });
-    const browserProvider = {
-      execute: vi.fn(),
-      setBrowserSessionUpdateHandler: vi.fn((handler) => {
-        browserSessionUpdateHandler = handler;
-      }),
-      requestBrowserSessionControl,
-    };
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        builtinToolOptions: {
-          browserUse: {
-            provider: browserProvider,
-          },
-        } as never,
-        operatorTransport: {
-          ...guiOperatorTransportDefaults,
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "openai",
-            setProvider: vi.fn(),
-            getModel: () => GPT4O,
-            setModel: vi.fn(),
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            type: "browser_session_control",
-            action: "takeover",
-            gatewayTargetId: "gateway:browser-app",
-            sessionId: "browser-live",
-            reason: "Inspect before continuing.",
-            requestId: "browser-control-1",
-          }),
-        }),
-        wsCtx,
-      );
-
-      expect(requestBrowserSessionControl).toHaveBeenCalledWith({
-        action: "takeover",
-        gatewayTargetId: "gateway:browser-app",
-        sessionId: "browser-live",
-        operatorId: "operator-1",
-        reason: "Inspect before continuing.",
-      });
-      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "browser_session_updated",
-        browserSession: {
-          target: "browser",
-          status: "running",
-          updatedAt: "2026-05-12T12:00:00.000Z",
-          provider: "playwright",
-          sessionId: "browser-live",
-          kilnSessionId: undefined,
-          ownership: "operator",
-          viewMode: "live",
-          stream: {
-            status: "paused",
-            reason: "Inspect before continuing.",
-          },
-        },
-      }));
-    } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
@@ -5127,214 +5081,6 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("routes browser operator input requests to the configured provider and forwards acknowledgements", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const requestBrowserOperatorInput = vi.fn(async () => ({
-      requestId: "browser-input-1",
-      sessionId: "browser-live",
-      status: "accepted" as const,
-      handledAt: "2026-05-13T12:00:00.000Z",
-    }));
-    const browserProvider = {
-      execute: vi.fn(),
-      requestBrowserOperatorInput,
-    };
-    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input) => {
-      await input.turnCapture?.start?.("gui-browser-session", 1);
-      await input.turnCapture?.finish?.("gui-browser-session");
-      return {
-        ok: true,
-        result: {
-          parts: [{ type: "text", text: "ready" }],
-          inputTokens: 1,
-          outputTokens: 1,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-          outcome: "completed",
-          queued: false,
-          sessionId: "browser-live",
-          sessionMode: "ai_active",
-          traceId: "trace-browser-input",
-        },
-      };
-    });
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        builtinToolOptions: {
-          browserUse: {
-            provider: browserProvider,
-          },
-        } as never,
-        operatorTransport: {
-          ...guiOperatorTransportDefaults,
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "openai",
-            setProvider: vi.fn(),
-            getModel: () => GPT4O,
-            setModel: vi.fn(),
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "start browser work" }),
-        }),
-        wsCtx,
-      );
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            type: "browser_operator_input",
-            requestId: "browser-input-1",
-            gatewayTargetId: "gateway:browser-app",
-            sessionId: "browser-live",
-            input: {
-              kind: "pointer",
-              phase: "down",
-              x: 120,
-              y: 80,
-              button: "left",
-            },
-          }),
-        }),
-        wsCtx,
-      );
-
-      expect(requestBrowserOperatorInput).toHaveBeenCalledWith({
-        requestId: "browser-input-1",
-        gatewayTargetId: "gateway:browser-app",
-        sessionId: "browser-live",
-        operatorId: "operator-1",
-        input: {
-          kind: "pointer",
-          phase: "down",
-          x: 120,
-          y: 80,
-          button: "left",
-        },
-      });
-      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "browser_operator_input_ack",
-        requestId: "browser-input-1",
-        sessionId: "browser-live",
-        status: "accepted",
-        handledAt: "2026-05-13T12:00:00.000Z",
-      }));
-      const evidenceFrame = mockWs.send.mock.calls
-        .map(([payload]) => JSON.parse(payload as string) as {
-          type: string;
-          event?: {
-            kind: OperatorSessionEvent["kind"];
-            kilnSessionId: string;
-            payload: Record<string, unknown>;
-          };
-        })
-        .find((frame) => frame.type === "session_event" && frame.event?.kind === "browser_operator_evidence");
-      expect(evidenceFrame?.event).toMatchObject({
-        kilnSessionId: "gui-browser-session",
-        kind: "browser_operator_evidence",
-        payload: {
-          action: "operator_input",
-          gatewayTargetId: "gateway:browser-app",
-          browserSessionId: "browser-live",
-          input: {
-            kind: "pointer",
-            phase: "down",
-          },
-          acknowledgement: {
-            status: "accepted",
-          },
-        },
-      });
-    } finally {
-      vi.mocked(processAdmittedTurn).mockReset();
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it.each([
-    ["approve", "approve"],
-    ["reject", "reject"],
-  ] as const)("returns a correlated failure for an unknown %s approval", async (frameType, decision) => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          ...guiOperatorTransportDefaults,
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "",
-            setProvider: vi.fn(),
-            getModel: () => "",
-            setModel: vi.fn(),
-          },
-        },
-      });
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            type: frameType,
-            requestId: "approval-response-1",
-            approvalId: "approval-missing",
-            ...(frameType === "reject" ? { reason: "Operator rejected." } : {}),
-          }),
-        }),
-        wsCtx,
-      );
-
-      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "approval_response_result",
-        requestId: "approval-response-1",
-        approvalId: "approval-missing",
-        decision,
-        status: "failed",
-        reason: "Approval not found: approval-missing",
-      }));
-    } finally {
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
   it("does not publish execution routes in the fallback websocket welcome frame without operator transport", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -6620,96 +6366,6 @@ describe("discoverCodexCliModelDiscovery", () => {
     });
   });
 
-  it("proves explicit Codex model readiness through a live exec probe", async () => {
-    vi.mocked(spawn).mockImplementationOnce(() => {
-      const proc = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-        stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
-        kill: ReturnType<typeof vi.fn>;
-      };
-      proc.stdout = new EventEmitter();
-      proc.stderr = new EventEmitter();
-      proc.stdin = {
-        write: vi.fn(() => true),
-        end: vi.fn(() => {
-          queueMicrotask(() => {
-            proc.emit("close", 0);
-          });
-        }),
-      };
-      proc.kill = vi.fn();
-      return proc as never;
-    });
-
-    await expect(probeCodexCliModelReadiness({
-      model: "gpt-5.5",
-      deliberationLevel: "medium",
-      cwd: "C:/repo",
-      env: { KILN_TEST: "1" },
-    })).resolves.toMatchObject({
-      provider: "codex",
-      model: "gpt-5.5",
-      runnable: true,
-      status: "available",
-      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
-      authState: "authenticated",
-    });
-    expect(spawn).toHaveBeenCalledWith(expect.any(String), [
-      "exec",
-      "--json",
-      "-m",
-      "gpt-5.5",
-      "-c",
-      "model_reasoning_effort=medium",
-      "--ephemeral",
-      "--skip-git-repo-check",
-      "-",
-    ], expect.objectContaining({
-      cwd: "C:/repo",
-      stdio: ["pipe", "pipe", "pipe"],
-    }));
-  });
-
-  it("diagnoses Codex model readiness version gates", async () => {
-    vi.mocked(spawn).mockImplementationOnce(() => {
-      const proc = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-        stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
-        kill: ReturnType<typeof vi.fn>;
-      };
-      proc.stdout = new EventEmitter();
-      proc.stderr = new EventEmitter();
-      proc.stdin = {
-        write: vi.fn(() => true),
-        end: vi.fn(() => {
-          queueMicrotask(() => {
-            proc.stdout.emit("data", Buffer.from(JSON.stringify({
-              type: "error",
-              error: {
-                message: "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
-              },
-            }) + "\n"));
-            proc.emit("close", 1);
-          });
-        }),
-      };
-      proc.kill = vi.fn();
-      return proc as never;
-    });
-
-    await expect(probeCodexCliModelReadiness({
-      model: "gpt-5.5",
-    })).resolves.toMatchObject({
-      provider: "codex",
-      model: "gpt-5.5",
-      runnable: false,
-      status: "model_version_unsupported",
-      reason: "Codex CLI model support is out of date: The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
-      authState: "authenticated",
-    });
-  });
 });
 
 describe("discoverGuiDirectProviderModelDiscovery", () => {

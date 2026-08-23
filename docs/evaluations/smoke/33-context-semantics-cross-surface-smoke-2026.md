@@ -211,10 +211,12 @@ opened speculatively ahead of that evidence.
 ### Superseded direct-model-binding proposal (2026-08-11)
 
 Confirmed not owned by issue #34: `packages/runtime/src/agents/credential-pool/codex-oauth-credential-pool.ts`
-(`createPooledAdapter`) refuses ambiguous auto-selection among multiple
-executable OAuth credentials by design, a different subsystem from #34's
-`managed_agent_invoke` economic-dispatch path, now documented by the canonical
-[managed economic commitment authority](../../architecture/coordination/managed-account-leases.md).
+now exposes OAuth pools only for secret-free enumeration and health projection;
+productive adapter creation requires the exact account admitted by the canonical
+execution route before its dispatch fence. There is no pooled provider dispatch
+or retry path to rotate credentials after that fence, a different subsystem
+from #34's `managed_agent_invoke` economic-dispatch path, now documented by the
+canonical [managed economic commitment authority](../../architecture/coordination/managed-account-leases.md).
 Comparative research found no surveyed harness performs implicit
 rotation/round-robin across multiple credentials for the same provider
 (`cloned/pi` represents one account per provider key structurally; Claude

@@ -437,15 +437,9 @@ path. Kiln has no embedded in-app browser product viewport; adding one requires
 an explicitly admitted surface and host boundary.
 
 Browser session state is runtime-owned. Gateway frames may project
-`browser_session_updated`, `browser_live_viewport_frame`,
-`browser_session_control`, `browser_operator_input`, and
-`browser_operator_input_ack`, but those frames do not transfer browser
-authority to GUI. GUI sends typed operator intents such as pointer, wheel,
-text, or key input; runtime validates session identity, ownership, provider
-state, policy, and viewport bounds before dispatching through the active
-provider. While ownership is `operator`, agent browser mutations fail closed.
-Release returns ownership to the agent only after the provider captures a fresh
-artifact-backed observation.
+`browser_session_updated` and `browser_live_viewport_frame`; GUI receives
+observation state only. Browser mutations remain claimed model tool actions
+through Runtime, and the GUI has no direct browser-control dispatch path.
 
 Browser viewport projections use explicit transport labels. `snapshot-polling`
 means artifact-backed observation or monitor frames. `cdp-screencast` means a
@@ -455,12 +449,10 @@ represented as transport evidence rather than hidden behind a generic "live"
 label. Snapshot polling and CDP screencast are monitor and diagnostic
 transports; they do not imply an embedded product surface.
 
-Operator browser evidence is sanitized. Takeover, release, and input
-acknowledgement events may be persisted as session evidence, but raw text input
-must not be stored in transcript payloads. Text input evidence records length
-and acknowledgement status, while durable replay relies on observation
-artifacts, transport labels, ownership transitions, input summaries, and
-recording or trace resources.
+Browser evidence is durable but bounded. Durable replay relies on observation
+artifacts, transport labels, and recording or trace resources. CLI, TUI, SDK,
+and replay surfaces may degrade browser monitoring to status plus resource
+links.
 
 Agents should call `browser_session_stop` before their final answer for one-off
 browser tasks. Runtime providers also enforce an idle-session TTL as a cleanup

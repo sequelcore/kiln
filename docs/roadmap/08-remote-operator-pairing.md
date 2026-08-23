@@ -193,8 +193,8 @@ Status: Queued behind Slice 2 and Roadmap 08.5 Slice 0.
 Authenticate every protected GUI HTTP route and WebSocket upgrade, validate
 the exact origin, bind the connection to the canonical operator/device
 principal, and authorize each inbound operation immediately before its effect.
-Replace the client-supplied anonymous `userId` as identity. Do not project the
-operator-terminal capability to the initial remote profile.
+Replace the client-supplied anonymous `userId` as identity. Do not project
+local high-authority capabilities to the initial remote profile.
 
 Exit gate: unauthenticated, expired, revoked, cross-origin, wrong-scope, and
 stale WebSocket/HTTP requests fail closed; revocation terminates active

@@ -21,6 +21,12 @@ import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 import { assertPersistableAuthorityAdmissionBundle } from "../../session/authority-admission-evidence.js";
 import type { ManagedChildAuthorityAdmissionContract } from "./child-authority-admission.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
+import type { ManagedAgentRuntimeResultPendingEvidence } from "./invocation-service.js";
+import {
+  validateManagedExternalInvocationActionClaim,
+  type ManagedExternalInvocationActionClaim,
+} from "./external-invocation-action-claim.js";
 
 export type ManagedAgentRuntimeRecoveryLeaseStage =
   | "worktree"
@@ -59,6 +65,10 @@ export interface ManagedAgentRuntimeRecoveryCheckpoint {
   readonly economicDispatch?: ManagedAgentRuntimeEconomicDispatchCheckpoint;
   /** Secret-free parent bundle required to replay a committed managed child. */
   readonly childAuthorityAdmission?: ManagedChildAuthorityAdmissionContract;
+  /** Remote termination is unproved; recovery must retain leases and must not redispatch. */
+  readonly resultPending?: ManagedAgentRuntimeResultPendingEvidence;
+  /** Exact durable remote-invoke claim persisted before the transport boundary. */
+  readonly externalActionClaim?: ManagedExternalInvocationActionClaim;
   readonly record?: ManagedAgentInvocationRecord;
   readonly error?: {
     readonly message: string;
@@ -246,6 +256,12 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
       ? { economicDispatch: validateEconomicDispatchCheckpoint(input.economicDispatch) }
       : {}),
     ...(childAuthorityAdmission !== undefined ? { childAuthorityAdmission } : {}),
+    ...(input.resultPending !== undefined
+      ? { resultPending: validateResultPendingEvidence(input.resultPending) }
+      : {}),
+    ...(input.externalActionClaim !== undefined
+      ? { externalActionClaim: validateManagedExternalInvocationActionClaim(input.externalActionClaim) }
+      : {}),
     ...(input.record !== undefined ? { record: defineManagedAgentInvocationRecord(input.record as ManagedAgentInvocationRecord) } : {}),
     ...(isRecord(input.error) && typeof input.error.message === "string" ? { error: { message: input.error.message } } : {}),
     updatedAt: validateIsoTimestamp(input.updatedAt, "Managed runtime recovery checkpoint update timestamp is required"),
@@ -257,6 +273,31 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     if (checkpoint.record.lifecycleState !== checkpoint.lifecycleState) {
       throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint record lifecycle does not match checkpoint state");
     }
+  }
+  if (checkpoint.resultPending !== undefined
+    && (checkpoint.lifecycleState !== "running" || !checkpoint.adapterStarted || checkpoint.record !== undefined)) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed runtime recovery result-pending evidence requires a started nonterminal invocation without a record",
+    );
+  }
+  if (checkpoint.externalActionClaim !== undefined && (
+    checkpoint.request.executionMode !== "remote-harness"
+    || checkpoint.externalActionClaim.effectKind !== "remote-invoke"
+    || checkpoint.externalActionClaim.invocationId !== checkpoint.request.invocationId
+    || checkpoint.externalActionClaim.attemptId !== checkpoint.request.invocationId
+    || checkpoint.externalActionClaim.sessionId !== checkpoint.request.parentSessionId
+    || checkpoint.externalActionClaim.turnId !== checkpoint.request.parentTurnId
+    || checkpoint.externalActionClaim.admissionId !== checkpoint.childAuthorityAdmission?.bundle.admissionId
+  )) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed runtime recovery external action claim does not match its remote invocation",
+    );
+  }
+  if (checkpoint.resultPending?.basis === "external-action-claim"
+    && checkpoint.resultPending.externalClaimId !== checkpoint.externalActionClaim?.claimId) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed runtime recovery pending result does not match its external action claim",
+    );
   }
   if (checkpoint.acquiredLeaseStages.length === 0) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint requires an acquired lease stage");
@@ -294,6 +335,49 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   return checkpoint;
 }
 
+function validateResultPendingEvidence(input: unknown): ManagedAgentRuntimeResultPendingEvidence {
+  if (!isRecord(input)
+    || input.outcome !== "unknown"
+    || typeof input.reason !== "string"
+    || input.reason.trim().length === 0
+    || (input.basis !== "cancellation-request" && input.basis !== "external-action-claim")) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery result-pending evidence is invalid");
+  }
+  const observedAt = validateIsoTimestamp(input.observedAt, "Managed runtime recovery pending-result timestamp is invalid");
+  if (input.basis === "external-action-claim") {
+    if (typeof input.externalClaimId !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(input.externalClaimId)) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery pending-result external claim identity is invalid");
+    }
+    return {
+      outcome: "unknown",
+      basis: "external-action-claim",
+      observedAt,
+      reason: input.reason,
+      externalClaimId: input.externalClaimId as ManagedExternalInvocationActionClaim["claimId"],
+    };
+  }
+  if (!isRecord(input.cancellation)
+    || (input.cancellation.requestOutcome !== "acknowledged"
+      && input.cancellation.requestOutcome !== "unknown"
+      && input.cancellation.requestOutcome !== "not-requested")) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery cancellation evidence is invalid");
+  }
+  const failureMessage = input.cancellation.failureMessage;
+  if (failureMessage !== undefined && (typeof failureMessage !== "string" || failureMessage.trim().length === 0)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery cancellation failure evidence is invalid");
+  }
+  return {
+    outcome: "unknown",
+    basis: "cancellation-request",
+    observedAt,
+    reason: input.reason,
+    cancellation: {
+      requestOutcome: input.cancellation.requestOutcome,
+      ...(typeof failureMessage === "string" ? { failureMessage } : {}),
+    },
+  };
+}
+
 function validateChildAuthorityAdmission(
   input: unknown,
   request: ManagedAgentInvocationRequest,
@@ -301,7 +385,9 @@ function validateChildAuthorityAdmission(
   if (!isRecord(input) || !isRecord(input.bundle)) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery child authority admission must contain a bundle");
   }
-  const bundle = assertPersistableAuthorityAdmissionBundle(input.bundle as unknown as EffectiveAuthorityAdmissionBundle);
+  const bundle = assertPersistableAuthorityAdmissionBundle(
+    defineEffectiveAuthorityAdmissionBundle(input.bundle as unknown as EffectiveAuthorityAdmissionBundle),
+  );
   if (bundle.sessionId !== request.parentSessionId || bundle.turnId !== request.parentTurnId) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery child authority admission identity does not match its parent");
   }

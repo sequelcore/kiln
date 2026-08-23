@@ -5,10 +5,9 @@ export type {
   PackageManifest,
   SkillPackageManifest,
   PackageToolsConfig,
-  PackageKnowledgeConfig,
 } from "./types.js";
 
-export type { PackageYaml, PackageToolsYaml, PackageKnowledgeYaml } from "./yaml-schema.js";
+export type { PackageYaml, PackageToolsYaml } from "./yaml-schema.js";
 export { validatePackageYaml } from "./yaml-schema.js";
 
 export {

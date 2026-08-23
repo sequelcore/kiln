@@ -142,33 +142,65 @@ async function completeTurn(input: {
     const communicationIntent = input.frame.communicationIntent
       ? resolveCommunicationIntent([{ source: "user", intent: input.frame.communicationIntent }])
       : undefined;
-    const result = await input.runAdmittedTurn({
-      orchestrator: input.runtime.orchestrator,
-      sessionRegistry: input.runtime.sessionRegistry,
+    const userParts = toContentParts(input.frame.content, input.frame.parts);
+    const session = input.frame.sessionId
+      ? await input.runtime.sessionRegistry.getById(input.frame.sessionId)
+      : await input.runtime.sessionRegistry.getOrCreate({
+          appName: input.runtime.appName,
+          tenantId: input.tenantId,
+          userId: input.frame.userId,
+          systemPrompt: input.runtime.systemPrompt,
+        });
+    if (!session
+      || session.appName !== input.runtime.appName
+      || session.tenantId !== input.tenantId
+      || session.userId !== input.frame.userId) {
+      send(input.ws, errorFrame(input.frame.requestId, "unsupported"));
+      return;
+    }
+    const result = await input.runtime.gatewayAdmission.execute({
+      ingressId: input.frame.requestId,
       appName: input.runtime.appName,
       tenantId: input.tenantId,
       userId: input.frame.userId,
-      sessionId: input.frame.sessionId,
+      sessionId: session.id,
+      channel: "harness",
+      userParts,
+      requestedAuthority: input.frame.requestedAuthority,
+    }, async (admitted) => input.runAdmittedTurn({
+      orchestrator: input.runtime.orchestrator.bindProvider(
+        admitted.provider,
+        admitted.bundle.turn.execution.status === "routed"
+          ? admitted.bundle.turn.execution.route.providerModelId
+          : undefined,
+      ),
+      sessionRegistry: input.runtime.sessionRegistry,
+      admittedSession: admitted.session,
+      appName: input.runtime.appName,
+      tenantId: input.tenantId,
+      userId: input.frame.userId,
       systemPrompt: input.runtime.systemPrompt,
-      userParts: toContentParts(input.frame.content, input.frame.parts),
+      userParts,
       artifactStore: input.runtime.artifactStore,
       voiceConfig: input.runtime.voiceConfig,
       ttsAdapter: input.runtime.ttsAdapter,
       billing: input.runtime.billing,
       channel: "harness",
-      requestedAuthority: input.frame.requestedAuthority,
-      knowledgePipeline: input.runtime.knowledgePipeline,
-      knowledgeMode: input.runtime.knowledgeMode,
+      authorityAdmission: admitted.bundle,
+      runtimeMediaActionClaims: admitted.runtimeMediaActionClaims,
       tenant: input.runtime.tenant,
-      handoffSummarizer: input.runtime.handoffSummarizer,
       eventBus: input.runtime.eventBus,
-      groundingMode: input.runtime.tenant?.groundingMode,
-      groundingDeps: input.runtime.groundingDeps,
       contextArtifactCache: input.runtime.contextArtifactCache,
       coordinationContextProvider: input.runtime.coordinationContextProvider,
-      ...(input.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: input.runtime.toolAllowlist, turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), ...(communicationIntent ? { communicationIntent } : {}), abortSignal: input.active.controller.signal } }
-        : { perCallConfig: { turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), ...(communicationIntent ? { communicationIntent } : {}), abortSignal: input.active.controller.signal } }),
-    });
+      perCallConfig: {
+        ...admitted.perCallConfig,
+        runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
+        runtimeToolActionClaims: admitted.runtimeToolActionClaims,
+        ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}),
+        ...(communicationIntent ? { communicationIntent } : {}),
+        abortSignal: input.active.controller.signal,
+      },
+    }));
     if (!result.ok) {
       send(input.ws, errorFrame(input.frame.requestId, "unavailable"));
       return;

@@ -546,7 +546,6 @@ export type OperatorSessionEventKind =
   | "agent_invocation_failed"
   | "agent_invocation_cancelled"
   | "managed_economic_lifecycle"
-  | "browser_operator_evidence"
   | "continuity_decided"
   | "error_recorded"
   | "turn_completed";
@@ -982,18 +981,15 @@ export interface GuiMemoryLatticeInvalidatedFrame {
 
 export type GuiInteractiveUseTarget = "browser" | "computer";
 export type GuiInteractiveUseStatus = "running" | "succeeded" | "failed";
-export type GuiBrowserSessionOwnership = "agent" | "operator" | "released";
+export type GuiBrowserSessionOwnership = "agent" | "released";
 export type GuiBrowserSessionViewMode = "snapshot" | "live";
 export type GuiBrowserSessionStreamStatus = "unavailable" | "starting" | "live" | "paused" | "ended" | "failed";
-export type GuiBrowserSessionControlAction = "takeover" | "release";
 export type GuiBrowserLiveViewportTransport =
   | "snapshot-polling"
   | "cdp-screencast"
   | "webrtc"
   | "hosted-url";
 export type GuiBrowserLiveViewportFormat = "jpeg" | "png";
-export type GuiBrowserOperatorInputAckStatus = "accepted" | "blocked" | "failed" | "stale-session";
-export type GuiBrowserOperatorPointerButton = "left" | "middle" | "right" | "back" | "forward" | "none";
 
 export interface GuiInteractiveUseSnapshot {
   readonly target: GuiInteractiveUseTarget;
@@ -1069,15 +1065,6 @@ export interface GuiBrowserSessionUpdatedFrame {
   readonly browserSession: GuiBrowserSessionState;
 }
 
-export interface GuiBrowserSessionControlFrame {
-  readonly type: "browser_session_control";
-  readonly action: GuiBrowserSessionControlAction;
-  readonly gatewayTargetId?: string;
-  readonly sessionId?: string;
-  readonly reason?: string;
-  readonly requestId?: string;
-}
-
 export type GuiManagedAgentControlAction = "cancel" | "join" | "prompt";
 
 export type GuiManagedAgentControlResultStatus = "accepted" | "failed";
@@ -1120,108 +1107,6 @@ export interface GuiBrowserLiveViewportFrame {
   readonly height: number;
   readonly scale?: number;
   readonly capturedAt: string;
-}
-
-export type GuiBrowserOperatorInput =
-  | {
-      readonly kind: "pointer";
-      readonly phase: "move" | "down" | "up" | "click";
-      readonly x: number;
-      readonly y: number;
-      readonly button?: GuiBrowserOperatorPointerButton;
-      readonly clickCount?: number;
-      readonly modifiers?: readonly string[];
-    }
-  | {
-      readonly kind: "wheel";
-      readonly x: number;
-      readonly y: number;
-      readonly deltaX: number;
-      readonly deltaY: number;
-      readonly modifiers?: readonly string[];
-    }
-  | {
-      readonly kind: "key";
-      readonly phase: "down" | "up" | "press";
-      readonly key: string;
-      readonly code?: string;
-      readonly text?: string;
-      readonly modifiers?: readonly string[];
-    }
-  | {
-      readonly kind: "text";
-      readonly text: string;
-    };
-
-export interface GuiBrowserOperatorInputFrame {
-  readonly type: "browser_operator_input";
-  readonly requestId: string;
-  readonly gatewayTargetId?: string;
-  readonly sessionId: string;
-  readonly input: GuiBrowserOperatorInput;
-}
-
-export interface GuiBrowserOperatorInputAckFrame {
-  readonly type: "browser_operator_input_ack";
-  readonly requestId: string;
-  readonly sessionId?: string;
-  readonly status: GuiBrowserOperatorInputAckStatus;
-  readonly reason?: string;
-  readonly handledAt: string;
-}
-
-export interface OperatorTerminalOpenFrame {
-  readonly type: "operator_terminal_open";
-  readonly requestId: string;
-  readonly cols: number;
-  readonly rows: number;
-  readonly cwd?: string;
-}
-
-export interface OperatorTerminalWriteFrame {
-  readonly type: "operator_terminal_write";
-  readonly terminalId: string;
-  readonly data: string;
-}
-
-export interface OperatorTerminalResizeFrame {
-  readonly type: "operator_terminal_resize";
-  readonly terminalId: string;
-  readonly cols: number;
-  readonly rows: number;
-}
-
-export interface OperatorTerminalCloseFrame {
-  readonly type: "operator_terminal_close";
-  readonly terminalId: string;
-}
-
-export interface OperatorTerminalOpenedFrame {
-  readonly type: "operator_terminal_opened";
-  readonly requestId: string;
-  readonly terminalId: string;
-  readonly cwd: string;
-}
-
-export interface OperatorTerminalOutputFrame {
-  readonly type: "operator_terminal_output";
-  readonly terminalId: string;
-  readonly data: string;
-}
-
-export interface OperatorTerminalExitedFrame {
-  readonly type: "operator_terminal_exited";
-  readonly terminalId: string;
-  readonly exitCode: number;
-  readonly signal?: number;
-}
-
-export interface OperatorTerminalErrorFrame {
-  readonly type: "operator_terminal_error";
-  readonly code: string;
-  readonly message: string;
-  readonly requestId?: string;
-  readonly terminalId?: string;
 }
 
 export type GuiGoalControlAction = "pause" | "resume" | "update_objective" | "cancel";
@@ -1294,13 +1179,7 @@ export type GuiOutboundFrame =
   | ({ type: "execution_route"; requestId: string } & ExecutionRouteSelectionIntent)
   | OperatorThemeSetResultFrame
   | { type: "continue"; sessionId: string; gatewayTargetId?: string }
-  | GuiBrowserSessionControlFrame
   | GuiManagedAgentControlFrame
-  | GuiBrowserOperatorInputFrame
-  | OperatorTerminalOpenFrame
-  | OperatorTerminalWriteFrame
-  | OperatorTerminalResizeFrame
-  | OperatorTerminalCloseFrame
   | GuiGoalControlFrame
   | { type: "approve"; requestId: string; approvalId: string; gatewayTargetId?: string }
   | { type: "reject"; requestId: string; reason: string; approvalId: string; gatewayTargetId?: string }
@@ -1329,11 +1208,6 @@ export type GuiInboundFrame =
   | GuiInteractiveUseUpdatedFrame
   | GuiBrowserSessionUpdatedFrame
   | GuiBrowserLiveViewportFrame
-  | GuiBrowserOperatorInputAckFrame
-  | OperatorTerminalOpenedFrame
-  | OperatorTerminalOutputFrame
-  | OperatorTerminalExitedFrame
-  | OperatorTerminalErrorFrame
   | GuiManagedAgentControlResultFrame
   | GuiApprovalResponseResultFrame
   | GuiGoalControlResultFrame
@@ -1396,7 +1270,6 @@ export type GuiInboundFrame =
       workingDirectory?: string;
       domainLabel?: string;
       authorityStatus?: GuiAuthorityStatus;
-      operatorTerminalAvailable?: boolean;
     }
     | {
         type: "execution_mode_transitioned";

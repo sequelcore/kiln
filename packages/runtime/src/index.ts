@@ -181,7 +181,7 @@ export type {
 } from "./execution-kernel/governed-one-round-invocation.js";
 export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-store.js";
 export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "./model-gateway/governed-ingress-executor.js";
-export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
+export type { GovernedIngressExecution, GovernedIngressExecutorInput, GovernedIngressInvocationPorts, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
 export type { LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
 export { createModelGatewayIngress, createModelGatewayExecutionRoutingPort } from "./model-gateway/model-gateway-ingress.js";
 export { createModelGatewayAuthorityAdmissionPort, callerOwnedToolContractForTurn } from "./model-gateway/model-gateway-authority-admission.js";
@@ -222,6 +222,30 @@ export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from 
 export type { ProviderAdapterOneRoundDispatcherOptions, ProviderAdapterOneRoundErrorCode } from "./execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
 export { ProviderDispatchTerminalError } from "./execution-kernel/provider-dispatch-terminal-error.js";
 export type { ProviderDispatchTerminalEvidence } from "./execution-kernel/provider-dispatch-terminal-error.js";
+export {
+  RuntimeMediaActionClaimedError,
+  RuntimeMediaActionPreDispatchCancellationError,
+  assertCanonicalSha256Id as assertRuntimeMediaActionSha256Id,
+  defineRuntimeMediaActionClaim,
+  dispatchRuntimeMediaAction,
+  createRuntimeMediaActionClaimContext,
+  prepareRuntimeMediaActionClaim,
+  runtimeMediaActionDigest,
+} from "./execution-kernel/runtime-media-action-claim.js";
+export type {
+  RuntimeMediaActionClaim,
+  RuntimeMediaActionClaimContext,
+  RuntimeMediaActionClaimId,
+  RuntimeMediaActionClaimPermit,
+  RuntimeMediaActionClaimRecord,
+  RuntimeMediaActionClaimSettlement,
+  RuntimeMediaActionClaimStatus,
+  RuntimeMediaActionClaimStore,
+  RuntimeMediaActionDigest,
+  RuntimeMediaActionDispatchInput,
+  RuntimeMediaActionKind,
+  RuntimeMediaAdmissionReadInput,
+} from "./execution-kernel/runtime-media-action-claim.js";
 export { createAnthropicMessagesRoutes } from "./model-gateway/anthropic-messages-routes.js";
 export type { AnthropicMessagesIngressConfig, AnthropicMessagesObservedCorrelation, AnthropicMessagesResolvedVirtualModel, AnthropicMessagesTrustedPrincipal } from "./model-gateway/anthropic-messages-routes.js";
 export { ANTHROPIC_MESSAGES_PROTOCOL_LIMITS, ANTHROPIC_MESSAGES_VERSION, AnthropicMessagesProtocolError, encodeAnthropicMessagesSseEvent, parseAnthropicMessagesRequest } from "./model-gateway/anthropic-messages-protocol.js";
@@ -262,7 +286,31 @@ export type {
   GovernedOneRoundInvocationPorts,
   GovernedOneRoundInvocationResult,
   GovernedOneRoundToolExecutionMode,
+  GovernedOneRoundAdmissionReceipt,
+  GovernedOneRoundAdmissionEvidencePort,
+  GovernedOneRoundDispatchClaimPort,
 } from "./execution-kernel/governed-one-round-invocation.js";
+export type { GovernedOneRoundDispatchPermit } from "./execution-kernel/dispatch-permit.js";
+export type {
+  ModelGatewayAdmissionReceipt,
+  ModelGatewayReplayActionInput,
+  ModelGatewayReplayCompletedValue,
+  ModelGatewayReplayDecision,
+  ModelGatewayReplayFingerprintInput,
+  ModelGatewayReplayGuard,
+} from "./model-gateway/replay-guard.js";
+export type {
+  ModelGatewayReplayClaim,
+  ModelGatewayReplayFence,
+  ModelGatewayReplayKey,
+} from "./model-gateway/replay-claim.js";
+export {
+  claimModelGatewayReplayAction,
+  completeModelGatewayReplayClaim,
+  createModelGatewayReplayClaim,
+  persistModelGatewayReplayAdmission,
+  settleModelGatewayReplayClaimUnknown,
+} from "./model-gateway/replay-claim.js";
 export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
 export {
@@ -298,18 +346,6 @@ export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-route
 export { startGateway } from "./gateway/gateway-server.js";
 export type { AppGatewayExecutionBundle, ModelGatewayExecutionBundle, StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
-export { BunPtyAdapter } from "./operator-terminal/bun-pty-adapter.js";
-export {
-  OperatorTerminalError,
-  OperatorTerminalService,
-} from "./operator-terminal/operator-terminal-service.js";
-export type {
-  OperatorPtyAdapter,
-  OperatorPtyProcess,
-  OperatorPtySpawnInput,
-  OperatorTerminalEvent,
-  OperatorTerminalServiceOptions,
-} from "./operator-terminal/operator-terminal-service.js";
 export {
   buildGuiOperatorDiscoveryResults,
   discoverClaudeCliModelDiscovery,
@@ -321,7 +357,6 @@ export {
   discoverOpencodeCliModelDiscovery,
   resolveOpenCodeExecutable,
   markGuiProviderDiscoveryStale,
-  probeCodexCliModelReadiness,
   projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
@@ -359,7 +394,6 @@ export type {
   CodexOAuthExecutionAccount,
   CodexOAuthExecutionCredential,
   CodexOAuthPoolCredential,
-  CreateDirectProviderPooledAdapterOptions,
   CredentialFileStatus,
   CredentialFileStoreConfig,
   CredentialHealthRecord,
@@ -368,7 +402,6 @@ export type {
   CredentialPoolFactoryConfig,
   CredentialWatcherConfig,
   CredentialWatcherListener,
-  CreateCodexOAuthPooledAdapterOptions,
   CreateExactCodexOAuthAdapterOptions,
   DirectProviderAuth,
   DirectProviderCredentialPoolServiceConfig,
@@ -379,7 +412,6 @@ export type {
   HarnessPoolProviderId,
   LoadCredentialPoolOptions,
   LinkCodexOAuthCredentialOptions,
-  CreateOpenCodePooledAdapterOptions,
   LinkOpenCodeCredentialOptions,
   OpenCodeCredentialPoolServiceConfig,
   OpenCodeCredentialStatus,
@@ -429,6 +461,7 @@ export {
   assertManagedChildAuthorityAdmissionBoundary,
   withManagedChildAuthorityAdmission,
   ManagedRemoteHarnessAdapter,
+  isManagedExternalInvocationPermit,
   ManagedFilesystemArtifactDirectoryLeaseManager,
   ManagedFilesystemRuntimeRecoveryStore,
   ManagedGitWorktreeLeaseManager,
@@ -487,13 +520,16 @@ export type {
   ManagedGitWorktreeLeaseManagerConfig,
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeAuthorityObserver,
+  ManagedAgentRuntimeCancellationResult,
   ManagedAgentRuntimeConsumedWriteApproval,
+  ManagedAgentRuntimeInvocationCancelResult,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationRecord,
   ManagedAgentRuntimeInvocationProgressEvent,
   ManagedAgentRuntimeInvocationResult,
   ManagedAgentRuntimeInvocationSnapshot,
   ManagedAgentRuntimeInvocationStartResult,
+  ManagedAgentRuntimeResultPendingEvidence,
   ManagedChildAuthorityAdmission,
   ManagedChildAuthorityAdmissionContract,
   ManagedChildAuthorityAdmissionInput,
@@ -682,21 +718,6 @@ export type {
   WindowsComputerOperationStatus,
 } from "./interactive/windows-computer-capture-recorder.js";
 export {
-  RecorderVoiceTrackRecorder,
-} from "./interactive/recorder-voice-track.js";
-export type {
-  RecorderMicrophoneCaptureArtifactOptions,
-  RecorderMicrophoneCaptureOptions,
-  RecorderMicrophoneCaptureRecord,
-  RecorderTtsNarrationOptions,
-  RecorderTtsNarrationRecord,
-  RecorderVoiceInputMode,
-  RecorderVoiceInputOptions,
-  RecorderVoiceInputRecord,
-  RecorderVoiceTrackProof,
-  RecorderVoiceTrackRecorderOptions,
-} from "./interactive/recorder-voice-track.js";
-export {
   createPlaywrightBrowserVideoEncoder,
   createPlaywrightBrowserVideoRenderer,
   renderPlaywrightBrowserVideo,
@@ -767,9 +788,8 @@ export { KokoroLocalTtsAdapter, WhisperLocalSttAdapter } from "./gateway/local-v
 export type { KokoroLocalTtsAdapterConfig, WhisperLocalSttAdapterConfig } from "./gateway/local-voice-adapters.js";
 export { createSttAdapter } from "./gateway/stt-factory.js";
 export { createTtsAdapter } from "./gateway/tts-factory.js";
-export { checkBudget, reportUsage, checkTier } from "./gateway/budget-middleware.js";
+export { checkBudget, checkTier } from "./gateway/budget-middleware.js";
 export type { BudgetCheckResult, TierCheckResult, BillingConfig } from "./gateway/budget-middleware.js";
-export { ConversationEventEmitter } from "./gateway/conversation-event-emitter.js";
 export { executeDelegation, validateResponseSchema } from "./gateway/delegation-handler.js";
 export type { DelegationTarget, DelegationRegistry } from "./gateway/delegation-handler.js";
 export { createDelegationRoutes } from "./gateway/delegation-routes.js";
@@ -843,6 +863,17 @@ export type {
 export {
   RuntimeSession,
   RuntimeSessionOrchestrator,
+  RuntimeModelRoundDispatchService,
+  defineRuntimeModelRoundActionClaim,
+  runtimeModelRoundEffectIdentity,
+  createRuntimeModelRoundPermitId,
+  readRuntimeModelRoundAdmission,
+  RuntimeToolActionDispatchService,
+  defineRuntimeToolActionClaim,
+  runtimeToolActionClaimIdFor,
+  runtimeToolActionEffectIdentity,
+  createRuntimeToolActionPermitId,
+  assertRuntimeToolActionClaim,
   prepareOperatorAdoptionTurn,
   requireOperatorAdoptionDecisionPersistence,
   isGovernedGoalToolName,
@@ -854,8 +885,16 @@ export {
   buildEffectiveTurnAuthorityPolicyInputs,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
-  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
   defineEffectiveAuthorityAdmissionBundle,
+  readExecutionBinding,
+  readExecutionConfigurationRevision,
+  readExecutionOperatorAdoptionDecision,
+  readExecutionRoute,
+  readExecutionToolAllowlist,
+  readExecutionToolAuthority,
+  readExecutionTurnAuthority,
+  readExecutionTurnId,
+  requireExecutionAuthorityAdmission,
   projectToolPermissionAdmissionFromPerCallConfig,
   defineRuntimeSessionAuthorityFacet,
   assertPersistableAuthorityAdmissionBundle,
@@ -909,6 +948,7 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeAuthorityAdmissionCandidateConfig,
   RuntimeBuiltinToolExecutionContext,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
@@ -920,18 +960,34 @@ export type {
   EscalationSignal,
   EscalationDetector,
   DefaultEscalationDetectorConfig,
-  ContextSummarizer,
-  AgentHandoffSummarizer,
   RuntimeConfigurationRevisionProvider,
   RuntimeConfigurationRevisionSnapshot,
+  RuntimeModelRoundActionClaim,
+  RuntimeModelRoundActionClaimId,
+  RuntimeModelRoundActionClaimPermit,
+  RuntimeModelRoundActionClaimStore,
+  RuntimeModelRoundAdmissionId,
+  RuntimeModelRoundAdmissionReceipt,
+  RuntimeModelRoundDigest,
+  RuntimeModelRoundDispatchContext,
+  RuntimeModelRoundDispatchInput,
+  RuntimeModelRoundDispatchState,
+  RuntimeToolActionClaim,
+  RuntimeToolActionClaimId,
+  RuntimeToolActionClaimPermit,
+  RuntimeToolActionClaimStore,
+  RuntimeToolActionDigest,
+  RuntimeToolActionAdmissionReceipt,
+  RuntimeToolActionClaimsContext,
+  RuntimeToolActionDispatchInput,
+  RuntimeToolActionDispatchState,
 } from "./session/index.js";
-
 // Tenant
 export { TenantRegistry, TenantNotFoundError, TenantValidationFailedError } from "./tenant/tenant-registry.js";
 export { buildTenantSystemPrompt } from "./tenant/system-prompt-builder.js";
 export { extractSuggestions, stripSuggestionTags } from "./tenant/suggestion-parser.js";
 export type { ParsedResponse } from "./tenant/suggestion-parser.js";
-export { DefaultTenantRouter, EmbeddingTenantRouter } from "./tenant/tenant-router.js";
+export { DefaultTenantRouter } from "./tenant/tenant-router.js";
 export type { TenantRouter, RoutingResult } from "./tenant/tenant-router.js";
 export { resolveAgentContext, resolveAgentContextAsync, buildAgentSystemPrompt } from "./tenant/agent-resolver.js";
 export type { ResolvedAgentContext, AsyncAgentResolverDeps } from "./tenant/agent-resolver.js";
@@ -953,65 +1009,35 @@ export { executeTrigger, interpolateTemplate } from "./trigger/trigger-executor.
 export type { TriggerExecutionContext } from "./trigger/trigger-executor.js";
 
 // Channels
-export { EventBridge, toEngineEvent } from "./channels/event-bridge.js";
-export { ChannelRegistry } from "./channels/channel-registry.js";
 export { formatForChannel, toWhatsAppFormat, toInstagramFormat, toMessengerFormat, toEmailFormat } from "./channels/message-formatter.js";
 export type { ChannelConfig, ChannelStatus, IdentityMapping, IdentityResolver } from "./channels/types.js";
 export { InMemoryIdentityResolver } from "./channels/types.js";
-export { CliChannel } from "./channels/cli-channel.js";
 export { WebChannel } from "./channels/web-channel.js";
 export type { WebSocketLike } from "./channels/web-channel.js";
-export { ChannelRouter } from "./channels/channel-router.js";
-export type { RouteResult, ChannelRouterRule } from "./channels/channel-router.js";
-export { WhatsAppChannel } from "./channels/whatsapp-channel.js";
-export type { WhatsAppConfig } from "./channels/whatsapp-channel.js";
-export { InstagramChannel } from "./channels/instagram-channel.js";
-export type { InstagramConfig } from "./channels/instagram-channel.js";
-export { MessengerChannel } from "./channels/messenger-channel.js";
-export type { MessengerConfig } from "./channels/messenger-channel.js";
-export { SlackChannel } from "./channels/slack-channel.js";
-export type { SlackConfig } from "./channels/slack-channel.js";
-export { ApiChannel } from "./channels/api-channel.js";
-export type { SseWriter } from "./channels/api-channel.js";
 export {
-  sendWhatsAppAudioMessage,
-  sendWhatsAppMessage,
-  sendWhatsAppTemplate,
-  whatsappMessagesUrl,
-  WHATSAPP_GRAPH_API_VERSION,
-} from "./channels/whatsapp-api.js";
+  ChannelEgressClaimedError,
+  ChannelEgressPreDispatchCancellationError,
+  assertCanonicalSha256Id,
+  channelEgressDigest,
+  defineChannelEgressActionClaim,
+  dispatchChannelEgress,
+  prepareChannelEgressActionClaim,
+} from "./channels/channel-egress-action-claim.js";
 export type {
-  WhatsAppTemplateComponent,
-  WhatsAppTemplateParameter,
-  WhatsAppSendResult,
-} from "./channels/whatsapp-api.js";
-export {
-  sendInstagramMessage,
-  sendInstagramMediaMessage,
-  instagramMessagesUrl,
-  INSTAGRAM_GRAPH_API_VERSION,
-} from "./channels/instagram-api.js";
-export type { InstagramSendResult } from "./channels/instagram-api.js";
-export {
-  sendMessengerMessage,
-  sendMessengerMediaMessage,
-  messengerMessagesUrl,
-  MESSENGER_GRAPH_API_VERSION,
-} from "./channels/messenger-api.js";
-export type { MessengerSendResult } from "./channels/messenger-api.js";
-export { EmailChannel } from "./channels/email-channel.js";
-export type { EmailChannelConfig } from "./channels/email-channel.js";
-export { createEmailTransport } from "./channels/email-api.js";
-export type { EmailTransport, OutboundEmail, EmailSendResult } from "./channels/email-api.js";
+  ChannelEgressActionClaim,
+  ChannelEgressActionClaimPermit,
+  ChannelEgressActionClaimContext,
+  ChannelEgressActionClaimId,
+  ChannelEgressActionClaimRecord,
+  ChannelEgressActionClaimStore,
+  ChannelEgressActionDigest,
+  ChannelEgressClaimStatus,
+  ChannelEgressDispatchInput,
+  ChannelEgressActionClaimSettlement,
+  ChannelEgressAdmissionReadInput,
+} from "./channels/channel-egress-action-claim.js";
 export { renderEmailHtml, renderEmailPlainText } from "./channels/email-template.js";
 export type { EmailBranding } from "./channels/email-template.js";
-
-// Enrichment
-export { SqliteEnrichmentStore } from "./enrichment/sqlite-enrichment-store.js";
-export { EnrichmentRunner } from "./enrichment/enrichment-runner.js";
-export type { EnrichmentRunnerConfig } from "./enrichment/enrichment-runner.js";
-export { createEnrichmentAdminRoutes } from "./gateway/enrichment-admin-routes.js";
-export type { EnrichmentAdminRoutesConfig } from "./gateway/enrichment-admin-routes.js";
 
 // Integration Runtime
 export { IntegrationRegistry } from "./gateway/integration-registry.js";

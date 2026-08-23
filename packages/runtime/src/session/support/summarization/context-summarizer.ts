@@ -1,34 +1,38 @@
-import type { ProviderAdapter, AgentMessage } from "@kilnai/core";
+import type { AgentMessage } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import type { RuntimeSession } from "../../runtime-session.js";
 
-export interface ContextSummarizer {
-  summarize(session: RuntimeSession): Promise<string>;
+const SUMMARY_MAX_MESSAGES = 10;
+export const LOCAL_SUMMARY_MAX_CHARACTERS = 1200;
+const SUMMARY_ELLIPSIS = "...";
+
+/**
+ * Produces a bounded transcript projection without crossing the model/provider
+ * boundary. The full session remains canonical; this value is only a compact
+ * handoff/escalation aid.
+ */
+export function summarizeConversationLocally(
+  messages: readonly AgentMessage[],
+  maxCharacters = LOCAL_SUMMARY_MAX_CHARACTERS,
+): string {
+  const boundedMaxCharacters = Number.isFinite(maxCharacters)
+    ? Math.max(1, Math.floor(maxCharacters))
+    : LOCAL_SUMMARY_MAX_CHARACTERS;
+  const recent = messages.slice(-SUMMARY_MAX_MESSAGES);
+  if (recent.length === 0) return "No conversation history.";
+
+  const lines = recent.map((message) => {
+    const text = extractText(message.parts).replace(/\s+/gu, " ").trim();
+    return `${message.role}: ${text || "[non-text content]"}`;
+  });
+  const summary = lines.join(" | ");
+  if (summary.length <= boundedMaxCharacters) return summary;
+  if (boundedMaxCharacters <= SUMMARY_ELLIPSIS.length) return summary.slice(0, boundedMaxCharacters);
+  return `${summary.slice(0, boundedMaxCharacters - SUMMARY_ELLIPSIS.length).trimEnd()}${SUMMARY_ELLIPSIS}`;
 }
 
-const SUMMARY_SYSTEM_PROMPT = "Summarize this customer conversation in 1-3 sentences for a human agent. Include: what the customer needs, what has been tried, and the current status.";
-const SUMMARY_MAX_MESSAGES = 10;
-const SUMMARY_MAX_TOKENS = 200;
-
-export class DefaultContextSummarizer implements ContextSummarizer {
-  private readonly provider: ProviderAdapter;
-
-  constructor(provider: ProviderAdapter) {
-    this.provider = provider;
-  }
-
+export class DefaultContextSummarizer {
   async summarize(session: RuntimeSession): Promise<string> {
-    const history = session.conversationHistory;
-    const recent: readonly AgentMessage[] = history.slice(-SUMMARY_MAX_MESSAGES);
-
-    if (recent.length === 0) return "No conversation history.";
-
-    const response = await this.provider.createMessage({
-      system: SUMMARY_SYSTEM_PROMPT,
-      messages: recent,
-      maxTokens: SUMMARY_MAX_TOKENS,
-    });
-
-    return extractText(response.parts);
+    return summarizeConversationLocally(session.conversationHistory);
   }
 }

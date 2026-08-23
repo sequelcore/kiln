@@ -3,7 +3,7 @@
 Use these pages to look up file-level configuration contracts:
 
 - [Application YAML](app-yaml.md) defines application identity, models, tools,
-  knowledge, channels, and runtime behavior.
+  channels, and runtime behavior.
 - [Gateway YAML](gateway-yaml.md) defines the gateway server and its mounted
   applications.
 - [Global configuration](../guides/config/global-config.md) defines user-wide

@@ -44,8 +44,18 @@ export function createOperatorRuntimeManagedEconomicAuthority(
     releasePreFence: async (jobId, economicAttemptId) => {
       await execute({ schemaVersion: 1, operation: "managed-economic.release-pre-fence", jobId, economicAttemptId });
     },
-    fenceDispatch: async (jobId, economicAttemptId, dispatchFenceId) => {
-      await execute({ schemaVersion: 1, operation: "managed-economic.fence-dispatch", jobId, economicAttemptId, dispatchFenceId });
+    fenceDispatch: async (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
+      await execute({ schemaVersion: 1, operation: "managed-economic.fence-dispatch", jobId, economicAttemptId, dispatchFenceId, actionClaim } as unknown as OperatorRuntimeApplicationRequest);
+    },
+    readDispatch: async (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
+      return await execute({
+        schemaVersion: 1,
+        operation: "managed-economic.read-dispatch",
+        jobId,
+        economicAttemptId,
+        dispatchFenceId,
+        actionClaim,
+      } as unknown as OperatorRuntimeApplicationRequest) as Awaited<ReturnType<ManagedEconomicDispatchAuthorityPort["readDispatch"]>>;
     },
     settleExecution: async (jobId, economicAttemptId, dispatchFenceId, settlement: ManagedEconomicSettlement) => {
       await execute({

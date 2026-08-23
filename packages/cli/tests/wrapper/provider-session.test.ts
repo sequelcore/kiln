@@ -1,13 +1,22 @@
 import { describe, expect, it, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { AllCredentialsExhaustedError, resolveCommunicationIntent } from "@kilnai/core/agents";
+import {
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
+  deriveAuthorityFromEffect,
+} from "@kilnai/core/engine";
+import { getBuiltinEffectEnvelope } from "@kilnai/core/tools";
 import { KilnError } from "@kilnai/core/engine";
 import { canonicalTurnId } from "@kilnai/core/events";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import type { KilnMcpClient } from "@kilnai/core/mcp";
-import { prepareOperatorAdoptionTurn } from "@kilnai/runtime";
+import {
+  createAttachedRuntimeBuiltinToolSurface,
+  prepareOperatorAdoptionTurn,
+} from "@kilnai/runtime";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
+import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
 
 type AnyMock = Mock<(...args: unknown[]) => unknown>;
 type StreamEvent = { type: string; content: string; inputTokens?: number; outputTokens?: number };
@@ -38,6 +47,8 @@ const runtimeMocks = vi.hoisted(() => ({
   addUserMessage: vi.fn(),
   addAssistantMessage: vi.fn(),
   attachedToolSurfaceOptions: vi.fn(),
+  modelRoundDispatch: vi.fn(),
+  modelRoundDispatchError: undefined as Error | undefined,
   attachedToolSurfaceOverride: undefined as unknown,
 }));
 
@@ -177,6 +188,12 @@ vi.mock("@kilnai/runtime", () => {
 
   return {
     hasGovernedGoalTools: vi.fn(() => false),
+    readExecutionToolAllowlist: (config: { authorityAdmission?: { turn: { tools: { allowedToolPermissions: readonly { toolName: string }[] } } }; toolAllowlist?: ReadonlySet<string> } | undefined) =>
+      config?.authorityAdmission
+        ? new Set(config.authorityAdmission.turn.tools.allowedToolPermissions.map((entry) => entry.toolName))
+        : config?.toolAllowlist,
+    readExecutionTurnAuthority: (config: { authorityAdmission?: { turn: { authority: unknown } } } | undefined) =>
+      config?.authorityAdmission?.turn.authority,
     prepareOperatorAdoptionTurn: vi.fn(),
     buildEffectiveTurnAuthorityPolicyInputs: (input: {
       executionMode: "execute" | "plan";
@@ -329,13 +346,30 @@ vi.mock("@kilnai/runtime", () => {
       processMessage = runtimeMocks.processMessage;
       emitApprovalReceived = runtimeMocks.emitApprovalReceived;
     },
+    RuntimeModelRoundDispatchService: class MockRuntimeModelRoundDispatchService {
+      constructor(_store: unknown) {}
+      async *dispatchStream(input: {
+        readonly provider: { streamMessage(options: unknown): AsyncGenerator<StreamEvent> };
+        readonly request: unknown;
+        readonly state?: { claimed: boolean; outcome?: "success" | "unknown" };
+      }) {
+        runtimeMocks.modelRoundDispatch(input);
+        if (input.state) input.state.claimed = true;
+        if (runtimeMocks.modelRoundDispatchError) throw runtimeMocks.modelRoundDispatchError;
+        let sawDone = false;
+        try {
+          for await (const event of input.provider.streamMessage(input.request)) {
+            if (event.type === "done") sawDone = true;
+            yield event;
+          }
+        } finally {
+          if (input.state) input.state.outcome = sawDone ? "success" : "unknown";
+        }
+      }
+    },
+    runtimeModelRoundEffectIdentity: vi.fn(() => `sha256:${"1".repeat(64)}`),
     RuntimeSession: MockRuntimeSession,
     CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
-      async createPooledAdapter(config: { defaultModel?: string }) {
-        const Adapter = makeAdapter("codex-oauth");
-        return new Adapter(config);
-      }
-
       async listExecutionAccounts() {
         return [
           { credentialId: "subscription-primary", fileIdentity: "a".repeat(64), revision: "b".repeat(64) },
@@ -347,51 +381,39 @@ vi.mock("@kilnai/runtime", () => {
         const Adapter = makeAdapter("codex-oauth");
         return new Adapter(config);
       }
+
+      async createAdapterFromCredential(config: { defaultModel?: string }) {
+        const Adapter = makeAdapter("codex-oauth");
+        return new Adapter(config);
+      }
     },
     DirectProviderCredentialPoolService: class MockDirectProviderCredentialPoolService {
-      private readonly env: Record<string, string | undefined>;
-
-      constructor(config?: { env?: Record<string, string | undefined> }) {
-        this.env = config?.env ?? {};
-      }
-
-      async listStatus(provider: string) {
-        if (provider === "ollama" || provider === "lmstudio") return [{ id: "env" }];
-        const envKey = {
-          anthropic: "ANTHROPIC_API_KEY",
-          openai: "OPENAI_API_KEY",
-          deepseek: "DEEPSEEK_API_KEY",
-          openrouter: "OPENROUTER_API_KEY",
-        }[provider];
-        return envKey && this.env[envKey] ? [{ id: "env" }] : [];
-      }
-
-      async createPooledAdapter(config: {
-        provider: keyof typeof adapterMocks;
+      async createAdapterFromCredential(config: {
+        credential: { providerId: keyof typeof adapterMocks; auth: Record<string, unknown> };
         defaultModel?: string;
         openRouterAppUrl?: string;
         openRouterAppName?: string;
       }) {
-        const Adapter = makeAdapter(config.provider);
+        const Adapter = makeAdapter(config.credential.providerId);
         const adapterConfig = (() => {
-          switch (config.provider) {
+          switch (config.credential.providerId) {
             case "anthropic":
-              return { apiKey: this.env.ANTHROPIC_API_KEY, defaultModel: config.defaultModel };
+              return { apiKey: config.credential.auth.apiKey, defaultModel: config.defaultModel };
             case "openai":
-              return { apiKey: this.env.OPENAI_API_KEY, defaultModel: config.defaultModel };
+              return { apiKey: config.credential.auth.apiKey, defaultModel: config.defaultModel };
             case "deepseek":
-              return { apiKey: this.env.DEEPSEEK_API_KEY, defaultModel: config.defaultModel };
+              return { apiKey: config.credential.auth.apiKey, defaultModel: config.defaultModel };
             case "openrouter":
               return {
-                apiKey: this.env.OPENROUTER_API_KEY,
+                apiKey: config.credential.auth.apiKey,
                 defaultModel: config.defaultModel,
                 appUrl: config.openRouterAppUrl,
                 appName: config.openRouterAppName,
               };
             case "ollama":
-              return { baseUrl: this.env.OLLAMA_BASE_URL, defaultModel: config.defaultModel };
+              return { baseUrl: config.credential.auth.baseUrl, defaultModel: config.defaultModel };
             case "lmstudio":
-              return { apiKey: this.env.LMSTUDIO_API_KEY, baseUrl: this.env.LMSTUDIO_BASE_URL, defaultModel: config.defaultModel };
+              return { apiKey: config.credential.auth.apiKey, baseUrl: config.credential.auth.baseUrl, defaultModel: config.defaultModel };
             default:
               return { defaultModel: config.defaultModel };
           }
@@ -427,11 +449,298 @@ async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promis
 }
 
 function baseConfig(overrides: Partial<ProviderSessionConfig> = {}): ProviderSessionConfig {
-  return {
+  const config: ProviderSessionConfig = {
     provider: "openai",
     task: "Implement provider session",
     permissionPolicy: { approval: "on-request", sandbox: "read-only" },
     ...overrides,
+  };
+  if ("authorityAdmissionContext" in overrides) return config;
+
+  const defaultRouteId = config.credentialBinding?.routeId ?? "route-1";
+  const defaultAccountId = config.credentialBinding?.accountId ?? "account-1";
+  const defaultCredentialId = config.credentialBinding?.credentialId ?? `credential-${defaultAccountId}`;
+  const fixtureBinding = config.credentialBinding ?? {
+    routeId: defaultRouteId,
+    accountId: defaultAccountId,
+    credentialId: defaultCredentialId,
+    credentialRevision: "revision-1",
+  };
+  const fixtureCredential = config.executionCredential ?? (config.credentialBinding
+    ? undefined
+    : config.provider === "codex-oauth"
+      ? {
+          credentialId: defaultCredentialId,
+          accessToken: "fixture-access-token",
+          chatgptAccountId: "fixture-account",
+        }
+      : {
+          providerId: config.provider,
+          credentialId: defaultCredentialId,
+          ...(config.provider === "opencode-go" || config.provider === "opencode-zen"
+            ? {
+                tier: config.provider === "opencode-go" ? "go" as const : "zen" as const,
+                auth: {
+                  api_key: "fixture-api-key",
+                  tier: config.provider === "opencode-go" ? "go" as const : "zen" as const,
+                  created_at: "2026-08-22T00:00:00.000Z",
+                },
+              }
+            : { auth: { apiKey: "fixture-api-key" } }),
+        } as ConfiguredExecutionCredential);
+
+  // Provider execution now consumes one exact, persisted admission context.
+  // Keep this fixture canonical: its bundle is the same object projected into
+  // perCallConfig.authorityAdmission and the durable model-round dispatch.
+  const sessionId = config.runtimeSessionId ?? "cli-test-session";
+  const turnId = `${sessionId}:turn:1`;
+  const routeId = fixtureBinding.routeId;
+  const accountId = fixtureBinding.accountId;
+  const credentialRevision = config.credentialBinding ? "d".repeat(64) : "revision-1";
+  const authority = config.runtimeExecutionMode === "plan"
+    ? "read_only"
+    : config.requestedAuthority && config.requestedAuthority !== "auto"
+      ? config.requestedAuthority
+      : "audited";
+  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+    executionMode: config.runtimeExecutionMode ?? "execute",
+    ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
+    ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
+    ...(config.boundedWork ? { boundedWork: config.boundedWork } : {}),
+    ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
+  });
+  const candidateToolNames = new Set([
+    ...builtinToolSurface.materializableTools.keys(),
+    ...builtinToolSurface.toolDefinitions.map((tool) => tool.name),
+  ]);
+  const candidateCapabilities = new Map([
+    ...builtinToolSurface.materializableCapabilities,
+    ...builtinToolSurface.capabilities,
+  ]);
+  const toolPermissions = [...candidateToolNames].flatMap((toolName) => {
+    const capability = candidateCapabilities.get(toolName);
+    if (!capability) return [];
+    const effect = capability.effectEnvelope
+      ?? getBuiltinEffectEnvelope(toolName)
+      ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+    return [{
+      toolName,
+      authority: deriveAuthorityFromEffect(effect),
+    }];
+  });
+  const admittedToolAuthorities = new Map<string, (typeof toolPermissions)[number]["authority"]>();
+  const allowedToolNames = new Set<string>();
+  for (const entry of toolPermissions) {
+    const managedDelegation = ["managed_agent.invoke", "managed_agent.start", "managed_agent.orchestrate"]
+      .includes(entry.toolName);
+    const admitted = authority === "read_only"
+      ? (
+        (entry.authority.allowed
+          && !entry.authority.requiresApproval
+          && entry.authority.level <= 1
+          && (candidateCapabilities.get(entry.toolName)?.effectEnvelope?.operation
+            ?? getBuiltinEffectEnvelope(entry.toolName)?.operation
+            ?? CONSERVATIVE_UNKNOWN_ENVELOPE.operation) !== "mutate")
+        || managedDelegation
+      )
+      : authority === "destructive"
+        ? true
+        : (entry.authority.allowed && !entry.authority.requiresApproval && entry.authority.level <= 2)
+          || entry.authority.requiresApproval;
+    if (!admitted) continue;
+    allowedToolNames.add(entry.toolName);
+    admittedToolAuthorities.set(
+      entry.toolName,
+      authority === "destructive"
+        ? {
+          level: entry.authority.level,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Destructive authority was admitted by the parent runtime turn.",
+        }
+        : entry.authority,
+    );
+  }
+  const admittedAuthority = allowedToolNames.size > 0 ? authority : "fail_closed";
+  const policyInputs = [
+    {
+      source: "requested_authority",
+      status: "applied",
+      requestedAuthority: authority,
+      reason: `Operator requested ${authority} authority.`,
+    },
+    {
+      source: "session_policy",
+      status: "applied",
+      admittedAuthority: "unknown",
+      reason: "No narrower session authority policy is configured for this turn.",
+    },
+    {
+      source: "tenant_policy",
+      status: "unresolved",
+      admittedAuthority: "unknown",
+      reason: "Tenant policy input is unavailable for this turn.",
+    },
+    {
+      source: "route_policy",
+      status: "applied",
+      admittedAuthority,
+      reason: "cli direct-provider requested turn authority",
+    },
+    {
+      source: "parent_authority",
+      status: "not_applicable",
+      reason: "Operator turns have no parent managed-agent authority.",
+    },
+    {
+      source: "plan_approval",
+      status: config.runtimeExecutionMode === "plan" ? "applied" : "not_applicable",
+      ...(config.runtimeExecutionMode === "plan" ? { admittedAuthority: "read_only" } : {}),
+      reason: config.runtimeExecutionMode === "plan"
+        ? "Plan mode applies the plan approval workflow read-only authority envelope."
+        : "Execute-mode turns are not governed by plan-mode approval policy.",
+    },
+    {
+      source: "goal_envelope",
+      status: "not_applicable",
+      reason: "Goal envelopes are introduced by Slice 6 and are not available to this Slice 5 admission.",
+    },
+    {
+      source: "work_item_authority",
+      status: "not_applicable",
+      reason: "Work-item authority envelopes are introduced by Slice 7 and are not available to this Slice 5 admission.",
+    },
+  ];
+  const bundle = {
+    schemaRevision: 1,
+    admissionId: `sha256:${"a".repeat(64)}`,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    sessionId,
+    turnId,
+    configuration: {
+      sessionRevision: { revisionSetId: "cli-provider-session-fixture", revisions: { tests: "fixture" } },
+      turnRevision: { revisionSetId: "cli-provider-session-fixture", revisions: { tests: "fixture" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "cli-provider-session-fixture", revision: "fixture", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "destructive", reason: "Canonical CLI provider-session test admission." },
+    },
+    turn: {
+      authority: {
+        executionMode: config.runtimeExecutionMode === "plan" ? "plan" : "execute",
+        requestedAuthority: authority,
+        admittedAuthority,
+        sourcePolicy: "runtime_surface_projection",
+        reason: "Canonical CLI provider-session test admission.",
+        completeness: "authoritative",
+        toolCount: allowedToolNames.size,
+        deniedToolCount: Math.max(0, candidateToolNames.size - allowedToolNames.size),
+        policyInputs,
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: {
+        allowedToolPermissions: toolPermissions
+          .filter((entry) => allowedToolNames.has(entry.toolName))
+          .map((entry) => ({ ...entry, authority: admittedToolAuthorities.get(entry.toolName) ?? entry.authority })),
+        deniedToolNames: [...candidateToolNames].filter((name) => !allowedToolNames.has(name)),
+      },
+      effectCeiling: {
+        operation: authority === "destructive" ? "mutate" : "observe",
+        boundaries: ["process", "workspace"],
+        reversibility: authority === "destructive" ? "irreversible" : "reversible",
+        dataEgress: "metadata",
+        identityUse: "none",
+        consequences: authority === "destructive" ? ["local-state"] : [],
+        idempotency: authority === "destructive" ? "non-idempotent" : "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId,
+          providerId: config.provider,
+          providerModelId: config.model ?? "provider-default",
+          accountSelection: { mode: "exact", accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "Canonical CLI provider-session test admission." } },
+        binding: {
+          status: "bound",
+          routeId,
+          accountId,
+          credentialId: fixtureBinding.credentialId,
+          credentialRevision,
+        },
+      },
+    },
+  };
+  const perCallConfig = {
+    authorityAdmission: bundle,
+    toolAllowlist: allowedToolNames,
+    additionalTools: builtinToolSurface.toolDefinitions.filter((tool) => allowedToolNames.has(tool.name)),
+    perCallCapabilities: new Map([...candidateCapabilities].filter(([name]) => allowedToolNames.has(name))),
+    toolAuthority: admittedToolAuthorities,
+    ...(config.cwd ? { workingDirectory: config.cwd } : {}),
+    runtimeModelRoundDispatch: {
+      admission: bundle,
+      intentFingerprint: `sha256:${"2".repeat(64)}`,
+      attemptId: "test-attempt",
+      routeId,
+      accountId,
+      credentialRevision,
+      readAdmission: vi.fn(() => bundle),
+      store: {},
+      state: { claimed: false },
+    },
+  } as never;
+  return {
+    ...config,
+    credentialBinding: fixtureBinding,
+    ...(fixtureCredential ? { executionCredential: fixtureCredential } : {}),
+    authorityAdmissionContext: {
+      bundle,
+      runtimeSession: {
+        id: sessionId,
+        addUserMessage: runtimeMocks.addUserMessage,
+        addAssistantMessage: runtimeMocks.addAssistantMessage,
+      },
+      builtinToolSurface,
+      mcpClients: config.mcpClients ?? [],
+      mcpCapabilities: [],
+      perCallConfig,
+    } as never,
+  };
+}
+
+function withPersistedPerCallProjection(
+  config: ProviderSessionConfig,
+  projection: Record<string, unknown>,
+): ProviderSessionConfig {
+  const context = config.authorityAdmissionContext;
+  if (!context) throw new Error("Expected canonical provider-session admission context.");
+  const nextTurnId = typeof projection.turnId === "string" ? projection.turnId : context.bundle.turnId;
+  const bundle = nextTurnId === context.bundle.turnId
+    ? context.bundle
+    : { ...context.bundle, turnId: nextTurnId };
+  const dispatch = context.perCallConfig.runtimeModelRoundDispatch;
+  return {
+    ...config,
+    authorityAdmissionContext: {
+      ...context,
+      bundle,
+      perCallConfig: {
+        ...context.perCallConfig,
+        ...projection,
+        authorityAdmission: bundle,
+        ...(dispatch ? {
+          runtimeModelRoundDispatch: {
+            ...dispatch,
+            admission: bundle,
+            ...(typeof projection.turnId === "string" ? { turnId: projection.turnId } : {}),
+          },
+        } : {}),
+      },
+    } as never,
   };
 }
 
@@ -600,6 +909,7 @@ describe("ProviderSession.run()", () => {
     runtimeMocks.addUserMessage.mockReset();
     runtimeMocks.addAssistantMessage.mockReset();
     runtimeMocks.attachedToolSurfaceOptions.mockReset();
+    runtimeMocks.modelRoundDispatchError = undefined;
     runtimeMocks.attachedToolSurfaceOverride = undefined;
     coreSurfaceMocks.createDefaultBuiltinToolSurface.mockClear();
     coreSurfaceMocks.bridgeExecute.mockClear();
@@ -821,7 +1131,7 @@ describe("ProviderSession.run()", () => {
     }));
     const events = await collectEvents(session.run({ prompt: "execute tool path" }));
 
-    expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
     expect(events).toContainEqual({ type: "text_delta", content: "applied changes" });
     expect(events).toContainEqual({
       type: "tool_use",
@@ -867,6 +1177,7 @@ describe("ProviderSession.run()", () => {
         routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
+        credentialRevision: "d".repeat(64),
       },
       executionMode: "text-only",
     }));
@@ -901,6 +1212,7 @@ describe("ProviderSession.run()", () => {
         routeId: "terra",
         accountId: "missing-account",
         credentialId: "subscription-missing",
+        credentialRevision: "e".repeat(64),
       },
       executionMode: "text-only",
     }));
@@ -942,18 +1254,85 @@ describe("ProviderSession.run()", () => {
       queued: false,
       outcome: "completed",
     });
-    const session = new ProviderSession(baseConfig({
+    const sessionConfig = baseConfig({
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
       mcpClients: [client],
       mcpToolAllowlist: new Set([selector]),
-    }));
+    });
+    const admittedMcpCapability = {
+      name: selector,
+      description: "External echo",
+      schema: { type: "object" },
+      tags: ["mcp", "fixture"],
+    };
+    const context = sessionConfig.authorityAdmissionContext!;
+    const mcpAuthority = deriveAuthorityFromEffect(CONSERVATIVE_UNKNOWN_ENVELOPE);
+    const mcpToolAllowlist = new Set([
+      ...(context.perCallConfig.toolAllowlist as ReadonlySet<string>),
+      selector,
+    ]);
+    const mcpCapabilityMap = new Map([
+      ...(context.perCallConfig.perCallCapabilities as ReadonlyMap<string, unknown>),
+      [selector, admittedMcpCapability],
+    ]);
+    const mcpToolAuthority = new Map([
+      ...(context.perCallConfig.toolAuthority as ReadonlyMap<string, unknown>),
+      [selector, mcpAuthority],
+    ]);
+    const mcpBundle = {
+      ...context.bundle,
+      turn: {
+        ...context.bundle.turn,
+        authority: {
+          ...context.bundle.turn.authority,
+          toolCount: mcpToolAllowlist.size,
+        },
+        tools: {
+          ...context.bundle.turn.tools,
+          allowedToolPermissions: [
+            ...context.bundle.turn.tools.allowedToolPermissions,
+            { toolName: selector, authority: mcpAuthority },
+          ],
+        },
+      },
+    } as never;
+    const session = new ProviderSession({
+      ...sessionConfig,
+      authorityAdmissionContext: {
+        ...context,
+        bundle: mcpBundle,
+        mcpCapabilities: [admittedMcpCapability] as never,
+        perCallConfig: {
+          ...context.perCallConfig,
+          authorityAdmission: mcpBundle,
+          toolAllowlist: mcpToolAllowlist,
+          additionalTools: [
+            ...(context.perCallConfig.additionalTools as readonly { name: string }[]),
+            {
+              name: selector,
+              description: admittedMcpCapability.description,
+              inputSchema: admittedMcpCapability.schema,
+              tags: new Set(admittedMcpCapability.tags),
+            },
+          ],
+          perCallCapabilities: mcpCapabilityMap,
+          toolAuthority: mcpToolAuthority,
+          runtimeModelRoundDispatch: {
+            ...context.perCallConfig.runtimeModelRoundDispatch,
+            admission: mcpBundle,
+          },
+        } as never,
+      },
+    });
 
     await collectEvents(session.run({ prompt: "use fixture" }));
 
-    expect(discoverProviderCapabilities).toHaveBeenCalledTimes(1);
+    // MCP capability discovery is part of the persisted admission context;
+    // execution must not rediscover or widen it locally.
+    expect(discoverProviderCapabilities).not.toHaveBeenCalled();
     expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
       mcpClients: [client],
       tools: expect.arrayContaining([expect.objectContaining({ name: selector })]),
@@ -1014,11 +1393,14 @@ describe("ProviderSession.run()", () => {
       outcome: "completed",
     });
 
-    const session = new ProviderSession(baseConfig({
+    const sessionConfig = baseConfig({
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
+    });
+    const session = new ProviderSession(withPersistedPerCallProjection(sessionConfig, {
+      turnId: "kiln-gui:session-1:turn:3",
     }));
 
     await collectEvents(session.run({
@@ -1027,12 +1409,10 @@ describe("ProviderSession.run()", () => {
     }));
 
     const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
-      effectiveTurnAuthority?: {
-        policyInputs?: readonly unknown[];
-      };
+      authorityAdmission?: { readonly turn: { readonly authority: { readonly policyInputs?: readonly unknown[] } } };
     } | undefined;
 
-    expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toEqual([
+    expect(perCallConfig?.authorityAdmission?.turn.authority.policyInputs).toEqual([
       {
         source: "requested_authority",
         status: "applied",
@@ -1126,9 +1506,11 @@ describe("ProviderSession.run()", () => {
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
-      cwd: "C:/workspace/session-default",
-      executionMode: "kiln-executable",
+      cwd: "C:/workspace/kiln",
+      // The persisted authority context owns the working directory used by
+      // the executable round; keep it identical to the run projection.
       requestedAuthority: "destructive",
+      executionMode: "kiln-executable",
     }));
 
     await collectEvents(session.run({
@@ -1168,6 +1550,7 @@ describe("ProviderSession.run()", () => {
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
+      requestedAuthority: "read_only",
       operatorSurface: {
         theme: {
           setTheme: vi.fn(),
@@ -1184,18 +1567,18 @@ describe("ProviderSession.run()", () => {
       toolAllowlist?: ReadonlySet<string>;
       additionalTools?: readonly { readonly name: string }[];
       perCallCapabilities?: ReadonlyMap<string, unknown>;
-      effectiveTurnAuthority?: {
-        requestedAuthority?: string;
-        admittedAuthority?: string;
-        toolCount?: number;
-        deniedToolCount?: number;
-      };
+      authorityAdmission?: { readonly turn: { readonly authority: {
+        readonly requestedAuthority?: string;
+        readonly admittedAuthority?: string;
+        readonly toolCount?: number;
+        readonly deniedToolCount?: number;
+      } } };
     } | undefined;
 
     expect([...(perCallConfig?.toolAllowlist ?? [])]).toEqual(["mock_builtin"]);
     expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["mock_builtin"]);
     expect([...(perCallConfig?.perCallCapabilities?.keys() ?? [])]).toEqual(["mock_builtin"]);
-    expect(perCallConfig?.effectiveTurnAuthority).toMatchObject({
+    expect(perCallConfig?.authorityAdmission?.turn.authority).toMatchObject({
       requestedAuthority: "read_only",
       admittedAuthority: "read_only",
       toolCount: 1,
@@ -1227,26 +1610,30 @@ describe("ProviderSession.run()", () => {
     expect(runtimeMocks.attachedToolSurfaceOptions).toHaveBeenCalledWith(expect.objectContaining({
       executionMode: "plan",
     }));
-    const runtimeSessionConfig = runtimeMocks.runtimeSessionConstructor.mock.calls.at(-1)?.[0] as {
-      systemPrompt?: string;
-    } | undefined;
-    expect(runtimeSessionConfig?.systemPrompt).toContain("Authority mode: planning.");
+    // The prepared runtime session, including its planning prompt, is part of
+    // the persisted admission context; the wrapper must not construct or
+    // locally reconstitute a replacement session.
+    expect(runtimeMocks.runtimeSessionConstructor).not.toHaveBeenCalled();
+    expect(session.config.authorityAdmissionContext?.bundle.turn.authority).toMatchObject({
+      executionMode: "plan",
+      requestedAuthority: "read_only",
+    });
     const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
       additionalTools?: readonly { readonly name: string }[];
-      effectiveTurnAuthority?: {
-        executionMode?: string;
-        requestedAuthority?: string;
-        admittedAuthority?: string;
-        policyInputs?: readonly { readonly source: string; readonly status: string }[];
-      };
+      authorityAdmission?: { readonly turn: { readonly authority: {
+        readonly executionMode?: string;
+        readonly requestedAuthority?: string;
+        readonly admittedAuthority?: string;
+        readonly policyInputs?: readonly { readonly source: string; readonly status: string }[];
+      } } };
     } | undefined;
     expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["mock_builtin"]);
-    expect(perCallConfig?.effectiveTurnAuthority).toMatchObject({
+    expect(perCallConfig?.authorityAdmission?.turn.authority).toMatchObject({
       executionMode: "plan",
       requestedAuthority: "read_only",
       admittedAuthority: "read_only",
     });
-    expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toContainEqual(expect.objectContaining({
+    expect(perCallConfig?.authorityAdmission?.turn.authority.policyInputs).toContainEqual(expect.objectContaining({
       source: "plan_approval",
       status: "applied",
     }));
@@ -1263,13 +1650,14 @@ describe("ProviderSession.run()", () => {
       queued: false,
       outcome: "completed",
     });
-    const session = new ProviderSession(baseConfig({
+    const toolSandbox = { policy: { marker: "lease-policy" } };
+    const sessionConfig = baseConfig({
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
-    }));
-    const toolSandbox = { policy: { marker: "lease-policy" } };
+    });
+    const session = new ProviderSession(withPersistedPerCallProjection(sessionConfig, { sandbox: toolSandbox }));
 
     await collectEvents(session.run({
       prompt: "execute inside the lease",
@@ -1326,6 +1714,7 @@ describe("ProviderSession.run()", () => {
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
       runtimeSessionId: "cli-test-session",
+      requestedAuthority: "audited",
     }));
     await collectEvents(session.run({ prompt: "inspect status", requestedAuthority: "audited" }));
 
@@ -1378,36 +1767,52 @@ describe("ProviderSession.run()", () => {
     expect(requestApproval).toHaveBeenCalledWith("Allow the command");
   });
 
-  it("passes the run abort signal into executable runtime per-call config", async () => {
-    runtimeMocks.processMessage.mockResolvedValueOnce({
-      parts: [{ type: "text", text: "abort bridge checked" }],
-      toolExecutions: [],
-      inputTokens: 1,
-      outputTokens: 1,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      queued: false,
-      outcome: "completed",
+  it("bridges the run abort signal into the executable turn-owned signal", async () => {
+    let observedAbortSignal: AbortSignal | undefined;
+    runtimeMocks.processMessage.mockImplementationOnce(async (...args: unknown[]) => {
+      observedAbortSignal = (args[4] as { abortSignal?: AbortSignal }).abortSignal;
+      await new Promise<void>((resolve) => {
+        if (observedAbortSignal?.aborted) resolve();
+        else observedAbortSignal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return {
+        parts: [{ type: "text", text: "abort bridge checked" }],
+        toolExecutions: [],
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        outcome: "completed",
+      };
     });
 
     const abortController = new AbortController();
-    const session = new ProviderSession(baseConfig({
+    const sessionConfig = baseConfig({
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
+    });
+    const session = new ProviderSession(withPersistedPerCallProjection(sessionConfig, {
+      abortSignal: abortController.signal,
     }));
 
-    await collectEvents(session.run({
+    const completion = collectEvents(session.run({
       prompt: "execute with parent abort bridge",
       abortSignal: abortController.signal,
     }));
+    await vi.waitFor(() => expect(runtimeMocks.processMessage).toHaveBeenCalledOnce());
+    abortController.abort("parent cancelled");
+    await completion;
 
     const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
       abortSignal?: AbortSignal;
     } | undefined;
 
-    expect(perCallConfig?.abortSignal).toBe(abortController.signal);
+    expect(perCallConfig?.abortSignal).toBe(observedAbortSignal);
+    expect(perCallConfig?.abortSignal).not.toBe(abortController.signal);
+    expect(perCallConfig?.abortSignal?.aborted).toBe(true);
   });
 
   it("passes the persisted run turn id into executable runtime per-call config", async () => {
@@ -1422,11 +1827,14 @@ describe("ProviderSession.run()", () => {
       outcome: "completed",
     });
 
-    const session = new ProviderSession(baseConfig({
+    const sessionConfig = baseConfig({
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
+    });
+    const session = new ProviderSession(withPersistedPerCallProjection(sessionConfig, {
+      turnId: "kiln-gui:session-1:turn:3",
     }));
 
     await collectEvents(session.run({
@@ -1465,12 +1873,14 @@ describe("ProviderSession.run()", () => {
 
     await collectEvents(session.run({ prompt: "stable runtime session" }));
 
-    expect(runtimeMocks.runtimeSessionConstructor).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: "kiln-gui:session-1",
-    }));
+    // The Runtime session is an admitted prepared resource; the wrapper must
+    // not reconstruct a local session from the caller's runtimeSessionId.
+    expect(runtimeMocks.runtimeSessionConstructor).not.toHaveBeenCalled();
+    expect((session.config.authorityAdmissionContext?.runtimeSession as { id: string }).id)
+      .toBe("kiln-gui:session-1");
   });
 
-  it("awaits durable adoption persistence before entering the runtime round", async () => {
+  it("does not re-persist canonical operator adoption before entering the runtime round", async () => {
     const order: string[] = [];
     const persist = vi.fn(async () => {
       order.push("persist:start");
@@ -1518,23 +1928,28 @@ describe("ProviderSession.run()", () => {
       operatorTurnCorrelationId: "operator-correlation",
     }));
 
-    expect(order).toEqual([
-      "prepare:start",
-      "persist:start",
-      "persist:complete",
-      "prepare:complete",
-      "processMessage",
-    ]);
-    expect(persist).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["processMessage"]);
+    expect(persist).not.toHaveBeenCalled();
+    expect(prepareOperatorAdoptionTurn).not.toHaveBeenCalled();
   });
 
-  it("fails closed when adoption persistence fails before the runtime round", async () => {
+  it("does not let an obsolete local adoption hook bypass canonical admission", async () => {
     const persist = vi.fn(async () => {
       throw new Error("transcript unavailable");
     });
     vi.mocked(prepareOperatorAdoptionTurn).mockImplementation(async (input) => {
       await input.persist({} as never);
       throw new Error("unreachable");
+    });
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1551,18 +1966,62 @@ describe("ProviderSession.run()", () => {
       operatorTurnCorrelationId: "operator-correlation",
     }));
 
-    expect(persist).toHaveBeenCalledTimes(1);
-    expect(runtimeMocks.orchestratorConstructor).not.toHaveBeenCalled();
-    expect(runtimeMocks.processMessage).not.toHaveBeenCalled();
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "error",
-      code: "EXECUTABLE_SESSION_ERROR",
-      message: expect.stringContaining("transcript unavailable"),
+    expect(persist).not.toHaveBeenCalled();
+    expect(prepareOperatorAdoptionTurn).not.toHaveBeenCalled();
+    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.processMessage).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+  });
+
+  it("aborts and joins an executable Runtime turn before consumer-abandonment teardown", async () => {
+    let processSettled = false;
+    let observedAbortSignal: AbortSignal | undefined;
+    runtimeMocks.processMessage.mockImplementationOnce(async (...args: unknown[]) => {
+      const deps = runtimeMocks.orchestratorConstructor.mock.calls.at(-1)?.[0] as {
+        eventBus?: { emit(event: unknown): void };
+      } | undefined;
+      const perCallConfig = args[4] as {
+        abortSignal?: AbortSignal;
+        runtimeModelRoundDispatch?: { state?: { claimed: boolean; outcome?: "success" | "unknown" } };
+      };
+      observedAbortSignal = perCallConfig.abortSignal;
+      perCallConfig.runtimeModelRoundDispatch!.state!.claimed = true;
+      deps?.eventBus?.emit({
+        type: "tool_called",
+        toolCallId: "call_abandoned",
+        toolCallScopeId: "cli-test-session:turn:1:response:1",
+        toolName: "write",
+        toolInput: { filePath: "abandoned.txt", content: "pending" },
+        sessionId: "cli-test-session",
+        timestamp: new Date(),
+      });
+      await new Promise<void>((resolve) => {
+        if (perCallConfig.abortSignal?.aborted) resolve();
+        else perCallConfig.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      perCallConfig.runtimeModelRoundDispatch!.state!.outcome = "unknown";
+      processSettled = true;
+      throw new Error("executable turn cancelled after consumer abandonment");
+    });
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      runtimeSessionId: "cli-test-session",
     }));
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "completed",
-      outcome: "failed",
-    }));
+    const iterator = session.run({ prompt: "stop after denied live tool" })[Symbol.asyncIterator]();
+
+    while (true) {
+      const next = await iterator.next();
+      if (next.done || next.value.type === "tool_use") break;
+    }
+    await iterator.return?.();
+
+    expect(observedAbortSignal?.aborted).toBe(true);
+    expect(processSettled).toBe(true);
+    expect(session.runtimeModelRoundClaimed).toBe(true);
+    expect(session.runtimeModelRoundOutcome).toBe("unknown");
   });
 
   it("streams runtime tool events before the final executable assistant text", async () => {
@@ -1668,7 +2127,7 @@ describe("ProviderSession.run()", () => {
       executionMode: "kiln-executable",
     }));
 
-    expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
 
     await collectEvents(session.run({ prompt: "execute with canonical surface" }));
 
@@ -1955,11 +2414,11 @@ describe("ProviderSession.run()", () => {
       toolAllowlist?: ReadonlySet<string>;
       additionalTools?: readonly { readonly name: string }[];
       perCallCapabilities?: ReadonlyMap<string, unknown>;
-      effectiveTurnAuthority?: {
-        admittedAuthority?: string;
-        toolCount?: number;
-        deniedToolCount?: number;
-      };
+      authorityAdmission?: { readonly turn: { readonly authority: {
+        readonly admittedAuthority?: string;
+        readonly toolCount?: number;
+        readonly deniedToolCount?: number;
+      } } };
     } | undefined;
     expect(orchestratorConfig.tools?.map((tool) => tool.name)).toEqual(["tool_catalog_search"]);
     expect(orchestratorConfig.materializableTools?.get("browser_snapshot")).toEqual(browserSnapshotTool);
@@ -1972,7 +2431,7 @@ describe("ProviderSession.run()", () => {
       "tool_catalog_search",
       "browser_snapshot",
     ]);
-    expect(perCallConfig?.effectiveTurnAuthority).toMatchObject({
+    expect(perCallConfig?.authorityAdmission?.turn.authority).toMatchObject({
       admittedAuthority: "read_only",
       toolCount: 2,
       deniedToolCount: 0,
@@ -1995,7 +2454,7 @@ describe("ProviderSession.run()", () => {
     }));
   });
 
-  it("passes runtime budget admission into executable sessions", async () => {
+  it("does not re-admit a canonical runtime budget in executable sessions", async () => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [],
       toolExecutions: [],
@@ -2018,12 +2477,12 @@ describe("ProviderSession.run()", () => {
 
     await collectEvents(session.run({ prompt: "execute within budget" }));
 
-    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
-      sessionTurnBudget,
-    }));
+    expect(sessionTurnBudget.admit).not.toHaveBeenCalled();
+    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledTimes(1);
   });
 
-  it("checks runtime budget admission before text-only provider calls", async () => {
+  it("does not re-admit a canonical runtime budget before text-only provider calls", async () => {
+    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
     const sessionTurnBudget = {
       admit: vi.fn().mockResolvedValue({
         status: "denied",
@@ -2045,15 +2504,9 @@ describe("ProviderSession.run()", () => {
 
     const events = await collectEvents(session.run({ prompt: "text-only budget check" }));
 
-    expect(sessionTurnBudget.admit).toHaveBeenCalledWith(expect.any(String));
-    expect(adapterMocks.openai.ctor).not.toHaveBeenCalled();
-    expect(events).toContainEqual({
-      type: "error",
-      code: "BUDGET_ADMISSION_DENIED",
-      message: "Provider route is over budget.",
-      isRetryable: false,
-    });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(sessionTurnBudget.admit).not.toHaveBeenCalled();
+    expect(adapterMocks.openai.ctor).toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
   });
 
   it("does not re-admit a canonical pre-fenced budget on the real text-only path", async () => {
@@ -2069,10 +2522,41 @@ describe("ProviderSession.run()", () => {
       authorityAdmissionContext: {} as never,
     }));
 
-    await collectEvents(session.run({ prompt: "canonical text-only turn" }));
+    const events = await collectEvents(session.run({ prompt: "canonical text-only turn" }));
 
     expect(sessionTurnBudget.admit).not.toHaveBeenCalled();
-    expect(adapterMocks.openai.ctor).toHaveBeenCalledTimes(1);
+    expect(adapterMocks.openai.ctor).not.toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+  });
+
+  it("fails closed before provider setup when an admitted executable context lacks model-round dispatch", async () => {
+    const sessionConfig = baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    });
+    const session = new ProviderSession({
+      ...sessionConfig,
+      authorityAdmissionContext: {
+        ...sessionConfig.authorityAdmissionContext!,
+        perCallConfig: {
+          authorityAdmission: sessionConfig.authorityAdmissionContext!.bundle,
+        } as never,
+      } as never,
+    });
+
+    const events = await collectEvents(session.run({ prompt: "malformed admitted turn" }));
+
+    expect(adapterMocks.openai.ctor).not.toHaveBeenCalled();
+    expect(runtimeMocks.orchestratorConstructor).not.toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      code: "EXECUTABLE_SESSION_ERROR",
+      message: expect.stringMatching(/durable Runtime model-round claim/iu),
+      isRetryable: false,
+    }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("normalizes direct-provider builtin tool executor results before runtime execution", async () => {
@@ -2149,7 +2633,7 @@ describe("ProviderSession.run()", () => {
       env: { OPENAI_API_KEY: "cfg-key" },
     }));
 
-    expect(session.capabilities.supportedTools).toEqual(["mock_builtin", "operator_set_theme"]);
+    expect(session.capabilities.supportedTools).toEqual(["mock_builtin"]);
   });
 
   it("does not derive executable mode when no model is selected", () => {
@@ -2256,6 +2740,81 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "cancelled" }));
   });
 
+  it("projects a post-claim stream cancellation only after the Runtime iterator settles unknown", async () => {
+    adapterMocks.openai.stream.mockReturnValue(streamEvents([
+      { type: "text", content: "started" },
+      { type: "text", content: "must not be accepted after cancellation" },
+    ]));
+    const abortController = new AbortController();
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+    }));
+    const iterator = session.run({
+      prompt: "cancel after the provider stream starts",
+      abortSignal: abortController.signal,
+    })[Symbol.asyncIterator]();
+    const events: ExecutionSessionEvent[] = [];
+
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) break;
+      events.push(next.value);
+      if (next.value.type === "text_delta") {
+        abortController.abort("operator cancelled");
+        break;
+      }
+    }
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) break;
+      events.push(next.value);
+    }
+
+    expect(session.runtimeModelRoundClaimed).toBe(true);
+    expect(session.runtimeModelRoundOutcome).toBe("unknown");
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "cancelled" }));
+  });
+
+  it("projects a claimed unknown round when its session consumer abandons the stream", async () => {
+    adapterMocks.openai.stream.mockReturnValue(streamEvents([
+      { type: "text", content: "started" },
+      { type: "text", content: "unobserved" },
+    ]));
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+    }));
+    const iterator = session.run({ prompt: "abandon after dispatch" })[Symbol.asyncIterator]();
+
+    while (true) {
+      const next = await iterator.next();
+      if (next.done || next.value.type === "text_delta") break;
+    }
+    await iterator.return?.();
+
+    expect(session.runtimeModelRoundClaimed).toBe(true);
+    expect(session.runtimeModelRoundOutcome).toBe("unknown");
+  });
+
+  it("does not erase committed unknown evidence when shared settlement state is incomplete", async () => {
+    const committedError = new Error("durable unknown settlement failed");
+    committedError.name = "RuntimeModelRoundCommittedError";
+    runtimeMocks.modelRoundDispatchError = committedError;
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+    }));
+
+    await collectEvents(session.run({ prompt: "preserve conservative unknown" }));
+
+    expect(session.runtimeModelRoundClaimed).toBe(true);
+    expect(session.runtimeModelRoundOutcome).toBe("unknown");
+  });
+
   it("passes abortSignal to a direct provider adapter", async () => {
     adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
     const abortController = new AbortController();
@@ -2275,14 +2834,24 @@ describe("ProviderSession.run()", () => {
     }));
   });
 
-  it("resolves API key from options.env before config.env and process.env", async () => {
-    process.env.OPENAI_API_KEY = "process-key";
+  it("uses the exact committed credential instead of local environment fallback", async () => {
     adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       model: "gpt-4o",
       env: { OPENAI_API_KEY: "config-key" },
+      credentialBinding: {
+        routeId: "route-openai",
+        accountId: "account-openai",
+        credentialId: "committed-openai",
+        credentialRevision: "a".repeat(64),
+      },
+      executionCredential: {
+        providerId: "openai",
+        credentialId: "committed-openai",
+        auth: { apiKey: "committed-key" },
+      },
       executionMode: "text-only",
     }));
 
@@ -2292,55 +2861,29 @@ describe("ProviderSession.run()", () => {
     }));
 
     expect(adapterMocks.openai.ctor).toHaveBeenCalledWith({
-      apiKey: "options-key",
+      apiKey: "committed-key",
       defaultModel: "gpt-4o",
     });
   });
 
-  it("resolves API key from config.env when options.env is not set", async () => {
-    delete process.env.OPENAI_API_KEY;
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
-
-    const session = new ProviderSession(baseConfig({
-      provider: "openai",
-      model: "gpt-4o",
-      env: { OPENAI_API_KEY: "config-key" },
-      executionMode: "text-only",
-    }));
-
-    await collectEvents(session.run({ prompt: "config key" }));
-
-    expect(adapterMocks.openai.ctor).toHaveBeenCalledWith({
-      apiKey: "config-key",
-      defaultModel: "gpt-4o",
-    });
-  });
-
-  it("resolves API key from process.env when options and config env are missing", async () => {
-    process.env.OPENAI_API_KEY = "process-key";
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
-
-    const session = new ProviderSession(baseConfig({
-      provider: "openai",
-      model: "gpt-4o",
-      executionMode: "text-only",
-    }));
-
-    await collectEvents(session.run({ prompt: "process key" }));
-
-    expect(adapterMocks.openai.ctor).toHaveBeenCalledWith({
-      apiKey: "process-key",
-      defaultModel: "gpt-4o",
-    });
-  });
-
-  it("does not require API key for ollama and uses OLLAMA_BASE_URL from env", async () => {
-    delete process.env.OLLAMA_API_KEY;
+  it("uses the exact committed Ollama credential instead of environment fallback", async () => {
     adapterMocks.ollama.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
 
     const session = new ProviderSession(baseConfig({
       provider: "ollama",
       model: "llama3.2",
+      credentialBinding: {
+        routeId: "route-ollama",
+        accountId: "account-ollama",
+        credentialId: "committed-ollama",
+        credentialRevision: "b".repeat(64),
+      },
+      executionCredential: {
+        providerId: "ollama",
+        credentialId: "committed-ollama",
+        auth: { baseUrl: "http://committed-ollama:11435" },
+      },
+      executionMode: "text-only",
     }));
 
     await collectEvents(session.run({
@@ -2349,7 +2892,7 @@ describe("ProviderSession.run()", () => {
     }));
 
     expect(adapterMocks.ollama.ctor).toHaveBeenCalledWith({
-      baseUrl: "http://127.0.0.1:11435",
+      baseUrl: "http://committed-ollama:11435",
       defaultModel: "llama3.2",
     });
   });

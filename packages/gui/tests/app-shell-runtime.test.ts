@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  persistOperatorTerminalHeightPreference,
-  readOperatorTerminalHeightPreference,
   readOperatorToken,
   resolveGatewayHttpBaseUrl,
   toWsUrl,
@@ -11,17 +9,6 @@ describe("app shell runtime helpers", () => {
   beforeEach(() => {
     localStorage.clear();
     window.history.replaceState(null, "", "/gui/");
-  });
-
-  it("bounds and persists terminal panel height without restoring an open shell", () => {
-    expect(readOperatorTerminalHeightPreference("C:/workspace/one")).toBe(280);
-
-    persistOperatorTerminalHeightPreference("C:/workspace/one", 344);
-    expect(readOperatorTerminalHeightPreference("C:/workspace/one")).toBe(344);
-    expect(readOperatorTerminalHeightPreference("C:/workspace/two")).toBe(280);
-
-    localStorage.setItem("kiln.gui.operatorTerminalHeight:C%3A%2Fworkspace%2Fone", "9999");
-    expect(readOperatorTerminalHeightPreference("C:/workspace/one")).toBe(720);
   });
 
   it("resolves gateway URLs from the active browser location", () => {

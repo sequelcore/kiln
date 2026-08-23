@@ -4,7 +4,11 @@
 /** Speech-to-text adapter interface */
 export interface SttAdapter {
   readonly name: string;
-  transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult>;
+  transcribe(audio: Uint8Array, mimeType: string, options?: SttOptions): Promise<SttResult>;
+}
+
+export interface SttOptions {
+  readonly signal?: AbortSignal;
 }
 
 /** Result from speech-to-text transcription */
@@ -26,6 +30,7 @@ export interface TtsOptions {
   readonly speed?: number;
   readonly format?: string;
   readonly language?: string;
+  readonly signal?: AbortSignal;
 }
 
 /** Result from text-to-speech synthesis */

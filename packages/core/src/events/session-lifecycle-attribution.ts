@@ -12,7 +12,6 @@ export type SessionLifecycleSourceKind =
   | "control_instructions"
   | "procedural_context"
   | "memory"
-  | "knowledge"
   | "coordination"
   | "transcript"
   | "tool_schema"

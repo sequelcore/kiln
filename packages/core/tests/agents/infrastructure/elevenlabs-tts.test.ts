@@ -58,6 +58,17 @@ describe("ElevenLabsTtsAdapter", () => {
     });
   });
 
+  it("forwards cancellation and does not retry a 429 response", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockAudioResponse(429));
+    vi.stubGlobal("fetch", mockFetch);
+    const abort = new AbortController();
+
+    await expect(adapter.synthesize("Hello", { signal: abort.signal })).rejects.toThrow(KilnError);
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0]![1].signal).toBe(abort.signal);
+  });
+
   it("throws KilnError on non-retryable provider errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockAudioResponse(401)));
 

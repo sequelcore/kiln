@@ -28,7 +28,7 @@ function makeContext(): SessionContext {
   };
 }
 
-function createSessionFromEvents(events: readonly unknown[]) {
+function createSessionFromEvents(events: readonly unknown[], runtimeModelRoundClaimed = false) {
   return {
     sessionId: "provider-session-1",
     capabilities: {},
@@ -38,6 +38,7 @@ function createSessionFromEvents(events: readonly unknown[]) {
       }
     },
     dispose: async () => {},
+    runtimeModelRoundClaimed,
   };
 }
 
@@ -274,6 +275,56 @@ describe("runSession output routing", () => {
 
     expect(output.writeProviderFallback).toHaveBeenCalledWith("claude");
     expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back after a direct-provider model round has been claimed", async () => {
+    const output = {
+      mode: "answer" as const,
+      writeAssistantDelta: vi.fn(),
+      resetAssistantAnswer: vi.fn(),
+      writeToolUse: vi.fn(),
+      writeToolOutputDelta: vi.fn(),
+      writeProviderFallback: vi.fn(),
+    };
+    const primarySession = createSessionFromEvents([
+      { type: "error", code: "COMMITTED_UNKNOWN", message: "Provider outcome is unknown", isRetryable: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+    ], true);
+    const fallbackSession = createSessionFromEvents([
+      { type: "text_delta", content: "fallback must not run" },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+    ]);
+    const createSession = vi.fn((providerId: string) => providerId === "claude" ? primarySession as never : fallbackSession as never);
+
+    const result = await runSession({
+      governedGoalTools: "forbidden",
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: ["opencode"], scores: [] }),
+        createSession,
+        reportFailure: () => {},
+        reportSuccess: () => {},
+      } as never,
+      cleanupRegistry: { register: () => {} } as never,
+      manager: { trackCostUpdate: () => {} } as never,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      },
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse: () => {},
+        postToolUse: () => {},
+      } as never,
+      output,
+    });
+
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(result.sessionSucceeded).toBe(false);
+    expect(output.writeProviderFallback).not.toHaveBeenCalled();
   });
 
   it("removes abandoned provider partial text from non-human output before fallback", async () => {

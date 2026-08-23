@@ -11,7 +11,7 @@ export interface PiiMatch {
 
 export interface PiiScanResult {
   readonly matches: readonly PiiMatch[];
-  readonly tier: "heuristic" | "deep";
+  readonly tier: "heuristic";
   readonly scannedAt: Date;
 }
 
@@ -22,7 +22,7 @@ export interface ContentScore {
 
 export interface ContentClassificationResult {
   readonly scores: readonly ContentScore[];
-  readonly tier: "heuristic" | "deep";
+  readonly tier: "heuristic";
   readonly scannedAt: Date;
 }
 

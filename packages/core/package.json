@@ -72,10 +72,6 @@
       "types": "./dist/field/index.d.ts",
       "import": "./dist/field/index.js"
     },
-    "./knowledge": {
-      "types": "./dist/knowledge/index.d.ts",
-      "import": "./dist/knowledge/index.js"
-    },
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
       "import": "./dist/mcp/index.js"

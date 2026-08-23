@@ -1,15 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import type { KeyboardEvent, MouseEvent, ReactNode, WheelEvent } from "react";
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
   GuiBrowserLiveViewportFrame,
-  GuiBrowserOperatorInput,
   GuiBrowserSessionState,
   GuiInteractiveUseSnapshot,
   OperatorWorkspaceFileSnapshot,
 } from "@kilnai/gateway-contracts";
-import { File, Image, Lock, MessageSquare, Monitor, Network, Unlock, X } from "lucide-react";
+import { File, Image, MessageSquare, Monitor, Network, X } from "lucide-react";
 import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,15 +24,6 @@ interface OperatorSurfaceTabsProps {
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame?: GuiBrowserLiveViewportFrame | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
-  readonly onBrowserSessionControl?: (
-    action: "takeover" | "release",
-    options?: { readonly sessionId?: string; readonly gatewayTargetId?: string; readonly reason?: string },
-  ) => void;
-  readonly onBrowserOperatorInput?: (request: {
-    readonly sessionId: string;
-    readonly gatewayTargetId?: string;
-    readonly input: GuiBrowserOperatorInput;
-  }) => void;
   readonly memoryContent: ReactNode;
   readonly memoryOpen: boolean;
   readonly files: readonly OperatorWorkspaceFileSnapshot[];
@@ -227,15 +217,6 @@ function BrowserUsePanel(props: {
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame?: GuiBrowserLiveViewportFrame | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
-  readonly onBrowserSessionControl?: (
-    action: "takeover" | "release",
-    options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
-  ) => void;
-  readonly onBrowserOperatorInput?: (request: {
-    readonly sessionId: string;
-    readonly gatewayTargetId?: string;
-    readonly input: GuiBrowserOperatorInput;
-  }) => void;
 }) {
   const snapshot = props.snapshot;
   const loadResourceDataUrl = props.loadResourceDataUrl;
@@ -251,7 +232,6 @@ function BrowserUsePanel(props: {
   const screenshotUri = props.browserSession?.latestCapture?.uri ?? snapshot?.screenshotUri;
   const browserSessionId = props.browserSession?.sessionId ?? snapshot?.sessionId;
   const browserSurfaceKey = browserSessionId ?? `${props.browserSession?.provider ?? snapshot?.provider ?? "browser"}:${url ?? label}`;
-  const operatorOwnsBrowser = props.browserSession?.ownership === "operator";
   const liveViewportFrame = props.browserLiveViewportFrame?.sessionId === browserSessionId ? props.browserLiveViewportFrame : null;
   const [loadedScreenshot, setLoadedScreenshot] = useState<{ readonly sessionKey: string; readonly dataUrl: string } | null>(null);
   const [loadedLiveViewport, setLoadedLiveViewport] = useState<{ readonly frameId: string; readonly dataUrl: string } | null>(null);
@@ -262,84 +242,6 @@ function BrowserUsePanel(props: {
     ? liveViewportFrame.dataUrl
       ?? (loadedLiveViewport?.frameId === liveViewportFrame.frameId ? loadedLiveViewport.dataUrl : null)
     : null;
-
-  function sendOperatorInput(input: GuiBrowserOperatorInput): void {
-    if (!operatorOwnsBrowser || !browserSessionId || !props.onBrowserOperatorInput) {
-      return;
-    }
-    props.onBrowserOperatorInput({
-      sessionId: browserSessionId,
-      ...(props.browserSession?.gatewayTargetId ? { gatewayTargetId: props.browserSession.gatewayTargetId } : {}),
-      input,
-    });
-  }
-
-  function viewportPoint(event: MouseEvent<HTMLElement> | WheelEvent<HTMLElement>): { readonly x: number; readonly y: number } | null {
-    if (!liveViewportFrame) {
-      return null;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
-      return null;
-    }
-    const normalizedX = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
-    const normalizedY = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
-    return {
-      x: Math.round(normalizedX * liveViewportFrame.width),
-      y: Math.round(normalizedY * liveViewportFrame.height),
-    };
-  }
-
-  function pointerButton(event: MouseEvent<HTMLElement>): Extract<GuiBrowserOperatorInput, { kind: "pointer" }>["button"] {
-    if (event.button === 1) return "middle";
-    if (event.button === 2) return "right";
-    return "left";
-  }
-
-  function handleViewportClick(event: MouseEvent<HTMLElement>): void {
-    const point = viewportPoint(event);
-    if (!point) {
-      return;
-    }
-    sendOperatorInput({
-      kind: "pointer",
-      phase: "click",
-      x: point.x,
-      y: point.y,
-      button: pointerButton(event),
-      clickCount: event.detail > 0 ? event.detail : 1,
-    });
-  }
-
-  function handleViewportWheel(event: WheelEvent<HTMLElement>): void {
-    const point = viewportPoint(event);
-    if (!point) {
-      return;
-    }
-    event.preventDefault();
-    sendOperatorInput({
-      kind: "wheel",
-      x: point.x,
-      y: point.y,
-      deltaX: event.deltaX,
-      deltaY: event.deltaY,
-    });
-  }
-
-  function handleViewportKeyDown(event: KeyboardEvent<HTMLElement>): void {
-    if (!operatorOwnsBrowser || event.ctrlKey || event.metaKey || event.altKey) {
-      return;
-    }
-    if (event.key.length === 1) {
-      event.preventDefault();
-      sendOperatorInput({ kind: "text", text: event.key });
-      return;
-    }
-    if (["Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
-      event.preventDefault();
-      sendOperatorInput({ kind: "key", phase: "press", key: event.key });
-    }
-  }
 
   useEffect(() => {
     if (snapshot?.screenshotDataUrl) {
@@ -420,52 +322,18 @@ function BrowserUsePanel(props: {
             </span>
           </>
         ) : null}
-        {props.browserSession && props.onBrowserSessionControl ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={() => {
-              props.onBrowserSessionControl?.(
-                operatorOwnsBrowser ? "release" : "takeover",
-                {
-                  ...(browserSessionId ? { sessionId: browserSessionId } : {}),
-                  ...(props.browserSession?.gatewayTargetId ? { gatewayTargetId: props.browserSession.gatewayTargetId } : {}),
-                  reason: operatorOwnsBrowser ? "Operator released browser control." : "Operator took browser control.",
-                },
-              );
-            }}
-          >
-            {operatorOwnsBrowser ? (
-              <Unlock data-icon="inline-start" aria-hidden="true" />
-            ) : (
-              <Lock data-icon="inline-start" aria-hidden="true" />
-            )}
-            {operatorOwnsBrowser ? "Release" : "Take control"}
-          </Button>
-        ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-auto bg-workspace-viewer p-4">
         {liveViewportFrame && liveViewportDataUrl ? (
           <div className="grid min-h-full place-items-center">
-            <button
-              type="button"
+            <div
               aria-label="Live browser viewport"
-              aria-disabled={!operatorOwnsBrowser}
               data-testid="browser-live-viewport"
-              tabIndex={operatorOwnsBrowser ? 0 : -1}
-              className={cn(
-                "relative block max-h-full max-w-full overflow-hidden rounded-md border border-border/70 bg-background p-0 text-left shadow-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                operatorOwnsBrowser ? "cursor-crosshair" : "cursor-default",
-              )}
+              className="relative block max-h-full max-w-full overflow-hidden rounded-md border border-border/70 bg-background shadow-sm"
               style={{
                 aspectRatio: `${liveViewportFrame.width} / ${liveViewportFrame.height}`,
                 width: "min(100%, 1280px)",
               }}
-              onClick={handleViewportClick}
-              onWheel={handleViewportWheel}
-              onKeyDown={handleViewportKeyDown}
             >
               <img
                 src={liveViewportDataUrl}
@@ -473,7 +341,7 @@ function BrowserUsePanel(props: {
                 className="h-full w-full select-none object-contain"
                 draggable={false}
               />
-            </button>
+            </div>
           </div>
         ) : screenshotDataUrl ? (
           <div className="grid min-h-full place-items-center">
@@ -567,8 +435,6 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
         browserSession={browserSession}
         browserLiveViewportFrame={props.browserLiveViewportFrame}
         loadResourceDataUrl={props.loadResourceDataUrl}
-        onBrowserSessionControl={props.onBrowserSessionControl}
-        onBrowserOperatorInput={props.onBrowserOperatorInput}
       />
     );
   }

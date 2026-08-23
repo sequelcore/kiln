@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { readFileSync } from "node:fs";
 import { KilnError } from "../engine/errors.js";
 import type { DomainConfig } from "../domain/index.js";
-import type { DomainPackageManifest, SkillPackageManifest, PackageToolsConfig, PackageKnowledgeConfig } from "./types.js";
+import type { DomainPackageManifest, SkillPackageManifest, PackageToolsConfig } from "./types.js";
 import type { PackageYaml } from "./yaml-schema.js";
 import { validatePackageYaml } from "./yaml-schema.js";
 import { computeContentHash } from "./security.js";
@@ -65,13 +65,6 @@ export function parseDomainPackageYaml(
     ? { server: yaml.tools.server }
     : null;
 
-  const knowledge: PackageKnowledgeConfig | null = yaml.knowledge
-    ? {
-        ...(yaml.knowledge.examples !== undefined ? { examples: yaml.knowledge.examples } : {}),
-        ...(yaml.knowledge.gates !== undefined ? { gates: yaml.knowledge.gates } : {}),
-      }
-    : null;
-
   return {
     name: yaml.name ?? "",
     type: "domain",
@@ -82,7 +75,6 @@ export function parseDomainPackageYaml(
     config,
     skills: yaml.skills ?? [],
     tools,
-    knowledge,
   };
 }
 

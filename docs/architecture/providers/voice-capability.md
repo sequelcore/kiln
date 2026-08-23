@@ -221,7 +221,7 @@ changes that match how the agent is speaking, such as `calm` for error recovery,
 not expose arbitrary provider parameters as voice controls.
 
 Runtime owns automatic intent selection. It evaluates the final assistant text
-after egress and grounding policy, plus runtime escalation evidence, and chooses
+after egress and safety policy, plus runtime escalation evidence, and chooses
 only from intents declared by the active TTS profile. Explicit admitted intent is
 preserved when valid; otherwise selection falls through `calm`, `careful`,
 `brief`, then `neutral`. This keeps GUI, TUI, API, SDK, widget, and
@@ -261,8 +261,8 @@ another surface, but it cannot change provider choice, failure policy,
 artifact policy, or replay semantics.
 
 For operator direct surfaces, audio ingress is transformed inside
-`processAdmittedTurn` before tenant routing, task-shape analysis, knowledge
-retrieval, or provider execution. This keeps GUI and TUI direct
+`processAdmittedTurn` before tenant routing, task-shape analysis, or provider
+execution. This keeps GUI and TUI direct
 sessions from bypassing the governed STT path and prevents raw audio from being
 sent to a text-only model route.
 

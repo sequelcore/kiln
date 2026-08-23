@@ -117,6 +117,7 @@ import {
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
+  createRuntimeMediaActionClaimContext,
   OperatorSessionExecutionBridge,
   getProjectContextArtifactCache,
   withManagedInvocationService,
@@ -147,6 +148,8 @@ import type {
   OperatorSessionAuthorityAdmissionBridge,
 } from "@kilnai/runtime";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
@@ -194,6 +197,9 @@ interface TuiBootstrapOptions {
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<OperatorTurnTuiDispatchPayload>;
   readonly authorityAdmissionEvidenceStore: TranscriptAuthorityAdmissionEvidenceStore;
+  readonly runtimeModelRoundActionClaims: import("@kilnai/runtime").RuntimeModelRoundActionClaimStore;
+  readonly runtimeToolActionClaims: import("@kilnai/runtime").RuntimeToolActionClaimStore;
+  readonly runtimeMediaActionClaims: import("@kilnai/runtime").RuntimeMediaActionClaimContext;
   readonly closeOperatorTurnComposition: () => void;
   readonly communicationIntentCandidates?: readonly import("@kilnai/core").CommunicationIntentCandidate[];
 }
@@ -1105,6 +1111,9 @@ async function bootstrapGatewaySession(
     operatorTurnExecutionBridge: options.operatorTurnExecutionBridge,
     operatorAuthorityAdmissionBridge: options.operatorAuthorityAdmissionBridge,
     authorityAdmissionEvidenceStore: options.authorityAdmissionEvidenceStore,
+    runtimeModelRoundActionClaims: options.runtimeModelRoundActionClaims,
+    runtimeToolActionClaims: options.runtimeToolActionClaims,
+    runtimeMediaActionClaims: options.runtimeMediaActionClaims,
     contextArtifactCache,
     artifactStore: options.builtinToolOptions?.artifactResources?.store,
     voiceConfig: options.operatorVoice?.voiceConfig,
@@ -1495,6 +1504,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
+  const operatorAdmissionEvidenceStore = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+  const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-direct-model-round-action-claims.sqlite"),
+  });
+  const managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-direct-tool-action-claims.sqlite"),
+  });
   await recoverStaleOpenTranscriptSessions({
     transcriptStore,
     sessionStore,
@@ -1557,6 +1573,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
         canonicalMcpServers: admittedMcpServers,
+        runtimeToolActionClaims: managedDirectToolActionClaims,
+        runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
+        readAuthorityAdmission: (request) => operatorAdmissionEvidenceStore.readAdmission(request),
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
@@ -1688,7 +1707,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     operatorTurnDispatcher: operatorTurnComposition.dispatcher,
     operatorTurnExecutionBridge: operatorTurnComposition.bridge,
     operatorAuthorityAdmissionBridge: operatorTurnComposition.authorityAdmissionBridge,
-    authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
+    authorityAdmissionEvidenceStore: operatorAdmissionEvidenceStore,
+    runtimeModelRoundActionClaims: operatorTurnComposition.modelRoundActionClaims,
+    runtimeToolActionClaims: operatorTurnComposition.toolActionClaims,
+    runtimeMediaActionClaims: createRuntimeMediaActionClaimContext({
+      ownerGeneration: `operator-tui:media:${randomUUID()}`,
+      store: operatorTurnComposition.mediaActionClaims,
+      readAdmission: (readInput) => operatorAdmissionEvidenceStore.readAdmission(readInput),
+    }),
     closeOperatorTurnComposition: operatorTurnComposition.close,
     communicationIntentCandidates: configuredCommunicationCandidates({
       global: globalConfig.communication,
@@ -1701,6 +1727,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const shutdown = (code = 0, error?: unknown) => {
     bootstrap.shutdown();
     boundedWork.close();
+    managedDirectToolActionClaims.close();
+    managedDirectModelRoundActionClaims.close();
     operatorEconomicAuthority?.close();
     if (error) {
       process.stderr.write(String(error instanceof Error ? (error.stack ?? error.message) : error) + "\n");

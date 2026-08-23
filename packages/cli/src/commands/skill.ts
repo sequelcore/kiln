@@ -5,7 +5,6 @@ import { dirname, join, resolve } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { digestSkillPackage, inspectSkillPackage, loadSkillMd, loadSkillMdIndex } from "@kilnai/core";
 import { formatSkillList } from "../formatters.js";
-import { skillCaptureCommand, parseSkillCaptureFlags } from "./skill-capture.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
 
@@ -25,9 +24,8 @@ export async function skillCommand(config: KilnAppConfig, subcommand: string, ar
     case "update": return updateSkill(args[0], args.slice(1).find((arg) => arg !== "--force"), args.includes("--force"));
     case "remove": return removeSkill(args[0], args.includes("--force"));
     case "publish": return publishSkill(config);
-    case "capture": return skillCaptureCommand(config, args[0], parseSkillCaptureFlags(args.slice(1)));
     default:
-      console.log("Usage: kiln skill <list|install|update|remove|publish|capture>");
+      console.log("Usage: kiln skill <list|install|update|remove|publish>");
       console.log("");
       console.log("Subcommands:");
       console.log("  list                       List all available skills");
@@ -35,7 +33,6 @@ export async function skillCommand(config: KilnAppConfig, subcommand: string, ar
       console.log("  update <name> [path]       Replace an owned package after drift checks");
       console.log("  remove <name> [--force]    Remove an owned package with recoverable backup");
       console.log("  publish                    Validate SKILL.md for publishing");
-      console.log("  capture [sessionId]        Capture session output as a reusable skill (--last, --scope, --yes, --dry-run)");
   }
 }
 

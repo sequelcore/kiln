@@ -37,7 +37,6 @@ interface RawBillingTier {
 
 interface RawBilling {
   budgetEndpoint?: unknown;
-  usageEndpoint?: unknown;
   overBudgetMessage?: unknown;
   headers?: unknown;
   tiers?: unknown;
@@ -84,13 +83,11 @@ function resolveEnvValue(value: string): string {
 function mapBilling(raw: RawBilling): BillingConfig {
   const billing: {
     budgetEndpoint: string;
-    usageEndpoint: string;
     overBudgetMessage: string;
     headers?: Record<string, string>;
     tiers?: Record<string, BillingTier>;
   } = {
     budgetEndpoint: typeof raw.budgetEndpoint === "string" ? raw.budgetEndpoint : "",
-    usageEndpoint: typeof raw.usageEndpoint === "string" ? raw.usageEndpoint : "",
     overBudgetMessage: typeof raw.overBudgetMessage === "string" ? raw.overBudgetMessage : "",
   };
 

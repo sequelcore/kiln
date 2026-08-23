@@ -84,13 +84,11 @@ Guides are grouped by the task or surface they support.
 - [React SDK](guides/gui/react-sdk.md)
 - [CLI wrapper](guides/gui/cli-wrapper.md)
 
-### Work with context and knowledge
+### Work with context and evaluation
 
-[Browse all knowledge and evaluation guides](guides/knowledge/README.md).
+[Browse the context and evaluation guides](guides/knowledge/README.md).
 
-- [Knowledge](guides/knowledge/knowledge.md)
 - [Memory](guides/knowledge/memory.md)
-- [Enrichment](guides/knowledge/enrichment.md)
 - [Evaluation](guides/knowledge/eval.md)
 - [Evaluation benchmarking](guides/knowledge/eval-benchmarking.md)
 

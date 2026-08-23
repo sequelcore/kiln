@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ManagedAgentOrchestrationLifecycleInput } from "@kilnai/runtime";
+import { defineEffectiveAuthorityAdmissionBundle, type ManagedAgentOrchestrationLifecycleInput, type EffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml.js";
+import type { PersistedAuthorityAdmissionRecord } from "../../src/wrapper/session-store.js";
 import {
   buildRunSessionRequirements,
   createCliRuntimeApprovalHandler,
@@ -27,11 +28,81 @@ const ADMITTED_PARENT_TURN_AUTHORITY = {
   deniedToolCount: 0,
 } as const;
 
+function defineTestRoutedAdmission(input: {
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly providerModelId: string;
+  readonly accountId: string;
+  readonly credentialId: string;
+  readonly credentialRevision: string;
+}): EffectiveAuthorityAdmissionBundle {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "test-runtime-session",
+    turnId: "test-turn",
+    admittedAt: "2026-08-22T18:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "sha256:test-session-revision", revisions: { routes: "test" } },
+      turnRevision: { revisionSetId: "sha256:test-turn-revision", revisions: { routes: "test" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "test", revision: "test", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "destructive", reason: "test admission", subjectId: "test-runtime-session" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "destructive",
+        admittedAuthority: "destructive",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "test admission",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: ["workspace"],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: ["local-state"],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId: input.routeId,
+          providerId: input.providerId,
+          providerModelId: input.providerModelId,
+          accountSelection: { mode: "exact", accountId: input.accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
+        binding: {
+          status: "bound",
+          routeId: input.routeId,
+          accountId: input.accountId,
+          credentialId: input.credentialId,
+          credentialRevision: input.credentialRevision,
+        },
+      },
+    },
+  });
+}
+
 vi.setConfig({ testTimeout: 30_000 });
 
 const runWiringMocks = vi.hoisted(() => {
   const builtinToolSurfaceOptions = { id: "surface-options" };
   const builtinToolOptions = { id: "session-builtin-tool-options" };
+  const cleanupHandlers: Array<() => Promise<void>> = [];
+  const drainCleanupHandlers = async () => {
+    const handlers = cleanupHandlers.splice(0);
+    await Promise.allSettled(handlers.map((handler) => handler()));
+  };
   return {
     loadConfiguredWebToolSurfaceOptions: vi.fn().mockResolvedValue(builtinToolSurfaceOptions),
     createSessionBuiltinToolOptions: vi.fn((_options?: unknown) => builtinToolOptions),
@@ -53,13 +124,17 @@ const runWiringMocks = vi.hoisted(() => {
     printReport: vi.fn(),
     computeEvalScore: vi.fn(() => undefined),
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
-    cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
-    cleanupRegistryRegister: vi.fn(),
+    cleanupHandlers,
+    drainCleanupHandlers,
+    cleanupRegistryRunAll: vi.fn(drainCleanupHandlers),
+    cleanupRegistryRegister: vi.fn((handler: () => Promise<void>) => cleanupHandlers.push(handler)),
     createManagedAgentInvocationResourceProvider: vi.fn((_options?: unknown) => ({ id: "managed-agent-resource-provider" })),
     runManagedAgentOrchestrationLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
     transcriptInit: vi.fn().mockResolvedValue(undefined),
     transcriptFinalize: vi.fn().mockResolvedValue(undefined),
+    authorityAdmissions: new Map<string, PersistedAuthorityAdmissionRecord[]>(),
+    authorityAdmissionEvidenceStore: undefined as { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> } | undefined,
     preparedWorkingDirectory: undefined as string | undefined,
     capturedSessionConfigs: [] as unknown[],
     capturedRunSessionInputs: [] as unknown[],
@@ -80,14 +155,6 @@ const runWiringMocks = vi.hoisted(() => {
         reason: "OpenCode models discovered.",
         authState: "authenticated",
       },
-    }),
-    probeCodexCliModelReadiness: vi.fn().mockResolvedValue({
-      provider: "codex",
-      model: "gpt-5.5",
-      runnable: true,
-      status: "available",
-      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
-      authState: "authenticated",
     }),
   };
 });
@@ -158,6 +225,15 @@ const operatorCompositionMocks = vi.hoisted(() => {
                   eligibleAccountIds: [accountId],
                 },
           };
+          const authorityAdmission = defineTestRoutedAdmission({
+            routeId: route.id,
+            providerId: route.providerId,
+            providerModelId: route.providerModelId,
+            accountId,
+            credentialId: account.credentialId,
+            credentialRevision: "sha256:test-revision",
+          });
+          await runWiringMocks.authorityAdmissionEvidenceStore?.persist(authorityAdmission);
           const result = await bridge.dispatchCommittedTurn({
             admission,
             binding: {
@@ -172,6 +248,7 @@ const operatorCompositionMocks = vi.hoisted(() => {
               revisionSetId: "fixture",
               revisions: { "execution-catalog": "fixture" },
             },
+            authorityAdmission,
             payload: request.payload,
           });
           return {
@@ -221,7 +298,11 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     toolAuthority: new Map(),
   })),
   OperatorAuthorityAdmissionCoordinator: class MockOperatorAuthorityAdmissionCoordinator {
-    constructor(_options: unknown) {}
+    constructor(options: unknown) {
+      runWiringMocks.authorityAdmissionEvidenceStore = (options as {
+        readonly evidenceStore?: { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> };
+      }).evidenceStore;
+    }
 
     consume(_executionId: string, _bundle: unknown) {
       return {
@@ -259,7 +340,6 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     },
   }),
   discoverGuiCliOperatorModels: runWiringMocks.discoverGuiCliOperatorModels,
-  probeCodexCliModelReadiness: runWiringMocks.probeCodexCliModelReadiness,
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
     status: "available",
@@ -477,10 +557,17 @@ vi.mock("../../src/config/managed-agent-routes.js", () => ({
 
 vi.mock("../../src/wrapper/session-store.js", () => ({
   TranscriptStore: class {
+    authorityAdmissionLockPath(_sessionId: string) {
+      return resolve(REPO_ROOT, ".kiln", "test-authority-admission.lock");
+    }
     async init(...args: unknown[]) {
       await runWiringMocks.transcriptInit(...args);
     }
     async append() {}
+    async appendAuthorityAdmission(record: PersistedAuthorityAdmissionRecord) {
+      const records = runWiringMocks.authorityAdmissions.get(record.sessionId) ?? [];
+      runWiringMocks.authorityAdmissions.set(record.sessionId, [...records, record]);
+    }
     async finalize(...args: unknown[]) {
       await runWiringMocks.transcriptFinalize(...args);
     }
@@ -489,6 +576,9 @@ vi.mock("../../src/wrapper/session-store.js", () => ({
     }
     async readTranscript() {
       return [];
+    }
+    async readAuthorityAdmissions(sessionId: string) {
+      return runWiringMocks.authorityAdmissions.get(sessionId) ?? [];
     }
     async listSessions() {
       return [];
@@ -633,6 +723,7 @@ describe("run command builtin tool wiring", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    runWiringMocks.cleanupHandlers.length = 0;
     loadKilnConfigMock.mockResolvedValue(APP_KILN_YAML);
     runWiringMocks.capturedSessionConfigs.length = 0;
     runWiringMocks.capturedRunSessionInputs.length = 0;
@@ -654,16 +745,8 @@ describe("run command builtin tool wiring", () => {
         authState: "authenticated",
       },
     });
-    runWiringMocks.probeCodexCliModelReadiness.mockResolvedValue({
-      provider: "codex",
-      model: "gpt-5.5",
-      runnable: true,
-      status: "available",
-      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
-      authState: "authenticated",
-    });
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
-    runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
+    runWiringMocks.cleanupRegistryRunAll.mockImplementation(runWiringMocks.drainCleanupHandlers);
     runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
     runWiringMocks.runManagedAgentOrchestrationLifecycle.mockImplementation(
       async (input: ManagedAgentOrchestrationLifecycleInput) => {
@@ -707,12 +790,15 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.runVerification.mockResolvedValue({ passed: true, checks: [] });
     runWiringMocks.transcriptInit.mockResolvedValue(undefined);
     runWiringMocks.transcriptFinalize.mockResolvedValue(undefined);
+    runWiringMocks.authorityAdmissions.clear();
+    runWiringMocks.authorityAdmissionEvidenceStore = undefined;
     runWiringMocks.preparedWorkingDirectory = undefined;
     operatorCompositionMocks.state.dispatchError = undefined;
     configureExecutionRoute();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await runWiringMocks.drainCleanupHandlers();
     vi.restoreAllMocks();
   });
 

@@ -121,6 +121,8 @@ export interface OperatorSessionExecutionRoutingServiceOptions<Credential, Paylo
   readonly authorityAdmission: OperatorSessionAuthorityAdmissionPort<Payload>;
   /** Adapter construction and the existing session/orchestrator pipeline are composition-owned. */
   readonly dispatch: OperatorSessionExecutionDispatch<Credential, Payload, Result>;
+  /** Reads the direct-provider workload outcome from the committed bridge result. */
+  readonly readDispatchOutcome?: (result: Result) => "completed" | "unknown";
   readonly now?: () => Date;
 }
 
@@ -135,6 +137,7 @@ export interface OperatorSessionCommittedExecution<Credential, Payload> {
   readonly [operatorSessionCommitmentBrand]: typeof operatorSessionCommitmentBrand;
   /** Routing reservation identity; distinct from the canonical Runtime turn when adoption owns that identity. */
   readonly executionId: string;
+  readonly intentFingerprint: string;
   readonly admission: AdmittedExecutionRoute;
   readonly accountId: string;
   readonly lease: AccountCapacityRecord;
@@ -175,7 +178,7 @@ export interface OperatorSessionCommittedExecutionEvidence {
   readonly capacityIdentity: string;
   readonly leaseId: string;
   readonly dispatchFenceId: string;
-  readonly status: "completed";
+  readonly status: "completed" | "unknown";
 }
 
 export class OperatorSessionExecutionRoutingError extends Error {
@@ -328,10 +331,12 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     // Provider dispatch remains concurrent; only effective-config admission is
     // serialized through credential identity resolution and the dispatch fence.
     releaseAdmissionOnce();
+    let capacitySettled = false;
     try {
       const committed = Object.freeze({
         [operatorSessionCommitmentBrand]: operatorSessionCommitmentBrand,
         executionId: request.executionId,
+        intentFingerprint: request.intentFingerprint,
         admission: committedRoute,
         accountId: committedBinding.accountId,
         lease: fenced,
@@ -342,11 +347,33 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         payload: request.payload,
       }) as OperatorSessionCommittedExecution<Credential, Payload>;
       const result = await this.#options.dispatch.dispatchCommittedTurn(committed);
+      const dispatchOutcome = this.#options.readDispatchOutcome?.(result) ?? "completed";
+      if (dispatchOutcome === "unknown") {
+        this.#settleUnknown(request.executionId, fenceId, "model-round-outcome-unknown");
+        capacitySettled = true;
+        return Object.freeze({
+          admission: committedRoute,
+          accountId: committedBinding.accountId,
+          leaseId: fenced.leaseId,
+          evidence: Object.freeze({
+            routeId: committedRoute.routeId,
+            accountId: committedBinding.accountId,
+            credentialId: committedBinding.credentialId,
+            credentialRevision: committedBinding.credentialRevision,
+            capacityIdentity: fenced.capacityIdentity,
+            leaseId: fenced.leaseId,
+            dispatchFenceId: fenceId,
+            status: "unknown" as const,
+          }),
+          result,
+        });
+      }
       this.#options.accountCapacityAuthority.settleAccountCapacity(
         request.executionId,
         fenceId,
         { kind: "completed", outcome: "success", observedAt: this.#now().toISOString() },
       );
+      capacitySettled = true;
       return Object.freeze({
         admission: committedRoute,
         accountId: committedBinding.accountId,
@@ -366,7 +393,9 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     } catch (error) {
       let settlementFailure: unknown;
       try {
-        if (error instanceof OperatorSessionPreDispatchCancellationError) {
+        if (capacitySettled) {
+          // The dispatch result already settled the capacity owner.
+        } else if (error instanceof OperatorSessionPreDispatchCancellationError) {
           this.#settleCancelled(request.executionId, fenceId);
         } else {
           this.#settleUnknown(request.executionId, fenceId, "dispatch-outcome-unknown");

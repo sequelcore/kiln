@@ -6,9 +6,8 @@ import {
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundBudgetEvidence,
-  type GovernedOneRoundInvocationPorts,
 } from "../execution-kernel/governed-one-round-invocation.js";
-import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "../model-gateway/governed-ingress-executor.js";
+import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type GovernedIngressInvocationPorts, type ModelGatewayCompatibilityEvidence } from "../model-gateway/governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "../model-gateway/replay-guard.js";
 import { claimModelGatewayRequestLifetime } from "../model-gateway/model-gateway-request-lifetime.js";
 import {
@@ -61,11 +60,9 @@ export interface OpenAIResponsesIngressConfig {
   readonly resolveVirtualModel: (input: { readonly principal: OpenAIResponsesTrustedPrincipal; readonly requestedModel: string }) => Promise<OpenAIResponsesResolvedVirtualModel | undefined>;
   readonly namespaceCorrelation: (input: { readonly principal: OpenAIResponsesTrustedPrincipal; readonly observed: OpenAIResponsesObservedCorrelation }) => Promise<{ readonly sessionId: string; readonly turnId: string }>;
   readonly compatibilityEvidence: { record(evidence: ModelGatewayCompatibilityEvidence): Promise<void> };
-  readonly invocationPorts: GovernedOneRoundInvocationPorts;
-  readonly createAttemptId: () => string;
+  readonly invocationPorts: GovernedIngressInvocationPorts;
   readonly createResponseId: () => string;
-  /** Optional process-local protection; terminal TTL expiry or restart permits redispatch. */
-  readonly replayGuard?: ModelGatewayReplayGuard;
+  readonly replayGuard: ModelGatewayReplayGuard;
   readonly maxBodyBytes?: number;
   readonly maxConcurrentRequests?: number;
 }
@@ -137,8 +134,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes },
         budget: principal.budgetEvidence, toolExecutionMode: "caller-owned", turn, signal: context.req.raw.signal,
         invocationPorts: config.invocationPorts,
-        createAttemptId: () => requireServerId(config.createAttemptId(), "attemptId"),
-        createResponseId: () => requireServerId(config.createResponseId(), "responseId"),
+         createResponseId: () => requireServerId(config.createResponseId(), "responseId"),
         replayGuard: config.replayGuard,
         projectSuccess: ({ responseId, result, replayed }) => projectSuccessfulResponse(request.model, responseId, result, replayed),
       });

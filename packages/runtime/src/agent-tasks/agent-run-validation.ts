@@ -526,8 +526,10 @@ function isValidNativeHarnessDispatch(
     && isIdentifier(value.adapterCapabilityId)
     && isIdentifier(value.adapterCapabilityVersion)
     && isValidNativeHarnessAcknowledgement(value.acknowledgement)
+    && isRecord(value.admissionBundle)
     && (value.deliberationResolution === undefined || isValidNativeDeliberationResolution(value.deliberationResolution))
     && (value.dispatchFenceId === undefined || isNativeHarnessDispatchFenceId(value.dispatchFenceId))
+    && (value.actionClaim === undefined || isValidAgentTaskActionClaim(value.actionClaim))
     && value.acknowledgement.routeId === value.routeId
     && value.acknowledgement.routeRevision === value.routeRevision
     && value.acknowledgement.providerId === value.providerId
@@ -538,22 +540,36 @@ function isValidNativeHarnessDispatch(
     && sameNativeDeliberationResolution(value.deliberationResolution, value.acknowledgement.deliberationResolution);
 }
 
+function isValidAgentTaskActionClaim(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnly(value, ["version", "attemptId", "intentFingerprint", "admissionId", "admissionBundle", "ownerGeneration", "effectIdentity"])
+    && value.version === 1
+    && isIdentifier(value.attemptId)
+    && isCanonicalHash(value.intentFingerprint)
+    && isCanonicalHash(value.admissionId)
+    && isRecord(value.admissionBundle)
+    && isIdentifier(value.ownerGeneration)
+    && isIdentifier(value.effectIdentity);
+}
+
 export function isValidAgentTaskDispatch(value: unknown): value is AgentTaskDispatch {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "native-harness") {
     return hasOnly(value, [
       "kind", "routeId", "routeRevision", "providerId", "model", "admissionProfileId",
-      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "deliberationResolution", "dispatchFenceId",
+      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "deliberationResolution", "dispatchFenceId", "actionClaim",
+      "admissionBundle",
     ]) && isValidNativeHarnessDispatch(value);
   }
   if (value.kind !== "economic") return false;
   return hasOnly(value, [
-    "kind", "economicAttemptId", "economicPolicyId", "economicPolicyRevision", "dispatchFenceId", "constraints", "candidateSet",
+    "kind", "economicAttemptId", "economicPolicyId", "economicPolicyRevision", "dispatchFenceId", "admissionBundle", "actionClaim", "constraints", "candidateSet",
   ])
     && isEconomicAttemptId(value.economicAttemptId)
     && isIdentifier(value.economicPolicyId)
     && isIdentifier(value.economicPolicyRevision)
     && (value.dispatchFenceId === undefined || isManagedEconomicDispatchFenceId(value.dispatchFenceId))
+    && (value.actionClaim === undefined || isValidAgentTaskActionClaim(value.actionClaim))
     && isValidAgentTaskConstraints(value.constraints)
     && isManagedEconomicCandidateSet(value.candidateSet);
 }

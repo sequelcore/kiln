@@ -3,22 +3,23 @@
 import { Hono } from "hono";
 import type { DelegationRegistry } from "./delegation-handler.js";
 import { executeDelegation } from "./delegation-handler.js";
-import type { DelegationErrorCode } from "@kilnai/core";
+import type { AppDelegation, DelegationErrorCode } from "@kilnai/core";
+
+type DelegateRequest = AppDelegation;
 
 export interface DelegationRoutesConfig {
   readonly registry: DelegationRegistry;
 }
 
-/** Request body for POST /delegate */
-interface DelegateRequest {
-  readonly fromApp: string;
-  readonly toApp: string;
-  readonly task: string;
-  readonly schema: Record<string, unknown>;
-  readonly context?: string;
-  readonly priority?: number;
-  readonly timeout?: number;
-}
+const DELEGATE_REQUEST_FIELDS = new Set<keyof AppDelegation>([
+  "fromApp",
+  "toApp",
+  "task",
+  "schema",
+  "context",
+  "priority",
+  "timeout",
+]);
 
 const ERROR_CODE_TO_STATUS: Record<DelegationErrorCode, number> = {
   TARGET_APP_NOT_FOUND: 404,
@@ -37,6 +38,16 @@ export function createDelegationRoutes(config: DelegationRoutesConfig): Hono {
       body = await c.req.json<DelegateRequest>();
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const unknownField = Object.keys(body).find(
+      (field): field is keyof AppDelegation => !DELEGATE_REQUEST_FIELDS.has(field as keyof AppDelegation),
+    );
+    if (unknownField !== undefined) {
+      return c.json({ error: `Unknown field: ${unknownField}` }, 400);
     }
 
     if (!body.fromApp || typeof body.fromApp !== "string") {

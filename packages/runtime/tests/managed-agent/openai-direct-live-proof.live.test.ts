@@ -26,10 +26,14 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
           "",
         ].join("\n"),
       },
-    }, async (workspace) => {
+      }, async (workspace) => {
       const model = process.env.KILN_LIVE_OPENAI_DIRECT_MODEL ?? "gpt-4o-mini";
-      const provider = await new DirectProviderCredentialPoolService().createPooledAdapter({
-        provider: "openai",
+      const service = new DirectProviderCredentialPoolService();
+      const selected = (await service.listExecutionAccounts("openai"))[0];
+      if (!selected) throw new Error("Live OpenAI proof requires one admitted exact credential.");
+      const credential = await service.resolveExecutionCredential(selected);
+      const provider = await service.createAdapterFromCredential({
+        credential,
         defaultModel: model,
       });
       const childSurface = createAttachedRuntimeBuiltinToolSurface({

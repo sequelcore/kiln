@@ -5,11 +5,11 @@ import { SessionRegistry } from "../../src/session/persistence/session-registry.
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { WebChannel } from "../../src/channels/web-channel.js";
-import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
-import type { ConversationEvent } from "@kilnai/core/engine";
+import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
 
 // Mock sendWhatsAppMessage
 vi.mock("../../src/channels/whatsapp-api.js", () => ({
+  WHATSAPP_GRAPH_API_VERSION: "v21.0",
   sendWhatsAppMessage: vi.fn().mockResolvedValue(new Response(JSON.stringify({ messages: [{ id: "wamid.123" }] }))),
 }));
 
@@ -49,16 +49,6 @@ function mockWebChannel(): WebChannel {
   } as unknown as WebChannel;
 }
 
-function mockEventEmitter(): ConversationEventEmitter & { events: ConversationEvent[] } {
-  const events: ConversationEvent[] = [];
-  return {
-    events,
-    emit: vi.fn((event: ConversationEvent) => {
-      events.push(event);
-    }),
-  } as unknown as ConversationEventEmitter & { events: ConversationEvent[] };
-}
-
 function authHeaders(): Record<string, string> {
   return {
     Authorization: `Bearer ${ADMIN_TOKEN}`,
@@ -70,7 +60,6 @@ describe("createHandoffRoutes", () => {
   let sessionRegistry: SessionRegistry;
   let tenantRegistry: TenantRegistry;
   let webChannel: WebChannel;
-  let eventEmitter: ReturnType<typeof mockEventEmitter>;
   let config: HandoffRoutesConfig;
 
   beforeEach(async () => {
@@ -78,14 +67,13 @@ describe("createHandoffRoutes", () => {
     sessionRegistry = new SessionRegistry();
     tenantRegistry = mockTenantRegistry();
     webChannel = mockWebChannel();
-    eventEmitter = mockEventEmitter();
     config = {
       sessionRegistry,
       tenantRegistry,
       appName: APP_NAME,
+      gatewayAdmission: makeGatewayTestAdmission(sessionRegistry),
       adminToken: ADMIN_TOKEN,
       webChannel,
-      eventEmitter,
     };
   });
 
@@ -185,30 +173,6 @@ describe("createHandoffRoutes", () => {
       expect(body.newMode).toBe("human_active");
     });
 
-    it("emits HANDOFF_INITIATED event", async () => {
-      await sessionRegistry.getOrCreate(makeSessionConfig());
-      const app = createHandoffRoutes(config);
-
-      await app.request("/handoff", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          tenantId: TENANT_ID,
-          userId: USER_ID,
-          targetMode: "queued",
-          operatorId: "op-1",
-          reason: "User requested human",
-        }),
-      });
-
-      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
-      const emitted = eventEmitter.events[0]!;
-      expect(emitted.eventType).toBe("HANDOFF_INITIATED");
-      expect(emitted.tenantId).toBe(TENANT_ID);
-      expect(emitted.externalUserId).toBe(USER_ID);
-      expect(emitted.operatorId).toBe("op-1");
-      expect(emitted.escalationReason).toBe("User requested human");
-    });
   });
 
   describe("POST /release", () => {
@@ -284,27 +248,6 @@ describe("createHandoffRoutes", () => {
       expect(lastMessage.parts[0]).toEqual({ type: "text", text: "[Handoff context] Customer wanted appointment rescheduled to Friday." });
     });
 
-    it("emits HANDOFF_RELEASED event", async () => {
-      const session = await sessionRegistry.getOrCreate(makeSessionConfig());
-      session.setSessionMode("human_active");
-      const app = createHandoffRoutes(config);
-
-      await app.request("/release", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          tenantId: TENANT_ID,
-          userId: USER_ID,
-          contextSummary: "Resolved billing question.",
-        }),
-      });
-
-      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
-      const emitted = eventEmitter.events[0]!;
-      expect(emitted.eventType).toBe("HANDOFF_RELEASED");
-      expect(emitted.sessionMode).toBe("ai_active");
-      expect(emitted.summary).toBe("Resolved billing question.");
-    });
   });
 
   describe("POST /operator-message", () => {
@@ -328,6 +271,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: "nonexistent",
+          callerId: "operator-test",
+          idempotencyKey: "missing-session",
           message: "Hello",
           channel: "web",
         }),
@@ -345,6 +290,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: USER_ID,
+          callerId: "operator-test",
+          idempotencyKey: "ai-active",
           message: "Hello",
           channel: "web",
         }),
@@ -366,6 +313,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: USER_ID,
+          callerId: "operator-test",
+          idempotencyKey: "resolved",
           message: "Hello",
           channel: "web",
         }),
@@ -384,6 +333,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: USER_ID,
+          callerId: "operator-test",
+          idempotencyKey: "web-confirmed",
           message: "Your appointment is confirmed for Friday.",
           channel: "web",
           operatorId: "op-1",
@@ -422,6 +373,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: USER_ID,
+          callerId: "operator-test",
+          idempotencyKey: "whatsapp-booking",
           message: "We confirmed your booking.",
           channel: "whatsapp",
         }),
@@ -455,6 +408,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: USER_ID,
+          callerId: "operator-test",
+          idempotencyKey: "no-whatsapp-credentials",
           message: "Hello",
           channel: "whatsapp",
         }),
@@ -473,6 +428,8 @@ describe("createHandoffRoutes", () => {
         body: JSON.stringify({
           tenantId: TENANT_ID,
           userId: USER_ID,
+          callerId: "operator-test",
+          idempotencyKey: "queued-message",
           message: "Please hold.",
           channel: "web",
         }),
@@ -483,30 +440,6 @@ describe("createHandoffRoutes", () => {
       expect(body.success).toBe(true);
     });
 
-    it("emits OPERATOR_MESSAGE_SENT event", async () => {
-      const session = await sessionRegistry.getOrCreate(makeSessionConfig());
-      session.setSessionMode("human_active");
-      const app = createHandoffRoutes(config);
-
-      await app.request("/operator-message", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          tenantId: TENANT_ID,
-          userId: USER_ID,
-          message: "All set!",
-          channel: "web",
-          operatorId: "op-2",
-        }),
-      });
-
-      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
-      const emitted = eventEmitter.events[0]!;
-      expect(emitted.eventType).toBe("OPERATOR_MESSAGE_SENT");
-      expect(emitted.channel).toBe("web");
-      expect(emitted.messageContent).toBe("All set!");
-      expect(emitted.operatorId).toBe("op-2");
-    });
   });
 
   describe("GET /session-history", () => {

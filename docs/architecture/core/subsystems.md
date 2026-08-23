@@ -39,7 +39,7 @@ principal, parsed message content, and fast-path results.
 **Responsibility:** Assemble the full context window for the turn, manage the
 attentional bottleneck, and enforce token budget per layer.
 
-**Inputs:** `AgentTarget`, `SessionState`, memory candidates, `KnowledgeStore`,
+**Inputs:** `AgentTarget`, `SessionState`, memory candidates,
 `SkillRegistry`, `ComplexityScore`.
 
 **Outputs:** `AssembledContext` within token budget.
@@ -49,13 +49,10 @@ attentional bottleneck, and enforce token budget per layer.
 **Invariants:**
 
 - Context assembly stays within token budget.
-- Knowledge injection is salience-ranked, not arbitrary.
-- Contact context leads the merged memory block.
 - Truncation happens by governed policy, not ad hoc dropping.
 
 **Failure modes:**
 
-- Knowledge timeout -> skip that layer with warning.
 - Budget overflow -> truncate or summarize by policy.
 - Summarization failure -> emit error, do not silently erase context.
 
@@ -92,7 +89,7 @@ confirmations, lifecycle evidence, recall candidates, and memory events.
 **Failure modes:**
 
 - mutable store write failure -> emit error and fail operation
-- vector store unavailable -> degrade to FTS5 retrieval
+- memory store unavailable -> fail the operation and preserve the existing state
 - decay job failure -> retry later, do not silently mutate policy
 
 ## Safety

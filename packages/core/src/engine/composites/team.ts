@@ -13,12 +13,6 @@ export interface QualityGate {
   readonly required: boolean;
 }
 
-/** Reference documents and examples available to team agents */
-export interface TeamKnowledge {
-  readonly documents: readonly string[];
-  readonly examples: readonly string[];
-}
-
 /** Team execution mode */
 export type TeamMode = "sequential" | "supervisor";
 
@@ -31,7 +25,6 @@ export interface Team {
   readonly workflow: Workflow;
   readonly capabilities: readonly Capability[];
   readonly qualityGates: readonly QualityGate[];
-  readonly knowledge?: TeamKnowledge;
 }
 
 /** Validation error for team configuration */

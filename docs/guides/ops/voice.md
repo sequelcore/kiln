@@ -314,7 +314,7 @@ unknown intent is requested at runtime, runtime ignores it and uses the base
 profile.
 
 When no admitted intent is supplied, runtime derives one from the final
-assistant response after egress and grounding policy. Selection is conservative
+assistant response after egress and safety policy. Selection is conservative
 and profile-bound:
 
 - explicit admitted intent wins when the active profile declares it

@@ -135,11 +135,9 @@ safety:
   pii:
     detect: [email, ssn, credit_card]
     action: block
-    deepScan: false
     allowlist: [no-reply@example.com]
   content:
     enabled: true
-    deepScan: false
     categories:
       hate:
         threshold: 0.5

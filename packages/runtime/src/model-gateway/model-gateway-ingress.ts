@@ -23,8 +23,8 @@ import type {
   GovernedOneRoundBudgetAdmissionPort,
   GovernedOneRoundAuthorityAdmissionPort,
   GovernedOneRoundDispatcherResolver,
-  GovernedOneRoundInvocationPorts,
 } from "../execution-kernel/governed-one-round-invocation.js";
+import type { GovernedIngressInvocationPorts } from "./governed-ingress-executor.js";
 
 export interface ModelGatewayExecutionRoutingPort {
   admit(intent: OperatorExecutionIntent): AdmittedExecutionRoute;
@@ -51,7 +51,7 @@ export interface ModelGatewayIngressOptions {
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   /** Canonical candidate evidence and lease bindings owned by composition. */
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
-  /** Post-fence provider dispatch owned by Runtime composition. */
+  /** Exact provider binding and side-effect-free adapter preparation owned by Runtime composition. */
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   /** Shared account-capacity authority; ingress does not create or close it. */
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
@@ -138,7 +138,7 @@ export async function createModelGatewayIngress(
       ] as const;
     }),
   );
-  const candidateCatalog: GovernedOneRoundInvocationPorts["candidateCatalog"] = {
+  const candidateCatalog: GovernedIngressInvocationPorts["candidateCatalog"] = {
     list: async ({ route }) => {
       if (store.isRouteCooling(route))
         return { admission: findAdmission(route), candidates: [] };
@@ -168,7 +168,7 @@ export async function createModelGatewayIngress(
     if (!admitted) throw new Error("The requested provider route is unavailable.");
     return admitted.admission;
   }
-  const dispatcherResolver: GovernedOneRoundInvocationPorts["dispatcherResolver"] = {
+  const dispatcherResolver: GovernedIngressInvocationPorts["dispatcherResolver"] = {
     resolve: async (input) => {
       const { route, accountId } = input;
       const admittedModel = [...routes.values()].find(
@@ -209,7 +209,7 @@ export async function createModelGatewayIngress(
       };
     },
   };
-  const invocationPorts: GovernedOneRoundInvocationPorts = {
+  const invocationPorts: GovernedIngressInvocationPorts = {
     candidateCatalog,
     accountCapacityAuthority: options.accountCapacityAuthority,
     attemptEvidence: store,
@@ -235,8 +235,7 @@ export async function createModelGatewayIngress(
             namespaceCorrelation(replaySecret, "openai-responses", principal, observed),
           compatibilityEvidence: store.compatibilityEvidence,
           invocationPorts,
-          createAttemptId: randomUUID,
-          createResponseId: () => `resp_${randomUUID().replaceAll("-", "")}`,
+           createResponseId: () => `resp_${randomUUID().replaceAll("-", "")}`,
           replayGuard: store,
           maxBodyBytes: responsesSurface.maxBodyBytes,
           maxConcurrentRequests: responsesSurface.maxConcurrentRequests,
@@ -303,8 +302,7 @@ export async function createModelGatewayIngress(
             }),
           compatibilityEvidence: store.compatibilityEvidence,
           invocationPorts,
-          createAttemptId: randomUUID,
-          createMessageId: () => `msg_${randomUUID().replaceAll("-", "")}`,
+           createMessageId: () => `msg_${randomUUID().replaceAll("-", "")}`,
           replayGuard: store,
           maxBodyBytes: anthropicSurface.maxBodyBytes,
           maxConcurrentRequests: anthropicSurface.maxConcurrentRequests,

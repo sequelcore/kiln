@@ -6,7 +6,12 @@ import {
   deriveProviderModelEligibility,
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core/agents";
-import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService, type ManagedCommittedInvocationRequest } from "@kilnai/runtime";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  normalizeRuntimeProviderDiscoveryCatalog,
+  RuntimeManagedAgentInvocationService,
+  type ManagedCommittedInvocationRequest,
+} from "@kilnai/runtime";
 import { resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { writeExecutionTargetEvidenceSnapshot, type ExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
@@ -55,6 +60,7 @@ const routeCatalogTrace = vi.hoisted(() => ({
 }));
 const adapterTrace = vi.hoisted(() => ({
   createCalls: 0,
+  factoryOptions: [] as Array<Record<string, unknown>>,
   requests: [] as Array<{ readonly route: unknown; readonly credentialBinding: unknown; readonly committedRequest: unknown }>,
   adapter: {
     descriptor: {
@@ -153,15 +159,18 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
   const actual = await importOriginal<typeof import("../../src/config/managed-agent-direct-adapters.js")>();
   return {
     ...actual,
-    createManagedDirectProviderAdapterFactory: vi.fn(() => async (
-      route: ResolvedManagedTargetConfig,
-      credentialBinding: DirectProviderCredentialBinding | undefined,
-      _abortSignal: AbortSignal | undefined,
-      committedRequest: ManagedCommittedInvocationRequest,
-    ) => {
-      adapterTrace.createCalls += 1;
-      adapterTrace.requests.push({ route, credentialBinding, committedRequest });
-      return adapterTrace.adapter as never;
+    createManagedDirectProviderAdapterFactory: vi.fn((options: Record<string, unknown>) => {
+      adapterTrace.factoryOptions.push(options);
+      return async (
+        route: ResolvedManagedTargetConfig,
+        credentialBinding: DirectProviderCredentialBinding | undefined,
+        _abortSignal: AbortSignal | undefined,
+        committedRequest: ManagedCommittedInvocationRequest,
+      ) => {
+        adapterTrace.createCalls += 1;
+        adapterTrace.requests.push({ route, credentialBinding, committedRequest });
+        return adapterTrace.adapter as never;
+      };
     }),
   };
 });
@@ -184,6 +193,64 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
  * which is exactly how the original defect went uncaught.
  */
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
+
+function taskAuthorityAdmission() {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "agent-task-runtime-config-session",
+    turnId: "agent-task-runtime-config-session:turn:1",
+    admittedAt: FIXTURE_OBSERVED_AT,
+    configuration: {
+      sessionRevision: { revisionSetId: "agent-task-runtime-config", revisions: { test: "session" } },
+      turnRevision: { revisionSetId: "agent-task-runtime-config", revisions: { test: "turn" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "agent-task-runtime-config", revision: "test", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "destructive", reason: "Synthetic operator task test admission." },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "destructive",
+        admittedAuthority: "destructive",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "Synthetic operator task test admission.",
+        completeness: "authoritative",
+        toolCount: 1,
+        deniedToolCount: 0,
+        sandboxProjection: "workspace_write",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: {
+        allowedToolPermissions: [{
+          toolName: "kiln_agent_task_submit",
+          authority: { level: 3, allowed: true, requiresApproval: false, reason: "Synthetic task test admission." },
+          effectEnvelope: {
+            operation: "mutate",
+            boundaries: ["workspace", "network", "external-system"],
+            reversibility: "irreversible",
+            dataEgress: "sensitive-data",
+            identityUse: "privileged",
+            consequences: ["local-state", "external-state", "financial", "security"],
+            idempotency: "non-idempotent",
+          },
+        }],
+        deniedToolNames: [],
+      },
+      effectCeiling: {
+        operation: "mutate",
+        boundaries: ["workspace", "network", "external-system"],
+        reversibility: "irreversible",
+        dataEgress: "sensitive-data",
+        identityUse: "privileged",
+        consequences: ["local-state", "external-state", "financial", "security"],
+        idempotency: "non-idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
 
 function managedCatalogRequirements(): ProviderModelEligibilityRequirements {
   return {
@@ -461,6 +528,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     routeCatalogTrace.mutateExecutionDeliberationEvidence = false;
     routeCatalogTrace.executionRefreshCount = 0;
     adapterTrace.createCalls = 0;
+    adapterTrace.factoryOptions.length = 0;
     adapterTrace.requests.length = 0;
     adapterTrace.adapter.invoke.mockClear();
   });
@@ -543,6 +611,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
@@ -611,6 +680,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
     });
     try {
@@ -676,6 +746,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
     });
     try {
@@ -728,6 +799,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
@@ -788,6 +860,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
     });
     try {
@@ -886,6 +959,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never));
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
     });
     try {
@@ -955,7 +1029,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
-  it("projects an economic lifecycle abort as a provider timeout", async () => {
+  it("keeps an economic lifecycle timeout post-claim pending for canonical settlement", async () => {
     useIsolatedGlobalConfigHome();
     const config = openCodeGoEconomicConfig();
     const authorityProfile = config.authorityProfiles?.[0];
@@ -997,6 +1071,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
     });
     try {
@@ -1008,12 +1083,21 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       });
       await composition.close();
       await expect(composition.application.getStatus({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
-        state: "timed_out",
-        diagnostic: "provider_timeout",
-        failureEvidence: {
-          classification: "provider_timeout",
-          transportPhase: "first_byte",
+        state: "running",
+        dispatch: {
+          dispatchFenceId: expect.any(String),
+          actionClaim: expect.any(Object),
         },
+      });
+      expect(adapterTrace.factoryOptions).not.toHaveLength(0);
+      expect(adapterTrace.factoryOptions.every((factoryOptions) => {
+        const store = factoryOptions.runtimeToolActionClaims as { claim?: unknown; settle?: unknown } | undefined;
+        return typeof store?.claim === "function" && typeof store.settle === "function";
+      })).toBe(true);
+      await expect(composition.application.getResult({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
+        availability: "pending",
+        lifecycleState: "running",
+        diagnostic: "result_pending",
       });
     } finally {
       await composition.close();
@@ -1033,6 +1117,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
@@ -1073,6 +1158,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     try {
       await expect(createOperatorProjectAgentTaskApplicationComposition({
         projectPath: projectRoot,
+        authorityAdmission: taskAuthorityAdmission(),
         discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
       })).rejects.toThrow("data-policy evidence is stale");
       expect(adapterTrace.createCalls).toBe(adapterCreationsBeforeDispatch);
@@ -1083,7 +1169,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
-  it("fails closed before Runtime start when execution authority changes under the same adapter identity", async () => {
+  it("keeps a post-claim execution-authority mismatch pending without starting Runtime", async () => {
     useIsolatedGlobalConfigHome();
     persistGlobalConfig(accountBoundEconomicConfig());
     routeCatalogTrace.mutateExecutionProfileAuthority = true;
@@ -1093,6 +1179,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
@@ -1104,7 +1191,18 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       });
       expect(result.state).toBe("queued");
       await composition.close();
-      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "failed", diagnostic: "identity-revision-conflict" });
+      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({
+        state: "running",
+        dispatch: {
+          dispatchFenceId: expect.any(String),
+          actionClaim: expect.any(Object),
+        },
+      });
+      await expect(composition.application.getResult({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({
+        availability: "pending",
+        lifecycleState: "running",
+        diagnostic: "result_pending",
+      });
       expect(start).not.toHaveBeenCalled();
       expect(adapterTrace.adapter.invoke).not.toHaveBeenCalled();
     } finally {
@@ -1124,6 +1222,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
@@ -1157,6 +1256,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     await expect(createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     })).rejects.toThrow(/engines is global-only/u);
   });
@@ -1172,6 +1272,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     await expect(createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => ({}),
     })).rejects.toThrow(/managedAgents is global-only/u);
   });

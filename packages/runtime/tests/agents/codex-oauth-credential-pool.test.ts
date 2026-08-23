@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AgentResponse,
-  AllCredentialsExhaustedError,
   type CodexOAuthTokenFile,
   type CreateMessageOptions,
   type ProviderAdapter,
@@ -162,29 +161,58 @@ describe("CodexOAuthCredentialPoolService", () => {
       .toEqual(["policy-a", "policy-b"]);
   });
 
-  it("refreshes and persists only an expired selected credential", async () => {
-    const service = new CodexOAuthCredentialPoolService({ rootDir });
-    await service.linkCredential({ id: "expired", tokenFile: accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" }) });
-    const [selected] = await service.listExecutionAccounts();
-    const refreshedToken = accountToken("account-a").access_token;
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ access_token: refreshedToken, refresh_token: "refresh-new", expires_in: 3600 }), { status: 200, headers: { "content-type": "application/json" } }));
-    vi.stubGlobal("fetch", fetch);
-
-    await expect(service.resolveExecutionCredential(selected!)).resolves.toEqual({ credentialId: "expired", chatgptAccountId: "account-a", accessToken: refreshedToken });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const persisted = JSON.parse(await readFile(join(rootDir, "codex-oauth", "expired.json"), "utf8"));
-    expect(persisted).toMatchObject({ access_token: refreshedToken, refresh_token: "refresh-new" });
-  });
-
-  it("refreshes a selected credential inside the existing expiry safety window", async () => {
+  it("refreshes expiring credentials before admission and returns the refreshed revision", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "soon", tokenFile: accountToken("account-a", { expires_at: new Date(Date.now() + 60_000).toISOString() }) });
-    const [selected] = await service.listExecutionAccounts();
+    const [before] = await service.listExecutionAccounts();
     const refreshedToken = accountToken("account-a").access_token;
     const fetch = vi.fn(async () => new Response(JSON.stringify({ access_token: refreshedToken, refresh_token: "refresh-safe", expires_in: 3600 }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
-    await expect(service.resolveExecutionCredential(selected!)).resolves.toMatchObject({ accessToken: refreshedToken });
+
+    const [prepared] = await service.prepareExecutionAccounts();
+
+    expect(prepared).toEqual(expect.objectContaining({ credentialId: "soon" }));
+    expect(prepared?.revision).not.toBe(before?.revision);
     expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(service.resolveExecutionCredential(prepared!)).resolves.toMatchObject({
+      credentialId: "soon",
+      accessToken: refreshedToken,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a post-admission near-expiry credential without refreshing or mutating it", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "soon", tokenFile: accountToken("account-a", { expires_at: new Date(Date.now() + 60_000).toISOString() }) });
+    const [selected] = await service.listExecutionAccounts();
+    const path = join(rootDir, "codex-oauth", "soon.json");
+    const before = await readFile(path, "utf8");
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ access_token: accountToken("account-a").access_token, refresh_token: "must-not-refresh", expires_in: 3600 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(service.resolveExecutionCredential(selected!)).rejects.toThrow("requires refresh");
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await readFile(path, "utf8")).toBe(before);
+  });
+
+  it("rejects a post-admission near-expiry rotation before any refresh or revision adoption", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", tokenFile: accountToken("account-a") });
+    const [selected] = await service.listExecutionAccounts();
+    const path = join(rootDir, "codex-oauth", "work.json");
+    const replacement = accountToken("account-a", {
+      refresh_token: "replacement-refresh",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await writeFile(path, JSON.stringify(replacement), "utf8");
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ access_token: accountToken("account-a").access_token, refresh_token: "must-not-refresh", expires_in: 3600 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(service.resolveExecutionCredential(selected!)).rejects.toThrow("revision changed");
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(replacement);
   });
 
   it("rejects replacement after enumeration and never resolves by stale metadata", async () => {
@@ -213,7 +241,7 @@ describe("CodexOAuthCredentialPoolService", () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "work", tokenFile: accountToken("account-a") });
     await service.linkCredential({ id: "target", tokenFile: accountToken("account-a") });
-    const [targetSelection, workSelection] = (await service.listExecutionAccounts()).sort((a, b) => a.credentialId.localeCompare(b.credentialId));
+    const [targetSelection, workSelection] = [...await service.listExecutionAccounts()].sort((a, b) => a.credentialId.localeCompare(b.credentialId));
     const linkPath = join(rootDir, "codex-oauth", "work.json");
     try {
       await rm(linkPath);
@@ -227,7 +255,7 @@ describe("CodexOAuthCredentialPoolService", () => {
     await expect(service.resolveExecutionCredential(workSelection!)).rejects.toThrow("invalid");
   });
 
-  it("does not overwrite replacement while selected refresh is in flight", async () => {
+  it("does not overwrite a replacement while pre-admission refresh is in flight", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "work", tokenFile: accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" }) });
     const [selected] = await service.listExecutionAccounts();
@@ -238,45 +266,13 @@ describe("CodexOAuthCredentialPoolService", () => {
       return new Response(JSON.stringify({ access_token: accountToken("account-a").access_token, refresh_token: "refresh-new", expires_in: 3600 }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetch);
-    const resolving = service.resolveExecutionCredential(selected!);
+    const preparing = service.prepareExecutionAccounts();
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     const replacement = accountToken("account-b");
     await writeFile(join(rootDir, "codex-oauth", "work.json"), JSON.stringify(replacement), "utf8");
     release();
-    await expect(resolving).rejects.toThrow("revision changed");
+    await expect(preparing).resolves.toEqual([expect.objectContaining({ credentialId: "work" })]);
     expect(JSON.parse(await readFile(join(rootDir, "codex-oauth", "work.json"), "utf8"))).toEqual(replacement);
-  });
-
-  it("serializes refresh and relink for one credential while unrelated ids remain independent", async () => {
-    const service = new CodexOAuthCredentialPoolService({ rootDir });
-    await service.linkCredential({ id: "work", tokenFile: accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" }) });
-    await service.linkCredential({ id: "unrelated", tokenFile: accountToken("account-c") });
-    const accounts = await service.listExecutionAccounts();
-    const selected = accounts.find((entry) => entry.credentialId === "work")!;
-    const unrelated = accounts.find((entry) => entry.credentialId === "unrelated")!;
-    let releaseRefresh!: () => void;
-    const blocked = new Promise<void>((resolve) => { releaseRefresh = resolve; });
-    const fetch = vi.fn(async () => {
-      await blocked;
-      return new Response(JSON.stringify({ access_token: accountToken("account-a").access_token, refresh_token: "refresh-after", expires_in: 3600 }), { status: 200 });
-    });
-    vi.stubGlobal("fetch", fetch);
-    const resolving = service.resolveExecutionCredential(selected!);
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    let relinked = false;
-    const relinking = service.linkCredential({ id: "work", tokenFile: accountToken("account-b") }).then(() => { relinked = true; });
-    let catalogLinked = false;
-    const catalogLinking = service.linkCredential({ id: "new-account", tokenFile: accountToken("account-d") }).then(() => { catalogLinked = true; });
-    await expect(service.resolveExecutionCredential(unrelated)).resolves.toMatchObject({ chatgptAccountId: "account-c" });
-    expect(relinked).toBe(false);
-    expect(catalogLinked).toBe(false);
-    releaseRefresh();
-    await expect(resolving).resolves.toMatchObject({ credentialId: "work", chatgptAccountId: "account-a" });
-    await relinking;
-    await catalogLinking;
-    const final = JSON.parse(await readFile(join(rootDir, "codex-oauth", "work.json"), "utf8"));
-    expect(final.access_token).toBe(accountToken("account-b").access_token);
-    expect((await readdir(join(rootDir, "codex-oauth"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
   it("links Codex OAuth credentials as raw token files and projects secret-free status", async () => {
@@ -411,26 +407,30 @@ describe("CodexOAuthCredentialPoolService", () => {
         expires_at: "2020-01-01T00:00:00.000Z",
       }),
     });
-    await service.linkCredential({ id: "valid", tokenFile: token({ access_token: "access-valid" }) });
+    const validToken = accountToken("valid");
+    await service.linkCredential({ id: "valid", tokenFile: validToken });
     const calls: string[] = [];
 
-    const adapter = await service.createPooledAdapter({
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "model",
-      createAdapter: (credential) => new TestAdapter(async () => {
-        calls.push(credential.tokenFile.access_token);
+      createAdapter: (resolved) => new TestAdapter(async () => {
+        calls.push(resolved.accessToken);
         return makeResponse("ok");
       }),
     });
 
     await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
-    expect(calls).toEqual(["access-valid"]);
+    expect(calls).toEqual([validToken.access_token]);
     await expect(service.listStatus()).resolves.toEqual([
       expect.objectContaining({ id: "expired", status: "expired" }),
       expect.objectContaining({ id: "valid", status: "valid" }),
     ]);
   });
 
-  it("fails fast with secret-free diagnostics when no Codex OAuth credential is executable", async () => {
+  it("excludes expired and malformed credentials from exact execution selection", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({
       id: "expired",
@@ -448,38 +448,18 @@ describe("CodexOAuthCredentialPoolService", () => {
       client_id: "client",
     }), "utf8");
 
-    await expect(service.createPooledAdapter({ defaultModel: "gpt-5.5" }))
-      .rejects.toMatchObject({
-        name: "AllCredentialsExhaustedError",
-        diagnostic: {
-          providerId: "codex-oauth",
-          reason: "no-executable-credentials",
-          totalCredentials: 2,
-          availableCredentials: 0,
-          unavailableCredentials: 2,
-          entries: [
-            expect.objectContaining({
-              id: "expired",
-              health: "expired",
-              expiresAt: "2020-01-01T00:00:00.000Z",
-            }),
-            expect.objectContaining({
-              id: "invalid",
-              health: "invalid",
-              expiresAt: "unknown",
-              invalidReason: expect.stringContaining("Malformed Codex OAuth credential file"),
-            }),
-          ],
-        },
-      });
-
-    try {
-      await service.createPooledAdapter({ defaultModel: "gpt-5.5" });
-    } catch (error) {
-      expect(JSON.stringify(error)).not.toContain("access-expired");
-      expect(JSON.stringify(error)).not.toContain("refresh-expired");
-      expect(JSON.stringify(error)).not.toContain("refresh-invalid");
-    }
+    await expect(service.listExecutableAccounts()).resolves.toEqual([]);
+    const status = await service.listStatus();
+    expect(status).toEqual([
+      expect.objectContaining({ id: "expired", status: "expired" }),
+      expect.objectContaining({
+        id: "invalid",
+        status: "invalid",
+        expiresAt: "unknown",
+        invalidReason: expect.stringContaining("Malformed Codex OAuth credential file"),
+      }),
+    ]);
+    expect(JSON.stringify(status)).not.toContain("refresh");
   });
 
   it("projects malformed credentials as invalid status and excludes them from execution pools", async () => {
@@ -491,19 +471,23 @@ describe("CodexOAuthCredentialPoolService", () => {
       expires_at: "2099-01-01T00:00:00.000Z",
       client_id: "client",
     }), "utf8");
-    await service.linkCredential({ id: "valid", tokenFile: token({ access_token: "access-valid" }) });
+    const validToken = accountToken("valid");
+    await service.linkCredential({ id: "valid", tokenFile: validToken });
     const calls: string[] = [];
 
-    const adapter = await service.createPooledAdapter({
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "model",
-      createAdapter: (credential) => new TestAdapter(async () => {
-        calls.push(credential.tokenFile.access_token);
+      createAdapter: (resolved) => new TestAdapter(async () => {
+        calls.push(resolved.accessToken);
         return makeResponse("ok");
       }),
     });
 
     await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
-    expect(calls).toEqual(["access-valid"]);
+    expect(calls).toEqual([validToken.access_token]);
     const status = await service.listStatus();
     expect(status).toEqual([
       expect.objectContaining({
@@ -519,16 +503,20 @@ describe("CodexOAuthCredentialPoolService", () => {
 
   it("records Codex OAuth rate limits without rotating across subscription accounts", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
-    await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-first" }) });
+    const firstToken = accountToken("first");
+    await service.linkCredential({ id: "first", tokenFile: firstToken });
     const calls: string[] = [];
     const tokenPaths: string[] = [];
 
-    const adapter = await service.createPooledAdapter({
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "model",
-      createAdapter: (credential) => {
-        tokenPaths.push(credential.tokenPath);
+      createAdapter: (resolved) => {
+        tokenPaths.push(resolved.credentialId);
         return new TestAdapter(async () => {
-          calls.push(credential.tokenFile.access_token);
+          calls.push(resolved.accessToken);
           const error = new Error("rate limited");
           (error as { status?: number }).status = 429;
           throw error;
@@ -537,19 +525,23 @@ describe("CodexOAuthCredentialPoolService", () => {
     });
 
     await expect(adapter.createMessage(makeOptions())).rejects.toThrow("rate limited");
-    expect(calls).toEqual(["access-first"]);
-    expect(tokenPaths).toEqual([join(rootDir, "codex-oauth", "first.json")]);
+    expect(calls).toEqual([firstToken.access_token]);
+    expect(tokenPaths).toEqual(["first"]);
   });
 
   it("surfaces auth failure from the explicitly executable Codex OAuth credential", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
-    await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-invalidated" }) });
+    const invalidatedToken = accountToken("invalidated");
+    await service.linkCredential({ id: "first", tokenFile: invalidatedToken });
     const calls: string[] = [];
 
-    const adapter = await service.createPooledAdapter({
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "model",
-      createAdapter: (credential) => new TestAdapter(async () => {
-        calls.push(credential.tokenFile.access_token);
+      createAdapter: (resolved) => new TestAdapter(async () => {
+        calls.push(resolved.accessToken);
         const error = new Error("token invalidated");
         (error as { status?: number }).status = 401;
         throw error;
@@ -557,7 +549,7 @@ describe("CodexOAuthCredentialPoolService", () => {
     });
 
     await expect(adapter.createMessage(makeOptions())).rejects.toThrow("token invalidated");
-    expect(calls).toEqual(["access-invalidated"]);
+    expect(calls).toEqual([invalidatedToken.access_token]);
     await expect(service.listStatus()).resolves.toEqual([
       expect.objectContaining({
         id: "first",
@@ -568,29 +560,15 @@ describe("CodexOAuthCredentialPoolService", () => {
     await expect(service.listValidAccessTokenCandidates()).resolves.toEqual([]);
   });
 
-  it("rejects pooled execution when multiple Codex OAuth subscriptions are executable", async () => {
+  it("enumerates multiple Codex OAuth subscriptions for explicit account admission", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-first" }) });
     await service.linkCredential({ id: "second", tokenFile: token({ access_token: "access-second" }) });
 
-    await expect(service.createPooledAdapter({ defaultModel: "model" })).rejects.toThrow("exactly one executable credential");
-
-    try {
-      await service.createPooledAdapter({ defaultModel: "model" });
-      expect.unreachable();
-    } catch (error) {
-      expect(error).toBeInstanceOf(KilnError);
-      const kilnError = error as KilnError;
-      expect(kilnError.code).toBe("CONFIG_INVALID");
-      // The repair points to the canonical execution catalog and names the
-      // executable credential ids without making credentials a surface choice.
-      expect(kilnError.suggestion).toContain("first");
-      expect(kilnError.suggestion).toContain("second");
-      expect(kilnError.suggestion).toContain("executionCatalog.accounts");
-      expect(kilnError.suggestion).toContain("account policy");
-      expect(kilnError.suggestion).toContain("execution route");
-      expect(kilnError.suggestion).not.toContain("kiln model bind");
-    }
+    await expect(service.listExecutableAccounts()).resolves.toEqual([
+      expect.objectContaining({ credentialId: "first" }),
+      expect.objectContaining({ credentialId: "second" }),
+    ]);
   });
 
   it("materializes only an exact selected Codex OAuth account revision", async () => {
@@ -611,7 +589,6 @@ describe("CodexOAuthCredentialPoolService", () => {
 
     await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse(accountToken("account-b").access_token));
     expect(materialized).toEqual(["second"]);
-    await expect(service.createPooledAdapter({ defaultModel: "model" })).rejects.toThrow("exactly one executable credential");
   });
 
   it("rejects stale exact Codex OAuth account evidence before adapter construction", async () => {
@@ -645,9 +622,12 @@ describe("CodexOAuthCredentialPoolService", () => {
 
   it("surfaces the original rate-limit error after recording cooldown", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
-    await service.linkCredential({ id: "only", tokenFile: token() });
+    await service.linkCredential({ id: "only", tokenFile: accountToken("only") });
 
-    const adapter = await service.createPooledAdapter({
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "model",
       createAdapter: () => new TestAdapter(async () => {
         const error = new Error("rate limited");
@@ -674,18 +654,21 @@ describe("CodexOAuthCredentialPoolService", () => {
 
   it("can use a custom adapter factory for direct Codex OAuth adapters", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
-    await service.linkCredential({ id: "only", tokenFile: token({ access_token: "access-only" }) });
-    const createAdapter = vi.fn((credential) => new TestAdapter(async () => makeResponse(credential.tokenFile.access_token)));
+    await service.linkCredential({ id: "only", tokenFile: accountToken("only") });
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const createAdapter = vi.fn((credential) => new TestAdapter(async () => makeResponse(credential.accessToken)));
 
-    const adapter = await service.createPooledAdapter({
+    const adapter = await service.createExactAdapter({
+      selected,
       defaultModel: "model",
       createAdapter,
     });
 
     await adapter.createMessage(makeOptions());
-    expect(createAdapter).toHaveBeenCalledWith({
-      tokenFile: token({ access_token: "access-only" }),
-      tokenPath: join(rootDir, "codex-oauth", "only.json"),
-    });
+    expect(createAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      credentialId: "only",
+      accessToken: accountToken("only").access_token,
+      chatgptAccountId: expect.any(String),
+    }));
   });
 });

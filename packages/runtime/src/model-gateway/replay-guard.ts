@@ -1,16 +1,22 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import type { ProviderModelRouteIdentity, ModelTurnResult } from "@kilnai/core";
 import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
+import { assertPersistableAuthorityAdmissionBundle } from "../session/authority-admission-evidence.js";
 import {
   abandonModelGatewayReplayClaim,
-  commitModelGatewayReplayClaim,
+  claimModelGatewayReplayAction,
   completeModelGatewayReplayClaim,
   createModelGatewayReplayClaim,
+  persistModelGatewayReplayAdmission,
   settleModelGatewayReplayClaimUnknown,
   type ModelGatewayReplayClaim,
   type ModelGatewayReplayFence,
   type ModelGatewayReplayKey,
 } from "./replay-claim.js";
+import {
+  createGovernedOneRoundDispatchPermit,
+  type GovernedOneRoundDispatchPermit,
+} from "../execution-kernel/dispatch-permit.js";
 
 export const MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION = "kiln-replay-v1";
 
@@ -33,7 +39,7 @@ export interface ModelGatewayReplayCompletedValue {
 }
 
 export type ModelGatewayReplayDecision =
-  | { readonly kind: "dispatch"; readonly key: ModelGatewayReplayKey; readonly fence: ModelGatewayReplayFence }
+  | { readonly kind: "dispatch"; readonly key: ModelGatewayReplayKey; readonly fence: ModelGatewayReplayFence; readonly attemptId: string }
   | { readonly kind: "join-inflight"; readonly retryAfterSeconds: number }
   | { readonly kind: "replay-completed"; readonly value: ModelGatewayReplayCompletedValue }
   | { readonly kind: "committed-unknown" };
@@ -41,12 +47,24 @@ export type ModelGatewayReplayDecision =
 export interface ModelGatewayReplayGuard {
   fingerprint(input: ModelGatewayReplayFingerprintInput): ModelGatewayReplayKey;
   claim(key: ModelGatewayReplayKey): ModelGatewayReplayDecision;
-  markCommitted(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void;
-  /** Atomic model-gateway admission commit; implemented by the durable store. */
-  commitAdmission?(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, bundle: EffectiveAuthorityAdmissionBundle): void;
+  /** Atomically persists and reads back the complete, immutable admission bundle. */
+  persistAdmission(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, bundle: EffectiveAuthorityAdmissionBundle): ModelGatewayAdmissionReceipt;
+  /** Fences the exact provider effect and returns the one-use dispatch permit. */
+  claimAction(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, input: ModelGatewayReplayActionInput): GovernedOneRoundDispatchPermit;
   settleUnknown(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void;
   complete(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, value: ModelGatewayReplayCompletedValue): void;
   abandon(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void;
+}
+
+export interface ModelGatewayAdmissionReceipt {
+  readonly attemptId: string;
+  readonly admissionId: `sha256:${string}`;
+  readonly bundle: EffectiveAuthorityAdmissionBundle;
+}
+
+export interface ModelGatewayReplayActionInput {
+  readonly admissionId: `sha256:${string}`;
+  readonly effectIdentity: string;
 }
 
 export interface InMemoryModelGatewayReplayGuardOptions {
@@ -59,15 +77,18 @@ export interface InMemoryModelGatewayReplayGuardOptions {
 
 interface Entry {
   claim: ModelGatewayReplayClaim<ModelGatewayReplayCompletedValue>;
+  /** Pre-action claims and encrypted payloads expire. Tombstones do not. */
   expiresAt?: number;
+  /** Test-only readback state; replay expiry never owns admission evidence. */
+  admissionBundle?: EffectiveAuthorityAdmissionBundle;
 }
 
 /**
- * Process-local replay protection. It is deliberately neither durable nor distributed:
- * restart loses every claim, and claimed/completed/terminal-unknown states expire after TTL.
- * Active committed work does not expire while provider invocation is unresolved. A crash around
- * provider dispatch still cannot be made safe: redispatch is possible after restart, and after TTL
- * for terminal states. Only a durable ledger can extend that guarantee.
+ * Test-only process-local replay protection. It is deliberately neither durable nor distributed:
+ * restart loses every claim. Pre-action claims (including admitted claims) and
+ * completed payloads use TTL, while committed and committed-unknown tombstones
+ * remain non-redispatchable for the lifetime of this process.
+ * Production ingress uses the durable SQLite implementation.
  */
 export class InMemoryModelGatewayReplayGuard implements ModelGatewayReplayGuard {
   readonly #entries = new Map<ModelGatewayReplayKey, Entry>();
@@ -124,35 +145,50 @@ export class InMemoryModelGatewayReplayGuard implements ModelGatewayReplayGuard 
   claim(key: ModelGatewayReplayKey): ModelGatewayReplayDecision {
     const now = this.#now();
     for (const [candidate, entry] of this.#entries) {
-      if (entry.expiresAt !== undefined && entry.expiresAt <= now) this.#entries.delete(candidate);
+      if (entry.expiresAt !== undefined && entry.expiresAt <= now && (entry.claim.phase === "claimed" || entry.claim.phase === "admitted")) this.#entries.delete(candidate);
     }
     const current = this.#entries.get(key);
     if (current?.claim.phase === "claimed") {
       return { kind: "join-inflight", retryAfterSeconds: Math.max(1, Math.min(60, Math.ceil((current.expiresAt! - now) / 1_000))) };
     }
-    if (current?.claim.phase === "completed") return { kind: "replay-completed", value: clone(current.claim.value) };
+    if (current?.claim.phase === "completed") {
+      if (current.expiresAt !== undefined && current.expiresAt <= now) return { kind: "committed-unknown" };
+      return { kind: "replay-completed", value: clone(current.claim.value) };
+    }
     if (current?.claim.phase === "committed-unknown") return { kind: "committed-unknown" };
     if (current?.claim.phase === "committed") return { kind: "committed-unknown" };
-    if (this.#entries.size >= this.#maxEntries) throw new Error("Replay guard capacity is exhausted.");
+    let preActionEntries = 0;
+    for (const entry of this.#entries.values()) {
+      if (entry.claim.phase === "claimed" || entry.claim.phase === "admitted") preActionEntries += 1;
+    }
+    if (preActionEntries >= this.#maxEntries) throw new Error("Replay guard capacity is exhausted.");
     const fence = this.#createFence() as ModelGatewayReplayFence;
-    this.#entries.set(key, { claim: createModelGatewayReplayClaim(fence), expiresAt: now + this.#ttlMs });
-    return { kind: "dispatch", key, fence };
+    const attemptId = `attempt-${randomUUID()}`;
+    this.#entries.set(key, { claim: createModelGatewayReplayClaim(fence, attemptId), expiresAt: now + this.#ttlMs });
+    return { kind: "dispatch", key, fence, attemptId };
   }
 
-  markCommitted(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void {
+  persistAdmission(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, bundle: EffectiveAuthorityAdmissionBundle): ModelGatewayAdmissionReceipt {
     const entry = this.#require(key);
-    entry.claim = commitModelGatewayReplayClaim(entry.claim, fence);
-    entry.expiresAt = undefined;
+    const admitted = assertPersistableAuthorityAdmissionBundle(bundle);
+    entry.claim = persistModelGatewayReplayAdmission(entry.claim, fence, admitted.admissionId);
+    entry.expiresAt = this.#now() + this.#ttlMs;
+    // The canonical bundle is already deeply frozen; retain that exact
+    // immutable value so test readback has the same contract as SQLite.
+    entry.admissionBundle = admitted;
+    return { attemptId: entry.claim.attemptId, admissionId: admitted.admissionId, bundle: admitted };
   }
 
-  commitAdmission(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, _bundle: EffectiveAuthorityAdmissionBundle): void {
-    this.markCommitted(key, fence);
+  claimAction(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, input: ModelGatewayReplayActionInput): GovernedOneRoundDispatchPermit {
+    const entry = this.#require(key);
+    entry.claim = claimModelGatewayReplayAction(entry.claim, fence, input);
+    return createGovernedOneRoundDispatchPermit();
   }
 
   settleUnknown(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void {
     const entry = this.#require(key);
     entry.claim = settleModelGatewayReplayClaimUnknown(entry.claim, fence);
-    entry.expiresAt = this.#now() + this.#ttlMs;
+    entry.expiresAt = undefined;
   }
 
   complete(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence, value: ModelGatewayReplayCompletedValue): void {
@@ -170,7 +206,7 @@ export class InMemoryModelGatewayReplayGuard implements ModelGatewayReplayGuard 
   #require(key: ModelGatewayReplayKey): Entry {
     const entry = this.#entries.get(key);
     if (entry === undefined) throw new Error("Replay claim is unavailable.");
-    if (entry.expiresAt !== undefined && entry.expiresAt <= this.#now()) {
+    if (entry.expiresAt !== undefined && entry.expiresAt <= this.#now() && (entry.claim.phase === "claimed" || entry.claim.phase === "admitted")) {
       this.#entries.delete(key);
       throw new Error("Replay claim is unavailable.");
     }

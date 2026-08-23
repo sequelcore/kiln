@@ -29,8 +29,6 @@ import type { RetryConfig, RetryStrategy } from "../domain/tool-execution.js";
 import type { Workflow, Gate } from "../domain/workflow.js";
 import type { MemoryScope } from "../domain/memory.js";
 import type { Trigger, TriggerType } from "../domain/trigger.js";
-import type { KnowledgeConfig, KnowledgeEmbeddingConfig, KnowledgeStoreConfig, KnowledgeChunkingConfig, KnowledgeSourceConfig } from "../domain/knowledge-config.js";
-import { validateKnowledgeConfig } from "../domain/knowledge-config.js";
 import type { EvalConfig, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig } from "../domain/eval-config.js";
 import { validateEvalConfig } from "../domain/eval-config.js";
 import type { McpConfig } from "../domain/mcp-config.js";
@@ -148,40 +146,6 @@ interface RawTrigger {
   filter?: unknown;
   cron?: unknown;
   timezone?: unknown;
-}
-
-interface RawKnowledgeEmbedding {
-  provider?: unknown;
-  model?: unknown;
-  apiKeyEnv?: unknown;
-  baseUrl?: unknown;
-}
-
-interface RawKnowledgeStore {
-  backend?: unknown;
-  connectionString?: unknown;
-  connectionStringEnv?: unknown;
-}
-
-interface RawKnowledgeChunking {
-  strategy?: unknown;
-  chunkSize?: unknown;
-  chunkOverlap?: unknown;
-}
-
-interface RawKnowledgeSource {
-  name?: unknown;
-  path?: unknown;
-  watch?: unknown;
-  chunking?: unknown;
-}
-
-interface RawKnowledge {
-  embedding?: unknown;
-  store?: unknown;
-  chunking?: unknown;
-  sources?: unknown;
-  allowedAgents?: unknown;
 }
 
 interface RawEvalScorer {
@@ -320,7 +284,6 @@ interface RawVoiceOutputPolicy {
 interface RawPiiConfig {
   detect?: unknown;
   action?: unknown;
-  deepScan?: unknown;
   allowlist?: unknown;
 }
 
@@ -332,7 +295,6 @@ interface RawContentCategoryConfig {
 interface RawContentConfig {
   enabled?: unknown;
   categories?: unknown;
-  deepScan?: unknown;
 }
 
 interface RawRailConfig {
@@ -359,7 +321,6 @@ interface RawApp {
   router?: unknown;
   teams?: unknown;
   triggers?: unknown;
-  knowledge?: unknown;
   eval?: unknown;
   mcp?: unknown;
   toolSelection?: unknown;
@@ -608,12 +569,6 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     }
     if (typeof raw.task !== "string" || raw.task === "") {
       errors.push({ field: `${path}.task`, message: "required when type is 'delegation'" });
-    }
-  }
-
-  if (raw.type === "a2a") {
-    if (typeof raw.targetApp !== "string" || raw.targetApp === "") {
-      errors.push({ field: `${path}.targetApp`, message: "required when type is 'a2a' (must be agent URL)" });
     }
   }
 
@@ -894,78 +849,6 @@ function mapTrigger(raw: RawTrigger, path: string): { trigger: Trigger; errors: 
       return { trigger, errors };
     }
   }
-}
-
-function mapKnowledge(raw: RawKnowledge): { knowledge: KnowledgeConfig | undefined; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  if (!raw || typeof raw !== "object") {
-    return { knowledge: undefined, errors: [] };
-  }
-
-  const rawEmbedding = raw.embedding as RawKnowledgeEmbedding | undefined;
-  const rawStore = raw.store as RawKnowledgeStore | undefined;
-  const rawChunking = raw.chunking as RawKnowledgeChunking | undefined;
-
-  const embedding: KnowledgeEmbeddingConfig = {
-    provider: (typeof rawEmbedding?.provider === "string" ? rawEmbedding.provider : "") as KnowledgeEmbeddingConfig["provider"],
-    model: typeof rawEmbedding?.model === "string" ? rawEmbedding.model : undefined,
-    apiKeyEnv: typeof rawEmbedding?.apiKeyEnv === "string" ? rawEmbedding.apiKeyEnv : undefined,
-    baseUrl: typeof rawEmbedding?.baseUrl === "string" ? rawEmbedding.baseUrl : undefined,
-  };
-
-  const store: KnowledgeStoreConfig = {
-    backend: (typeof rawStore?.backend === "string" ? rawStore.backend : "") as KnowledgeStoreConfig["backend"],
-    connectionString: typeof rawStore?.connectionString === "string" ? rawStore.connectionString : undefined,
-    connectionStringEnv: typeof rawStore?.connectionStringEnv === "string" ? rawStore.connectionStringEnv : undefined,
-  };
-
-  const chunking: KnowledgeChunkingConfig = {
-    strategy: (typeof rawChunking?.strategy === "string" ? rawChunking.strategy : "") as KnowledgeChunkingConfig["strategy"],
-    chunkSize: typeof rawChunking?.chunkSize === "number" ? rawChunking.chunkSize : undefined,
-    chunkOverlap: typeof rawChunking?.chunkOverlap === "number" ? rawChunking.chunkOverlap : undefined,
-  };
-
-  const sources: KnowledgeSourceConfig[] = [];
-  if (Array.isArray(raw.sources)) {
-    for (let i = 0; i < raw.sources.length; i++) {
-      const source = raw.sources[i] as RawKnowledgeSource | undefined;
-      if (!source) continue;
-      
-      const rawSourceChunking = source.chunking as RawKnowledgeChunking | undefined;
-      const sourceChunking: KnowledgeChunkingConfig | undefined = rawSourceChunking ? {
-        strategy: (typeof rawSourceChunking.strategy === "string" ? rawSourceChunking.strategy : "") as KnowledgeChunkingConfig["strategy"],
-        chunkSize: typeof rawSourceChunking.chunkSize === "number" ? rawSourceChunking.chunkSize : undefined,
-        chunkOverlap: typeof rawSourceChunking.chunkOverlap === "number" ? rawSourceChunking.chunkOverlap : undefined,
-      } : undefined;
-
-      sources.push({
-        name: typeof source.name === "string" ? source.name : "",
-        path: typeof source.path === "string" ? source.path : "",
-        watch: typeof source.watch === "boolean" ? source.watch : undefined,
-        chunking: sourceChunking,
-      });
-    }
-  }
-
-  const allowedAgents: string[] | undefined = Array.isArray(raw.allowedAgents)
-    ? raw.allowedAgents.filter((a): a is string => typeof a === "string")
-    : undefined;
-
-  const knowledge: KnowledgeConfig = {
-    embedding,
-    store,
-    chunking,
-    sources,
-    ...(allowedAgents && allowedAgents.length > 0 ? { allowedAgents } : {}),
-  };
-
-  const validationErrors = validateKnowledgeConfig(knowledge);
-  for (const ve of validationErrors) {
-    errors.push(ve);
-  }
-
-  return { knowledge: validationErrors.length > 0 ? undefined : knowledge, errors };
 }
 
 const VALID_SCORER_TYPES = [
@@ -1452,7 +1335,6 @@ function mapSafety(raw: RawSafetyConfig): { safety: SafetyConfig | undefined; er
     pii = {
       detect,
       action: (typeof rawPii.action === "string" ? rawPii.action : "detect") as PiiAction,
-      ...(typeof rawPii.deepScan === "boolean" ? { deepScan: rawPii.deepScan } : {}),
       ...(allowlist.length > 0 ? { allowlist } : {}),
     };
   }
@@ -1475,7 +1357,6 @@ function mapSafety(raw: RawSafetyConfig): { safety: SafetyConfig | undefined; er
     content = {
       enabled: typeof rawContent.enabled === "boolean" ? rawContent.enabled : true,
       categories,
-      ...(typeof rawContent.deepScan === "boolean" ? { deepScan: rawContent.deepScan } : {}),
     };
   }
 
@@ -1629,14 +1510,6 @@ export function parseAppYaml(content: string): App {
     }
   }
 
-  // knowledge (optional)
-  let knowledge: KnowledgeConfig | undefined;
-  if (raw.knowledge !== undefined) {
-    const { knowledge: knowledgeConfig, errors: knowledgeErrors } = mapKnowledge(raw.knowledge as RawKnowledge);
-    knowledge = knowledgeConfig;
-    errors.push(...knowledgeErrors);
-  }
-
   // eval (optional)
   let evalConfig: EvalConfig | undefined;
   if (raw.eval !== undefined) {
@@ -1686,7 +1559,6 @@ export function parseAppYaml(content: string): App {
     memory,
     channels,
     ...(triggers.length > 0 ? { triggers } : {}),
-    ...(knowledge ? { knowledge } : {}),
     ...(evalConfig ? { eval: evalConfig } : {}),
     ...(mcpConfig ? { mcp: mcpConfig } : {}),
     ...(toolSelectionConfig ? { toolSelection: toolSelectionConfig } : {}),

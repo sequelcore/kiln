@@ -52,7 +52,7 @@ their backing state:
 - Tool catalog resources are produced from the active builtin surface for the
   current session configuration.
 
-This means knowledge and artifacts created in one workspace or session do not
+This means resources and artifacts created in one workspace or session do not
 become global hidden memory for another project. Multi-project GUI usage shares
 the same core contracts, not the same per-session state.
 

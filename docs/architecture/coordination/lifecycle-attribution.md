@@ -35,7 +35,6 @@ Lifecycle sources are intentionally semantic, not provider-specific:
 - control instructions;
 - procedural context;
 - memory;
-- knowledge;
 - coordination;
 - transcript;
 - repository evidence;

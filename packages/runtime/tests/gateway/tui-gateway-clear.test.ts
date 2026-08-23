@@ -77,6 +77,34 @@ const tuiTestRouting = vi.hoisted(() => ({
   create(providerId?: string, providerModelId?: string) {
     let handler: ((input: unknown) => Promise<unknown>) | undefined;
     let authorityHandler: any;
+    const admissions = new Map<string, any>();
+    const createClaimStore = () => {
+      const claims = new Map<string, any>();
+      const permits = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+      return {
+        claim(input: { readonly claimId: string }) {
+          if (claims.has(input.claimId)) throw new Error("TUI fixture action claim already exists; no redispatch.");
+          const state = { claimId: input.claimId, consumed: false };
+          const permit = {
+            claimId: input.claimId,
+            permitId: `tui-fixture:${input.claimId}`,
+            consume: () => {
+              if (state.consumed) throw new Error("TUI fixture action permit already consumed.");
+              state.consumed = true;
+            },
+          };
+          permits.set(permit, state);
+          claims.set(input.claimId, input);
+          return permit;
+        },
+        settle(permit: { readonly claimId: string }, settlement: { readonly kind: string; readonly reason?: string; readonly settledAt?: string }) {
+          const state = permits.get(permit);
+          if (!state || !state.consumed) throw new Error("TUI fixture action permit was not consumed.");
+          permits.delete(permit);
+          void settlement;
+        },
+      };
+    };
     const admission = {
       routeId: "test-route",
       providerId: providerId?.trim() || "claude",
@@ -146,6 +174,7 @@ const tuiTestRouting = vi.hoisted(() => ({
         await authorityHandler.persist(authorityAdmission);
         const result = await bridge.dispatchCommittedTurn({
           executionId: request.executionId,
+          intentFingerprint: request.intentFingerprint,
           admission: selectedAdmission,
           accountId,
           binding,
@@ -175,7 +204,27 @@ const tuiTestRouting = vi.hoisted(() => ({
       operatorTurnDispatcher: dispatcher,
       operatorTurnExecutionBridge: bridge,
       operatorAuthorityAdmissionBridge: authorityBridge,
-      authorityAdmissionEvidenceStore: { persist: async () => undefined, loadSessionFacet: async () => undefined },
+      authorityAdmissionEvidenceStore: {
+        persist: async (bundle: unknown) => {
+          const admission = bundle as { readonly admissionId: string };
+          admissions.set(admission.admissionId, bundle);
+        },
+        loadSessionFacet: async () => undefined,
+        readAdmission: async (input: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string }) => {
+          const bundle = admissions.get(input.admissionId) as { readonly sessionId?: string; readonly turnId?: string } | undefined;
+          return bundle?.sessionId === input.sessionId && bundle.turnId === input.turnId ? bundle : undefined;
+        },
+      },
+      runtimeModelRoundActionClaims: createClaimStore(),
+      runtimeToolActionClaims: createClaimStore(),
+      runtimeMediaActionClaims: {
+        ownerGeneration: "tui-fixture",
+        store: createClaimStore(),
+        readAdmission: async ({ admissionId, sessionId, turnId }: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string }) => {
+          const bundle = admissions.get(admissionId) as { readonly sessionId?: string; readonly turnId?: string } | undefined;
+          return bundle?.sessionId === sessionId && bundle.turnId === turnId ? bundle : undefined;
+        },
+      },
       executionRouteSelection,
     };
   },
@@ -236,7 +285,7 @@ function makeSessionManager() {
 
 function makeTuiTestRouting(
   sessionManager: Pick<TuiGatewayOptions["sessionManager"], "getProvider" | "getModel">,
-): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "persistCanonicalSessionEvent"> {
+): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "persistCanonicalSessionEvent"> {
   const routing = tuiTestRouting.create(sessionManager.getProvider(), sessionManager.getModel());
   return {
     executionRouteSelection: routing.executionRouteSelection as never,
@@ -244,6 +293,9 @@ function makeTuiTestRouting(
     operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as never,
     operatorAuthorityAdmissionBridge: routing.operatorAuthorityAdmissionBridge as never,
     authorityAdmissionEvidenceStore: routing.authorityAdmissionEvidenceStore as never,
+    runtimeModelRoundActionClaims: routing.runtimeModelRoundActionClaims as never,
+    runtimeToolActionClaims: routing.runtimeToolActionClaims as never,
+    runtimeMediaActionClaims: routing.runtimeMediaActionClaims as never,
     persistCanonicalSessionEvent: async () => undefined,
   };
 }
@@ -894,8 +946,9 @@ describe("TUI gateway message fail-closed behavior", () => {
       if (!managedInvoke) {
         throw new Error("managed_agent.invoke was not attached to the TUI turn surface");
       }
-      expect(input.perCallConfig?.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
-      expect(input.perCallConfig?.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
+      const managedInvokePermission = input.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions
+        .find((permission) => permission.toolName === "managed_agent.invoke");
+      expect(managedInvokePermission?.authority).toMatchObject({
         allowed: false,
         requiresApproval: true,
       });

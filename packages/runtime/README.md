@@ -21,11 +21,11 @@
 `@kilnai/runtime` is the production runtime for [Kiln](https://github.com/sequelcore/kiln). It turns your YAML-configured AI apps into a running server with:
 
 - **Multi-app gateway** -- host multiple Kiln apps in one Bun/Hono process
-- **8 channel adapters** -- CLI, Web (WebSocket), WhatsApp, Instagram, Messenger, Slack, Email, REST API
+- **6 channel integrations** -- Web (WebSocket), WhatsApp, Instagram, Messenger, Slack, and Email
 - **Multi-tenant isolation** -- tenant-scoped governed memory, system prompts, billing, and channel credentials
 - **Budget middleware** -- per-tenant token budgets with fail-open enforcement
 - **Trigger runtime** -- webhooks (HMAC-SHA256), event listeners, cron scheduler
-- **Cross-app delegation** -- Kiln-native and A2A protocol support
+- **Cross-app delegation** -- Kiln-native delegation between apps in one Gateway
 - **Session management** -- per-user sessions with idle cleanup
 - **Safety & security middleware** -- prompt injection scanning, PII/content/rails pipeline
 
@@ -87,8 +87,8 @@ apps:
 | Session | `RuntimeSessionOrchestrator`, `RuntimeSession`, `SessionRegistry`, `SessionMode`, `SessionStore`, `InMemorySessionStore`, `RedisSessionStore`, `serializeSession`, `deserializeSession` |
 | Tenant | `TenantRegistry`, `buildTenantSystemPrompt()`, `extractSuggestions()` |
 | Triggers | `TriggerRegistry`, `createWebhookHandler()`, `EventListener`, `Scheduler` |
-| Channels | `WebChannel`, `WhatsAppChannel`, `InstagramChannel`, `MessengerChannel`, `SlackChannel`, `EmailChannel`, `CliChannel`, `ApiChannel` |
-| Budget | `checkBudget()`, `reportUsage()` |
+| Channels | `WebChannel`, provider channel APIs, claimed channel egress contracts |
+| Budget | `checkBudget()` |
 
 ## Endpoints
 

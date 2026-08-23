@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   defineExecutionCatalog,
@@ -23,20 +23,56 @@ import type {
   SessionProviderDescriptor,
 } from "../../src/wrapper/session-registry.js";
 import { SessionRegistry } from "../../src/wrapper/session-registry.js";
+import { TranscriptStore } from "../../src/wrapper/session-store.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application/authority-admission-evidence-store.js";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   projectManagedEconomicJobAdoption,
-  resolveManagedInvocationToolOptions,
+  resolveManagedInvocationToolOptions as resolveManagedInvocationToolOptionsProduction,
   type ManagedAgentRouteConfigSource,
+  type ResolveManagedInvocationToolOptionsContext,
 } from "../../src/config/managed-agent-routes.js";
 import { deriveManagedAgentEconomicPolicies } from "../../src/config/managed-agent-intent.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import {
   normalizeRuntimeProviderDiscoveryCatalog,
   RuntimeManagedAgentInvocationService,
+  defineEffectiveAuthorityAdmissionBundle,
   type ManagedAgentRuntimeAdapter,
   type ManagedInvocationToolRoute,
 } from "@kilnai/runtime";
+
+// Harness route resolution owns a fixed-path action-claim database. Tests
+// resolve multiple independent services against the same synthetic C:/repo
+// root, so close the previous fixture owner before constructing the next one.
+// This keeps the fixture lifecycle equivalent to the production route catalog
+// refresh/dispose lifecycle without weakening the singleton owner invariant.
+let fixtureInvocationService: { readonly close: () => void } | undefined;
+afterEach(() => {
+  fixtureInvocationService?.close();
+  fixtureInvocationService = undefined;
+});
+
+async function resolveManagedInvocationToolOptions(
+  config: ManagedAgentRouteConfigSource | null | undefined,
+  context: ResolveManagedInvocationToolOptionsContext,
+): Promise<Awaited<ReturnType<typeof resolveManagedInvocationToolOptionsProduction>>> {
+  if (
+    fixtureInvocationService !== undefined
+    && fixtureInvocationService !== context.invocationService
+  ) {
+    fixtureInvocationService.close();
+    fixtureInvocationService = undefined;
+  }
+  const result = await resolveManagedInvocationToolOptionsProduction(config, context);
+  if (
+    result.managedInvocation?.invocationService !== undefined
+    && result.managedInvocation.invocationService !== context.invocationService
+  ) {
+    fixtureInvocationService = result.managedInvocation.invocationService;
+  }
+  return result;
+}
 
 function profileByAdmission(
   route: ManagedInvocationToolRoute | undefined,
@@ -50,6 +86,7 @@ const READONLY_POLICY: KilnPermissionPolicy = {
   sandbox: "read-only",
 };
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
+const TEST_INVOCATION_SERVICE_KEY = `managed-invocation:${resolve("C:/repo")}`;
 const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY = {
   proposalSupported: true,
   approvedApplySupported: true,
@@ -485,6 +522,57 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
       ...managedAgents,
     },
   };
+}
+
+function defineHarnessChildAuthorityAdmission(sessionId: string, turnId: string) {
+  return {
+    bundle: defineEffectiveAuthorityAdmissionBundle({
+      sessionId,
+      turnId,
+      admittedAt: FIXTURE_OBSERVED_AT,
+      configuration: {
+        sessionRevision: { revisionSetId: "sha256:harness-session", revisions: { routes: "fixture" } },
+        turnRevision: { revisionSetId: "sha256:harness-turn", revisions: { routes: "fixture" } },
+      },
+      session: {
+        skillCatalog: { catalogId: "harness-fixture", revision: "r1", skillIds: [] },
+        authorityCeiling: { maximumAuthority: "audited", reason: "test harness admission", subjectId: sessionId },
+      },
+      turn: {
+        authority: {
+          executionMode: "execute",
+          requestedAuthority: "audited",
+          admittedAuthority: "audited",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "test harness admission",
+          completeness: "authoritative",
+          toolCount: 0,
+          deniedToolCount: 0,
+        },
+        workGovernance: { status: "not-required" },
+        operatorAdoption: { status: "not-required" },
+        tools: { allowedToolPermissions: [], deniedToolNames: [] },
+        effectCeiling: {
+          operation: "observe",
+          boundaries: ["workspace"],
+          reversibility: "reversible",
+          dataEgress: "none",
+          identityUse: "none",
+          consequences: ["local-state"],
+          idempotency: "idempotent",
+        },
+        budget: { status: "not-configured" },
+        execution: { status: "not-routed" },
+      },
+    }),
+  };
+}
+
+async function persistHarnessChildAuthorityAdmission(
+  admission: ReturnType<typeof defineHarnessChildAuthorityAdmission>,
+): Promise<ReturnType<typeof defineHarnessChildAuthorityAdmission>> {
+  await new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore("C:/repo")).persist(admission.bundle);
+  return admission;
 }
 
 function persistedConfig(config: KilnGlobalConfig & ManagedAgentRouteConfigSource): KilnGlobalConfig {
@@ -955,6 +1043,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         capturedRun = options;
       }),
       surface: "gui",
+      invocationService: new RuntimeManagedAgentInvocationService(),
+      invocationServiceKey: TEST_INVOCATION_SERVICE_KEY,
       providerModelEligibility: observedProviderModels({
         codex: ["gpt-5.3-codex-spark"],
       }),
@@ -1009,6 +1099,11 @@ describe("resolveManagedInvocationToolOptions", () => {
     }), adapter, {
       routeId: route!.routeId,
       routeSource: route!.routeSource,
+    }, {
+      childAuthorityAdmission: await persistHarnessChildAuthorityAdmission(defineHarnessChildAuthorityAdmission(
+        "cli-parent-session",
+        "cli-parent-session:turn:1",
+      )),
     });
 
     expect(invokeResult.status).toBe("completed");
@@ -1064,7 +1159,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     expect(result.managedInvocation?.invocationService).toBeDefined();
-    expect(result.managedInvocation?.invocationServiceKey).toBeUndefined();
+    expect(result.managedInvocation?.invocationServiceKey).toContain("externalActionClaim");
     expect(result.managedInvocation?.economicDispatch).toBeUndefined();
     expect(result.managedInvocation?.workspaceRoot).toBeUndefined();
   });
@@ -2058,6 +2153,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         capturedResolution = config.deliberationResolution;
       }),
       surface: "gui",
+      invocationService: new RuntimeManagedAgentInvocationService(),
+      invocationServiceKey: TEST_INVOCATION_SERVICE_KEY,
       providerModelEligibility: withDiscoveredDeliberation(
         COMMON_OBSERVED_PROVIDER_MODELS,
         "claude",
@@ -2122,6 +2219,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       }),
       claudeDeliberationAdapter,
       { routeId: route!.routeId, routeSource: route!.routeSource },
+      {
+        childAuthorityAdmission: await persistHarnessChildAuthorityAdmission(defineHarnessChildAuthorityAdmission(
+          "claude-parent-session",
+          "claude-parent-session:turn:1",
+        )),
+      },
     );
 
     expect(capturedResolution).toMatchObject({
@@ -2176,6 +2279,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         capturedResolution = config.deliberationResolution;
       }),
       surface: "gui",
+      invocationService: new RuntimeManagedAgentInvocationService(),
+      invocationServiceKey: TEST_INVOCATION_SERVICE_KEY,
       providerModelEligibility: withDiscoveredDeliberation(
         observedProviderModels({ opencode: ["opencode/gpt-5.4"] }),
         "opencode",
@@ -2240,6 +2345,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       }),
       opencodeDeliberationAdapter,
       { routeId: route!.routeId, routeSource: route!.routeSource },
+      {
+        childAuthorityAdmission: await persistHarnessChildAuthorityAdmission(defineHarnessChildAuthorityAdmission(
+          "opencode-parent-session",
+          "opencode-parent-session:turn:1",
+        )),
+      },
     );
 
     expect(capturedResolution).toMatchObject({

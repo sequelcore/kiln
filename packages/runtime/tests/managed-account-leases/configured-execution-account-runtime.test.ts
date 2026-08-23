@@ -170,7 +170,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     })).rejects.toThrow(/does not match/u);
   });
 
-  it("materializes a Gateway dispatcher only from a dispatch-fenced canonical credential", async () => {
+  it("materializes a Gateway dispatcher from the exact held canonical credential before the action claim", async () => {
     const codexPool = pool([codexExecution], [usageSnapshot("credential-a", "available")]);
     const runtime = new ConfiguredExecutionAccountRuntime({
       catalog,
@@ -202,17 +202,17 @@ describe("ConfiguredExecutionAccountRuntime", () => {
         routeId: "codex-route",
         route,
         lease: acquired.record,
-      })).rejects.toThrow("durable dispatch fence identity");
+      })).resolves.toMatchObject({ binding: { accountId: "account-a", routeId: "codex-route" } });
 
-      const fenced = authority.fenceAccountCapacityDispatch("attempt", "attempt:dispatch");
+      const fenced = authority.fenceAccountCapacityDispatch("attempt", "attempt:capacity");
       await expect(runtime.modelGatewayDispatchers.resolve({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         accountId: "account-a",
         routeId: "codex-route",
         route,
         lease: fenced,
-      })).resolves.toMatchObject({ dispatchOneRound: expect.any(Function) });
-      expect(codexPool.resolveExecutionCredential).toHaveBeenCalledOnce();
+      })).resolves.toMatchObject({ dispatcher: { dispatchOneRound: expect.any(Function) } });
+      expect(codexPool.resolveExecutionCredential).toHaveBeenCalledTimes(2);
     } finally {
       authority.close();
     }
@@ -368,6 +368,7 @@ function pool(
 ) {
   return {
     listExecutionAccounts: vi.fn(async () => accounts),
+    prepareExecutionAccounts: vi.fn(async () => accounts),
     listUsage: vi.fn(async () => usage),
     refreshUsageForCredentials: vi.fn(async () => refreshedUsage),
     resolveExecutionCredential: vi.fn(async (selected: typeof codexExecution) => ({

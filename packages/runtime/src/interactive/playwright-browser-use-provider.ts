@@ -21,8 +21,6 @@ export const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
 type PlaywrightLoader = () => Promise<PlaywrightModule>;
 type PlaywrightNodeSidecarRunner = {
   execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult>;
-  control(request: PlaywrightBrowserSessionControlRequest): Promise<PlaywrightBrowserSessionState>;
-  operatorInput(request: PlaywrightBrowserOperatorInputRequest): Promise<PlaywrightBrowserOperatorInputAck>;
   closeAll(): Promise<void>;
 };
 
@@ -69,7 +67,7 @@ export interface PlaywrightBrowserSessionState {
   readonly operation?: string;
   readonly url?: string;
   readonly title?: string;
-  readonly ownership: "agent" | "operator" | "released";
+  readonly ownership: "agent" | "released";
   readonly viewMode: "snapshot" | "live";
   readonly stream: {
     readonly status: "starting" | "live" | "paused" | "ended" | "failed";
@@ -83,63 +81,6 @@ export interface PlaywrightBrowserSessionState {
     readonly height?: number;
     readonly transport?: PlaywrightBrowserLiveViewportTransport;
   };
-}
-
-export interface PlaywrightBrowserSessionControlRequest {
-  readonly action: "takeover" | "release";
-  readonly gatewayTargetId?: string;
-  readonly sessionId?: string;
-  readonly operatorId?: string;
-  readonly reason?: string;
-}
-
-export type PlaywrightBrowserOperatorInput =
-  | {
-      readonly kind: "pointer";
-      readonly phase: "move" | "down" | "up" | "click";
-      readonly x: number;
-      readonly y: number;
-      readonly button?: "left" | "middle" | "right" | "back" | "forward" | "none";
-      readonly clickCount?: number;
-    }
-  | {
-      readonly kind: "wheel";
-      readonly x: number;
-      readonly y: number;
-      readonly deltaX: number;
-      readonly deltaY: number;
-    }
-  | {
-      readonly kind: "key";
-      readonly phase: "down" | "up" | "press";
-      readonly key: string;
-      readonly text?: string;
-    }
-  | {
-      readonly kind: "text";
-      readonly text: string;
-    };
-
-export interface PlaywrightBrowserOperatorInputRequest {
-  readonly requestId: string;
-  readonly gatewayTargetId?: string;
-  readonly sessionId: string;
-  readonly operatorId?: string;
-  readonly input: PlaywrightBrowserOperatorInput;
-}
-
-export interface PlaywrightBrowserOperatorInputAck {
-  readonly requestId: string;
-  readonly sessionId?: string;
-  readonly status: "accepted" | "blocked" | "failed" | "stale-session";
-  readonly reason?: string;
-  readonly handledAt: string;
-}
-
-interface BrowserSessionOperatorLock {
-  readonly operatorId?: string;
-  readonly reason?: string;
-  readonly acquiredAt: string;
 }
 
 interface PlaywrightNodeSidecarBrowserSessionState extends Omit<PlaywrightBrowserSessionState, "latestCapture"> {
@@ -264,7 +205,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly cdpStreams = new Map<string, BrowserCdpScreencastStream>();
-  private readonly operatorLocks = new Map<string, BrowserSessionOperatorLock>();
   private readonly recorderSessionIds = new Set<string>();
   private readonly pendingSidecarUpdates = new Map<string, Set<Promise<void>>>();
   private activeSessionId: string | undefined;
@@ -427,140 +367,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.onBrowserSessionUpdated = handler;
   }
 
-  async requestBrowserSessionControl(request: PlaywrightBrowserSessionControlRequest): Promise<PlaywrightBrowserSessionState> {
-    if (this.sidecarRunner) {
-      return this.sidecarRunner.control(request);
-    }
-    const session = this.requireSession(request.sessionId);
-    if (request.action === "takeover") {
-      this.operatorLocks.set(session.id, {
-        ...(request.operatorId ? { operatorId: request.operatorId } : {}),
-        ...(request.reason ? { reason: request.reason } : {}),
-        acquiredAt: this.now().toISOString(),
-      });
-      try {
-        const [title, screenshot] = await Promise.all([
-          session.page.title().catch(() => undefined),
-          this.captureScreenshot(session),
-        ]);
-        const state = this.emitBrowserSessionState({
-          session,
-          operation: "operator_takeover",
-          title,
-          ownership: "operator",
-          viewMode: "live",
-          stream: { status: "live" },
-          latestCaptureUri: screenshot.uri,
-          latestCaptureWidth: screenshot.width,
-          latestCaptureHeight: screenshot.height,
-        });
-        this.scheduleStreamCapture(session, "observe");
-        this.scheduleIdleClose(session);
-        return state;
-      } catch (error) {
-        const state = this.emitBrowserSessionState({
-          session,
-          operation: "operator_takeover",
-          ownership: "operator",
-          viewMode: "live",
-          stream: {
-            status: "failed",
-            reason: error instanceof Error ? error.message : String(error),
-          },
-        });
-        this.scheduleIdleClose(session);
-        return state;
-      }
-    }
-
-    this.operatorLocks.delete(session.id);
-    try {
-      const [title, screenshot] = await Promise.all([
-        session.page.title().catch(() => undefined),
-        this.captureScreenshot(session),
-      ]);
-      const state = this.emitBrowserSessionState({
-        session,
-        operation: "operator_release",
-        title,
-        ownership: "agent",
-        viewMode: "live",
-        stream: { status: "live" },
-        latestCaptureUri: screenshot.uri,
-        latestCaptureWidth: screenshot.width,
-        latestCaptureHeight: screenshot.height,
-      });
-      this.scheduleStreamCapture(session, "observe");
-      this.scheduleIdleClose(session);
-      return state;
-    } catch (error) {
-      const state = this.emitBrowserSessionState({
-        session,
-        operation: "operator_release",
-        ownership: "agent",
-        viewMode: "live",
-        stream: {
-          status: "failed",
-          reason: error instanceof Error ? error.message : String(error),
-        },
-      });
-      this.scheduleIdleClose(session);
-      return state;
-    }
-  }
-
-  async requestBrowserOperatorInput(request: PlaywrightBrowserOperatorInputRequest): Promise<PlaywrightBrowserOperatorInputAck> {
-    if (this.sidecarRunner) {
-      return this.sidecarRunner.operatorInput(request).catch((error) => ({
-        requestId: request.requestId,
-        sessionId: request.sessionId,
-        status: "failed" as const,
-        reason: error instanceof Error ? error.message : String(error),
-        handledAt: this.now().toISOString(),
-      }));
-    }
-    const handledAt = this.now().toISOString();
-    const session = this.sessions.get(request.sessionId);
-    if (!session) {
-      return {
-        requestId: request.requestId,
-        sessionId: request.sessionId,
-        status: "stale-session",
-        reason: "Browser session is not active.",
-        handledAt,
-      };
-    }
-    if (!this.operatorLocks.has(session.id)) {
-      return {
-        requestId: request.requestId,
-        sessionId: session.id,
-        status: "blocked",
-        reason: "Operator does not own the browser session.",
-        handledAt,
-      };
-    }
-    try {
-      this.assertCurrentUrlAllowed(session);
-      await this.dispatchOperatorInput(session, request.input);
-      await this.captureAndEmitLiveFrame(session, "observe");
-      this.scheduleIdleClose(session);
-      return {
-        requestId: request.requestId,
-        sessionId: session.id,
-        status: "accepted",
-        handledAt,
-      };
-    } catch (error) {
-      return {
-        requestId: request.requestId,
-        sessionId: session.id,
-        status: "failed",
-        reason: error instanceof Error ? error.message : String(error),
-        handledAt,
-      };
-    }
-  }
-
   async closeAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
@@ -573,7 +379,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
     this.streamTimers.clear();
     await Promise.allSettled([...this.cdpStreams.keys()].map((sessionId) => this.stopCdpScreencast(sessionId)));
-    this.operatorLocks.clear();
     this.recorderSessionIds.clear();
     this.pendingSidecarUpdates.clear();
     this.activeSessionId = undefined;
@@ -593,7 +398,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       this.clearIdleTimer(existingSession.id);
       this.activeSessionId = existingSession.id;
       if (request.url && existingSession.page.url() !== request.url) {
-        this.assertAgentBrowserControl(existingSession);
         await existingSession.page.goto(request.url, {
           timeout: request.timeoutMs ?? this.defaultTimeoutMs,
           waitUntil: "domcontentloaded",
@@ -646,7 +450,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async navigate(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
-      this.assertAgentBrowserControl(session);
       if (!request.url) {
         throw new Error("browser_navigate requires url.");
       }
@@ -683,7 +486,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async click(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
-      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       const action = request.action;
       if (action?.selector) {
@@ -714,7 +516,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async type(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
-      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       const text = readText(request.input);
       if (request.action?.selector) {
@@ -738,7 +539,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async keypress(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
-      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       for (const key of request.action?.keys ?? []) {
         await session.page.keyboard.press(key);
@@ -757,7 +557,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async scroll(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
-      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       const { deltaX, deltaY } = scrollDelta(request);
       await session.page.mouse.wheel(deltaX, deltaY);
@@ -794,126 +593,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.activeSessionId = session.id;
     this.clearIdleTimer(session.id);
     return session;
-  }
-
-  private async dispatchOperatorInput(session: BrowserSession, input: PlaywrightBrowserOperatorInput): Promise<void> {
-    const cdpStream = this.cdpStreams.get(session.id);
-    if (cdpStream) {
-      await this.dispatchCdpOperatorInput(cdpStream.session, input);
-      return;
-    }
-    switch (input.kind) {
-      case "pointer": {
-        assertViewportCoordinate(input.x, input.y);
-        const button = input.button === "none" || input.button === "back" || input.button === "forward"
-          ? undefined
-          : input.button;
-        if (input.phase === "click") {
-          await session.page.mouse.click(input.x, input.y, {
-            ...(button ? { button } : {}),
-            ...(input.clickCount ? { clickCount: input.clickCount } : {}),
-          });
-          return;
-        }
-        if (input.phase === "move") {
-          if (!session.page.mouse.move) {
-            throw new Error("Pointer move is not supported by the active browser provider.");
-          }
-          await session.page.mouse.move(input.x, input.y);
-          return;
-        }
-        if (input.phase === "down") {
-          if (!session.page.mouse.move || !session.page.mouse.down) {
-            throw new Error("Pointer down is not supported by the active browser provider.");
-          }
-          await session.page.mouse.move(input.x, input.y);
-          await session.page.mouse.down(button ? { button } : undefined);
-          return;
-        }
-        if (!session.page.mouse.move || !session.page.mouse.up) {
-          throw new Error("Pointer up is not supported by the active browser provider.");
-        }
-        await session.page.mouse.move(input.x, input.y);
-        await session.page.mouse.up(button ? { button } : undefined);
-        return;
-      }
-      case "wheel":
-        assertViewportCoordinate(input.x, input.y);
-        if (session.page.mouse.move) {
-          await session.page.mouse.move(input.x, input.y);
-        }
-        await session.page.mouse.wheel(input.deltaX, input.deltaY);
-        return;
-      case "key":
-        if (input.phase === "press") {
-          await session.page.keyboard.press(input.key);
-          return;
-        }
-        throw new Error("Key down/up operator input requires the CDP transport slice.");
-      case "text":
-        await session.page.keyboard.type(input.text);
-        return;
-      default:
-        throw new Error("Unsupported browser operator input.");
-    }
-  }
-
-  private async dispatchCdpOperatorInput(cdpSession: CdpSession, input: PlaywrightBrowserOperatorInput): Promise<void> {
-    switch (input.kind) {
-      case "pointer": {
-        assertViewportCoordinate(input.x, input.y);
-        const button = input.button === "none" || input.button === "back" || input.button === "forward"
-          ? "none"
-          : input.button ?? "left";
-        if (input.phase === "click") {
-          await cdpSession.send("Input.dispatchMouseEvent", {
-            type: "mousePressed",
-            x: input.x,
-            y: input.y,
-            button,
-            clickCount: input.clickCount ?? 1,
-          });
-          await cdpSession.send("Input.dispatchMouseEvent", {
-            type: "mouseReleased",
-            x: input.x,
-            y: input.y,
-            button,
-            clickCount: input.clickCount ?? 1,
-          });
-          return;
-        }
-        await cdpSession.send("Input.dispatchMouseEvent", {
-          type: input.phase === "move" ? "mouseMoved" : input.phase === "down" ? "mousePressed" : "mouseReleased",
-          x: input.x,
-          y: input.y,
-          button,
-          clickCount: input.clickCount ?? (input.phase === "move" ? 0 : 1),
-        });
-        return;
-      }
-      case "wheel":
-        assertViewportCoordinate(input.x, input.y);
-        await cdpSession.send("Input.dispatchMouseEvent", {
-          type: "mouseWheel",
-          x: input.x,
-          y: input.y,
-          deltaX: input.deltaX,
-          deltaY: input.deltaY,
-        });
-        return;
-      case "key":
-        await cdpSession.send("Input.dispatchKeyEvent", {
-          type: input.phase === "up" ? "keyUp" : input.phase === "down" ? "rawKeyDown" : "keyDown",
-          key: input.key,
-          ...(input.text ? { text: input.text } : {}),
-        });
-        return;
-      case "text":
-        await cdpSession.send("Input.insertText", { text: input.text });
-        return;
-      default:
-        throw new Error("Unsupported browser operator input.");
-    }
   }
 
   private async observeSession(
@@ -991,7 +670,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.clearIdleTimer(session.id);
     this.clearStreamTimer(session.id);
     await this.stopCdpScreencast(session.id);
-    this.operatorLocks.delete(session.id);
     this.sessions.delete(session.id);
     if (this.activeSessionId === session.id) {
       this.activeSessionId = this.sessions.keys().next().value;
@@ -1074,7 +752,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         session,
         operation,
         title: await session.page.title().catch(() => undefined),
-        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
+        ownership: "agent",
         viewMode: "live",
         stream: { status: "live" },
         latestCaptureUri: uri,
@@ -1086,7 +764,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       this.emitBrowserSessionState({
         session,
         operation,
-        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
+        ownership: "agent",
         viewMode: "live",
         stream: {
           status: "failed",
@@ -1134,7 +812,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         session,
         operation,
         title,
-        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
+        ownership: "agent",
         viewMode: "live",
         stream: { status: "live" },
         latestCaptureUri: screenshot.uri,
@@ -1145,7 +823,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       this.emitBrowserSessionState({
         session,
         operation,
-        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
+        ownership: "agent",
         viewMode: "live",
         stream: {
           status: "failed",
@@ -1359,13 +1037,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.streamTimers.delete(sessionId);
   }
 
-  private assertAgentBrowserControl(session: BrowserSession): void {
-    if (!this.operatorLocks.has(session.id)) {
-      return;
-    }
-    throw new Error(`Browser session ${session.id} is under operator control.`);
-  }
-
   private readHeadless(request: InteractiveUseRequest): boolean {
     const raw = request.input.headless;
     const requested = typeof raw === "boolean" ? raw : this.headless;
@@ -1446,12 +1117,6 @@ function readText(input: Record<string, unknown>): string {
     throw new Error("Type action requires text.");
   }
   return value;
-}
-
-function assertViewportCoordinate(x: number, y: number): void {
-  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
-    throw new Error("Browser operator input coordinates must be finite viewport-relative pixels.");
-  }
 }
 
 function scrollDelta(request: InteractiveUseRequest): { readonly deltaX: number; readonly deltaY: number } {
@@ -1572,15 +1237,13 @@ interface PlaywrightNodeSidecarWireRequest {
   readonly config: PlaywrightNodeSidecarConfig;
   readonly request:
     | InteractiveUseRequest
-    | { readonly operation: "close_all" }
-    | ({ readonly operation: "browser_session_control" } & PlaywrightBrowserSessionControlRequest)
-    | ({ readonly operation: "browser_operator_input" } & PlaywrightBrowserOperatorInputRequest);
+    | { readonly operation: "close_all" };
 }
 
 interface PlaywrightNodeSidecarWireResponse {
   readonly id: number;
   readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult | PlaywrightBrowserSessionState | PlaywrightBrowserOperatorInputAck;
+  readonly result?: InteractiveUseProviderResult;
   readonly error?: string;
 }
 
@@ -1596,7 +1259,7 @@ function createPlaywrightNodeSidecarRunner(
   let child: ChildProcessWithoutNullStreams | undefined;
   let sequence = 0;
   const pending = new Map<number, {
-    readonly resolve: (value: InteractiveUseProviderResult | PlaywrightBrowserSessionState | PlaywrightBrowserOperatorInputAck) => void;
+    readonly resolve: (value: InteractiveUseProviderResult) => void;
     readonly reject: (error: Error) => void;
     readonly timer: ReturnType<typeof setTimeout>;
   }>();
@@ -1651,7 +1314,7 @@ function createPlaywrightNodeSidecarRunner(
     return child;
   }
 
-  async function send<TResult extends InteractiveUseProviderResult | PlaywrightBrowserSessionState | PlaywrightBrowserOperatorInputAck>(
+  async function send<TResult extends InteractiveUseProviderResult>(
     config: PlaywrightNodeSidecarConfig,
     request: PlaywrightNodeSidecarWireRequest["request"],
     timeoutMs: number,
@@ -1680,20 +1343,6 @@ function createPlaywrightNodeSidecarRunner(
     execute(request) {
       const config = readConfig();
       return send<InteractiveUseProviderResult>(config, request, request.timeoutMs ?? config.defaultTimeoutMs);
-    },
-    control(request) {
-      return send<PlaywrightBrowserSessionState>(
-        readConfig(),
-        { operation: "browser_session_control", ...request },
-        5_000,
-      );
-    },
-    operatorInput(request) {
-      return send<PlaywrightBrowserOperatorInputAck>(
-        readConfig(),
-        { operation: "browser_operator_input", ...request },
-        5_000,
-      );
     },
     async closeAll() {
       if (!child || child.killed || child.exitCode !== null) {

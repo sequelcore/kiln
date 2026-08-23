@@ -6,29 +6,7 @@ export interface ArtifactContentReference {
   readonly id: string;
 }
 
-export interface OutboundMediaPublishInput {
-  readonly channel: string;
-  readonly appName: string;
-  readonly tenantId: string;
-  readonly userId: string;
-  readonly mimeType: string;
-  readonly artifactUri?: string;
-  readonly sourceUrl?: string;
-  readonly filename?: string;
-  readonly purpose: "assistant-output";
-}
-
-export interface OutboundMediaPublication {
-  readonly url: string;
-  readonly mimeType: string;
-  readonly artifactUri?: string;
-}
-
-export interface OutboundMediaPublisher {
-  publish(input: OutboundMediaPublishInput): Promise<OutboundMediaPublication>;
-}
-
-export interface SignedArtifactMediaPublisherOptions {
+export interface SignedArtifactMediaOptions {
   readonly appName: string;
   readonly publicBaseUrl: string;
   readonly signingSecret: string;
@@ -72,32 +50,6 @@ export function parseArtifactContentUri(uri: string): ArtifactContentReference {
     throw new Error(`Invalid artifact content URI: ${uri}`);
   }
   return { namespace: match[1]!, id: match[2]! };
-}
-
-export function createSignedArtifactMediaPublisher(
-  options: SignedArtifactMediaPublisherOptions,
-): OutboundMediaPublisher {
-  return {
-    async publish(input) {
-      if (!input.artifactUri) {
-        throw new Error("Public media publishing requires an artifactUri.");
-      }
-      const reference = parseArtifactContentUri(input.artifactUri);
-      return {
-        url: createSignedArtifactMediaUrl({
-          appName: options.appName,
-          publicBaseUrl: options.publicBaseUrl,
-          namespace: reference.namespace,
-          id: reference.id,
-          signingSecret: options.signingSecret,
-          ttlMs: options.ttlMs,
-          now: options.now,
-        }),
-        mimeType: input.mimeType,
-        artifactUri: input.artifactUri,
-      };
-    },
-  };
 }
 
 export function createSignedArtifactMediaUrl(input: {
@@ -155,11 +107,7 @@ export function verifySignedArtifactMediaRequest(input: SignedArtifactMediaReque
 export async function resolveOutboundAudioMedia(
   parts: readonly ContentPart[],
   context: {
-    readonly publisher?: OutboundMediaPublisher;
-    readonly appName: string;
-    readonly tenantId: string;
-    readonly userId: string;
-    readonly channel: string;
+    readonly publicMedia?: SignedArtifactMediaOptions;
   },
 ): Promise<ResolveOutboundAudioMediaResult> {
   const deliveries: OutboundAudioMediaDelivery[] = [];
@@ -178,26 +126,24 @@ export async function resolveOutboundAudioMedia(
       deliveries.push({ url: part.url, mimeType: part.mimeType, ...(part.artifactUri ? { artifactUri: part.artifactUri } : {}) });
       continue;
     }
-    if (!context.publisher) {
-      failures.push({ index, reason: "missing-public-media-publisher", artifactUri: part.artifactUri });
+    if (!context.publicMedia) {
+      failures.push({ index, reason: "missing-public-media-config", artifactUri: part.artifactUri });
       continue;
     }
     try {
-      const publication = await context.publisher.publish({
-        channel: context.channel,
-        appName: context.appName,
-        tenantId: context.tenantId,
-        userId: context.userId,
-        mimeType: part.mimeType,
-        ...(part.artifactUri ? { artifactUri: part.artifactUri } : {}),
-        ...(part.url ? { sourceUrl: part.url } : {}),
-        purpose: "assistant-output",
+      if (!part.artifactUri) throw new Error("Public media URL derivation requires an artifactUri.");
+      const reference = parseArtifactContentUri(part.artifactUri);
+      const url = createSignedArtifactMediaUrl({
+        appName: context.publicMedia.appName,
+        publicBaseUrl: context.publicMedia.publicBaseUrl,
+        namespace: reference.namespace,
+        id: reference.id,
+        signingSecret: context.publicMedia.signingSecret,
+        ttlMs: context.publicMedia.ttlMs,
+        now: context.publicMedia.now,
       });
-      if (!isPublicHttpsUrl(publication.url)) {
-        failures.push({ index, reason: "publisher-returned-non-https-url", artifactUri: part.artifactUri });
-        continue;
-      }
-      deliveries.push(publication);
+      if (!isPublicHttpsUrl(url)) throw new Error("Derived public media URL is not HTTPS.");
+      deliveries.push({ url, mimeType: part.mimeType, artifactUri: part.artifactUri });
     } catch (error) {
       failures.push({
         index,

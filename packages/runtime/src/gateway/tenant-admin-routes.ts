@@ -48,7 +48,6 @@ const MUTABLE_TENANT_FIELDS = [
   "emailTransportConfig",
   "modelConfig",
   "preChatForm",
-  "groundingMode",
   "sessionLimits",
   "whatsappCoexistence",
 ] as const satisfies readonly (keyof TenantConfig)[];

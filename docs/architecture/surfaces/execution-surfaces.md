@@ -80,7 +80,7 @@ these objects without parsing final assistant prose:
 - config health: provider credentials, model discovery, harness adapters,
   native projections, drift, and missing capability evidence
 - attention: approvals, failed gates, missing evidence, blocked capability,
-  stale heartbeat, route health, browser takeover, dirty worktree, and unsafe
+  stale heartbeat, route health, dirty worktree, and unsafe
   external effect requests
 
 Chat remains useful as an interaction mode. It is not the source of truth.
@@ -97,7 +97,7 @@ Execution-surface behavior is contract-first:
    must carry that identity instead of asking surfaces to infer gateway meaning
    from labels, URLs, or local instance strings.
 2. **Attention model.** Normalize what needs operator attention across work
-   items, managed invocations, approvals, browser takeover, config health,
+   items, managed invocations, approvals, config health,
    route health, and missing capability pauses. The shared contract starts with
    `OperatorAttentionSummary` and `OperatorAttentionItem` in
    `@kilnai/gateway-contracts`; surfaces may render badges, queues, and

@@ -29,8 +29,8 @@ Kiln already has the foundations this track must reuse:
   remains the executor of its native shell and namespaced tools.
 - OpenCode native sessions use `@opencode-ai/sdk/v2`; OpenCode V1 is not an
   admitted target. The exact admitted SDK baseline is `1.18.18`.
-- Agent Tasks govern bounded local delegation, and A2A v1 governs admitted
-  remote delegation.
+- Agent Tasks govern bounded local delegation, and managed external-harness
+  routes govern admitted remote execution.
 - Available Models separates discovery from execution authority.
 - route capability, data-policy, economic, budget, permission, and lifecycle
   evidence already fail closed at their owning boundaries.
@@ -107,7 +107,7 @@ It consumes but does not replace these owners:
 - Prompt Governance owns when admitted prompt, instruction, skill, and tool
   schema content enters model context.
 - Agent Tasks owns governed local delegation and durable run settlement.
-- A2A owns admitted remote-agent transport.
+- Managed invocation owns admitted remote-harness transport.
 - existing permission, data-policy, economic, budget, and capacity authorities
   own admission and settlement for their concerns.
 - native harnesses own execution of their private tools and enforcement of
@@ -336,13 +336,13 @@ honestly.
 
 ### Slice 5 - Agent-Backed Capabilities
 
-Status: Blocked on Slice 3 and existing Agent Task/A2A admission.
+Status: Blocked on Slice 3 and existing Agent Task and managed-invocation admission.
 
 Allow the resolver to choose a governed specialist agent when no direct tool
 can satisfy a capability. The parent remains responsible for the user-facing
 workflow. It supplies a bounded typed request; the child receives only admitted
 context and authority; the result returns as a typed tool result or artifact.
-Local work uses Agent Tasks and remote work uses A2A v1.
+Local work uses Agent Tasks and remote work uses configured managed external-harness routes.
 
 The first proof is `vision.analyze`: a text-only parent delegates image analysis
 to a vision-capable route, receives structured `VisionAnalysis`, and continues
@@ -429,7 +429,7 @@ implementation and returns one of these execution shapes:
 - a harness-native tool owned and executed by the active harness;
 - a governed local implementation;
 - an agent-backed capability requiring an Agent Task;
-- a remote agent-backed capability requiring A2A; or
+- a remote agent-backed capability requiring a managed external-harness route; or
 - a typed missing-capability pause.
 
 Direct tool execution and delegation are not interchangeable. If the admitted
@@ -455,7 +455,7 @@ projection cannot become the mechanism that grants a model access to a
 capability.
 
 Acceptance: equivalent tasks exercise direct portable, harness-native,
-agent-backed local, and A2A-backed implementations through one capability
+agent-backed local, and managed remote-harness implementations through one capability
 request; no path double-delegates, reselects an implementation after admission,
 or fabricates child evidence; missing capability produces the exact typed pause;
 the parent correlates and adopts the result or artifact using canonical
@@ -568,7 +568,7 @@ The track-level evidence set must include:
   execution transport recorded;
 - tool selection and malformed-call recovery evals;
 - permission, data, network, budget, cancellation, and replay negatives;
-- local Agent Task and remote A2A delegation settlement;
+- local Agent Task and remote managed-invocation settlement;
 - direct-versus-agent-backed orchestration selection, missing-capability pause,
   child lifecycle, result adoption, and no-double-delegation conformance;
 - current orchestration and control-plane skill projections across Codex,

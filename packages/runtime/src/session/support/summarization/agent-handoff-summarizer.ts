@@ -1,39 +1,26 @@
-// Agent handoff summarizer: generates a brief context summary for warm agent handoffs.
-// Follows the same pattern as DefaultContextSummarizer.
-
-import type { ProviderAdapter, AgentMessage } from "@kilnai/core";
-import { extractText } from "@kilnai/core";
 import type { RuntimeSession } from "../../runtime-session.js";
+import {
+  LOCAL_SUMMARY_MAX_CHARACTERS,
+  summarizeConversationLocally,
+} from "./context-summarizer.js";
 
-export interface AgentHandoffSummarizer {
-  summarize(session: RuntimeSession, fromAgentName: string, toAgentName: string): Promise<string>;
+const MAX_AGENT_NAME_CHARACTERS = 256;
+
+function boundAgentName(name: string): string {
+  if (name.length <= MAX_AGENT_NAME_CHARACTERS) return name;
+  return `${name.slice(0, MAX_AGENT_NAME_CHARACTERS - 3)}...`;
 }
 
-const HANDOFF_MAX_MESSAGES = 10;
-const HANDOFF_MAX_TOKENS = 150;
-
-export class DefaultAgentHandoffSummarizer implements AgentHandoffSummarizer {
-  private readonly provider: ProviderAdapter;
-
-  constructor(provider: ProviderAdapter) {
-    this.provider = provider;
-  }
-
+export class DefaultAgentHandoffSummarizer {
   async summarize(session: RuntimeSession, fromAgentName: string, toAgentName: string): Promise<string> {
-    const history = session.conversationHistory;
-    const recent: readonly AgentMessage[] = history.slice(-HANDOFF_MAX_MESSAGES);
-
-    if (recent.length === 0) return "";
-
-    const systemPrompt = `You are generating a handoff brief from agent "${fromAgentName}" to agent "${toAgentName}". In 2-3 sentences, summarize: what the customer needs, what has been discussed so far, and any important context the next agent should know. Be concise and actionable.`;
-
-    const response = await this.provider.createMessage({
-      system: systemPrompt,
-      messages: recent,
-      maxTokens: HANDOFF_MAX_TOKENS,
-    });
-
-    const brief = extractText(response.parts);
-    return brief ? `[Handoff from ${fromAgentName}]: ${brief}` : "";
+    const prefix = `[Handoff from ${boundAgentName(fromAgentName)} to ${boundAgentName(toAgentName)}]: `;
+    const summary = summarizeConversationLocally(
+      session.conversationHistory,
+      Math.max(1, LOCAL_SUMMARY_MAX_CHARACTERS - prefix.length),
+    );
+    if (summary === "No conversation history.") return "";
+    const result = `${prefix}${summary}`;
+    if (result.length <= LOCAL_SUMMARY_MAX_CHARACTERS) return result;
+    return `${result.slice(0, LOCAL_SUMMARY_MAX_CHARACTERS - 3).trimEnd()}...`;
   }
 }

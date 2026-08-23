@@ -7,12 +7,6 @@ export interface PackageToolsYaml {
   readonly server: string;
 }
 
-/** Knowledge references as expressed in package YAML */
-export interface PackageKnowledgeYaml {
-  readonly examples?: string;
-  readonly gates?: string;
-}
-
 /** Package YAML: wraps either a domain.yaml or skill.yaml with distribution metadata */
 export interface PackageYaml {
   readonly type: "domain" | "skill";
@@ -28,7 +22,6 @@ export interface PackageYaml {
   readonly phaseExamples?: string;
   readonly skills?: readonly string[];
   readonly tools?: PackageToolsYaml;
-  readonly knowledge?: PackageKnowledgeYaml;
   // Skill package fields
   readonly description?: string;
   readonly instructions?: string;
@@ -131,21 +124,6 @@ function validateDomainPackageFields(
       const tools = obj.tools as Record<string, unknown>;
       if (!("server" in tools) || typeof tools.server !== "string") {
         errors.push({ field: "tools.server", message: "Required string field 'server' missing or invalid", filePath });
-      }
-    }
-  }
-
-  // knowledge: optional object
-  if ("knowledge" in obj) {
-    if (typeof obj.knowledge !== "object" || obj.knowledge === null || Array.isArray(obj.knowledge)) {
-      errors.push({ field: "knowledge", message: "Expected object", filePath });
-    } else {
-      const knowledge = obj.knowledge as Record<string, unknown>;
-      if ("examples" in knowledge && typeof knowledge.examples !== "string") {
-        errors.push({ field: "knowledge.examples", message: `Expected string, got ${typeof knowledge.examples}`, filePath });
-      }
-      if ("gates" in knowledge && typeof knowledge.gates !== "string") {
-        errors.push({ field: "knowledge.gates", message: `Expected string, got ${typeof knowledge.gates}`, filePath });
       }
     }
   }

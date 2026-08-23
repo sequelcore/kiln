@@ -7,7 +7,7 @@ const ROUTE = "codex-oauth/gpt-5.5";
 const CONTEXT_AUDIT: RuntimeContextAudit = {
   governor: "DefaultContextGovernor",
   selectedBlockIds: ["memory-1", "procedure-1"],
-  deferredBlockIds: ["knowledge-1"],
+  deferredBlockIds: ["reference-1"],
   requiredBlockIds: ["procedure-1"],
   preservedRequiredBlockIds: ["procedure-1"],
   selectedTokens: 30,
@@ -42,9 +42,9 @@ const CONTEXT_AUDIT: RuntimeContextAudit = {
       order: 1,
     },
     {
-      id: "knowledge-1",
-      kind: "knowledge",
-      source: "kiln://knowledge/records/knowledge-1",
+      id: "reference-1",
+      kind: "artifact",
+      source: "kiln://artifacts/reference-1",
       required: false,
       estimatedTokens: 14,
       baseScore: 0.4,
@@ -86,7 +86,7 @@ describe("runtime lifecycle attribution allocation projection", () => {
       },
     ]);
     expect(allocations).not.toContainEqual(expect.objectContaining({
-      artifactId: "knowledge-1",
+      artifactId: "reference-1",
       tokenClass: "deferred",
       providerTokenClass: "input",
     }));
@@ -231,4 +231,3 @@ describe("runtime lifecycle attribution allocation projection", () => {
     })]);
   });
 });
-

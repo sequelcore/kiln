@@ -16,6 +16,10 @@ import type {
   RuntimeMultimodalTransformRoute,
   RuntimeMultimodalTransformSourcePart,
 } from "./runtime-session-orchestrator.types.js";
+import {
+  dispatchRuntimeMediaAction,
+  type RuntimeMediaActionClaimContext,
+} from "../execution-kernel/runtime-media-action-claim.js";
 
 const execFile = promisify(execFileCallback);
 const DEFAULT_NAMESPACE = "multimodal-transforms";
@@ -23,54 +27,9 @@ const DEFAULT_OCR_LANGUAGE = "eng";
 const DEFAULT_MAX_IMAGE_EDGE = 1536;
 const DEFAULT_JPEG_QUALITY = 82;
 
-export interface RuntimeOcrRunner {
-  (request: {
-    readonly data: Uint8Array;
-    readonly mimeType: string;
-    readonly language: string;
-    readonly sourceArtifactUri: string;
-  }): Promise<{
-    readonly text: string;
-    readonly confidence?: number;
-    readonly source?: string;
-  }>;
-}
-
-export interface RuntimeDocumentTextExtractor {
-  (request: {
-    readonly data: Uint8Array;
-    readonly mimeType: string;
-    readonly filename?: string;
-    readonly sourceArtifactUri: string;
-  }): Promise<{
-    readonly text: string;
-    readonly totalPages?: number;
-    readonly source?: string;
-  }>;
-}
-
-export interface RuntimeImageDownsampler {
-  (request: {
-    readonly data: Uint8Array;
-    readonly mimeType: string;
-    readonly maxEdge: number;
-    readonly quality: number;
-    readonly sourceArtifactUri: string;
-  }): Promise<{
-    readonly data: Uint8Array;
-    readonly mimeType: string;
-    readonly width?: number;
-    readonly height?: number;
-    readonly source?: string;
-  }>;
-}
-
 export interface DefaultRuntimeMultimodalTransformOptions {
   readonly artifactStore?: ArtifactResourceStore;
   readonly artifactNamespace?: string;
-  readonly ocrRunner?: RuntimeOcrRunner;
-  readonly documentTextExtractor?: RuntimeDocumentTextExtractor;
-  readonly imageDownsampler?: RuntimeImageDownsampler;
   readonly ocrLanguage?: string;
   readonly maxImageEdge?: number;
   readonly jpegQuality?: number;
@@ -80,54 +39,82 @@ export function createDefaultRuntimeMultimodalTransformRoutes(
   options: DefaultRuntimeMultimodalTransformOptions = {},
 ): readonly RuntimeMultimodalTransformRoute[] {
   const namespace = options.artifactNamespace ?? DEFAULT_NAMESPACE;
-  const ocrRunner = options.ocrRunner ?? runTesseractOcr;
-  const documentTextExtractor = options.documentTextExtractor ?? extractPdfText;
-  const imageDownsampler = options.imageDownsampler ?? downsampleWithSharp;
   const ocrLanguage = options.ocrLanguage ?? DEFAULT_OCR_LANGUAGE;
   const maxImageEdge = options.maxImageEdge ?? DEFAULT_MAX_IMAGE_EDGE;
   const jpegQuality = options.jpegQuality ?? DEFAULT_JPEG_QUALITY;
 
   return [
-    {
+    Object.freeze({
       transform: "ocr",
-      sourceModalities: ["image"],
+      sourceModalities: ["image"] as const,
       outputModality: "text",
       provenance: "tesseract",
       degradation: "Extracts visible text from image input before model transport; non-text visual context is not preserved.",
-      execute: (input) => executeOcrTransform(input, {
-        artifactStore: options.artifactStore,
-        namespace,
-        runner: ocrRunner,
-        language: ocrLanguage,
-      }),
-    },
-    {
+      implementation: "runtime-built-in",
+      artifactStore: options.artifactStore,
+      artifactNamespace: namespace,
+      ocrLanguage,
+    }),
+    Object.freeze({
       transform: "document-extraction",
-      sourceModalities: ["document"],
+      sourceModalities: ["document"] as const,
       outputModality: "text",
       provenance: "unpdf",
       degradation: "Extracts PDF text before model transport; layout, images, and unsupported document formats are not preserved.",
-      execute: (input) => executeDocumentExtractionTransform(input, {
-        artifactStore: options.artifactStore,
-        namespace,
-        extractor: documentTextExtractor,
-      }),
-    },
-    {
+      implementation: "runtime-built-in",
+      artifactStore: options.artifactStore,
+      artifactNamespace: namespace,
+    }),
+    Object.freeze({
       transform: "downsample",
-      sourceModalities: ["image"],
+      sourceModalities: ["image"] as const,
       outputModality: "image",
       provenance: "sharp",
       degradation: "Reduces image dimensions and JPEG quality before model transport; the original image remains the transform source.",
-      execute: (input) => executeDownsampleTransform(input, {
-        artifactStore: options.artifactStore,
-        namespace,
-        downsampler: imageDownsampler,
-        maxImageEdge,
-        jpegQuality,
-      }),
-    },
+      implementation: "runtime-built-in",
+      artifactStore: options.artifactStore,
+      artifactNamespace: namespace,
+      maxImageEdge,
+      jpegQuality,
+    }),
   ];
+}
+
+export function runtimeMultimodalTransformEffectMode(
+  route: RuntimeMultimodalTransformRoute,
+): "deterministic" | "consequential" {
+  return route.transform === "ocr" ? "consequential" : "deterministic";
+}
+
+/** Execute only the closed set of Runtime-owned built-in transforms. */
+export async function executeDefaultRuntimeMultimodalTransform(input: {
+  readonly route: RuntimeMultimodalTransformRoute;
+  readonly execution: RuntimeMultimodalTransformExecutionInput;
+}): Promise<RuntimeMultimodalTransformExecutionResult> {
+  if (input.route.implementation !== "runtime-built-in") {
+    throw new Error("Unsupported multimodal transform implementation.");
+  }
+  const artifactNamespace = input.route.artifactNamespace ?? DEFAULT_NAMESPACE;
+  switch (input.route.transform) {
+    case "ocr":
+      return executeOcrTransform(input.execution, {
+        artifactStore: input.route.artifactStore,
+        namespace: artifactNamespace,
+        language: input.route.ocrLanguage ?? DEFAULT_OCR_LANGUAGE,
+      });
+    case "document-extraction":
+      return executeDocumentExtractionTransform(input.execution, {
+        artifactStore: input.route.artifactStore,
+        namespace: artifactNamespace,
+      });
+    case "downsample":
+      return executeDownsampleTransform(input.execution, {
+        artifactStore: input.route.artifactStore,
+        namespace: artifactNamespace,
+        maxImageEdge: input.route.maxImageEdge ?? DEFAULT_MAX_IMAGE_EDGE,
+        jpegQuality: input.route.jpegQuality ?? DEFAULT_JPEG_QUALITY,
+      });
+  }
 }
 
 async function executeOcrTransform(
@@ -135,7 +122,6 @@ async function executeOcrTransform(
   options: {
     readonly artifactStore?: ArtifactResourceStore;
     readonly namespace: string;
-    readonly runner: RuntimeOcrRunner;
     readonly language: string;
   },
 ): Promise<RuntimeMultimodalTransformExecutionResult> {
@@ -144,13 +130,33 @@ async function executeOcrTransform(
   let totalTextLength = 0;
 
   for (const source of pairSources(input, "image")) {
-    const media = await resolveSourceBytes(source.part);
-    const result = await options.runner({
-      data: media.data,
-      mimeType: media.mimeType,
-      language: options.language,
-      sourceArtifactUri: source.artifact.uri,
+    const outcome = await dispatchRuntimeMediaAction({
+      context: requireTransformMediaActionContext(input),
+      authorityAdmission: input.authorityAdmission,
+      attemptId: input.attemptId!,
+      callerId: input.callerId!,
+      idempotencyKey: input.idempotencyKey!,
+      actionKind: "multimodal-process",
+      sourceIdentity: source.artifact.uri,
+      adapterIdentity: "local-command:tesseract",
+      logicalSendSlot: `${input.logicalSendSlotPrefix ?? "multimodal:ocr"}:${source.artifact.uri}`,
+      payload: {
+        sourceArtifactUri: source.artifact.uri,
+        sourceMimeType: source.part.mimeType,
+        language: options.language,
+      },
+      abortSignal: input.abortSignal,
+      call: async () => {
+        const media = await resolveSourceBytes(source.part, input.abortSignal);
+        return runTesseractOcr({
+          data: media.data,
+          mimeType: media.mimeType,
+          language: options.language,
+          signal: input.abortSignal,
+        });
+      },
     });
+    const result = outcome;
     const text = result.text.trim();
     totalTextLength += text.length;
     const rendered = `[Image OCR transform from ${source.artifact.uri}]: ${text || "(no text detected)"}`;
@@ -182,7 +188,6 @@ async function executeDocumentExtractionTransform(
   options: {
     readonly artifactStore?: ArtifactResourceStore;
     readonly namespace: string;
-    readonly extractor: RuntimeDocumentTextExtractor;
   },
 ): Promise<RuntimeMultimodalTransformExecutionResult> {
   const replacements = new Map<RuntimeMultimodalTransformSourcePart, readonly ContentPart[]>();
@@ -195,12 +200,7 @@ async function executeDocumentExtractionTransform(
     if (media.mimeType !== "application/pdf") {
       throw new Error(`Document extraction supports application/pdf, received ${media.mimeType}.`);
     }
-    const result = await options.extractor({
-      data: media.data,
-      mimeType: media.mimeType,
-      filename: source.part.filename,
-      sourceArtifactUri: source.artifact.uri,
-    });
+    const result = await extractPdfText({ data: media.data });
     const text = result.text.trim();
     totalPages += result.totalPages ?? 0;
     totalTextLength += text.length;
@@ -233,7 +233,6 @@ async function executeDownsampleTransform(
   options: {
     readonly artifactStore?: ArtifactResourceStore;
     readonly namespace: string;
-    readonly downsampler: RuntimeImageDownsampler;
     readonly maxImageEdge: number;
     readonly jpegQuality: number;
   },
@@ -243,12 +242,10 @@ async function executeDownsampleTransform(
 
   for (const source of pairSources(input, "image")) {
     const media = await resolveSourceBytes(source.part);
-    const result = await options.downsampler({
+    const result = await downsampleWithSharp({
       data: media.data,
-      mimeType: media.mimeType,
       maxEdge: options.maxImageEdge,
       quality: options.jpegQuality,
-      sourceArtifactUri: source.artifact.uri,
     });
     const data = Buffer.from(result.data).toString("base64");
     const artifactUri = persistBlobTransformArtifact(options.artifactStore, {
@@ -285,6 +282,7 @@ async function runTesseractOcr(request: {
   readonly data: Uint8Array;
   readonly mimeType: string;
   readonly language: string;
+  readonly signal?: AbortSignal;
 }): Promise<{ readonly text: string; readonly source: string }> {
   const extension = imageExtension(request.mimeType);
   const path = join(tmpdir(), `kiln-ocr-${randomUUID()}.${extension}`);
@@ -294,6 +292,7 @@ async function runTesseractOcr(request: {
       windowsHide: true,
       maxBuffer: 10 * 1024 * 1024,
       timeout: 60_000,
+      signal: request.signal,
     });
     return {
       text: result.stdout.trim(),
@@ -302,6 +301,18 @@ async function runTesseractOcr(request: {
   } finally {
     await rm(path, { force: true });
   }
+}
+
+function requireTransformMediaActionContext(
+  input: RuntimeMultimodalTransformExecutionInput,
+): RuntimeMediaActionClaimContext {
+  if (!input.mediaActionClaims || !input.authorityAdmission || !input.attemptId
+    || !input.callerId || !input.idempotencyKey) {
+    throw new Error(
+      "Consequential multimodal transforms require a workload-owned media action claim bound to the complete authority admission.",
+    );
+  }
+  return input.mediaActionClaims;
 }
 
 async function extractPdfText(request: {
@@ -377,7 +388,10 @@ function pairSources<T extends RuntimeMultimodalTransformSourcePart["type"]>(
     );
 }
 
-async function resolveSourceBytes(part: RuntimeMultimodalTransformSourcePart): Promise<{
+async function resolveSourceBytes(
+  part: RuntimeMultimodalTransformSourcePart,
+  signal?: AbortSignal,
+): Promise<{
   readonly data: Uint8Array;
   readonly mimeType: string;
 }> {
@@ -392,7 +406,7 @@ async function resolveSourceBytes(part: RuntimeMultimodalTransformSourcePart): P
     if (url.protocol !== "https:" && url.protocol !== "http:") {
       throw new Error(`Unsupported transform source URL protocol: ${url.protocol}`);
     }
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (!res.ok) {
       throw new Error(`Transform source download failed: ${res.status}`);
     }

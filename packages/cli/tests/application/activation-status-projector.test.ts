@@ -2,16 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   projectActivationStatus,
   type ActivationStatusProjectionInput,
+  type ActivationAdmissionBoundary,
 } from "../../src/application/activation-status-projector.js";
+import type {
+  RuntimeConfigurationRevisionSnapshot,
+} from "@kilnai/runtime";
 import type { StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
 
-const revision = (letter: string) => `sha256:${letter.repeat(64)}`;
+type RuntimeConfigurationActivationLineage = NonNullable<RuntimeConfigurationRevisionSnapshot["activationLineage"]>[number];
+
+const revision = (letter: string): `sha256:${string}` => `sha256:${letter.repeat(64)}`;
 
 function desired(lineage: {
   readonly proposalId: string;
-  readonly committedRevision: string;
-  readonly generation?: string;
-}) {
+  readonly committedRevision: RuntimeConfigurationActivationLineage["committedRevision"];
+  readonly generation?: `sha256:${string}`;
+}): RuntimeConfigurationRevisionSnapshot {
   return {
     revisionSetId: revision("d"),
     revisions: {
@@ -87,10 +93,10 @@ function input(overrides: Partial<ActivationStatusProjectionInput>): ActivationS
 }
 
 function boundaryBundle(
-  boundary: "turnRevision" | "sessionRevision",
+  _boundary: "turnRevision" | "sessionRevision",
   desiredRevision: ReturnType<typeof desired>,
   admittedAt = "2026-08-22T00:00:02.000Z",
-) {
+): ActivationAdmissionBoundary {
   return {
     sessionId: "session-1",
     turnId: "turn-1",
@@ -99,8 +105,13 @@ function boundaryBundle(
       sessionRevision: desiredRevision,
       turnRevision: desiredRevision,
     },
-    boundary,
   };
+}
+
+function projectRevision(snapshot: RuntimeConfigurationRevisionSnapshot): string {
+  const value = snapshot.revisions.project;
+  if (value === undefined) throw new Error("Expected project revision in fixture snapshot.");
+  return value;
 }
 
 describe("projectActivationStatus", () => {
@@ -149,16 +160,17 @@ describe("projectActivationStatus", () => {
 
   it("does not claim active when settlement generations do not match the desired lineage", () => {
     const base = input({});
+    const committed = projectRevision(base.desiredRevision);
     const mismatched = settlement({
       proposalId: "cfg-next-turn",
-      committedRevision: base.desiredRevision.revisions.project,
+      committedRevision: committed,
       activation: "reconcile",
       generation: revision("z"),
       observation: {
         state: "active",
         boundary: "reconcile",
-        committedRevision: base.desiredRevision.revisions.project,
-        activeRevision: base.desiredRevision.revisions.project,
+        committedRevision: committed,
+        activeRevision: committed,
         summary: "mismatched fixture",
       },
     });
@@ -169,7 +181,7 @@ describe("projectActivationStatus", () => {
 
   it("rejects activation observations whose boundary or revisions do not match the settlement", () => {
     const base = input({});
-    const committed = base.desiredRevision.revisions.project;
+    const committed = projectRevision(base.desiredRevision);
     const malformed = settlement({
       proposalId: "cfg-next-turn",
       committedRevision: committed,
@@ -261,21 +273,22 @@ describe("projectActivationStatus", () => {
 
   it("reports in-flight progress as pending and superseded terminal evidence as superseded", () => {
     const base = input({});
+    const committed = projectRevision(base.desiredRevision);
     const pending = projectActivationStatus({
       ...base,
       settlements: [],
-      progress: [{ proposalId: "cfg-next-turn", path: "C:/project/.kiln/kiln.yaml", intendedRevision: base.desiredRevision.revisions.project, startedAt: "2026-08-22T00:00:01.000Z" }],
+      progress: [{ proposalId: "cfg-next-turn", path: "C:/project/.kiln/kiln.yaml", intendedRevision: committed, startedAt: "2026-08-22T00:00:01.000Z" }],
     });
     expect(pending).toMatchObject({ state: "pending", entries: [{ evidence: "progress" }] });
 
     const supersededSettlement = settlement({
       proposalId: "cfg-next-turn",
-      committedRevision: base.desiredRevision.revisions.project,
+      committedRevision: committed,
       activation: "next-turn",
       observation: {
         state: "superseded",
         boundary: "next-turn",
-        committedRevision: base.desiredRevision.revisions.project,
+        committedRevision: committed,
         activeRevision: null,
         summary: "newer revision superseded this attempt",
       },

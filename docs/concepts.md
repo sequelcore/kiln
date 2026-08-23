@@ -72,8 +72,8 @@ See [Safety](architecture/safety/safety.md) and
 
 ## Memory
 
-Operational state, episodic records, and durable semantic knowledge have
-different lifecycles. Kiln records provenance and revisions so that memory can
+Operational state and episodic records have different lifecycles. Kiln records
+provenance and revisions so that memory can
 be admitted, corrected, expired, or rejected without treating every prior
 statement as permanent truth.
 

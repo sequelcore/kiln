@@ -71,8 +71,8 @@ roadmap reorganization.
   native-only runtime contract is retained while it is deferred.
 - `11` owns cross-harness capability discovery, deferred tool search, portable
   execution, agent-backed capabilities, and the portable operator-question
-  lifecycle. It reuses `06` progressive disclosure and existing Agent Task/A2A
-  authority instead of duplicating them. Interaction promotion is GUI-first,
+  lifecycle. It reuses `06` progressive disclosure and existing Agent Task and
+  managed-invocation authority instead of duplicating them. Interaction promotion is GUI-first,
   then behaviorally equivalent in TUI and native harnesses; GUI components are
   never shared execution authority.
 - `12` owns configuration discoverability, desired intent, effective-value

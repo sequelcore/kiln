@@ -35,6 +35,15 @@ describe("operator runtime application protocol", () => {
       jobId: "job-1",
       economicAttemptId: "attempt-1",
       dispatchFenceId: "fence-1",
+      actionClaim: {
+        version: 1,
+        attemptId: "attempt-1",
+        intentFingerprint: `sha256:${"a".repeat(64)}`,
+        admissionId: `sha256:${"b".repeat(64)}`,
+        admissionBundle: { version: 1, sessionId: "session-1", turnId: "turn-1" },
+        ownerGeneration: "owner-1",
+        effectIdentity: "economic-dispatch-1",
+      },
     }).operation).toBe("managed-economic.fence-dispatch");
   });
 

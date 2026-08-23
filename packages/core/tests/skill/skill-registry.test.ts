@@ -339,7 +339,6 @@ User instructions.
         config: { name: "test", displayName: "Test", detectPatterns: [], toolTags: new Set<string>(), qualityGates: [], multishotExamples: "", phaseExamples: "" },
         skills: ["skills/refactor.md"],
         tools: null,
-        knowledge: null,
       };
 
       const loaded = registry.discoverFromPackage(manifest);
@@ -360,7 +359,6 @@ User instructions.
         config: { name: "test", displayName: "Test", detectPatterns: [], toolTags: new Set<string>(), qualityGates: [], multishotExamples: "", phaseExamples: "" },
         skills: [],
         tools: null,
-        knowledge: null,
       };
 
       expect(registry.discoverFromPackage(manifest)).toBe(0);
@@ -382,7 +380,6 @@ User instructions.
         config: { name: "test", displayName: "Test", detectPatterns: [], toolTags: new Set<string>(), qualityGates: [], multishotExamples: "", phaseExamples: "" },
         skills: ["skills/broken.md"],
         tools: null,
-        knowledge: null,
       };
 
       const loaded = registry.discoverFromPackage(manifest);

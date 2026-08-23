@@ -420,8 +420,7 @@ fields reject at the project boundary.
 
 Evidence:
 [`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts),
-[`runtime-mode-loader.ts`](../../../packages/core/src/engine/gateway/runtime-mode-loader.ts),
-and [`events-loader.ts`](../../../packages/core/src/engine/gateway/events-loader.ts).
+and [`runtime-mode-loader.ts`](../../../packages/core/src/engine/gateway/runtime-mode-loader.ts).
 Rows marked unreachable are declared, parsed, or consumed on only one side of
 the YAML boundary; Slice 9 owns their deletion or completed mapping.
 
@@ -472,7 +471,6 @@ the YAML boundary; Slice 9 owns their deletion or completed mapping.
 | `teams.<team>.quality[]` | A | I | H | alias fallback | restart | obsolete alias; delete Slice 9 |
 | `teams.<team>.mode` | A | I | H | absent | restart | supported partially |
 | `teams.<team>.manager` | A | I | H | absent | restart | supported |
-| `teams.<team>.knowledge` | A | I | H | domain only | restart | unreachable from YAML; Slice 9 |
 | `triggers[].name` | A | I | M | required | restart | supported |
 | `triggers[].type` | A | I | H | required | restart | supported |
 | `triggers[].team` | A | I | H | required | restart | supported |
@@ -485,26 +483,6 @@ the YAML boundary; Slice 9 owns their deletion or completed mapping.
 | `triggers[].filter` | A | I | H | event only | restart | supported |
 | `triggers[].cron` | A | I | H | schedule only | restart | supported |
 | `triggers[].timezone` | A | I | M | optional | restart | supported |
-| `knowledge.embedding.provider` | A | I | H | required | restart | supported |
-| `knowledge.embedding.model` | A | I | H | required | restart | supported |
-| `knowledge.embedding.apiKeyEnv` | A | I | C ref | optional | restart | supported |
-| `knowledge.embedding.baseUrl` | A | I | H | optional | restart | supported |
-| `knowledge.store.backend` | A | I | H | required | restart | supported |
-| `knowledge.store.connectionString` | A | I | C ref | optional literal currently admitted | restart | supported; secret-separation review Slice 9 |
-| `knowledge.store.connectionStringEnv` | A | I | C ref | optional | restart | supported |
-| `knowledge.chunking.strategy` | A | I | M | validator default | restart | supported |
-| `knowledge.chunking.chunkSize` | A | I | M | 512 | restart | supported |
-| `knowledge.chunking.chunkOverlap` | A | I | M | 50 | restart | supported |
-| `knowledge.chunking.contextual` | A | I | H | domain only | restart | unreachable from YAML; Slice 9 |
-| `knowledge.sources[].name` | A | I | M | required | restart | supported |
-| `knowledge.sources[].path` | A | I | H | required | restart | supported |
-| `knowledge.sources[].watch` | A | I | H | false | restart | supported |
-| `knowledge.sources[].chunking` | A | I | M | inherits root | restart | supported |
-| `knowledge.sources[].type` | A | I | H | runtime falls back to file | restart | unreachable from YAML; Slice 9 |
-| `knowledge.allowedAgents[]` | A | I | H | absent | restart | supported |
-| `knowledge.reranker` | A | I | H ref | domain only | restart | unreachable from YAML; Slice 9 |
-| `knowledge.mode` | A | I | H | domain only | restart | unreachable from YAML; Slice 9 |
-| `knowledge.contactMemory` | A | I | C | domain only | restart | unreachable from YAML; Slice 9 |
 | `eval.datasets[].name` | A | I | M | required | restart | parsed; runtime owner unproven, Slice 9 |
 | `eval.datasets[].path` | A | I | H | required | restart | parsed; runtime owner unproven, Slice 9 |
 | `eval.scorers[].name` | A | I | M | required | restart | parsed; runtime owner unproven, Slice 9 |
@@ -584,12 +562,10 @@ same semantic owner.
 | `voice.policy.surfaces.<id>.output.failureMode` | A | I | C | optional | restart | supported |
 | `safety.pii.detect` | A | I | C | enabled by validator posture | restart | supported |
 | `safety.pii.action` | A | I | C | detect | restart | supported |
-| `safety.pii.deepScan` | A | I | C | optional | restart | supported |
 | `safety.pii.allowlist[]` | A | I | C | optional | restart | supported |
 | `safety.content.enabled` | A | I | C | true | restart | supported |
 | `safety.content.categories.<id>.threshold` | A | I | C | 0.5 | restart | supported |
 | `safety.content.categories.<id>.action` | A | I | C | block | restart | supported |
-| `safety.content.deepScan` | A | I | C | optional | restart | supported |
 | `safety.rails[].type` | A | I | C | required variant | restart | supported |
 | `safety.rails[].block[]` | A | I | C | optional variant field | restart | supported |
 | `safety.rails[].escalate[]` | A | I | C | optional variant field | restart | supported |
@@ -603,14 +579,9 @@ same semantic owner.
 | `provider.model` | AS | I | H | optional | restart | supported by separate reader |
 | `provider.apiKeyEnv` | AS | I | C ref | optional | restart | supported by separate reader |
 | `billing.budgetEndpoint` | AS | I | H | optional | restart | supported by separate reader |
-| `billing.usageEndpoint` | AS | I | H | optional | restart | supported by separate reader |
 | `billing.overBudgetMessage` | AS | I | M | optional | restart | supported by separate reader |
 | `billing.headers.<key>` | AS | I | C ref | environment references resolved ephemerally | restart | supported by separate reader |
 | `billing.tiers[]` | AS | I/E | H | runtime-mode contract | restart | supported; classification split Slice 9 |
-| `events.webhook` | AS | I | H | optional | restart | supported by separate reader |
-| `events.headers.<key>` | AS | I | C ref | optional | restart | supported by separate reader |
-| `events.retryAttempts` | AS | I | H | emitter default 3 | restart | unreachable from YAML; Slice 9 |
-| `events.retryBackoffMs` | AS | I | H | emitter default 1000 | restart | unreachable from YAML; Slice 9 |
 
 ## Gateway Configuration
 
@@ -651,7 +622,6 @@ and the imported gateway domain contracts.
 | `mcp.enabled` | W | I | C | false | restart | supported |
 | `mcp.path` | W | I | C | `/mcp` | restart | supported |
 | `mcp.auth` | W | I | C ref | optional | restart | supported |
-| `mcp.eval` | W | I | C ref | optional | restart | supported |
 | `modelGateway.port` | W | I | C | required when present | restart | supported |
 | `modelGateway.replay.ttlMs` | W | I | C | required | restart | supported |
 | `modelGateway.replay.maxEntries` | W | I | C | required | restart | supported |
@@ -736,7 +706,7 @@ These fields are not additional durable configuration sources.
 | Divergent writer and activation lifecycles | CLI configuration application-port owner, Slice 4 | typed mutation result distinguishes rejected, committed, reconciliation-failed, and rolled-back; activation tests per field |
 | App/gateway generated authoring | Core app/gateway schema owner, Slice 9 | any future generated bytes pass the production readers; the invalid init templates were deleted in Slice 5 |
 | App root split among `AppLoader`, runtime-mode, billing, and events readers | Core app structural/graph owner, Slice 9 | one strict structural boundary delegates named semantic admission; no silent unknown roots |
-| Declared-but-unreachable app/domain properties and duplicate app/gateway route intent | owning Core knowledge/eval/tool/voice/safety/gateway domains, Slice 9 | each property is mapped and consumed, or deleted with examples/docs/tests aligned |
+| Declared-but-unreachable app/domain properties and duplicate app/gateway route intent | owning Core eval/tool/voice/safety/gateway domains, Slice 9 | each property is mapped and consumed, or deleted with examples/docs/tests aligned |
 | Gateway nested unknowns, raw `botToken`, and numeric `NaN` mapping | Core gateway schema owner, Slice 9 | strict schema rejects unknown/malformed fields and persists only secret references |
 | Per-harness preventive enforcement fidelity | native harness integration owner, security workstream before global migration | side-effect-negative fixtures prove prevention or route admission rejects |
 

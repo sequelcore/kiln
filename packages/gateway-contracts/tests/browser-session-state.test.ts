@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
   GuiBrowserLiveViewportFrame,
-  GuiBrowserOperatorInputAckFrame,
   GuiBrowserSessionState,
   GuiInboundFrame,
   GuiOutboundFrame,
@@ -79,19 +78,6 @@ describe("browser session state frames", () => {
     expect(frame.browserSession.latestCapture?.transport).toBe("cdp-screencast");
   });
 
-  it("carries operator browser session control requests", () => {
-    const frame: GuiOutboundFrame = {
-      type: "browser_session_control",
-      action: "takeover",
-      sessionId: "browser-1",
-      reason: "Inspect before continuing.",
-      requestId: "browser-control-1",
-    };
-
-    expect(frame.action).toBe("takeover");
-    expect(frame.sessionId).toBe("browser-1");
-  });
-
   it("carries managed-agent cancel control requests and acknowledgements", () => {
     const outbound: GuiOutboundFrame = {
       type: "managed_agent_control",
@@ -136,61 +122,4 @@ describe("browser session state frames", () => {
     expect(viewportFrame.width).toBe(1280);
   });
 
-  it("carries typed operator input intents and acknowledgements", () => {
-    const outbound: GuiOutboundFrame = {
-      type: "browser_operator_input",
-      requestId: "browser-input-1",
-      sessionId: "browser-1",
-      input: {
-        kind: "pointer",
-        phase: "down",
-        x: 120,
-        y: 80,
-        button: "left",
-      },
-    };
-    const inbound: GuiInboundFrame = {
-      type: "browser_operator_input_ack",
-      requestId: "browser-input-1",
-      sessionId: "browser-1",
-      status: "accepted",
-      handledAt: "2026-05-13T12:00:00.000Z",
-    };
-
-    const ack: GuiBrowserOperatorInputAckFrame = inbound;
-    expect(outbound.input.kind).toBe("pointer");
-    expect(ack.status).toBe("accepted");
-  });
-
-  it("carries sanitized browser operator evidence session events", () => {
-    const frame: GuiInboundFrame = {
-      type: "session_event",
-      event: {
-        eventId: "session-1:browser:1",
-        kilnSessionId: "session-1",
-        sequence: 1,
-        timestamp: "2026-05-13T12:00:00.000Z",
-        kind: "browser_operator_evidence",
-        source: {
-          actor: "runtime",
-          surface: "gui",
-          component: "gui-gateway",
-        },
-        payload: {
-          action: "operator_input",
-          browserSessionId: "browser-1",
-          input: {
-            kind: "text",
-            textLength: 12,
-          },
-          acknowledgement: {
-            status: "accepted",
-          },
-        },
-      },
-    };
-
-    expect(frame.event.kind).toBe("browser_operator_evidence");
-    expect(JSON.stringify(frame.event.payload)).not.toContain("typed secret");
-  });
 });

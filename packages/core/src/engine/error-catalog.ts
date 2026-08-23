@@ -190,20 +190,6 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
-    case "GUARDIAN_BLOCKED":
-      return {
-        suggestion:
-          "Guardian review blocked a destructive operation. Review the capability's risk level.",
-        docUrl: docUrl(code),
-      };
-
-    case "GUARDIAN_UNAVAILABLE":
-      return {
-        suggestion:
-          "Guardian review service is unavailable. Destructive operations are blocked until the Guardian is reachable.",
-        docUrl: docUrl(code),
-      };
-
     case "SECRET_DECRYPTION_FAILED":
       return {
         suggestion:
@@ -335,41 +321,6 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
-    case "A2A_INVALID_REQUEST":
-      return {
-        suggestion:
-          "The incoming A2A JSON-RPC request is malformed. Check the request body against the A2A specification.",
-        docUrl: docUrl(code),
-      };
-
-    case "A2A_TASK_NOT_FOUND":
-      return {
-        suggestion:
-          "The requested A2A task ID does not exist. Tasks are ephemeral and may have been cleaned up.",
-        docUrl: docUrl(code),
-      };
-
-    case "A2A_TASK_FAILED":
-      return {
-        suggestion:
-          "The A2A task failed during execution. Check the target team and orchestrator logs.",
-        docUrl: docUrl(code),
-      };
-
-    case "A2A_TIMEOUT":
-      return {
-        suggestion:
-          "The remote A2A operation exceeded its deadline. Retry or increase the configured delegation timeout.",
-        docUrl: docUrl(code),
-      };
-
-    case "A2A_CLIENT_FAILED":
-      return {
-        suggestion:
-          "Failed to communicate with a remote A2A agent. Verify the agent URL and network connectivity.",
-        docUrl: docUrl(code),
-      };
-
     case "MCP_CONNECTION_FAILED":
       return {
         suggestion:
@@ -388,13 +339,6 @@ export function getErrorSuggestion(
       return {
         suggestion:
           "The MCP server returned an error. Check server logs for details.",
-        docUrl: docUrl(code),
-      };
-
-    case "TOOL_RAG_FAILED":
-      return {
-        suggestion:
-          "Tool retrieval failed. Check the embedding adapter configuration and vector store availability.",
         docUrl: docUrl(code),
       };
 
@@ -433,45 +377,6 @@ export function getErrorSuggestion(
       return {
         suggestion:
           "Text-to-speech synthesis failed. Check the TTS provider configuration and API key.",
-        docUrl: docUrl(code),
-      };
-
-    case "ENRICHMENT_FAILED":
-      return {
-        suggestion:
-          "Contextual enrichment failed for one or more chunks. Check the LLM provider configuration and API key in chunking.contextual.",
-        docUrl: docUrl(code),
-      };
-
-    case "SOURCE_NOT_FOUND": {
-      const sourceId = context?.sourceId;
-      const base = "The specified knowledge source was not found.";
-      return {
-        suggestion: sourceId ? `${base} Source ID: ${sourceId}` : base,
-        docUrl: docUrl(code),
-      };
-    }
-
-    case "SOURCE_EXTRACTION_FAILED": {
-      const uri = context?.uri;
-      let suggestion = "Failed to extract content from the knowledge source.";
-      if (uri) {
-        suggestion += ` URI: ${uri}. Check the file path or URL and ensure it is accessible.`;
-      }
-      return { suggestion, docUrl: docUrl(code) };
-    }
-
-    case "SOURCE_ALREADY_EXISTS":
-      return {
-        suggestion:
-          "A knowledge source with this name already exists for this app. Use a different name or remove the existing source first.",
-        docUrl: docUrl(code),
-      };
-
-    case "CONTACT_MEMORY_EXTRACTION_FAILED":
-      return {
-        suggestion:
-          "Contact memory fact extraction failed. Check the LLM provider configuration and API key in knowledge.contactMemory.",
         docUrl: docUrl(code),
       };
 
@@ -592,7 +497,7 @@ export function getErrorSuggestion(
     case "SAFETY_SCAN_FAILED":
       return {
         suggestion:
-          "The safety scan encountered an error. This is non-fatal -- the pipeline uses fail-open behavior for deep scans.",
+          "The deterministic safety scan encountered an error. Inspect the scanner configuration and input evidence.",
         docUrl: docUrl(code),
       };
 
@@ -621,13 +526,6 @@ export function getErrorSuggestion(
       return {
         suggestion:
           "Routing resolved to an agent ID that doesn't exist. Verify agents[] and routing config.",
-        docUrl: docUrl(code),
-      };
-
-    case "AGENT_RAG_FAILED":
-      return {
-        suggestion:
-          "Agent retrieval failed. Check the embedding adapter configuration and vector store availability.",
         docUrl: docUrl(code),
       };
 

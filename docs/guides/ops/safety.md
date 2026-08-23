@@ -21,15 +21,12 @@ Input message
   -> Policy Rails
   -> Allowed / Blocked
 
-Agent response (when groundingMode: verified)
-  -> Grounding Rail
-  -> Grounded / Replaced
 ```
 
 Operational behavior:
 
 - the first blocking stage stops later stages
-- scanner or model failures are fail-open and logged
+- scanner failures are fail-open and logged
 - the pipeline is enabled from the top-level `safety` block in `app.yaml`
 
 ## PII Detection
@@ -43,10 +40,7 @@ Operational behavior:
 - `ip_address`
 - `date_of_birth`
 
-Two detection tiers are supported:
-
-- regex heuristics on every message
-- optional LLM deep scan when `deepScan: true`
+Detection is deterministic and regex-based on every message.
 
 Actions are `detect`, `redact`, or `block`.
 
@@ -62,7 +56,7 @@ Actions are `detect`, `redact`, or `block`.
 - `misinformation`
 
 Each category has its own threshold and action. Lower thresholds are more
-aggressive. Deep scan is optional.
+aggressive.
 
 ## Policy Rails
 
@@ -83,11 +77,9 @@ safety:
     detect: [email, phone, ssn, credit_card, ip_address, date_of_birth]
     action: redact
     allowlist: ["support@company.com"]
-    deepScan: false
 
   content:
     enabled: true
-    deepScan: false
     categories:
       hate:         { threshold: 0.7, action: block }
       violence:     { threshold: 0.8, action: block }
@@ -113,26 +105,6 @@ safety:
 See the [App YAML reference](../../configuration/app-yaml.md) for the current
 file boundary. Verify the exact safety shape against the application parser.
 
-## Grounding Rail
-
-The grounding rail runs only when:
-
-1. `groundingMode` is `verified`
-2. knowledge context was retrieved
-3. the session is not queued
-
-It compares the generated response against retrieved chunks and can replace an
-unsupported answer with a safe fallback. If the grounding check fails
-internally, the original response passes through and a warning is traced.
-
-Grounding modes:
-
-| Mode | Behavior |
-|------|----------|
-| `off` | No grounding enforcement. |
-| `strict` | Adds a prompt-side instruction to answer only from context. |
-| `verified` | Runs `strict` plus a post-generation grounding judge. |
-
 ## Events
 
 The safety pipeline emits:
@@ -140,7 +112,3 @@ The safety pipeline emits:
 - `pii_detected`
 - `content_classified`
 - `policy_evaluated`
-- `grounding_evaluated`
-
-When a response is replaced, the product webhook surface also receives
-`GROUNDING_BLOCKED`.

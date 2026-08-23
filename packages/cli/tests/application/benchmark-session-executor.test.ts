@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createOperatorAdoptionDecisionAuthority } from "@kilnai/core";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import type {
@@ -572,6 +572,10 @@ describe("createBenchmarkSessionExecutor", () => {
     }));
     expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
       executionEnvelope: { toolRounds: { max: 8 } },
+      runtimeToolActionClaims: expect.objectContaining({
+        claim: expect.any(Function),
+        settle: expect.any(Function),
+      }),
     }));
     expect(benchmarkExecutorMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
       toolProjection: {
@@ -678,12 +682,12 @@ describe("createBenchmarkSessionExecutor", () => {
     const evidenceRoot = mkdtempSync(join(tmpdir(), "kiln-benchmark-evidence-test-"));
     benchmarkExecutorMocks.createBenchmarkAuthorityWorkspaceLease.mockImplementationOnce(() => ({
       rootPath: authorityLeaseRoot,
-      cleanup: () => rmSync(authorityLeaseRoot, { recursive: true, force: true }),
+      cleanup: vi.fn(() => rmSync(authorityLeaseRoot, { recursive: true, force: true })),
     }));
     const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
     if (!defaultRun) throw new Error("benchmark run mock was not initialized");
     const ownerSessionId = "benchmark-session";
-    const operatorTurnId = `${ownerSessionId}:turn:1`;
+    const operatorTurnId = canonicalTurnId(ownerSessionId, 1);
     const authority = createOperatorAdoptionDecisionAuthority({
       ownerSessionId,
       operatorTurnId,

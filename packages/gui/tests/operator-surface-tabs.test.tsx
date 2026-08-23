@@ -227,88 +227,7 @@ describe("OperatorSurfaceTabs", () => {
     expect(screen.getByText("kiln://artifacts/interactive-screenshots/artifact_1/content")).toBeInTheDocument();
   });
 
-  it("offers browser takeover and release controls from session ownership", () => {
-    const onBrowserSessionControl = vi.fn();
-    const { rerender } = render(
-      <OperatorSurfaceTabs
-        activeSurface="browser"
-        chatContent={<div>Chat transcript</div>}
-        memoryContent={<div>Memory Lattice surface</div>}
-        browserSession={{
-          target: "browser",
-          status: "running",
-          updatedAt: "2026-05-08T12:00:00.000Z",
-          provider: "playwright",
-          gatewayTargetId: "gateway:browser-app",
-          sessionId: "qa-browser",
-          ownership: "agent",
-          viewMode: "live",
-          stream: { status: "live" },
-        }}
-        memoryOpen={false}
-        files={[]}
-        selectedPath={null}
-        loadingPath={null}
-        error={null}
-        onSelectChat={vi.fn()}
-        onSelectBrowser={vi.fn()}
-        onSelectMemory={vi.fn()}
-        onCloseMemory={vi.fn()}
-        onSelectFile={vi.fn()}
-        onCloseFile={vi.fn()}
-        onBrowserSessionControl={onBrowserSessionControl}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Take control" }));
-
-    expect(onBrowserSessionControl).toHaveBeenCalledWith("takeover", {
-      sessionId: "qa-browser",
-      gatewayTargetId: "gateway:browser-app",
-      reason: "Operator took browser control.",
-    });
-
-    rerender(
-      <OperatorSurfaceTabs
-        activeSurface="browser"
-        chatContent={<div>Chat transcript</div>}
-        memoryContent={<div>Memory Lattice surface</div>}
-        browserSession={{
-          target: "browser",
-          status: "running",
-          updatedAt: "2026-05-08T12:00:00.000Z",
-          provider: "playwright",
-          gatewayTargetId: "gateway:browser-app",
-          sessionId: "qa-browser",
-          ownership: "operator",
-          viewMode: "live",
-          stream: { status: "paused" },
-        }}
-        memoryOpen={false}
-        files={[]}
-        selectedPath={null}
-        loadingPath={null}
-        error={null}
-        onSelectChat={vi.fn()}
-        onSelectBrowser={vi.fn()}
-        onSelectMemory={vi.fn()}
-        onCloseMemory={vi.fn()}
-        onSelectFile={vi.fn()}
-        onCloseFile={vi.fn()}
-        onBrowserSessionControl={onBrowserSessionControl}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Release" }));
-
-    expect(onBrowserSessionControl).toHaveBeenLastCalledWith("release", {
-      sessionId: "qa-browser",
-      gatewayTargetId: "gateway:browser-app",
-      reason: "Operator released browser control.",
-    });
-  });
-
-  it("keeps the last browser screenshot visible during operator takeover updates", async () => {
+  it("keeps the last browser screenshot visible during session updates", async () => {
     const loadResourceDataUrl = vi.fn(async (uri: string) => {
       if (uri === "kiln://artifacts/interactive-screenshots/artifact_1/content") {
         return "data:image/png;base64,first";
@@ -348,7 +267,6 @@ describe("OperatorSurfaceTabs", () => {
         onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
-        onBrowserSessionControl={vi.fn()}
       />,
     );
 
@@ -371,7 +289,7 @@ describe("OperatorSurfaceTabs", () => {
           provider: "playwright",
           sessionId: "qa-browser",
           title: "QA Browser",
-          ownership: "operator",
+          ownership: "agent",
           viewMode: "live",
           stream: { status: "paused" },
         }}
@@ -387,7 +305,6 @@ describe("OperatorSurfaceTabs", () => {
         onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
-        onBrowserSessionControl={vi.fn()}
       />,
     );
 
@@ -398,8 +315,7 @@ describe("OperatorSurfaceTabs", () => {
     expect(screen.queryByText("No browser screenshot has been captured yet.")).not.toBeInTheDocument();
   });
 
-  it("renders live viewport frames and sends brokered operator input", async () => {
-    const onBrowserOperatorInput = vi.fn();
+  it("renders live viewport frames as read-only observation", async () => {
     const loadResourceDataUrl = vi.fn(async (uri: string) => {
       if (uri === "kiln://artifacts/live/browser/frame-1") {
         return "data:image/png;base64,live";
@@ -419,7 +335,7 @@ describe("OperatorSurfaceTabs", () => {
           gatewayTargetId: "gateway:browser-app",
           sessionId: "qa-browser",
           title: "QA Browser",
-          ownership: "operator",
+          ownership: "agent",
           viewMode: "live",
           stream: { status: "paused" },
         }}
@@ -447,126 +363,15 @@ describe("OperatorSurfaceTabs", () => {
         onCloseMemory={vi.fn()}
         onSelectFile={vi.fn()}
         onCloseFile={vi.fn()}
-        onBrowserSessionControl={vi.fn()}
-        onBrowserOperatorInput={onBrowserOperatorInput}
       />,
     );
 
     const viewport = await screen.findByTestId("browser-live-viewport");
-    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 10,
-      left: 20,
-      bottom: 370,
-      right: 660,
-      width: 640,
-      height: 360,
-      toJSON: () => ({}),
-    } as DOMRect);
-
     expect(screen.getByRole("img", { name: "Live browser viewport for QA Browser" })).toHaveAttribute(
       "src",
       "data:image/png;base64,live",
     );
-
-    fireEvent.click(viewport, { clientX: 340, clientY: 190 });
-    fireEvent.wheel(viewport, { clientX: 340, clientY: 190, deltaX: 0, deltaY: 240 });
-    fireEvent.keyDown(viewport, { key: "a" });
-    fireEvent.keyDown(viewport, { key: "Enter" });
-
-    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
-      sessionId: "qa-browser",
-      gatewayTargetId: "gateway:browser-app",
-      input: {
-        kind: "pointer",
-        phase: "click",
-        x: 640,
-        y: 360,
-        button: "left",
-        clickCount: 1,
-      },
-    });
-    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
-      sessionId: "qa-browser",
-      gatewayTargetId: "gateway:browser-app",
-      input: {
-        kind: "wheel",
-        x: 640,
-        y: 360,
-        deltaX: 0,
-        deltaY: 240,
-      },
-    });
-    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
-      sessionId: "qa-browser",
-      gatewayTargetId: "gateway:browser-app",
-      input: {
-        kind: "text",
-        text: "a",
-      },
-    });
-    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
-      sessionId: "qa-browser",
-      gatewayTargetId: "gateway:browser-app",
-      input: {
-        kind: "key",
-        phase: "press",
-        key: "Enter",
-      },
-    });
-  });
-
-  it("does not send live viewport input until the operator owns the session", () => {
-    const onBrowserOperatorInput = vi.fn();
-    render(
-      <OperatorSurfaceTabs
-        activeSurface="browser"
-        chatContent={<div>Chat transcript</div>}
-        memoryContent={<div>Memory Lattice surface</div>}
-        browserSession={{
-          target: "browser",
-          status: "running",
-          updatedAt: "2026-05-13T12:00:00.000Z",
-          provider: "playwright",
-          sessionId: "qa-browser",
-          title: "QA Browser",
-          ownership: "agent",
-          viewMode: "live",
-          stream: { status: "live" },
-        }}
-        browserLiveViewportFrame={{
-          type: "browser_live_viewport_frame",
-          sessionId: "qa-browser",
-          frameId: "frame-1",
-          transport: "snapshot-polling",
-          format: "png",
-          dataUrl: "data:image/png;base64,live",
-          width: 1280,
-          height: 720,
-          capturedAt: "2026-05-13T12:00:01.000Z",
-        }}
-        memoryOpen={false}
-        files={[]}
-        selectedPath={null}
-        loadingPath={null}
-        error={null}
-        onSelectChat={vi.fn()}
-        onSelectBrowser={vi.fn()}
-        onSelectMemory={vi.fn()}
-        onCloseMemory={vi.fn()}
-        onSelectFile={vi.fn()}
-        onCloseFile={vi.fn()}
-        onBrowserSessionControl={vi.fn()}
-        onBrowserOperatorInput={onBrowserOperatorInput}
-      />,
-    );
-
-    const viewport = screen.getByTestId("browser-live-viewport");
-    fireEvent.click(viewport, { clientX: 10, clientY: 10 });
-    fireEvent.keyDown(viewport, { key: "a" });
-
-    expect(onBrowserOperatorInput).not.toHaveBeenCalled();
+    expect(viewport).toHaveAttribute("aria-label", "Live browser viewport");
   });
 
   it("renders markdown through the safe markdown renderer", () => {

@@ -3,7 +3,6 @@ import type {
   ActionEffectEnvelope,
   AdmittedExecutionRoute,
   AuthorityDescriptor,
-  Capability,
   EffectiveTurnAuthoritySnapshot,
   ExecutionSessionBindingEvidence,
   OperatorAdoptionDecisionAuthority,
@@ -117,83 +116,68 @@ export function projectToolPermissionAdmissionFromPerCallConfig(
   });
 }
 
-/**
- * Migration seam for Runtime execution: the persisted bundle is authoritative
- * and legacy per-call authority fields may only corroborate it. Callers must
- * delete those legacy fields after every production path supplies the bundle.
- */
-export function applyEffectiveAuthorityAdmissionBundleToPerCallConfig(
-  bundle: EffectiveAuthorityAdmissionBundle,
-  config: PerCallToolConfig = {},
-): PerCallToolConfig {
-  const admitted = defineEffectiveAuthorityAdmissionBundle(bundle);
-  const allowed = admitted.turn.tools.allowedToolPermissions;
-  const allowedNames = new Set(allowed.map((entry) => entry.toolName));
-  if (config.toolAllowlist && !sameStringSet(config.toolAllowlist, allowedNames)) {
-    throw new TypeError("Legacy tool allowlist mismatch with the committed authority admission bundle.");
-  }
-  if (config.toolAuthority) {
-    const projectedAuthority = new Map(allowed.map((entry) => [entry.toolName, entry.authority]));
-    if (!sameMapValue(config.toolAuthority, projectedAuthority)) {
-      throw new TypeError("Legacy tool authority mismatch with the committed authority admission bundle.");
-    }
-  }
-  if (config.effectiveTurnAuthority
-    && stableStringify(config.effectiveTurnAuthority) !== stableStringify(admitted.turn.authority)) {
-    throw new TypeError("Legacy turn authority mismatch with the committed authority admission bundle.");
-  }
-  if (config.runtimeConfigurationRevision
-    && stableStringify(normalizeRuntimeConfigurationRevision(config.runtimeConfigurationRevision))
-      !== stableStringify(admitted.configuration.turnRevision)) {
-    throw new TypeError("Legacy configuration revision mismatch with the committed authority admission bundle.");
-  }
-  const executionBinding = admitted.turn.execution.status === "routed"
-    ? admitted.turn.execution.binding
+/** Canonical execution projections. Consequential Runtime policy never reconstructs authority from per-call fields. */
+export function readExecutionToolAllowlist(config: PerCallToolConfig | undefined): ReadonlySet<string> {
+  const admission = requireExecutionAuthorityAdmission(config);
+  return new Set(admission.turn.tools.allowedToolPermissions.map((entry) => entry.toolName));
+}
+
+export function readExecutionToolAuthority(
+  config: PerCallToolConfig | undefined,
+  toolName: string,
+): AuthorityDescriptor | undefined {
+  return requireExecutionAuthorityAdmission(config).turn.tools.allowedToolPermissions
+    .find((entry) => entry.toolName === toolName)?.authority;
+}
+
+export function readExecutionTurnAuthority(
+  config: PerCallToolConfig | undefined,
+): EffectiveTurnAuthoritySnapshot {
+  return requireExecutionAuthorityAdmission(config).turn.authority;
+}
+
+export function readExecutionConfigurationRevision(
+  config: PerCallToolConfig | undefined,
+): RuntimeConfigurationRevisionSnapshot {
+  return requireExecutionAuthorityAdmission(config).configuration.turnRevision;
+}
+
+export function readExecutionBinding(
+  config: PerCallToolConfig | undefined,
+): Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }> | undefined {
+  const admission = requireExecutionAuthorityAdmission(config);
+  return admission.turn.execution.status === "routed"
+    ? admission.turn.execution.binding
     : undefined;
-  const admittedExecutionRoute = admitted.turn.execution.status === "routed"
-    ? admitted.turn.execution.route
+}
+
+export function readExecutionRoute(config: PerCallToolConfig | undefined): AdmittedExecutionRoute | undefined {
+  const admission = requireExecutionAuthorityAdmission(config);
+  return admission.turn.execution.status === "routed"
+    ? admission.turn.execution.route
     : undefined;
-  if (config.executionBinding && stableStringify(config.executionBinding) !== stableStringify(executionBinding)) {
-    throw new TypeError("Legacy execution binding mismatch with the committed authority admission bundle.");
-  }
-  if (config.admittedExecutionRoute
-    && stableStringify(config.admittedExecutionRoute) !== stableStringify(admittedExecutionRoute)) {
-    throw new TypeError("Execution route mismatch with the committed authority admission bundle.");
-  }
-  if (config.turnId && config.turnId !== admitted.turnId) {
-    throw new TypeError("Legacy canonical turn identity mismatch with the committed authority admission bundle.");
-  }
-  const adoptionDecision = admitted.turn.operatorAdoption.status === "admitted"
-    ? admitted.turn.operatorAdoption.decision
+}
+
+export function readExecutionOperatorAdoptionDecision(
+  config: PerCallToolConfig | undefined,
+): OperatorAdoptionDecisionAuthority | undefined {
+  const admission = requireExecutionAuthorityAdmission(config);
+  return admission.turn.operatorAdoption.status === "admitted"
+    ? admission.turn.operatorAdoption.decision
     : undefined;
-  if (config.operatorAdoptionDecision
-    && stableStringify(config.operatorAdoptionDecision) !== stableStringify(adoptionDecision)) {
-    throw new TypeError("Legacy operator-adoption decision mismatch with the committed authority admission bundle.");
+}
+
+export function readExecutionTurnId(config: PerCallToolConfig | undefined): string {
+  return requireExecutionAuthorityAdmission(config).turnId;
+}
+
+export function requireExecutionAuthorityAdmission(
+  config: PerCallToolConfig | undefined,
+): EffectiveAuthorityAdmissionBundle {
+  if (!config?.authorityAdmission) {
+    throw new Error("EffectiveAuthorityAdmissionBundle is required for Runtime execution authority.");
   }
-  const capabilities = new Map<string, Capability>();
-  const authority = new Map<string, AuthorityDescriptor>();
-  for (const entry of allowed) {
-    const capability = config.perCallCapabilities?.get(entry.toolName);
-    if (!capability) throw new TypeError(`Missing execution capability for admitted tool "${entry.toolName}".`);
-    capabilities.set(entry.toolName, { ...capability, effectEnvelope: entry.effectEnvelope });
-    authority.set(entry.toolName, entry.authority);
-  }
-  return {
-    ...config,
-    toolAllowlist: allowedNames,
-    toolAuthority: authority,
-    perCallCapabilities: capabilities,
-    additionalTools: config.additionalTools?.filter((tool) => allowedNames.has(tool.name)),
-    toolCallMetadata: filterReadonlyMap(config.toolCallMetadata, allowedNames),
-    effectiveTurnAuthority: admitted.turn.authority,
-    turnId: admitted.turnId,
-    runtimeConfigurationRevision: admitted.configuration.turnRevision,
-    ...(adoptionDecision ? { operatorAdoptionDecision: adoptionDecision } : {}),
-    ...(executionBinding ? {
-      executionBinding,
-      admittedExecutionRoute,
-    } : {}),
-  };
+  return config.authorityAdmission;
 }
 
 /** Derives the least upper effect bound that contains every admitted tool. */
@@ -524,26 +508,6 @@ function validateOperatorAdoption(input: EffectiveAuthorityAdmissionBundleInput)
       || input.turn.workGovernance.authorityRevision !== decision.decisionId)) {
     throw new TypeError("Required work governance must reference the admitted operator-adoption decision.");
   }
-}
-
-function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value));
-}
-
-function sameMapValue<T>(left: ReadonlyMap<string, T>, right: ReadonlyMap<string, T>): boolean {
-  if (left.size !== right.size) return false;
-  return [...left].every(([key, value]) => {
-    const other = right.get(key);
-    return other !== undefined && stableStringify(value) === stableStringify(other);
-  });
-}
-
-function filterReadonlyMap<T>(
-  values: ReadonlyMap<string, T> | undefined,
-  allowedNames: ReadonlySet<string>,
-): ReadonlyMap<string, T> | undefined {
-  if (!values) return undefined;
-  return new Map([...values].filter(([name]) => allowedNames.has(name)));
 }
 
 const SECRET_KEY = /^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|credential|credentialMaterial)$/iu;

@@ -295,18 +295,6 @@ export class KilnMcpClient {
     }
   }
 
-  /** Compatibility surface for the existing runtime; capability names are now qualified. */
-  async discoverTools(): Promise<readonly Capability[]> {
-    const snapshot = await this.discover();
-    return snapshot.tools.map(({ selector, descriptor, annotations }) => ({
-      name: selector,
-      description: descriptor.description ?? `MCP tool: ${descriptor.name}`,
-      schema: descriptor.inputSchema,
-      tags: ["mcp", this.server.id, ...mcpHintTags(annotations)],
-      effectEnvelope: resolveMcpToolEffect(this.server, descriptor.name),
-    }));
-  }
-
   /** Callable provider-neutral projection of every separately admitted MCP capability kind. */
   async discoverProviderCapabilities(): Promise<readonly Capability[]> {
     const snapshot = await this.discover();
@@ -342,7 +330,14 @@ export class KilnMcpClient {
   }
 
   async executeCapability(selector: string, args: Record<string, unknown>): Promise<unknown> {
-    if (selector.startsWith(`mcp:${this.server.id}:tool:`)) return this.executeTool(selector, args);
+    if (selector.startsWith(`mcp:${this.server.id}:tool:`)) {
+      const requestedTimeout = args["timeout"];
+      const configuredTimeout = this.server.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+      const timeoutMs = typeof requestedTimeout === "number" && Number.isFinite(requestedTimeout) && requestedTimeout > 0
+        ? Math.max(configuredTimeout, Math.ceil(requestedTimeout + 30_000))
+        : configuredTimeout;
+      return unwrapToolResult(await this.callTool(selector, args, { timeoutMs }), this.server.id);
+    }
     if (selector.startsWith(`mcp:${this.server.id}:resource:`)) return this.readResource(selector);
     if (selector.startsWith(`mcp:${this.server.id}:prompt:`)) {
       const promptArgs = Object.fromEntries(Object.entries(args).map(([name, value]) => {
@@ -354,20 +349,6 @@ export class KilnMcpClient {
       return this.getPrompt(selector, promptArgs);
     }
     throw new KilnMcpClientError("MCP_SELECTOR_INVALID", this.server.id, "MCP capability selector is invalid");
-  }
-
-  /** Compatibility surface for the existing runtime. */
-  async executeTool(selector: string, args: Record<string, unknown>): Promise<unknown> {
-    const qualified = selector.startsWith("mcp:")
-      ? selector
-      : formatMcpCapabilitySelector(this.server.id, "tool", selector);
-    const requestedTimeout = args["timeout"];
-    const configuredTimeout = this.server.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    const timeoutMs = typeof requestedTimeout === "number" && Number.isFinite(requestedTimeout) && requestedTimeout > 0
-      ? Math.max(configuredTimeout, Math.ceil(requestedTimeout + 30_000))
-      : configuredTimeout;
-    const result = await this.callTool(qualified, args, { timeoutMs });
-    return unwrapCompatibilityToolResult(result, this.server.id);
   }
 
   private createSdkClient(): McpSdkClient {
@@ -656,7 +637,7 @@ function parseHttpUrl(server: ResolvedMcpServer): URL {
   }
 }
 
-function unwrapCompatibilityToolResult(result: unknown, serverId: string): unknown {
+function unwrapToolResult(result: unknown, serverId: string): unknown {
   if (!result || typeof result !== "object") return result;
   const value = result as { readonly isError?: boolean; readonly content?: readonly { readonly type?: string; readonly text?: string }[] };
   if (value.isError) {

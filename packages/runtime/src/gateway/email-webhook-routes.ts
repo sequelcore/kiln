@@ -2,21 +2,17 @@
 // Resolves tenant by recipient email address, processes messages via provider-adapter runtime orchestrator, replies via EmailTransport
 
 import { Hono } from "hono";
-import type { ContentPart, ToolDefinition } from "@kilnai/core";
+import type { ContentPart } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
-import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus, MemoryRepository } from "@kilnai/core";
-import { checkBudget, reportUsage } from "./budget-middleware.js";
+import { checkBudget } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
-import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
-import type { RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
-import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline/index.js";
 import { shouldRejectEmail } from "./email-loop-guard.js";
 import type { EmailThreadStore, EmailThread } from "./email-thread-store.js";
@@ -28,6 +24,7 @@ import {
   TenantConversationMemory,
 } from "./tenant-conversation-memory.js";
 import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
+import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
 
 export interface EmailWebhookConfig {
   readonly appName: string;
@@ -36,16 +33,11 @@ export interface EmailWebhookConfig {
   readonly tenantRegistry: TenantRegistry;
   readonly webhookSecret?: string;
   readonly billing?: BillingConfig;
-  readonly eventEmitter?: ConversationEventEmitter;
   readonly memoryBasePath?: string;
-  readonly knowledgePipeline?: RetrievalPipeline;
-  readonly knowledgeMode?: "auto" | "tool";
-  readonly contactMemoryService?: ContactMemoryService;
   readonly threadStore?: EmailThreadStore;
   readonly emailTransport?: EmailTransport;
   readonly defaultFromAddress?: string;
   readonly defaultFromName?: string;
-  readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
@@ -79,23 +71,6 @@ function getConversationMemory(memoryBasePath: string, eventBus?: EventBus): Ten
   });
 }
 
-/** Tool definition for knowledge_search -- injected when knowledge mode is "tool" */
-const KNOWLEDGE_SEARCH_TOOL: ToolDefinition = {
-  name: "knowledge_search",
-  description: "Search the knowledge base for relevant information. Use this when the user asks a question that may be answered by stored documents or knowledge.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "The search query to find relevant knowledge.",
-      },
-    },
-    required: ["query"],
-  },
-  tags: new Set(["builtin"]),
-};
-
 /** Add Re: prefix to subject if not already present */
 function replySubject(subject: string): string {
   const trimmed = subject.trim();
@@ -121,6 +96,7 @@ export function createEmailWebhookRoutes(config: EmailWebhookConfig): Hono {
     }
 
     const { from, to, subject, messageId, headers } = payload;
+    if (!messageId?.trim()) return c.text("OK", 200);
 
     // Loop guard: reject auto-replies and system senders
     const rejection = shouldRejectEmail(from, headers ?? {});
@@ -169,6 +145,30 @@ export function createEmailWebhookRoutes(config: EmailWebhookConfig): Hono {
   return app;
 }
 
+async function dispatchEmailEgress<T>(input: {
+  readonly config: EmailWebhookConfig;
+  readonly admitted: GatewayAuthorityAdmissionCommit;
+  readonly messageId: string;
+  readonly recipient: string;
+  readonly slot: string;
+  readonly payload: unknown;
+  readonly send: () => Promise<T>;
+}): Promise<T> {
+  return dispatchChannelEgress({
+    context: input.config.gatewayAdmission.channelEgressActionClaims,
+    authorityAdmission: input.admitted.bundle,
+    attemptId: input.admitted.runtimeModelRoundDispatch.attemptId,
+    callerId: `email:webhook:${input.messageId}`,
+    idempotencyKey: input.messageId,
+    logicalSendSlot: input.slot,
+    channel: "email",
+    destination: `email:${input.recipient}`,
+    adapterIdentity: "email-transport:configured",
+    payload: input.payload,
+    send: input.send,
+  });
+}
+
 async function processEmailMessage(
   config: EmailWebhookConfig,
   threadStore: EmailThreadStore,
@@ -192,7 +192,7 @@ async function processEmailMessage(
 
   const messageParts: readonly ContentPart[] = [{ type: "text", text: messageText }];
 
-  // Keep thread/memory/knowledge/agent/provider/outbound/session effects in
+  // Keep thread/memory/agent/provider/outbound/session effects in
   // one admission callback. The session is the identity anchor required by
   // the Runtime admission port; no productive work occurs before the fence.
   if (!admitted) {
@@ -204,7 +204,7 @@ async function processEmailMessage(
       idleTimeoutMs: tenant.idleTimeoutMs,
     });
     await config.gatewayAdmission.execute({
-      ingressId: crypto.randomUUID(),
+      ingressId: `email:${messageId}`,
       appName: config.appName,
       tenantId,
       userId: `email:${senderEmail}`,
@@ -263,55 +263,13 @@ async function processEmailMessage(
     }
   }
 
-  // --- Knowledge: retrieve relevant context ---
-  let knowledgeContext: string | undefined;
-  if (config.knowledgePipeline && messageText.length > 0) {
-    const knowledgeMode = config.knowledgeMode ?? "auto";
-    if (knowledgeMode === "auto") {
-      try {
-        const results = await config.knowledgePipeline.retrieve(messageText, { topK: 5 });
-        knowledgeContext = formatKnowledgeContext(results);
-      } catch (err) {
-        trace.warn("email", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
-      }
-    }
-  }
-
-  // --- Contact memory: recall persistent facts about this user ---
-  let contactContext: string | undefined;
-  if (config.contactMemoryService) {
-    try {
-      const facts = await config.contactMemoryService.recall(senderEmail, tenantId);
-      contactContext = formatContactContext(facts);
-    } catch (err) {
-      trace.warn("email", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // --- Tools: build per-call builtin tools ---
-  const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
-
-  // Register knowledge_search tool for "tool" mode
-  if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "tool") {
-    callTools.set("knowledge_search", async (input: Record<string, unknown>) => {
-      const query = String(input.query ?? "");
-      const results = await config.knowledgePipeline!.retrieve(query, { topK: 5 });
-      return results.map((r) => ({ content: r.content, score: r.score }));
-    });
-
-    const hasKnowledgeTool = config.orchestrator.tools?.some((t) => t.name === "knowledge_search");
-    if (!hasKnowledgeTool) {
-      config.orchestrator.registerTools([KNOWLEDGE_SEARCH_TOOL]);
-    }
-  }
-
   const session = admitted.session;
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
     tenant, messageParts, session,
-    { handoffSummarizer: config.handoffSummarizer, eventBus: config.eventBus },
-    "email", callTools,
+    { eventBus: config.eventBus },
+    "email",
   );
 
   // Update session with resolved prompt and agent
@@ -324,9 +282,6 @@ async function processEmailMessage(
     userContext: session.userContext,
     cachedRuntimeSummary: undefined,
     recalledMemoryCandidates: recalledMemory?.candidates,
-    knowledgeContext,
-    contactContext,
-    groundingMode: tenant.groundingMode,
   });
 
   const tenantToolCtx = agentCtx.tenantToolContext;
@@ -349,19 +304,6 @@ async function processEmailMessage(
     }
   }
 
-  // Emit MESSAGE_RECEIVED event (fire-and-forget)
-  if (config.eventEmitter) {
-    config.eventEmitter.emit({
-      eventType: "MESSAGE_RECEIVED",
-      tenantId,
-      channel: "email",
-      externalUserId: senderEmail,
-      messageContent: messageText,
-      messageRole: "USER",
-      traceId: trace.traceId,
-      timestamp: new Date().toISOString(),
-    });
-  }
 
   let replyText: string;
   try {
@@ -373,121 +315,24 @@ async function processEmailMessage(
       messageParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      admitted.perCallConfig,
+      {
+        ...admitted.perCallConfig,
+        runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
+      },
     );
 
     // Persist mutated session while the account fence is still held.
     await config.sessionRegistry.save(admitted.session);
 
-    // Emit handoff events when message was queued
-    if (result.queued && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "HANDOFF_MESSAGE_QUEUED",
-        tenantId,
-        channel: "email",
-        externalUserId: senderEmail,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
-    // Emit escalation event when detected
-    if (result.escalation && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "ESCALATION_DETECTED",
-        tenantId,
-        channel: "email",
-        externalUserId: senderEmail,
-        escalationReason: result.escalation.reason,
-        escalationDetail: result.escalation.detail,
-        summary: result.contextSummary,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
-    // Emit TOOL_EXECUTED events
-    if (result.toolExecutions && config.eventEmitter) {
-      for (const exec of result.toolExecutions) {
-        config.eventEmitter.emit({
-          eventType: "TOOL_EXECUTED",
-          tenantId,
-          channel: "email",
-          externalUserId: senderEmail,
-          toolName: exec.toolName,
-          durationMs: exec.durationMs,
-          success: exec.success,
-          resultSummary: exec.resultSummary,
-          traceId: trace.traceId,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
 
     // Emit AGENT_ROUTED when multi-agent routing is active
-    if (agentCtx.activeAgentId && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "AGENT_ROUTED",
-        tenantId,
-        channel: "email",
-        externalUserId: senderEmail,
-        activeAgentId: agentCtx.activeAgentId,
-        activeAgentName: agentCtx.activeAgentName,
-        routingTier: agentCtx.routingResult?.tier,
-        routingConfidence: agentCtx.routingResult?.confidence,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
-    if ((agentCtx.isHandoff || agentCtx.pingPongBlocked) && config.eventEmitter) {
-      const fromAgent = tenant.agents?.find((a) => a.id === agentCtx.previousAgentId);
-      const toAgent = tenant.agents?.find((a) => a.id === agentCtx.activeAgentId);
-      config.eventEmitter.emit({
-        eventType: "AGENT_HANDOFF",
-        tenantId,
-        channel: "email",
-        externalUserId: senderEmail,
-        fromAgentId: agentCtx.previousAgentId,
-        fromAgentName: fromAgent?.name,
-        toAgentId: agentCtx.activeAgentId,
-        toAgentName: toAgent?.name,
-        handoffBrief: agentCtx.handoffBrief,
-        handoffBlocked: agentCtx.pingPongBlocked,
-        handoffBlockReason: agentCtx.pingPongReason,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     replyText = extractText(result.parts);
 
-    // Report usage (fire-and-forget)
-    if (activeBilling) {
-      reportUsage(activeBilling, {
-        tenantId,
-        messages: 1,
-        tokens: result.inputTokens + result.outputTokens,
-        model: config.orchestrator.model ?? "unknown",
-      });
-    }
-
-    // Emit MESSAGE_SENT event (fire-and-forget)
-    if (config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "MESSAGE_SENT",
-        tenantId,
-        channel: "email",
-        externalUserId: senderEmail,
-        messageContent: replyText,
-        messageRole: "ASSISTANT",
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
   } catch (err) {
     trace.error("email", "Orchestrator error", { tenantId, error: err instanceof Error ? err.message : String(err) });
     replyText = "Something went wrong. Please try again.";
@@ -506,7 +351,7 @@ async function processEmailMessage(
         const replySubj = replySubject(subject);
         const threadRefs = thread.messageIds.join(" ");
 
-        const sendResult = await config.emailTransport.send({
+        const emailPayload = {
           from: fromAddress,
           fromName: tenant.emailFromName ?? tenant.businessName ?? tenant.name ?? config.defaultFromName,
           to: senderEmail,
@@ -519,6 +364,15 @@ async function processEmailMessage(
             "Auto-Submitted": "auto-replied",
             "X-Auto-Response-Suppress": "All",
           },
+        };
+        const sendResult = await dispatchEmailEgress({
+          config,
+          admitted,
+          messageId,
+          recipient: senderEmail,
+          slot: "assistant-reply",
+          payload: emailPayload,
+          send: () => config.emailTransport!.send(emailPayload),
         });
 
         // Update thread with outbound messageId

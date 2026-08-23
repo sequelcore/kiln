@@ -246,18 +246,17 @@ describe("createInstagramWebhookRoutes", () => {
           durationMs: 1200,
         }),
       };
-      const outboundMediaPublisher = {
-        publish: vi.fn().mockResolvedValue({
-          url: "https://media.example.com/test-app/voice-synthesis/artifact_1.mp3",
-          mimeType: "audio/mpeg",
-          artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
-        }),
-      };
       const config = makeConfig({
         artifactStore: new MemoryArtifactResourceStore(),
         voiceConfig,
         ttsAdapter,
-        outboundMediaPublisher,
+        publicMedia: {
+          appName: "test-app",
+          publicBaseUrl: "https://media.example.com",
+          signingSecret: "secret",
+          now: () => 0,
+          ttlMs: 300_000,
+        },
       });
       config.tenantRegistry.create(makeTenantConfig());
       const app = createInstagramWebhookRoutes(config);
@@ -277,18 +276,9 @@ describe("createInstagramWebhookRoutes", () => {
       const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
 
       expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock ig response", { voice: "alloy" });
-      expect(outboundMediaPublisher.publish).toHaveBeenCalledWith(expect.objectContaining({
-        channel: "instagram",
-        appName: "test-app",
-        tenantId: "ig-tenant",
-        userId: "user-sender",
-        mimeType: "audio/mpeg",
-        artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
-        purpose: "assistant-output",
-      }));
       expect(textBody.message.text).toBe("mock ig response");
       expect(audioBody.message.attachment.type).toBe("audio");
-      expect(audioBody.message.attachment.payload.url).toBe("https://media.example.com/test-app/voice-synthesis/artifact_1.mp3");
+      expect(audioBody.message.attachment.payload.url).toMatch(/^https:\/\/media\.example\.com\/media\/test-app\/voice-synthesis\/artifact_1\/content\?expires=300000&sig=/u);
     });
 
     it("filters echo messages", async () => {
@@ -371,36 +361,6 @@ describe("createInstagramWebhookRoutes", () => {
       expect(res.status).toBe(200);
     });
 
-    it("emits events when emitter is configured", async () => {
-      const emitFn = vi.fn();
-      const config = makeConfig({
-        eventEmitter: { emit: emitFn } as unknown as InstagramWebhookConfig["eventEmitter"],
-      });
-      config.tenantRegistry.create(makeTenantConfig());
-      const app = createInstagramWebhookRoutes(config);
-
-      const payload = makeInstagramPayload("user-sender", "page-456", "Hola");
-      await app.request("/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await new Promise((r) => setTimeout(r, 50));
-
-      // Should emit MESSAGE_RECEIVED and MESSAGE_SENT
-      const received = emitFn.mock.calls.find(
-        (c: unknown[]) => (c[0] as Record<string, string>).eventType === "MESSAGE_RECEIVED",
-      );
-      expect(received).toBeDefined();
-      expect(received![0].channel).toBe("instagram");
-
-      const sent = emitFn.mock.calls.find(
-        (c: unknown[]) => (c[0] as Record<string, string>).eventType === "MESSAGE_SENT",
-      );
-      expect(sent).toBeDefined();
-      expect(sent![0].channel).toBe("instagram");
-    });
 
     it("uses the model-only admitted tool authority instead of tenant hints", async () => {
       const config = makeConfig();
@@ -423,7 +383,9 @@ describe("createInstagramWebhookRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toEqual(new Map());
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: { authority: { admittedAuthority: "fail_closed" } },
+      });
     });
 
     it("captures Instagram attachments as replay artifacts before provider invocation", async () => {

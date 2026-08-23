@@ -8,7 +8,7 @@ import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { ToolDefinition } from "@kilnai/core/agents";
-import { type Capability, type TenantConfig, textParts } from "@kilnai/core/engine";
+import { type Capability, type SttAdapter, type TenantConfig, textParts } from "@kilnai/core/engine";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
@@ -171,6 +171,8 @@ function observeAdmissionFence(
 ): void {
   const base = config.gatewayAdmission;
   config.gatewayAdmission = {
+    channelEgressActionClaims: base.channelEgressActionClaims,
+    runtimeMediaActionClaims: base.runtimeMediaActionClaims,
     async execute<Result>(request, dispatch) {
       return base.execute(request, async (commit) => {
         state.active = true;
@@ -334,6 +336,39 @@ describe("createWsTenantRoutes", () => {
   });
 
   describe("message processing", () => {
+    it("rejects consequential audio without a stable client message identity", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      const sttAdapter: SttAdapter = {
+        name: "test-stt",
+        transcribe: vi.fn(),
+      };
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+        { sttAdapter },
+      ));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "message",
+            parts: [{ type: "audio", mimeType: "audio/wav", data: "AQID" }],
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(sttAdapter.transcribe).not.toHaveBeenCalled();
+      expect(mockOrchestrator.processMessage).not.toHaveBeenCalled();
+      expect(mockWs.send).not.toHaveBeenCalled();
+    });
+
     it("processes message frames via orchestrator with tenant's system prompt", async () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const tenant = makeTenantConfig();
@@ -356,6 +391,84 @@ describe("createWsTenantRoutes", () => {
       expect(governedContext).toEqual(expect.objectContaining({
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
+    });
+
+    it("claims one assistant frame for concurrent duplicate message identities", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+      ));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      const message = new MessageEvent("message", {
+        data: JSON.stringify({ type: "message", content: "hello", messageId: "duplicate-message" }),
+      });
+
+      await Promise.all([
+        handlers.onMessage!(message, wsCtx),
+        handlers.onMessage!(message, wsCtx),
+      ]);
+
+      expect(mockWs.send).toHaveBeenCalledOnce();
+      expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({ type: "done" });
+    });
+
+    it("settles an ambiguous assistant transport as unknown without an error retry", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+      ));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      mockWs.send.mockImplementation(() => { throw new Error("transport response lost"); });
+      const message = new MessageEvent("message", {
+        data: JSON.stringify({ type: "message", content: "hello", messageId: "ambiguous-message" }),
+      });
+
+      await handlers.onMessage!(message, wsCtx);
+      await handlers.onMessage!(message, wsCtx);
+
+      expect(mockWs.send).toHaveBeenCalledOnce();
+    });
+
+    it("does not redispatch a claimed frame after the socket disconnects", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+      ));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      (mockWs as { readyState: number }).readyState = 3;
+      const message = new MessageEvent("message", {
+        data: JSON.stringify({ type: "message", content: "hello", messageId: "disconnected-message" }),
+      });
+
+      await handlers.onMessage!(message, wsCtx);
+      (mockWs as { readyState: number }).readyState = 1;
+      await handlers.onMessage!(message, wsCtx);
+
+      expect(mockWs.send).not.toHaveBeenCalled();
     });
 
     it("captures tenant WebSocket multimodal parts as replay artifacts before routing and orchestration", async () => {
@@ -615,7 +728,9 @@ describe("createWsTenantRoutes", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
-      expect(perCallConfig?.toolAuthority).toEqual(new Map());
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: { authority: { admittedAuthority: "fail_closed" } },
+      });
     });
 
     it("propagates communication intent and returns raw-free final prompt evidence", async () => {
@@ -752,14 +867,17 @@ describe("createWsTenantRoutes", () => {
       );
 
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
-      expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual([]);
-      expect(perCallConfig?.additionalTools).toBeUndefined();
-      expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
-        requestedAuthority: "read_only",
-        admittedAuthority: "fail_closed",
-        completeness: "authoritative",
-        deniedToolCount: 0,
-      }));
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: {
+          authority: {
+            requestedAuthority: "read_only",
+            admittedAuthority: "fail_closed",
+            completeness: "authoritative",
+            deniedToolCount: 0,
+          },
+          tools: { allowedToolPermissions: [] },
+        },
+      });
     });
 
     it("fails closed when audited authority is requested for tenant tools without authority metadata", async () => {
@@ -795,16 +913,18 @@ describe("createWsTenantRoutes", () => {
       );
 
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
-      expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual([]);
-      expect(perCallConfig?.additionalTools).toBeUndefined();
-      expect(Array.from(perCallConfig?.perCallCapabilities?.keys() ?? [])).toEqual([]);
-      expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
-        requestedAuthority: "read_only",
-        admittedAuthority: "fail_closed",
-        completeness: "authoritative",
-        toolCount: 0,
-        deniedToolCount: 0,
-      }));
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: {
+          authority: {
+            requestedAuthority: "read_only",
+            admittedAuthority: "fail_closed",
+            completeness: "authoritative",
+            toolCount: 0,
+            deniedToolCount: 0,
+          },
+          tools: { allowedToolPermissions: [] },
+        },
+      });
     });
 
     it("fails closed destructive requestedAuthority before tenant provider invocation", async () => {
@@ -822,13 +942,16 @@ describe("createWsTenantRoutes", () => {
       );
 
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
-      expect(perCallConfig?.toolAllowlist?.size).toBe(0);
-      expect(perCallConfig?.additionalTools).toBeUndefined();
-      expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
-        requestedAuthority: "read_only",
-        admittedAuthority: "fail_closed",
-        completeness: "authoritative",
-      }));
+      expect(perCallConfig?.authorityAdmission).toMatchObject({
+        turn: {
+          authority: {
+            requestedAuthority: "read_only",
+            admittedAuthority: "fail_closed",
+            completeness: "authoritative",
+          },
+          tools: { allowedToolPermissions: [] },
+        },
+      });
       expect(JSON.parse(mockWs.send.mock.calls.at(-1)?.[0] as string)).toEqual(expect.objectContaining({
         type: "done",
       }));

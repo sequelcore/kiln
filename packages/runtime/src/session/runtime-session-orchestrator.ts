@@ -8,7 +8,9 @@ import type {
   ProviderExecutionRequestedAuthority,
   ConversationToolResultProjectionPolicy,
   EffectivePromptManifest,
+  AgentResponse,
   ProviderAdapter,
+  CreateMessageOptions,
 } from "@kilnai/core";
 import {
   accountedWorkItemEvidence,
@@ -71,6 +73,16 @@ import type {
   EffectiveTurnAuthoritySnapshot,
 } from "./runtime-session-orchestrator.types.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
+import {
+  RuntimeModelRoundDispatchService,
+  runtimeModelRoundEffectIdentity,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+import {
+  readExecutionBinding,
+  readExecutionToolAllowlist,
+  readExecutionTurnAuthority,
+  readExecutionTurnId,
+} from "./effective-authority-admission-bundle.js";
 
 const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
 const MAX_IDENTICAL_TOOL_EXECUTION_FAILURES = 2;
@@ -114,13 +126,13 @@ function resolveConversationToolResultPolicy(
 ): ConversationToolResultProjectionPolicy {
   if (!Number.isSafeInteger(value.triggerToolResultTokens) || value.triggerToolResultTokens <= 0) {
     throw new KilnError(
-      "A2A_INVALID_REQUEST",
+      "CONFIG_INVALID",
       "executionEnvelope.conversation.toolResults.triggerToolResultTokens must be a positive integer",
     );
   }
   if (!Number.isSafeInteger(value.retainRecentToolResults) || value.retainRecentToolResults < 0) {
     throw new KilnError(
-      "A2A_INVALID_REQUEST",
+      "CONFIG_INVALID",
       "executionEnvelope.conversation.toolResults.retainRecentToolResults must be a non-negative integer",
     );
   }
@@ -129,7 +141,7 @@ function resolveConversationToolResultPolicy(
 
 function resolveToolRoundBudget(value: RuntimeToolRoundBudget): RuntimeToolRoundBudget {
   if (!Number.isSafeInteger(value.max) || value.max <= 0) {
-    throw new KilnError("A2A_INVALID_REQUEST", "executionEnvelope.toolRounds.max must be a positive integer");
+    throw new KilnError("CONFIG_INVALID", "executionEnvelope.toolRounds.max must be a positive integer");
   }
   return { max: value.max };
 }
@@ -158,21 +170,23 @@ function projectProviderRequestedAuthority(
 function buildProviderExecutionContext(
   config: PerCallToolConfig | undefined,
 ): ProviderExecutionContext | undefined {
+  const authority = readExecutionTurnAuthority(config);
+  const executionBinding = readExecutionBinding(config);
   if (!config?.workingDirectory
-    && !config?.effectiveTurnAuthority
+    && !authority
     && !config?.executionScope
-    && !config?.executionBinding
+    && !executionBinding
     && config?.executionCredential === undefined) {
     return undefined;
   }
   return {
-    ...(config.workingDirectory ? { workingDirectory: config.workingDirectory } : {}),
-    ...(config.effectiveTurnAuthority
-      ? { requestedAuthority: projectProviderRequestedAuthority(config.effectiveTurnAuthority) }
+    ...(config?.workingDirectory ? { workingDirectory: config.workingDirectory } : {}),
+    ...(authority
+      ? { requestedAuthority: projectProviderRequestedAuthority(authority) }
       : {}),
-    ...(config.executionScope ? { executionScope: config.executionScope } : {}),
-    ...(config.executionBinding ? { executionBinding: config.executionBinding } : {}),
-    ...(config.executionCredential !== undefined ? { executionCredential: config.executionCredential } : {}),
+    ...(config?.executionScope ? { executionScope: config.executionScope } : {}),
+    ...(executionBinding ? { executionBinding } : {}),
+    ...(config?.executionCredential !== undefined ? { executionCredential: config.executionCredential } : {}),
   };
 }
 
@@ -185,6 +199,7 @@ export type {
   EffectiveTurnAuthorityPolicyInputStatus,
   EffectiveTurnAuthoritySnapshot,
   PerCallToolConfig,
+  RuntimeAuthorityAdmissionCandidateConfig,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
   RuntimeToolRoundBudget,
@@ -451,7 +466,7 @@ export class RuntimeSessionOrchestrator {
           `Provider adapter '${routing.effectiveProvider.name}' cannot transport the resolved communication control.`,
         );
       }
-      const response = await routing.effectiveProvider.createMessage({
+      const providerRequest: CreateMessageOptions = {
         sessionId: session.id,
         ...(perCallConfig?.providerTransport?.projectId || perCallConfig?.providerTransport?.requestIdPrefix
           ? {
@@ -486,6 +501,14 @@ export class RuntimeSessionOrchestrator {
           ? { transportObserver: perCallConfig.providerTransport.observer }
           : {}),
         ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
+      };
+      const response = await this.dispatchModelRound({
+        provider: routing.effectiveProvider,
+        request: providerRequest,
+        session,
+        turnId,
+        round,
+        perCallConfig,
       });
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
       // ProviderAdapter is an open boundary -- any implementation, not only the built-in
@@ -514,7 +537,7 @@ export class RuntimeSessionOrchestrator {
             projectedTools: toolsForRound,
             materializableTools: materializableToolsForEvidence(
               this.deps.materializableTools,
-              perCallConfig?.toolAllowlist,
+          readExecutionToolAllowlist(perCallConfig),
             ),
             materializationDecisions: pendingMaterializationDecisions,
           }),
@@ -632,6 +655,7 @@ export class RuntimeSessionOrchestrator {
 
         return this.finalizeAfterRepeatedToolFailure({
           session,
+          turnId,
           routing,
           invocationPromptManifest,
           cachePartition,
@@ -640,6 +664,8 @@ export class RuntimeSessionOrchestrator {
           preLlmEscalation: escalation,
           abortSignal: perCallConfig?.abortSignal,
           providerTransport: perCallConfig?.providerTransport,
+          runtimeModelRoundDispatch: perCallConfig?.runtimeModelRoundDispatch,
+          round: round + 1,
         });
       }
 
@@ -703,6 +729,7 @@ export class RuntimeSessionOrchestrator {
         this.telemetry.emitError(session.id, repeatedExecutionFailure.content);
         return this.finalizeAfterRepeatedToolFailure({
           session,
+          turnId,
           routing,
           invocationPromptManifest,
           cachePartition,
@@ -711,13 +738,15 @@ export class RuntimeSessionOrchestrator {
           preLlmEscalation: escalation,
           abortSignal: perCallConfig?.abortSignal,
           providerTransport: perCallConfig?.providerTransport,
+          runtimeModelRoundDispatch: perCallConfig?.runtimeModelRoundDispatch,
+          round: round + 1,
         });
       }
       const progressiveAdmission = admitProgressivelyMaterializedTools(
         projectedRoundTools,
         execution.toolExecutions,
         this.deps.materializableTools,
-        perCallConfig?.toolAllowlist,
+        readExecutionToolAllowlist(perCallConfig),
       );
       projectedRoundTools = progressiveAdmission.tools;
       pendingMaterializationDecisions = progressiveAdmission.decisions;
@@ -765,7 +794,7 @@ export class RuntimeSessionOrchestrator {
 
     const toolRoundBudget = executionEnvelope?.toolRounds;
     if (!toolRoundBudget) {
-      throw new KilnError("A2A_INVALID_REQUEST", "Runtime tool loop ended without an explicit tool-round budget");
+      throw new KilnError("CONFIG_INVALID", "Runtime tool loop ended without an explicit tool-round budget");
     }
     session.addUserMessage(toolRoundBudgetFinalizationPrompt(toolRoundBudget.max));
     try {
@@ -783,10 +812,17 @@ export class RuntimeSessionOrchestrator {
       });
     }
     const fallback = await requestRuntimeSessionFallbackResponse(
-      routing.effectiveProvider,
       invocationPromptManifest,
       session,
       this.deps.maxTokens,
+      (request) => this.dispatchModelRound({
+        provider: routing.effectiveProvider,
+        request,
+        session,
+        turnId,
+        round: toolRoundBudget.max,
+        perCallConfig,
+      }),
       buildRuntimeProviderRequestCachePartition(session, routing, perCallConfig, executionEnvelope),
       executionEnvelope?.conversation?.toolResults,
       perCallConfig?.abortSignal,
@@ -867,6 +903,7 @@ export class RuntimeSessionOrchestrator {
 
   private async finalizeAfterRepeatedToolFailure(input: {
     readonly session: RuntimeSession;
+    readonly turnId: string;
     readonly routing: RuntimeSessionRoutingResolution;
     readonly invocationPromptManifest: EffectivePromptManifest;
     readonly cachePartition?: ProviderRequestCachePartitionInput;
@@ -875,6 +912,8 @@ export class RuntimeSessionOrchestrator {
     readonly preLlmEscalation?: EscalationSignal;
     readonly abortSignal?: AbortSignal;
     readonly providerTransport?: PerCallToolConfig["providerTransport"];
+    readonly runtimeModelRoundDispatch?: PerCallToolConfig["runtimeModelRoundDispatch"];
+    readonly round: number;
   }): Promise<OrchestrateResult> {
     try {
       await this.assertSessionTurnBudget(input.session.id);
@@ -891,10 +930,21 @@ export class RuntimeSessionOrchestrator {
       });
     }
     const fallback = await requestRuntimeSessionFallbackResponse(
-      input.routing.effectiveProvider,
       input.invocationPromptManifest,
       input.session,
       this.deps.maxTokens,
+      (request) => this.dispatchModelRound({
+        provider: input.routing.effectiveProvider,
+        request,
+        session: input.session,
+        turnId: input.turnId,
+        round: input.round,
+        perCallConfig: {
+          ...(input.runtimeModelRoundDispatch ? { runtimeModelRoundDispatch: input.runtimeModelRoundDispatch } : {}),
+          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+          ...(input.providerTransport ? { providerTransport: input.providerTransport } : {}),
+        },
+      }),
       input.cachePartition,
       input.executionEnvelope?.conversation?.toolResults,
       input.abortSignal,
@@ -925,6 +975,60 @@ export class RuntimeSessionOrchestrator {
       routingDecision: toPublicRoutingDecision(input.routing.routingDecision),
       communicationResolution: input.routing.communicationResolution,
       preLlmEscalation: input.preLlmEscalation,
+    });
+  }
+
+  private dispatchModelRound(input: {
+    readonly provider: ProviderAdapter;
+    readonly request: CreateMessageOptions;
+    readonly session: RuntimeSession;
+    readonly turnId: string;
+    readonly round: number;
+    readonly perCallConfig?: PerCallToolConfig;
+  }): Promise<AgentResponse> {
+    const dispatch = input.perCallConfig?.runtimeModelRoundDispatch;
+    const providerRequestId = dispatch
+      ? (input.request.requestIdentity?.requestId
+        ?? `kiln:runtime-model-round:${dispatch.admission.admissionId}:${dispatch.attemptId}:${input.round}`)
+      : undefined;
+    const request = providerRequestId && !input.request.requestIdentity?.requestId
+      ? {
+          ...input.request,
+          requestIdentity: {
+            ...(input.request.requestIdentity ?? {}),
+            requestId: providerRequestId,
+          },
+        }
+      : input.request;
+    if (!dispatch) {
+      throw new Error("Runtime model-round claim context is required before provider dispatch.");
+    }
+    return new RuntimeModelRoundDispatchService(dispatch.store).dispatch({
+      admission: dispatch.admission,
+      sessionId: input.session.id,
+      turnId: input.turnId,
+      attemptId: dispatch.attemptId,
+      round: input.round,
+      intentFingerprint: dispatch.intentFingerprint,
+      effectIdentity: runtimeModelRoundEffectIdentity({
+        provider: input.provider.name,
+        request: projectRuntimeModelRoundRequest(request),
+      }),
+      providerRequestId: providerRequestId!,
+      routeId: dispatch.routeId,
+      accountId: dispatch.accountId,
+      credentialRevision: dispatch.credentialRevision,
+      ...(dispatch.admissionReadbackSessionId
+        ? { admissionReadbackSessionId: dispatch.admissionReadbackSessionId }
+        : {}),
+      ...(dispatch.admissionReadbackTurnId
+        ? { admissionReadbackTurnId: dispatch.admissionReadbackTurnId }
+        : {}),
+      readAdmission: dispatch.readAdmission,
+      provider: input.provider,
+      request,
+      ...(dispatch.state ? { state: dispatch.state } : {}),
+      ...(input.perCallConfig?.abortSignal ? { abortSignal: input.perCallConfig.abortSignal } : {}),
     });
   }
 
@@ -1057,6 +1161,34 @@ export class RuntimeSessionOrchestrator {
   }
 }
 
+function projectRuntimeModelRoundRequest(request: CreateMessageOptions): unknown {
+  return {
+    sessionId: request.sessionId,
+    requestIdentity: request.requestIdentity,
+    system: request.system,
+    messages: request.messages,
+    tools: request.tools?.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      tags: [...tool.tags].sort(),
+      effectEnvelope: (tool as { readonly effectEnvelope?: unknown }).effectEnvelope,
+    })),
+    toolChoice: request.toolChoice,
+    maxTokens: request.maxTokens,
+    deliberationResolution: request.deliberationResolution,
+    communicationResolution: request.communicationResolution,
+    executionContext: request.executionContext
+      ? {
+          workingDirectory: request.executionContext.workingDirectory,
+          requestedAuthority: request.executionContext.requestedAuthority,
+          executionScope: request.executionContext.executionScope,
+          executionBinding: request.executionContext.executionBinding,
+        }
+      : undefined,
+  };
+}
+
 interface PendingManagedInvocationTransition {
   readonly kind: "recovery" | "phase-completion";
   readonly workItemId: string;
@@ -1090,7 +1222,7 @@ function managedInvocationTransitionToolIsAdmitted(
   perCallConfig: PerCallToolConfig | undefined,
 ): boolean {
   return (tools ?? []).some((tool) => tool.name === pending.nextTool)
-    && (!perCallConfig?.toolAllowlist || perCallConfig.toolAllowlist.has(pending.nextTool));
+    && (!readExecutionToolAllowlist(perCallConfig) || readExecutionToolAllowlist(perCallConfig)!.has(pending.nextTool));
 }
 
 function withManagedInvocationTransitionToolAllowlist(
@@ -1123,7 +1255,7 @@ function partitionManagedInvocationTransitionToolCalls(
 }
 
 function resolveRuntimeTurnId(session: RuntimeSession, config: PerCallToolConfig | undefined): string {
-  return config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`;
+  return readExecutionTurnId(config) ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`;
 }
 
 function readGovernedWorkMaterializationProgress(
@@ -1896,13 +2028,10 @@ function buildRuntimeProviderRequestCachePartition(
     policyIdentity: {
       executionEnvelope,
       modelRoutingPolicy: projectModelRoutingPolicy(perCallConfig?.modelRoutingPolicy),
-      toolAllowlist: perCallConfig?.toolAllowlist ? [...perCallConfig.toolAllowlist].sort() : undefined,
+      toolAllowlist: [...readExecutionToolAllowlist(perCallConfig)].sort(),
       contextPolicy: perCallConfig?.contextPolicy,
     },
-    authority: {
-      effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
-      authorityContext: perCallConfig?.authorityContext,
-    },
+    authority: { admissionId: perCallConfig!.authorityAdmission!.admissionId },
   };
 }
 

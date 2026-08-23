@@ -28,13 +28,13 @@ Source: `packages/core/src/eval/`.
 | `tool-calling-accuracy` | Rule-based | BFCL v4 (UC Berkeley) | Deterministic F1 accuracy: function name + parameter correctness. |
 | `tool-trajectory` | LLM-judge | BFCL v4, MINT | Tool-use sequence efficiency: selection, ordering, redundancy. |
 
-### RAG & Knowledge Scorers
+### Context-Evidence Scorers (Evaluation Only)
 
 | Scorer | Type | Research Basis | What It Validates |
 |--------|------|----------------|-------------------|
-| `faithfulness` | LLM-judge | RAGAS | Output grounded in context (hallucination detection). |
-| `context-relevance` | LLM-judge | RAGAS | Retrieval quality -- are context chunks relevant to the query? |
-| `hallucination` | LLM-judge | RAGAS | Factual claims absent from context (inverse faithfulness). |
+| `faithfulness` | LLM-judge | Context-evidence evaluation | Output stays faithful to caller-supplied context. |
+| `context-relevance` | LLM-judge | Context-evidence evaluation | Supplied context passages are relevant to the query. |
+| `hallucination` | LLM-judge | Context-evidence evaluation | Factual claims absent from caller-supplied context. |
 
 ### Multi-Agent Coordination Scorers
 
@@ -75,7 +75,7 @@ Source: `packages/core/src/eval/`.
 
 ## Metrics Ranked by Predictive Power
 
-Based on research consensus across tau-bench, BFCL, MultiAgentBench, AgentDojo, and RAGAS:
+Based on research consensus across tau-bench, BFCL, MultiAgentBench, and AgentDojo:
 
 ### Outcome Metrics (Most Predictive)
 
@@ -141,7 +141,6 @@ Automatic scoring overestimates real-world performance. The gap between benchmar
 | NIST AI Agent Standards (Feb 2026) | Active | Safety pipeline, audit log, prompt injection scanning |
 | OWASP Top 10 for Agentic Apps (Dec 2025) | Active | PII scanner, content classifier, policy rails, indirect injection scanning |
 | MCP (Model Context Protocol) | Implemented | MCP client with circuit breaker |
-| A2A (Agent-to-Agent) | Implemented | A2AClient for cross-app delegation |
 | UK AISI Evaluation Standard | Reference | Sandbox isolation, safety pipeline |
 
 ## Exact-Format CLI Harnesses
@@ -230,7 +229,6 @@ Each item has `metadata.category` and `metadata.subcategory` for filtering.
 - BFCL v4: https://gorilla.cs.berkeley.edu/leaderboard.html
 - MultiAgentBench/MARBLE: https://arxiv.org/abs/2503.01935
 - AgentDojo: https://invariantlabs.ai/blog/agentdojo
-- RAGAS: https://arxiv.org/abs/2309.15217
 - LLM-as-Judge Survey: https://arxiv.org/abs/2411.15594
 - Agent-as-Judge: https://arxiv.org/html/2508.02994v1
 - MINT: https://arxiv.org/abs/2309.10691

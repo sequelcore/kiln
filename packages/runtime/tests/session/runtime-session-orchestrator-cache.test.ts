@@ -12,6 +12,7 @@ import { EventBus } from "@kilnai/core/events";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { measureProviderRequestRegions } from "../../src/session/runtime-session-orchestrator-telemetry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { createFixtureClaimConfig, createFixtureToolPermission } from "./runtime-claim-fixture.js";
 
 const READ_ONLY_EFFECT: ActionEffectEnvelope = {
   operation: "observe",
@@ -77,6 +78,17 @@ const TOOL_DEF: ToolDefinition = {
   tags: new Set(),
 };
 
+function claimConfig(session: RuntimeSession, provider: ProviderAdapter, extra: Record<string, unknown> = {}) {
+  return {
+    ...createFixtureClaimConfig({
+      session,
+      provider,
+      toolPermissions: [createFixtureToolPermission("get_weather")],
+    }),
+    ...extra,
+  };
+}
+
 describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
   let toolCache: ToolCache;
   let toolFn: ReturnType<typeof vi.fn>;
@@ -88,16 +100,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
   it("executes tool normally on first call and caches result", async () => {
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
       toolCache,
     });
 
-    await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
     expect(toolFn).toHaveBeenCalledTimes(1);
     expect(toolCache.size).toBe(1);
@@ -109,8 +123,10 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
   it("records reconciled provider request evidence for every tool round", async () => {
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
@@ -118,11 +134,12 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     });
 
     const result = await orchestrator.processMessage(
-      makeSession(),
+      currentSession,
       textParts("weather in London"),
       undefined,
       undefined,
       {
+        ...claimConfig(currentSession, provider),
         communicationIntent: resolveCommunicationIntent([{
           source: "project",
           intent: { locale: "en-GB", requiredContent: ["verification"], onUnsupported: "omit" },
@@ -259,19 +276,23 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
   });
 
   it("partitions provider requests by the approved context policy selection", async () => {
-    const baseline = await new RuntimeSessionOrchestrator({ provider: makeProviderWithToolCall(), tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
-      makeSession(),
+    const baselineProvider = makeProviderWithToolCall();
+    const baselineSession = makeSession();
+    const baseline = await new RuntimeSessionOrchestrator({ provider: baselineProvider, model: "unknown", tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
+      baselineSession,
       textParts("same input"),
       undefined,
       undefined,
-      { contextPolicy: { policyId: "context-whole-block-v1", configurationHash: `sha256:${"a".repeat(64)}`, contextAllocationMode: "whole-block" } },
+      claimConfig(baselineSession, baselineProvider, { contextPolicy: { policyId: "context-whole-block-v1", configurationHash: `sha256:${"a".repeat(64)}`, contextAllocationMode: "whole-block" } }),
     );
-    const candidate = await new RuntimeSessionOrchestrator({ provider: makeProviderWithToolCall(), tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
-      makeSession(),
+    const candidateProvider = makeProviderWithToolCall();
+    const candidateSession = makeSession();
+    const candidate = await new RuntimeSessionOrchestrator({ provider: candidateProvider, model: "unknown", tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
+      candidateSession,
       textParts("same input"),
       undefined,
       undefined,
-      { contextPolicy: { policyId: "context-segmented-v1", configurationHash: `sha256:${"b".repeat(64)}`, contextAllocationMode: "segmented" } },
+      claimConfig(candidateSession, candidateProvider, { contextPolicy: { policyId: "context-segmented-v1", configurationHash: `sha256:${"b".repeat(64)}`, contextAllocationMode: "segmented" } }),
     );
 
     expect(candidate.providerRequests?.[0]?.stablePrefixHash).toBe(baseline.providerRequests?.[0]?.stablePrefixHash);
@@ -309,16 +330,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     toolCache.set("get_weather", { city: "London" }, "sunny, 20C", 60);
 
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
       toolCache,
     });
 
-    await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
     // Tool function should NOT have been called -- cache hit
     expect(toolFn).not.toHaveBeenCalled();
@@ -361,13 +384,15 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", parisFn]]),
       capabilityMap: makeCapabilityMap(60),
       toolCache,
     });
+    const currentSession = makeSession();
 
-    await orchestrator.processMessage(makeSession(), textParts("weather in Paris"));
+    await orchestrator.processMessage(currentSession, textParts("weather in Paris"), undefined, undefined, claimConfig(currentSession, provider));
 
     // Different args -- should execute
     expect(parisFn).toHaveBeenCalledTimes(1);
@@ -379,11 +404,13 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     toolCache.set("get_weather", { city: "London" }, "sunny, 20C", 60);
 
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
     const eventBus = new EventBus(100);
     const emitSpy = vi.spyOn(eventBus, "emit");
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
@@ -391,7 +418,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       eventBus,
     });
 
-    await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
     const cacheHitEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_cache_hit");
     expect(cacheHitEvents).toHaveLength(1);
@@ -404,16 +431,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
   it("does not cache when capability has no cacheTtl", async () => {
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(), // no cacheTtl
       toolCache,
     });
 
-    await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
     expect(toolFn).toHaveBeenCalledTimes(1);
     expect(toolCache.size).toBe(0);
@@ -421,16 +450,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
   it("works without toolCache", async () => {
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
       // No toolCache
     });
 
-    const result = await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    const result = await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
     expect(toolFn).toHaveBeenCalledTimes(1);
     expect(result.queued).toBe(false);
@@ -440,11 +471,13 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     toolCache.set("get_weather", { city: "London" }, "sunny, 20C", 60);
 
     const provider = makeProviderWithToolCall();
+    const currentSession = makeSession();
     const eventBus = new EventBus(100);
     const emitSpy = vi.spyOn(eventBus, "emit");
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
+      model: "unknown",
       tools: [TOOL_DEF],
       builtinTools: new Map([["get_weather", toolFn]]),
       capabilityMap: makeCapabilityMap(60),
@@ -452,7 +485,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       eventBus,
     });
 
-    await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
     const toolCalledEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_called");
     expect(toolCalledEvents).toHaveLength(1);

@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
-import type { AgentTaskDataPolicyProof, AgentTaskRecord } from "@kilnai/runtime";
+import { canonicalTurnId } from "@kilnai/core/events";
+import { defineEffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
+import type { AgentTaskDataPolicyProof, AgentTaskRecord, EffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
 import type { AccountUsageInspectionService } from "../../src/application/account-usage-inspection.js";
 import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
 import {
@@ -123,6 +125,48 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
   };
 }
 
+function economicAdmissionBundle(): EffectiveAuthorityAdmissionBundle {
+  const turnId = canonicalTurnId("economic-session", 1);
+  const revision = { revisionSetId: "economic-session-revision", revisions: { routes: "test" } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "economic-session",
+    turnId,
+    admittedAt: OBSERVED_AT,
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "test-skills", revision: "test", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "economic-session" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "test",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
+
 function createServer(
   status = snapshot(),
   options: Omit<Parameters<typeof createNativeHarnessInspectionService>[0], "harness"> = {},
@@ -141,11 +185,13 @@ function createServer(
 
 function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
   const state = overrides.state ?? "succeeded";
+  const admissionBundle = economicAdmissionBundle();
   const dispatch = {
     kind: "economic" as const,
     economicAttemptId: "economic-attempt:test-0001",
     economicPolicyId: "economy-policy",
     economicPolicyRevision: "revision-001",
+    admissionBundle,
     constraints: {},
     candidateSet: {
       economicPolicyId: "economy-policy",
@@ -165,7 +211,7 @@ function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
     },
   };
   return {
-    version: 13,
+    version: 14,
     id: "agent-task-0001",
     adoptedDecisionAt: OBSERVED_AT,
     state,
@@ -176,7 +222,8 @@ function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
     admissionProfileId: "foundation-readonly-plan",
     dispatch,
     governanceSource: "kiln-governance",
-    admissionId: "admission-001",
+    admissionId: admissionBundle.admissionId,
+    admissionBundle,
     requestFingerprint: `sha256:${"a".repeat(64)}`,
     idempotencyKeyHash: `sha256:${"b".repeat(64)}`,
     createdAt: OBSERVED_AT,

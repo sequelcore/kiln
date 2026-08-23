@@ -95,8 +95,6 @@ function sourceKindFromContextBlockKind(
   switch (kind) {
     case "memory":
       return "memory";
-    case "knowledge":
-      return "knowledge";
     case "procedural":
       return "procedural_context";
     case "coordination":

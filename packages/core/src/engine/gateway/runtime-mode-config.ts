@@ -19,7 +19,6 @@ export interface BillingTier {
 /** Billing configuration for budget enforcement */
 export interface BillingConfig {
   readonly budgetEndpoint: string;
-  readonly usageEndpoint: string;
   readonly overBudgetMessage: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly tiers?: Readonly<Record<string, BillingTier>>;
@@ -31,14 +30,6 @@ export interface BudgetResponse {
   readonly remaining: number;
   readonly unit: string;
   readonly reason?: string;
-}
-
-/** Usage report sent to product API */
-export interface UsageReport {
-  readonly tenantId: string;
-  readonly messages: number;
-  readonly tokens: number;
-  readonly model: string;
 }
 
 /** Runtime-variant configuration parsed from App YAML. */
@@ -74,10 +65,6 @@ export function validateRuntimeModeConfig(config: RuntimeModeConfig): RuntimeMod
   if (config.billing !== undefined) {
     if (!config.billing.budgetEndpoint || typeof config.billing.budgetEndpoint !== "string") {
       errors.push({ field: "billing.budgetEndpoint", message: "must be a non-empty string" });
-    }
-
-    if (!config.billing.usageEndpoint || typeof config.billing.usageEndpoint !== "string") {
-      errors.push({ field: "billing.usageEndpoint", message: "must be a non-empty string" });
     }
 
     if (!config.billing.overBudgetMessage || typeof config.billing.overBudgetMessage !== "string") {

@@ -21,6 +21,8 @@ import {
 import type {
   RuntimePipelineLedgerEvent
 } from "./runtime-ledger-replay.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
+import type { RuntimeMediaActionClaimContext } from "../../execution-kernel/runtime-media-action-claim.js";
 
 export async function resolveVoiceInputParts(input: {
   readonly parts: readonly ContentPart[];
@@ -32,6 +34,13 @@ export async function resolveVoiceInputParts(input: {
   readonly userId: string;
   readonly channel: string;
   readonly sessionId: string;
+  readonly mediaActionClaims?: RuntimeMediaActionClaimContext;
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+  readonly attemptId?: string;
+  readonly callerId?: string;
+  readonly idempotencyKey?: string;
+  readonly logicalSendSlotPrefix?: string;
+  readonly abortSignal?: AbortSignal;
 }): Promise<{
   readonly parts: readonly ContentPart[];
   readonly events: readonly RuntimePipelineLedgerEvent[];
@@ -61,6 +70,13 @@ export async function resolveVoiceInputParts(input: {
       artifactStore: input.artifactStore,
       sourceIdPrefix: `${input.appName}:${input.tenantId}:${input.userId}:${input.channel}`,
       maxArtifacts: input.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+      mediaActionClaims: input.mediaActionClaims,
+      authorityAdmission: input.authorityAdmission,
+      attemptId: input.attemptId,
+      callerId: input.callerId,
+      idempotencyKey: input.idempotencyKey,
+      logicalSendSlotPrefix: input.logicalSendSlotPrefix,
+      abortSignal: input.abortSignal,
     });
     return {
       parts: transformed.parts,
@@ -79,7 +95,7 @@ export async function resolveVoiceInputParts(input: {
         provider: input.sttAdapter.name,
         model: input.voiceConfig?.stt.model ?? input.sttAdapter.name,
       }, error.transforms);
-      if (failureMode === "fail-open") {
+      if (failureMode === "fail-open" && !error.actionClaimed) {
         return { parts: input.parts, events };
       }
       throw new KilnError("STT_FAILED", "Voice input transcription failed.", {
@@ -141,6 +157,4 @@ function toVoiceSurface(channel: string): VoiceSurface | undefined {
     ? channel as VoiceSurface
     : undefined;
 }
-
-
 

@@ -319,6 +319,10 @@ export interface IKilnSession {
   readonly communicationResolution?: import("@kilnai/core").CommunicationResolution;
   /** Content-free evidence for the exact final prompt handed to a standalone harness. */
   readonly effectivePromptObservation?: import("@kilnai/core").EffectivePromptObservation;
+  /** True once this session has claimed a direct-provider model-round effect. */
+  readonly runtimeModelRoundClaimed?: boolean;
+  /** True when a claimed direct-provider model round has an unresolved outcome. */
+  readonly runtimeModelRoundOutcome?: "unknown";
   /** Optional drain for terminal evidence finalized during disposal. */
   drainEphemeralHarnessStateEvidence?(): readonly ExecutionSessionEphemeralHarnessStateEvidence[];
   readonly capabilities: SessionCapabilities;

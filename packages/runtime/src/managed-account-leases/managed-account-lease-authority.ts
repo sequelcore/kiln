@@ -32,6 +32,10 @@ import {
 } from "@kilnai/core";
 import { projectManagedEconomicDenialRejections } from "./managed-economic-denial-rejections.js";
 import type { ManagedAgentProviderRoute } from "@kilnai/core";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../session/effective-authority-admission-bundle.js";
 import type {
   AccountCapacityAcquireInput,
   AccountCapacityAcquireResult,
@@ -136,6 +140,9 @@ type CommitmentRow = {
   owner_generation: string;
   lease_id: string | null;
   dispatch_fence_id: string | null;
+  admission_id: string | null;
+  effect_identity: string | null;
+  authority_admission_json: string | null;
   decision_json: string;
   commitment_json: string | null;
   settlement_json: string | null;
@@ -179,9 +186,9 @@ export function readAccountOutcomeIncidents(
     const openedVersion = Number(
       db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0,
     );
-    if (openedVersion > SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) {
+    if (openedVersion !== SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) {
       throw new Error(
-        `Managed economic authority schema version ${openedVersion} is newer than supported version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
+        `Managed economic authority schema version ${openedVersion} is not the canonical version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
       );
     }
     const hasLeaseTable = db
@@ -243,14 +250,6 @@ export class SqliteManagedAccountLeaseAuthority {
     let ownerClaimed = false;
     try {
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
-      const openedVersion = Number(
-        this.#db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0,
-      );
-      if (openedVersion > SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) {
-        throw new Error(
-          `Managed economic authority schema version ${openedVersion} is newer than supported version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
-        );
-      }
       this.#ensureSchema();
       this.#claimOwner();
       ownerClaimed = true;
@@ -694,14 +693,22 @@ export class SqliteManagedAccountLeaseAuthority {
     const version = Number(
       this.#db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0,
     );
+    const hasManagedTables = this.#db.query<{ present: number }, []>(
+      "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name IN ('participants','account_leases','economic_commitments') LIMIT 1",
+    ).get() !== null;
+    const fresh = version === 0 && !hasManagedTables;
     if (version > SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) {
       throw new Error(
         `Managed economic authority schema version ${version} is newer than supported version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
       );
     }
+    if (!fresh && version < SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) {
+      throw new Error(
+        `Managed economic authority schema version ${version} predates the canonical action-claim schema; remove the obsolete workload-local database before restart.`,
+      );
+    }
     this.#db
       .transaction(() => {
-        const detached = this.#beginMandatoryIdentityRebuild(version);
         this.#db.exec(`
         CREATE TABLE IF NOT EXISTS participants (
           participant_kind TEXT NOT NULL, recovery_domain TEXT NOT NULL,
@@ -740,62 +747,34 @@ export class SqliteManagedAccountLeaseAuthority {
           snapshot_digest TEXT NOT NULL, decision_at TEXT NOT NULL,
           selected_route_id TEXT, capacity_identity TEXT, reserved_amounts TEXT NOT NULL,
           state TEXT NOT NULL, owner_id TEXT NOT NULL, owner_generation TEXT NOT NULL,
-          lease_id TEXT, dispatch_fence_id TEXT, decision_json TEXT NOT NULL,
+          lease_id TEXT, dispatch_fence_id TEXT, admission_id TEXT, effect_identity TEXT,
+          authority_admission_json TEXT,
+          decision_json TEXT NOT NULL,
           commitment_json TEXT, settlement_json TEXT, reconciliation_json TEXT,
           UNIQUE(job_id, economic_attempt_id)
         );
         CREATE INDEX IF NOT EXISTS economic_commitments_route_state
         ON economic_commitments(selected_route_id, state);
       `);
-        if (detached) this.#completeMandatoryIdentityRebuild();
+        this.#assertCanonicalSchema();
         this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
       })
       .immediate();
   }
 
-  /**
-   * Detaches a lease table written before participant identity was mandatory so the
-   * canonical schema can recreate it with the identity columns declared NOT NULL.
-   * Rows whose writing participant is unattributable fail closed: nothing in the
-   * authority can decide who owns them, so they are not silently adopted.
-   */
-  #beginMandatoryIdentityRebuild(openedVersion: number): boolean {
-    if (openedVersion >= MANDATORY_LEASE_IDENTITY_SCHEMA_VERSION) return false;
-    const present = this.#db
-      .query<{ present: number }, []>(
-        "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='account_leases'",
-      )
-      .get();
-    if (!present) return false;
-    const unattributable =
-      this.#db
-        .query<{ count: number }, []>(
-          `SELECT COUNT(*) AS count FROM account_leases
-           WHERE participant_kind IS NULL OR recovery_domain IS NULL OR owner_generation IS NULL`,
-        )
-        .get()?.count ?? 0;
-    if (unattributable > 0) {
-      throw new Error("Managed account lease participant identity is unattributable and cannot be converged.");
+  #assertCanonicalSchema(): void {
+    const commitmentColumns = new Set(this.#tableColumns("economic_commitments"));
+    for (const column of ["admission_id", "effect_identity", "authority_admission_json"]) {
+      if (!commitmentColumns.has(column)) {
+        throw new Error(`Managed economic authority schema is missing canonical action-claim column '${column}'.`);
+      }
     }
-    this.#db.exec(`
-      DROP INDEX IF EXISTS account_leases_runtime_invocation;
-      DROP INDEX IF EXISTS account_leases_capacity_state;
-      ALTER TABLE account_leases RENAME TO account_leases_pre_identity;
-    `);
-    return true;
-  }
-
-  #completeMandatoryIdentityRebuild(): void {
-    const columns = this.#tableColumns("account_leases");
-    const detachedColumns = this.#tableColumns("account_leases_pre_identity");
-    if (columns.join(",") !== detachedColumns.join(",")) {
-      throw new Error("Detached managed account lease columns do not match the canonical schema.");
+    const leaseColumns = new Set(this.#tableColumns("account_leases"));
+    for (const column of ["participant_kind", "recovery_domain", "owner_generation"]) {
+      if (!leaseColumns.has(column)) {
+        throw new Error(`Managed account lease schema is missing canonical owner column '${column}'.`);
+      }
     }
-    const projection = columns.join(",");
-    this.#db.exec(`
-      INSERT INTO account_leases(${projection}) SELECT ${projection} FROM account_leases_pre_identity;
-      DROP TABLE account_leases_pre_identity;
-    `);
   }
 
   #tableColumns(table: string): readonly string[] {
@@ -1070,26 +1049,111 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
-  fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): ManagedEconomicCommitmentRecord {
+  fenceDispatch(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    actionClaim: {
+      readonly version: 1;
+      readonly attemptId: string;
+      readonly admissionId: string;
+      readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+      readonly intentFingerprint: string;
+      readonly ownerGeneration: string;
+      readonly effectIdentity: string;
+    },
+  ): ManagedEconomicCommitmentRecord {
     return this.#transaction(() => {
       this.#heartbeat();
       requireCanonicalText(dispatchFenceId, "Managed economic dispatch fence id is required.");
       const row = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      const claim = actionClaim;
+      if (claim.version !== 1) throw new Error("Managed economic action claim version is unsupported.");
+      requireEconomicAttemptId(claim.attemptId);
+      if (claim.attemptId !== economicAttemptId) {
+        throw new Error("Managed economic action claim attempt does not own its commitment.");
+      }
+      requireCanonicalText(claim.admissionId, "Managed economic action-claim admission id is required.");
+      const admissionBundle = defineEffectiveAuthorityAdmissionBundle(claim.admissionBundle);
+      if (admissionBundle.admissionId !== claim.admissionId) {
+        throw new Error("Managed economic action claim admission digest does not match its receipt.");
+      }
+      requireCanonicalText(claim.intentFingerprint, "Managed economic action-claim intent fingerprint is required.");
+      requireCanonicalText(claim.ownerGeneration, "Managed economic action-claim owner generation is required.");
+      requireCanonicalText(claim.effectIdentity, "Managed economic action-claim effect identity is required.");
+      if (claim.ownerGeneration !== row.owner_generation) {
+        throw new Error("Managed economic action claim owner generation does not own its commitment.");
+      }
+      if (claim.intentFingerprint !== row.intent_fingerprint) {
+        throw new Error("Managed economic action claim intent does not match its committed intent.");
+      }
       if (row.state === "dispatch-fenced" && row.dispatch_fence_id === dispatchFenceId) {
+        if (row.admission_id !== claim.admissionId
+          || row.effect_identity !== claim.effectIdentity
+          || row.authority_admission_json !== JSON.stringify(admissionBundle)) {
+          throw new Error("Managed economic action claim identity conflicts with its durable fence.");
+        }
         return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
       }
       if (row.state !== "held")
         throw new Error("Managed economic commitment cannot be dispatch-fenced from its current state.");
       const changed = this.#db
         .query(
-          "UPDATE economic_commitments SET state='dispatch-fenced',dispatch_fence_id=? WHERE commitment_id=? AND state='held' AND owner_generation=?",
+          `UPDATE economic_commitments
+           SET state='dispatch-fenced',dispatch_fence_id=?,admission_id=?,effect_identity=?,authority_admission_json=?
+           WHERE commitment_id=? AND state='held' AND owner_generation=?
+             AND job_id=? AND economic_attempt_id=? AND intent_fingerprint=?`,
         )
-        .run(dispatchFenceId, row.commitment_id, this.#ownerGeneration);
+        .run(
+          dispatchFenceId,
+          claim.admissionId,
+          claim.effectIdentity,
+          JSON.stringify(admissionBundle),
+          row.commitment_id,
+          this.#ownerGeneration,
+          jobId,
+          economicAttemptId,
+          claim.intentFingerprint,
+        );
       if (changed.changes !== 1) throw new Error("Managed economic dispatch fence was lost.");
       return recordFromCommitmentRow(
         this.#requiredCommitmentRow(jobId, economicAttemptId),
         this.#rowForOptionalLease(row.lease_id),
       );
+    });
+  }
+
+  /**
+   * Reconciles a fence response after the caller observed an ambiguous
+   * transport failure. The exact claim is required so a different fence or
+   * admission receipt can never be mistaken for the committed action.
+   */
+  readDispatch(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    actionClaim: {
+      readonly version: 1;
+      readonly attemptId: string;
+      readonly admissionId: string;
+      readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+      readonly intentFingerprint: string;
+      readonly ownerGeneration: string;
+      readonly effectIdentity: string;
+    },
+  ): ManagedEconomicCommitmentRecord | undefined {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      const row = this.#commitmentRow(jobId, economicAttemptId);
+      if (!row || row.dispatch_fence_id !== dispatchFenceId || row.state !== "dispatch-fenced") return undefined;
+      if (row.owner_generation !== actionClaim.ownerGeneration
+        || row.intent_fingerprint !== actionClaim.intentFingerprint
+        || row.admission_id !== actionClaim.admissionId
+        || row.effect_identity !== actionClaim.effectIdentity) return undefined;
+      const admissionBundle = defineEffectiveAuthorityAdmissionBundle(actionClaim.admissionBundle);
+      if (admissionBundle.admissionId !== actionClaim.admissionId
+        || row.authority_admission_json !== JSON.stringify(admissionBundle)) return undefined;
+      return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
     });
   }
 
@@ -1687,7 +1751,7 @@ export class SqliteManagedAccountLeaseAuthority {
         )
         .run(this.#participantKind, this.#recoveryDomain, this.#ownerId, this.#ownerGeneration);
     } catch {
-      // Preserve the original open/migration error; stale-owner timeout remains the fallback.
+      // Preserve the original open error; stale-owner timeout remains the fallback.
     }
   }
 
@@ -1743,6 +1807,10 @@ export interface ManagedEconomicCommitmentRecord {
   readonly state: ManagedEconomicCommitmentState;
   readonly decisionAt: string;
   readonly intentFingerprint: string;
+  readonly ownerGeneration: string;
+  readonly admissionId?: string;
+  readonly admissionBundle?: EffectiveAuthorityAdmissionBundle;
+  readonly effectIdentity?: string;
   readonly lease?: ManagedEconomicAccountLeaseEvidence;
   readonly dispatchFenceId?: string;
   readonly settlement?: ManagedEconomicSettlement;
@@ -1896,9 +1964,8 @@ export interface ManagedEconomicCommitmentRecoveryPort {
 
 const DEFAULT_PARTICIPANT_KIND = "agent-task-runtime";
 const DEFAULT_RECOVERY_DOMAIN = "agent-tasks";
-const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 6;
+const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 8;
 /** Schema version from which every lease row carries its writing participant identity. */
-const MANDATORY_LEASE_IDENTITY_SCHEMA_VERSION = 6;
 const ECONOMIC_CAPACITY_CONSUMING_STATES = [
   "held",
   "dispatch-fenced",
@@ -1972,14 +2039,27 @@ function recordFromCommitmentRow(row: CommitmentRow, lease: LeaseRow | null): Ma
   if (row.state === "denied" || row.commitment_json === null) {
     throw new Error("Managed economic commitment record is unavailable for a denied decision.");
   }
+  if (row.dispatch_fence_id !== null && (row.admission_id === null || row.effect_identity === null || row.authority_admission_json === null)) {
+    throw new Error("Managed economic dispatch claim is incomplete.");
+  }
   if ((row.lease_id === null) !== (lease === null) || (row.lease_id !== null && lease?.lease_id !== row.lease_id)) {
     throw new Error("Managed economic commitment account lease reference is corrupt.");
+  }
+  const admissionBundle = row.authority_admission_json === null
+    ? undefined
+    : defineEffectiveAuthorityAdmissionBundle(JSON.parse(row.authority_admission_json) as EffectiveAuthorityAdmissionBundle);
+  if (row.dispatch_fence_id !== null && admissionBundle?.admissionId !== row.admission_id) {
+    throw new Error("Managed economic dispatch admission receipt is corrupt.");
   }
   return {
     commitment: JSON.parse(row.commitment_json) as ManagedEconomicCommitment,
     state: row.state,
     decisionAt: row.decision_at,
     intentFingerprint: row.intent_fingerprint,
+    ownerGeneration: row.owner_generation,
+    ...(row.admission_id !== null ? { admissionId: row.admission_id } : {}),
+    ...(admissionBundle !== undefined ? { admissionBundle } : {}),
+    ...(row.effect_identity !== null ? { effectIdentity: row.effect_identity } : {}),
     decisionEvidence: parseAuthorityDecisionEvidence(row.decision_json),
     ...(lease !== null ? { lease: economicLeaseEvidenceFromRow(lease, row) } : {}),
     ...(row.dispatch_fence_id !== null ? { dispatchFenceId: row.dispatch_fence_id } : {}),

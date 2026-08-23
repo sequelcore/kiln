@@ -191,6 +191,7 @@ export interface ProviderRequestCachePartitionInput {
   readonly communicationResolution?: unknown;
   readonly policyIdentity?: unknown;
   readonly authority?: {
+    readonly admissionId?: `sha256:${string}`;
     readonly effectiveTurnAuthority?: unknown;
     readonly authorityContext?: unknown;
     readonly requestedAuthority?: string;

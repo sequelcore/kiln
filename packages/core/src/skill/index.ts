@@ -6,8 +6,6 @@ export type {
   SkillMaterializationSource,
   SkillRegistryOptions,
 } from "./skill-registry.js";
-export { SkillGenerator } from "./skill-generator.js";
-export type { SkillGeneratorConfig } from "./skill-generator.js";
 export {
   KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
   KILN_CORE_BUILTIN_SKILLS,
@@ -24,10 +22,3 @@ export type {
   SkillPackageHealthStatus,
   SkillPackageRiskKind,
 } from "./package-health.js";
-export { SkillCaptureService } from "./skill-capture.js";
-export type {
-  SkillCaptureSummary,
-  SkillDraft,
-  SkillCaptureInput,
-  PersistedTranscriptEvent,
-} from "./skill-capture.js";

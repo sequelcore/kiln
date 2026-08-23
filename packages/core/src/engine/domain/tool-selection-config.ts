@@ -1,6 +1,6 @@
 // ToolSelectionConfig types -- YAML configuration for tool selection strategy
 
-export type ToolSelectionStrategy = "all" | "rag";
+export type ToolSelectionStrategy = "all";
 
 export interface ToolSelectionConfig {
   readonly strategy: ToolSelectionStrategy;
@@ -16,8 +16,8 @@ export interface ToolSelectionValidationError {
 export function validateToolSelectionConfig(config: ToolSelectionConfig): ToolSelectionValidationError[] {
   const errors: ToolSelectionValidationError[] = [];
 
-  if (!config.strategy || !["all", "rag"].includes(config.strategy)) {
-    errors.push({ field: "strategy", message: "must be 'all' or 'rag'" });
+  if (config.strategy !== "all") {
+    errors.push({ field: "strategy", message: "must be 'all'" });
   }
 
   if (config.maxTools !== undefined) {

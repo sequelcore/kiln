@@ -136,6 +136,16 @@ describe("readKilnYaml", () => {
     );
   });
 
+  it("rejects the deleted knowledge context source", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      "version: '1'\ncontextGovernance:\n  preferredSources: [knowledge]\n",
+    );
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      /Invalid project config at \/contextGovernance\/preferredSources\/0/u,
+    );
+  });
+
   it("rejects whitespace-only quality-gate names at the structural boundary", () => {
     writeFileSync(
       join(tempDir, ".kiln", "kiln.yaml"),

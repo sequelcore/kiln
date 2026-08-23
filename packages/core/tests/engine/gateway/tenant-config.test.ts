@@ -36,7 +36,6 @@ describe("TenantConfig", () => {
         whatsappVerifyToken: "WA_VERIFY_TOKEN",
         billing: {
           budgetEndpoint: "https://api.example.com/budget",
-          usageEndpoint: "https://api.example.com/usage",
           overBudgetMessage: "Limit reached",
         },
         idleTimeoutMs: 60000,
@@ -108,24 +107,6 @@ describe("TenantConfig", () => {
         const config = makeTenantConfig({ tone });
         expect(validateTenantConfig(config)).toEqual([]);
       }
-    });
-
-    it("reports error for invalid groundingMode", () => {
-      const config = makeTenantConfig({ groundingMode: "aggressive" as TenantConfig["groundingMode"] });
-      const errors = validateTenantConfig(config);
-      expect(errors.some((e) => e.field === "groundingMode")).toBe(true);
-    });
-
-    it("accepts valid groundingMode values", () => {
-      for (const groundingMode of ["off", "strict"] as const) {
-        const config = makeTenantConfig({ groundingMode });
-        expect(validateTenantConfig(config)).toEqual([]);
-      }
-    });
-
-    it("accepts config without groundingMode (defaults to off)", () => {
-      const config = makeTenantConfig();
-      expect(validateTenantConfig(config)).toEqual([]);
     });
 
     it("reports error for enabled=undefined", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { defineExecutionCatalog } from "@kilnai/core";
+import { defineExecutionCatalog } from "@kilnai/core/agents";
 import { captureOperatorExecutionCatalogSnapshot } from "../../src/application/operator-turn-dispatch-composition.js";
 
 describe("operator turn dispatch composition", () => {

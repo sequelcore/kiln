@@ -28,8 +28,11 @@ import {
   SqliteManagedWriteApprovalAuthority,
   type ManagedEconomicCommitmentAcquireInput,
   type ManagedEconomicCommitmentAcquireResult,
+  type ManagedEconomicCommitmentRecord,
+  type ManagedEconomicDispatchAuthorityPort,
   type ManagedWriteApprovalBinding,
   type SanitizedExecutionRouteDataPolicyDecision,
+  type EffectiveAuthorityAdmissionBundle,
 } from "@kilnai/runtime";
 import type {
   ManagedAgentCallerAttachmentIdentity,
@@ -63,10 +66,13 @@ import { publicEffectiveConfigValue } from "./effective-config-projection.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
 import { readGlobalConfig, readGlobalExecutionTargetAuthority } from "../config/global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
+import { TranscriptStore } from "../wrapper/session-store.js";
+import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
 
 const MAX_GOVERNANCE_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
 const MAX_GOVERNANCE_FUTURE_CLOCK_SKEW_MS = 60 * 1_000;
-const OPERATOR_AGENT_TASK_ADMISSION_ID = "operator-managed-agent-delegation";
 const OPERATOR_AGENT_TASK_SOURCE = "operator-agent-task";
 const TRUSTED_WRITE_APPROVER_ID = "operator";
 const MANAGED_WRITE_APPROVAL_DB_FILE = "managed-write-approvals.sqlite";
@@ -117,6 +123,8 @@ export interface CreateOperatorProjectAgentTaskApplicationCompositionOptions {
     description: string,
   ) => Promise<{ readonly approved: boolean; readonly reason?: string }>;
   readonly projectPath: string;
+  /** Full Core/Runtime admission receipt owned by the enclosing turn. */
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   readonly managedAccountComposition?: NonNullable<ReturnType<typeof createManagedAccountRuntimeComposition>>;
 }
 
@@ -221,7 +229,18 @@ export interface OperatorProjectAgentTaskApplicationComposition {
 export interface OperatorProjectManagedEconomicAuthorityPort {
   acquire(input: ManagedEconomicCommitmentAcquireInput): ManagedEconomicCommitmentAcquireResult;
   releasePreFence(jobId: string, economicAttemptId: string): void;
-  fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): void;
+  fenceDispatch(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    actionClaim: Parameters<ManagedEconomicDispatchAuthorityPort["fenceDispatch"]>[3],
+  ): void;
+  readDispatch(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    actionClaim: Parameters<ManagedEconomicDispatchAuthorityPort["readDispatch"]>[3],
+  ): ManagedEconomicCommitmentRecord | undefined;
   settleExecution(
     jobId: string,
     economicAttemptId: string,
@@ -340,6 +359,25 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     canonicalMcpProjectPath: root.rootPath,
     runtimePermissionObservationProjectPath: root.rootPath,
   });
+  const transcriptStore = new TranscriptStore(root.rootPath);
+  const authorityAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+  if (options.authorityAdmission) {
+    await authorityAdmissionEvidence.persist(options.authorityAdmission);
+  }
+  const runtimeDirectory = join(root.rootPath, ".kiln", "runtime");
+  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+  const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+    path: join(runtimeDirectory, "managed-direct-model-round-action-claims.sqlite"),
+  });
+  let managedDirectToolActionClaims: SqliteRuntimeToolActionClaimStore;
+  try {
+    managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
+      path: join(runtimeDirectory, "managed-direct-tool-action-claims.sqlite"),
+    });
+  } catch (error) {
+    managedDirectModelRoundActionClaims.close();
+    throw error;
+  }
   const governance = createOperatorProjectGovernanceReader(root.rootPath);
   const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionRouteDataPolicyDecision => {
     const currentPolicyConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
@@ -362,6 +400,8 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       throw new AgentTaskApplicationError("route_unavailable", "Restore current execution-route data-policy evidence.");
     }
   };
+  let managedInvocationService: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"];
+  let managedInvocationServiceKey: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationServiceKey"];
   const freshManagedInvocation = async (
     compositionMode: "execution" | "candidate-admission" = "candidate-admission",
     managedAccountComposition?: ReturnType<typeof createManagedAccountRuntimeComposition>,
@@ -380,9 +420,14 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       surface: "operator",
       compositionMode,
       ...(managedAccountComposition ? { managedAccountComposition } : {}),
+      ...(managedInvocationService ? { invocationService: managedInvocationService } : {}),
+      ...(managedInvocationServiceKey ? { invocationServiceKey: managedInvocationServiceKey } : {}),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: createSessionBuiltinToolOptions(),
         canonicalMcpServers: admittedMcpServers,
+        runtimeToolActionClaims: managedDirectToolActionClaims,
+        runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
+        readAuthorityAdmission: (request) => authorityAdmissionEvidence.readAdmission(request),
       }),
       builtinToolOptions: createSessionBuiltinToolOptions(),
     }, {
@@ -395,6 +440,10 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     await catalog.refreshNow();
     const current = catalog.managedInvocation;
     if (refreshFailure !== undefined || !current) throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
+    if (current.invocationService && current.invocationServiceKey) {
+      managedInvocationService = current.invocationService;
+      managedInvocationServiceKey = current.invocationServiceKey;
+    }
     return current;
   };
   const managedInvocation = await freshManagedInvocation();
@@ -421,8 +470,6 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const agentTaskStore = new FilesystemAgentTaskStore(join(root.rootPath, ".kiln", "agent-tasks"));
-  const runtimeDirectory = join(root.rootPath, ".kiln", "runtime");
-  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
   const writeApprovalAuthority = new SqliteManagedWriteApprovalAuthority({
     path: join(runtimeDirectory, MANAGED_WRITE_APPROVAL_DB_FILE),
   });
@@ -447,7 +494,12 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         if (!policy.requireDelegationFor.includes("managed-agents")) {
           return { admitted: false };
         }
-        return { admitted: true, admissionId: OPERATOR_AGENT_TASK_ADMISSION_ID, source: "kiln-work-governance" };
+        if (!options.authorityAdmission) return { admitted: false };
+        return {
+          admitted: true,
+          admissionBundle: options.authorityAdmission,
+          source: OPERATOR_AGENT_TASK_SOURCE,
+        };
       },
     },
     profiles: {
@@ -911,8 +963,11 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         releasePreFence: (jobId, economicAttemptId) => {
           managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
         },
-        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) => {
-          managedAccountComposition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId);
+        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
+          managedAccountComposition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim);
+        },
+        readDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) => {
+          return managedAccountComposition.authority.readDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim);
         },
         settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
           managedAccountComposition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
@@ -932,7 +987,16 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       try {
         writeApprovalAuthority.close();
       } finally {
-        if (ownsManagedAccountComposition) closeManagedAccountRuntimeComposition(root.rootPath);
+        try {
+          managedDirectToolActionClaims.close();
+        } finally {
+          try {
+            managedDirectModelRoundActionClaims.close();
+          } finally {
+            managedInvocationService?.close();
+            if (ownsManagedAccountComposition) closeManagedAccountRuntimeComposition(root.rootPath);
+          }
+        }
       }
     },
   };

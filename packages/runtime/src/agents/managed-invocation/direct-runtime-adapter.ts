@@ -69,6 +69,17 @@ import {
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
 import { admitManagedChildAuthority } from "./child-authority-admission.js";
+import type {
+  RuntimeToolActionClaimStore,
+  RuntimeToolActionClaimsContext,
+} from "../../execution-kernel/runtime-tool-action-claim.js";
+import {
+  readRuntimeModelRoundAdmission,
+  runtimeModelRoundEffectIdentity,
+  type RuntimeModelRoundActionClaimStore,
+  type RuntimeModelRoundDispatchContext,
+} from "../../execution-kernel/runtime-model-round-action-claim.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -83,6 +94,17 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly economicIdentity?: ManagedEconomicExecutionIdentity;
   readonly deliberationCapabilities?: ModelDeliberationCapabilities;
+  /** Workload-local durable owner for consequential child tool/MCP effects. */
+  readonly runtimeToolActionClaims: RuntimeToolActionClaimStore;
+  /** Full persisted parent/child admission readback supplied by the workload owner. */
+  readonly readAuthorityAdmission: (
+    input: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string },
+  ) => EffectiveAuthorityAdmissionBundle | undefined | Promise<EffectiveAuthorityAdmissionBundle | undefined>;
+  /** Workload-local durable owner for every direct-provider model round. */
+  readonly runtimeModelRoundActionClaims: RuntimeModelRoundActionClaimStore;
+  /** Stable identity for the prepared managed direct adapter binding. */
+  readonly modelRoundAdapterIdentity?: string;
+  readonly toolActionAdapterIdentity?: string;
   readonly now?: () => Date;
 }
 
@@ -136,6 +158,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   private readonly executionEnvelope: RuntimeExecutionEnvelope;
   private readonly economicIdentity?: ManagedEconomicExecutionIdentity;
+  private readonly runtimeModelRoundActionClaims: RuntimeModelRoundActionClaimStore;
+  private readonly readAuthorityAdmission: ManagedDirectProviderRuntimeAdapterConfig["readAuthorityAdmission"];
+  private readonly modelRoundAdapterIdentity: string;
   private readonly now: () => Date;
 
   constructor(config: ManagedDirectProviderRuntimeAdapterConfig) {
@@ -150,6 +175,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.toolAuthority = config.toolAuthority;
     this.executionEnvelope = config.executionEnvelope ?? MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE;
     this.economicIdentity = config.economicIdentity;
+    this.runtimeModelRoundActionClaims = config.runtimeModelRoundActionClaims;
+    this.readAuthorityAdmission = config.readAuthorityAdmission;
+    this.modelRoundAdapterIdentity = config.modelRoundAdapterIdentity
+      ?? `managed-direct:${this.providerId}:${this.model ?? ""}`;
     this.now = config.now ?? (() => new Date());
     if (this.economicIdentity !== undefined && (
       this.economicIdentity.route.providerId !== this.providerId
@@ -448,6 +477,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         : undefined;
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
+        ...(childAuthority ? { authorityAdmission: childAuthority.bundle } : {}),
         ...(request.executionScope ? { executionScope: request.executionScope } : {}),
         abortSignal,
         toolAllowlist: executionToolAllowlist,
@@ -485,6 +515,58 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           },
         },
       };
+      if (!childAuthority) {
+        throw new Error("Managed direct provider execution requires a full persisted child authority admission.");
+      }
+      const execution = childAuthority.bundle.turn.execution;
+      if (execution.status !== "routed") {
+        throw new Error("Managed direct provider execution requires a routed persisted child authority admission.");
+      }
+      const modelRoundDispatch: RuntimeModelRoundDispatchContext = {
+        admission: childAuthority.bundle,
+        intentFingerprint: runtimeModelRoundEffectIdentity({
+          workload: "managed-direct",
+          invocationId: request.invocationId,
+          profile: request.profile,
+          authorityProfileId: request.authority.authorityProfileId,
+          providerId: request.providerRoute.providerId,
+          model: request.providerRoute.model ?? this.model,
+          summary: request.input.summary,
+          prompt: request.input.prompt,
+          resourceUris: request.input.resourceUris,
+        }),
+        attemptId: request.invocationId,
+        routeId: execution.binding.routeId,
+        accountId: execution.binding.accountId,
+        credentialRevision: execution.binding.credentialRevision,
+        admissionReadbackSessionId: childAuthority.bundle.sessionId,
+        admissionReadbackTurnId: childAuthority.bundle.turnId,
+        readAdmission: () => readRuntimeModelRoundAdmission({
+          readAdmission: this.readAuthorityAdmission,
+          admissionId: childAuthority.bundle.admissionId,
+          sessionId: childAuthority.bundle.sessionId,
+          turnId: childAuthority.bundle.turnId,
+          expected: {
+            routeId: execution.binding.routeId,
+            accountId: execution.binding.accountId,
+            credentialRevision: execution.binding.credentialRevision,
+          },
+        }),
+        store: this.runtimeModelRoundActionClaims,
+        state: { claimed: false },
+      };
+      (perCallConfig as { runtimeModelRoundDispatch?: RuntimeModelRoundDispatchContext }).runtimeModelRoundDispatch = modelRoundDispatch;
+      const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
+        admission: childAuthority.bundle,
+        attemptId: request.invocationId,
+        adapterIdentity: this.config.toolActionAdapterIdentity ?? this.modelRoundAdapterIdentity,
+        admissionReadbackSessionId: childAuthority.bundle.sessionId,
+        admissionReadbackTurnId: childAuthority.bundle.turnId,
+        readAdmission: this.config.readAuthorityAdmission,
+        store: this.config.runtimeToolActionClaims,
+        state: { claimed: false },
+      };
+      (perCallConfig as { runtimeToolActionClaims?: RuntimeToolActionClaimsContext }).runtimeToolActionClaims = runtimeToolActionClaims;
       const governedResourceContext = await buildManagedInvocationResourceContext({
         resourceUris: request.input.resourceUris,
         invocationId: request.invocationId,
@@ -512,7 +594,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         } else {
           const handoffCapability = capabilityMap.get(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME);
           const handoffAuthority = toolAuthority.get(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME);
-          const finalizationResult = await new RuntimeSessionOrchestrator(deps).processMessage(
+          const finalizationResult = await new RuntimeSessionOrchestrator({
+            ...deps,
+            tools: [handoffSubmission.tool],
+          }).processMessage(
             childSession,
             textParts([
               "Finalize this managed invocation now.",
@@ -523,6 +608,20 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
             builtinTools,
             {
               ...perCallConfig,
+              runtimeModelRoundDispatch: {
+                ...modelRoundDispatch,
+                attemptId: `${request.invocationId}:finalization`,
+                intentFingerprint: runtimeModelRoundEffectIdentity({
+                  workload: "managed-direct-finalization",
+                  invocationId: request.invocationId,
+                  profile: request.profile,
+                  authorityProfileId: request.authority.authorityProfileId,
+                  providerId: request.providerRoute.providerId,
+                  model: request.providerRoute.model ?? this.model,
+                  instruction: "submit-managed-result-handoff",
+                }),
+                state: { claimed: false },
+              },
               toolAllowlist: new Set([MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME]),
               additionalTools: [handoffSubmission.tool],
               perCallCapabilities: handoffCapability

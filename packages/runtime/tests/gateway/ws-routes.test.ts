@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createWsRoutes } from "../../src/gateway/ws-routes.js";
+import type { WsRoutesConfig } from "../../src/gateway/ws-routes.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
@@ -96,6 +97,40 @@ async function sendWsRequest(
     url.searchParams.set(k, v);
   }
   return app.request(url.toString());
+}
+
+/** Test transport adapter: production routes supply this through Runtime admission. */
+function withTestEgress(
+  processMessage: NonNullable<WsRoutesConfig["processMessage"]>,
+): NonNullable<WsRoutesConfig["processMessage"]> {
+  return async (userId, parts, options) => {
+    const socket = options?.ws;
+    const { ws: _ws, ...forwardOptions } = options ?? {};
+    const dispatchEgress = async ({ frame }: { readonly frame: Record<string, unknown> }): Promise<boolean> => {
+      socket?.send(JSON.stringify(frame));
+      return true;
+    };
+    try {
+      const result = await processMessage(userId, parts, forwardOptions);
+      if (options?.validationError) {
+        return {
+          ...(result ?? { parts: [], inputTokens: 0, outputTokens: 0, outcome: "failed" as const }),
+          errorMessage: options.validationError,
+          dispatchEgress,
+        };
+      }
+      return { ...result, dispatchEgress };
+    } catch (error) {
+      return {
+        parts: [],
+        inputTokens: 0,
+        outputTokens: 0,
+        outcome: "failed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        dispatchEgress,
+      };
+    }
+  };
 }
 
 describe("createWsRoutes", () => {
@@ -239,7 +274,7 @@ describe("createWsRoutes", () => {
         outputTokens: 20,
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -263,7 +298,7 @@ describe("createWsRoutes", () => {
         outputTokens: 20,
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, wsCtx } = simulateConnection({ userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -288,7 +323,7 @@ describe("createWsRoutes", () => {
         providerRequests: [providerRequestEvidence],
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -328,7 +363,7 @@ describe("createWsRoutes", () => {
     it("rejects invalid communication intent before processing", async () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn();
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -340,7 +375,10 @@ describe("createWsRoutes", () => {
         }),
       }), wsCtx);
 
-      expect(processMessage).not.toHaveBeenCalled();
+      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"), {
+        requestedAuthority: undefined,
+        validationError: "communicationIntent is invalid",
+      });
       expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
         type: "error",
         message: "communicationIntent is invalid",
@@ -356,7 +394,7 @@ describe("createWsRoutes", () => {
         outputTokens: 20,
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -382,7 +420,7 @@ describe("createWsRoutes", () => {
         outputTokens: 15,
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-2" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -414,7 +452,7 @@ describe("createWsRoutes", () => {
         outputTokens: 2,
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, wsCtx } = simulateConnection({ userId: "user-3" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -443,7 +481,7 @@ describe("createWsRoutes", () => {
       createWsRoutes({
         webChannel: channel,
         upgradeWebSocket,
-        processMessage,
+        processMessage: withTestEgress(processMessage),
         appName: "kilvo",
         tenantId: "tenant-1",
         artifactStore,
@@ -488,7 +526,7 @@ describe("createWsRoutes", () => {
       createWsRoutes({
         webChannel: channel,
         upgradeWebSocket,
-        processMessage,
+        processMessage: withTestEgress(processMessage),
         artifactStore,
       });
 
@@ -505,7 +543,13 @@ describe("createWsRoutes", () => {
         wsCtx,
       );
 
-      expect(processMessage).not.toHaveBeenCalled();
+      expect(processMessage).toHaveBeenCalledWith("user-3", [{
+        type: "image",
+        mimeType: "image/png",
+        url: "https://media.example.test/image.png",
+      }], {
+        validationError: "Media download failed: 500",
+      });
       expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
         type: "error",
         message: "Media download failed: 500",
@@ -516,7 +560,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockRejectedValue(new Error("Processing failed"));
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-4" });
       handlers.onOpen!(new Event("open"), wsCtx);
@@ -543,7 +587,7 @@ describe("createWsRoutes", () => {
         outputTokens: 1,
       });
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const handler = vi.fn();
       channel.onMessage(handler);
@@ -563,7 +607,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn();
 
-      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
       const handler = vi.fn();
       channel.onMessage(handler);

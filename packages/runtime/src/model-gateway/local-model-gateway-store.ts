@@ -11,10 +11,11 @@ import {
   type ProviderModelRouteIdentity,
 } from "@kilnai/core";
 import type { ModelGatewayReplayFence, ModelGatewayReplayKey } from "./replay-claim.js";
+import { createGovernedOneRoundDispatchPermit, type GovernedOneRoundDispatchPermit } from "../execution-kernel/dispatch-permit.js";
 import {
   assertPersistableAuthorityAdmissionBundle,
 } from "../session/authority-admission-evidence.js";
-import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import {
   defineRuntimeSessionAuthorityFacet,
   type RuntimeSessionAuthorityFacet,
@@ -24,6 +25,8 @@ import type {
   GovernedOneRoundAttemptEvidenceSink,
 } from "../execution-kernel/governed-one-round-invocation.js";
 import type {
+  ModelGatewayAdmissionReceipt,
+  ModelGatewayReplayActionInput,
   ModelGatewayReplayCompletedValue,
   ModelGatewayReplayDecision,
   ModelGatewayReplayFingerprintInput,
@@ -40,9 +43,13 @@ export interface LocalModelGatewayStoreOptions {
   readonly now?: () => number;
 }
 type ReplayRow = {
-  status: "claimed" | "committed" | "committed-unknown" | "completed";
+  status: "claimed" | "admitted" | "committed" | "committed-unknown" | "completed";
+  attempt_id: string;
   fence: string;
-  expires_at: number | null;
+  claim_expires_at: number | null;
+  payload_expires_at: number | null;
+  admission_id: `sha256:${string}` | null;
+  effect_identity: string | null;
   ciphertext: Uint8Array | null;
   nonce: Uint8Array | null;
   tag: Uint8Array | null;
@@ -94,18 +101,31 @@ export class LocalModelGatewayStore
     this.#db = new Database(options.path, { create: true, strict: true });
     try {
       this.#db.exec(
-        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS attempt_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS compatibility_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ingress_capacity_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS route_cooldowns (route_key TEXT PRIMARY KEY, cooldown_until INTEGER NOT NULL, reason TEXT NOT NULL); CREATE TABLE IF NOT EXISTS authority_session_facets (session_id TEXT PRIMARY KEY, facet_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS replay (fingerprint TEXT PRIMARY KEY, status TEXT NOT NULL, fence TEXT NOT NULL, expires_at INTEGER, ciphertext BLOB, nonce BLOB, tag BLOB, authority_bundle_json TEXT);",
+        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS attempt_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS compatibility_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ingress_capacity_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS route_cooldowns (route_key TEXT PRIMARY KEY, cooldown_until INTEGER NOT NULL, reason TEXT NOT NULL); CREATE TABLE IF NOT EXISTS authority_session_facets (session_id TEXT PRIMARY KEY, facet_json TEXT NOT NULL);",
       );
       const replayColumns = this.#db.query<{ name: string }, []>("PRAGMA table_info(replay)").all();
-      if (!replayColumns.some(({ name }) => name === "authority_bundle_json")) {
-        this.#db.exec("ALTER TABLE replay ADD COLUMN authority_bundle_json TEXT");
+      const replayColumnNames = new Set(replayColumns.map(({ name }) => name));
+      const requiredReplayColumns = [
+        "fingerprint", "status", "attempt_id", "fence", "claim_expires_at",
+        "payload_expires_at", "admission_id", "effect_identity", "ciphertext",
+        "nonce", "tag", "authority_bundle_json",
+      ];
+      const schemaIsUnsupported = replayColumns.length > 0 && (
+        requiredReplayColumns.some((column) => !replayColumnNames.has(column))
+        || replayColumnNames.has("tombstone_expires_at")
+      );
+      if (schemaIsUnsupported) {
+        throw new Error(
+          "Model Gateway replay schema predates canonical action claims; remove the obsolete workload-local database before restart.",
+        );
       }
-      this.#db.query("DELETE FROM replay WHERE status='claimed'").run();
-      this.#db
-        .query(
-          "UPDATE replay SET status='committed-unknown',expires_at=? WHERE status IN ('committed','completed') AND authority_bundle_json IS NULL",
-        )
-        .run(this.#now() + this.#ttl);
+      this.#db.exec(
+        "CREATE TABLE IF NOT EXISTS replay (fingerprint TEXT PRIMARY KEY, status TEXT NOT NULL, attempt_id TEXT NOT NULL, fence TEXT NOT NULL, claim_expires_at INTEGER, payload_expires_at INTEGER, admission_id TEXT, effect_identity TEXT, ciphertext BLOB, nonce BLOB, tag BLOB, authority_bundle_json TEXT)",
+      );
+      // A restart before the canonical action claim is safe to redispatch;
+      // capacity recovery owns any stale held resource. Once committed, the
+      // row is a no-redispatch tombstone and is never removed by TTL.
+      this.#db.query("DELETE FROM replay WHERE status IN ('claimed','admitted')").run();
     } catch (error) {
       this.#db.close(true);
       throw error;
@@ -142,54 +162,50 @@ export class LocalModelGatewayStore
       const now = this.#now();
       this.#db
         .query(
-          "DELETE FROM replay WHERE expires_at IS NOT NULL AND expires_at<=?",
+          "DELETE FROM replay WHERE status IN ('claimed','admitted') AND claim_expires_at IS NOT NULL AND claim_expires_at<=?",
         )
         .run(now);
       const row = this.#db
         .query<ReplayRow, [string]>(
-          "SELECT status,fence,expires_at,ciphertext,nonce,tag,authority_bundle_json FROM replay WHERE fingerprint=?",
+          "SELECT status,attempt_id,fence,claim_expires_at,payload_expires_at,admission_id,effect_identity,ciphertext,nonce,tag,authority_bundle_json FROM replay WHERE fingerprint=?",
         )
         .get(key);
-      if (row?.status === "claimed")
+      if (row?.status === "claimed" || row?.status === "admitted")
         return {
           kind: "join-inflight",
           retryAfterSeconds: Math.max(
             1,
-            Math.min(60, Math.ceil(((row.expires_at ?? now) - now) / 1000)),
+            Math.min(60, Math.ceil(((row.claim_expires_at ?? now) - now) / 1000)),
           ),
         };
       if (row?.status === "committed" || row?.status === "committed-unknown")
         return { kind: "committed-unknown" };
-      if (row?.status === "completed")
+      if (row?.status === "completed") {
+        if (row.payload_expires_at !== null && row.payload_expires_at <= now) return { kind: "committed-unknown" };
         return { kind: "replay-completed", value: this.#decrypt(key, row) };
+      }
       if (
         this.#db
-          .query<{ count: number }, []>("SELECT COUNT(*) count FROM replay")
+          .query<{ count: number }, []>("SELECT COUNT(*) count FROM replay WHERE status IN ('claimed','admitted')")
           .get()!.count >= this.#maxEntries
       )
         throw new Error("Replay guard capacity is exhausted.");
       const fence = randomUUID() as ModelGatewayReplayFence;
+      const attemptId = `attempt-${randomUUID()}`;
       this.#db
         .query(
-          "INSERT INTO replay(fingerprint,status,fence,expires_at) VALUES(?,?,?,?)",
-        )
-        .run(key, "claimed", fence, now + this.#ttl);
-      return { kind: "dispatch", key, fence };
+           "INSERT INTO replay(fingerprint,status,attempt_id,fence,claim_expires_at,payload_expires_at,admission_id,effect_identity) VALUES(?,?,?,?,?,?,?,?)",
+         )
+         .run(key, "claimed", attemptId, fence, now + this.#ttl, null, null, null);
+      return { kind: "dispatch", key, fence, attemptId };
     });
   }
-  markCommitted(
-    key: ModelGatewayReplayKey,
-    fence: ModelGatewayReplayFence,
-  ): void {
-    this.#transition(key, fence, "claimed", "committed", null);
-  }
-
-  /** Atomically binds the session facet, persists the full bundle, and commits the replay claim. */
-  commitAdmission(
+  /** Atomically binds the session facet, persists/readbacks the full bundle, and advances the pre-action claim. */
+  persistAdmission(
     key: ModelGatewayReplayKey,
     fence: ModelGatewayReplayFence,
     bundle: EffectiveAuthorityAdmissionBundle,
-  ): void {
+  ): ModelGatewayAdmissionReceipt {
     const admitted = assertPersistableAuthorityAdmissionBundle(bundle);
     const facet = defineRuntimeSessionAuthorityFacet({
       sessionId: admitted.sessionId,
@@ -198,10 +214,10 @@ export class LocalModelGatewayStore
     });
     const bundleJson = JSON.stringify(admitted);
     const facetJson = JSON.stringify(facet);
-    this.#transaction(() => {
+    return this.#transaction(() => {
       const existing = this.#db
-        .query<{ status: string; fence: string; authority_bundle_json: string | null }, [string]>(
-          "SELECT status,fence,authority_bundle_json FROM replay WHERE fingerprint=?",
+        .query<{ status: string; attempt_id: string; fence: string; authority_bundle_json: string | null }, [string]>(
+          "SELECT status,attempt_id,fence,authority_bundle_json FROM replay WHERE fingerprint=?",
         )
         .get(key);
       if (!existing || existing.fence !== fence || existing.status !== "claimed") {
@@ -221,10 +237,43 @@ export class LocalModelGatewayStore
       if (
         this.#db
           .query(
-            "UPDATE replay SET status='committed',expires_at=NULL,authority_bundle_json=? WHERE fingerprint=? AND fence=? AND status='claimed'",
+            "UPDATE replay SET status='admitted',claim_expires_at=?,admission_id=?,authority_bundle_json=? WHERE fingerprint=? AND fence=? AND status='claimed'",
           )
-          .run(bundleJson, key, fence).changes !== 1
+          .run(this.#now() + this.#ttl, admitted.admissionId, bundleJson, key, fence).changes !== 1
       ) throw new Error("Replay claim cannot be committed with authority admission.");
+      const readback = this.#db
+        .query<{ attempt_id: string; admission_id: `sha256:${string}`; authority_bundle_json: string }, [string, string]>(
+          "SELECT attempt_id,admission_id,authority_bundle_json FROM replay WHERE fingerprint=? AND fence=? AND status='admitted'",
+        )
+        .get(key, fence);
+      if (!readback || readback.admission_id !== admitted.admissionId) throw new Error("Persisted model gateway admission readback is unavailable.");
+      let decoded: unknown;
+      try { decoded = JSON.parse(readback.authority_bundle_json); } catch { throw new Error("Persisted model gateway admission is corrupt."); }
+      const normalized = defineEffectiveAuthorityAdmissionBundle(decoded as EffectiveAuthorityAdmissionBundle);
+      if (normalized.admissionId !== admitted.admissionId) throw new Error("Persisted model gateway admission digest is invalid.");
+      return { attemptId: readback.attempt_id, admissionId: readback.admission_id, bundle: normalized };
+    });
+  }
+
+  claimAction(
+    key: ModelGatewayReplayKey,
+    fence: ModelGatewayReplayFence,
+    input: ModelGatewayReplayActionInput,
+  ): GovernedOneRoundDispatchPermit {
+    return this.#transaction(() => {
+      const row = this.#db
+        .query<{ status: string; attempt_id: string; admission_id: `sha256:${string}` | null }, [string, string]>(
+          "SELECT status,attempt_id,admission_id FROM replay WHERE fingerprint=? AND fence=?",
+        )
+        .get(key, fence);
+      if (!row || row.status !== "admitted" || row.admission_id !== input.admissionId) throw new Error("Replay action claim does not match the persisted admission.");
+      if (!input.effectIdentity) throw new Error("Replay action effect identity is required.");
+      if (
+        this.#db
+          .query("UPDATE replay SET status='committed',effect_identity=? WHERE fingerprint=? AND fence=? AND status='admitted' AND admission_id=?")
+          .run(input.effectIdentity, key, fence, input.admissionId).changes !== 1
+      ) throw new Error("Replay action claim is unavailable.");
+      return createGovernedOneRoundDispatchPermit();
     });
   }
 
@@ -250,7 +299,7 @@ export class LocalModelGatewayStore
       fence,
       "committed",
       "committed-unknown",
-      this.#now() + this.#ttl,
+      null,
     );
   }
   abandon(key: ModelGatewayReplayKey, fence: ModelGatewayReplayFence): void {
@@ -258,7 +307,7 @@ export class LocalModelGatewayStore
       if (
         this.#db
           .query(
-            "DELETE FROM replay WHERE fingerprint=? AND fence=? AND status='claimed'",
+            "DELETE FROM replay WHERE fingerprint=? AND fence=? AND status IN ('claimed','admitted')",
           )
           .run(key, fence).changes !== 1
       )
@@ -282,7 +331,7 @@ export class LocalModelGatewayStore
       if (
         this.#db
           .query(
-            "UPDATE replay SET status='completed',expires_at=?,ciphertext=?,nonce=?,tag=? WHERE fingerprint=? AND fence=? AND status='committed'",
+            "UPDATE replay SET status='completed',payload_expires_at=?,ciphertext=?,nonce=?,tag=? WHERE fingerprint=? AND fence=? AND status='committed'",
           )
           .run(this.#now() + this.#ttl, ciphertext, nonce, tag, key, fence)
           .changes !== 1
@@ -358,7 +407,7 @@ export class LocalModelGatewayStore
       if (
         this.#db
           .query(
-            "UPDATE replay SET status=?,expires_at=? WHERE fingerprint=? AND fence=? AND status=?",
+            "UPDATE replay SET status=?,payload_expires_at=? WHERE fingerprint=? AND fence=? AND status=?",
           )
           .run(to, expires, key, fence, from).changes !== 1
       )

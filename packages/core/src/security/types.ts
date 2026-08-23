@@ -1,4 +1,4 @@
-// Security types: interfaces for audit, secrets, prompt scanning, and guardian review
+// Security types: interfaces for audit, secrets, and deterministic prompt scanning.
 
 // --- Audit Log ---
 
@@ -82,7 +82,7 @@ export interface SecretStore {
 /** Prompt injection detection result */
 export interface PromptScanResult {
   readonly safe: boolean;
-  readonly tier: "heuristic" | "deep";
+  readonly tier: "heuristic";
   readonly threats: readonly PromptThreat[];
   readonly scannedAt: Date;
   readonly inputLength: number;
@@ -95,40 +95,18 @@ export interface PromptThreat {
   readonly description: string;
 }
 
-// --- Guardian Review ---
-
-/** Guardian review result for destructive capability execution */
-export interface GuardianReviewResult {
-  readonly approved: boolean;
-  readonly reason: string;
-  readonly reviewedBy: string;
-  readonly reviewDurationMs: number;
-  readonly riskLevel: "low" | "medium" | "high" | "critical";
-  readonly capabilityName: string;
-  readonly agentName: string;
-}
-
 // --- Security Config ---
 
 /** Top-level security configuration (YAML-driven, all opt-in) */
 export interface SecurityConfig {
-  readonly guardian?: GuardianConfig;
   readonly promptInjection?: PromptInjectionConfig;
   readonly secrets?: SecretsConfig;
   readonly audit?: AuditConfig;
   readonly tenantIsolation?: TenantIsolationConfig;
 }
 
-export interface GuardianConfig {
-  readonly enabled: boolean;
-  readonly reviewerTier: "reasoning" | "fast";
-  readonly blockOnError: boolean;
-  readonly bypassForReadOnly: boolean;
-}
-
 export interface PromptInjectionConfig {
   readonly enabled: boolean;
-  readonly heuristicOnly: boolean;
   readonly blockOnDetection: boolean;
   readonly allowedPatterns?: readonly string[];
 }

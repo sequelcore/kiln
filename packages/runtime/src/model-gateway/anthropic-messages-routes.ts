@@ -6,9 +6,8 @@ import {
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundBudgetEvidence,
-  type GovernedOneRoundInvocationPorts,
 } from "../execution-kernel/governed-one-round-invocation.js";
-import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
+import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type GovernedIngressInvocationPorts, type ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "./replay-guard.js";
 import { claimModelGatewayRequestLifetime } from "./model-gateway-request-lifetime.js";
 import { ANTHROPIC_MESSAGES_VERSION, AnthropicMessagesProtocolError, encodeAnthropicMessagesSseEvent, parseAnthropicMessagesRequest } from "./anthropic-messages-protocol.js";
@@ -33,9 +32,9 @@ export interface AnthropicMessagesIngressConfig {
   readonly listVirtualModels: (input: { readonly principal: AnthropicMessagesTrustedPrincipal }) => Promise<readonly { readonly id: string; readonly displayName?: string }[]>;
   readonly namespaceCorrelation: (input: { readonly principal: AnthropicMessagesTrustedPrincipal; readonly observed: AnthropicMessagesObservedCorrelation }) => Promise<{ readonly sessionId: string; readonly turnId: string }>;
   readonly compatibilityEvidence: { record(evidence: ModelGatewayCompatibilityEvidence): Promise<void> };
-  readonly invocationPorts: GovernedOneRoundInvocationPorts;
-  readonly createAttemptId: () => string; readonly createMessageId: () => string;
-  readonly replayGuard?: ModelGatewayReplayGuard;
+  readonly invocationPorts: GovernedIngressInvocationPorts;
+  readonly createMessageId: () => string;
+  readonly replayGuard: ModelGatewayReplayGuard;
   readonly maxBodyBytes?: number; readonly maxConcurrentRequests?: number;
 }
 
@@ -90,7 +89,7 @@ export function createAnthropicMessagesRoutes(config: AnthropicMessagesIngressCo
         identity: { tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, sessionId: namespaced.sessionId, turnId: namespaced.turnId },
         route: resolved.route, affinity: deriveAffinity(resolved.affinity, namespaced), authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes }, budget: principal.budgetEvidence,
         toolExecutionMode: "caller-owned", turn, signal: context.req.raw.signal,
-        invocationPorts: config.invocationPorts, createAttemptId: config.createAttemptId, createResponseId: config.createMessageId, replayGuard: config.replayGuard,
+         invocationPorts: config.invocationPorts, createResponseId: config.createMessageId, replayGuard: config.replayGuard,
         projectSuccess: ({ responseId, result, replayed }) => sse(responseId, request.model, result, replayed),
       });
       if (execution.kind === "join-inflight") { const response = errorResponse(409, "invalid_request_error", "An identical request is already in progress."); response.headers.set("retry-after", String(execution.retryAfterSeconds)); return response; }

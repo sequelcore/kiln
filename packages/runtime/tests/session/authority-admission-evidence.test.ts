@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
-import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import {
   assertPersistableAuthorityAdmissionBundle,
   type AuthorityAdmissionEvidenceStore,

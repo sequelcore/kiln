@@ -11,14 +11,16 @@ import type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt } from ".
 import type { ManagedEconomicCandidateSet } from "../agents/managed-invocation/runtime-tool/index.js";
 import type { ManagedEconomicCommitmentAcquireResult, ManagedEconomicReplayEvidence, ManagedEconomicRouteCapacity } from "../managed-account-leases/managed-account-lease-authority.js";
 import type { SanitizedExecutionRouteDataPolicyDecision } from "../execution-routing/execution-route-data-policy-authority.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 
 
 export const AGENT_TASK_STATES = ["awaiting_approval", "queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
-export const AGENT_TASK_SCHEMA_VERSION = 13 as const;
-/** Recovery is deliberately pre-fence-only for economic work and never
- * resumes an external native-harness process after a process restart. */
+export const AGENT_TASK_SCHEMA_VERSION = 14 as const;
+/** Recovery redispatches only unfenced economic work. A durable economic
+ * action fence becomes an explicit unknown projection, and native-harness
+ * work is never resumed after a process restart. */
 export const AGENT_TASK_RECOVERY_POLICY = {
-  economic: { unfenced: "redispatch", dispatchFenced: "hold" },
+  economic: { unfenced: "redispatch", dispatchFenced: "interrupt" },
   nativeHarness: { unfenced: "interrupt", dispatchFenced: "interrupt" },
 } as const;
 export type AgentTaskState = typeof AGENT_TASK_STATES[number];
@@ -179,6 +181,22 @@ export type AgentTaskProfile = AgentTaskEconomicProfile | AgentTaskNativeHarness
 
 export type AgentTaskNativeHarnessRoute = Omit<AgentTaskNativeHarnessProfile, "id" | "authorityProfileId">;
 
+/**
+ * The one durable outer-effect claim for a native or remote Agent Task.
+ * Hidden harness work is outside this boundary; the claim stops at the
+ * Runtime-owned SDK invocation, process launch, or remote-task send.
+ */
+export interface AgentTaskActionClaim {
+  readonly version: 1;
+  readonly attemptId: string;
+  readonly intentFingerprint: string;
+  readonly admissionId: string;
+  /** Full immutable receipt whose digest is admissionId. */
+  readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+  readonly ownerGeneration: string;
+  readonly effectIdentity: string;
+}
+
 export type AgentTaskDispatch =
   | {
       readonly kind: "economic";
@@ -187,6 +205,9 @@ export type AgentTaskDispatch =
       readonly economicPolicyRevision: string;
       /** Persisted only once the shared economic dispatch fence is owned. */
       readonly dispatchFenceId?: string;
+      /** Persisted full admission receipt; the action claim binds its digest. */
+      readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
+      readonly actionClaim?: AgentTaskActionClaim;
       readonly constraints: {
         readonly routeId?: string;
         readonly providerId?: string;
@@ -206,6 +227,7 @@ export type AgentTaskDispatch =
       readonly acknowledgement: AgentTaskNativeHarnessAcknowledgement;
       readonly deliberationResolution?: AgentTaskNativeDeliberationResolution;
       readonly dispatchFenceId?: string;
+      readonly actionClaim?: AgentTaskActionClaim;
     };
 
 /** Immutable, normalized success evidence. Handoff content is untrusted child output. */
@@ -259,7 +281,7 @@ export interface AgentTaskLifecycleEntry {
   readonly failureEvidence?: AgentTaskFailureEvidence;
 }
 
-/** The one committed execution attempt. Retry/recovery never creates a second run in V13. */
+/** The one committed execution attempt. Retry/recovery never creates a second run in V14. */
 export interface AgentRun {
   readonly runId: string;
   readonly state: AgentTaskState;
@@ -283,6 +305,8 @@ export interface AgentTaskRecord {
   readonly dispatch: AgentTaskDispatch;
   readonly governanceSource: string;
   readonly admissionId: string;
+  /** Canonical full authority receipt persisted with the accepted task. */
+  readonly admissionBundle: EffectiveAuthorityAdmissionBundle;
   readonly requestFingerprint: string;
   readonly idempotencyKeyHash: string;
   readonly createdAt: string;
@@ -359,7 +383,7 @@ export type AgentTaskEconomicReplay =
 export interface AgentTaskProjectPort { resolve(): Promise<TrustedAgentTaskProject>; }
 export interface AgentTaskGovernancePort {
   resolve(project: TrustedAgentTaskProject): Promise<AgentTaskGovernanceEvidence>;
-  admit(input: { readonly project: TrustedAgentTaskProject; readonly objective: string; readonly configuredAgentProfileId: string; readonly admissionProfileId: string; readonly evidence: AgentTaskGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionId: string; readonly source: string } | { readonly admitted: false }>;
+  admit(input: { readonly project: TrustedAgentTaskProject; readonly objective: string; readonly configuredAgentProfileId: string; readonly admissionProfileId: string; readonly evidence: AgentTaskGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionBundle: EffectiveAuthorityAdmissionBundle; readonly source: string } | { readonly admitted: false }>;
 }
 export interface AgentTaskProfilePort { resolve(id: string): Promise<AgentTaskProfile | undefined>; }
 export interface AgentTaskRouteResolutionContext {
@@ -432,10 +456,15 @@ export interface AgentTaskStore {
   /** Atomically attaches a still-issued approval to an awaiting write job and makes it dispatchable. */
   attachWriteApproval(id: string, approval: AgentTaskWriteApproval, updatedAt?: string): Promise<AgentTaskRecord>;
   recordWriteApproval(id: string, approval: AgentTaskWriteApproval, updatedAt?: string): Promise<AgentTaskRecord>;
-  /** Atomically persists the exact-route fence before adapter creation. */
-  fenceNativeHarness(id: string, dispatchFenceId: string, updatedAt?: string): Promise<AgentTaskNativeHarnessFenceResult>;
-  /** Atomically persists the managed-economic fence before provider execution. */
-  fenceEconomic(id: string, dispatchFenceId: string, updatedAt?: string): Promise<AgentTaskEconomicFenceResult>;
+  /** Atomically persists the native/remote outer-effect claim before launch. */
+  fenceNativeHarness(
+    id: string,
+    dispatchFenceId: string,
+    updatedAt: string | undefined,
+    actionClaim: AgentTaskActionClaim,
+  ): Promise<AgentTaskNativeHarnessFenceResult>;
+  /** Projects the canonical SQLite economic claim into the task lifecycle. */
+  projectEconomicDispatch(id: string, dispatchFenceId: string, updatedAt: string | undefined, actionClaim: AgentTaskActionClaim): Promise<AgentTaskEconomicFenceResult>;
   transition(id: string, state: AgentTaskState, diagnostic?: AgentTaskDiagnosticCode, updatedAt?: string, failureEvidence?: AgentTaskFailureEvidence): Promise<AgentTaskRecord>;
   completeSuccess(id: string, result: AgentTaskResult, updatedAt?: string): Promise<AgentTaskRecord>;
   listNonterminal(): Promise<readonly AgentTaskRecord[]>;

@@ -5,8 +5,11 @@
 Managed economic commitment binds one admitted Agent Task to one immutable
 economic route decision before provider effects begin. Runtime owns the local
 SQLite authority for route reservations, account selection when applicable,
-dispatch fencing, release, recovery, and reconciliation. Job JSON is a durable
-projection of that authority, not a second commitment store.
+resource commitment, release, recovery, and reconciliation. As the
+[Execution Kernel](../core/execution-kernel.md) convergence proceeds, this
+ledger also owns the economic workload's one canonical action claim; Job JSON
+is a durable projection of that authority, not a second commitment or fence
+store.
 
 This boundary is shared by Agent Tasks and Model Gateway ingress. One
 user-scoped physical SQLite ledger is the sole writer for account capacity and
@@ -30,15 +33,15 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-The current persisted representation is Agent Task v13 with one Agent Run. Its
+The current persisted representation is Agent Task v14 with one Agent Run. Its
 `dispatch.kind` is either `economic` or `native-harness`. The economic branch
 durably creates a namespaced `economicAttemptId` and `adoptedDecisionAt` before
 adoption or commitment. The native-harness branch stores only its exact
 credentialless route/provider/model, stable versioned route acknowledgement,
 and optional Runtime dispatch fence; it never creates an economic policy,
-account, quota, price, candidate, reservation, or settlement record. The only
-legacy reader is the labeled one-time v12 local-state migration described in
-[Agent Tasks and Agent Runs](agent-tasks.md).
+account, quota, price, candidate, reservation, or settlement record. Obsolete
+Agent Task schemas are rejected without mutation; there is no migration reader
+or compatibility authority.
 
 ## Atomic Commitment
 
@@ -88,12 +91,19 @@ or selected identity evidence returns explicit conflict or drift evidence.
 
 ## Dispatch And Release
 
-Commitment state and account-lease lifecycle are separate contracts. Runtime
-must hold the economic commitment and account capacity before adapter or
-credential materialization. It writes the distinct dispatch fence after that
-recoverable preparation and immediately before process launch or provider
-effects. The fence does not finalize or release an account lease and forbids
-route or account reassignment.
+Economic commitment, account-lease lifecycle, and action fencing are distinct
+semantics. Runtime must hold the economic commitment and account capacity
+before side-effect-free adapter or credential materialization. It then persists
+the complete authority admission and atomically binds that `admissionId`, the
+attempt, intent, owner generation, and exact effect in the ledger's canonical
+action claim immediately before process launch or provider effects. The action
+fence does not finalize or release an account lease and forbids route or account
+reassignment.
+
+The ledger's `dispatch-fenced` economic/account state is valid only where that
+same row implements the full action-claim contract. Capacity acquisition replay
+alone is not proof that an action was fenced, and Agent Task JSON must not add a
+second economic fence transaction.
 
 Any interim failure that is proven pre-fence releases the commitment and its
 optional account lease before the job is projected terminal. Release is
@@ -107,13 +117,27 @@ is `estimated`, never `charged`; subscription, included allowance, proven free,
 unknown, pending, and leaked remain separate variants. Exact replay is
 idempotent, while a conflicting terminal settlement fails closed.
 
-The selected route timeout governs one lifecycle beginning when the authority
-acquires the held commitment. Adapter materialization, exact account binding,
-runtime authority observation, resource acquisition, recovery checkpointing,
-and provider execution share that deadline and cancellation signal. Invalid
-pre-fence preparation releases the hold exactly once. Adapter, credential,
-startup, checkpoint, or provider failure after the fence never fabricates a
-safe release; typed settlement or reconciliation remains authoritative.
+The selected route timeout governs one workload lifecycle beginning when the
+authority acquires the held commitment. Adapter materialization, exact account
+binding, runtime authority observation, resource acquisition, recovery
+checkpointing, and provider execution may share that deadline and cancellation
+signal without becoming one kernel lifecycle. Invalid pre-fence preparation
+releases the hold exactly once. After the action fence, timeout, cancellation,
+startup failure, checkpoint failure, transport ambiguity, or process loss never
+fabricates a safe release; typed settlement or reconciliation remains
+authoritative.
+
+Remote harness invocation persists its immutable `remote-invoke` action claim
+in the Runtime recovery checkpoint before transport starts. That claim is the
+durable conservative proof that the opaque remote effect may be live: if a
+later `result_pending` checkpoint write fails, startup derives the nonterminal
+state from the claim, does not redispatch, and retains every recovery-required
+lease. A remote-cancel acknowledgment is recorded only after its separate
+claimed request succeeds; acknowledgment or failure is never remote terminal
+proof. Owner shutdown checkpoints this handoff without waiting for an
+unbounded remote result. Because the current transport has no authoritative
+status-read API, process-restart recovery requires external or operator
+terminal reconciliation before those leases can be released.
 
 For an economically owned account route, the Runtime recovery checkpoint stores
 only the immutable commitment, job, attempt, and dispatch-fence identifiers.
@@ -145,13 +169,14 @@ participant's live reservation.
 Startup first recovers the SQLite authority and then recovers Agent Tasks.
 Economic recovery queries the exact `(jobId, economicAttemptId)`:
 
-- `absent` may be committed from the persisted v13 economic intent;
+- `absent` may be committed from the persisted v14 economic intent;
 - a dispatch-fenced, settlement-pending, release-failed, or leaked commitment
-  remains conservatively fenced; and
+  projects `interrupted` with `result_pending` evidence and remains
+  conservatively fenced from redispatch; and
 - conflicting identity or revision evidence fails closed.
 
 Native-harness recovery does not query or recreate an economic commitment. Any
-queued or dispatch-fenced native-harness task found after restart becomes
+  queued or dispatch-fenced native-harness task found after restart becomes
 `interrupted`; Runtime never silently redispatches work whose external process
 state cannot be proven.
 

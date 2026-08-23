@@ -48,7 +48,8 @@ export function projectAgentTaskReplay(
     ...(task.result ? { routeId: task.result.routeId, providerId: task.result.providerId } : {}),
     lifecycle: task.lifecycle,
     resultAvailability: task.state === "succeeded" ? (task.result ? "available" : "unavailable")
-      : task.state === "awaiting_approval" || task.state === "queued" || task.state === "running" ? "pending" : "failed",
+      : task.state === "awaiting_approval" || task.state === "queued" || task.state === "running" ? "pending"
+        : task.state === "interrupted" ? "unresolved" : "failed",
     ...(task.result?.writeEvidence ? { writeEvidence: structuredClone(task.result.writeEvidence) } : {}),
     ...(task.result?.dataPolicyProof ? { dataPolicyProof: structuredClone(task.result.dataPolicyProof) } : {}),
     ...(task.writeApproval ? { writeApproval: task.writeApproval } : {}),

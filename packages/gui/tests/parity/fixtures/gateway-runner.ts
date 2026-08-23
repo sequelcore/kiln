@@ -1132,7 +1132,7 @@ async function main(): Promise<void> {
     },
   });
 
-  process.stdout.write(`READY ${gateway.port} ${gateway.operatorTerminalCapability ?? "none"}\n`);
+  process.stdout.write(`READY ${gateway.port} ${gateway.operatorCapability ?? "none"}\n`);
 
   const shutdown = () => {
     memoryRepository.close();

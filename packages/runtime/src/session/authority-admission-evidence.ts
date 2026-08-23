@@ -7,6 +7,12 @@ export interface AuthorityAdmissionEvidenceStore {
   persist(bundle: EffectiveAuthorityAdmissionBundle): void | Promise<void>;
   /** Restores the bind-once logical-session facet from durable full-bundle evidence. */
   loadSessionFacet(sessionId: string): RuntimeSessionAuthorityFacet | undefined | Promise<RuntimeSessionAuthorityFacet | undefined>;
+  /** Reads back one immutable admission before an operator effect claim. */
+  readAdmission?(input: {
+    readonly admissionId: string;
+    readonly sessionId: string;
+    readonly turnId: string;
+  }): EffectiveAuthorityAdmissionBundle | undefined | Promise<EffectiveAuthorityAdmissionBundle | undefined>;
 }
 
 /** Revalidates values at the persistence boundary before an adapter writes them. */

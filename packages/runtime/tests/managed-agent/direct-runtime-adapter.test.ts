@@ -5,8 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type AgentResponse,
   AllCredentialsExhaustedError,
+  type AuthorityDescriptor,
+  type Capability,
   defineManagedAgentInvocationRequest,
   type ManagedAgentCapabilitySnapshotInput,
+  type ManagedAgentInvocationRecord,
   type ManagedAgentInvocationRequest,
   type ProviderAdapter,
   type ToolDefinition,
@@ -15,16 +18,269 @@ import { textParts } from "@kilnai/core/engine";
 import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   ManagedRuntimeSandboxLeaseManager,
-  RuntimeManagedAgentInvocationService,
+  ManagedRuntimeCredentialRouteLeaseManager,
+  RuntimeManagedAgentInvocationService as ProductionRuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeInvocationLifecycleOptions,
 } from "../../src/agents/managed-invocation/index.js";
-import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
+import {
+  ManagedDirectProviderRuntimeAdapter as ProductionManagedDirectProviderRuntimeAdapter,
+  type ManagedDirectProviderRuntimeAdapterConfig,
+} from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { ManagedEconomicLifecycleTimeoutError } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
 import { createInternalConsumedWriteApproval } from "../../src/agents/managed-invocation/internal-consumed-write-approval.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../src/session/effective-authority-admission-bundle.js";
+import type {
+  RuntimeModelRoundActionClaim,
+  RuntimeModelRoundActionClaimPermit,
+  RuntimeModelRoundActionClaimStore,
+} from "../../src/execution-kernel/runtime-model-round-action-claim.js";
+import type { ManagedAgentRuntimeInvocationInput } from "../../src/agents/managed-invocation/index.js";
+
+const DIRECT_TEST_ADMISSIONS = new Map<string, EffectiveAuthorityAdmissionBundle>();
+
+function directTestModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const claims = new Map<string, RuntimeModelRoundActionClaim>();
+  const permitStates = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("direct test model-round claim already exists");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `direct-test-model-round:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("direct test model-round permit already consumed");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeModelRoundActionClaimPermit;
+      claims.set(input.claimId, input);
+      permitStates.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = permitStates.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("direct test model-round permit was not consumed");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success"
+          ? { outcome: "success" as const }
+          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+      });
+      permitStates.delete(permit);
+    },
+  };
+}
+
+function directTestRequestWithInternalHandoff(request: ManagedAgentInvocationRequest): ManagedAgentInvocationRequest {
+  if (request.input.handoff === undefined) return request;
+  const allowedToolNames = [...new Set([
+    ...request.authority.toolAuthority.allowedToolNames,
+    "managed_agent.submit_handoff",
+  ])];
+  return {
+    ...request,
+    authority: {
+      ...request.authority,
+      toolAuthority: {
+        ...request.authority.toolAuthority,
+        allowedToolNames,
+      },
+    },
+  };
+}
+
+function directTestAdmission(
+  request: ManagedAgentInvocationRequest,
+  economicCommitmentId: string | undefined,
+): EffectiveAuthorityAdmissionBundle {
+  const routeId = `${request.providerRoute.providerId}:${request.profile}`;
+  const model = request.providerRoute.model ?? "test-model";
+  const accountId = `direct-test-account:${request.invocationId}`;
+  const credentialRevision = "direct-test-credential-revision";
+  const allowedToolNames = [...new Set(request.authority.toolAuthority.allowedToolNames)].sort();
+  const observeEffect = {
+    operation: "observe" as const,
+    boundaries: ["process", "workspace", "machine", "network", "external-system"] as const,
+    reversibility: "reversible" as const,
+    dataEgress: "sensitive-data" as const,
+    identityUse: "privileged" as const,
+    consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
+    idempotency: "idempotent" as const,
+  };
+  const parentEffectCeiling = {
+    operation: "mutate" as const,
+    boundaries: ["process", "workspace", "machine", "network", "external-system"] as const,
+    reversibility: "irreversible" as const,
+    dataEgress: "sensitive-data" as const,
+    identityUse: "privileged" as const,
+    consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
+    idempotency: "non-idempotent" as const,
+  };
+  const toolPermissions = allowedToolNames.map((toolName) => ({
+    toolName,
+    authority: {
+      level: request.authority.toolAuthority.writeAllowed ? 3 : 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "direct provider test admission",
+    },
+    effectEnvelope: observeEffect,
+  }));
+  const authority = {
+    ...TEST_PARENT_AUTHORITY,
+    toolCount: toolPermissions.length,
+    deniedToolCount: 0,
+  } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: request.parentSessionId,
+    turnId: request.parentTurnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "direct-test", revisions: { tests: "direct-test" } },
+      turnRevision: { revisionSetId: "direct-test", revisions: { tests: "direct-test" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "direct-test", revision: "direct-test", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "destructive", reason: "direct provider test admission" },
+    },
+    turn: {
+      authority,
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: toolPermissions, deniedToolNames: [] },
+      effectCeiling: parentEffectCeiling,
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId,
+          providerId: request.providerRoute.providerId,
+          providerModelId: model,
+          accountSelection: { mode: "exact", accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "direct provider test admission" } },
+        binding: { status: "bound", routeId, accountId, credentialId: "direct-test-credential", credentialRevision },
+        ...(economicCommitmentId
+          ? { economicCommitment: { commitmentId: economicCommitmentId, authorityRevision: "direct-test-authority-revision" } }
+          : {}),
+      },
+    },
+  });
+}
+
+type DirectTestAdapterConfig = Omit<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims">
+  & Partial<Pick<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims">>;
+
+class ManagedDirectProviderRuntimeAdapter extends ProductionManagedDirectProviderRuntimeAdapter {
+  constructor(config: DirectTestAdapterConfig) {
+    const fallbackObserveEffect = {
+      operation: "observe" as const,
+      boundaries: ["process", "workspace", "machine", "network", "external-system"] as const,
+      reversibility: "reversible" as const,
+      dataEgress: "sensitive-data" as const,
+      identityUse: "privileged" as const,
+      consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
+      idempotency: "idempotent" as const,
+    };
+    const fallbackMutateEffect = {
+      ...fallbackObserveEffect,
+      operation: "mutate" as const,
+      reversibility: "compensatable" as const,
+      idempotency: "non-idempotent" as const,
+    };
+    const fallbackNames = new Set([
+      "read",
+      "write",
+      "resource_read",
+      ...config.tools.map(({ name }) => name),
+      ...config.builtinTools.keys(),
+    ]);
+    const fallbackCapabilities = new Map<string, Capability>([
+      ...fallbackNames,
+    ].map((name) => {
+      const definition = config.tools.find((tool) => tool.name === name);
+      return [name, {
+        name,
+        description: definition?.description ?? name,
+        schema: definition?.inputSchema ?? { type: "object", additionalProperties: true },
+        tags: [...(definition?.tags ?? [])].map(String),
+        effectEnvelope: name === "write" ? fallbackMutateEffect : fallbackObserveEffect,
+      }];
+    }));
+    const fallbackAuthority = new Map<string, AuthorityDescriptor>([
+      ...fallbackNames,
+    ].map((name) => [name, {
+      level: name === "write" ? 3 : 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "direct provider test authority",
+    }]));
+    super({
+      ...config,
+      ...(config.capabilityMap === undefined ? { capabilityMap: fallbackCapabilities } : {}),
+      ...(config.toolAuthority === undefined ? { toolAuthority: fallbackAuthority } : {}),
+      runtimeModelRoundActionClaims: directTestModelRoundStore(),
+      readAuthorityAdmission: async ({ admissionId }) => DIRECT_TEST_ADMISSIONS.get(admissionId),
+    });
+  }
+
+  override invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord> {
+    const bundle = input.childAuthorityAdmission?.bundle;
+    if (bundle) DIRECT_TEST_ADMISSIONS.set(bundle.admissionId, bundle);
+    return super.invoke(input);
+  }
+}
+
+class RuntimeManagedAgentInvocationService extends ProductionRuntimeManagedAgentInvocationService {
+  override start(
+    request: ManagedAgentInvocationRequest,
+    adapter: ProductionManagedDirectProviderRuntimeAdapter,
+    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
+    lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
+  ) {
+    const admittedRequest = directTestRequestWithInternalHandoff(request);
+    return super.start(
+      admittedRequest,
+      adapter,
+      capabilitySnapshotInput,
+      {
+        ...lifecycleOptions,
+        childAuthorityAdmission: lifecycleOptions.childAuthorityAdmission ?? {
+          bundle: directTestAdmission(admittedRequest, lifecycleOptions.economicDispatch?.commitment.commitmentId),
+        },
+      },
+    );
+  }
+
+  override invoke(
+    request: ManagedAgentInvocationRequest,
+    adapter: ProductionManagedDirectProviderRuntimeAdapter,
+    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
+    lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
+  ) {
+    const admittedRequest = directTestRequestWithInternalHandoff(request);
+    return super.invoke(
+      admittedRequest,
+      adapter,
+      capabilitySnapshotInput,
+      {
+        ...lifecycleOptions,
+        childAuthorityAdmission: lifecycleOptions.childAuthorityAdmission ?? {
+          bundle: directTestAdmission(admittedRequest, lifecycleOptions.economicDispatch?.commitment.commitmentId),
+        },
+      },
+    );
+  }
+}
 
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
@@ -75,10 +331,13 @@ function response(
   };
 }
 
-function providerWithResponses(responses: readonly AgentResponse[]): ProviderAdapter {
+function providerWithResponses(
+  responses: readonly AgentResponse[],
+  providerName = "openai",
+): ProviderAdapter {
   let index = 0;
   return {
-    name: "openai",
+    name: providerName,
     createMessage: vi.fn(async () => responses[Math.min(index++, responses.length - 1)]!),
     streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
   };
@@ -450,7 +709,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     }));
   });
 
-  it("settles explicit provider quota rejection with complete zero usage", async () => {
+  it("settles explicit provider quota rejection as unknown after the model claim", async () => {
     const provider: ProviderAdapter = {
       name: "opencode-go",
       createMessage: vi.fn(async () => {
@@ -518,7 +777,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(completed).toMatchObject({
       status: "completed",
       record: {
-        diagnostics: [{ classification: "provider_quota_exhausted" }],
+        diagnostics: [{ kind: "failure" }],
       },
     });
 
@@ -527,13 +786,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(createExecutionSettlement).toHaveBeenCalledWith(expect.objectContaining({
       actualIdentity: economicIdentity,
       usage: {
-        kind: "complete",
-        units: [
-          { atoms: "0", scale: 0, unit: "input-token", scheme: { kind: "unit" } },
-          { atoms: "0", scale: 0, unit: "output-token", scheme: { kind: "unit" } },
-          { atoms: "0", scale: 0, unit: "cache-read-token", scheme: { kind: "unit" } },
-          { atoms: "0", scale: 0, unit: "cache-write-token", scheme: { kind: "unit" } },
-        ],
+        kind: "incomplete",
+        knownUnits: [],
+        reason: "provider-usage-unknown:cache_read,cache_write,input,output",
       },
     }));
   });
@@ -1171,7 +1426,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         },
       }]),
       response("Direct child applied the approved workspace write."),
-    ]);
+    ], "opencode-go");
     const writeTool = vi.fn(async (input: Record<string, unknown>) => {
       writeFileSync(String(input.filePath), String(input.content), "utf8");
       return {
@@ -1373,7 +1628,6 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-agents/invocations/inv-direct-1/resources/failure",
       kind: "failure",
-      classification: "provider_quota_exhausted",
     }]);
     expect(result.record.resultHandoff?.summary).toContain(
       "Direct provider managed invocation failed for provider opencode-go, model kimi-k2.6.",
@@ -1382,7 +1636,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
 
   it("records credential pool exhaustion with provider, model, and last outcome details", async () => {
     const provider: ProviderAdapter = {
-      name: "openai",
+      name: "codex-oauth",
       createMessage: vi.fn(async () => {
         throw new AllCredentialsExhaustedError(
           new Error("model endpoint returned 429"),
@@ -1414,8 +1668,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff?.summary).toContain("provider codex-oauth");
     expect(result.record.resultHandoff?.summary).toContain("model gpt-5.4-mini");
-    expect(result.record.resultHandoff?.summary).toContain("last outcome rate-limited until 2026-05-19T23:30:00.000Z");
-    expect(result.record.resultHandoff?.summary).toContain("last error model endpoint returned 429");
+    expect(result.record.resultHandoff?.summary).toContain("The Runtime model round was claimed; its provider outcome is not safely replayable.");
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-agents/invocations/inv-direct-1/resources/failure",
       kind: "failure",
@@ -1732,6 +1985,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
     const parentSurface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
+        invocationService: new RuntimeManagedAgentInvocationService({
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager(),
+        }),
         routes: [{
           routeId: "openai-direct-readonly",
           routeSource: "explicit-managed-route",

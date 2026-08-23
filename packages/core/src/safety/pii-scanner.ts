@@ -1,4 +1,4 @@
-// PII Scanner: two-tier detection (heuristic regex + optional LLM deep scan)
+// Deterministic PII scanner.
 
 import type { PiiConfig, PiiType } from "../engine/domain/safety-config.js";
 import type { PiiMatch, PiiScanResult } from "./types.js";
@@ -17,11 +17,6 @@ export const PII_PATTERNS: readonly PiiPattern[] = [
   { type: "ip_address", regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g },
   { type: "date_of_birth", regex: /\b(?:0[1-9]|1[0-2])\/(?:0[1-9]|[12]\d|3[01])\/(?:19|20)\d{2}\b/g },
 ];
-
-/** Provider interface for Tier 2 deep scanning */
-export interface PiiDeepScanProvider {
-  scan(input: string): Promise<PiiMatch[]>;
-}
 
 /** Luhn algorithm: validates credit card numbers by checksum */
 function luhnCheck(digits: string): boolean {
@@ -75,37 +70,8 @@ export class PiiScanner {
     return { matches, tier: "heuristic", scannedAt: new Date() };
   }
 
-  /** Tier 2: LLM-based deep scan for named entities (fail-open) */
-  async scanDeep(input: string, provider: PiiDeepScanProvider): Promise<PiiScanResult> {
-    const normalized = input.normalize("NFKC");
-    try {
-      const matches = await provider.scan(normalized);
-      const allowlist = new Set(this.config.allowlist ?? []);
-      const filtered = matches.filter((m) => !allowlist.has(m.value));
-      return { matches: filtered, tier: "deep", scannedAt: new Date() };
-    } catch {
-      return { matches: [], tier: "deep", scannedAt: new Date() };
-    }
-  }
-
-  /** Combined scan: always Tier 1, Tier 2 if config.deepScan is true */
-  async scan(input: string, provider?: PiiDeepScanProvider): Promise<PiiScanResult> {
-    const normalized = input.normalize("NFKC");
-    const heuristic = this.scanHeuristic(normalized);
-
-    if (this.config.deepScan && provider) {
-      const deep = await this.scanDeep(normalized, provider);
-      const allMatches = [...heuristic.matches];
-      for (const dm of deep.matches) {
-        const exists = allMatches.some(
-          (m) => m.startIndex === dm.startIndex && m.endIndex === dm.endIndex,
-        );
-        if (!exists) allMatches.push(dm);
-      }
-      return { matches: allMatches, tier: "deep", scannedAt: new Date() };
-    }
-
-    return heuristic;
+  async scan(input: string): Promise<PiiScanResult> {
+    return this.scanHeuristic(input.normalize("NFKC"));
   }
 
   /** Replace PII matches with [REDACTED], processing end-to-start to preserve indices */

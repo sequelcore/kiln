@@ -25,18 +25,20 @@ records the evidence needed to start it, and projects a safe result afterward.
   and native session behavior. Kiln does not proxy those operations through MCP.
 
 `packages/runtime/src/agent-tasks` is the persistent application boundary. The
-shared execution kernel supplies common dispatch and evidence mechanics; it
-does not become a second provider or harness abstraction.
+[Execution Kernel](../core/execution-kernel.md) supplies common sequencing,
+action-fence, and observation mechanics; Agent Tasks retain their task store,
+recovery, result, and settlement semantics. The kernel does not become a
+second provider, harness, or task abstraction.
 
 ## Canonical record
 
-The supported persisted schema is v13. An `AgentTaskRecord` contains the
+The supported persisted schema is v14. An `AgentTaskRecord` contains the
 trusted project and caller identities, configured agent profile, exact admitted
 route, governance/admission evidence, idempotency fingerprint, lifecycle,
 write-approval receipt, data-policy proof, and the single `AgentRun`.
 
 An Agent Run has deterministic identity `agent-run:<taskId>`. It is not a retry
-history: v13 has exactly one run per task. Its state is one of
+history: v14 has exactly one run per task. Its state is one of
 `awaiting_approval`, `queued`, `running`, `succeeded`, `failed`, `timed_out`,
 `interrupted`, or `cancelled`. Terminal records and successful handoffs are
 immutable.
@@ -61,10 +63,17 @@ data-policy evidence, and any required write approval. Missing, stale,
 contradictory, or unsupported evidence fails closed.
 
 Economic routes adopt and commit one immutable route/account decision before
-dispatch. Native-harness routes are credentialless: Runtime stores the exact
-route acknowledgement and dispatch fence, but never selects an account or
-creates economic evidence for that branch. The fence is written immediately
-before adapter or provider materialization.
+dispatch. That resource commitment is not by itself the action fence. During
+convergence, the SQLite economic owner becomes the one canonical action claim
+and Agent Task JSON retains only its projection/reference rather than a second
+economic fence authority.
+
+Native-harness routes are credentialless: Runtime stores the exact route
+acknowledgement and one action fence for the SDK invocation or process launch,
+but never selects an account or creates economic evidence for that branch. The
+claim binds the admitted child authority and stops at the external-harness
+boundary; it makes no claim about hidden model calls, tools, subagents, retries,
+or permission enforcement.
 
 Session pre-turn token limits are separate from Agent Tasks. They use persisted
 input plus output token observation and stop a session turn when usage is
@@ -109,37 +118,34 @@ configuration fields. A task identifier alone never authorizes an operation.
 It returns only bounded lifecycle, route/provenance, result, approval,
 data-policy, and replay evidence.
 
-## A2A and remote agents
+## Remote agents and external harnesses
 
-Outbound remote delegation uses the official A2A v1 SDK and Agent Card
-discovery. It handles the v1 `sendMessage` response union, bounds decoded
-content, applies the configured deadline, and best-effort cancels a
-nonterminal remote task. Kiln does not retain an A2A v0.3 compatibility path or
-invent token usage that the remote protocol did not report.
+Managed Agent Tasks may target a configured remote harness adapter. Runtime
+admits the exact child route, persists authority, data-policy, and economic
+evidence, and fences the Kiln-owned adapter invocation. The remote harness
+remains opaque: Runtime does not claim hidden model calls, tools, subagents,
+retries, cancellation, or remote terminal truth.
 
-Remote A2A transport is distinct from native Agent Tasks and from MCP. It may
+Remote execution is distinct from native Agent Tasks and from MCP. It may
 provide a bounded external result, but it does not grant route, authority, or
-write capability beyond the admitted task contract.
+write capability beyond the admitted child contract.
 
-## Recovery and migration
+## Recovery and schema
 
 Recovery is conservative. An unfenced economic run may be redispatched from
-its immutable commitment; a dispatch-fenced economic run remains held for
-settlement or reconciliation. Every native-harness run becomes `interrupted`
-after restart, whether or not it was fenced: Runtime never silently resumes an
-external harness process.
+its immutable commitment. A dispatch-fenced economic run with no task
+projection becomes `interrupted` with `result_pending` evidence and cannot be
+redispatched. Every native-harness run likewise becomes `interrupted` after
+restart: Runtime never silently resumes an external harness process.
 
-The v12 `.kiln/managed-jobs/managed-jobs.json` path is retained only as a
-one-time local-state migration input. Runtime deeply validates it, publishes
-v13 atomically at `.kiln/agent-tasks/agent-tasks.json`, rereads the published
-file, then recoverably archives the v12 source as
-`managed-jobs.v12.json`. There is no v12 writer, dual reader, public API, or
-compatibility alias.
+Only the current Agent Task schema is admitted. Obsolete or malformed local
+state is rejected without mutation; Runtime has no legacy reader, writer,
+migration, archive, or compatibility alias.
 
 ## Invariants
 
 - one Runtime owner for Agent Task and Agent Run lifecycle;
-- one deterministic run per v13 task;
+- one deterministic run per v14 task;
 - one explicit route and policy decision before dispatch;
 - native harnesses retain native loops, tools, and subagents;
 - available models never imply an executable route;
@@ -149,7 +155,7 @@ compatibility alias.
   settlement or reconciliation;
 - replay reports stored evidence only and never manufactures history;
 - MCP is a bounded control plane, never a required subagent protocol;
-- v12 names survive only in the labeled one-time migration.
+- obsolete schema names and migration paths are absent.
 
 ## Delivered issue boundaries
 

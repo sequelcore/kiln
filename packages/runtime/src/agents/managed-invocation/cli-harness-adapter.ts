@@ -49,6 +49,13 @@ import {
 } from "./resource-context.js";
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 import { createWorkspaceRootReferencePattern } from "./session-events.js";
+import {
+  ManagedExternalInvocationCommittedError,
+  prepareManagedExternalInvocationActionClaim,
+  managedExternalInvocationDigest,
+  requirePersistedAuthorityAdmission,
+  type ManagedExternalInvocationClaimSettlement,
+} from "./external-invocation-action-claim.js";
 
 export interface ManagedCliHarnessAdapterConfig {
   readonly providerId: string;
@@ -178,6 +185,14 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   }
 
   async invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord> {
+    const externalActionClaim = input.externalActionClaim;
+    if (externalActionClaim === undefined) {
+      throw new Error("Managed CLI harness invocation requires an external action claim context.");
+    }
+    const childAuthorityAdmission = requirePersistedAuthorityAdmission({
+      authorityAdmission: input.childAuthorityAdmission?.bundle,
+      request: input.request,
+    });
     const request = input.request;
     const childSessionId = `${request.parentSessionId}:managed:${request.invocationId}`;
     const cwd = request.authority.workingDirectory.path;
@@ -222,6 +237,35 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       } : {}),
     });
     const collected = createEmptyCollectedEvidence();
+    const externalClaim = await prepareManagedExternalInvocationActionClaim({
+      context: externalActionClaim,
+      request,
+      admission: input.admission,
+      authorityAdmission: childAuthorityAdmission,
+      effectKind: "cli-run",
+      effect: {
+        childSessionId,
+        cwd,
+        providerId: this.providerId,
+        model: this.model,
+        prompt: managedExternalInvocationDigest(prompt),
+        system: managedExternalInvocationDigest(system),
+      },
+      abortSignal: input.abortSignal,
+    });
+    externalClaim.permit.consume();
+    const settleExternalClaim = (
+      settlement: ManagedExternalInvocationClaimSettlement,
+    ): void => {
+      if (externalClaim.settlementAttempted) return;
+      externalClaim.settlementAttempted = true;
+      try {
+        externalActionClaim.store.settle(externalClaim.permit, settlement);
+        externalClaim.settled = true;
+      } catch (error) {
+        throw new ManagedExternalInvocationCommittedError(error, externalClaim.claim.claimId);
+      }
+    };
     const runPromise = this.collectRunEvidence(session, {
       kilnSessionId: childSessionId,
       prompt,
@@ -235,9 +279,37 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     input.registerAdapterCompletion(runPromise);
     const timeoutPromise = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
     const cancelPromise = abortSignalPromise(input.abortSignal).then(() => CANCELLED);
-    const raced = await Promise.race([runPromise, timeoutPromise, cancelPromise]);
+    let raced: CollectedCliHarnessEvidence | typeof TIMEOUT | typeof CANCELLED;
+    try {
+      raced = await Promise.race([runPromise, timeoutPromise, cancelPromise]) as
+        CollectedCliHarnessEvidence | typeof TIMEOUT | typeof CANCELLED;
+    } catch (error) {
+      let settlementFailure: unknown;
+      try {
+        settleExternalClaim({ kind: "unknown", reason: "cli-session-run-failed" });
+      } catch (settlementError) {
+        settlementFailure = settlementError;
+      }
+      let disposalFailure: unknown;
+      try {
+        await this.disposeSession(session, collected);
+      } catch (disposeError) {
+        disposalFailure = disposeError;
+      }
+      if (settlementFailure !== undefined || disposalFailure !== undefined) {
+        const failures = [error, settlementFailure, disposalFailure].filter(
+          (failure): failure is unknown => failure !== undefined,
+        );
+        throw new ManagedExternalInvocationCommittedError(
+          failures.length === 1 ? failures[0] : new AggregateError(failures, "Managed CLI claimed action cleanup failed."),
+          externalClaim.claim.claimId,
+        );
+      }
+      throw new ManagedExternalInvocationCommittedError(error, externalClaim.claim.claimId);
+    }
 
     if (typeof raced === "symbol" && raced === CANCELLED) {
+      settleExternalClaim({ kind: "interrupted", reason: "cli-session-run-interrupted" });
       runPromise.catch(() => undefined);
       await this.disposeSession(session, collected);
       const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
@@ -268,9 +340,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       const privatePlanFailure = privatePlanVersionMismatch || cleanupFailure;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input, childSessionId),
-        lifecycleState: privatePlanFailure ? "failed" : "cancelled",
-        ...(privatePlanFailure ? {
-          diagnostics: [{
+        lifecycleState: "failed",
+        ...({
+          diagnostics: [
+            ...(privatePlanFailure ? [{
             uri: managedInvocationUri(
               request.invocationId,
               privatePlanVersionMismatch ? "diagnostics" : "private-plan-artifacts-cleanup",
@@ -279,13 +352,15 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
             classification: privatePlanVersionMismatch
               ? "harness_version_mismatch" as const
               : "private_artifact_cleanup_failed" as const,
-          }],
-        } : {}),
+            }] : []),
+            externalActionUnknownDiagnostic(request.invocationId),
+          ],
+        }),
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
           provenance: runtimeGeneratedHandoffProvenance(this.model),
-          summary: "Managed CLI harness invocation cancelled.",
+          summary: "Managed CLI harness action outcome is unknown after the external action claim was consumed.",
           ...(this.providerId === "claude" ? { summaryAuthority: "runtime-derived" as const } : {}),
           resourceUris: writeEvidence.resultResourceUris,
           memoryWriteProposalUris: [],
@@ -296,6 +371,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     }
 
     if (typeof raced === "symbol") {
+      settleExternalClaim({ kind: "interrupted", reason: "cli-session-run-timed-out" });
       runPromise.catch(() => undefined);
       await this.disposeSession(session, collected);
       const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
@@ -326,9 +402,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       const privatePlanFailure = privatePlanVersionMismatch || cleanupFailure;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input, childSessionId),
-        lifecycleState: privatePlanFailure ? "failed" : "timed_out",
-        diagnostics: [privatePlanFailure
-          ? {
+        lifecycleState: "failed",
+        diagnostics: [
+          ...(privatePlanFailure ? [{
               uri: managedInvocationUri(
                 request.invocationId,
                 privatePlanVersionMismatch ? "diagnostics" : "private-plan-artifacts-cleanup",
@@ -337,19 +413,14 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
               classification: privatePlanVersionMismatch
                 ? "harness_version_mismatch" as const
                 : "private_artifact_cleanup_failed" as const,
-            }
-          : {
-              uri: managedInvocationUri(request.invocationId, "timeout"),
-              kind: "timeout" as const,
-            }],
+            }] : []),
+          externalActionUnknownDiagnostic(request.invocationId),
+        ],
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
           provenance: runtimeGeneratedHandoffProvenance(this.model),
-          summary: formatTimeoutSummary({
-            timeoutMs: request.authority.timeoutMs,
-            childSessionId,
-          }),
+          summary: "Managed CLI harness action outcome is unknown after the external action claim was consumed.",
           ...(this.providerId === "claude" ? { summaryAuthority: "runtime-derived" as const } : {}),
           resourceUris: [
             managedInvocationUri(request.invocationId, "timeout"),
@@ -362,6 +433,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       });
     }
 
+    settleExternalClaim({ kind: "success" });
     await this.disposeSession(session, collected);
     const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
     const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
@@ -729,6 +801,14 @@ function transcriptPointer(invocationId: string): ManagedAgentInvocationRecord["
     truncated: false,
     persisted: true,
     retention: "session",
+  };
+}
+
+function externalActionUnknownDiagnostic(invocationId: string): NonNullable<ManagedAgentInvocationRecord["diagnostics"]>[number] {
+  return {
+    uri: managedInvocationUri(invocationId, "external-action-unknown"),
+    kind: "failure",
+    classification: "unknown_failure",
   };
 }
 
@@ -1118,18 +1198,6 @@ function requiresApprovedWorkspaceWriteEvidence(request: ManagedAgentInvocationR
 
 function hasCompletedWorkspaceWriteEvidence(writeEvidence: ReturnType<typeof collectWriteEvidence>): boolean {
   return writeEvidence.evidence.some((evidence) => evidence.kind === "write-attempt-completed");
-}
-
-function formatTimeoutSummary(input: {
-  readonly timeoutMs: number;
-  readonly childSessionId: string;
-}): string {
-  return [
-    `Managed CLI harness invocation timed out after ${input.timeoutMs}ms.`,
-    `Child session: ${input.childSessionId}.`,
-    "No completed child handoff was produced before timeout.",
-    "Inspect the transcript and timeout diagnostic resources for replayable route, authority, context, and terminal-state evidence.",
-  ].join(" ");
 }
 
 function managedInvocationUri(invocationId: string, resource: string): string {

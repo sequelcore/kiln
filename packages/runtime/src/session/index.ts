@@ -6,6 +6,48 @@ export { assertPersistableAuthorityAdmissionBundle } from "./authority-admission
 export type { AuthorityAdmissionEvidenceStore } from "./authority-admission-evidence.js";
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
 export {
+  RuntimeModelRoundCommittedError,
+  RuntimeModelRoundPreDispatchCancellationError,
+  RuntimeModelRoundDispatchService,
+  defineRuntimeModelRoundActionClaim,
+  runtimeModelRoundEffectIdentity,
+  createRuntimeModelRoundPermitId,
+  readRuntimeModelRoundAdmission,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+export type {
+  RuntimeModelRoundActionClaim,
+  RuntimeModelRoundActionClaimId,
+  RuntimeModelRoundActionClaimPermit,
+  RuntimeModelRoundActionClaimStore,
+  RuntimeModelRoundAdmissionId,
+  RuntimeModelRoundAdmissionReceipt,
+  RuntimeModelRoundDigest,
+  RuntimeModelRoundDispatchContext,
+  RuntimeModelRoundDispatchInput,
+  RuntimeModelRoundDispatchState,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+export {
+  RuntimeToolActionCommittedError,
+  RuntimeToolActionPreDispatchCancellationError,
+  RuntimeToolActionDispatchService,
+  defineRuntimeToolActionClaim,
+  runtimeToolActionClaimIdFor,
+  runtimeToolActionEffectIdentity,
+  createRuntimeToolActionPermitId,
+  assertRuntimeToolActionClaim,
+} from "../execution-kernel/runtime-tool-action-claim.js";
+export type {
+  RuntimeToolActionClaim,
+  RuntimeToolActionClaimId,
+  RuntimeToolActionClaimPermit,
+  RuntimeToolActionClaimStore,
+  RuntimeToolActionDigest,
+  RuntimeToolActionAdmissionReceipt,
+  RuntimeToolActionClaimsContext,
+  RuntimeToolActionDispatchInput,
+  RuntimeToolActionDispatchState,
+} from "../execution-kernel/runtime-tool-action-claim.js";
+export {
   prepareOperatorAdoptionTurn,
   requireOperatorAdoptionDecisionPersistence,
   isGovernedGoalToolName,
@@ -34,8 +76,16 @@ export {
 } from "./effective-turn-authority.js";
 export type { EffectiveTurnAuthorityActionability } from "./effective-turn-authority.js";
 export {
-  applyEffectiveAuthorityAdmissionBundleToPerCallConfig,
   defineEffectiveAuthorityAdmissionBundle,
+  readExecutionBinding,
+  readExecutionConfigurationRevision,
+  readExecutionOperatorAdoptionDecision,
+  readExecutionRoute,
+  readExecutionToolAllowlist,
+  readExecutionToolAuthority,
+  readExecutionTurnAuthority,
+  readExecutionTurnId,
+  requireExecutionAuthorityAdmission,
   projectToolPermissionAdmissionFromPerCallConfig,
 } from "./effective-authority-admission-bundle.js";
 export type {
@@ -68,6 +118,7 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeAuthorityAdmissionCandidateConfig,
   RuntimeBuiltinToolExecutionContext,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
@@ -108,6 +159,4 @@ export type {
   EscalationSignal,
   EscalationDetector,
   DefaultEscalationDetectorConfig,
-  ContextSummarizer,
-  AgentHandoffSummarizer,
 } from "./support/index.js";

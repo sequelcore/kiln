@@ -9,7 +9,7 @@ import type { DomainYaml } from "./yaml-schema.js";
 import { validateDomainYaml } from "./yaml-schema.js";
 import { DomainYamlError } from "./yaml-parser.js";
 import { computeContentHash } from "../package/security.js";
-import type { PackageToolsConfig, PackageKnowledgeConfig } from "../package/types.js";
+import type { PackageToolsConfig } from "../package/types.js";
 import type { DomainPackageManifest } from "../package/types.js";
 
 // Re-export DomainPackageManifest type (defined in package/types.ts)
@@ -34,7 +34,6 @@ export function parseDomainPackageYaml(
     author?: string;
     skills?: readonly string[];
     tools?: { server: string };
-    knowledge?: { examples?: string; gates?: string };
   };
 
   const config: DomainConfig = {
@@ -56,13 +55,6 @@ export function parseDomainPackageYaml(
     ? { server: yaml.tools.server }
     : null;
 
-  const knowledge: PackageKnowledgeConfig | null = yaml.knowledge
-    ? {
-        ...(yaml.knowledge.examples !== undefined ? { examples: yaml.knowledge.examples } : {}),
-        ...(yaml.knowledge.gates !== undefined ? { gates: yaml.knowledge.gates } : {}),
-      }
-    : null;
-
   return {
     name: yaml.name,
     type: "domain",
@@ -73,7 +65,6 @@ export function parseDomainPackageYaml(
     config,
     skills: yaml.skills ?? [],
     tools,
-    knowledge,
   };
 }
 

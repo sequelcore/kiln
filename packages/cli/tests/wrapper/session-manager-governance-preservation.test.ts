@@ -104,14 +104,14 @@ describe("SessionManager governance context preservation under budget pressure",
     expect(requiredTokens + smallOptionalTokens + largeOptionalTokens).toBeGreaterThan(turnBudget);
 
     const smallOptionalCandidate: ContextCandidate = {
-      kind: "knowledge",
+      kind: "memory",
       source: "synthetic:small-optional",
       content: smallOptionalContent,
       required: false,
       score: 0.1,
     };
     const largeOptionalCandidate: ContextCandidate = {
-      kind: "knowledge",
+      kind: "memory",
       source: "synthetic:large-optional",
       content: largeOptionalContent,
       required: false,

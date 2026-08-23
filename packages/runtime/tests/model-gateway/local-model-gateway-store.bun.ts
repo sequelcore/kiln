@@ -14,6 +14,7 @@ import { CredentialWatcher } from "../../src/agents/credential-pool/credential-w
 import { WebhookDedup } from "../../src/gateway/webhook-dedup.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { Database } from "bun:sqlite";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const secret = "synthetic-file-backed-replay-secret-32-bytes";
 const fingerprint = { rawBody: "{}", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn", route: { providerId: "codex-oauth", providerModelId: "model", scope: "virtual:model" }, toolExecutionMode: "caller-owned" };
@@ -27,6 +28,23 @@ const executionCatalog = defineExecutionCatalog({
 const gatewayConfig: ModelGatewayConfig = { port: 4901, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, targetId: "route", capabilities: ["text"], affinity: { continuity: "none" } }] };
 const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: async () => [] };
 
+function authorityBundle() {
+  const revision = { revisionSetId: "bun-store-test", revisions: { modelGateway: ("sha256:" + "a".repeat(64)) as `sha256:${string}` } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "session", turnId: "turn", admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: { skillCatalog: { catalogId: "bun", revision: ("sha256:" + "b".repeat(64)) as `sha256:${string}`, skillIds: [] }, authorityCeiling: { maximumAuthority: "read_only", reason: "fixture" } },
+    turn: {
+      authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only", sourcePolicy: "runtime_surface_projection", reason: "fixture", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
+      workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
+      effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+      budget: { status: "not-configured" },
+      execution: { status: "routed", route: { routeId: "route", providerId: "codex-oauth", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) } },
+    },
+  });
+}
+
 function store(path: string): LocalModelGatewayStore {
   return new LocalModelGatewayStore({ path, replaySecret: secret, replayTtlMs: 5_000, replayMaxEntries: 20 });
 }
@@ -39,7 +57,11 @@ function requireDispatch(decision: ModelGatewayReplayDecision) {
 async function child(mode: "claimed" | "committed", path: string): Promise<void> {
   const authority = store(path);
   const claim = requireDispatch(authority.claim(authority.fingerprint(fingerprint)));
-  if (mode === "committed") authority.markCommitted(claim.key, claim.fence);
+  if (mode === "committed") {
+    const admitted = authorityBundle();
+    authority.persistAdmission(claim.key, claim.fence, admitted);
+    authority.claimAction(claim.key, claim.fence, { admissionId: admitted.admissionId, effectIdentity: "model-round:bun-test" });
+  }
   process.exit(0);
 }
 
@@ -53,13 +75,24 @@ async function spawnCrash(mode: "claimed" | "committed", path: string): Promise<
 async function main(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "kiln-real-sqlite-"));
   const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `bun-store-${crypto.randomUUID()}`, configurationRevision: "fixture" });
-  const modelGatewayExecution = { executionCatalog, executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog), executionCandidates: noCandidates, executionDispatcher: { resolve: async () => { throw new Error("No dispatcher is available in this fixture."); } }, accountCapacityAuthority };
+  const modelGatewayExecution = {
+    executionCatalog,
+    executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog),
+    executionCandidates: noCandidates,
+    executionDispatcher: { resolve: async () => { throw new Error("No dispatcher is available in this fixture."); } },
+    accountCapacityAuthority,
+    budgetAdmission: { admit: async () => ({ status: "admitted" as const, reason: "observed-below-limit" as const, observation: { observedTokens: 1, source: "fixture" } }) },
+    authorityAdmission: { compose: async () => authorityBundle() },
+  };
   try {
     const durablePath = join(root, "durable.sqlite");
     const first = store(durablePath);
     const key = first.fingerprint(fingerprint);
     const claim = requireDispatch(first.claim(key));
-    first.markCommitted(key, claim.fence); first.complete(key, claim.fence, completed); first.close();
+    const admitted = authorityBundle();
+    first.persistAdmission(key, claim.fence, admitted);
+    first.claimAction(key, claim.fence, { admissionId: admitted.admissionId, effectIdentity: "model-round:bun-test" });
+    first.complete(key, claim.fence, completed); first.close();
     if ((await stat(durablePath)).size === 0) throw new Error("SQLite database was not written to disk.");
     const reopened = store(durablePath);
     const replay = reopened.claim(key);
@@ -129,7 +162,7 @@ modelGateway:
     CredentialWatcher.prototype.start = async function () { watcherStartCalls += 1; };
     CredentialWatcher.prototype.stop = function () { watcherStopsBeforeGuiValidation += 1; return originalWatcherStopBeforeGuiValidation.call(this); };
     WebhookDedup.prototype.close = function () { dedupClosesBeforeGuiValidation += 1; return originalDedupCloseBeforeGuiValidation.call(this); };
-    globalThis.setInterval = (() => { intervalCreationCalls += 1; return 0 as unknown as ReturnType<typeof setInterval>; }) as typeof setInterval;
+    globalThis.setInterval = (() => { intervalCreationCalls += 1; return 0 as unknown as ReturnType<typeof setInterval>; }) as unknown as typeof setInterval;
     let guiValidationError: unknown;
     try {
       await startGateway(startupConfig, { guiDistPath: missingGuiDist, modelGatewayExecution, modelGatewayListener: () => { modelListenerCallsBeforeGuiValidation += 1; throw new Error("Model listener must not run before GUI validation."); } });

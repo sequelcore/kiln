@@ -40,7 +40,6 @@ export type {
   ModelTurnResult,
   ModelTurnUsage,
 } from "./model-turn.js";
-export { dispatchOneModelRound } from "./one-round-dispatcher.js";
 export type { OneRoundModelDispatcher, OneRoundModelDispatchInput } from "./one-round-dispatcher.js";
 export { createExecutionAccountPolicyId, createExecutionAccountRef } from "./account-identity.js";
 export type { ExecutionAccountPolicyId, ExecutionAccountRef } from "./account-identity.js";

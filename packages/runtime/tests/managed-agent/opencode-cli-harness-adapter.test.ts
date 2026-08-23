@@ -15,11 +15,11 @@ import { serializeSession, deserializeSession } from "../../src/session/persiste
 import { appendManagedInvocationSessionEvents } from "../../src/agents/managed-invocation/session-events.js";
 import {
   ManagedCliHarnessAdapter,
-  RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   CliSession,
 } from "../../src/execution/cli-session-contract.js";
+import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 
 function deferred<T = void>(): {
   readonly promise: Promise<T>;
@@ -217,7 +217,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       factory: () => ({ run, dispose: vi.fn(async () => undefined) }),
     });
 
-    const result = await new RuntimeManagedAgentInvocationService().invoke(
+    const result = await createExternalHarnessTestService().invoke(
       request,
       adapter,
       snapshotInputFor(request),
@@ -254,7 +254,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     }));
     const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
 
-    await new RuntimeManagedAgentInvocationService().invoke(request, adapter, snapshotInputFor(request));
+    await createExternalHarnessTestService().invoke(request, adapter, snapshotInputFor(request));
 
     expect(factory.mock.calls[0]?.[2]?.structuredOutput?.schema).toMatchObject({
       type: "object",
@@ -274,7 +274,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     }));
     const adapter = new ManagedCliHarnessAdapter({ providerId: "claude", model: "claude-sonnet-4-5-20250929", factory });
 
-    await new RuntimeManagedAgentInvocationService().invoke(request, adapter, snapshotInputFor(request));
+    await createExternalHarnessTestService().invoke(request, adapter, snapshotInputFor(request));
 
     expect(factory.mock.calls[0]?.[2]?.permissionPolicy).toEqual({ approval: "untrusted", sandbox: "read-only" });
   });
@@ -301,7 +301,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       model: "sonic",
       factory,
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -424,7 +424,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       model: "sonic",
       factory,
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeRequest();
 
     const result = await service.invoke(request, adapter, {
@@ -471,7 +471,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       model: "sonic",
       factory,
     });
-    const service = new RuntimeManagedAgentInvocationService({
+    const service = createExternalHarnessTestService({
       clock: () => new Date("2026-07-01T19:00:30.000Z"),
     });
     const request = defineManagedAgentInvocationRequest({
@@ -533,7 +533,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       factory: () => ({ run, dispose }),
       resourceReader,
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const baseRequest = makeRequest();
     const request = defineManagedAgentInvocationRequest({
       ...baseRequest,
@@ -574,7 +574,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       model: "sonic",
       factory: () => ({ run, dispose }),
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -608,7 +608,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       model: "sonic",
       factory,
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const baseRequest = makeRequest();
     const request = defineManagedAgentInvocationRequest({
       ...baseRequest,
@@ -647,7 +647,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       observedAt: "2026-07-01T19:00:00.000Z",
       validUntil: "2026-07-01T19:05:00.000Z",
     });
-    const service = new RuntimeManagedAgentInvocationService({
+    const service = createExternalHarnessTestService({
       authorityObserver: { observe },
       clock: () => new Date("2026-07-01T19:00:30.000Z"),
     });
@@ -672,7 +672,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     }));
     const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
     const observe = vi.fn().mockRejectedValue(new Error("permission probe crashed"));
-    const service = new RuntimeManagedAgentInvocationService({
+    const service = createExternalHarnessTestService({
       authorityObserver: { observe },
       clock: () => new Date("2026-07-01T19:00:30.000Z"),
     });
@@ -712,7 +712,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         approval: "never", sandbox: "danger-full-access", source: "runtime-observation", proof: "proven",
         observedAt: "2026-07-01T19:00:10.000Z", validUntil: "2026-07-01T19:05:00.000Z",
       });
-    const service = new RuntimeManagedAgentInvocationService({
+    const service = createExternalHarnessTestService({
       authorityObserver: { observe },
       clock: () => new Date("2026-07-01T19:00:30.000Z"),
     });
@@ -760,7 +760,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         scopeReduction: true,
       },
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeWriteRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -877,7 +877,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         scopeReduction: true,
       },
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeWriteRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -917,7 +917,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       model: "sonic",
       factory: () => ({ run, dispose }),
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -963,7 +963,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
           restoreReadOnlyViolations: true,
         },
       });
-      const service = new RuntimeManagedAgentInvocationService();
+      const service = createExternalHarnessTestService();
 
       const request = makeRequest();
       const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -998,7 +998,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         model: "sonic",
         factory: () => ({ run, dispose }),
       });
-      const service = new RuntimeManagedAgentInvocationService();
+      const service = createExternalHarnessTestService();
 
       const timeoutRequest = makeRequest(5000);
       const resultPromise = service.invoke(timeoutRequest, adapter, snapshotInputFor(timeoutRequest));
@@ -1021,14 +1021,18 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       if (result.status !== "completed") {
         throw new Error("Expected completed managed invocation result");
       }
-      expect(result.record.lifecycleState).toBe("timed_out");
+      expect(result.record.lifecycleState).toBe("failed");
       expect(result.record.diagnostics).toEqual([{
-        uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/timeout",
-        kind: "timeout",
+        uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/external-action-unknown",
+        kind: "failure",
+        classification: "unknown_failure",
       }]);
-      expect(result.record.resultHandoff?.summary).toContain("timed out after 5000ms");
-      expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
-      expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript and timeout diagnostic resources");
+      expect(result.record.resultHandoff?.summary).toBe(
+        "Managed CLI harness action outcome is unknown after the external action claim was consumed.",
+      );
+      expect(result.record.resultHandoff?.resourceUris).toContain(
+        "kiln://managed-agents/invocations/invocation-opencode-1/resources/timeout",
+      );
       expect(dispose).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -1065,7 +1069,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         scopeReduction: true,
       },
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
 
     const timeoutWriteRequest = makeWriteRequest(1);
     const result = await service.invoke(timeoutWriteRequest, adapter, snapshotInputFor(timeoutWriteRequest));
@@ -1074,7 +1078,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     if (result.status !== "completed") {
       throw new Error("Expected completed managed timeout result");
     }
-    expect(result.record.lifecycleState).toBe("timed_out");
+    expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
       "write-proposal-created",
       "write-proposal-approved",
@@ -1121,7 +1125,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         scopeReduction: true,
       },
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeWriteRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -1191,7 +1195,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         scopeReduction: true,
       },
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeWriteRequest();
 
     const result = await service.invoke(request, adapter, snapshotInputFor(request));
@@ -1274,7 +1278,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         ],
       })),
     };
-    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+    const service = createExternalHarnessTestService({ environmentLeaseManager });
 
     const request = makeRequest();
     const result = await service.invoke(request, adapter, snapshotInputFor(request));

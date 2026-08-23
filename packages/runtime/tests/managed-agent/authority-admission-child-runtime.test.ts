@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  ActionEffectEnvelope,
   AgentResponse,
-  AuthorityDescriptor,
-  Capability,
   ManagedAgentInvocationRequest,
   ProviderAdapter,
   ToolDefinition,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import type { ActionEffectEnvelope, AuthorityDescriptor, Capability } from "@kilnai/core/engine";
 import { defineManagedAgentInvocationRequest } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
 import {
@@ -19,6 +17,48 @@ import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
 } from "../../src/session/effective-authority-admission-bundle.js";
+import type {
+  RuntimeModelRoundActionClaim,
+  RuntimeModelRoundActionClaimPermit,
+  RuntimeModelRoundActionClaimStore,
+} from "../../src/execution-kernel/runtime-model-round-action-claim.js";
+
+const TEST_ADMISSIONS = new Map<string, EffectiveAuthorityAdmissionBundle>();
+
+function testModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const claims = new Map<string, RuntimeModelRoundActionClaim>();
+  const permits = new WeakMap<object, { consumed: boolean }>();
+  return {
+    claim(input) {
+      const state = { consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `authority-admission-test:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("test model-round permit already consumed");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeModelRoundActionClaimPermit;
+      if (claims.has(input.claimId)) throw new Error("test model-round claim already exists");
+      claims.set(input.claimId, input);
+      permits.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = permits.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state?.consumed || !claim) throw new Error("test model-round permit was not consumed");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success"
+          ? { outcome: "success" as const }
+          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+      });
+      permits.delete(permit);
+    },
+  };
+}
 
 const READ_AUTHORITY: AuthorityDescriptor = {
   level: 1,
@@ -150,7 +190,23 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
       },
       effectCeiling: WRITE_EFFECT,
       budget: { status: "not-configured" },
-      execution: { status: "not-routed" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId: "openai:foundation-readonly-plan",
+          providerId: "openai",
+          providerModelId: "gpt-test",
+          accountSelection: { mode: "exact", accountId: "authority-test-account", source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "authority test route" } },
+        binding: {
+          status: "bound",
+          routeId: "openai:foundation-readonly-plan",
+          accountId: "authority-test-account",
+          credentialId: "authority-test-credential",
+          credentialRevision: "authority-test-credential-revision",
+        },
+      },
     },
     ...overrides,
   });
@@ -165,6 +221,7 @@ function snapshotInput(childRequest: ManagedAgentInvocationRequest) {
 }
 
 function lifecycle(authorityAdmission: EffectiveAuthorityAdmissionBundle): ManagedAgentRuntimeInvocationLifecycleOptions {
+  TEST_ADMISSIONS.set(authorityAdmission.admissionId, authorityAdmission);
   return { childAuthorityAdmission: { bundle: authorityAdmission } };
 }
 
@@ -187,6 +244,8 @@ function adapter(provider: ProviderAdapter, childRequest: ManagedAgentInvocation
       ["read", READ_AUTHORITY],
       ["write", WRITE_AUTHORITY],
     ]),
+    runtimeModelRoundActionClaims: testModelRoundStore(),
+    readAuthorityAdmission: async ({ admissionId }) => TEST_ADMISSIONS.get(admissionId),
   });
 }
 
@@ -213,6 +272,10 @@ describe("managed child authority admission", () => {
       turn: {
         ...bundle().turn,
         effectCeiling: READ_EFFECT,
+        tools: {
+          allowedToolPermissions: [{ toolName: "read", authority: READ_AUTHORITY, effectEnvelope: READ_EFFECT }],
+          deniedToolNames: [],
+        },
       },
     });
     const result = await new RuntimeManagedAgentInvocationService().invoke(

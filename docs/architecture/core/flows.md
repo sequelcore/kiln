@@ -81,7 +81,6 @@ persistence.
 2. attention budget allocation
 3. user/session memory candidate collection
 4. runtime continuity summary candidate collection
-5. semantic knowledge candidate collection
 6. procedural skill candidate collection
 7. coordination state candidate collection
 8. governed merge and ordering
@@ -103,8 +102,8 @@ fallback text into model context.
 
 ## Memory Write
 
-**Trigger:** `memory_save`, lifecycle action, runtime tenant capture, session
-end, or skill capture.
+**Trigger:** `memory_save`, lifecycle action, runtime tenant capture, or session
+end.
 
 **Stages:**
 
@@ -275,9 +274,11 @@ pauses or blocks execution instead of advancing the goal.
 **Stages:**
 
 1. failure classification
-2. retry if transient
-3. fallback if provider path is exhausted
-4. checkpoint resume where available
+2. determine whether the named action-dispatch fence was crossed
+3. retry or fallback only before that fence, or through a newly admitted attempt
+   after authoritative terminal evidence
+4. checkpoint resume only where the workload contract proves the protected
+   effect was not already dispatched
 5. session rehydration
 6. degraded-mode transition when necessary
 7. recovery event emission
@@ -286,6 +287,8 @@ pauses or blocks execution instead of advancing the goal.
 
 - retry budget
 - fallback exhaustion
+- [Execution Kernel](execution-kernel.md) pre-fence/post-fence classification
+- no retry, fallback, or checkpoint resume of an ambiguous fenced attempt
 
 ## Adaptation And Learning Feedback
 

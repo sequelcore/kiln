@@ -12,7 +12,6 @@ import {
   OllamaAdapter,
   OpenAIAdapter,
   OpenRouterAdapter,
-  PooledProviderAdapter,
   type Credential,
   type CredentialOutcome,
   type DirectProviderId,
@@ -66,14 +65,6 @@ export interface DirectProviderExecutionCredential {
   readonly credentialId: string;
   readonly tier?: string;
   readonly auth: DirectProviderAuth;
-}
-
-export interface CreateDirectProviderPooledAdapterOptions {
-  readonly provider: PooledDirectProviderId;
-  readonly defaultModel?: string;
-  readonly openRouterAppUrl?: string;
-  readonly openRouterAppName?: string;
-  readonly createAdapter?: (auth: DirectProviderAuth) => ProviderAdapter;
 }
 
 export interface CreateDirectProviderExactAdapterOptions {
@@ -254,20 +245,6 @@ export class DirectProviderCredentialPoolService {
     await this.healthStore.recordOutcome(provider, credentialId, outcome, cooldownForOutcome(outcome));
   }
 
-  async createPooledAdapter(options: CreateDirectProviderPooledAdapterOptions): Promise<ProviderAdapter> {
-    const pool = await this.createPool(options.provider);
-    this.observability?.register(options.provider, pool);
-    return new PooledProviderAdapter<DirectProviderAuth>({
-      name: options.provider,
-      deliberationTransport: options.provider === "anthropic" || options.provider === "openai"
-        ? "native-level"
-        : "none",
-      pool,
-      createAdapter: options.createAdapter ?? ((auth) => this.createAdapter(options, auth)),
-      mapError: mapDirectProviderError,
-    });
-  }
-
   /** Materializes the credential already resolved by the fenced execution. */
   async createAdapterFromCredential(options: CreateDirectProviderExactAdapterOptions): Promise<ProviderAdapter> {
     const credential = options.credential;
@@ -316,6 +293,7 @@ export class DirectProviderCredentialPoolService {
     this.watcher?.onProviderChanged(provider, async () => {
       pool.reloadCredentials(await this.resolveCredentials(provider));
     });
+    this.observability?.register(provider, pool);
     return pool;
   }
 
@@ -391,7 +369,7 @@ export class DirectProviderCredentialPoolService {
   }
 
   private createAdapter(
-    options: CreateDirectProviderPooledAdapterOptions,
+    options: DirectProviderAdapterConfig,
     auth: DirectProviderAuth,
   ): ProviderAdapter {
     switch (options.provider) {
@@ -435,6 +413,13 @@ export class DirectProviderCredentialPoolService {
         });
     }
   }
+}
+
+interface DirectProviderAdapterConfig {
+  readonly provider: PooledDirectProviderId;
+  readonly defaultModel?: string;
+  readonly openRouterAppUrl?: string;
+  readonly openRouterAppName?: string;
 }
 
 export function isPooledDirectProviderId(provider: DirectProviderId): provider is PooledDirectProviderId {

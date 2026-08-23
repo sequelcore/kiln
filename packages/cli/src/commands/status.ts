@@ -8,7 +8,6 @@ import { effectiveConfigField } from "../application/effective-config-projection
 import type { SkillPluginProvider } from "../config/skill-source-inventory.js";
 import { describeWebToolConfiguration } from "../config/web-tools-config.js";
 import { describeInteractiveUseConfiguration } from "../config/interactive-use-config.js";
-import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import {
   resolveManagedInvocationToolOptions,
@@ -97,7 +96,6 @@ export async function statusCommand(
         surface: "operator",
         isProviderAvailable: (provider) => engineAvailability.get(provider),
         providerModelEligibility: managedAgentProviderModels,
-        directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
         builtinToolOptions,
         compositionMode: "candidate-admission",
       });

@@ -1,7 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { ContentClassifier } from "../../src/safety/content-classifier.js";
 import type { ContentConfig } from "../../src/engine/domain/safety-config.js";
-import type { ContentDeepScanProvider } from "../../src/safety/content-classifier.js";
 
 function makeConfig(overrides: Partial<ContentConfig> = {}): ContentConfig {
   return {
@@ -89,39 +88,10 @@ describe("ContentClassifier", () => {
     });
   });
 
-  describe("classifyDeep", () => {
-    it("fail-open: provider throws, returns empty scores", async () => {
-      const classifier = new ContentClassifier(makeConfig());
-      const provider: ContentDeepScanProvider = {
-        classify: vi.fn().mockRejectedValue(new Error("Service unavailable")),
-      };
-      const result = await classifier.classifyDeep("some text", provider);
-      expect(result.scores).toHaveLength(0);
-      expect(result.tier).toBe("deep");
-    });
-  });
-
-  describe("classify (combined)", () => {
-    it("merges heuristic and deep results, taking max confidence", async () => {
-      const classifier = new ContentClassifier(makeConfig({ deepScan: true }));
-      const provider: ContentDeepScanProvider = {
-        classify: vi.fn().mockResolvedValue([
-          { category: "hate", confidence: 0.9 },
-        ]),
-      };
-      // "racist" will be caught by heuristic with weight 0.3
-      const result = await classifier.classify("racist content", provider);
-      expect(result.tier).toBe("deep");
-      const hateScore = result.scores.find((s) => s.category === "hate");
-      expect(hateScore).toBeDefined();
-      // max of heuristic (0.3) and deep (0.9) = 0.9
-      expect(hateScore!.confidence).toBe(0.9);
-    });
-
-    it("returns heuristic result when deepScan disabled", async () => {
-      const classifier = new ContentClassifier(makeConfig({ deepScan: false }));
-      const result = await classifier.classify("some text");
-      expect(result.tier).toBe("heuristic");
-    });
+  it("classify remains deterministic", async () => {
+    const classifier = new ContentClassifier(makeConfig());
+    const result = await classifier.classify("racist content");
+    expect(result.tier).toBe("heuristic");
+    expect(result.scores.some((score) => score.category === "hate")).toBe(true);
   });
 });

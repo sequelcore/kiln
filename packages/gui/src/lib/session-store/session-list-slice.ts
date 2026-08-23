@@ -80,7 +80,6 @@ export const createSessionListSlice: StateCreator<
         contextUsage: undefined,
         authorityStatus: null,
         browserLiveViewportFrame: null,
-        browserOperatorInputAck: null,
       } : {}),
     });
   },

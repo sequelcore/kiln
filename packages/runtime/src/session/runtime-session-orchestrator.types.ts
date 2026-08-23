@@ -1,5 +1,6 @@
 import type {
   ExecutionBillingMode,
+  ArtifactResourceStore,
   AuxiliaryModalityRoute,
   MultimodalArtifact,
   MultimodalCapability,
@@ -48,18 +49,26 @@ import type {
 } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
 import type { ToolResultSanitizer } from "@kilnai/core";
-import type { ToolRAG } from "@kilnai/core";
 import type { RateLimiter } from "@kilnai/core";
 import type { ToolCache } from "@kilnai/core";
 import type { ModelRouter } from "@kilnai/core";
 import type { ModelCapabilityRegistry } from "@kilnai/core";
 import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
+import type { ManagedExternalInvocationActionClaimContext } from "../agents/managed-invocation/external-invocation-action-claim.js";
+import type { EffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-authority.js";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
-import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "./runtime-configuration-revision-pin.js";
+import type {
+  RuntimeModelRoundActionClaimStore,
+  RuntimeModelRoundAdmissionReceipt,
+  RuntimeModelRoundDigest,
+  RuntimeModelRoundDispatchState,
+} from "../execution-kernel/runtime-model-round-action-claim.js";
+import type { RuntimeToolActionClaimsContext } from "../execution-kernel/runtime-tool-action-claim.js";
+import type { RuntimeMediaActionClaimContext } from "../execution-kernel/runtime-media-action-claim.js";
 
 export type {
   EffectiveTurnAuthorityCompleteness,
@@ -132,18 +141,20 @@ export interface OrchestratorDeps {
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;
   readonly escalationDetector?: EscalationDetector;
-  readonly contextSummarizer?: ContextSummarizer;
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthorizer?: ToolAuthorizer;
   readonly toolResultSanitizer?: ToolResultSanitizer;
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly auditLog?: AuditLog;
-  readonly toolRAG?: ToolRAG;
   readonly toolCache?: ToolCache;
   readonly modelRouter?: ModelRouter;
   readonly modelCapabilityRegistry?: ModelCapabilityRegistry;
   readonly providerPool?: ReadonlyMap<string, ProviderAdapter>;
   readonly multimodalDelegationRoutes?: readonly RuntimeMultimodalDelegationRoute[];
+  /** Workload-owned claim context for external CLI/remote multimodal adapters. */
+  readonly externalActionClaim?: ManagedExternalInvocationActionClaimContext;
+  /** Full persisted parent admission bound to the external multimodal claim. */
+  readonly externalAuthorityAdmission?: EffectiveAuthorityAdmissionBundle;
   readonly multimodalTransformRoutes?: readonly RuntimeMultimodalTransformRoute[];
   readonly dangerousCommandDetector?: DangerousCommandDetectorLike;
 }
@@ -173,6 +184,14 @@ export interface RuntimeMultimodalTransformExecutionInput {
   readonly sourceArtifacts: readonly MultimodalArtifact[];
   readonly sourceParts: readonly RuntimeMultimodalTransformSourcePart[];
   readonly userParts: readonly ContentPart[];
+  /** Present for trusted consequential routes such as the local OCR command. */
+  readonly mediaActionClaims?: RuntimeMediaActionClaimContext;
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+  readonly attemptId?: string;
+  readonly callerId?: string;
+  readonly idempotencyKey?: string;
+  readonly logicalSendSlotPrefix?: string;
+  readonly abortSignal?: AbortSignal;
 }
 
 export interface RuntimeMultimodalTransformExecutionResult {
@@ -188,9 +207,13 @@ export interface RuntimeMultimodalTransformRoute {
   readonly outputModality: MultimodalTransportModality;
   readonly provenance: string;
   readonly degradation: string;
-  readonly execute: (
-    input: RuntimeMultimodalTransformExecutionInput,
-  ) => Promise<RuntimeMultimodalTransformExecutionResult>;
+  /** Closed implementation identity; callers cannot inject an opaque runner. */
+  readonly implementation: "runtime-built-in";
+  readonly artifactStore?: ArtifactResourceStore;
+  readonly artifactNamespace?: string;
+  readonly ocrLanguage?: string;
+  readonly maxImageEdge?: number;
+  readonly jpegQuality?: number;
 }
 
 export interface ToolExecutionSummary {
@@ -293,19 +316,33 @@ export interface ModelRoutingPolicyConfig {
   readonly now?: Date;
 }
 
+/**
+ * Canonical direct-provider model-round context. Each workload owns the
+ * durable store and admission readback; Runtime owns sequencing only.
+ */
+export interface RuntimeModelRoundDispatchContext {
+  readonly admission: RuntimeModelRoundAdmissionReceipt;
+  readonly intentFingerprint: RuntimeModelRoundDigest;
+  readonly attemptId: string;
+  readonly routeId: string;
+  readonly accountId: string;
+  readonly credentialRevision: string;
+  /** Persisted parent-turn identity when this context executes in a child session. */
+  readonly admissionReadbackSessionId?: string;
+  readonly admissionReadbackTurnId?: string;
+  readonly readAdmission: () => RuntimeModelRoundAdmissionReceipt | Promise<RuntimeModelRoundAdmissionReceipt>;
+  readonly store: RuntimeModelRoundActionClaimStore;
+  readonly state?: RuntimeModelRoundDispatchState;
+}
+
 export interface PerCallToolConfig {
-  readonly turnId?: string;
+  /** Sole Runtime execution-authority source. Omitted only by non-dispatching construction seams. */
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   /** Correlation-only ingress identity; never used for authority or replay. */
   readonly turnCorrelationId?: string;
-  /** Runtime-owned A1 adoption authority for this operator turn. */
-  readonly operatorAdoptionDecision?: OperatorAdoptionDecisionAuthority;
   /** Per-turn temporal reference, derived at the operator surface rather than persisted in the session prompt. */
   readonly temporalContext?: TurnTemporalContext;
   readonly executionScope?: SessionExecutionScope;
-  /** Exact account/credential identity fenced for this operator turn. */
-  readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
-  /** Exact secret-free provider/model route derived from the persisted admission bundle. */
-  readonly admittedExecutionRoute?: AdmittedExecutionRoute;
   /** Credential material resolved after the dispatch fence. */
   readonly executionCredential?: unknown;
   readonly workingDirectory?: string;
@@ -337,8 +374,6 @@ export interface PerCallToolConfig {
   readonly deliberationResolution?: DeliberationResolution;
   readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly communicationResolution?: CommunicationResolution;
-  readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
-  readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly contextPolicy?: {
@@ -346,9 +381,38 @@ export interface PerCallToolConfig {
     readonly configurationHash: string;
     readonly contextAllocationMode: "whole-block" | "segmented" | "retrieval-on-demand";
   };
-  /** Secret-free configuration revision evidence captured at turn admission. */
+  /**
+   * Workload-owned one-claim boundary for each direct-provider model round.
+   * Account capacity remains a separate resource commitment.
+   */
+  readonly runtimeModelRoundDispatch?: RuntimeModelRoundDispatchContext;
+  /**
+   * Workload-owned one-claim boundary for each consequential tool/MCP effect.
+   * Observe calls with a trusted resolved envelope may execute without it.
+   */
+  readonly runtimeToolActionClaims?: RuntimeToolActionClaimsContext;
+  /** Workload-owned owner for consequential STT/TTS/multimodal effects. */
+  readonly runtimeMediaActionClaims?: RuntimeMediaActionClaimContext;
+  /** Full persisted bundle and stable identities for a consequential transform. */
+  readonly runtimeMediaActionAdmission?: EffectiveAuthorityAdmissionBundle;
+  readonly runtimeMediaActionAttemptId?: string;
+  readonly runtimeMediaActionCallerId?: string;
+  readonly runtimeMediaActionIdempotencyKey?: string;
+}
+
+/**
+ * Mutable pre-admission candidates. These values exist only while the Runtime
+ * owner computes and persists an EffectiveAuthorityAdmissionBundle; they are
+ * never accepted by consequential execution APIs.
+ */
+export interface RuntimeAuthorityAdmissionCandidateConfig extends Omit<PerCallToolConfig, "authorityAdmission"> {
+  readonly turnId?: string;
+  readonly operatorAdoptionDecision?: OperatorAdoptionDecisionAuthority;
+  readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+  readonly admittedExecutionRoute?: AdmittedExecutionRoute;
+  readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
+  readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly runtimeConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
-  /** Secret-free revision evidence fixed when the logical session was created. */
   readonly runtimeSessionConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;
 }
 

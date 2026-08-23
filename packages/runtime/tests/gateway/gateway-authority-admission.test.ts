@@ -5,6 +5,9 @@ import type { AccountCapacityRecord, ExecutionAccountCapacityAuthority } from ".
 import { FixedRouteGatewayAuthorityAdmission } from "../../src/gateway/gateway-authority-admission.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import type { ChannelEgressActionClaimContext } from "../../src/channels/channel-egress-action-claim.js";
+import type { RuntimeMediaActionClaimContext } from "../../src/execution-kernel/runtime-media-action-claim.js";
 
 const catalog = defineExecutionCatalog({
   accounts: [{ id: "account-1", providerId: "provider-1", credentialId: "credential-1", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "capacity-1", subscriptionClass: "subscription", quotaClassId: "quota-1", creditPosture: "disabled", overagePosture: "disabled" } }],
@@ -32,14 +35,40 @@ async function fixture(overrides: { readonly persistBundle?: (bundle: unknown) =
     fenceAccountCapacityDispatch: vi.fn(() => capacityRecord("dispatch-fenced")),
     settleAccountCapacity: vi.fn(() => capacityRecord("released")),
   };
-  const persist = vi.fn(overrides.persistBundle ?? (() => undefined));
+  let persistedBundle: EffectiveAuthorityAdmissionBundle | undefined;
+  const persist = vi.fn(overrides.persistBundle ?? ((bundle: unknown) => { persistedBundle = bundle as EffectiveAuthorityAdmissionBundle; }));
+  const channelEgressActionClaims: ChannelEgressActionClaimContext = {
+    ownerGeneration: "gateway-authority-test",
+    readAdmission: async () => persistedBundle,
+    store: {
+      claim: (claim: never) => ({ claimId: claim.claimId, permitId: `channel-permit:${claim.claimId}`, consume: vi.fn() } as never),
+      settle: vi.fn(),
+    },
+  };
+  const runtimeMediaActionClaims: RuntimeMediaActionClaimContext = {
+    ownerGeneration: "gateway-authority-test-media",
+    readAdmission: async () => persistedBundle,
+    store: {
+      claim: (claim: never) => ({ claimId: claim.claimId, consume: vi.fn() } as never),
+      settle: vi.fn(),
+    },
+  };
   const routes = overrides.duplicateRoute ? [...catalog.routes, { ...catalog.routes[0]!, id: "route-duplicate" }] : catalog.routes;
   const admission = new FixedRouteGatewayAuthorityAdmission({
     appName: "app-1", routeId: "route-1", snapshot: { catalog: { ...catalog, routes }, configurationRevision: { revisionSetId: "gateway-r1", revisions: { global: "global-r1" } } }, sessionRegistry,
     candidates: { resolve: vi.fn(async () => [{ candidate: { accountId: "account-1", safety: "eligible", health: "healthy", quota: "available", capacity: "available", economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "currency", currency: "USD" } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("configured:account-1"), route: { providerId: "provider-1", providerModelId: "model-1", scope: "operator-session" }, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "capacity-1", credentialRevisionId: "b".repeat(64), usageEvidence: { health: "healthy", freshness: "fresh", availability: "available" }, capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 } } }]) },
     accountCapacityAuthority: capacity,
     credentials: { resolve: vi.fn(async () => ({ credential: { token: "secret" }, credentialId: "credential-1", credentialRevisionId: "b".repeat(64) })) },
-    evidenceStore: { persist, loadSessionFacet: vi.fn(() => undefined) },
+    evidenceStore: {
+      persist,
+      loadSessionFacet: vi.fn(() => undefined),
+      readAdmission: vi.fn(() => persistedBundle),
+    },
+    modelRoundActionClaims: {
+      claim: vi.fn((claim: unknown) => ({ claimId: (claim as { claimId: string }).claimId, permitId: "permit" } as never)),
+      settle: vi.fn(),
+    },
+    channelEgressActionClaims, runtimeMediaActionClaims,
     persistOperatorAdoptionDecision: vi.fn(async () => undefined), createProvider: vi.fn(() => provider), now: () => new Date("2026-08-22T18:00:00.000Z"),
   });
   return { admission, capacity, persist, provider };
@@ -63,9 +92,13 @@ describe("FixedRouteGatewayAuthorityAdmission", () => {
         consequences: ["local-state"],
         idempotency: "non-idempotent",
       });
-      expect(commit.perCallConfig.turnId).toBe(commit.bundle.turnId);
-      expect(commit.perCallConfig.admittedExecutionRoute?.routeId).toBe("route-1");
+      expect(commit.perCallConfig.authorityAdmission).toBe(commit.bundle);
+      expect(commit.perCallConfig.turnId).toBeUndefined();
+      expect(commit.perCallConfig.admittedExecutionRoute).toBeUndefined();
+      expect(commit.perCallConfig.runtimeConfigurationRevision).toBeUndefined();
       expect(commit.provider).toBe(provider);
+      expect(commit.runtimeModelRoundDispatch.admission).toBe(commit.bundle);
+      expect(commit.runtimeModelRoundDispatch.store).toBeDefined();
       expect(capacity.fenceAccountCapacityDispatch).toHaveBeenCalledOnce();
       expect(capacity.settleAccountCapacity).not.toHaveBeenCalled();
       return "done";

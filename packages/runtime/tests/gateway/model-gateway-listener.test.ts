@@ -17,6 +17,7 @@ import {
   startModelGatewayListener,
 } from "../../src/model-gateway/model-gateway-listener.js";
 import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -87,6 +88,31 @@ const noDispatcher = { resolve: async () => { throw new Error("No dispatcher is 
 const testLifetimeControl = { timeout: () => undefined };
 let authority: SqliteManagedAccountLeaseAuthority | undefined;
 
+function listenerAuthorityBundle(): EffectiveAuthorityAdmissionBundle {
+  const revision = { revisionSetId: "model-listener-fixture", revisions: { modelGateway: ("sha256:" + "a".repeat(64)) as `sha256:${string}` } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "model-listener-session", turnId: "model-listener-turn", admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "model-listener", revision: ("sha256:" + "b".repeat(64)) as `sha256:${string}`, skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "fixture" },
+    },
+    turn: {
+      authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only", sourcePolicy: "runtime_surface_projection", reason: "fixture", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
+      workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
+      effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: { routeId: "codex-route", providerId: "codex-oauth", providerModelId: "gpt-test", accountSelection: { mode: "exact", accountId: "primary", source: "route" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
+        binding: { status: "bound", routeId: "codex-route", accountId: "primary", credentialId: "credential-a", credentialRevision: "a".repeat(64) },
+      },
+    },
+  });
+}
+
 function executionOptions() {
   authority = new SqliteManagedAccountLeaseAuthority({
     path: ":memory:",
@@ -100,6 +126,10 @@ function executionOptions() {
     executionCandidates: noCandidates,
     executionDispatcher: noDispatcher,
     accountCapacityAuthority: authority,
+    budgetAdmission: {
+      admit: async () => ({ status: "admitted" as const, reason: "observed-below-limit" as const, observation: { observedTokens: 1, source: "fixture" } }),
+    },
+    authorityAdmission: { compose: async () => listenerAuthorityBundle() },
   };
 }
 

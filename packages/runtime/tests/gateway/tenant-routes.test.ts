@@ -61,7 +61,6 @@ function makeRuntime(overrides: Partial<TenantAppRuntime> = {}): TenantAppRuntim
 function makeBillingConfig() {
   return {
     budgetEndpoint: "https://api.example.com/users/{userId}/ai-budget",
-    usageEndpoint: "https://api.example.com/users/{userId}/ai-usage",
     overBudgetMessage: "Budget exhausted.",
   };
 }
@@ -299,7 +298,7 @@ describe("createTenantRoutes", () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
-    it("reports usage after successful message processing", async () => {
+    it("performs only the admission budget check after successful message processing", async () => {
       const runtime = makeRuntime({ billing: makeBillingConfig() });
       runtime.tenantRegistry.create(makeTenantConfig());
       const app = createTenantRoutes(runtime);
@@ -310,18 +309,13 @@ describe("createTenantRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant" }),
       });
 
-      // fetch called twice: budget check + usage report
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-
-      const usageCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
-      expect(usageCall[0]).toBe("https://api.example.com/users/{userId}/ai-usage");
-      expect(usageCall[1]).toMatchObject({
-        method: "POST",
-      });
-      const usageBody = JSON.parse(usageCall[1].body as string);
-      expect(usageBody.tenantId).toBe("test-tenant");
-      expect(usageBody.messages).toBe(1);
-      expect(usageBody.tokens).toBe(150); // 100 input + 50 output
+      // Usage reporting is deliberately absent: there is no stable admitted
+      // outbound identity for a post-turn fire-and-forget request.
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://api.example.com/users/test-tenant/ai-budget",
+        { headers: {} },
+      );
     });
 
     it("forwards tenant and requestedAuthority into processAdmittedTurn and keeps tenant tool assembly out of the route", async () => {
@@ -366,7 +360,9 @@ describe("createTenantRoutes", () => {
       expect(forwarded.tenant?.tenantId).toBe("test-tenant");
       expect(forwarded.systemPrompt).toBeUndefined();
       expect(forwarded.callBuiltinTools).toBeUndefined();
-      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set());
+      // Tenant tool assembly is not a second authority source. The committed
+      // bundle is the only authority crossing into the pipeline.
+      expect(forwarded.perCallConfig?.toolAllowlist).toBeUndefined();
       expect(forwarded.requestedAuthority).toBeUndefined();
       expect(forwarded.authorityAdmission?.turn.authority.admittedAuthority).toBe("fail_closed");
 

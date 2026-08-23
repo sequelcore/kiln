@@ -17,7 +17,8 @@ The authoritative configuration and selection rules are documented in
 
 `@kilnai/core` owns pure target-catalog projection, route admission,
 candidate ordering, and secret-free commitment evidence. `@kilnai/runtime`
-owns current account evidence, shared capacity, fencing, credential resolution,
+owns current account evidence, shared capacity, authority-admission persistence,
+the [Execution Kernel](../core/execution-kernel.md), credential resolution,
 provider dispatch, and terminal evidence. Gateway contracts and surfaces own
 only validated request and projection DTOs.
 
@@ -40,16 +41,31 @@ modelGateway:
 3. Admit the route and obtain current account candidates from Runtime.
 4. Apply the account policy: safety, health, quota, and live capacity first;
    then economics, pressure, and stable account identity.
-5. Fence the selected account and revalidate its credential ID and revision
-   before a provider effect can escape.
-6. Dispatch exactly that committed credential, stream canonical events, and
-   settle capacity and health evidence.
+5. Hold the selected account capacity and resolve the exact secret-free
+   credential ID and revision without treating capacity replay as action
+   idempotence.
+6. Persist and read back the complete `EffectiveAuthorityAdmissionBundle`, then
+   resolve its ephemeral credential value and side-effect-free adapter.
+7. Atomically fence the ingress replay/action claim for the exact persisted
+   Runtime attempt,
+   `admissionId`, and provider effect.
+8. Dispatch exactly that committed credential once, stream canonical events,
+   and settle replay, capacity, and health evidence through their real owners.
 
 For an automatic route, a candidate found saturated before dispatch may yield
 to the next eligible candidate. An exact account selection never falls back.
 After a potentially observable provider effect, Kiln does not replay the turn
 through another account; ambiguous outcomes require explicit reconciliation or
 retry.
+
+Completed encrypted response payloads may expire independently. The minimal
+fenced-attempt tombstone remains non-dispatchable for the accepted replay
+identity until the canonical session/turn namespace is irreversibly retired;
+payload TTL, cache pressure, and `maxEntries` cannot authorize redispatch.
+`maxEntries` bounds only concurrent pre-action `claimed`/`admitted` rows;
+retained post-fence tombstones do not consume that admission capacity.
+Process-local replay protection cannot prove restart-safe no-redispatch
+behavior and is not production evidence for that invariant.
 
 ## Surface And Security Rules
 
@@ -170,8 +186,8 @@ are documented in [Model Gateway Operations](../../operations/model-gateway.md).
 The persistent listener runs on a Kiln-owned, content-addressed host artifact,
 not on ambient `PATH` Bun. Host version, revision, provenance, SHA-256,
 platform, architecture, and package identity are part of the launch/state
-contract and the autostart digest. Exact legacy state is converged once through
-the owned graceful lifecycle; malformed or foreign state is never adopted. The
+contract and the autostart digest. Legacy, malformed, or foreign state is
+rejected without mutation and is never adopted. The
 currently admitted preview artifact is Windows x64 only. Other platforms fail
 explicitly until their own immutable artifacts are admitted; startup never
 downloads a runtime or silently falls back to `PATH`.

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import {
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentInvocationRecord,
@@ -17,6 +18,101 @@ import {
 import type {
   ManagedRemoteHarnessTransport,
 } from "../../src/agents/managed-invocation/remote-harness-adapter.js";
+import {
+  createManagedExternalInvocationPermit,
+  type ManagedExternalInvocationActionClaim,
+  type ManagedExternalInvocationActionClaimContext,
+  type ManagedExternalInvocationClaimSettlement,
+} from "../../src/agents/managed-invocation/external-invocation-action-claim.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../src/session/effective-authority-admission-bundle.js";
+
+const READ_AUTHORITY: AuthorityDescriptor = {
+  level: 1,
+  allowed: true,
+  requiresApproval: false,
+  reason: "remote test",
+};
+const READ_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "idempotent",
+};
+
+function externalAdmissionBundle(): EffectiveAuthorityAdmissionBundle {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "parent-session",
+    turnId: "parent-session:turn:1",
+    admittedAt: "2026-08-22T18:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "session-r1", revisions: { routes: "r1" } },
+      turnRevision: { revisionSetId: "turn-r1", revisions: { routes: "r1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "remote-test", revision: "s1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "audited", reason: "remote test" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "audited",
+        admittedAuthority: "audited",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "remote test",
+        completeness: "authoritative",
+        toolCount: 1,
+        deniedToolCount: 0,
+        sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: {
+        allowedToolPermissions: [{ toolName: "managed_agent.invoke", authority: READ_AUTHORITY, effectEnvelope: READ_EFFECT }],
+        deniedToolNames: [],
+      },
+      effectCeiling: READ_EFFECT,
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
+
+class RemoteClaimRecorder {
+  readonly claims: ManagedExternalInvocationActionClaim[] = [];
+  readonly settlements: ManagedExternalInvocationClaimSettlement[] = [];
+
+  claim(input: ManagedExternalInvocationActionClaim) {
+    this.claims.push(input);
+    return createManagedExternalInvocationPermit(input.claimId, `remote-test-permit:${this.claims.length}`);
+  }
+
+  settle(
+    permit: ReturnType<typeof createManagedExternalInvocationPermit>,
+    settlement: ManagedExternalInvocationClaimSettlement,
+  ): void {
+    void permit;
+    this.settlements.push(settlement);
+  }
+
+  close(): void {}
+}
+
+function externalContext(
+  admitted: EffectiveAuthorityAdmissionBundle,
+  recorder: RemoteClaimRecorder,
+): ManagedExternalInvocationActionClaimContext {
+  return {
+    ownerGeneration: "remote-test-owner",
+    store: recorder,
+    readAdmission: async () => admitted,
+  };
+}
 
 function request(
   overrides: Partial<Parameters<typeof defineManagedAgentInvocationRequest>[0]> = {},
@@ -158,6 +254,8 @@ describe("ManagedRemoteHarnessAdapter", () => {
 
   it("invokes remote harness transport through the shared managed invocation contract", async () => {
     const childRequest = request();
+    const admittedBundle = externalAdmissionBundle();
+    const recorder = new RemoteClaimRecorder();
     const transport: ManagedRemoteHarnessTransport = {
       invoke: vi.fn(async ({ request: sentRequest, admission }) =>
         completedRecord(sentRequest, admission.capabilitySnapshot)
@@ -179,6 +277,9 @@ describe("ManagedRemoteHarnessAdapter", () => {
       request: childRequest,
       admission: decision,
       abortSignal: new AbortController().signal,
+      promptDelivery: { claim: () => ({ claimed: [] }) },
+      externalActionClaim: externalContext(admittedBundle, recorder),
+      childAuthorityAdmission: { bundle: admittedBundle },
       registerAdapterCompletion,
     });
 
@@ -210,8 +311,10 @@ describe("ManagedRemoteHarnessAdapter", () => {
     });
   });
 
-  it("cancels the remote harness without invoking when the parent aborts before transport start", async () => {
+  it("does not send a remote cancellation when the parent aborts before transport start", async () => {
     const childRequest = request();
+    const admittedBundle = externalAdmissionBundle();
+    const recorder = new RemoteClaimRecorder();
     const transport: ManagedRemoteHarnessTransport = {
       invoke: vi.fn(async ({ request: sentRequest, admission }) =>
         completedRecord(sentRequest, admission.capabilitySnapshot)
@@ -231,21 +334,22 @@ describe("ManagedRemoteHarnessAdapter", () => {
       request: childRequest,
       admission: decision,
       abortSignal: controller.signal,
+      promptDelivery: { claim: () => ({ claimed: [] }) },
+      externalActionClaim: externalContext(admittedBundle, recorder),
+      childAuthorityAdmission: { bundle: admittedBundle },
+      registerAdapterCompletion: () => undefined,
     });
 
     expect(transport.invoke).not.toHaveBeenCalled();
-    expect(transport.cancel).toHaveBeenCalledWith({
-      invocationId: "inv-remote-1",
-      request: childRequest,
-      reason: "Operator stopped remote child.",
-      abortSignal: controller.signal,
-    });
+    expect(transport.cancel).not.toHaveBeenCalled();
     expect(record.lifecycleState).toBe("cancelled");
     expect(record.resultHandoff?.summary).toBe("Operator stopped remote child.");
   });
 
-  it("still returns cancelled evidence when pre-start remote cancellation notification fails", async () => {
+  it("still returns cancelled evidence when pre-start abort has no remote effect to notify", async () => {
     const childRequest = request();
+    const admittedBundle = externalAdmissionBundle();
+    const recorder = new RemoteClaimRecorder();
     const transport: ManagedRemoteHarnessTransport = {
       invoke: vi.fn(async ({ request: sentRequest, admission }) =>
         completedRecord(sentRequest, admission.capabilitySnapshot)
@@ -267,16 +371,22 @@ describe("ManagedRemoteHarnessAdapter", () => {
       request: childRequest,
       admission: decision,
       abortSignal: controller.signal,
+      promptDelivery: { claim: () => ({ claimed: [] }) },
+      externalActionClaim: externalContext(admittedBundle, recorder),
+      childAuthorityAdmission: { bundle: admittedBundle },
+      registerAdapterCompletion: () => undefined,
     });
 
     expect(transport.invoke).not.toHaveBeenCalled();
-    expect(transport.cancel).toHaveBeenCalledTimes(1);
+    expect(transport.cancel).not.toHaveBeenCalled();
     expect(record.lifecycleState).toBe("cancelled");
     expect(record.resultHandoff?.summary).toBe("Operator stopped remote child.");
   });
 
   it("keeps runtime admission fail-closed when a remote harness broadens admitted evidence", async () => {
     const childRequest = request();
+    const admittedBundle = externalAdmissionBundle();
+    const recorder = new RemoteClaimRecorder();
     const transport: ManagedRemoteHarnessTransport = {
       invoke: vi.fn(async ({ request: sentRequest, admission }) =>
         completedRecord(sentRequest, defineManagedAgentCapabilitySnapshot({
@@ -293,15 +403,20 @@ describe("ManagedRemoteHarnessAdapter", () => {
     });
     const decision = admitted(childRequest, adapter);
 
-    await expect(new RuntimeManagedAgentInvocationService().invokeAdmitted({
+    await expect(new RuntimeManagedAgentInvocationService({
+      externalActionClaim: externalContext(admittedBundle, recorder),
+    }).invokeAdmitted({
       request: childRequest,
       adapter,
       admission: decision,
+      childAuthorityAdmission: { bundle: admittedBundle },
     })).rejects.toThrow("Managed agent adapter returned capability snapshot outside the admitted request");
   });
 
   it("keeps runtime admission fail-closed when a remote harness spoofs top-level route identity", async () => {
     const childRequest = request();
+    const admittedBundle = externalAdmissionBundle();
+    const recorder = new RemoteClaimRecorder();
     const transport: ManagedRemoteHarnessTransport = {
       invoke: vi.fn(async ({ request: sentRequest, admission }) => ({
         ...completedRecord(sentRequest, admission.capabilitySnapshot),
@@ -320,15 +435,20 @@ describe("ManagedRemoteHarnessAdapter", () => {
     });
     const decision = admitted(childRequest, adapter);
 
-    await expect(new RuntimeManagedAgentInvocationService().invokeAdmitted({
+    await expect(new RuntimeManagedAgentInvocationService({
+      externalActionClaim: externalContext(admittedBundle, recorder),
+    }).invokeAdmitted({
       request: childRequest,
       adapter,
       admission: decision,
-    })).rejects.toThrow("Managed invocation usage route must match the admitted capability snapshot");
+      childAuthorityAdmission: { bundle: admittedBundle },
+    })).rejects.toThrow(/claimed; its provider outcome is not safely replayable/iu);
   });
 
-  it("marks an in-flight remote invocation failed when remote cancellation notification fails", async () => {
+  it("keeps a failed remote cancellation request pending until late completion releases the lease", async () => {
     const childRequest = request();
+    const admittedBundle = externalAdmissionBundle();
+    const recorder = new RemoteClaimRecorder();
     const terminal = deferred<unknown>();
     const transport: ManagedRemoteHarnessTransport = {
       invoke: vi.fn(async () => terminal.promise),
@@ -341,23 +461,59 @@ describe("ManagedRemoteHarnessAdapter", () => {
       model: "gpt-5.5",
       transport,
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }: { readonly lease: ManagedAgentCapabilitySnapshot["resourceLease"] }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [...lease.resourceUris, `kiln://artifacts/${childRequest.invocationId}/remote-result`],
+      })),
+      release: vi.fn(async ({ lease }: { readonly lease: ManagedAgentCapabilitySnapshot["resourceLease"] }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      externalActionClaim: externalContext(admittedBundle, recorder),
+      artifactDirectoryLeaseManager,
+    });
 
-    const started = await service.start(childRequest, adapter, snapshotInput());
+    const started = await service.start(childRequest, adapter, snapshotInput(), {
+      childAuthorityAdmission: { bundle: admittedBundle },
+    });
     expect(started.status).toBe("started");
-    expect(transport.invoke).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(transport.invoke).toHaveBeenCalledTimes(1));
 
     await expect(service.cancel(childRequest.invocationId, "Operator stopped remote child."))
-      .rejects.toThrow("remote cancel endpoint unavailable");
+      .resolves.toMatchObject({
+        status: "result_pending",
+        outcome: "unknown",
+        cancellation: {
+          requestOutcome: "unknown",
+          failureMessage: expect.stringMatching(/claimed; its provider outcome is not safely replayable/iu),
+        },
+      });
 
     const snapshot = service.status(childRequest.invocationId);
-    expect(snapshot?.lifecycleState).toBe("failed");
-    expect(snapshot?.record?.lifecycleState).toBe("failed");
-    expect(snapshot?.record?.resultHandoff?.summary).toContain("Managed invocation cancellation failed");
+    expect(snapshot?.lifecycleState).toBe("running");
+    expect(snapshot?.record).toBeUndefined();
+    expect(snapshot?.resultPending).toMatchObject({
+      outcome: "unknown",
+      cancellation: { requestOutcome: "unknown" },
+    });
+    expect(artifactDirectoryLeaseManager.release).not.toHaveBeenCalled();
 
-    terminal.resolve(completedRecord(childRequest, admitted(childRequest, adapter).capabilitySnapshot));
+    if (started.status !== "started") throw new Error("expected remote invocation to start");
+    terminal.resolve(completedRecord(childRequest, started.decision.capabilitySnapshot));
     const joined = await service.join(childRequest.invocationId);
     expect(joined.status).toBe("completed");
-    expect(joined.record.lifecycleState).toBe("failed");
+    if (joined.status !== "completed") throw new Error("expected a completed late remote result");
+    expect(joined.record.lifecycleState).toBe("completed");
+    expect(service.status(childRequest.invocationId)?.resultPending).toBeUndefined();
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledOnce();
+    expect(recorder.settlements).toEqual([
+      { kind: "unknown", reason: "remote-cancel-failed-after-claim" },
+      { kind: "success" },
+    ]);
   });
 });

@@ -49,15 +49,6 @@ export interface GuiCliProviderModelDiscovery {
   readonly authState: GuiProviderAuthState;
 }
 
-export interface GuiCliModelReadinessProbeResult {
-  readonly provider: "codex";
-  readonly model: string;
-  readonly runnable: boolean;
-  readonly status: GuiProviderDiscoveryStatus;
-  readonly reason: string;
-  readonly authState: GuiProviderAuthState;
-}
-
 type OpenCodeDirectProviderId = "opencode-go" | "opencode-zen";
 type OpenCodeDirectTier = "go" | "zen";
 
@@ -2314,9 +2305,6 @@ const CLAUDE_AGENT_SDK_EFFORT_LEVELS = new Set<GuiDeliberationLevelId>([
 const CODEX_APP_SERVER_INITIALIZE_REQUEST_ID = 1;
 const CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID = 2;
 const CODEX_APP_SERVER_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
-const CODEX_MODEL_READINESS_PROBE_TIMEOUT_MS = 45_000;
-const CODEX_MODEL_READINESS_PROBE_PROMPT =
-  "Reply with exactly KILN_MODEL_READINESS_OK and do not write files.";
 let codexCliModelDiscoveryInFlight: Promise<GuiCliProviderModelDiscovery> | undefined;
 let unreapedCodexAppServer: ChildProcess | undefined;
 
@@ -2551,180 +2539,6 @@ async function stopProviderDiscoveryProcess(proc: ChildProcess): Promise<boolean
       finish(true);
     }
   });
-}
-
-export async function probeCodexCliModelReadiness(input: {
-  readonly model: string;
-  readonly deliberationLevel?: GuiDeliberationLevelId;
-  readonly cwd?: string;
-  readonly env?: Record<string, string>;
-  readonly timeoutMs?: number;
-}): Promise<GuiCliModelReadinessProbeResult> {
-  const model = input.model.trim();
-  const executable = findExecutable([
-    ...homeExecutableCandidates([
-      "AppData\\Roaming\\npm\\codex.cmd",
-    ]),
-    "codex",
-    ...homeExecutableCandidates([
-      ".codex\\.sandbox-bin\\codex.exe",
-    ]),
-  ]);
-  if (!executable) {
-    return codexModelReadinessProbeResult(
-      model,
-      false,
-      "cli_missing",
-      "Codex CLI executable was not found.",
-      "not_required",
-    );
-  }
-
-  try {
-    const { spawn } = await import("node:child_process");
-    return await new Promise<GuiCliModelReadinessProbeResult>((resolve) => {
-      const args = [
-        "exec",
-        "--json",
-        "-m",
-        model,
-        ...(input.deliberationLevel
-          ? ["-c", `model_reasoning_effort=${input.deliberationLevel}`]
-          : []),
-        "--ephemeral",
-        "--skip-git-repo-check",
-        "-",
-      ];
-      const proc = spawn(executable, args, {
-        cwd: input.cwd,
-        env: { ...process.env, ...(input.env ?? {}) },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      let settled = false;
-      let output = "";
-      const finish = (result: GuiCliModelReadinessProbeResult): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        proc.kill();
-        resolve(result);
-      };
-      const timer = setTimeout(() => {
-        finish(codexModelReadinessProbeResult(
-          model,
-          false,
-          "endpoint_timeout",
-          `Codex CLI model readiness probe for '${model}' timed out.`,
-          "unknown",
-        ));
-      }, input.timeoutMs ?? CODEX_MODEL_READINESS_PROBE_TIMEOUT_MS);
-
-      proc.stdout?.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-      proc.stderr?.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-      proc.on("error", () => {
-        finish(codexModelReadinessProbeResult(
-          model,
-          false,
-          "endpoint_error",
-          `Codex CLI model readiness probe for '${model}' failed to start.`,
-          "unknown",
-        ));
-      });
-      proc.on("close", (code: number | null) => {
-        if (code === 0) {
-          finish(codexModelReadinessProbeResult(
-            model,
-            true,
-            "available",
-            `Codex CLI model '${model}' passed live readiness probe.`,
-            "authenticated",
-          ));
-          return;
-        }
-        const message = extractCodexProbeErrorMessage(output);
-        if (isCodexModelVersionUnsupportedMessage(message)) {
-          finish(codexModelReadinessProbeResult(
-            model,
-            false,
-            "model_version_unsupported",
-            `Codex CLI model support is out of date: ${message.trim()}`,
-            "authenticated",
-          ));
-          return;
-        }
-        finish(codexModelReadinessProbeResult(
-          model,
-          false,
-          "endpoint_error",
-          message
-            ? `Codex CLI model readiness probe failed: ${message}`
-            : `Codex CLI model readiness probe for '${model}' failed.`,
-          "unknown",
-        ));
-      });
-
-      proc.stdin?.write(CODEX_MODEL_READINESS_PROBE_PROMPT);
-      proc.stdin?.end?.();
-    });
-  } catch {
-    return codexModelReadinessProbeResult(
-      model,
-      false,
-      "endpoint_error",
-      `Codex CLI model readiness probe for '${model}' failed.`,
-      "unknown",
-    );
-  }
-}
-
-function codexModelReadinessProbeResult(
-  model: string,
-  runnable: boolean,
-  status: GuiProviderDiscoveryStatus,
-  reason: string,
-  authState: GuiProviderAuthState,
-): GuiCliModelReadinessProbeResult {
-  return {
-    provider: "codex",
-    model,
-    runnable,
-    status,
-    reason,
-    authState,
-  };
-}
-
-function extractCodexProbeErrorMessage(output: string): string {
-  const messages: string[] = [];
-  for (const line of output.split(/\r?\n/u)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(trimmed) as {
-        readonly message?: unknown;
-        readonly error?: { readonly message?: unknown };
-      };
-      const message = typeof parsed.message === "string"
-        ? parsed.message
-        : typeof parsed.error?.message === "string"
-          ? parsed.error.message
-          : undefined;
-      if (message) {
-        messages.push(message);
-      }
-    } catch {
-      messages.push(trimmed);
-    }
-  }
-  return messages.at(-1)?.trim() ?? "";
 }
 
 function unavailableCliProviderDiscovery(

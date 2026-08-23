@@ -340,7 +340,7 @@ export class PrometheusCollector implements EventStore {
   }
 
   private resolvePiiTierLabel(tier: unknown): string {
-    if (tier === "heuristic" || tier === "deep") return tier;
+    if (tier === "heuristic") return tier;
     return "unknown";
   }
 }

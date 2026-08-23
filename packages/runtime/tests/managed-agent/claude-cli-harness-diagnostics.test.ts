@@ -7,8 +7,8 @@ import {
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import {
   ManagedCliHarnessAdapter,
-  RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
+import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 
 function makeRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -130,7 +130,7 @@ async function invokeWith(
       ...(observedHarnessVersion !== undefined ? { observedHarnessVersion } : {}),
     }),
   });
-  const service = new RuntimeManagedAgentInvocationService();
+  const service = createExternalHarnessTestService();
   const request = makeRequest();
   return service.invoke(request, adapter, snapshotInputFor(request));
 }
@@ -561,7 +561,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
         },
         factory: () => ({ run, dispose, observedHarnessVersion: "2.1.220" }),
       });
-      const service = new RuntimeManagedAgentInvocationService();
+      const service = createExternalHarnessTestService();
       const request = makeRequest();
       const resultPromise = service.invoke(request, adapter, snapshotInputFor(request));
       await runStarted.promise;
@@ -570,12 +570,16 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") return;
-      expect(result.record.lifecycleState).toBe("timed_out");
+      expect(result.record.lifecycleState).toBe("failed");
       expect(result.record.resultHandoff.ephemeralHarnessState).toEqual([privatePlanCleanupEvidence]);
       expect(result.record.diagnostics).toEqual([{
-        uri: "kiln://managed-agents/invocations/invocation-claude-1/resources/timeout",
-        kind: "timeout",
+        uri: "kiln://managed-agents/invocations/invocation-claude-1/resources/external-action-unknown",
+        kind: "failure",
+        classification: "unknown_failure",
       }]);
+      expect(result.record.resultHandoff.resourceUris).toContain(
+        "kiln://managed-agents/invocations/invocation-claude-1/resources/timeout",
+      );
       expect(dispose).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -601,7 +605,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
       },
       factory: () => ({ run, dispose, observedHarnessVersion: "2.1.220" }),
     });
-    const service = new RuntimeManagedAgentInvocationService();
+    const service = createExternalHarnessTestService();
     const request = makeRequest();
     const abortController = new AbortController();
     const resultPromise = service.invoke(

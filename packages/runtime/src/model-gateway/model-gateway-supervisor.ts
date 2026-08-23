@@ -46,28 +46,6 @@ export interface ModelGatewayRuntimeState {
   readonly launch: ModelGatewayLaunchDescriptor;
 }
 
-interface ModelGatewayLegacyLaunchDescriptor {
-  readonly schemaVersion: 1;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly mode: "installed" | "local-dev";
-  readonly version: string;
-  readonly requiredEnvNames: readonly string[];
-}
-
-interface ModelGatewayLegacyRuntimeState {
-  readonly schemaVersion: 1;
-  readonly instanceId: string;
-  readonly pid: number;
-  readonly port: number;
-  readonly version: string;
-  readonly configDigest: string;
-  readonly startedAt: string;
-  readonly launch: ModelGatewayLegacyLaunchDescriptor;
-}
-
-type ModelGatewayStoredRuntimeState = ModelGatewayRuntimeState | ModelGatewayLegacyRuntimeState;
-
 export interface ModelGatewayProcessAdapter {
   spawn(descriptor: ModelGatewaySpawnDescriptor, env: Readonly<Record<string, string | undefined>>): Promise<{ readonly pid: number }>;
   terminate(pid: number): Promise<void>;
@@ -177,8 +155,7 @@ export class ModelGatewaySupervisor {
     if (status.state === "foreign") diagnostics.push(`foreign-listener:${status.reason}`);
     if (state && state.configDigest !== createModelGatewayConfigDigest(this.#config)) diagnostics.push("state-config-drift");
     if (state && state.version !== this.#version) diagnostics.push("state-version-drift");
-    if (state?.schemaVersion === 1) diagnostics.push("state-schema-v1-recovery-required");
-    if (state?.schemaVersion === 2 && !sameHostIdentity(state.launch.host, this.#launch.host)) diagnostics.push("state-host-drift");
+    if (state && !sameHostIdentity(state.launch.host, this.#launch.host)) diagnostics.push("state-host-drift");
     if (state && !this.#process.isAlive(state.pid) && status.state !== "ready") diagnostics.push("stale-state");
     for (const name of this.#launch.requiredEnvNames) if (!this.#env[name]) diagnostics.push(`missing-env:${name}`);
     return {
@@ -186,21 +163,19 @@ export class ModelGatewaySupervisor {
       stateFile: state ? "present" : "absent",
       configDigest: createModelGatewayConfigDigest(this.#config),
       version: this.#version,
-      host: { desired: this.#launch.host, observed: state?.schemaVersion === 2 ? state.launch.host : undefined },
+      host: { desired: this.#launch.host, observed: state?.launch.host },
       diagnostics,
     };
   }
 
   async readState(): Promise<ModelGatewayRuntimeState | null> {
-    const state = await this.#readStoredState();
-    if (state?.schemaVersion === 1) throw new Error("Model gateway state schema v1 requires supervisor convergence through ensure or restart.");
-    return state;
+    return this.#readStoredState();
   }
 
-  async #readStoredState(): Promise<ModelGatewayStoredRuntimeState | null> {
+  async #readStoredState(): Promise<ModelGatewayRuntimeState | null> {
     try {
       const parsed = JSON.parse(await readFile(this.#statePath(), "utf8")) as unknown;
-      if (isRuntimeState(parsed) || isLegacyRuntimeState(parsed)) return parsed;
+      if (isRuntimeState(parsed)) return parsed;
       throw new Error("Model gateway state is unsupported or invalid; remove state.json only after confirming no gateway process is running.");
     } catch (error) {
       if (isFsCode(error, "ENOENT")) return null;
@@ -316,19 +291,18 @@ export const nodeModelGatewayProcessAdapter: ModelGatewayProcessAdapter = {
   isAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } },
 };
 
-function owns(identity: ModelGatewayListenerIdentity, state: ModelGatewayStoredRuntimeState): boolean {
+function owns(identity: ModelGatewayListenerIdentity, state: ModelGatewayRuntimeState): boolean {
   return identity.instanceId === state.instanceId && identity.pid === state.pid && identity.port === state.port && identity.version === state.version && identity.configDigest === state.configDigest;
 }
 
 function isDesiredRuntime(
   identity: ModelGatewayListenerIdentity,
-  state: ModelGatewayStoredRuntimeState,
+  state: ModelGatewayRuntimeState,
   config: ModelGatewayConfig,
   version: string,
   launch: ModelGatewayLaunchDescriptor,
 ): boolean {
-  return state.schemaVersion === 2
-    && identity.port === config.port
+  return identity.port === config.port
     && identity.configDigest === createModelGatewayConfigDigest(config)
     && identity.version === version
     && JSON.stringify(state.launch) === JSON.stringify(launch);
@@ -348,33 +322,6 @@ function isRuntimeState(value: unknown): value is ModelGatewayRuntimeState {
   if (!value || typeof value !== "object") return false;
   const state = value as Partial<ModelGatewayRuntimeState>;
   return state.schemaVersion === 2 && typeof state.instanceId === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(state.instanceId) && Number.isSafeInteger(state.pid) && (state.pid ?? 0) > 0 && typeof state.configDigest === "string" && /^[a-f0-9]{64}$/.test(state.configDigest) && typeof state.version === "string" && typeof state.port === "number" && typeof state.startedAt === "string" && !!state.launch && isValidLaunch(state.launch);
-}
-function isLegacyRuntimeState(value: unknown): value is ModelGatewayLegacyRuntimeState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Partial<ModelGatewayLegacyRuntimeState>;
-  return state.schemaVersion === 1 && isStateIdentity(state) && isLegacyLaunch(state.launch);
-}
-function isStateIdentity(state: {
-  readonly instanceId?: unknown;
-  readonly pid?: unknown;
-  readonly configDigest?: unknown;
-  readonly version?: unknown;
-  readonly port?: unknown;
-  readonly startedAt?: unknown;
-}): boolean {
-  return typeof state.instanceId === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(state.instanceId)
-    && typeof state.pid === "number" && Number.isSafeInteger(state.pid) && state.pid > 0
-    && typeof state.configDigest === "string" && /^[a-f0-9]{64}$/.test(state.configDigest)
-    && typeof state.version === "string" && typeof state.port === "number" && typeof state.startedAt === "string";
-}
-function isLegacyLaunch(value: unknown): value is ModelGatewayLegacyLaunchDescriptor {
-  if (!value || typeof value !== "object") return false;
-  const launch = value as Partial<ModelGatewayLegacyLaunchDescriptor>;
-  return launch.schemaVersion === 1 && typeof launch.command === "string" && launch.command.length > 0
-    && Array.isArray(launch.args) && launch.args.every((argument) => typeof argument === "string")
-    && (launch.mode === "installed" || launch.mode === "local-dev")
-    && typeof launch.version === "string" && launch.version.length > 0
-    && Array.isArray(launch.requiredEnvNames) && launch.requiredEnvNames.every((name) => typeof name === "string" && /^[A-Z_][A-Z0-9_]*$/.test(name));
 }
 function isValidLaunch(value: unknown): value is ModelGatewayLaunchDescriptor {
   try { validateLaunch(value as ModelGatewayLaunchDescriptor); return true; } catch { return false; }

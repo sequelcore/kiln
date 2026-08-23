@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 type AnyMock = Mock<(...args: unknown[]) => unknown>;
 import type { DirectProviderId } from "@kilnai/core/agents";
+import type { DirectProviderCredentialBinding } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
 type MockAdapterName =
   | "anthropic"
@@ -77,11 +78,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 
 vi.mock("@kilnai/runtime", () => ({
   CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
-    createPooledAdapter(config: unknown) {
-      adapterMocks.codexPoolCreateAdapter(config);
-      return { name: "pooled-codex-oauth" };
-    }
-
     listExecutionAccounts() {
       return adapterMocks.codexPoolListExecutionAccounts();
     }
@@ -105,11 +101,6 @@ vi.mock("@kilnai/runtime", () => ({
       return adapterMocks.directPoolListStatus("listStatus", provider) ?? [{ id: "env" }];
     }
 
-    createPooledAdapter(config: unknown) {
-      adapterMocks.directPoolCreateAdapter(config);
-      return { name: "pooled-direct" };
-    }
-
     createAdapterFromCredential(config: unknown) {
       adapterMocks.directPoolCreateAdapterFromCredential(config);
       return { name: "exact-direct-committed" };
@@ -118,15 +109,6 @@ vi.mock("@kilnai/runtime", () => ({
   isPooledDirectProviderId: (provider: string) =>
     ["anthropic", "openai", "deepseek", "openrouter", "ollama", "lmstudio"].includes(provider),
   OpenCodeCredentialPoolService: class MockOpenCodeCredentialPoolService {
-    listStatus() {
-      return adapterMocks.opencodePoolListStatus();
-    }
-
-    createPooledAdapter(config: unknown) {
-      adapterMocks.opencodePoolCreateAdapter(config);
-      return { name: "pooled-opencode" };
-    }
-
     listExecutionAccounts(tier: unknown) {
       return adapterMocks.opencodePoolListExecutionAccounts(tier);
     }
@@ -159,75 +141,28 @@ describe("createDirectProviderAdapter", () => {
     process.env = originalEnv;
   });
 
-  it("resolves required API keys from runtime env before config env and process env", async () => {
-    process.env.OPENAI_API_KEY = "process-key";
-
-    await createDirectProviderAdapter({
-      provider: "openai",
-      model: "gpt-5.4",
-      configEnv: { OPENAI_API_KEY: "config-key" },
-      runtimeEnv: { OPENAI_API_KEY: "runtime-key" },
-    });
-
-    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
-      provider: "openai",
-      defaultModel: "gpt-5.4",
-      openRouterAppUrl: undefined,
-      openRouterAppName: undefined,
-    });
-    expect(adapterMocks.directPoolListStatus).toHaveBeenCalledWith("constructor", {
-      env: expect.objectContaining({ OPENAI_API_KEY: "runtime-key" }),
-    });
-  });
-
   it.each([
-    ["anthropic", "ANTHROPIC_API_KEY"],
-    ["deepseek", "DEEPSEEK_API_KEY"],
-    ["openai", "OPENAI_API_KEY"],
-  ] as const)("creates %s adapters from the provider env table", async (provider, envName) => {
-    await createDirectProviderAdapter({
+    "codex-oauth",
+    "anthropic",
+    "openai",
+    "deepseek",
+    "openrouter",
+    "ollama",
+    "lmstudio",
+    "opencode-go",
+    "opencode-zen",
+  ] as const)("fails closed before dispatch when %s has no committed exact credential", async (provider) => {
+    await expect(createDirectProviderAdapter({
       provider,
-      configEnv: { [envName]: `${provider}-key` },
-    });
-
-    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
-      provider,
-      defaultModel: undefined,
-      openRouterAppUrl: undefined,
-      openRouterAppName: undefined,
-    });
-  });
-
-  it("passes OpenRouter app metadata when present", async () => {
-    await createDirectProviderAdapter({
-      provider: "openrouter",
-      model: "openrouter/model",
-      runtimeEnv: {
-        OPENROUTER_API_KEY: "openrouter-key",
-        OPENROUTER_APP_NAME: "Kiln Dev",
-        OPENROUTER_APP_URL: "https://kiln.local",
-      },
-    });
-
-    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
-      provider: "openrouter",
-      defaultModel: "openrouter/model",
-      openRouterAppName: "Kiln Dev",
-      openRouterAppUrl: "https://kiln.local",
-    });
-  });
-
-  it("creates a Codex OAuth adapter from the credential pool", async () => {
-    const adapter = await createDirectProviderAdapter({
-      provider: "codex-oauth",
       model: "gpt-5.4",
-    });
-
-    expect(adapter).toEqual({ name: "pooled-codex-oauth" });
-    expect(adapterMocks.codexPoolCreateAdapter).toHaveBeenCalledWith({
-      defaultModel: "gpt-5.4",
-    });
-    expect(adapterMocks.codexOauth).not.toHaveBeenCalled();
+      runtimeEnv: {
+        OPENAI_API_KEY: "must-not-dispatch",
+        OPENCODE_API_KEY: "must-not-dispatch",
+      },
+    })).rejects.toThrow("exact committed execution credential binding");
+    expect(adapterMocks.codexPoolCreateAdapter).not.toHaveBeenCalled();
+    expect(adapterMocks.directPoolCreateAdapter).not.toHaveBeenCalled();
+    expect(adapterMocks.opencodePoolCreateAdapter).not.toHaveBeenCalled();
   });
 
   it("materializes an explicitly bound Codex OAuth credential revision", async () => {
@@ -249,6 +184,7 @@ describe("createDirectProviderAdapter", () => {
         routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
+        credentialRevision: "b".repeat(64),
       },
     });
 
@@ -279,6 +215,7 @@ describe("createDirectProviderAdapter", () => {
         routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
+        credentialRevision: "b".repeat(64),
       },
     })).rejects.toMatchObject({
       name: "DirectProviderBindingError",
@@ -311,6 +248,27 @@ describe("createDirectProviderAdapter", () => {
     expect(adapterMocks.codexPoolCreateExactAdapter).not.toHaveBeenCalled();
   });
 
+  it("rejects a Codex OAuth binding with no committed credential revision", async () => {
+    adapterMocks.codexPoolListExecutionAccounts.mockResolvedValue([{
+      credentialId: "subscription-secondary",
+      fileIdentity: "a".repeat(64),
+      revision: "b".repeat(64),
+    }]);
+
+    const missingRevision = {
+      routeId: "terra",
+      accountId: "secondary",
+      credentialId: "subscription-secondary",
+    } as unknown as DirectProviderCredentialBinding;
+    await expect(createDirectProviderAdapter({
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      credentialBinding: missingRevision,
+    })).rejects.toMatchObject({ name: "DirectProviderBindingError" });
+    expect(adapterMocks.codexPoolListExecutionAccounts).not.toHaveBeenCalled();
+    expect(adapterMocks.codexPoolCreateExactAdapter).not.toHaveBeenCalled();
+  });
+
   it("does not silently pool an exact credential binding for an unsupported provider", async () => {
     await expect(createDirectProviderAdapter({
       provider: "openai",
@@ -319,13 +277,14 @@ describe("createDirectProviderAdapter", () => {
         routeId: "gpt",
         accountId: "primary",
         credentialId: "subscription-primary",
+        credentialRevision: "a".repeat(64),
       },
       runtimeEnv: { OPENAI_API_KEY: "key" },
     })).rejects.toThrow("does not support exact credential binding");
     expect(adapterMocks.directPoolCreateAdapter).not.toHaveBeenCalled();
   });
 
-  it("constructs a pooled direct adapter from the committed credential material", async () => {
+  it("constructs an exact direct adapter from the committed credential material", async () => {
     const credential = {
       providerId: "openai" as const,
       credentialId: "subscription-primary",
@@ -360,74 +319,6 @@ describe("createDirectProviderAdapter", () => {
       openRouterAppName: undefined,
     });
     expect(adapterMocks.directPoolCreateAdapter).not.toHaveBeenCalled();
-  });
-
-  it("creates Ollama adapters without requiring an API key", async () => {
-    await createDirectProviderAdapter({
-      provider: "ollama",
-      model: "llama3.2",
-      runtimeEnv: { OLLAMA_BASE_URL: "http://127.0.0.1:11435" },
-    });
-
-    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
-      provider: "ollama",
-      defaultModel: "llama3.2",
-      openRouterAppUrl: undefined,
-      openRouterAppName: undefined,
-    });
-  });
-
-  it("creates LM Studio adapters without requiring an API key", async () => {
-    await createDirectProviderAdapter({
-      provider: "lmstudio",
-      model: "qwen/qwen3.5-9b",
-      runtimeEnv: { LMSTUDIO_BASE_URL: "http://127.0.0.1:1234/v1" },
-    });
-
-    expect(adapterMocks.directPoolCreateAdapter).toHaveBeenCalledWith({
-      provider: "lmstudio",
-      defaultModel: "qwen/qwen3.5-9b",
-      openRouterAppUrl: undefined,
-      openRouterAppName: undefined,
-    });
-  });
-
-  it.each([
-    ["opencode-go", "go"],
-    ["opencode-zen", "zen"],
-  ] as const)("creates %s adapters from the shared OpenCode API key", async (provider, tier) => {
-    await createDirectProviderAdapter({
-      provider,
-      model: "chosen-model",
-      runtimeEnv: { OPENCODE_API_KEY: "opencode-key" },
-    });
-
-    expect(adapterMocks.opencode).toHaveBeenCalledWith({
-      apiKey: "opencode-key",
-      tier,
-      defaultModel: "chosen-model",
-    });
-  });
-
-  it.each([
-    ["opencode-go", "go"],
-    ["opencode-zen", "zen"],
-  ] as const)("creates %s adapters from stored OpenCode auth", async (provider, tier) => {
-    adapterMocks.opencodePoolListStatus.mockResolvedValueOnce([{
-      id: "stored",
-      tier,
-    }]);
-
-    const adapter = await createDirectProviderAdapter({
-      provider,
-      model: "chosen-model",
-    });
-
-    expect(adapter).toEqual({ name: "pooled-opencode" });
-    expect(adapterMocks.opencodePoolCreateAdapter).toHaveBeenCalledWith({
-      tier,
-      defaultModel: "chosen-model",
-    });
   });
 
   it.each([
@@ -514,61 +405,42 @@ describe("createDirectProviderAdapter", () => {
         routeId: "route-go",
         accountId: "zen-account",
         credentialId: "zen-credential",
+        credentialRevision: "b".repeat(64),
       },
     })).rejects.toMatchObject({ name: "DirectProviderBindingError" });
     expect(adapterMocks.opencodePoolCreateExactAdapter).not.toHaveBeenCalled();
     expect(adapterMocks.opencodePoolCreateAdapter).not.toHaveBeenCalled();
   });
 
-  it("keeps ordinary exact-one-account aliases revision-adopting at adapter creation", async () => {
-    const exactAccount = {
+  it("rejects an OpenCode binding with no committed credential revision", async () => {
+    adapterMocks.opencodePoolListExecutionAccounts.mockResolvedValue([{
       providerId: "opencode-go",
       credentialId: "subscription-primary",
       tier: "go",
       fileIdentity: "a".repeat(64),
       revision: "d".repeat(64),
-    };
-    adapterMocks.opencodePoolListExecutionAccounts.mockResolvedValue([exactAccount]);
-
-    const adapter = await createDirectProviderAdapter({
-      provider: "opencode-go",
-      model: "chosen-model",
-      credentialBinding: {
-        routeId: "direct-go",
-        accountId: "primary",
-        credentialId: "subscription-primary",
-      },
-    });
-
-    expect(adapter).toMatchObject({
-      executionBinding: {
-        routeId: "direct-go",
-        accountId: "primary",
-        credentialId: "subscription-primary",
-        credentialRevision: "d".repeat(64),
-      },
-    });
-    expect(adapterMocks.opencodePoolCreateExactAdapter).toHaveBeenCalledWith({
-      selected: exactAccount,
-      defaultModel: "chosen-model",
-    });
-  });
-
-  it("rejects stored OpenCode auth when the tier does not match the requested provider", async () => {
-    adapterMocks.opencodePoolListStatus.mockResolvedValueOnce([{
-      id: "stored",
-      tier: "zen",
     }]);
 
+    const missingRevision = {
+      routeId: "direct-go",
+      accountId: "primary",
+      credentialId: "subscription-primary",
+    } as unknown as DirectProviderCredentialBinding;
     await expect(createDirectProviderAdapter({
       provider: "opencode-go",
-    })).rejects.toThrow("Missing required API key for opencode-go: OPENCODE_API_KEY");
+      model: "chosen-model",
+      credentialBinding: missingRevision,
+    })).rejects.toMatchObject({ name: "DirectProviderBindingError" });
+    expect(adapterMocks.opencodePoolListExecutionAccounts).not.toHaveBeenCalled();
+    expect(adapterMocks.opencodePoolCreateExactAdapter).not.toHaveBeenCalled();
   });
 
-  it("throws a provider-specific error when a required API key is missing", async () => {
-    adapterMocks.directPoolListStatus.mockImplementation((method) => method === "listStatus" ? [] : undefined);
-    await expect(createDirectProviderAdapter({ provider: "anthropic" }))
-      .rejects.toThrow("Missing required credentials for anthropic");
+  it("fails closed when a provider has no exact binding even if local auth is present", async () => {
+    await expect(createDirectProviderAdapter({
+      provider: "opencode-go",
+      model: "chosen-model",
+      runtimeEnv: { OPENCODE_API_KEY: "must-not-dispatch" },
+    })).rejects.toThrow("exact committed execution credential binding");
   });
 
   it("fails fast for unsupported direct provider ids", async () => {

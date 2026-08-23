@@ -72,6 +72,8 @@ import {
   TranscriptStore,
 } from "../wrapper/session-store.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
+import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
 import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { readGlobalConfig, readGlobalConfigSnapshot, readGlobalExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
@@ -123,7 +125,6 @@ import {
   discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
-  probeCodexCliModelReadiness,
   resolveAdHocManagedInvocationRouteProfile,
   runManagedAgentOrchestrationLifecycle,
   resolveManagedInvocationCallerIdentity,
@@ -540,14 +541,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
         opencode: wrapperCandidates.some((candidate) => candidate.provider === "opencode"),
       })
     : undefined;
-  const codexDiscovery = cliDiscovery
-    ? await extendCodexDiscoveryWithReadinessProbes({
-        discovery: cliDiscovery.codexDiscovery,
-        candidates: wrapperCandidates.filter((candidate) => candidate.provider === "codex"),
-        cwd: input.cwd,
-        env: input.env,
-      })
-    : undefined;
+  const codexDiscovery = cliDiscovery?.codexDiscovery;
   const providerDiscovery: Record<string, RunProviderModelDiscovery | undefined> = {
     ...directDiscovery,
     ...(cliDiscovery
@@ -603,43 +597,6 @@ async function resolveAdmittedRunRouteCandidates(input: {
   }
 
   return { candidates: admitted, rejectedReasons, routeCapabilities };
-}
-
-async function extendCodexDiscoveryWithReadinessProbes(input: {
-  readonly discovery: RunProviderModelDiscovery;
-  readonly candidates: readonly RunSessionRouteCandidate[];
-  readonly cwd: string;
-  readonly env: Record<string, string>;
-}): Promise<RunProviderModelDiscovery> {
-  let discovery = input.discovery;
-  for (const candidate of input.candidates) {
-    const model = candidate.model?.trim();
-    if (!model || discovery.models.includes(model)) {
-      continue;
-    }
-    const readiness = await probeCodexCliModelReadiness({
-      model,
-      cwd: input.cwd,
-      env: input.env,
-    });
-    if (!readiness.runnable) {
-      discovery = {
-        ...discovery,
-        modelReadinessFailures: {
-          ...(discovery.modelReadinessFailures ?? {}),
-          [model]: readiness.reason,
-        },
-      };
-      continue;
-    }
-    discovery = {
-      ...discovery,
-      status: "available",
-      reason: readiness.reason,
-      models: [...discovery.models, model],
-    };
-  }
-  return discovery;
 }
 
 function routeKey(provider: string, model: string): string {
@@ -1186,6 +1143,15 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const transcriptStore = new TranscriptStore(cwd);
+  const managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-direct-tool-action-claims.sqlite"),
+  });
+  const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
+    path: join(cwd, ".kiln", "runtime", "managed-direct-model-round-action-claims.sqlite"),
+  });
+  const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+  cleanupRegistry.register(async () => managedDirectToolActionClaims.close());
+  cleanupRegistry.register(async () => managedDirectModelRoundActionClaims.close());
   const continuedMeta = continuationSessionId
     ? await transcriptStore.readMeta(continuationSessionId)
     : null;
@@ -1375,6 +1341,9 @@ export async function runCommand(
       builtinToolOptions: () => builtinToolOptions,
       runtimeEnv: env,
       canonicalMcpServers: admittedMcpServers,
+      runtimeToolActionClaims: managedDirectToolActionClaims,
+      readAuthorityAdmission: (request) => managedDirectAdmissionEvidence.readAdmission(request),
+      runtimeModelRoundActionClaims: managedDirectModelRoundActionClaims,
     }),
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,

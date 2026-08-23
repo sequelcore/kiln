@@ -22,7 +22,6 @@ import {
   deriveAuthorityFromEffect,
   executeWithRetry,
   externalToolFailureMetadata,
-  getBuiltinEffectEnvelope,
   getInvalidToolInputDetails,
   isFileToolResultMetadata,
   normalizeToolCall,
@@ -39,6 +38,18 @@ import type {
   ToolExecutionSummary,
   CommandShell,
 } from "./runtime-session-orchestrator.types.js";
+import {
+  RuntimeToolActionCommittedError,
+  RuntimeToolActionDispatchService,
+} from "../execution-kernel/runtime-tool-action-claim.js";
+import type { RuntimeToolActionDispatchState } from "../execution-kernel/runtime-tool-action-claim.js";
+import {
+  readExecutionOperatorAdoptionDecision,
+  readExecutionToolAllowlist,
+  readExecutionToolAuthority,
+  readExecutionTurnAuthority,
+  readExecutionTurnId,
+} from "./effective-authority-admission-bundle.js";
 import {
   collectRuntimeFormalVerificationObservations,
   type RuntimeFormalVerificationObservation,
@@ -387,10 +398,12 @@ export interface RuntimeSessionToolExecutionResult {
   readonly toolExecutions: readonly ToolExecutionSummary[];
 }
 
-function runtimeTurnIdentity(toolCallScopeId: string): string {
-  const responseMarker = ":response:";
-  const responseIndex = toolCallScopeId.lastIndexOf(responseMarker);
-  return responseIndex > 0 ? toolCallScopeId.slice(0, responseIndex) : toolCallScopeId;
+function stableRuntimeJson(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
+  if (Array.isArray(value)) return `[${value.map(stableRuntimeJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableRuntimeJson(record[key])}`).join(",")}}`;
 }
 
 function toFormalVerificationExecution(
@@ -425,6 +438,7 @@ function collectOwnedFormalVerificationObservations(
 }
 
 export class RuntimeSessionToolExecutor {
+  private readonly toolActionDispatch = new RuntimeToolActionDispatchService();
   private currentSession: RuntimeSession | undefined;
   private currentExecutionScope: PerCallToolConfig["executionScope"];
   private activeExecutionScope: PerCallToolConfig["executionScope"];
@@ -458,7 +472,7 @@ export class RuntimeSessionToolExecutor {
     toolCallScopeId: string,
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
-    const turnIdentity = perCallConfig?.turnId ?? runtimeTurnIdentity(toolCallScopeId);
+    const turnIdentity = readExecutionTurnId(perCallConfig);
     if (this.currentTurnSessionId !== session.id || this.currentTurnIdentity !== turnIdentity) {
       this.currentTurnSessionId = session.id;
       this.currentTurnIdentity = turnIdentity;
@@ -549,7 +563,8 @@ export class RuntimeSessionToolExecutor {
         continue;
       }
 
-      if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(normalizedToolCall.name)) {
+      const admittedToolAllowlist = readExecutionToolAllowlist(perCallConfig);
+      if (!admittedToolAllowlist.has(normalizedToolCall.name)) {
         const content = `Tool "${normalizedToolCall.name}" is not available for this tenant`;
         emitStarted();
         this.emitToolResult(
@@ -592,15 +607,18 @@ export class RuntimeSessionToolExecutor {
 
       const metadata = this.resolveToolCallMetadata(session.id, normalizedToolCall.name, normalizedToolCall.input, perCallConfig);
       const capability = this.resolveCapability(normalizedToolCall.name, perCallConfig);
-      const resolvedEffect = this.resolveInvocationEffect(
+      const effectResolution = this.resolveInvocationEffectWithTrust(
         normalizedToolCall.name,
         normalizedToolCall.input,
-        capability,
+        perCallConfig,
       );
+      const resolvedEffect = effectResolution.effect;
+      const consequential = isMcpToolName(normalizedToolCall.name)
+        || !effectResolution.trusted
+        || resolvedEffect.operation !== "observe";
       const authResult = this.resolveAuthorization(
         normalizedToolCall.name,
         resolvedEffect,
-        capability,
         perCallConfig,
       );
       let executionAuthority = authResult;
@@ -736,21 +754,24 @@ export class RuntimeSessionToolExecutor {
       }
 
       const cacheTtl = capability?.cacheTtl;
-      const cachedResult = await this.tryCachedToolResult(
-        session.id,
-        normalizedToolCall,
-        cacheTtl,
-        resultParts,
-        toolExecutions,
-        metadata,
-        resolvedEffect,
-        authResult,
-      );
-      if (cachedResult.hit) {
-        continue;
+      if (!consequential) {
+        const cachedResult = await this.tryCachedToolResult(
+          session.id,
+          normalizedToolCall,
+          cacheTtl,
+          resultParts,
+          toolExecutions,
+          metadata,
+          resolvedEffect,
+          authResult,
+        );
+        if (cachedResult.hit) {
+          continue;
+        }
       }
 
       const startMs = Date.now();
+      const toolActionState: RuntimeToolActionDispatchState = { claimed: false };
 
       try {
         const execution = await this.executeToolWithPolicy(
@@ -759,6 +780,10 @@ export class RuntimeSessionToolExecutor {
           perCallConfig,
           executionAuthority,
           formalVerificationObservations,
+          resolvedEffect,
+          consequential,
+          toolCallScopeId,
+          toolActionState,
         );
         const durationMs = Date.now() - startMs;
         const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
@@ -871,7 +896,7 @@ export class RuntimeSessionToolExecutor {
           isError,
         });
 
-        if (cacheTtl && this.deps.toolCache) {
+        if (!consequential && cacheTtl && this.deps.toolCache) {
           try {
             this.deps.toolCache.set(normalizedToolCall.name, normalizedToolCall.input, execution.resultValueRaw, cacheTtl);
           } catch {
@@ -883,6 +908,17 @@ export class RuntimeSessionToolExecutor {
           perCallConfig.rateLimiter.record(perCallConfig.tenantId, normalizedToolCall.name);
         }
       } catch (err) {
+        if (err instanceof RuntimeToolActionCommittedError) {
+          // A claimed effect is never converted into a model-visible error
+          // result: doing so would permit the model/orchestrator to retry it.
+          throw err;
+        }
+        if (consequential && toolActionState.claimed && toolActionState.claimId) {
+          // Adapter success is already durable. A later projection, event,
+          // sanitizer, cache, or rate-limit failure cannot become a retryable
+          // model-visible tool error.
+          throw new RuntimeToolActionCommittedError(err, toolActionState.claimId);
+        }
         const durationMs = Date.now() - startMs;
         const errMsg = err instanceof Error ? err.message : String(err);
         const isExternalFailure = isMcpToolName(normalizedToolCall.name);
@@ -980,28 +1016,35 @@ export class RuntimeSessionToolExecutor {
     return this.deps.capabilityMap?.get(name) ?? perCallConfig?.perCallCapabilities?.get(name);
   }
 
-  private resolveStaticAuthority(toolName: string, perCallConfig?: PerCallToolConfig): unknown {
-    return perCallConfig?.toolAuthority?.get(toolName);
+  private resolveAdmittedToolPermission(toolName: string, perCallConfig?: PerCallToolConfig) {
+    return perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions.find(
+      (entry) => entry.toolName === toolName,
+    );
   }
 
-  /**
-   * Whether a tool name resolves through an operator-configured authority source
-   * (a static per-call authority entry or a toolAuthorizer) as opposed to the
-   * conservative deriveAuthorityFromEffect() fallback applied to unclassified
-   * `mcp:` capabilities. Only a configured source implies a live approval channel
-   * capable of eventually resolving an interactive approval request.
-   */
+  private resolveStaticAuthority(toolName: string, perCallConfig?: PerCallToolConfig): unknown {
+    return readExecutionToolAuthority(perCallConfig, toolName);
+  }
+
+  /** Whether the persisted bundle admits this exact tool. */
   private hasConfiguredAuthoritySource(toolName: string, perCallConfig?: PerCallToolConfig): boolean {
-    return this.resolveStaticAuthority(toolName, perCallConfig) !== undefined
-      || Boolean(this.deps.toolAuthorizer);
+    return this.resolveStaticAuthority(toolName, perCallConfig) !== undefined;
   }
 
   private resolveAuthorization(
     toolName: string,
     resolvedEffect: ResolvedInvocationEffect,
-    capability: Capability | undefined,
     perCallConfig?: PerCallToolConfig,
   ): AuthorityDescriptor | undefined {
+    const admittedPermission = this.resolveAdmittedToolPermission(toolName, perCallConfig);
+    if (!admittedPermission) {
+      return {
+        level: 4,
+        allowed: false,
+        requiresApproval: false,
+        reason: "Tool is absent from the persisted authority admission bundle",
+      };
+    }
     const authority = this.resolveStaticAuthority(toolName, perCallConfig);
     if (authority !== undefined) {
       if (!this.isAuthorityDescriptor(authority)) {
@@ -1012,9 +1055,7 @@ export class RuntimeSessionToolExecutor {
           reason: "Invalid authority descriptor; execution denied",
         };
       }
-      const declaredEffect = capability?.effectEnvelope
-        ?? getBuiltinEffectEnvelope(toolName)
-        ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+      const declaredEffect = admittedPermission.effectEnvelope;
       const narrowedAuthority = authorityFromResolvedInvocationEffect(
         authority,
         resolvedEffect,
@@ -1030,43 +1071,31 @@ export class RuntimeSessionToolExecutor {
         reason: authority.reason,
       };
     }
-    if (this.deps.toolAuthorizer) {
-      return this.deps.toolAuthorizer.authorize(toolName, resolvedEffect);
-    }
-    if (isMcpToolName(toolName)) {
-      // A dynamically-discovered MCP capability with no static authority entry
-      // and no configured authorizer must still resolve through the canonical
-      // effect-based policy instead of executing unchecked (fail closed).
-      // Scoped to `mcp:` names rather than applied universally: governance and
-      // work-item tools (work_governance.assess, goal.*, work_item.*,
-      // managed_agent.invoke) have no declared effect envelope in the builtin
-      // catalog, so a universal fallback would resolve every one of them to
-      // CONSERVATIVE_UNKNOWN_ENVELOPE -> approval-required, deadlocking
-      // governance itself. This is a workaround for that missing envelope
-      // coverage, not a claim that builtin/dev tools are inherently safe to
-      // run unchecked - once governance tools have declared envelopes, this
-      // fallback should apply universally and the `mcp:` namespace check
-      // should be deleted.
-      return deriveAuthorityFromEffect(resolvedEffect);
-    }
     return undefined;
   }
 
-  private resolveInvocationEffect(
+  private resolveInvocationEffectWithTrust(
     toolName: string,
     input: Record<string, unknown>,
-    capability: Capability | undefined,
-  ): ResolvedInvocationEffect {
-    const envelope = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+    perCallConfig?: PerCallToolConfig,
+  ): { readonly effect: ResolvedInvocationEffect; readonly trusted: boolean } {
+    const admittedPermission = this.resolveAdmittedToolPermission(toolName, perCallConfig);
+    if (!admittedPermission) {
+      return { effect: CONSERVATIVE_UNKNOWN_ENVELOPE, trusted: false };
+    }
+    const declaredEnvelope = admittedPermission.effectEnvelope;
     try {
-      return resolveInvocationEffect(
-        toolName,
-        input,
-        envelope,
-        RUNTIME_INVOCATION_EFFECT_RESOLVERS,
-      );
+      return {
+        effect: resolveInvocationEffect(
+          toolName,
+          input,
+          declaredEnvelope,
+          RUNTIME_INVOCATION_EFFECT_RESOLVERS,
+        ),
+        trusted: true,
+      };
     } catch {
-      return CONSERVATIVE_UNKNOWN_ENVELOPE;
+      return { effect: CONSERVATIVE_UNKNOWN_ENVELOPE, trusted: false };
     }
   }
 
@@ -1347,6 +1376,10 @@ export class RuntimeSessionToolExecutor {
     perCallConfig: PerCallToolConfig | undefined,
     authority: AuthorityDescriptor | undefined,
     formalVerificationObservations: readonly RuntimeFormalVerificationObservation[],
+    resolvedEffect: ResolvedInvocationEffect,
+    consequential: boolean,
+    toolCallScopeId: string,
+    toolActionState: RuntimeToolActionDispatchState,
   ): Promise<{
     readonly resultValueRaw: unknown;
     readonly resultValue: string;
@@ -1355,6 +1388,49 @@ export class RuntimeSessionToolExecutor {
     let resultValueRaw: unknown;
     let retryAttempt: number | undefined;
 
+    if (consequential) {
+      const claims = perCallConfig?.runtimeToolActionClaims;
+      if (!claims) {
+        throw new Error("Consequential tool execution requires a workload-owned Runtime tool-action claim context.");
+      }
+      const prepared = this.prepareToolInvocation(toolCall, perCallConfig, authority, formalVerificationObservations, true);
+      const session = this.currentSession;
+      if (!session) throw new Error("Consequential tool execution requires an active Runtime session.");
+      const turnId = readExecutionTurnId(perCallConfig);
+      const adapterIdentity = prepared.adapterIdentity;
+      try {
+        resultValueRaw = await this.toolActionDispatch.dispatch({
+          admission: claims.admission,
+          sessionId: session.id,
+          turnId,
+          attemptId: claims.attemptId,
+          toolCallScopeId,
+          toolCallId: toolCall.id,
+          selector: toolCall.name,
+          normalizedInput: stableRuntimeJson(toolCall.input),
+          resolvedEffect,
+        adapterIdentity,
+        ...(claims.admissionReadbackSessionId ? { admissionReadbackSessionId: claims.admissionReadbackSessionId } : {}),
+        ...(claims.admissionReadbackTurnId ? { admissionReadbackTurnId: claims.admissionReadbackTurnId } : {}),
+        readAdmission: claims.readAdmission,
+          store: claims.store,
+          invoke: prepared.invoke,
+          abortSignal: perCallConfig?.abortSignal,
+          state: toolActionState,
+        });
+      } finally {
+        if (claims.state && toolActionState.claimed) {
+          claims.state.claimed = true;
+          claims.state.claimId = toolActionState.claimId;
+          claims.state.outcome = toolActionState.outcome;
+        }
+      }
+      return {
+        resultValueRaw,
+        resultValue: typeof resultValueRaw === "string" ? resultValueRaw : JSON.stringify(resultValueRaw),
+      };
+    }
+
     if (capability?.retry) {
       const executor = (name: string, input: Record<string, unknown>) =>
         this.executeTool({ id: toolCall.id, name, input }, perCallConfig, authority, formalVerificationObservations);
@@ -1362,7 +1438,7 @@ export class RuntimeSessionToolExecutor {
         ? (name: string, input: Record<string, unknown>) => this.executeTool(
             { id: toolCall.id, name, input },
             perCallConfig,
-            perCallConfig?.toolAuthority?.get(name),
+            readExecutionToolAuthority(perCallConfig, name),
             formalVerificationObservations,
           )
         : undefined;
@@ -1564,9 +1640,19 @@ export class RuntimeSessionToolExecutor {
     authority?: AuthorityDescriptor,
     formalVerificationObservations: readonly RuntimeFormalVerificationObservation[] = [],
   ): Promise<unknown> {
+    return this.prepareToolInvocation(toolCall, perCallConfig, authority, formalVerificationObservations).invoke();
+  }
+
+  private prepareToolInvocation(
+    toolCall: ToolCall,
+    perCallConfig?: PerCallToolConfig,
+    authority?: AuthorityDescriptor,
+    formalVerificationObservations: readonly RuntimeFormalVerificationObservation[] = [],
+    consequential = false,
+  ): { readonly invoke: () => Promise<unknown>; readonly adapterIdentity: string } {
     const session = this.currentSession;
     const turnId = session
-      ? perCallConfig?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`
+      ? readExecutionTurnId(perCallConfig)
       : undefined;
     let chunkIndex = 0;
     let streamedOutputChars = 0;
@@ -1603,32 +1689,47 @@ export class RuntimeSessionToolExecutor {
           ...((perCallConfig?.workingDirectory || perCallConfig?.sandbox !== undefined)
             ? { sandbox: mergePerCallSandbox(perCallConfig.sandbox, perCallConfig.workingDirectory) }
             : {}),
-          ...(perCallConfig?.toolAllowlist ? { allowedToolNames: [...perCallConfig.toolAllowlist] } : {}),
-          ...(authority ? { authority } : {}),
-          requestApproval: (description: string) => this.requestApproval(session.id, description),
-          ...(perCallConfig?.effectiveTurnAuthority
-            ? { effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority }
+          ...(readExecutionToolAllowlist(perCallConfig)
+            ? { allowedToolNames: [...readExecutionToolAllowlist(perCallConfig)!] }
             : {}),
-          ...(perCallConfig?.operatorAdoptionDecision
-            ? { operatorAdoptionDecision: perCallConfig.operatorAdoptionDecision }
+          ...(authority ? { authority } : {}),
+          requestApproval: consequential
+            ? async () => {
+                throw new Error("A consequential builtin requested approval after its action claim; execution is unknown.");
+              }
+            : (description: string) => this.requestApproval(session.id, description),
+          ...(readExecutionTurnAuthority(perCallConfig)
+            ? { effectiveTurnAuthority: readExecutionTurnAuthority(perCallConfig) }
+            : {}),
+          ...(readExecutionOperatorAdoptionDecision(perCallConfig)
+            ? { operatorAdoptionDecision: readExecutionOperatorAdoptionDecision(perCallConfig) }
             : {}),
         }
       : undefined;
     const callBuiltin = this.callBuiltinTools?.get(toolCall.name);
     if (callBuiltin) {
-      return callBuiltin(toolCall.input, context);
+      return {
+        adapterIdentity: `${perCallConfig?.runtimeToolActionClaims?.adapterIdentity ?? "runtime"}:call-builtin:${toolCall.name}`,
+        invoke: () => callBuiltin(toolCall.input, context),
+      };
     }
 
     const depBuiltin = this.deps.builtinTools?.get(toolCall.name);
     if (depBuiltin) {
-      return depBuiltin(toolCall.input, context);
+      return {
+        adapterIdentity: `${perCallConfig?.runtimeToolActionClaims?.adapterIdentity ?? "runtime"}:builtin:${toolCall.name}`,
+        invoke: () => depBuiltin(toolCall.input, context),
+      };
     }
 
     if (this.deps.mcpClients) {
       const client = this.deps.mcpClients.find((candidate) =>
         toolCall.name.startsWith(`mcp:${candidate.serverName}:`));
       if (client) {
-        return client.executeCapability(toolCall.name, toolCall.input);
+        return {
+          adapterIdentity: `${perCallConfig?.runtimeToolActionClaims?.adapterIdentity ?? "runtime"}:mcp:${client.serverName}:${toolCall.name}`,
+          invoke: () => client.executeCapability(toolCall.name, toolCall.input),
+        };
       }
     }
 

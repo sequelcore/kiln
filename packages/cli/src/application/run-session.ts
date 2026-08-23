@@ -114,6 +114,7 @@ export interface RunSessionResult {
   readonly managedChildDispatched: boolean;
   readonly communicationResolution?: CommunicationResolution;
   readonly effectivePromptObservation?: EffectivePromptObservation;
+  readonly runtimeModelRoundOutcome?: "unknown";
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
@@ -168,6 +169,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let managedChildDispatched = false;
   let communicationResolution: CommunicationResolution | undefined;
   let effectivePromptObservation: EffectivePromptObservation | undefined;
+  let runtimeModelRoundOutcome: "unknown" | undefined;
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
@@ -511,6 +513,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       effectivePromptObservation = session.effectivePromptObservation ?? effectivePromptObservation;
       await session.dispose();
     }
+    const runtimeModelRoundClaimed = session.runtimeModelRoundClaimed === true;
+    runtimeModelRoundOutcome = session.runtimeModelRoundOutcome ?? runtimeModelRoundOutcome;
 
     attempts.push({
       providerId,
@@ -519,10 +523,10 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       error: attemptError,
     });
 
-    if (sessionSucceeded) break;
+    if (sessionSucceeded || runtimeModelRoundClaimed) break;
 
     const hasMoreCandidates = candidateIndex < candidates.length - 1;
-    if (!isPreflightCrash && !sessionSucceeded && hasMoreCandidates) {
+    if (!isPreflightCrash && !sessionSucceeded && hasMoreCandidates && !runtimeModelRoundClaimed) {
       accumulatedText = accumulatedText.slice(0, accumulatedTextBeforeAttempt);
       if (options.output?.mode !== "human") {
         options.output?.resetAssistantAnswer(accumulatedText);
@@ -558,6 +562,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     managedChildDispatched,
     ...(communicationResolution ? { communicationResolution } : {}),
     ...(effectivePromptObservation ? { effectivePromptObservation } : {}),
+    ...(runtimeModelRoundOutcome ? { runtimeModelRoundOutcome } : {}),
   };
 }
 

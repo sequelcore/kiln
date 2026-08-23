@@ -7,11 +7,13 @@ import {
   prepareOperatorAdoptionTurn,
   requireOperatorAdoptionDecisionPersistence,
   RuntimeSession,
+  readRuntimeModelRoundAdmission,
   fingerprintOperatorTurnIntent,
   type AuthorityAdmissionEvidenceStore,
   type AttachedRuntimeBuiltinToolSurface,
   type OperatorSessionExecutionCatalogSnapshot,
   type RuntimeConfigurationRevisionSnapshot,
+  type RuntimeAuthorityAdmissionCandidateConfig,
   type RuntimeSessionTurnBudgetAuthority,
 } from "@kilnai/runtime";
 import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
@@ -57,17 +59,26 @@ export function createCanonicalRunSessionDispatcher(input: {
   /** Mandatory atomic catalog/revision source for canonical admission. */
   readonly captureCatalogSnapshot: () => OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
 }): CanonicalRunSessionDispatcher {
+  const canonicalIntent = {
+    routeId: input.routeId,
+    ...(input.accountOverrideId ? { accountOverrideId: input.accountOverrideId } : {}),
+  };
+  const canonicalIntentFingerprint = fingerprintOperatorTurnIntent({
+    executionId: input.executionId,
+    intent: canonicalIntent,
+  });
   const composition = createOperatorTurnDispatchComposition<CanonicalRunSessionPayload, RunSessionResult>({
     initialCatalog: input.catalog,
     captureCatalogSnapshot: input.captureCatalogSnapshot,
     cwd: input.authorityStateRoot ?? input.cwd,
+    readDispatchOutcome: (result) => result.runtimeModelRoundOutcome === "unknown" ? "unknown" : "completed",
   });
   type Prepared = {
     readonly runtimeSession: RuntimeSession;
     readonly builtinToolSurface: AttachedRuntimeBuiltinToolSurface;
     readonly mcpClients: readonly KilnMcpClient[];
     readonly mcpCapabilities: readonly Capability[];
-    readonly perCallConfig: import("@kilnai/runtime").PerCallToolConfig;
+    readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig;
   };
   const authorityCoordinator = new OperatorAuthorityAdmissionCoordinator<CanonicalRunSessionPayload, Prepared>({
     resolveSession: async (request) => {
@@ -150,7 +161,7 @@ export function createCanonicalRunSessionDispatcher(input: {
         turnId: adoption.turnId,
         turnCorrelationId: adoption.correlationId,
         operatorAdoptionDecision: adoption.operatorAdoptionDecision,
-      } satisfies import("@kilnai/runtime").PerCallToolConfig;
+      } satisfies RuntimeAuthorityAdmissionCandidateConfig;
       const projectedAuthority = perCallConfig.effectiveTurnAuthority;
       const authority = projectedAuthority && isCanonicalAuthorityAdmissible(projectedAuthority)
         ? projectedAuthority
@@ -224,6 +235,71 @@ export function createCanonicalRunSessionDispatcher(input: {
     }
     const prepared = authorityCoordinator.consume(executionId, authorityAdmission);
     try {
+      const readAdmission = input.authorityAdmissionEvidenceStore.readAdmission;
+      if (!readAdmission) throw new Error("Canonical direct run has no durable admission readback for model-round claiming.");
+      const persistedRuntimeAdmission = await readRuntimeModelRoundAdmission({
+        readAdmission: (request) => readAdmission.call(input.authorityAdmissionEvidenceStore, request),
+        admissionId: authorityAdmission.admissionId,
+        sessionId: authorityAdmission.sessionId,
+        turnId: authorityAdmission.turnId,
+        expected: {
+          routeId: binding.routeId,
+          accountId: binding.accountId,
+          credentialRevision: binding.credentialRevision,
+        },
+      });
+      const runtimeModelRoundDispatch = {
+        admission: persistedRuntimeAdmission,
+        intentFingerprint: canonicalIntentFingerprint,
+        attemptId: executionId,
+        routeId: binding.routeId,
+        accountId: binding.accountId,
+        credentialRevision: binding.credentialRevision,
+        state: { claimed: false },
+        readAdmission: () => readRuntimeModelRoundAdmission({
+          readAdmission: (request) => readAdmission.call(input.authorityAdmissionEvidenceStore, request),
+          admissionId: authorityAdmission.admissionId,
+          sessionId: authorityAdmission.sessionId,
+          turnId: authorityAdmission.turnId,
+          expected: {
+            routeId: binding.routeId,
+            accountId: binding.accountId,
+            credentialRevision: binding.credentialRevision,
+          },
+        }),
+        store: composition.modelRoundActionClaims,
+      } satisfies NonNullable<import("@kilnai/runtime").PerCallToolConfig["runtimeModelRoundDispatch"]>;
+      const runtimeToolActionClaims = {
+        admission: persistedRuntimeAdmission,
+        attemptId: executionId,
+        adapterIdentity: `operator:${binding.routeId}:${binding.accountId}:${binding.credentialRevision}`,
+        state: { claimed: false },
+        readAdmission: (request: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string }) => readRuntimeModelRoundAdmission({
+          readAdmission: (readRequest) => readAdmission.call(input.authorityAdmissionEvidenceStore, readRequest),
+          admissionId: request.admissionId,
+          sessionId: request.sessionId,
+          turnId: request.turnId,
+          expected: {
+            routeId: binding.routeId,
+            accountId: binding.accountId,
+            credentialRevision: binding.credentialRevision,
+          },
+        }),
+        store: composition.toolActionClaims,
+      } satisfies NonNullable<import("@kilnai/runtime").PerCallToolConfig["runtimeToolActionClaims"]>;
+      const {
+        turnId: _candidateTurnId,
+        operatorAdoptionDecision: _candidateAdoptionDecision,
+        executionBinding: _candidateExecutionBinding,
+        admittedExecutionRoute: _candidateExecutionRoute,
+        effectiveTurnAuthority: _candidateTurnAuthority,
+        authorityContext: _candidateAuthorityContext,
+        runtimeConfigurationRevision: _candidateConfigurationRevision,
+        runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
+        toolAllowlist: _candidateToolAllowlist,
+        toolAuthority: _candidateToolAuthority,
+        ...admittedExecutionConfig
+      } = prepared.perCallConfig;
       return await runSession({
         ...payload,
         sessionConfig: {
@@ -240,7 +316,13 @@ export function createCanonicalRunSessionDispatcher(input: {
           executionCredential: credential,
           authorityAdmissionContext: {
             ...prepared,
-            bundle: authorityAdmission,
+              bundle: persistedRuntimeAdmission,
+            perCallConfig: {
+              ...admittedExecutionConfig,
+              authorityAdmission: persistedRuntimeAdmission,
+              runtimeModelRoundDispatch,
+              runtimeToolActionClaims,
+            },
           },
         },
         routeCandidates: [{
@@ -264,18 +346,16 @@ export function createCanonicalRunSessionDispatcher(input: {
 
   return {
     dispatch: (payload) => {
-      const intent = {
-        routeId: input.routeId,
-        ...(input.accountOverrideId ? { accountOverrideId: input.accountOverrideId } : {}),
-      };
       return composition.dispatcher.dispatchTurn({
         executionId: input.executionId,
-        intentFingerprint: fingerprintOperatorTurnIntent({ executionId: input.executionId, intent }),
-        intent,
+        intentFingerprint: canonicalIntentFingerprint,
+        intent: canonicalIntent,
         payload,
       }).then(({ result }) => result);
     },
-    close: composition.close,
+    close: () => {
+      composition.close();
+    },
   };
 }
 

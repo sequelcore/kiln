@@ -616,8 +616,7 @@ export type KilnContextGovernanceSource =
   | "ledger"
   | "artifact"
   | "summary"
-  | "memory"
-  | "knowledge";
+  | "memory";
 
 export type KilnContextGovernanceAggressiveness = "low" | "medium" | "high";
 

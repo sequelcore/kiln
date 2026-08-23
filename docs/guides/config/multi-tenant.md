@@ -41,7 +41,7 @@ apps:
 | Memory | App-local memory base path plus explicit `tenant` scope. Same tenant id in different Apps maps to separate governed memory records. |
 | Sessions | `SessionRegistry` keys by `{appName}:{userId}`. No session is accessible across Apps. |
 | Agents | Each provider-adapter app has its own `RuntimeSessionOrchestrator` and `ProviderAdapter` instance. |
-| Channel bindings | `ChannelRegistry` is instantiated per App. Messages on one App's channel cannot reach another App. |
+| Channel bindings | Each WebSocket and webhook route is mounted under its App and tenant identity; cross-App delivery is not implicit. |
 | Delegation memory | Delegation calls write no git-synced memory and have no workspace access. |
 
 Cross-App communication is always explicit: an agent must declare a `type: delegation` capability that names the target App. See [delegation](../agents/delegation.md).
@@ -166,9 +166,8 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `emailTransportConfig` | object | Email transport provider config (Postmark, Resend, or generic) |
 | `preChatForm` | object | Pre-chat form config for web widget (see [Pre-chat form](../channels/channels.md#pre-chat-form)) |
 | `agents` | array | Multi-agent config: each agent has id, name, role, goal, tools (see [Multi-Agent Routing](../agents/multi-agent.md)) |
-| `routing` | object | Agent routing config: rules, fallback, maxHandoffs, embeddingThreshold (see [Multi-Agent Routing](../agents/multi-agent.md)) |
+| `routing` | object | Agent routing config: rules, fallback, maxHandoffs (see [Multi-Agent Routing](../agents/multi-agent.md)) |
 | `integrations` | array | Integration adapters: provider, credentialKey, operations filter, config (see [Tool Use: Integration Tools](../channels/tool-use.md#integration-tools)) |
-| `groundingMode` | string | RAG grounding: `"off"` (default) or `"strict"`. When strict, appends grounding directive after knowledge context to prevent hallucination |
 | `sessionLimits` | object | Abuse protection: `maxTokens`, `maxTurns` per session (auto-escalates to `human_active`) |
 | `whatsappCoexistence` | object | WhatsApp coexistence: `enabled`, `autoReleaseMs` for business app auto-handoff |
 

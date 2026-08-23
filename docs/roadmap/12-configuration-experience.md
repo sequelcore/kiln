@@ -499,7 +499,7 @@ the admitted key set now has one owner.
 
 The final cut added typed `target.select`, `target.create`, and `native.import`
 operations; admitted both project and user `skill.upsert`; and migrated `kiln
-target`, `kiln import-native`, `skill-capture`, and execution-route creation.
+target`, `kiln import-native`, and execution-route creation.
 Target creation keeps managed evidence under its content-addressed owner and
 binds the canonical intent to the exact already-published revision. Native
 import fails closed on invalid canonical state and reconciles through the one
@@ -747,38 +747,43 @@ secret-free, content-addressed `EffectiveAuthorityAdmissionBundle` from the
 session skill/ceiling, work governance, exact tool permissions/effect ceiling,
 session-turn budget, sanitized route/data-policy decision, execution binding,
 and economic commitment evidence where one exists. Route, account, credential,
-and budget admission precede provider dispatch, with credential material kept
-ephemeral after the dispatch fence. Canonical run, GUI, TUI, and most App
+and budget admission precede provider dispatch. At this checkpoint credential
+material remains ephemeral after the current capacity `dispatch-fenced` state;
+the Execution Kernel decision now classifies that as resource commitment, not
+the final action fence. Canonical run, GUI, TUI, and most App
 Gateway ingress now carry the committed revision and bundle rather than
 re-reading live configuration. App Gateway admission also captures gateway/app
 configuration digests, records the true requested authority, supplies the
 configured session budget, fences native delegation, and owns early-startup
 cleanup.
 
-The current checkpoint is intentionally not Slice 8 completion. Managed-child
-and model-gateway bundle persistence are partially implemented and require
-integration repair and focused verification. Email, WhatsApp, Instagram,
-Messenger, and tenant WebSocket effect lifetimes are being moved wholly inside
-the admitted capacity fence; that change is incomplete. The obsolete
-revision/authority fields in `PerCallToolConfig` and their bundle-to-legacy
-projection seam still need an outright cutover, so no parallel authority path
-may be considered accepted. Production package compilation passes at this
-checkpoint, but root test typechecking still fails in new activation/benchmark
-fixtures; the full Runtime, CLI, surface, and documentation gates plus final
-independent review remain required. No production descriptor
-owns `restart-required`; supervisor drain and restart wiring remains deferred
-until Slice 9 admits a real configuration family and owner.
+The issue #98 Execution Kernel convergence is complete in this checkpoint;
+Slice 8 remains in progress for its separate activation families. Runtime now
+owns one named durable action claim immediately before every Kiln-owned
+consequential model-round, tool, media, channel-egress, Agent Task, and managed
+external-invocation effect. Exact replay returns no permit, post-fence
+cancellation, timeout, restart, transport failure, and adapter fallback cannot
+redispatch the attempt, and workload owners retain their real settlement and
+reconciliation domains. Native and remote harnesses remain opaque: Kiln fences
+only the launch or send it owns and makes no claim about hidden inner effects.
 
-Checkpoint evidence (2026-08-22): documentation validation and diff whitespace
-validation pass; the focused App Gateway authority/delegation/startup suite
-passes 49 tests and the CLI App Gateway composition suite passes 3 tests. Root
-production compilation passes. Root test typechecking is
-not green: activation-status fixtures need literal revision typing, one App
-Gateway global-config fixture lacks the required config version, and benchmark
-fixtures need current mock and canonical-turn-id types. Broad Runtime, complete
-CLI (including the previously repaired stale mock), surface suites, and final
-Sol-high review were not rerun after the interrupted model/managed-child/webhook
-increments.
+The complete `EffectiveAuthorityAdmissionBundle` and its persisted read-back
+receipt are the only consequential execution authority. The obsolete
+revision, route, binding, turn, adoption, and effective-authority fields in
+`PerCallToolConfig`, their reconstruction paths, and their bundle-to-legacy
+projection are deleted outright. Model Gateway remains ingress and target
+resolution into the Runtime kernel; Core, GUI, TUI, CLI, SDK, and adapters do
+not own a parallel lifecycle. No production descriptor owns
+`restart-required`; supervisor drain and restart wiring remains deferred until
+Slice 9 admits a real configuration family and owner.
+
+Completion evidence (2026-08-22): repository source and test typechecking,
+production build, documentation validation, and diff whitespace validation
+pass. The component suites pass 10,904 tests: scripts 248; foundation 4,176;
+Runtime 3,248; CLI 2,506; and surfaces 726. Six platform- or
+permission-specific tests remain intentionally skipped. Focused claim-store,
+crash, replay, cancellation, settlement, harness-ingress, and authority
+cutover tests are included in those lanes.
 
 #### Pre-resumption gates (operator decision 2026-08-22)
 
@@ -789,13 +794,16 @@ are complete:
    runs the existing complete workflow for `dev` without deleting, weakening,
    or allowing failure in a lane. This is validation reachability, not a new
    release process.
-2. **Execution Kernel ownership** — only the decision slice of
-   [#98](https://github.com/sequelcore/kiln/issues/98) is required now. It maps
-   `admit -> acquire -> commit -> dispatch fence -> execute -> settle/reconcile`,
-   names where `EffectiveAuthorityAdmissionBundle` enters that boundary,
-   distinguishes shared lifecycle mechanics from workload-owned recovery, and
-   states that Kiln fences an external-harness invocation without claiming its
-   hidden inner effects. The full kernel migration is not a resumption gate.
+2. **Execution Kernel ownership** — decision complete in
+   [Execution Kernel](../architecture/core/execution-kernel.md). The decision
+   distinguishes resource commitments from the canonical action claim, maps
+   `admit -> acquire -> resolve binding -> persist admission -> dispatch fence
+   -> execute -> settle/reconcile`, binds
+   `EffectiveAuthorityAdmissionBundle.admissionId` at
+   the fence, retains workload-owned claim stores and recovery, and limits an
+   external-harness claim to the invocation Kiln launches. The full
+   [#98](https://github.com/sequelcore/kiln/issues/98) migration is not a
+   resumption gate.
 3. **Deterministic recovery oracle** — the bounded Slice 8 subset of
    [#97](https://github.com/sequelcore/kiln/issues/97) covers configuration
    mutation during an admitted turn, crash before and after the dispatch fence,
@@ -810,9 +818,10 @@ are complete:
 The ownership decision must update the canonical Runtime architecture before
 its first consumer changes. The synthetic oracle must exercise existing
 observable contracts rather than introduce a second lifecycle or state owner.
-After these gates close, Slice 8 resumes by deleting the legacy
-`PerCallToolConfig` authority path and completing managed-child, Model Gateway,
-webhook, and tenant-WebSocket convergence against the decided boundary.
+That resumption work is now complete: the legacy `PerCallToolConfig` authority
+path is deleted, and managed-child, Model Gateway, webhook, media, channel, and
+tenant-WebSocket execution converge on the decided boundary without a
+compatibility or dual-read path.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

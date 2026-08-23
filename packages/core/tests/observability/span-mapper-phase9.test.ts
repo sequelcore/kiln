@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { mapEventToSpan } from "../../src/observability/span-mapper.js";
 import type {
     ConversationClosedInternalEvent,
-    ConversationEnrichedEvent,
     CostUpdateEvent,
     KilnEvent,
     ModelRoutedEvent,
@@ -119,22 +118,6 @@ describe("mapEventToSpan (Phase 9)", () => {
                 if (result.action === "endSpan") {
                     expect(result.attributes!["closedBy"]).toBe(closedBy);
                 }
-            }
-        });
-    });
-
-    describe("conversation_enriched", () => {
-        it("returns addEvent with enrichmentId", () => {
-            const result = mapEventToSpan(
-                ev<ConversationEnrichedEvent>({
-                    type: "conversation_enriched",
-                    enrichmentId: "enr-abc-123",
-                }),
-            );
-            expect(result.action).toBe("addEvent");
-            if (result.action === "addEvent") {
-                expect(result.name).toBe("conversation_enriched");
-                expect(result.attributes["enrichmentId"]).toBe("enr-abc-123");
             }
         });
     });

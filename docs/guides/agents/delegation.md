@@ -2,7 +2,7 @@
 
 Delegation is the mechanism by which one App's agent requests cognitive work from another App's agent and receives a structured JSON result. It is distinct from an API call: delegation asks for reasoning, not data retrieval. The calling agent provides a task description and a JSON Schema; the target agent reasons and returns a response that must validate against that schema.
 
-Two delegation protocols are supported: Kiln-native (same Gateway process) and A2A (remote agent over HTTP).
+Kiln supports one cross-App delegation protocol: Kiln-native delegation within the same Gateway process.
 
 ## Kiln-Native Delegation
 
@@ -39,7 +39,11 @@ Self-delegation (`fromApp === toApp`) is rejected at validation time.
 
 ### DelegationRegistry
 
-At startup, `startGateway()` builds a `DelegationRegistry` from all provider-adapter apps (`runtime: provider-adapter`). Apps using the subprocess runtime are not eligible as delegation targets. The registry maps each App name to its provider adapter and system prompt. It is built once at startup and is immutable for the lifetime of the process.
+At startup, `startGateway()` builds a `DelegationRegistry` from admitted App
+runtime targets. The registry maps each App name to its Runtime-owned execution
+entrypoint and system prompt. It is built once at startup and is immutable for
+the lifetime of the process. Delegation never receives a provider adapter and
+cannot call a provider directly.
 
 ### executeDelegation() Lifecycle
 
@@ -47,7 +51,10 @@ At startup, `startGateway()` builds a `DelegationRegistry` from all provider-ada
 2. Looks up `toApp` in the `DelegationRegistry`. Returns `TARGET_APP_NOT_FOUND` if absent.
 3. Generates a `delegationId` via `crypto.randomUUID()`.
 4. Builds a composite system prompt: target's base system prompt + delegation task + optional context.
-5. Races `provider.createMessage()` against the configured timeout. Returns `TIMEOUT` on expiry.
+5. Races the target's Runtime-owned admitted execution against the configured
+   timeout. That execution uses the same Model Gateway action claim and
+   settlement path as an ordinary model round. Returns `TIMEOUT` on expiry;
+   timeout does not authorize redispatch.
 6. Parses the response body as JSON. Returns `SCHEMA_VALIDATION_FAILED` if parsing fails.
 7. Validates the parsed object against `delegation.schema`. Returns `SCHEMA_VALIDATION_FAILED` on mismatch.
 8. Returns `AppDelegationResult` on success.
@@ -63,45 +70,6 @@ Delegation sessions do not write to git-synced memory scopes and have no workspa
 | `SCHEMA_VALIDATION_FAILED` | 422 | Response is not valid JSON or does not match the declared schema. |
 | `TARGET_APP_NOT_READY` | 503 | Target App registered but not currently available. |
 | `PROVIDER_ERROR` | 502 | Provider returned an error, or validation of the delegation request failed. |
-
-## A2A Delegation
-
-A2A (Agent-to-Agent) delegation communicates with a remote agent over HTTP using the A2A protocol. It does not use the `DelegationRegistry` — it communicates directly with the remote agent's URL.
-
-### Declaring an A2A Capability
-
-```yaml
-capabilities:
-  - name: analyze_with_remote
-    description: Delegate analysis to a remote specialized agent
-    type: delegation
-    delegationType: a2a
-    agentUrl: https://agent.example.com/a2a
-    task: "Analyze the provided dataset for anomalies"
-    timeout: 90000
-    schema:
-      type: object
-      properties:
-        anomalies:
-          type: array
-        confidence:
-          type: number
-      required: [anomalies, confidence]
-    tags: [delegation, a2a]
-```
-
-`delegationType: a2a` routes delegation through `executeA2ADelegation()` instead of the Kiln-native flow. `agentUrl` is required; without it, `TARGET_APP_NOT_FOUND` is returned.
-
-### A2A Execution Flow
-
-1. Validates that `agentUrl` is present.
-2. Constructs an official A2A v1 `Message` from `a2aMessage` (if provided) or wraps `delegation.task` as a v1 text part.
-3. Discovers `/.well-known/agent-card.json` through the official SDK and negotiates one of the transports declared by the Agent Card.
-4. Calls the v1 `sendMessage` operation with an `AbortSignal` enforcing the configured timeout.
-5. Handles either a direct `Message` response or a completed `Task`, then extracts a bounded, validated data/text part.
-6. Returns `PROVIDER_ERROR` if the task is not completed or the response is malformed, oversized, or has no extractable output.
-
-Kiln uses `@a2a-js/sdk` v1 for Agent Card discovery, transport negotiation, and outbound messages. The deprecated v0.3 compatibility layer is not enabled. A2A responses do not include `tokenUsage` unless a future remote contract reports real usage; Kiln does not synthesize zero values.
 
 ## Internal Routes
 

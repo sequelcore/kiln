@@ -1,5 +1,5 @@
 import { projectConversationForModel, sha256ContentIdentity, textPart } from "@kilnai/core";
-import type { ContentPart, ConversationToolResultProjectionPolicy, EffectivePromptManifest, ProviderAdapter, ToolCall } from "@kilnai/core";
+import type { AgentResponse, ContentPart, ConversationToolResultProjectionPolicy, CreateMessageOptions, EffectivePromptManifest, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type {
@@ -10,6 +10,7 @@ import type {
 } from "./runtime-session-orchestrator.types.js";
 import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
+import { DefaultContextSummarizer } from "./support/summarization/context-summarizer.js";
 import { deriveRuntimeTurnOutcome, hasUnrecoverableManagedInvocationFailure } from "./governed-turn-outcome.js";
 import type { SessionTurnOutcome } from "@kilnai/core";
 import type { CommunicationResolution } from "@kilnai/core";
@@ -56,9 +57,9 @@ export async function finalizeRuntimeSessionResponse(
   }
 
   let contextSummary: string | undefined;
-  if (escalation && input.deps.contextSummarizer) {
+  if (escalation) {
     try {
-      contextSummary = await input.deps.contextSummarizer.summarize(input.session);
+      contextSummary = await new DefaultContextSummarizer().summarize(input.session);
     } catch {
       // Non-critical: proceed without summary.
     }
@@ -120,10 +121,10 @@ function qualifyPartsForOutcome(
 }
 
 export async function requestRuntimeSessionFallbackResponse(
-  provider: ProviderAdapter,
   effectivePrompt: EffectivePromptManifest,
   session: RuntimeSession,
   maxTokens: number | undefined,
+  dispatch: (request: CreateMessageOptions) => Promise<AgentResponse>,
   cachePartition?: ProviderRequestCachePartitionInput,
   conversationPolicy?: ConversationToolResultProjectionPolicy,
   abortSignal?: AbortSignal,
@@ -148,7 +149,7 @@ export async function requestRuntimeSessionFallbackResponse(
   }
   const conversationProjection = projectConversationForModel(session.conversationHistory, conversationPolicy);
   const messages = conversationProjection.messages;
-  const response = await provider.createMessage({
+  const request: CreateMessageOptions = {
     sessionId: session.id,
     system: effectivePrompt.finalPrompt,
     messages,
@@ -168,7 +169,8 @@ export async function requestRuntimeSessionFallbackResponse(
     ...(providerTransport?.watchdog ? { transportWatchdog: providerTransport.watchdog } : {}),
     ...(providerTransport?.observer ? { transportObserver: providerTransport.observer } : {}),
     ...(communicationResolution ? { communicationResolution } : {}),
-  });
+  };
+  const response = await dispatch(request);
 
   return {
     parts: response.parts,

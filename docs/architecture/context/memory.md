@@ -14,7 +14,6 @@ The architecture distinguishes:
 
 - working memory
 - episodic or mutable operational memory
-- semantic or knowledge memory
 - procedural memory
 - immutable audit memory
 
@@ -24,7 +23,6 @@ The strongest research mapping is the layered-memory model:
 
 - working memory as volatile session state
 - episodic memory as event and observation storage
-- semantic memory as long-lived searchable knowledge
 - procedural memory as reusable operational skill or recipe structures
 
 The analogy is useful for retention policy and role separation. It is not a
@@ -37,8 +35,6 @@ claim that Kiln reproduces biological recall or plasticity.
   `SqliteMemoryRepository`.
 - Episodic traces can be written as scoped memory records with provenance,
   revisions, relations, and context-admission evidence.
-- Semantic storage exists through SQLite FTS5 and vector-backed knowledge
-  retrieval.
 - Procedural memory exists through the skill system and enters admitted-turn
   model context as governed `procedural` candidates.
 - Cross-agent coordination state exists through coordination primitives and can
@@ -53,7 +49,6 @@ claim that Kiln reproduces biological recall or plasticity.
 
 ## Current Boundaries
 
-- Memory and knowledge use different access patterns with overlapping concerns.
 - Coordination state uses its own naming and scope conventions.
 - Storage and mutation APIs are not context policy. They produce or retrieve
   state; `ContextGovernor` decides admitted-turn model context.
@@ -163,12 +158,6 @@ write authority.
 - soft-delete capable
 - reconsolidation-capable
 
-### Layer 2: Semantic
-
-- long-lived searchable knowledge
-- non-decaying by default
-- overwritten or deleted only by explicit policy
-
 ### Procedural Memory
 
 - skills and execution recipes
@@ -194,8 +183,8 @@ write authority.
 - deletion is explicit policy
 - no implicit forgetting is allowed
 
-Decay belongs primarily to mutable episodic memory. Semantic knowledge should
-not decay silently just because it is old.
+Decay belongs primarily to mutable episodic memory and must never silently
+change an existing record.
 
 ### Lifecycle Policy
 

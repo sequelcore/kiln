@@ -19,7 +19,6 @@ import {
   type AgentTaskCommitmentRecoveryPort,
   type AgentTaskDiagnosticCode,
   type AgentTaskDispatch,
-  type AgentTaskEconomicFenceResult,
   type AgentTaskEconomicAdoptionPort,
   type AgentTaskEconomicCommitmentPort,
   type AgentTaskEconomicProfile,
@@ -78,6 +77,10 @@ import type {
   AgentTaskEconomicExecutionPort,
   AgentTaskNativeHarnessExecutionPort,
 } from "./agent-task-execution.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../session/effective-authority-admission-bundle.js";
 
 export { AgentTaskApplicationError, AgentTaskExecutionFailure } from "./errors.js";
 export interface AgentTaskApplicationOptions {
@@ -110,6 +113,7 @@ export class AgentTaskApplicationService {
   private readonly idGenerator: () => string;
   private readonly economicAttemptIdGenerator: () => string;
   private readonly nativeHarnessDispatchIdGenerator: () => string;
+  private readonly ownerGeneration: string;
   private readonly activeDispatches = new Map<string, AbortController>();
 
   constructor(private readonly options: AgentTaskApplicationOptions) {
@@ -117,10 +121,11 @@ export class AgentTaskApplicationService {
     this.idGenerator = options.idGenerator ?? randomUUID;
     this.economicAttemptIdGenerator = options.economicAttemptIdGenerator ?? randomUUID;
     this.nativeHarnessDispatchIdGenerator = options.nativeHarnessDispatchIdGenerator ?? randomUUID;
+    this.ownerGeneration = `agent-task-owner:${randomUUID()}`;
   }
 
   /**
-   * Accepts and durably reserves governed V12 work without crossing an
+   * Accepts and durably reserves governed V14 work without crossing an
    * economic/native dispatch boundary. Completion is observed through the
    * status, result, and replay queries after the project owner schedules the
    * returned job.
@@ -182,7 +187,8 @@ export class AgentTaskApplicationService {
       throw new AgentTaskApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
     }
     if (!admission.admitted) throw new AgentTaskApplicationError("admission_denied", "Review the authoritative work-governance policy.");
-    if (!isIdentifier(admission.admissionId) || !isIdentifier(admission.source)) {
+    const admissionBundle = canonicalAdmissionBundle(admission.admitted ? admission.admissionBundle : undefined);
+    if (!admissionBundle || !isIdentifier(admission.source)) {
       throw new AgentTaskApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
     }
     const jobId = this.newJobId();
@@ -226,6 +232,7 @@ export class AgentTaskApplicationService {
       economicPolicyRevision: profile.economicPolicyRevision,
       constraints,
       candidateSet,
+      admissionBundle,
     };
     const queued: AgentTaskRecord = {
       version: AGENT_TASK_SCHEMA_VERSION,
@@ -244,7 +251,8 @@ export class AgentTaskApplicationService {
         dispatch,
       },
       governanceSource: admission.source,
-      admissionId: admission.admissionId,
+      admissionId: admissionBundle.admissionId,
+      admissionBundle,
       requestFingerprint,
       idempotencyKeyHash: digestManagedEconomicValue({
         projectId: project.id,
@@ -287,7 +295,8 @@ export class AgentTaskApplicationService {
       throw new AgentTaskApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
     }
     if (!admission.admitted) throw new AgentTaskApplicationError("admission_denied", "Review the authoritative work-governance policy.");
-    if (!isIdentifier(admission.admissionId) || !isIdentifier(admission.source)) {
+    const admissionBundle = canonicalAdmissionBundle(admission.admitted ? admission.admissionBundle : undefined);
+    if (!admissionBundle || !isIdentifier(admission.source)) {
       throw new AgentTaskApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
     }
     let resolved: AgentTaskNativeHarnessRoute | undefined;
@@ -312,6 +321,7 @@ export class AgentTaskApplicationService {
       adapterCapabilityId: resolved.adapterCapabilityId,
       adapterCapabilityVersion: resolved.adapterCapabilityVersion,
       acknowledgement: resolved.acknowledgement,
+      admissionBundle,
       ...(resolved.deliberationResolution ? { deliberationResolution: resolved.deliberationResolution } : {}),
     };
     const requestFingerprint = digestManagedEconomicValue({
@@ -363,7 +373,8 @@ export class AgentTaskApplicationService {
         dispatch,
       },
       governanceSource: admission.source,
-      admissionId: admission.admissionId,
+      admissionId: admissionBundle.admissionId,
+      admissionBundle,
       requestFingerprint,
       idempotencyKeyHash: digestManagedEconomicValue({
         projectId: project.id,
@@ -408,10 +419,18 @@ export class AgentTaskApplicationService {
           jobId: job.id,
           economicAttemptId: job.dispatch.economicAttemptId,
         });
-        if (recoveryState === "dispatch-fenced") return job;
+        if (recoveryState === "dispatch-fenced") {
+          // The economic ledger is the canonical action-claim authority. If
+          // its fence survived while this task projection remained queued,
+          // the provider boundary is already closed; do not leave a queued
+          // record that every retry can silently return forever.
+          return await this.transition(job.id, "interrupted", "result_pending");
+        }
       } catch {
-        // The commitment coordinator remains the authority for an unknown
-        // recovery state; let the normal dispatch path fail closed.
+        // An unavailable recovery authority cannot prove that the action was
+        // unfenced. Persist the conservative unknown projection rather than
+        // allowing a later owner to redispatch an ambiguous attempt.
+        return await this.transition(job.id, "interrupted", "result_pending");
       }
     }
     if (job.dispatch.kind === "native-harness") {
@@ -450,6 +469,13 @@ export class AgentTaskApplicationService {
       return undefined;
     }
     if (!job || !isNonterminal(job.state)) return job;
+    if (await this.hasCanonicalDispatchClaim(job)) {
+      // Once the canonical owner reports a post-fence state, the task
+      // projection must not remain queued while waiting for a caller that can
+      // never safely redispatch this attempt. Settlement/reconciliation stays
+      // with that owner; the task records the conservative unknown outcome.
+      return await this.transition(job.id, "interrupted", "result_pending");
+    }
     if (error instanceof AgentTaskApplicationError && error.code === "job_persistence_unavailable") {
       // Approval consumption is idempotent for this exact job consumer. Keep
       // the unfenced job retryable so a later dispatch can reconcile the
@@ -478,6 +504,7 @@ export class AgentTaskApplicationService {
   async getResult(context: TrustedAgentTaskQueryContext, id: string): Promise<AgentTaskResultQuery> {
     const job = await this.getStatus(context, id);
     if (job.state === "awaiting_approval" || job.state === "queued" || job.state === "running") return projectAgentTaskResult(job, "pending", "result_pending");
+    if (job.state === "interrupted") return projectAgentTaskResult(job, "unresolved", "result_pending");
     if (job.state !== "succeeded") return projectAgentTaskResult(job, "failed", job.diagnostic ?? "invocation_failed");
     if (!job.result) return projectAgentTaskResult(job, "unresolved", "result_persistence_failure");
     return projectAgentTaskResult(job, "available");
@@ -493,6 +520,14 @@ export class AgentTaskApplicationService {
     }
     if (job.state !== "queued" && job.state !== "running") {
       throw new AgentTaskApplicationError("invalid_transition", "Cancel only active managed work.");
+    }
+    if (await this.hasCanonicalDispatchClaim(job)) {
+      this.activeDispatches.get(job.id)?.abort(new AgentTaskApplicationError("cancelled", "Managed work was cancelled by its trusted operator."));
+      // A canonical fence means the external effect may have started. The
+      // task projection must record that unknown outcome even when economic
+      // settlement remains owned by the ledger; cancellation never
+      // redispatches a fenced attempt.
+      return await this.transition(job.id, "interrupted", "result_pending");
     }
     const active = this.activeDispatches.get(job.id);
     if (active) {
@@ -519,13 +554,23 @@ export class AgentTaskApplicationService {
           // Neither a queued native job nor a fenced native process has a
           // restart-safe caller/process owner. Mark both interrupted rather
           // than silently redispatching a possibly started external process.
-          return this.transition(job.id, "interrupted", "invocation_failed");
+          return this.transition(job.id, "interrupted", "result_pending");
         }
-        // Economic work without a dispatch fence is safe to hand back to the
-        // project dispatcher: SQLite acquisition is idempotent and still owns
-        // the only post-commit boundary. A fenced record stays pending for
-        // settlement/reconciliation and is never redispatched here.
-        return job;
+        // The economic ledger owns the canonical action claim. A fence that
+        // survived without a task projection is an explicit unknown outcome;
+        // persist that state so reopen/retry cannot leave the task queued or
+        // cross the provider boundary a second time.
+        try {
+          const recoveryState = (this.options.commitmentRecovery ?? this.options.economicCommitment)?.query({
+            jobId: job.id,
+            economicAttemptId: job.dispatch.economicAttemptId,
+          });
+          return recoveryState === "dispatch-fenced"
+            ? await this.transition(job.id, "interrupted", "result_pending")
+            : job;
+        } catch {
+          return await this.transition(job.id, "interrupted", "result_pending");
+        }
       }));
     } catch (error) { throw normalizeStoreError(error); }
   }
@@ -582,7 +627,8 @@ export class AgentTaskApplicationService {
     let fenceResult: AgentTaskNativeHarnessFenceResult;
     try {
       const dispatchFenceId = job.dispatch.dispatchFenceId ?? this.newNativeHarnessDispatchId();
-      fenceResult = await this.options.store.fenceNativeHarness(job.id, dispatchFenceId, this.now());
+      const actionClaim = nativeHarnessActionClaim(job, route, this.ownerGeneration);
+      fenceResult = await this.options.store.fenceNativeHarness(job.id, dispatchFenceId, this.now(), actionClaim);
     } catch (error) {
       if (error instanceof AgentTaskApplicationError) throw error;
       return this.transition(job.id, "failed", "route_unavailable");
@@ -595,7 +641,7 @@ export class AgentTaskApplicationService {
     if (fenced.state !== "running" || fenced.dispatch.kind !== "native-harness" || !fenced.dispatch.dispatchFenceId) {
       return fenced;
     }
-    if (abortSignal?.aborted) return await this.currentJob(fenced.id);
+    if (abortSignal?.aborted) return await this.transition(fenced.id, "interrupted", "result_pending");
     try {
       const execution = await this.options.nativeHarnessExecution.execute({
         job: fenced as AgentTaskRecord & { readonly dispatch: Extract<AgentTaskDispatch, { readonly kind: "native-harness" }> },
@@ -605,7 +651,7 @@ export class AgentTaskApplicationService {
         ...(callerIdentity ? { callerIdentity } : {}),
         ...(abortSignal ? { abortSignal } : {}),
       });
-      if (abortSignal?.aborted) return await this.currentJob(fenced.id);
+      if (abortSignal?.aborted) return await this.transition(fenced.id, "interrupted", "result_pending");
       const selected = fenced.dispatch;
       const result: AgentTaskResult = {
         version: 1,
@@ -624,7 +670,10 @@ export class AgentTaskApplicationService {
       };
       return await this.options.store.completeSuccess(fenced.id, result, execution.completedAt);
     } catch (error) {
-      if (abortSignal?.aborted) return await this.currentJob(fenced.id);
+      if (abortSignal?.aborted) return await this.transition(fenced.id, "interrupted", "result_pending");
+      if (fenced.dispatch.actionClaim !== undefined) {
+        return await this.transition(fenced.id, "interrupted", "result_pending");
+      }
       const terminal = agentTaskExecutionTerminal(error);
       return this.transition(fenced.id, terminal.state, terminal.diagnostic, terminal.failureEvidence);
     }
@@ -634,6 +683,7 @@ export class AgentTaskApplicationService {
     if (!this.options.economicAdoption || !this.options.economicDispatch || !this.options.economicExecution) {
       return this.transition(job.id, "failed", "economic_commitment_unavailable");
     }
+    let preparedClaim: Extract<Awaited<ReturnType<ManagedEconomicDispatchCoordinator["prepare"]>>, { readonly status: "prepared" }> | undefined;
     try {
       const dispatch = economicDispatchOf(job);
       await this.validateCurrentEconomicCandidateIdentity(job);
@@ -676,6 +726,8 @@ export class AgentTaskApplicationService {
         jobId: job.id,
         economicAttemptId: dispatch.economicAttemptId,
         intentFingerprint,
+        admissionBundle: job.admissionBundle,
+        effectIdentity: "agent-task:managed-provider-dispatch",
         adoption: adopted,
         admissionProfile: job.admissionProfileId,
         authorityProfileId: executionProfile.authorityProfileId,
@@ -684,36 +736,36 @@ export class AgentTaskApplicationService {
         ...(executionProfile.workLimits?.maxDurationMs !== undefined
           ? { workLimitDurationMs: executionProfile.workLimits.maxDurationMs }
           : {}),
-        ...(executionProfile.economicSpendApproval === "required"
+        ...(executionProfile.economicSpendApproval === "required" || isApprovedWriteProfile(job.admissionProfileId)
           ? {
               validateAndConsumeApprovalBeforeFence: async ({ commitment }: { readonly commitment: import("@kilnai/core").ManagedEconomicCommitment }) => {
-                const comparablePaidAmounts = commitment.reservation.amounts.filter((amount) =>
-                  amount.scheme.kind !== "unit" && BigInt(amount.atoms) !== 0n);
-                if (comparablePaidAmounts.length > 0) {
-                  if (!this.options.requestEconomicApproval) {
-                    throw new AgentTaskApplicationError(
-                      "admission_denied",
-                      "This managed task requires interactive approval before paid usage can be fenced.",
+                if (executionProfile.economicSpendApproval === "required") {
+                  const comparablePaidAmounts = commitment.reservation.amounts.filter((amount) =>
+                    amount.scheme.kind !== "unit" && BigInt(amount.atoms) !== 0n);
+                  if (comparablePaidAmounts.length > 0) {
+                    if (!this.options.requestEconomicApproval) {
+                      throw new AgentTaskApplicationError(
+                        "admission_denied",
+                        "This managed task requires interactive approval before paid usage can be fenced.",
+                      );
+                    }
+                    const approval = await this.options.requestEconomicApproval(
+                      `Managed task '${job.configuredAgentProfileId}' requests approval before reserving comparable paid usage on target '${commitment.reservation.selectedIdentity.route.routeId}'.`,
                     );
+                    if (!approval.approved) {
+                      throw new AgentTaskApplicationError(
+                        "admission_denied",
+                        `Managed task paid-usage approval denied: ${approval.reason ?? "approval denied"}`,
+                      );
+                    }
                   }
-                  const approval = await this.options.requestEconomicApproval(
-                    `Managed task '${job.configuredAgentProfileId}' requests approval before reserving comparable paid usage on target '${commitment.reservation.selectedIdentity.route.routeId}'.`,
-                  );
-                  if (!approval.approved) {
-                    throw new AgentTaskApplicationError(
-                      "admission_denied",
-                      `Managed task paid-usage approval denied: ${approval.reason ?? "approval denied"}`,
-                    );
-                  }
+                }
+                if (isApprovedWriteProfile(job.admissionProfileId)) {
+                  consumedWriteApproval = await this.consumeWriteApproval(job);
                 }
               },
             }
           : {}),
-        ...(isApprovedWriteProfile(job.admissionProfileId) ? {
-          validateAndConsumeApprovalBeforeFence: async () => {
-            consumedWriteApproval = await this.consumeWriteApproval(job);
-          },
-        } : {}),
         validateExecutionProfile: async () => {
           await this.validateCurrentEconomicCandidateIdentity(job);
         },
@@ -721,14 +773,30 @@ export class AgentTaskApplicationService {
       if (preparation.status === "denied") {
         return this.transition(job.id, "failed", "economic_commitment_unavailable");
       }
-      if (preparation.status === "already-dispatched") return job;
+      if (preparation.status === "already-dispatched") {
+        // The authority may have crossed its economic action fence after the
+        // initial recovery read but before this owner acquired the task
+        // projection. Close any still-active queued/running view explicitly;
+        // never hand the queued record back as if it were retryable.
+        const current = await this.currentJob(job.id);
+        if (current.state === "queued" || current.state === "running") {
+          return await this.transition(job.id, "interrupted", "result_pending");
+        }
+        return current;
+      }
+      preparedClaim = preparation;
       if (abortSignal?.aborted) {
         await preparation.recordExecutionSettlementPending("agent-task-cancelled-after-fence");
-        return await this.currentJob(job.id);
+        return await this.transition(job.id, "interrupted", "result_pending");
       }
-      let fenceResult: AgentTaskEconomicFenceResult;
+      let fenceResult: Awaited<ReturnType<AgentTaskStore["projectEconomicDispatch"]>>;
       try {
-        fenceResult = await this.options.store.fenceEconomic(job.id, preparation.dispatchFenceId, this.now());
+        fenceResult = await this.options.store.projectEconomicDispatch(
+          job.id,
+          preparation.dispatchFenceId,
+          this.now(),
+          preparation.actionClaim,
+        );
       } catch (error) {
         await this.settleEconomicFenceFailure(preparation, "agent-task-economic-fence-persistence-failed");
         throw normalizeStoreError(error);
@@ -745,7 +813,7 @@ export class AgentTaskApplicationService {
       const running = fenceResult.job;
       if (abortSignal?.aborted) {
         await preparation.recordExecutionSettlementPending("agent-task-cancelled-after-fence");
-        return await this.currentJob(job.id);
+        return await this.transition(job.id, "interrupted", "result_pending");
       }
       try {
         const execution = await this.options.economicExecution.execute({
@@ -774,11 +842,21 @@ export class AgentTaskApplicationService {
         return await this.options.store.completeSuccess(job.id, result, execution.completedAt);
       } catch (error) {
         await preparation.recordExecutionSettlementPending("agent-task-execution-failed");
-        if (abortSignal?.aborted) return await this.currentJob(job.id);
-        const terminal = agentTaskExecutionTerminal(error);
-        return this.transition(job.id, terminal.state, terminal.diagnostic, terminal.failureEvidence);
+        return await this.currentJob(job.id);
       }
     } catch (error) {
+      if (preparedClaim !== undefined) {
+        await preparedClaim.recordExecutionSettlementPending("agent-task-post-claim-failure").catch(() => undefined);
+        return await this.transition(job.id, "interrupted", "result_pending");
+      }
+      // A coordinator may durably fence the economic action and then fail
+      // before returning its prepared claim (for example while recording
+      // lifecycle evidence). Re-read the canonical authority before turning
+      // that failure into a terminal task error; a fenced action is always an
+      // explicit unknown projection, even when task projection never began.
+      if (await this.hasCanonicalDispatchClaim(job)) {
+        return await this.transition(job.id, "interrupted", "result_pending");
+      }
       if (error instanceof AgentTaskApplicationError) throw error;
       return this.transition(job.id, "failed", "economic_commitment_unavailable");
     }
@@ -828,7 +906,7 @@ export class AgentTaskApplicationService {
     }
   }
 
-  /** Re-checks the persisted V12 candidate identity before and after fencing. */
+  /** Re-checks the persisted V14 candidate identity before and after fencing. */
   private async validateCurrentEconomicCandidateIdentity(job: AgentTaskRecord): Promise<void> {
     const dispatch = economicDispatchOf(job);
     let profile: AgentTaskProfile | undefined;
@@ -843,13 +921,13 @@ export class AgentTaskApplicationService {
     } catch {
       throw new AgentTaskApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V12 managed economic candidate identity before execution.",
+        "Restore the exact V14 managed economic candidate identity before execution.",
       );
     }
     if (!isManagedEconomicCandidateSet(resolved) || !sameManagedEconomicCandidateSet(dispatch.candidateSet, resolved)) {
       throw new AgentTaskApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V12 managed economic candidate identity before execution.",
+        "Restore the exact V14 managed economic candidate identity before execution.",
       );
     }
   }
@@ -913,6 +991,18 @@ export class AgentTaskApplicationService {
     return current;
   }
 
+  private async hasCanonicalDispatchClaim(job: AgentTaskRecord): Promise<boolean> {
+    if (job.dispatch.kind === "native-harness") return job.dispatch.dispatchFenceId !== undefined;
+    const recovery = this.options.commitmentRecovery ?? this.options.economicCommitment;
+    if (!recovery) return false;
+    try {
+      return recovery.query({ jobId: job.id, economicAttemptId: job.dispatch.economicAttemptId }) === "dispatch-fenced";
+    } catch {
+      // Unknown authority state cannot prove that cancellation is pre-fence.
+      return true;
+    }
+  }
+
   private authorizeQuery(context: TrustedAgentTaskQueryContext, job: AgentTaskRecord): void {
     if (!isRecord(context) || !isRecord(context.project) || !isIdentifier(context.project.id) || !isIdentifier(context.callerId)) {
       throw new AgentTaskApplicationError("invalid_request", "Use a trusted caller and project query context.");
@@ -943,6 +1033,39 @@ function economicDispatchOf(job: AgentTaskRecord): Extract<AgentTaskDispatch, { 
     throw new AgentTaskApplicationError("identity-revision-conflict", "Persisted managed dispatch is not economic.");
   }
   return job.dispatch;
+}
+
+function nativeHarnessActionClaim(
+  job: AgentTaskRecord,
+  route: AgentTaskNativeHarnessRoute,
+  ownerGeneration: string,
+): import("./contracts.js").AgentTaskActionClaim {
+  return {
+    version: 1,
+    attemptId: job.run.runId,
+    intentFingerprint: digestManagedEconomicValue({
+      kind: "agent-task-native-harness-launch",
+      jobId: job.id,
+    runId: job.run.runId,
+    requestFingerprint: job.requestFingerprint,
+    admissionId: job.admissionId,
+    route,
+    }),
+    admissionId: job.admissionId,
+    admissionBundle: job.admissionBundle,
+    ownerGeneration,
+    effectIdentity: `agent-task:${route.adapterCapabilityId}:external-launch`,
+  };
+}
+
+function canonicalAdmissionBundle(value: unknown): EffectiveAuthorityAdmissionBundle | undefined {
+  if (!isRecord(value)) return undefined;
+  try {
+    const normalized = defineEffectiveAuthorityAdmissionBundle(value as unknown as EffectiveAuthorityAdmissionBundle);
+    return normalized.admissionId === value.admissionId ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function projectApproval(receipt: ManagedWriteApprovalReceipt): AgentTaskWriteApproval {

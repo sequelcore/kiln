@@ -30,10 +30,8 @@ Context policy should not remain fragmented across:
 
 - current session state
 - episodic memory
-- semantic knowledge
 - skill and procedural context
 - cross-agent coordination state
-- contact and visitor context
 - runtime continuity summaries
 - complexity signals
 - token budget
@@ -72,9 +70,8 @@ selection, not implicit LLM luck.
 
 The governor ranks these context layers under one policy:
 
-- `memory`: scoped user/session memory and contact context
+- `memory`: scoped user/session memory
 - `summary`: runtime continuity and compacted turn state
-- `knowledge`: retrieval and grounding context
 - `procedural`: active skills and reusable execution recipes
 - `coordination`: cross-agent memory, handoff state, and swarm state
 

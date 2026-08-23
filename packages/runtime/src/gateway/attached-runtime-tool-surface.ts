@@ -62,6 +62,7 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeAuthorityAdmissionCandidateConfig } from "../session/runtime-session-orchestrator.types.js";
 import { isRuntimeOwnedFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
 import { runRuntimeFormalVerificationFinishInvocation } from "../work-governance/formal-verification-invocation-state.js";
 import type { EffectiveTurnAuthorityAdmissionContext } from "../session/effective-turn-authority.js";
@@ -1668,7 +1669,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly temporalContext?: PerCallToolConfig["temporalContext"];
-}): PerCallToolConfig {
+}): RuntimeAuthorityAdmissionCandidateConfig {
   const requestedAuthority = resolveAttachedRuntimeRequestedAuthority(input.requestedAuthority) ?? "auto";
   const executionMode = resolvePerCallExecutionMode(input.executionMode);
   const provider = isDirectProviderId(input.activeProvider)
@@ -1685,7 +1686,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
         model: profile.model,
       }
     : undefined;
-  const config: PerCallToolConfig = {
+  const config: RuntimeAuthorityAdmissionCandidateConfig = {
     tenantId: input.tenantId,
     ...(input.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
     ...(input.governedWorkRequirement ? { governedWorkRequirement: input.governedWorkRequirement } : {}),
@@ -1719,7 +1720,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       : DEFAULT_BUILTIN_TOOL_SURFACE);
 
   if (profile?.executionMode !== "kiln-executable") {
-    const failClosedConfig: PerCallToolConfig = {
+    const failClosedConfig: RuntimeAuthorityAdmissionCandidateConfig = {
       ...config,
       additionalTools: builtinToolSurface.toolDefinitions,
       toolAuthority: new Map(),
@@ -1752,7 +1753,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       requestedAuthority,
     })!);
   }
-  const executeConfig: PerCallToolConfig = {
+  const executeConfig: RuntimeAuthorityAdmissionCandidateConfig = {
     ...config,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
     toolAuthority: buildEffectiveRuntimeToolAuthority({
@@ -1859,12 +1860,13 @@ function isDestructiveRuntimeCapability(capability: Capability | undefined): boo
 
 function recordRuntimeAuthoritySnapshot(
   surface: AttachedRuntimeBuiltinToolSurface | undefined,
-  config: PerCallToolConfig,
-): PerCallToolConfig {
-  if (config.effectiveTurnAuthority) {
+  config: RuntimeAuthorityAdmissionCandidateConfig,
+): RuntimeAuthorityAdmissionCandidateConfig {
+  const effectiveTurnAuthority = config.effectiveTurnAuthority;
+  if (effectiveTurnAuthority) {
     surface?.authorityStateStore?.record({
       source: "runtime",
-      authority: config.effectiveTurnAuthority,
+      authority: effectiveTurnAuthority,
     });
   }
   return config;
@@ -1891,9 +1893,9 @@ export function resolveAttachedRuntimeToolCallMetadata(
 }
 
 function buildPlanModePerCallConfig(
-  config: PerCallToolConfig,
+  config: RuntimeAuthorityAdmissionCandidateConfig,
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface,
-): PerCallToolConfig {
+): RuntimeAuthorityAdmissionCandidateConfig {
   const toolDefinitions = [...builtinToolSurface.toolDefinitions];
   appendIfMissing(toolDefinitions, SUBMIT_PLAN_TOOL);
   appendIfMissing(toolDefinitions, SUBMIT_SPECIFICATION_TOOL);

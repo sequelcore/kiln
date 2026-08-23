@@ -23,6 +23,7 @@ import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { deserializeSession, serializeSession } from "../../src/session/persistence/session-serializer.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { managedEconomicAdmissionBundle } from "./managed-economic-admission-fixture.js";
 
 const DECISION_AT = "2026-08-02T12:00:00.000Z";
 
@@ -53,6 +54,10 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
     });
     const jobId = `job-${input.providerId}`;
     const economicAttemptId = `economic-attempt-${input.providerId}`;
+    const admissionBundle = managedEconomicAdmissionBundle({
+      sessionId: session.id,
+      turnId: `economic-route-proof-turn-${input.providerId}`,
+    });
     const lifecycleEvents: ManagedEconomicLifecycleEventPort = {
       record: (recordInput) => {
         appendManagedEconomicLifecycleSessionEvent({
@@ -70,8 +75,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
         acquire: (request) => authority.acquireCommitment(request),
         releasePreFence: (jobId2, economicAttemptId2) =>
           authority.releaseCommitmentPreFence(jobId2, economicAttemptId2),
-        fenceDispatch: (jobId2, economicAttemptId2, dispatchFenceId) =>
-          authority.fenceDispatch(jobId2, economicAttemptId2, dispatchFenceId),
+        fenceDispatch: (jobId2, economicAttemptId2, dispatchFenceId, actionClaim) =>
+          authority.fenceDispatch(jobId2, economicAttemptId2, dispatchFenceId, actionClaim),
         settleExecution: (jobId2, economicAttemptId2, dispatchFenceId, settlement) => {
           record = authority.settleExecution(jobId2, economicAttemptId2, dispatchFenceId, settlement);
           return record;
@@ -96,6 +101,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
       jobId,
       economicAttemptId,
       intentFingerprint: digestManagedEconomicValue(input),
+      admissionBundle,
+      effectIdentity: "managed-economic-proof:provider-dispatch",
       adoption,
       admissionProfile: "foundation-readonly-plan",
       lifecycleEvents,

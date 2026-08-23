@@ -8,7 +8,6 @@ import type { Team } from "./team.js";
 import type { Router } from "./router.js";
 import { validateTeam } from "./team.js";
 import { validateRouter } from "./router.js";
-import type { KnowledgeConfig } from "../domain/knowledge-config.js";
 import type { EvalConfig } from "../domain/eval-config.js";
 import { validateEvalConfig } from "../domain/eval-config.js";
 import type { McpConfig } from "../domain/mcp-config.js";
@@ -19,7 +18,6 @@ import type { VoiceConfig } from "../domain/speech-config.js";
 import { validateVoiceConfig } from "../domain/speech-config.js";
 import type { SafetyConfig } from "../domain/safety-config.js";
 import { validateSafetyConfig } from "../domain/safety-config.js";
-import type { EventsConfig } from "../gateway/events-config.js";
 
 /** Memory configuration for an App */
 export interface MemoryConfig {
@@ -36,13 +34,11 @@ export interface App {
   readonly memory: MemoryConfig;
   readonly channels: readonly string[];
   readonly triggers?: readonly Trigger[];
-  readonly knowledge?: KnowledgeConfig;
   readonly eval?: EvalConfig;
   readonly mcp?: McpConfig;
   readonly toolSelection?: ToolSelectionConfig;
   readonly voice?: VoiceConfig;
   readonly safety?: SafetyConfig;
-  readonly events?: EventsConfig;
 }
 
 /** Validation error for app configuration */

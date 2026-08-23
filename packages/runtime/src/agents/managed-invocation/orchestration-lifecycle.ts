@@ -32,6 +32,7 @@ import { deriveManagedInvocationCallerAuthority } from "./caller-capability-poli
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
 import type { ManagedInvocationExecutableRoute } from "./runtime-tool/types.js";
 import { resolveManagedInvocationRouteProfile } from "./runtime-tool/profile-resolution.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 
 const ORCHESTRATION_CONTEXT_MODE = "isolated";
 
@@ -49,6 +50,8 @@ export interface ManagedAgentOrchestrationLifecycleInput {
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
   readonly economicAdoptedDecisionAt?: string;
+  /** Full owning turn receipt; economic children fail closed without it. */
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   readonly abortSignal?: AbortSignal;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }
@@ -336,6 +339,9 @@ async function prepareOrchestrationEconomicDispatch(
   if (!economicDispatch || !input.economicAdoptedDecisionAt) {
     throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
   }
+  if (!input.authorityAdmission) {
+    throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
+  }
   const economicIdentity = digestManagedEconomicValue({
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
@@ -354,6 +360,8 @@ async function prepareOrchestrationEconomicDispatch(
     jobId: `managed-economic-job:${economicIdentity}`,
     economicAttemptId: `economic-attempt:${economicIdentity}`,
     intentFingerprint: digestManagedEconomicValue({ candidateSet: entry.economicCandidateSet, economicIdentity }),
+    admissionBundle: input.authorityAdmission,
+    effectIdentity: "managed-orchestration:provider-dispatch",
     adoptedDecisionAt: input.economicAdoptedDecisionAt,
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,

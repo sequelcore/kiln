@@ -11,8 +11,7 @@ export type OperatorCommandId =
   | "exec"
   | "setup"
   | "settings"
-  | "goal"
-  | "terminal";
+  | "goal";
 
 export interface OperatorCommandDefinition {
   readonly id: OperatorCommandId;
@@ -111,14 +110,6 @@ export const OPERATOR_COMMANDS: readonly OperatorCommandDefinition[] = [
     description: "Open governed goal and work-item controls.",
     keywords: ["goal", "work", "governance", "workflow"],
     surfaces: ["gui", "tui", "cli"],
-  },
-  {
-    id: "terminal",
-    trigger: "terminal",
-    title: "Terminal",
-    description: "Toggle the local operator terminal.",
-    keywords: ["shell", "console", "pty"],
-    surfaces: ["gui"],
   },
 ] as const;
 

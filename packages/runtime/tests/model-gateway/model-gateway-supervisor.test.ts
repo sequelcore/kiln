@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -135,23 +135,23 @@ describe("ModelGatewaySupervisor", () => {
     expect(processAdapter.spawn).toHaveBeenCalledOnce();
   });
 
-  it("converges an exact owned v1 listener by stopping it before persisting v2 state", async () => {
+  it("rejects an exact owned v1 state without mutating it or touching the process", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-v1-"));
-    const oldIdentity = { ...identity("instance-v1", 111) };
-    const inspect = vi.fn()
-      .mockResolvedValueOnce({ state: "ready", identity: oldIdentity })
-      .mockResolvedValueOnce({ state: "ready", identity: oldIdentity })
-      .mockResolvedValueOnce({ state: "stopped" })
-      .mockResolvedValue({ state: "ready", identity: identity("instance-a", 222) });
-    const supervisor = createSupervisor(root, inspect, adapter({ spawnPid: 222 }), () => "instance-a");
-    await writeFile(join(root, "state.json"), `${JSON.stringify({
+    const inspect = vi.fn(async () => ({ state: "ready" as const, identity: identity("instance-v1", 111) }));
+    const processAdapter = adapter({ spawnPid: 222 });
+    const supervisor = createSupervisor(root, inspect, processAdapter, () => "instance-a");
+    const legacyState = `${JSON.stringify({
       schemaVersion: 1, instanceId: "instance-v1", pid: 111, port: 4819, version: "3.0.0-test",
       configDigest: createModelGatewayConfigDigest(config), startedAt: "2026-08-12T00:00:00.000Z",
       launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
-    })}\n`, "utf8");
+    })}\n`;
+    await writeFile(join(root, "state.json"), legacyState, "utf8");
 
-    await expect(supervisor.ensure()).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-a", pid: 222 } });
-    await expect(supervisor.readState()).resolves.toMatchObject({ schemaVersion: 2, instanceId: "instance-a", launch: { host: hostIdentity } });
+    await expect(supervisor.ensure()).rejects.toThrow("unsupported or invalid");
+    await expect(readFile(join(root, "state.json"), "utf8")).resolves.toBe(legacyState);
+    expect(inspect).not.toHaveBeenCalled();
+    expect(processAdapter.spawn).not.toHaveBeenCalled();
+    expect(processAdapter.terminate).not.toHaveBeenCalled();
   });
 
   it("fails closed for malformed v1 state", async () => {

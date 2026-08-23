@@ -15,12 +15,12 @@ import { OPENAI_RESPONSES_PROTOCOL_LIMITS } from "../../src/gateway/openai-respo
 import {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
-  type GovernedOneRoundInvocationPorts,
 } from "../../src/execution-kernel/governed-one-round-invocation.js";
+import type { GovernedIngressInvocationPorts } from "../../src/model-gateway/governed-ingress-executor.js";
 import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
-import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
-const route = { providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" };
+const route = { routeId: "fixture-route", providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" } as const;
 const admission = { routeId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account-1", source: "route" as const } };
 const principal = {
   tenantId: "tenant-trusted",
@@ -35,6 +35,23 @@ const textResult: ModelTurnResult = {
   usage: { inputTokens: 4, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 },
   stopReason: "completed",
 };
+
+function authorityBundle(): EffectiveAuthorityAdmissionBundle {
+  const revision = { revisionSetId: "openai-route-test", revisions: { modelGateway: ("sha256:" + "a".repeat(64)) as `sha256:${string}` } } as const;
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "session-1", turnId: "turn-1", admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: { skillCatalog: { catalogId: "openai", revision: ("sha256:" + "b".repeat(64)) as `sha256:${string}`, skillIds: [] }, authorityCeiling: { maximumAuthority: "read_only", reason: "fixture" } },
+    turn: {
+      authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only", sourcePolicy: "runtime_surface_projection", reason: "fixture", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
+      workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
+      effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+      budget: { status: "not-configured" },
+      execution: { status: "routed", route: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } },
+    },
+  });
+}
 
 function body(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -52,8 +69,9 @@ type ConfigOverrides = Partial<OpenAIResponsesIngressConfig> & {
 };
 
 function config(overrides: ConfigOverrides = {}) {
-  const { execute: executeOverride, predispatch, ...ingressOverrides } = overrides;
+  const { execute: executeOverride, predispatch, replayGuard: replayGuardOverride, ...ingressOverrides } = overrides;
   const execute = vi.fn(executeOverride ?? (async () => ({ result: textResult })));
+  const replayGuard = replayGuardOverride ?? new InMemoryModelGatewayReplayGuard({ hmacKey: "synthetic-route-test-key-with-32-bytes" });
   const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `openai-test-${crypto.randomUUID()}`, configurationRevision: "test" });
   const catalog = vi.fn(async (input) => {
     await predispatch?.();
@@ -61,13 +79,13 @@ function config(overrides: ConfigOverrides = {}) {
   });
   const evidence = vi.fn(async () => undefined);
   const affinityRead = vi.fn(async () => undefined);
-  const invocationPorts: GovernedOneRoundInvocationPorts = {
+  const invocationPorts: GovernedIngressInvocationPorts = {
     candidateCatalog: { list: catalog },
     accountCapacityAuthority: authority,
     attemptEvidence: { record: evidence },
     dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async (input) => (await execute(input)).result }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
     budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
-    authorityAdmission: { compose: async () => ({}) as EffectiveAuthorityAdmissionBundle },
+    authorityAdmission: { compose: async () => authorityBundle() },
   };
   const record = vi.fn(async () => undefined);
   const namespace = vi.fn(async () => ({ sessionId: "ns:tenant:session-1", turnId: "ns:tenant:turn-1" }));
@@ -81,9 +99,9 @@ function config(overrides: ConfigOverrides = {}) {
     namespaceCorrelation: namespace,
     compatibilityEvidence: { record },
     invocationPorts,
-    createAttemptId: () => `attempt-server-${crypto.randomUUID()}`,
     createResponseId: () => "resp_server_1",
     ...ingressOverrides,
+    replayGuard,
   };
   return { value, execute, record, namespace, catalog, evidence, affinityRead };
 }
@@ -157,8 +175,7 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     const pending = new Promise<void>((resolve) => { finish = resolve; });
     const execute = vi.fn(async () => ({ result: textResult }));
     let responseIds = 0;
-    let attemptIds = 0;
-    const fixture = config({ replayGuard, execute, predispatch: async () => { await pending; }, maxConcurrentRequests: 2, createResponseId: () => `resp_${++responseIds}`, createAttemptId: () => `attempt-${++attemptIds}` });
+    const fixture = config({ replayGuard, execute, predispatch: async () => { await pending; }, maxConcurrentRequests: 2, createResponseId: () => `resp_${++responseIds}` });
     const app = createOpenAIResponsesRoutes(fixture.value);
     const first = app.request(request());
     await vi.waitFor(() => expect(fixture.catalog).toHaveBeenCalledTimes(1));
@@ -166,7 +183,6 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(inflight.status).toBe(409);
     expect(Number(inflight.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await inflight.text()).toContain("replay_in_progress");
-    expect(attemptIds).toBe(1);
     finish();
     const original = await first;
     const originalText = await original.text();
@@ -176,7 +192,6 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(replay.headers.get("x-request-id")).toBe(original.headers.get("x-request-id"));
     expect(await replay.text()).toBe(originalText);
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(attemptIds).toBe(1);
   });
 
   it("abandons predispatch failures but retains provider failures as committed unknown", async () => {
@@ -219,32 +234,33 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(projectionCalls).toBe(1);
   });
 
-  it("never dispatches or abandons after the replay commit hook is attempted", async () => {
+  it("fails before dispatch when admission evidence cannot be persisted", async () => {
     const delegate = new InMemoryModelGatewayReplayGuard({ hmacKey: "mark-failure-test-key-with-32-bytes" });
     let abandonCalls = 0;
     const replayGuard: ModelGatewayReplayGuard = {
       fingerprint: (input) => delegate.fingerprint(input),
       claim: (key) => delegate.claim(key),
-      markCommitted: () => { throw new Error("guard transition unavailable"); },
+      persistAdmission: () => { throw new Error("admission evidence unavailable"); },
+      claimAction: (key, fence, input) => delegate.claimAction(key, fence, input),
       settleUnknown: (key, fence) => delegate.settleUnknown(key, fence),
       complete: (key, fence, value) => delegate.complete(key, fence, value),
       abandon: (key, fence) => { abandonCalls += 1; delegate.abandon(key, fence); },
     };
     const fixture = config({ replayGuard, maxConcurrentRequests: 2 });
     const app = createOpenAIResponsesRoutes(fixture.value);
-    expect((await app.request(request())).status).toBe(409);
+    expect((await app.request(request())).status).toBe(503);
     expect(fixture.execute).not.toHaveBeenCalled();
-    expect(abandonCalls).toBe(0);
+    expect(abandonCalls).toBe(1);
     const retry = await app.request(request());
-    expect(retry.status).toBe(409);
-    expect(await retry.text()).toContain("replay_in_progress");
+    expect(retry.status).toBe(503);
   });
 
   it("returns committed projection failure and never redispatches when replay completion fails", async () => {
     const delegate = new InMemoryModelGatewayReplayGuard({ hmacKey: "route-complete-failure-key-at-least-32" });
     const replayGuard: ModelGatewayReplayGuard = {
       fingerprint: (input) => delegate.fingerprint(input), claim: (key) => delegate.claim(key),
-      markCommitted: (key, fence) => delegate.markCommitted(key, fence),
+      persistAdmission: (key, fence, bundle) => delegate.persistAdmission(key, fence, bundle),
+      claimAction: (key, fence, input) => delegate.claimAction(key, fence, input),
       settleUnknown: (key, fence) => delegate.settleUnknown(key, fence),
       complete: () => { throw new Error("replay backend unavailable"); },
       abandon: (key, fence) => delegate.abandon(key, fence),
@@ -302,7 +318,7 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     now = 101;
     expect((await app.request(request())).status).toBe(409);
-    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledTimes(1);
   });
   it("is opt-in on the gateway and mounts at /v1/responses", async () => {
     expect((await createGatewayApp({ port: 0, apps: [] }).request(request())).status).toBe(404);
@@ -421,7 +437,7 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(fixture.catalog).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({ sessionId: "ns:tenant:session-1", turnId: "ns:tenant:turn-1" }),
     }));
-    expect(fixture.evidence).toHaveBeenCalledWith(expect.objectContaining({ attemptId: expect.stringMatching(/^attempt-server-/) }));
+    expect(fixture.evidence).toHaveBeenCalledWith(expect.objectContaining({ attemptId: expect.stringMatching(/^attempt-/) }));
 
     const contradiction = await app.request(request(body({ client_metadata: { session_id: "another-session" } }), { "session-id": "native-session" }));
     expect(contradiction.status).toBe(400);
@@ -463,7 +479,8 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     });
     expect((await app.request(rawRequest(bytes))).status).toBe(200);
     expect((await app.request(rawRequest(withBom))).status).toBe(200);
-    const digests = fixture.namespace.mock.calls.map(([input]) => input.observed.rawBodyDigest);
+    const calls = fixture.namespace.mock.calls as unknown as Array<[{ readonly observed: { readonly rawBodyDigest: string } }]>;
+    const digests = calls.map(([input]) => input.observed.rawBodyDigest);
     expect(digests).toHaveLength(2);
     expect(digests[0]).not.toBe(digests[1]);
   });

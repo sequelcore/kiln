@@ -9,19 +9,18 @@ import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orch
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
-import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { ArtifactResourceStore, EventBus, MemoryRepository } from "@kilnai/core";
 import { stripSuggestionTags } from "../tenant/suggestion-parser.js";
-import { sendWhatsAppAudioMessage, sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
-import { checkBudget, reportUsage } from "./budget-middleware.js";
+import { sendWhatsAppAudioMessage, sendWhatsAppMessage, whatsappMediaUrl, WHATSAPP_GRAPH_API_VERSION } from "../channels/whatsapp-api.js";
+import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
+import { checkBudget } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
-import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { requireWebhookSignature } from "./auth-middleware.js";
 import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
-import type { SttAdapter, RetrievalPipeline, ContactMemoryService, TtsAdapter, VoiceConfig } from "@kilnai/core";
+import type { SttAdapter, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import {
   AudioTransformError,
   createGatewayAudioTransformSessionId,
@@ -29,11 +28,10 @@ import {
   emitAudioTransformRoutingEvents,
   transformAudioParts,
 } from "./audio-preprocessor.js";
-import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline/index.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import { resolveOutboundAudioMedia } from "./public-media-delivery.js";
-import type { OutboundMediaPublisher } from "./public-media-delivery.js";
+import type { SignedArtifactMediaOptions } from "./public-media-delivery.js";
 import { synthesizeVoiceOutput } from "./voice-output-synthesizer.js";
 import {
   createTenantConversationMemoryRepository,
@@ -48,19 +46,14 @@ export interface WhatsAppWebhookConfig {
   readonly verifyToken: string;
   readonly appSecret?: string;
   readonly billing?: BillingConfig;
-  readonly eventEmitter?: ConversationEventEmitter;
   /** Base path for per-tenant data (e.g. ~/.kiln/gateway/bonitas). Memory DBs stored under <basePath>/memory/ */
   readonly memoryBasePath?: string;
   readonly sttAdapter?: SttAdapter;
   readonly artifactStore?: ArtifactResourceStore;
   readonly voiceConfig?: VoiceConfig;
   readonly ttsAdapter?: TtsAdapter;
-  readonly outboundMediaPublisher?: OutboundMediaPublisher;
-  readonly knowledgePipeline?: RetrievalPipeline;
-  readonly knowledgeMode?: "auto" | "tool";
-  readonly contactMemoryService?: ContactMemoryService;
+  readonly publicMedia?: SignedArtifactMediaOptions;
   readonly dedup?: WebhookDedup;
-  readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
   readonly gatewayAdmission: GatewayAuthorityAdmissionPort;
 }
@@ -118,23 +111,6 @@ function getConversationMemory(memoryBasePath: string, eventBus?: EventBus): Ten
     ...(eventBus ? { eventBus } : {}),
   });
 }
-
-/** Tool definition for knowledge_search -- injected when knowledge mode is "tool" */
-const KNOWLEDGE_SEARCH_TOOL: ToolDefinition = {
-  name: "knowledge_search",
-  description: "Search the knowledge base for relevant information. Use this when the user asks a question that may be answered by stored documents or knowledge.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "The search query to find relevant knowledge.",
-      },
-    },
-    required: ["query"],
-  },
-  tags: new Set(["builtin"]),
-};
 
 /** Tool definition for notify_owner -- injected when tenant has escalationContact */
 const NOTIFY_OWNER_TOOL: ToolDefinition = {
@@ -236,23 +212,6 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
           continue;
         }
 
-        // Forward delivery statuses to product backend (fire-and-forget)
-        const statuses = change.value.statuses;
-        if (statuses && config.eventEmitter) {
-          for (const status of statuses) {
-            config.eventEmitter.emit({
-              eventType: "DELIVERY_STATUS",
-              tenantId: tenant.tenantId,
-              channel: "whatsapp",
-              externalUserId: status.recipient_id,
-              whatsappMessageId: status.id,
-              deliveryStatus: status.status,
-              errorCode: status.errors?.[0]?.code,
-              timestamp: new Date(Number(status.timestamp) * 1000).toISOString(),
-            });
-          }
-        }
-
         // Process incoming messages (if any -- status-only payloads have no messages)
         const messages = change.value.messages;
         if (!messages) continue;
@@ -282,6 +241,7 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
             tenant.tenantId,
             replyTo,
             msgParts,
+            msg.id,
             phoneNumberId,
             tenant.whatsappAccessToken,
           );
@@ -293,7 +253,7 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
     // Fire and forget -- log any failures from settled promises
     Promise.allSettled(processPromises).then((results) => {
       for (const result of results) {
-        if (result.status === "rejected") {
+      if (result.status === "rejected") {
           const failTrace = new TraceContext();
           failTrace.warn("whatsapp", "Message processing failed", { error: String(result.reason) });
         }
@@ -306,11 +266,37 @@ export function createWhatsAppWebhookRoutes(config: WhatsAppWebhookConfig): Hono
   return app;
 }
 
+async function dispatchWhatsAppEgress<T>(input: {
+  readonly config: WhatsAppWebhookConfig;
+  readonly admitted: GatewayAuthorityAdmissionCommit;
+  readonly messageId: string;
+  readonly phoneNumberId: string;
+  readonly recipient: string;
+  readonly slot: string;
+  readonly payload: unknown;
+  readonly send: () => Promise<T>;
+}): Promise<T> {
+  return dispatchChannelEgress({
+    context: input.config.gatewayAdmission.channelEgressActionClaims,
+    authorityAdmission: input.admitted.bundle,
+    attemptId: input.admitted.runtimeModelRoundDispatch.attemptId,
+    callerId: `whatsapp:webhook:${input.messageId}`,
+    idempotencyKey: input.messageId,
+    logicalSendSlot: input.slot,
+    channel: "whatsapp",
+    destination: `whatsapp:${input.phoneNumberId}:${input.recipient}`,
+    adapterIdentity: `whatsapp-cloud:${WHATSAPP_GRAPH_API_VERSION}:${input.phoneNumberId}`,
+    payload: input.payload,
+    send: input.send,
+  });
+}
+
 async function processWhatsAppMessage(
   config: WhatsAppWebhookConfig,
   tenantId: string,
   senderPhone: string,
   messageParts: readonly ContentPart[],
+  messageId: string,
   phoneNumberId: string,
   accessToken?: string,
   admitted?: GatewayAuthorityAdmissionCommit,
@@ -333,14 +319,14 @@ async function processWhatsAppMessage(
       idleTimeoutMs: tenant.idleTimeoutMs,
     });
     await config.gatewayAdmission.execute({
-      ingressId: crypto.randomUUID(),
+      ingressId: `whatsapp:${messageId}`,
       appName: config.appName,
       tenantId,
       userId: senderPhone,
       sessionId: session.id,
       channel: "whatsapp",
       userParts: messageParts,
-    }, (commit) => processWhatsAppMessage(config, tenantId, senderPhone, messageParts, phoneNumberId, accessToken, commit));
+    }, (commit) => processWhatsAppMessage(config, tenantId, senderPhone, messageParts, messageId, phoneNumberId, accessToken, commit));
     return;
   }
 
@@ -369,6 +355,12 @@ async function processWhatsAppMessage(
       const transformed = await transformAudioParts(processedParts, config.sttAdapter, mediaDownloader, {
         artifactStore: config.artifactStore,
         sourceIdPrefix: `${config.appName}:${tenantId}:${senderPhone}`,
+        mediaActionClaims: admitted.runtimeMediaActionClaims,
+        authorityAdmission: admitted.bundle,
+        attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+        callerId: `whatsapp:webhook:${messageId}:voice-input`,
+        idempotencyKey: messageId,
+        logicalSendSlotPrefix: "inbound-stt",
       });
       processedParts = transformed.parts;
       emitAudioTransformRoutingEvents({
@@ -387,9 +379,18 @@ async function processWhatsAppMessage(
         }, err.transforms);
         trace.warn("whatsapp", "Audio transform failed", { error: err.message });
         try {
-          await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
-            type: "text",
-            text: { body: "I could not process that voice note. Please try again or send text." },
+          await dispatchWhatsAppEgress({
+            config,
+            admitted,
+            messageId,
+            phoneNumberId,
+            recipient: senderPhone,
+            slot: "audio-transform-failure",
+            payload: { messaging_product: "whatsapp", to: senderPhone, type: "text", text: { body: "I could not process that voice note. Please try again or send text." } },
+            send: () => sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
+              type: "text",
+              text: { body: "I could not process that voice note. Please try again or send text." },
+            }),
           });
         } catch (sendErr) {
           trace.warn("whatsapp", "Failed to send audio transform failure reply", {
@@ -421,62 +422,34 @@ async function processWhatsAppMessage(
     }
   }
 
-  // --- Knowledge: retrieve relevant context ---
-  let knowledgeContext: string | undefined;
-  if (config.knowledgePipeline && messageText.length > 0) {
-    const knowledgeMode = config.knowledgeMode ?? "auto";
-    if (knowledgeMode === "auto") {
-      try {
-        const results = await config.knowledgePipeline.retrieve(messageText, { topK: 5 });
-        knowledgeContext = formatKnowledgeContext(results);
-      } catch (err) {
-        trace.warn("whatsapp", "Knowledge retrieval failed", { error: err instanceof Error ? err.message : String(err) });
-      }
-    }
-  }
-
-  // --- Contact memory: recall persistent facts about this user ---
-  let contactContext: string | undefined;
-  if (config.contactMemoryService) {
-    try {
-      const facts = await config.contactMemoryService.recall(senderPhone, tenantId);
-      contactContext = formatContactContext(facts);
-    } catch (err) {
-      trace.warn("whatsapp", "Contact memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // Merge recalled memory + knowledge context + contact context
+  // Merge recalled memory with the admitted turn context.
   // --- Tools: build per-call builtin tools ---
   const callTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
 
   if (tenant.escalationContact?.phone) {
     const ownerPhone = tenant.escalationContact.phone.replace(/\+/g, "");
+    let notifyOwnerSendIndex = 0;
     callTools.set("notify_owner", async (input: Record<string, unknown>) => {
       const msg = String(input.message ?? "");
       const fullMessage = `[${tenant.businessName ?? tenant.name} - Notificación automática]\n\nCliente: ${senderPhone}\n${msg}`;
 
-      await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, ownerPhone, {
-        type: "text",
-        text: { body: fullMessage },
+      const slot = `notify-owner:${notifyOwnerSendIndex++}`;
+      await dispatchWhatsAppEgress({
+        config,
+        admitted,
+        messageId,
+        phoneNumberId,
+        recipient: ownerPhone,
+        slot,
+        payload: { messaging_product: "whatsapp", to: ownerPhone, type: "text", text: { body: fullMessage } },
+        send: () => sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, ownerPhone, {
+          type: "text",
+          text: { body: fullMessage },
+        }),
       });
       trace.log("whatsapp", "Owner notified", { tenantId, ownerPhone });
       return { success: true, message: "Owner has been notified." };
     });
-  }
-
-  // Register knowledge_search tool for "tool" mode
-  if (config.knowledgePipeline && (config.knowledgeMode ?? "auto") === "tool") {
-    callTools.set("knowledge_search", async (input: Record<string, unknown>) => {
-      const query = String(input.query ?? "");
-      const results = await config.knowledgePipeline!.retrieve(query, { topK: 5 });
-      return results.map((r) => ({ content: r.content, score: r.score }));
-    });
-
-    const hasKnowledgeTool = config.orchestrator.tools?.some((t) => t.name === "knowledge_search");
-    if (!hasKnowledgeTool) {
-      config.orchestrator.registerTools([KNOWLEDGE_SEARCH_TOOL]);
-    }
   }
 
   // Register notify_owner tool definition on the orchestrator if not already present
@@ -495,27 +468,13 @@ async function processWhatsAppMessage(
     if (lastHuman && Date.now() - lastHuman >= tenant.whatsappCoexistence.autoReleaseMs) {
       session.setSessionMode("ai_active");
       trace.log("whatsapp", "Coexistence: auto-released to AI", { tenantId, sender: senderPhone });
-      if (config.eventEmitter) {
-        config.eventEmitter.emit({
-          eventType: "HANDOFF_RELEASED",
-          tenantId,
-          channel: "whatsapp",
-          externalUserId: senderPhone,
-          sessionId: session.id,
-          sessionMode: "ai_active",
-          handoffSource: "whatsapp_coexistence",
-          schemaVersion: "1",
-          traceId: trace.traceId,
-          timestamp: new Date().toISOString(),
-        });
-      }
     }
   }
 
   // Resolve agent context (multi-agent routing with ping-pong guard)
   const agentCtx = await resolveAgentContextAsync(
     tenant, processedParts, session,
-    { handoffSummarizer: config.handoffSummarizer, eventBus: config.eventBus },
+    { eventBus: config.eventBus },
     "whatsapp", callTools,
   );
 
@@ -529,9 +488,6 @@ async function processWhatsAppMessage(
     userContext: session.userContext,
     cachedRuntimeSummary: undefined,
     recalledMemoryCandidates: recalledMemory?.candidates,
-    knowledgeContext,
-    contactContext,
-    groundingMode: tenant.groundingMode,
   });
 
   const tenantToolCtx = agentCtx.tenantToolContext;
@@ -552,9 +508,18 @@ async function processWhatsAppMessage(
         ?? activeBilling.overBudgetMessage ?? "Budget exhausted.";
       trace.log("whatsapp", "Budget exhausted", { tenantId, sender: senderPhone });
       try {
-        await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
-          type: "text",
-          text: { body: overBudgetMsg },
+        await dispatchWhatsAppEgress({
+          config,
+          admitted,
+          messageId,
+          phoneNumberId,
+          recipient: senderPhone,
+          slot: "budget-exhausted",
+          payload: { messaging_product: "whatsapp", to: senderPhone, type: "text", text: { body: overBudgetMsg } },
+          send: () => sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
+            type: "text",
+            text: { body: overBudgetMsg },
+          }),
         });
       } catch (err) {
         trace.warn("whatsapp", "Failed to send over-budget reply", { error: err instanceof Error ? err.message : String(err) });
@@ -563,19 +528,6 @@ async function processWhatsAppMessage(
     }
   }
 
-  // Emit MESSAGE_RECEIVED event (fire-and-forget)
-  if (config.eventEmitter) {
-    config.eventEmitter.emit({
-      eventType: "MESSAGE_RECEIVED",
-      tenantId,
-      channel: "whatsapp",
-      externalUserId: senderPhone,
-      messageContent: messageText,
-      messageRole: "USER",
-      traceId: trace.traceId,
-      timestamp: new Date().toISOString(),
-    });
-  }
 
   let replyText: string;
   let replyAudioUrls: string[] = [];
@@ -588,95 +540,21 @@ async function processWhatsAppMessage(
       processedParts,
       projectedTurnContext,
       tenantToolCtx.callBuiltinTools.size > 0 ? tenantToolCtx.callBuiltinTools : undefined,
-      admitted.perCallConfig,
+      {
+        ...admitted.perCallConfig,
+        runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
+      },
     );
 
     // Persist mutated session while the account fence is still held.
     await config.sessionRegistry.save(admitted.session);
 
-    // Emit handoff events when message was queued
-    if (result.queued && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "HANDOFF_MESSAGE_QUEUED",
-        tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
-    // Emit escalation event when detected
-    if (result.escalation && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "ESCALATION_DETECTED",
-        tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
-        escalationReason: result.escalation.reason,
-        escalationDetail: result.escalation.detail,
-        summary: result.contextSummary,
-        sessionMode: session.sessionMode,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
-    // Emit TOOL_EXECUTED events for product backend visibility
-    if (result.toolExecutions && config.eventEmitter) {
-      for (const exec of result.toolExecutions) {
-        config.eventEmitter.emit({
-          eventType: "TOOL_EXECUTED",
-          tenantId,
-          channel: "whatsapp",
-          externalUserId: senderPhone,
-          toolName: exec.toolName,
-          durationMs: exec.durationMs,
-          success: exec.success,
-          resultSummary: exec.resultSummary,
-          traceId: trace.traceId,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
 
     // Emit AGENT_ROUTED when multi-agent routing is active
-    if (agentCtx.activeAgentId && config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "AGENT_ROUTED",
-        tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
-        activeAgentId: agentCtx.activeAgentId,
-        activeAgentName: agentCtx.activeAgentName,
-        routingTier: agentCtx.routingResult?.tier,
-        routingConfidence: agentCtx.routingResult?.confidence,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     // Emit AGENT_HANDOFF when an agent switch occurred (or was blocked)
-    if ((agentCtx.isHandoff || agentCtx.pingPongBlocked) && config.eventEmitter) {
-      const fromAgent = tenant.agents?.find((a) => a.id === agentCtx.previousAgentId);
-      const toAgent = tenant.agents?.find((a) => a.id === agentCtx.activeAgentId);
-      config.eventEmitter.emit({
-        eventType: "AGENT_HANDOFF",
-        tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
-        fromAgentId: agentCtx.previousAgentId,
-        fromAgentName: fromAgent?.name,
-        toAgentId: agentCtx.activeAgentId,
-        toAgentName: toAgent?.name,
-        handoffBrief: agentCtx.handoffBrief,
-        handoffBlocked: agentCtx.pingPongBlocked,
-        handoffBlockReason: agentCtx.pingPongReason,
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     const voiceSynthesis = await synthesizeVoiceOutput(
       result.parts,
@@ -691,15 +569,17 @@ async function processWhatsAppMessage(
         sessionId: session.id,
         model: config.orchestrator.model ?? "gateway-transform",
         retentionMaxArtifacts: config.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+        mediaActionClaims: admitted.runtimeMediaActionClaims,
+        authorityAdmission: admitted.bundle,
+        attemptId: admitted.runtimeModelRoundDispatch.attemptId,
+        callerId: `whatsapp:webhook:${messageId}:voice-output`,
+        idempotencyKey: messageId,
+        logicalSendSlot: "assistant-tts",
       },
     );
     const responseParts = voiceSynthesis.parts;
     const audioMedia = await resolveOutboundAudioMedia(responseParts, {
-      publisher: config.outboundMediaPublisher,
-      appName: config.appName,
-      tenantId,
-      userId: senderPhone,
-      channel: "whatsapp",
+      publicMedia: config.publicMedia,
     });
     for (const failure of audioMedia.failures) {
       trace.warn("whatsapp", "Audio media delivery skipped", {
@@ -711,29 +591,6 @@ async function processWhatsAppMessage(
     replyAudioUrls = audioMedia.deliveries.map((delivery) => delivery.url);
     replyText = toWhatsAppFormat(stripSuggestionTags(extractText(responseParts)));
 
-    // Report usage (fire-and-forget)
-    if (activeBilling) {
-      reportUsage(activeBilling, {
-        tenantId,
-        messages: 1,
-        tokens: result.inputTokens + result.outputTokens,
-        model: config.orchestrator.model ?? "unknown",
-      });
-    }
-
-    // Emit MESSAGE_SENT event (fire-and-forget)
-    if (config.eventEmitter) {
-      config.eventEmitter.emit({
-        eventType: "MESSAGE_SENT",
-        tenantId,
-        channel: "whatsapp",
-        externalUserId: senderPhone,
-        messageContent: replyText,
-        messageRole: "ASSISTANT",
-        traceId: trace.traceId,
-        timestamp: new Date().toISOString(),
-      });
-    }
   } catch (err) {
     trace.error("whatsapp", "Orchestrator error", { tenantId, error: err instanceof Error ? err.message : String(err) });
     replyText = "Something went wrong. Please try again.";
@@ -741,15 +598,37 @@ async function processWhatsAppMessage(
 
   // Reply via WhatsApp Cloud API
   try {
-    await sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
-      type: "text",
-      text: { body: replyText },
+    await dispatchWhatsAppEgress({
+      config,
+      admitted,
+      messageId,
+      phoneNumberId,
+      recipient: senderPhone,
+      slot: "assistant-text",
+      payload: { messaging_product: "whatsapp", to: senderPhone, type: "text", text: { body: replyText } },
+      send: () => sendWhatsAppMessage(phoneNumberId, resolvedAccessToken, senderPhone, {
+        type: "text",
+        text: { body: replyText },
+      }),
     });
-    for (const audioUrl of replyAudioUrls) {
-      await sendWhatsAppAudioMessage(phoneNumberId, resolvedAccessToken, senderPhone, audioUrl);
-    }
   } catch (err) {
     trace.warn("whatsapp", "Failed to send reply", { phoneNumberId, recipient: senderPhone, error: err instanceof Error ? err.message : String(err) });
+  }
+  for (const [index, audioUrl] of replyAudioUrls.entries()) {
+    try {
+      await dispatchWhatsAppEgress({
+        config,
+        admitted,
+        messageId,
+        phoneNumberId,
+        recipient: senderPhone,
+        slot: `assistant-audio:${index}`,
+        payload: { messaging_product: "whatsapp", to: senderPhone, type: "audio", audio: { link: audioUrl } },
+        send: () => sendWhatsAppAudioMessage(phoneNumberId, resolvedAccessToken, senderPhone, audioUrl),
+      });
+    } catch (err) {
+      trace.warn("whatsapp", "Failed to send audio reply", { phoneNumberId, recipient: senderPhone, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   // --- Memory: save what was learned from this exchange ---
@@ -823,21 +702,6 @@ async function processCoexistenceEcho(
 
   await config.sessionRegistry.save(admittedSession);
 
-  if (config.eventEmitter) {
-    config.eventEmitter.emit({
-      eventType: "HUMAN_TAKEOVER",
-      tenantId,
-      channel: "whatsapp",
-      externalUserId: customerPhone,
-       sessionId: admittedSession.id,
-      sessionMode: "human_active",
-      handoffSource: "whatsapp_coexistence",
-      messageContent: echoText,
-      schemaVersion: "1",
-      traceId: trace.traceId,
-      timestamp: new Date().toISOString(),
-    });
-  }
 
   trace.log("whatsapp", "Coexistence: human takeover", { tenantId, customerPhone, sessionId: admittedSession.id });
 }

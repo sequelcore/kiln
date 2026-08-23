@@ -2,6 +2,15 @@ import { z } from "zod";
 
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/);
 const opaqueRecord = z.record(z.string(), z.unknown());
+const managedEconomicActionClaim = z.object({
+  version: z.literal(1),
+  attemptId: identifier,
+  intentFingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  admissionId: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  admissionBundle: opaqueRecord,
+  ownerGeneration: identifier,
+  effectIdentity: identifier,
+}).strict();
 
 /** Authenticated application commands for operator surfaces; never an MCP surface. */
 export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("operation", [
@@ -29,6 +38,15 @@ export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("ope
     jobId: identifier,
     economicAttemptId: identifier,
     dispatchFenceId: identifier,
+    actionClaim: managedEconomicActionClaim,
+  }).strict(),
+  z.object({
+    schemaVersion: z.literal(1),
+    operation: z.literal("managed-economic.read-dispatch"),
+    jobId: identifier,
+    economicAttemptId: identifier,
+    dispatchFenceId: identifier,
+    actionClaim: managedEconomicActionClaim,
   }).strict(),
   z.object({
     schemaVersion: z.literal(1),

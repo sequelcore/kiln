@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Team, QualityGate, TeamKnowledge } from "../../../src/engine/composites/team.js";
+import type { Team, QualityGate } from "../../../src/engine/composites/team.js";
 import { validateTeam } from "../../../src/engine/composites/team.js";
 import type { Agent } from "../../../src/engine/domain/agent.js";
 import type { Capability } from "../../../src/engine/domain/capability.js";
@@ -54,16 +54,6 @@ describe("Team composite", () => {
       expect(team.workflow.phases).toHaveLength(2);
       expect(team.capabilities).toHaveLength(1);
       expect(team.qualityGates).toHaveLength(1);
-    });
-
-    it("supports optional knowledge field", () => {
-      const knowledge: TeamKnowledge = {
-        documents: ["docs/guide.md"],
-        examples: ["examples/hello.ts"],
-      };
-      const team = makeTeam({ knowledge });
-      expect(team.knowledge?.documents).toHaveLength(1);
-      expect(team.knowledge?.examples).toHaveLength(1);
     });
 
     it("supports multiple agents", () => {

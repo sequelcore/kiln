@@ -46,7 +46,7 @@ describe("requestRuntimeSessionFallbackResponse", () => {
       }],
     });
 
-    await requestRuntimeSessionFallbackResponse(adapter, manifest, session(), 100);
+    await requestRuntimeSessionFallbackResponse(manifest, session(), 100, (request) => adapter.createMessage(request));
 
     expect((adapter.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].system)
       .toBe(manifest.finalPrompt);
@@ -56,10 +56,10 @@ describe("requestRuntimeSessionFallbackResponse", () => {
     const adapter = provider();
 
     await expect(requestRuntimeSessionFallbackResponse(
-      adapter,
       "incorrect separate prompt" as unknown as EffectivePromptManifest,
       session(),
       100,
+      (request) => adapter.createMessage(request),
     )).rejects.toThrow("effective prompt manifest");
     expect(adapter.createMessage).not.toHaveBeenCalled();
   });
@@ -78,10 +78,10 @@ describe("requestRuntimeSessionFallbackResponse", () => {
     });
 
     await requestRuntimeSessionFallbackResponse(
-      adapter,
       manifest,
       session(),
       100,
+      (request) => adapter.createMessage(request),
       undefined,
       undefined,
       controller.signal,
@@ -106,10 +106,10 @@ describe("requestRuntimeSessionFallbackResponse", () => {
     });
 
     await requestRuntimeSessionFallbackResponse(
-      adapter,
       manifest,
       session(),
       100,
+      (request) => adapter.createMessage(request),
       undefined,
       undefined,
       undefined,

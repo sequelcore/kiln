@@ -86,6 +86,7 @@ export {
 } from "./domain/capture-manifest.js";
 export type {
   SttAdapter,
+  SttOptions,
   SttResult,
   TtsAdapter,
   TtsOptions,
@@ -177,7 +178,7 @@ export type {
 } from "./domain/channel.js";
 
 // Engine composites -- 3 composition types (Phase 16)
-export type { Team, TeamMode, QualityGate, TeamKnowledge, TeamValidationError } from "./composites/team.js";
+export type { Team, TeamMode, QualityGate, TeamValidationError } from "./composites/team.js";
 export { validateTeam } from "./composites/team.js";
 export type { Router, PatternRule, RouterValidationError } from "./composites/router.js";
 export { validateRouter } from "./composites/router.js";
@@ -227,7 +228,6 @@ export type {
   BillingTier,
   BillingConfig,
   BudgetResponse,
-  UsageReport,
   RuntimeModeConfig,
   RuntimeModeValidationError,
 } from "./gateway/runtime-mode-config.js";
@@ -256,36 +256,6 @@ export {
   nextFireTime,
 } from "./domain/cron.js";
 
-// Knowledge primitives (Phase 8)
-export type { EmbeddingAdapter } from "./domain/embedding.js";
-export type { VectorEntry, VectorResult, VectorQueryOptions, VectorStore } from "./domain/vector-store.js";
-export type { Document, Chunk, ChunkConfig, Chunker } from "./domain/chunker.js";
-export type {
-  KnowledgeConfig,
-  KnowledgeEmbeddingConfig,
-  KnowledgeStoreConfig,
-  KnowledgeChunkingConfig,
-  KnowledgeSourceConfig,
-  KnowledgeValidationError,
-  KnowledgeRerankerConfig,
-  ContactMemoryConfig,
-} from "./domain/knowledge-config.js";
-export { validateKnowledgeConfig } from "./domain/knowledge-config.js";
-
-// Contact memory (Phase 4d)
-export type { ContactFact, ExtractedFact, FactCategory, FactAction, ContactMemoryService } from "./domain/contact-memory.js";
-
-// Knowledge source types (Phase 4c)
-export type {
-  KnowledgeSource,
-  KnowledgeSourceType,
-  KnowledgeSourceStatus,
-  ExtractedContent,
-  ExtractionOptions,
-  ContentExtractor,
-  SourceStore,
-} from "./domain/knowledge-source.js";
-
 // Tenant -- multi-tenant business configuration (Phase 25)
 export type {
   TenantConfig,
@@ -304,18 +274,8 @@ export type {
   TenantModelConfig,
   EmailTransportConfig,
   TenantValidationError,
-  GroundingMode,
 } from "./gateway/tenant-config.js";
 export { validateTenantConfig } from "./gateway/tenant-config.js";
-
-// Conversation events -- fire-and-forget event emission (Phase 26)
-export type {
-  ConversationEventType,
-  ConversationEvent,
-  ConversationEventBatch,
-} from "./gateway/conversation-event.js";
-export type { EventsConfig } from "./gateway/events-config.js";
-export { parseEventsConfig } from "./gateway/events-loader.js";
 
 // Safety config (Phase 12)
 export type {

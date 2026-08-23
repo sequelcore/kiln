@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { checkBudget, reportUsage, checkTier } from "../../src/gateway/budget-middleware.js";
+import { checkBudget, checkTier } from "../../src/gateway/budget-middleware.js";
 
 const originalFetch = globalThis.fetch;
 let mockFetch: ReturnType<typeof vi.fn>;
@@ -16,7 +16,6 @@ afterEach(() => {
 function makeBillingConfig() {
   return {
     budgetEndpoint: "https://api.example.com/budget?tenantId={userId}",
-    usageEndpoint: "https://api.example.com/usage",
     overBudgetMessage: "Budget exhausted.",
     headers: {
       "X-Gateway-Secret": "test-secret",
@@ -106,31 +105,6 @@ describe("checkBudget", () => {
   });
 });
 
-describe("reportUsage", () => {
-  it("sends POST with tenantId, messages, tokens, model", async () => {
-    mockFetch.mockResolvedValueOnce({ ok: true } as Response);
-
-    const usage = { tenantId: "kilvo-abc123", messages: 1, tokens: 1500, model: "claude-haiku-4-5" };
-    await reportUsage(makeBillingConfig(), usage);
-
-    const [calledUrl, options] = mockFetch.mock.calls[0]!;
-    expect(calledUrl).toBe("https://api.example.com/usage");
-
-    const init = options as RequestInit;
-    const headers = init.headers as Record<string, string>;
-    expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers["X-Gateway-Secret"]).toBe("test-secret");
-    expect(JSON.parse(init.body as string)).toEqual(usage);
-  });
-
-  it("does not throw on fetch error", async () => {
-    mockFetch.mockRejectedValueOnce(new Error("Network error"));
-
-    const usage = { tenantId: "kilvo-abc123", messages: 1, tokens: 500, model: "claude-haiku-4-5" };
-    await expect(reportUsage(makeBillingConfig(), usage)).resolves.toBeUndefined();
-  });
-});
-
 describe("checkTier", () => {
   it("allows when tier is in plan's agents list", () => {
     const result = checkTier(makeBillingConfig(), "free", "fast");
@@ -159,7 +133,6 @@ describe("checkTier", () => {
   it("allows when no tiers configured (fail-open)", () => {
     const billing = {
       budgetEndpoint: "https://api.example.com/budget?tenantId={userId}",
-      usageEndpoint: "https://api.example.com/usage",
       overBudgetMessage: "Budget exhausted.",
     };
 

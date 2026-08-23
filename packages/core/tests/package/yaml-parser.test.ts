@@ -31,8 +31,6 @@ skills:
   - skills/refactor.md
 tools:
   server: tools/server.ts
-knowledge:
-  examples: knowledge/examples.yaml
 `;
 
 const VALID_SKILL_PACKAGE = `
@@ -59,7 +57,6 @@ describe("parseDomainPackageYaml", () => {
     expect(manifest.config.toolTags.has("python")).toBe(true);
     expect(manifest.skills).toEqual(["skills/refactor.md"]);
     expect(manifest.tools).toEqual({ server: "tools/server.ts" });
-    expect(manifest.knowledge).toEqual({ examples: "knowledge/examples.yaml" });
     expect(manifest.contentHash).toBe(computeContentHash(VALID_DOMAIN_PACKAGE));
   });
 

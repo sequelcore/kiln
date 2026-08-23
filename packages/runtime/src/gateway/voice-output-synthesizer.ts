@@ -18,6 +18,13 @@ import {
   VALID_VOICE_SURFACES,
 } from "@kilnai/core";
 import { selectVoiceOutputIntent } from "./voice-output-intent-selector.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
+import {
+  dispatchRuntimeMediaAction,
+  RuntimeMediaActionClaimedError,
+  runtimeMediaActionDigest,
+  type RuntimeMediaActionClaimContext,
+} from "../execution-kernel/runtime-media-action-claim.js";
 
 export interface VoiceOutputSynthesisEvidence {
   readonly transform: "speech-synthesis";
@@ -60,6 +67,14 @@ export interface VoiceOutputSynthesisOptions {
   readonly voiceOutputIntent?: string;
   readonly escalationReason?: string;
   readonly retentionMaxArtifacts?: number;
+  /** Consequential TTS requires a workload-owned durable action-claim owner. */
+  readonly mediaActionClaims?: RuntimeMediaActionClaimContext;
+  readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
+  readonly attemptId?: string;
+  readonly callerId?: string;
+  readonly idempotencyKey?: string;
+  readonly logicalSendSlot?: string;
+  readonly abortSignal?: AbortSignal;
 }
 
 const VOICE_SYNTHESIS_NAMESPACE = "voice-synthesis";
@@ -129,29 +144,47 @@ async function synthesizeVoiceOutputInternal(
   }
 
   try {
-    const result = await tts.synthesize(text, resolveTtsOptions(voiceConfig, {
+    const ttsOptions = resolveTtsOptions(voiceConfig, {
       parts,
       voiceProfile: options.voiceProfile,
       voiceOutputIntent: options.voiceOutputIntent,
       escalationReason: options.escalationReason,
-    }));
-    if (result.audio.byteLength === 0 || !result.mimeType.startsWith("audio/")) {
-      throw new KilnError("TTS_FAILED", "TTS provider returned invalid audio output", {
-        context: { provider: tts.name, mimeType: result.mimeType, size: result.audio.byteLength },
-      });
-    }
-
+    });
+    const textFingerprint = runtimeMediaActionDigest(text);
     const shouldStore = voiceConfig.policy?.artifacts?.storeSynthesizedAudio !== false;
-    const artifactUri = shouldStore && options.artifactStore
-      ? persistSynthesizedAudio({
-          artifactStore: options.artifactStore,
-          audio: result.audio,
-          mimeType: result.mimeType,
-          durationMs: result.durationMs,
-          sourceId: `${options.appName}:${options.tenantId}:${options.userId}:${surface}:assistant-output`,
-          retentionMaxArtifacts: options.retentionMaxArtifacts ?? voiceConfig.policy?.artifacts?.retentionMaxArtifacts,
-        })
-      : undefined;
+    const dispatched = await dispatchRuntimeMediaAction({
+      context: requireMediaActionContext(options),
+      authorityAdmission: options.authorityAdmission,
+      attemptId: options.attemptId!,
+      callerId: options.callerId!,
+      idempotencyKey: options.idempotencyKey!,
+      actionKind: "tts-synthesize",
+      sourceIdentity: `text:${textFingerprint}`,
+      adapterIdentity: `tts:${tts.name}`,
+      logicalSendSlot: options.logicalSendSlot ?? "assistant-tts",
+      payload: { textFingerprint, ttsOptions },
+      abortSignal: options.abortSignal,
+      call: async () => {
+        const result = await tts.synthesize(text, { ...ttsOptions, signal: options.abortSignal });
+        if (result.audio.byteLength === 0 || !result.mimeType.startsWith("audio/")) {
+          throw new KilnError("TTS_FAILED", "TTS provider returned invalid audio output", {
+            context: { provider: tts.name, mimeType: result.mimeType, size: result.audio.byteLength },
+          });
+        }
+        const artifactUri = shouldStore && options.artifactStore
+          ? persistSynthesizedAudio({
+              artifactStore: options.artifactStore,
+              audio: result.audio,
+              mimeType: result.mimeType,
+              durationMs: result.durationMs,
+              sourceId: `${options.appName}:${options.tenantId}:${options.userId}:${surface}:assistant-output`,
+              retentionMaxArtifacts: options.retentionMaxArtifacts ?? voiceConfig.policy?.artifacts?.retentionMaxArtifacts,
+            })
+          : undefined;
+        return { result, artifactUri };
+      },
+    });
+    const { result, artifactUri } = dispatched;
 
     const evidence: VoiceOutputSynthesisEvidence = {
       transform: "speech-synthesis",
@@ -197,6 +230,9 @@ async function synthesizeVoiceOutputInternal(
       },
     };
   } catch (error) {
+    if (error instanceof RuntimeMediaActionClaimedError) {
+      throw error;
+    }
     return handleSynthesisFailure({
       parts,
       provider: tts.name,
@@ -205,6 +241,16 @@ async function synthesizeVoiceOutputInternal(
       options,
     });
   }
+}
+
+function requireMediaActionContext(options: VoiceOutputSynthesisOptions): RuntimeMediaActionClaimContext {
+  if (!options.mediaActionClaims || !options.authorityAdmission || !options.attemptId
+    || !options.callerId || !options.idempotencyKey) {
+    throw new Error(
+      "Consequential TTS requires a workload-owned media action claim bound to the complete authority admission.",
+    );
+  }
+  return options.mediaActionClaims;
 }
 
 function resolveTtsOptions(

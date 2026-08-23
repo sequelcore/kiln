@@ -11,6 +11,10 @@ import {
   type ManagedEconomicPriceEvidence,
 } from "@kilnai/core/cost";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../src/session/effective-authority-admission-bundle.js";
 
 const roots: string[] = [];
 const authorities: SqliteManagedAccountLeaseAuthority[] = [];
@@ -113,6 +117,52 @@ function input(adopted = snapshot()) {
   } as const;
 }
 
+function admissionBundle(): EffectiveAuthorityAdmissionBundle {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "economic-test-session",
+    turnId: "economic-test-turn",
+    admittedAt: "2026-07-31T11:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "session-r1", revisions: { routes: "r1" } },
+      turnRevision: { revisionSetId: "turn-r1", revisions: { routes: "r1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "skills", revision: "r1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "economic-test-session" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
+        sourcePolicy: "test", reason: "test", completeness: "authoritative", toolCount: 0,
+        deniedToolCount: 0, sandboxProjection: "workspace_read",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+        identityUse: "none", consequences: [], idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
+
+function actionClaim(ownerGeneration: string, overrides: Record<string, unknown> = {}) {
+  const admission = admissionBundle();
+  return {
+    version: 1 as const,
+    attemptId: "economic-attempt-a",
+    admissionId: admission.admissionId,
+    admissionBundle: admission,
+    intentFingerprint: input().intentFingerprint,
+    ownerGeneration,
+    effectIdentity: "agent-task:managed-provider-dispatch",
+    ...overrides,
+  };
+}
+
 function accountSnapshot(): ManagedEconomicAdoptedSnapshot {
   const base = snapshot();
   const adopted = base.routes[0]!;
@@ -178,22 +228,55 @@ describe("managed economic commitment authority", () => {
 
   it("makes the dispatch fence monotonic and forbids post-fence release", () => {
     const authority = create();
-    authority.acquireCommitment(input());
-    const fenced = authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    const acquired = authority.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
+    const claim = actionClaim(acquired.record.ownerGeneration);
+    const fenced = authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", claim);
     expect(fenced)
-      .toMatchObject({ state: "dispatch-fenced", dispatchFenceId: "fence-a" });
-    expect(authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a")).toEqual(fenced);
+      .toMatchObject({
+        state: "dispatch-fenced",
+        dispatchFenceId: "fence-a",
+        admissionId: claim.admissionId,
+        ownerGeneration: claim.ownerGeneration,
+        effectIdentity: claim.effectIdentity,
+      });
+    expect(authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", claim)).toEqual(fenced);
+    expect(() => authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", {
+      ...claim,
+      effectIdentity: "agent-task:other-effect",
+    })).toThrow("conflicts with its durable fence");
+    expect(() => authority.fenceDispatch("job-a", "economic-attempt-a", "fence-new", {
+      ...claim,
+      intentFingerprint: `sha256:${"8".repeat(64)}`,
+    })).toThrow("does not match its committed intent");
     expect(() => authority.releaseCommitmentPreFence("job-a", "economic-attempt-a"))
       .toThrow("definitely pre-dispatch");
-    expect(() => authority.fenceDispatch("job-a", "economic-attempt-a", "fence-b"))
+    expect(() => authority.fenceDispatch("job-a", "economic-attempt-a", "fence-b", claim))
       .toThrow("cannot be dispatch-fenced");
+  });
+
+  it("rejects an obsolete economic schema without adopting incomplete claims", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-obsolete-claim-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const first = createAt(path, "owner-a", () => 1_000);
+    first.acquireCommitment(input());
+    const database = new Database(path, { strict: true });
+    database.exec("UPDATE economic_commitments SET admission_id=NULL,effect_identity=NULL");
+    database.exec("PRAGMA user_version=6;");
+    database.close();
+    first.close();
+    authorities.splice(authorities.indexOf(first), 1);
+
+    expect(() => createAt(path, "owner-b", () => 2_000))
+      .toThrow("predates the canonical action-claim schema");
   });
 
   it("releases accountless capacity only after a matching typed execution settlement", async () => {
     const authority = create();
     const acquired = authority.acquireCommitment(input());
     if (acquired.status !== "committed") throw new Error("fixture");
-    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
 
     expect(authority.recordExecutionSettlementPending(
       "job-a",
@@ -251,7 +334,7 @@ describe("managed economic commitment authority", () => {
     const authority = create();
     const adopted = accountSnapshot();
     const { route, candidate } = accountCapacity(adopted);
-    authority.acquireCommitment({
+    const acquired = authority.acquireCommitment({
       ...input(adopted),
       routeCapacity: [{
         routeId: "route-direct",
@@ -260,7 +343,8 @@ describe("managed economic commitment authority", () => {
         candidates: [candidate],
       }],
     });
-    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    if (acquired.status !== "committed") throw new Error("fixture");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
     expect(authority.recordExecutionSettlementPending(
       "job-a",
       "economic-attempt-a",
@@ -373,7 +457,7 @@ describe("managed economic commitment authority", () => {
       selectedRoute: { routeId: "route-direct", providerId: "provider", modelId: "model", adapterCapabilityId: "direct", adapterCapabilityVersion: "1" },
       selectedAccount: { kind: "accountless" },
     });
-    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(first.record.ownerGeneration));
     expect(inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" })).toMatchObject({ status: "dispatch-fenced", dispatchFenceId: "fence-a" });
     authority.recordExecutionSettlementPending("job-a", "economic-attempt-a", "fence-a", "awaiting settlement");
     expect(inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" })).toMatchObject({ status: "settlement-pending", settlementKind: "unknown" });
@@ -396,7 +480,7 @@ describe("managed economic commitment authority", () => {
     });
   });
 
-  it("fails visibly for legacy or malformed durable decision evidence", () => {
+  it("fails visibly for malformed durable decision evidence", () => {
     const authority = create();
     expect(authority.acquireCommitment(input())).toMatchObject({ status: "committed" });
     const database = new Database(join(roots.at(-1)!, "authority.sqlite"), { strict: true });
@@ -658,7 +742,7 @@ describe("managed economic commitment authority", () => {
     const first = createAt(path, "owner-a", () => 1_000);
     const acquired = first.acquireCommitment(input());
     if (acquired.status !== "committed") throw new Error("fixture");
-    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
     first.settleExecution("job-a", "economic-attempt-a", "fence-a", {
       kind: "free",
       reservationId: acquired.record.commitment.reservation.reservationId,
@@ -684,8 +768,9 @@ describe("managed economic commitment authority", () => {
     roots.push(root);
     const path = join(root, "authority.sqlite");
     const first = createAt(path, "owner-a", () => 1_000);
-    first.acquireCommitment(input());
-    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    const acquired = first.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
+    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a", actionClaim(acquired.record.ownerGeneration));
     first.close();
     authorities.splice(authorities.indexOf(first), 1);
 
@@ -708,7 +793,8 @@ describe("managed economic commitment authority", () => {
     const path = join(root, "authority.sqlite");
     let clock = 1_000;
     const stale = createAt(path, "owner-a", () => clock);
-    stale.acquireCommitment(input());
+    const acquired = stale.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
     clock = 3_000;
     const current = createAt(path, "owner-b", () => clock);
     current.recoverCommitments();
@@ -716,7 +802,7 @@ describe("managed economic commitment authority", () => {
       .toThrow("ownership was lost");
     expect(() => stale.releaseCommitmentPreFence("job-a", "economic-attempt-a"))
       .toThrow("ownership was lost");
-    expect(() => stale.fenceDispatch("job-a", "economic-attempt-a", "fence-stale"))
+    expect(() => stale.fenceDispatch("job-a", "economic-attempt-a", "fence-stale", actionClaim(acquired.record.ownerGeneration)))
       .toThrow("ownership was lost");
   });
 

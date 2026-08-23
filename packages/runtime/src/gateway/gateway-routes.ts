@@ -2,17 +2,16 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App, ArtifactResourceStore, EventBus, SttAdapter, TtsAdapter, ContactMemoryService } from "@kilnai/core";
+import type { App, ArtifactResourceStore, EventBus, SttAdapter, TtsAdapter } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog, GatewayMcpConfig } from "@kilnai/core";
 import { extractText, PromptScanner } from "@kilnai/core";
 import type { ContentPart } from "@kilnai/core";
 import type { WSContext } from "hono/ws";
-import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
 import { createProviderAdapterRoutes } from "./provider-adapter-routes.js";
 import type { WsRoutesConfig } from "./ws-routes.js";
-import { createWsRoutes } from "./ws-routes.js";
+import { createWsRoutes, createWsResponseEgress } from "./ws-routes.js";
 import { createHarnessIngressRoutes } from "./harness-ingress-routes.js";
 import type { HarnessIngressRoutesConfig } from "./harness-ingress-routes.js";
 import { createOpenAIResponsesRoutes } from "./openai-responses-routes.js";
@@ -32,12 +31,6 @@ import type { EmailWebhookConfig } from "./email-webhook-routes.js";
 import { createEmailWebhookRoutes } from "./email-webhook-routes.js";
 import type { TenantAdminRoutesConfig } from "./tenant-admin-routes.js";
 import { createTenantAdminRoutes } from "./tenant-admin-routes.js";
-import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
-import { createKnowledgeAdminRoutes } from "./knowledge-admin-routes.js";
-import type { ContactMemoryAdminRoutesConfig } from "./contact-memory-admin-routes.js";
-import { createContactMemoryAdminRoutes } from "./contact-memory-admin-routes.js";
-import type { EnrichmentAdminRoutesConfig } from "./enrichment-admin-routes.js";
-import { createEnrichmentAdminRoutes } from "./enrichment-admin-routes.js";
 import { createOutboundRoutes } from "./outbound-routes.js";
 import { createHandoffRoutes } from "./handoff-routes.js";
 import { HealthRegistry } from "./health-registry.js";
@@ -46,8 +39,6 @@ import { safetyMiddleware } from "./safety-middleware.js";
 import type { SafetyPipeline } from "@kilnai/core";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
 import type { CredentialPoolObservabilityRegistry } from "../agents/credential-pool/credential-pool-observability.js";
-import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
-import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { JwtVerifyFn } from "./jwt-verifier.js";
 import { requireJwt } from "./auth-middleware.js";
 import type {
@@ -84,7 +75,6 @@ export interface LoadedApp {
   readonly name: string;
   readonly app: App;
   readonly binding: GatewayAppBinding;
-  readonly registry: ChannelRegistry;
   providerAdapterRuntime?: ProviderAdapterAppRuntime;
   tenantRuntime?: TenantAppRuntime;
   whatsappWebhookConfig?: WhatsAppWebhookConfig;
@@ -93,16 +83,10 @@ export interface LoadedApp {
   emailWebhookConfig?: EmailWebhookConfig;
   tenantAdminConfig?: TenantAdminRoutesConfig;
   webChannel?: WebChannel;
-  eventEmitter?: ConversationEventEmitter;
   sttAdapter?: SttAdapter;
   ttsAdapter?: TtsAdapter;
   artifactStore?: ArtifactResourceStore;
   publicMediaSigningSecret?: string;
-  knowledgePipeline?: KnowledgePipelineResult;
-  knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
-  contactMemoryService?: ContactMemoryService;
-  contactMemoryAdminConfig?: ContactMemoryAdminRoutesConfig;
-  enrichmentAdminConfig?: EnrichmentAdminRoutesConfig;
 }
 
 export interface GatewayServerConfig {
@@ -428,14 +412,10 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             tenantRegistry: tenantRuntime.tenantRegistry,
             gatewayAdmission: tenantRuntime.gatewayAdmission,
             billing: tenantRuntime.billing,
-            eventEmitter: loadedApp.eventEmitter,
             ...(config.eventBus ? { eventBus: config.eventBus } : {}),
             allowedOrigins: channel.allowedOrigins,
             sttAdapter: loadedApp.sttAdapter,
             artifactStore: loadedApp.artifactStore,
-            knowledgePipeline: loadedApp.knowledgePipeline?.pipeline,
-            knowledgeMode: loadedApp.app.knowledge?.mode,
-            contactMemoryService: loadedApp.contactMemoryService,
             coordinationContextProvider: tenantRuntime.coordinationContextProvider,
           });
           app.route(`/apps/${loadedApp.name}`, wsTenantApp);
@@ -450,6 +430,9 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             tenantId: "_default",
             artifactStore: loadedApp.artifactStore,
             processMessage: async (userId, parts, options) => {
+              const ingressId = options?.idempotencyKey
+                ? `ws:${loadedApp.name}:${userId}:${options.idempotencyKey}`
+                : crypto.randomUUID();
               const session = await runtime.sessionRegistry.getOrCreate({
                 appName: loadedApp.name,
                 tenantId: "_default",
@@ -457,7 +440,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 systemPrompt: runtime.systemPrompt,
               });
               return runtime.gatewayAdmission.execute({
-                  ingressId: crypto.randomUUID(),
+                  ingressId,
                   appName: runtime.appName,
                   tenantId: "_default",
                   userId,
@@ -466,7 +449,27 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                   userParts: parts,
                   requestedAuthority: options?.requestedAuthority,
                 }, async (admitted) => {
-              const coordinationContext = await resolveCoordinationContextCandidates(runtime.coordinationContextProvider, {
+               const dispatchEgress = createWsResponseEgress({
+                 gatewayAdmission: runtime.gatewayAdmission,
+                 admitted,
+                 appName: loadedApp.name,
+                 tenantId: "_default",
+                 userId,
+                 idempotencyKey: ingressId,
+                 ws: options!.ws!,
+               });
+               if (options?.validationError) {
+                 return {
+                   parts: [],
+                   inputTokens: 0,
+                   outputTokens: 0,
+                   outcome: "failed" as const,
+                   errorMessage: options.validationError,
+                   dispatchEgress,
+                 };
+               }
+                try {
+                const coordinationContext = await resolveCoordinationContextCandidates(runtime.coordinationContextProvider, {
                 appName: loadedApp.name,
                 tenantId: "_default",
                 userId,
@@ -477,9 +480,6 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 userContext: session.userContext,
                 cachedRuntimeSummary: undefined,
                 recalledMemoryCandidates: undefined,
-                knowledgeContext: undefined,
-                contactContext: undefined,
-                groundingMode: undefined,
                 coordinationContextCandidates: coordinationContext.candidates,
               });
               const projectedTurnContext = {
@@ -489,8 +489,8 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                   coordinationContext.failureReason,
                 ),
               };
-              return runtime.orchestrator.bindProvider(
-                admitted.provider,
+               const result = await runtime.orchestrator.bindProvider(
+                 admitted.provider,
                 admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
               ).processMessage(
                 admitted.session,
@@ -499,10 +499,22 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 undefined,
                 {
                   ...admitted.perCallConfig,
+                  runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
                   ...(options?.communicationIntent ? { communicationIntent: options.communicationIntent } : {}),
                 },
-              );
-              });
+               );
+               return { ...result, dispatchEgress };
+               } catch (error) {
+                 return {
+                   parts: [],
+                   inputTokens: 0,
+                   outputTokens: 0,
+                   outcome: "failed" as const,
+                   errorMessage: error instanceof Error ? error.message : String(error),
+                   dispatchEgress,
+                 };
+               }
+               });
             },
           });
           app.route(`/apps/${loadedApp.name}`, wsApp);
@@ -515,46 +527,33 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       const adminApp = createTenantAdminRoutes(loadedApp.tenantAdminConfig);
       app.route(`/admin/${loadedApp.name}`, adminApp);
 
-      // Outbound send routes (same auth as admin)
-      const outboundApp = createOutboundRoutes({
-        tenantRegistry: loadedApp.tenantAdminConfig.tenantRegistry,
-        appName: loadedApp.name,
-        adminToken: loadedApp.tenantAdminConfig.adminToken,
-      });
-      app.route(`/outbound/${loadedApp.name}`, outboundApp);
-
       // Handoff routes for multi-tenant apps (operator messaging, session transitions)
       const sessionRegistry = loadedApp.tenantRuntime?.sessionRegistry ?? loadedApp.providerAdapterRuntime?.sessionRegistry;
-      if (sessionRegistry) {
+      const gatewayAdmission = loadedApp.tenantRuntime?.gatewayAdmission ?? loadedApp.providerAdapterRuntime?.gatewayAdmission;
+      if (sessionRegistry && gatewayAdmission) {
+        // Outbound and handoff effects are mounted only with the mandatory
+        // persisted-bundle/action-claim owner; no ungoverned fallback route.
+        const outboundApp = createOutboundRoutes({
+          tenantRegistry: loadedApp.tenantAdminConfig.tenantRegistry,
+          sessionRegistry,
+          gatewayAdmission,
+          appName: loadedApp.name,
+          adminToken: loadedApp.tenantAdminConfig.adminToken,
+        });
+        app.route(`/outbound/${loadedApp.name}`, outboundApp);
+
         const handoffApp = createHandoffRoutes({
           sessionRegistry,
           tenantRegistry: loadedApp.tenantAdminConfig.tenantRegistry,
+          gatewayAdmission,
           appName: loadedApp.name,
           adminToken: loadedApp.tenantAdminConfig.adminToken,
           webChannel: loadedApp.webChannel,
-          eventEmitter: loadedApp.eventEmitter,
         });
         app.route(`/handoff/${loadedApp.name}`, handoffApp);
       }
     }
 
-    // Knowledge admin routes (available for any app with knowledge config)
-    if (loadedApp.knowledgeAdminConfig) {
-      const knowledgeAdminApp = createKnowledgeAdminRoutes(loadedApp.knowledgeAdminConfig);
-      app.route(`/admin/${loadedApp.name}/knowledge`, knowledgeAdminApp);
-    }
-
-    // Contact memory admin routes (GDPR: forget, forgetAll)
-    if (loadedApp.contactMemoryAdminConfig) {
-      const contactMemoryAdminApp = createContactMemoryAdminRoutes(loadedApp.contactMemoryAdminConfig);
-      app.route(`/admin/${loadedApp.name}/contact-memory`, contactMemoryAdminApp);
-    }
-
-    // Enrichment admin routes (GDPR: get, list, delete)
-    if (loadedApp.enrichmentAdminConfig) {
-      const enrichmentAdminApp = createEnrichmentAdminRoutes(loadedApp.enrichmentAdminConfig);
-      app.route(`/admin/${loadedApp.name}/enrichment`, enrichmentAdminApp);
-    }
   }
 
   // Mount webhook trigger routes per app
@@ -1008,28 +1007,23 @@ async function processAppGatewayGuiMessage(
         userId: selectedRuntime.userId,
         admittedSession: admitted.session,
         authorityAdmission: admitted.bundle,
+        runtimeMediaActionClaims: admitted.runtimeMediaActionClaims,
         systemPrompt: selectedRuntime.runtime.systemPrompt,
         userParts,
         billing: selectedRuntime.runtime.billing,
         channel: "gui",
-        knowledgePipeline: selectedRuntime.runtime.knowledgePipeline,
-        knowledgeMode: selectedRuntime.runtime.knowledgeMode,
         tenant: selectedRuntime.runtime.tenant,
-        handoffSummarizer: selectedRuntime.runtime.handoffSummarizer,
         eventBus: selectedRuntime.runtime.eventBus,
-        groundingMode: selectedRuntime.runtime.tenant?.groundingMode,
-        groundingDeps: selectedRuntime.runtime.groundingDeps ? {
-          ...selectedRuntime.runtime.groundingDeps,
-          providerPool: new Map([[admitted.provider.name, admitted.provider]]),
-        } : undefined,
         contextArtifactCache: selectedRuntime.runtime.contextArtifactCache,
         coordinationContextProvider: selectedRuntime.runtime.coordinationContextProvider,
-        requestedAuthority: undefined,
         artifactStore: selectedRuntime.loadedApp.artifactStore,
         voiceConfig: selectedRuntime.loadedApp.app.voice,
         sttAdapter: selectedRuntime.loadedApp.sttAdapter,
         ttsAdapter: selectedRuntime.loadedApp.ttsAdapter,
-        perCallConfig: admitted.perCallConfig,
+        perCallConfig: {
+          ...admitted.perCallConfig,
+          runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
+        },
       }));
     } else {
       processResult = await processTenantAppGatewayGuiTurn(selectedRuntime, userParts, sessionId, frame.requestedAuthority);
@@ -1119,31 +1113,29 @@ async function processTenantAppGatewayGuiTurn(
     userId: selection.userId,
     admittedSession: admitted.session,
     authorityAdmission: admitted.bundle,
+    runtimeMediaActionClaims: admitted.runtimeMediaActionClaims,
     userParts,
     billing: billingConfig,
     channel: "gui",
     tenant,
     idleTimeoutMs: tenant.idleTimeoutMs,
-    groundingMode: tenant.groundingMode,
-    groundingDeps: selection.runtime.groundingDeps ? {
-      ...selection.runtime.groundingDeps,
-      providerPool: new Map([[admitted.provider.name, admitted.provider]]),
-    } : undefined,
     contextArtifactCache: selection.runtime.contextArtifactCache,
     coordinationContextProvider: selection.runtime.coordinationContextProvider,
-    requestedAuthority: undefined,
     artifactStore: selection.loadedApp.artifactStore,
     voiceConfig: selection.loadedApp.app.voice,
     sttAdapter: selection.loadedApp.sttAdapter,
     ttsAdapter: selection.loadedApp.ttsAdapter,
-    perCallConfig: admitted.perCallConfig,
+    perCallConfig: {
+      ...admitted.perCallConfig,
+      runtimeModelRoundDispatch: admitted.runtimeModelRoundDispatch,
+    },
   }));
 }
 
 type AppGatewayGuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "done" }>["authorityStatus"]>;
 
 function deriveAppGatewayGuiAuthorityStatus(
-  effectiveTurnAuthority: NonNullable<import("../session/runtime-session-orchestrator.js").PerCallToolConfig["effectiveTurnAuthority"]> | undefined,
+  effectiveTurnAuthority: import("@kilnai/core").EffectiveTurnAuthoritySnapshot | undefined,
 ): AppGatewayGuiAuthorityStatus {
   if (!effectiveTurnAuthority) {
     return { effective: "unknown", completeness: "partial" };

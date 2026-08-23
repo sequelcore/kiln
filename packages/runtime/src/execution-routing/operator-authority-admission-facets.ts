@@ -9,7 +9,7 @@ import {
   deriveTurnEffectCeiling,
   projectToolPermissionAdmissionFromPerCallConfig,
 } from "../session/effective-authority-admission-bundle.js";
-import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.types.js";
+import type { RuntimeAuthorityAdmissionCandidateConfig } from "../session/runtime-session-orchestrator.types.js";
 import type { RuntimeSession } from "../session/runtime-session.js";
 import type {
   OperatorSessionAuthorityAdmissionFacets,
@@ -22,7 +22,7 @@ export function defineOperatorAuthorityAdmissionFacets(input: {
   readonly turnId?: string;
   readonly session: RuntimeSession;
   readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
-  readonly perCallConfig: PerCallToolConfig;
+  readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig;
   readonly candidateToolNames: readonly string[];
   readonly skillCatalog: SkillCatalogAdmission;
   readonly authorityCeiling: EffectiveTurnAuthorityPolicyBound;

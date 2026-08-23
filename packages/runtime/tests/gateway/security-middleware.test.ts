@@ -23,7 +23,6 @@ function makeMockScanner(overrides: Partial<PromptScanResult> = {}): PromptScann
   };
   return {
     scanHeuristic: vi.fn(() => defaultResult),
-    scanDeep: vi.fn(async () => defaultResult),
     scan: vi.fn(async () => defaultResult),
   } as unknown as PromptScanner;
 }
@@ -75,7 +74,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner(makeInjectionResult());
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -96,7 +94,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner(makeInjectionResult());
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -117,7 +114,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner(makeInjectionResult());
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: false,
       });
 
@@ -135,7 +131,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner(makeInjectionResult());
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: false,
       });
 
@@ -155,7 +150,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner({ safe: true, threats: [] });
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -189,7 +183,6 @@ describe("securityMiddleware", () => {
       const auditLog = makeAuditLog();
       const app = makeApp(scanner, auditLog, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -211,7 +204,6 @@ describe("securityMiddleware", () => {
       const auditLog = makeAuditLog();
       const app = makeApp(scanner, auditLog, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -233,7 +225,6 @@ describe("securityMiddleware", () => {
       // No auditLog passed
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -253,7 +244,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner();
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -272,7 +262,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner();
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -289,7 +278,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner();
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 
@@ -306,7 +294,6 @@ describe("securityMiddleware", () => {
       const scanner = makeMockScanner(makeInjectionResult());
       const app = makeApp(scanner, undefined, {
         enabled: true,
-        heuristicOnly: true,
         blockOnDetection: true,
       });
 

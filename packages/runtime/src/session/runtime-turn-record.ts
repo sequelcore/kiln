@@ -79,7 +79,6 @@ export interface RuntimeTurnRecordInput {
   readonly toolExecutions?: readonly ToolExecutionSummary[];
   readonly routingDecision?: RuntimeTurnRoutingDecision;
   readonly escalationReason?: string;
-  readonly groundingBlockedClaims?: readonly string[];
   readonly activeAgentId?: string;
   readonly routingTierHint?: string;
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
@@ -115,7 +114,7 @@ function appendExactArtifacts(
   session: RuntimeSession,
   input: Pick<
     RuntimeTurnRecordInput,
-    "routingDecision" | "contextSummary" | "toolExecutions" | "groundingBlockedClaims" | "escalationReason"
+    "routingDecision" | "contextSummary" | "toolExecutions" | "escalationReason"
   >,
 ): void {
   if (input.routingDecision) {
@@ -133,9 +132,6 @@ function appendExactArtifacts(
         session.addExactArtifact(`Tool result summary: ${exec.resultSummary}`);
       }
     }
-  }
-  if (input.groundingBlockedClaims && input.groundingBlockedClaims.length > 0) {
-    session.addExactArtifact(`Grounding blocked: ${input.groundingBlockedClaims.join("; ")}`);
   }
   if (input.escalationReason) {
     session.addExactArtifact(`Escalation detected: ${input.escalationReason}`);

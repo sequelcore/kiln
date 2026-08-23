@@ -76,6 +76,8 @@ export interface ConfiguredExecutionAccountRuntimeOptions {
 
 export interface ConfiguredCodexExecutionAccountPool {
   listExecutionAccounts(): Promise<readonly CodexOAuthExecutionAccount[]>;
+  /** Refreshes expiring credentials before admission and returns fresh snapshots. */
+  prepareExecutionAccounts(): Promise<readonly CodexOAuthExecutionAccount[]>;
   listUsage(now?: Date): Promise<readonly ProviderUsageSnapshot[]>;
   refreshUsageForCredentials(credentialIds: readonly string[]): Promise<readonly ProviderUsageSnapshot[]>;
   resolveExecutionCredential(selected: CodexOAuthExecutionAccount): Promise<CodexOAuthExecutionCredential>;
@@ -149,7 +151,7 @@ type ConfiguredExecutionUsageEvidence = {
 
 /**
  * Projects the configured account catalog into the secret-free candidate and
- * post-fence credential ports used by every execution surface.
+ * exact binding/adapter preparation ports used by every execution surface.
  */
 export class ConfiguredExecutionAccountRuntime {
   #catalog: ExecutionCatalog;
@@ -204,7 +206,7 @@ export class ConfiguredExecutionAccountRuntime {
     this.#dataPolicyAuthority.updateCatalog(catalog);
   }
 
-  /** Materializes an adapter from the exact credential already resolved behind a dispatch fence. */
+  /** Materializes an adapter from the exact credential already resolved by the owner. */
   async createProviderAdapterFromCredential(input: {
     readonly providerId: string;
     readonly providerModelId: string;
@@ -300,7 +302,7 @@ export class ConfiguredExecutionAccountRuntime {
     const now = this.#validNow();
     const accountIds = admittedAccountIds(admission);
     const accounts = accountIds.map((accountId) => this.#requireAccount(accountId, catalog));
-    const executionAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId);
+    const executionAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId, true);
     const usage = await this.#listUsage(
       admission.providerId as DirectProviderId,
       now,
@@ -371,8 +373,9 @@ export class ConfiguredExecutionAccountRuntime {
 
   async #resolveCredential(
     input: ConfiguredCredentialResolutionInput,
+    allowHeld = false,
   ): Promise<OperatorSessionResolvedCredential<ConfiguredExecutionCredential>> {
-    if (input.lease.state !== "dispatch-fenced") {
+    if (input.lease.state !== "dispatch-fenced" && !(allowHeld && input.lease.state === "held")) {
       throw new Error("Configured execution credential resolution requires a dispatch-fenced account lease.");
     }
     const account = this.#requireAccount(input.accountId, input.catalog);
@@ -382,11 +385,11 @@ export class ConfiguredExecutionAccountRuntime {
     this.#assertDataPolicyForCredential(input.routeId, account, input.lease.route, input.catalog);
     const execution = await this.#findExecutionAccount(account);
     if (configuredExecutionAccountRef(account, execution) !== input.lease.accountRef) {
-      throw new Error("Configured execution account identity changed after the dispatch fence.");
+      throw new Error("Configured execution account identity changed after capacity admission.");
     }
     const credentialRevisionId = configuredCredentialRevisionId(account, execution);
     if (credentialRevisionId !== input.lease.credentialRevisionId) {
-      throw new Error("Configured execution credential revision changed after the dispatch fence.");
+      throw new Error("Configured execution credential revision changed after capacity admission.");
     }
     const credential = await this.#resolveExecutionCredential(account.providerId as DirectProviderId, execution);
     if (credential.credentialId !== account.credentialId) {
@@ -401,9 +404,6 @@ export class ConfiguredExecutionAccountRuntime {
     route: { readonly providerId: string; readonly providerModelId: string },
     lease: AccountCapacityRecord,
   ): Promise<GovernedOneRoundResolvedDispatch> {
-    if (!lease.dispatchFenceId) {
-      throw new Error("Configured model gateway dispatch requires a durable dispatch fence identity.");
-    }
     const account = this.#requireAccount(accountId);
     if (account.providerId !== route.providerId) {
       throw new Error("Configured execution account does not match the dispatched provider route.");
@@ -417,7 +417,7 @@ export class ConfiguredExecutionAccountRuntime {
       credentialId: account.credentialId,
       lease,
       catalog: this.#catalog,
-    });
+    }, true);
     const binding = Object.freeze({
       status: "bound" as const,
       routeId,
@@ -447,7 +447,7 @@ export class ConfiguredExecutionAccountRuntime {
           account: lease.accountRef,
           providerId: route.providerId,
           adapter,
-          requestIdentity: { requestId: lease.dispatchFenceId },
+          requestIdentity: { requestId: lease.runtimeInvocationId },
         }),
         binding,
       };
@@ -462,7 +462,7 @@ export class ConfiguredExecutionAccountRuntime {
           account: lease.accountRef,
           providerId: route.providerId,
           adapter,
-          requestIdentity: { requestId: lease.dispatchFenceId },
+          requestIdentity: { requestId: lease.runtimeInvocationId },
         }),
         binding,
       };
@@ -511,9 +511,15 @@ export class ConfiguredExecutionAccountRuntime {
     throw new Error(`Configured provider '${providerId}' has no execution credential resolver.`);
   }
 
-  async #listExecutionAccounts(providerId: DirectProviderId): Promise<readonly ConfiguredExecutionAccount[]> {
+  async #listExecutionAccounts(
+    providerId: DirectProviderId,
+    prepareForAdmission = false,
+  ): Promise<readonly ConfiguredExecutionAccount[]> {
     if (providerId === "codex-oauth") {
-      return (await this.#codexPool.listExecutionAccounts()).map((account) => ({ providerId, ...account }));
+      const accounts = prepareForAdmission
+        ? await this.#codexPool.prepareExecutionAccounts()
+        : await this.#codexPool.listExecutionAccounts();
+      return accounts.map((account) => ({ providerId, ...account }));
     }
     if (providerId === "opencode-go" || providerId === "opencode-zen") {
       return this.#openCodePool.listExecutionAccounts(providerId === "opencode-go" ? "go" : "zen");

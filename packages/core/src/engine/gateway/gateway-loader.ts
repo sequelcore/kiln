@@ -309,23 +309,10 @@ export function parseGatewayYaml(content: string): GatewayConfig {
           ...(str(rawMcpAuth["keyEnv"]) ? { keyEnv: str(rawMcpAuth["keyEnv"]) } : {}),
         };
       }
-      const rawMcpEval =
-        rawMcp["eval"] && typeof rawMcp["eval"] === "object" && !Array.isArray(rawMcp["eval"])
-          ? (rawMcp["eval"] as Record<string, unknown>)
-          : undefined;
       const parsed: GatewayMcpConfig = {
         enabled: typeof rawMcp["enabled"] === "boolean" ? rawMcp["enabled"] : false,
         ...(typeof rawMcp["path"] === "string" ? { path: rawMcp["path"] } : {}),
         ...(mcpAuth ? { auth: mcpAuth } : {}),
-        ...(rawMcpEval
-          ? {
-              eval: {
-                provider: str(rawMcpEval["provider"]) ?? "",
-                ...(str(rawMcpEval["model"]) ? { model: str(rawMcpEval["model"]) } : {}),
-                ...(str(rawMcpEval["apiKeyEnv"]) ? { apiKeyEnv: str(rawMcpEval["apiKeyEnv"]) } : {}),
-              },
-            }
-          : {}),
       };
       const mcpErrors = validateGatewayMcpConfig(parsed);
       if (mcpErrors.length > 0) {

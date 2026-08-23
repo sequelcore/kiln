@@ -5,16 +5,6 @@ import type { CostSummary } from "@kilnai/core";
 
 /** Dependencies injected into the MCP server from the gateway */
 export interface GatewayMcpDeps {
-  /** Search the knowledge base via the retrieval pipeline */
-  readonly searchKnowledge?: (
-    appName: string,
-    query: string,
-    limit?: number,
-  ) => Promise<{ results: readonly { content: string; score: number; source?: string }[] }>;
-
-  /** List knowledge sources for an app */
-  readonly listKnowledgeSources?: (appName: string) => { sources: readonly Record<string, unknown>[] };
-
   /** Get the current cost summary */
   readonly getCostSummary?: () => CostSummary;
 
@@ -27,13 +17,6 @@ export interface GatewayMcpDeps {
     version: string;
     operations: readonly { name: string; description: string }[];
   }[];
-
-  readonly executeIntegration?: (
-    provider: string,
-    operation: string,
-    tenantId: string,
-    input: Record<string, unknown>,
-  ) => Promise<unknown>;
 
   // MCP-First Orchestration Phase 2
   readonly testRouting?: (
@@ -54,28 +37,6 @@ export interface GatewayMcpDeps {
     expected?: string,
     scorerNames?: readonly string[],
   ) => Promise<readonly { name: string; score: number; reasoning?: string }[]>;
-
-  readonly evalScoreLlm?: (
-    input: string,
-    output: string,
-    expected?: string,
-    context?: readonly string[],
-    scorerNames?: readonly string[],
-    scorerOptions?: Record<string, unknown>,
-  ) => Promise<readonly { name: string; score: number; reasoning?: string }[]>;
-
-  readonly getEnrichment?: (
-    sessionId: string,
-  ) => Promise<Record<string, unknown> | undefined>;
-
-  readonly listEnrichments?: (
-    tenantId: string,
-    limit?: number,
-    cursor?: string,
-  ) => Promise<{
-    enrichments: readonly Record<string, unknown>[];
-    nextCursor?: string;
-  }>;
 
   readonly swarmJoin?: (
     swarmId: string,
@@ -118,11 +79,4 @@ export interface GatewayMcpDeps {
     appName: string,
   ) => Promise<{ allowed: boolean; remaining: number; unit: string }>;
 
-  readonly reportUsage?: (
-    tenantId: string,
-    appName: string,
-    messages: number,
-    tokens: number,
-    model: string,
-  ) => Promise<void>;
 }

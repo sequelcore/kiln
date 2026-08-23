@@ -6,6 +6,7 @@ import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
+import { createFixtureClaimConfig, createFixtureToolPermission } from "./runtime-claim-fixture.js";
 
 const executionScope = {
   kind: "work_item",
@@ -87,15 +88,29 @@ describe("runtime formal-verification transport", () => {
         ["work_item.execution.finish", finish],
       ]),
     );
+    const currentSession = session();
+    const perCallConfig = {
+      ...createFixtureClaimConfig({
+        session: currentSession,
+        provider: { name: "mock" } as ProviderAdapter,
+        turnId: "turn-1",
+        includeToolClaims: true,
+        toolPermissions: [
+          createFixtureToolPermission("formal_verify"),
+          createFixtureToolPermission("work_item.execution.finish"),
+        ],
+      }),
+      executionScope,
+    };
 
     await executor.executeToolCalls(
-      session(),
+      currentSession,
       [
         { id: "formal-1", name: "formal_verify", input: {} },
         { id: "finish-1", name: "work_item.execution.finish", input: {} },
       ],
       "turn-1:response:1",
-      { executionScope },
+      perCallConfig,
     );
 
     expect(finish).toHaveBeenCalledWith(
@@ -127,12 +142,25 @@ describe("runtime formal-verification transport", () => {
       ]),
     );
     const currentSession = session();
+    const perCallConfig = {
+      ...createFixtureClaimConfig({
+        session: currentSession,
+        provider: { name: "mock" } as ProviderAdapter,
+        turnId: "turn-1",
+        includeToolClaims: true,
+        toolPermissions: [
+          createFixtureToolPermission("formal_verify"),
+          createFixtureToolPermission("work_item.execution.finish"),
+        ],
+      }),
+      executionScope,
+    };
 
     const firstRound = await executor.executeToolCalls(
       currentSession,
       [{ id: "formal-1", name: "formal_verify", input: {} }],
       "turn-1:response:1",
-      { executionScope },
+      perCallConfig,
     );
     const returnedSummary = firstRound.toolExecutions[0];
     if (!returnedSummary) throw new Error("expected a returned formal summary");
@@ -142,7 +170,19 @@ describe("runtime formal-verification transport", () => {
       currentSession,
       [{ id: "finish-1", name: "work_item.execution.finish", input: {} }],
       "turn-1:response:2",
-      { executionScope },
+      {
+        ...createFixtureClaimConfig({
+          session: currentSession,
+          provider: { name: "mock" } as ProviderAdapter,
+          turnId: "turn-1",
+          includeToolClaims: true,
+          toolPermissions: [
+            createFixtureToolPermission("formal_verify"),
+            createFixtureToolPermission("work_item.execution.finish"),
+          ],
+        }),
+        executionScope,
+      },
     );
 
     expect(observedVersion).toBe("4.11.0");
@@ -170,12 +210,30 @@ describe("runtime formal-verification transport", () => {
       currentSession,
       [{ id: "formal-1", name: "formal_verify", input: {} }],
       "turn-1:response:1",
-      { executionScope },
+      {
+        ...createFixtureClaimConfig({
+          session: currentSession,
+          provider: { name: "mock" } as ProviderAdapter,
+          turnId: "turn-1",
+          includeToolClaims: true,
+          toolPermissions: [createFixtureToolPermission("formal_verify")],
+        }),
+        executionScope,
+      },
     );
     await executor.executeToolCalls(
       currentSession,
       [{ id: "finish-1", name: "work_item.execution.finish", input: {} }],
       "turn-2:response:1",
+      {
+        ...createFixtureClaimConfig({
+          session: currentSession,
+          provider: { name: "mock" } as ProviderAdapter,
+          turnId: "turn-2",
+          includeToolClaims: true,
+          toolPermissions: [createFixtureToolPermission("work_item.execution.finish")],
+        }),
+      },
     );
 
     expect(observedCount).toBe(0);
@@ -189,16 +247,30 @@ describe("runtime formal-verification transport", () => {
     ]);
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: providerForRounds(),
+      model: "unknown",
       tools: [tool("formal_verify"), tool("work_item.execution.finish")],
       builtinTools,
     });
+    const currentSession = session();
 
     await orchestrator.processMessage(
-      session(),
+      currentSession,
       textParts("verify and finish"),
       undefined,
       builtinTools,
-      { executionScope },
+      {
+        ...createFixtureClaimConfig({
+          session: currentSession,
+          provider: providerForRounds(),
+          turnId: "turn-1",
+          includeToolClaims: true,
+          toolPermissions: [
+            createFixtureToolPermission("formal_verify"),
+            createFixtureToolPermission("work_item.execution.finish"),
+          ],
+        }),
+        executionScope,
+      },
     );
 
     expect(finish).toHaveBeenCalledWith(

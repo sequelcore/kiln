@@ -1,7 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
+import {
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
+  defineExecutionCatalog,
+  type ProviderAdapter,
+} from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import { createHarnessIngressRoutes } from "../../src/gateway/harness-ingress-routes.js";
+import { FixedRouteGatewayAuthorityAdmission, type GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import type { AccountCapacityRecord, ExecutionAccountCapacityAuthority } from "../../src/execution-kernel/execution-account-capacity-authority.js";
 
 type Handlers = ReturnType<Parameters<UpgradeWebSocket>[0]>;
 
@@ -35,12 +48,144 @@ function frame(overrides: Record<string, unknown> = {}) {
 }
 
 function makeRuntime() {
+  const session = (sessionId: string) => ({ id: sessionId, appName: "app-one", tenantId: "tenant-1", userId: "user-1" });
+  const provider = { name: "provider-one", createMessage: vi.fn(), streamMessage: vi.fn() };
+  const bindProvider = vi.fn(() => ({ processMessage: vi.fn() }));
+  const gatewayAdmission: GatewayAuthorityAdmissionPort = {
+    channelEgressActionClaims: {} as never,
+    execute: vi.fn(async (request, dispatch) => {
+      const admittedSession = session(request.sessionId);
+      const revision = { revisionSetId: "harness-r1", revisions: { gateway: "r1" } };
+      const bundle = defineEffectiveAuthorityAdmissionBundle({
+        sessionId: request.sessionId,
+        turnId: `${request.sessionId}:turn:1`,
+        admittedAt: "2026-08-22T00:00:00.000Z",
+        configuration: { sessionRevision: revision, turnRevision: revision },
+        session: {
+          skillCatalog: { catalogId: "harness", revision: "r1", skillIds: [] },
+          authorityCeiling: { maximumAuthority: "read_only", reason: "Harness fixture", subjectId: request.sessionId },
+        },
+        turn: {
+          authority: {
+            executionMode: "execute", requestedAuthority: request.requestedAuthority ?? "auto", admittedAuthority: "fail_closed",
+            sourcePolicy: "runtime_surface_projection", reason: "Harness fixture", completeness: "authoritative",
+            toolCount: 0, deniedToolCount: 0, sandboxProjection: "read_only",
+          },
+          workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+          tools: { allowedToolPermissions: [], deniedToolNames: [] },
+          effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
+          budget: { status: "not-configured" },
+          execution: {
+            status: "routed",
+            route: { routeId: "route-one", providerId: "provider-one", providerModelId: "model-one", accountSelection: { mode: "exact", accountId: "account-one", source: "route" } },
+            dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "route-data-policy-admitted" } },
+            binding: { status: "bound", routeId: "route-one", accountId: "account-one", credentialId: "credential-one", credentialRevision: "credential-r1" },
+          },
+        },
+      });
+      return dispatch({
+        session: admittedSession,
+        bundle,
+        perCallConfig: { authorityAdmission: bundle },
+        provider,
+        runtimeModelRoundDispatch: { admission: bundle, attemptId: request.ingressId } as never,
+        runtimeToolActionClaims: { admission: bundle, attemptId: request.ingressId } as never,
+        runtimeMediaActionClaims: {} as never,
+        evidence: { status: "persisted", sessionId: bundle.sessionId, admissionId: bundle.admissionId },
+      });
+    }),
+  };
   return {
     appName: "app-one",
     tenant: { tenantId: "tenant-1" },
     systemPrompt: "system",
-    orchestrator: { processMessage: vi.fn() },
-    sessionRegistry: {},
+    orchestrator: { processMessage: vi.fn(), bindProvider },
+    sessionRegistry: {
+      getById: vi.fn(async (id: string) => session(id)),
+      getOrCreate: vi.fn(async () => session("session-new")),
+    },
+    gatewayAdmission,
+  };
+}
+
+async function makeRealAdmissionRuntime() {
+  const sessionRegistry = new SessionRegistry();
+  const session = new RuntimeSession({
+    appName: "app-one", tenantId: "tenant-1", userId: "user-1", systemPrompt: "system", sessionId: "session-real",
+  });
+  await sessionRegistry.save(session);
+  const catalog = defineExecutionCatalog({
+    accounts: [{
+      id: "account-one", providerId: "provider-one", credentialId: "credential-one", maxConcurrency: 1, reservedAffinitySlots: 0,
+      economics: { capacityIdentity: "capacity-one", subscriptionClass: "subscription", quotaClassId: "quota-one", creditPosture: "disabled", overagePosture: "disabled" },
+    }],
+    accountPolicies: [{ id: "policy-one", accountIds: ["account-one"], strategy: "economic-least-pressure" }],
+    routes: [{
+      id: "route-one", label: "Harness", providerId: "provider-one", providerModelId: "model-one", dataClassification: "internal",
+      dataPolicyEvidence: {
+        providerId: "provider-one", providerModelId: "model-one", dataUse: "not-used", trainingPosture: "prohibited",
+        retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"],
+        sourceIdentity: "fixture", sourceRevision: "r1", sourceDigest: `sha256:${"c".repeat(64)}`,
+        observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-01T00:00:00.000Z",
+      },
+      accountSelection: { mode: "automatic", accountPolicyId: "policy-one" },
+      economics: {
+        adapterCapabilityId: "provider-one", adapterCapabilityVersion: "1", authBillingChannel: "api-key", executionMode: "direct",
+        serviceTier: "default", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled", overagePosture: "disabled",
+        contextClass: "default", cacheClass: "none",
+        priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "r1", evidence: { sourceIdentity: "fixture", sourceRevision: "r1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", validUntil: "2027-08-01T00:00:00.000Z", confidence: "high", authority: "configured" } },
+        auxiliaryCharges: [], executionEnvelope: { limits: [] },
+      },
+    }],
+  });
+  const capacityRecord = (state: AccountCapacityRecord["state"]): AccountCapacityRecord => ({
+    leaseId: "lease-one", runtimeInvocationId: "request-real", accountPolicyId: createExecutionAccountPolicyId("policy-one"),
+    accountRef: createExecutionAccountRef("configured:account-one"), route: { providerId: "provider-one", providerModelId: "model-one", scope: "operator-session" },
+    capacityIdentity: "capacity-one", credentialRevisionId: "b".repeat(64), state, selectionReason: "least-pressure", candidateRejections: [],
+    ...(state === "held" ? {} : { dispatchFenceId: "request-real:dispatch" }),
+  });
+  const capacity: ExecutionAccountCapacityAuthority = {
+    acquireAccountCapacity: vi.fn(() => ({ status: "acquired", record: capacityRecord("held"), replay: false })),
+    releaseAccountCapacityPreFence: vi.fn(() => capacityRecord("held")),
+    fenceAccountCapacityDispatch: vi.fn(() => capacityRecord("dispatch-fenced")),
+    settleAccountCapacity: vi.fn(() => capacityRecord("released")),
+  };
+  let persisted: ReturnType<typeof defineEffectiveAuthorityAdmissionBundle> | undefined;
+  const persist = vi.fn((bundle) => { persisted = bundle; });
+  const modelClaim = vi.fn((claim) => ({ claimId: claim.claimId, permitId: `permit:${claim.claimId}`, consume: vi.fn() }));
+  const provider: ProviderAdapter = {
+    name: "provider-one",
+    createMessage: vi.fn(async () => ({
+      parts: textParts("real reply"), inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0,
+      toolCalls: [], stopReason: "end_turn",
+    })),
+    streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+  };
+  const gatewayAdmission = new FixedRouteGatewayAuthorityAdmission({
+    appName: "app-one", routeId: "route-one",
+    snapshot: { catalog, configurationRevision: { revisionSetId: "harness-r1", revisions: { gateway: "r1" } } },
+    sessionRegistry,
+    candidates: { resolve: async () => [{
+      candidate: { accountId: "account-one", safety: "eligible", health: "healthy", quota: "available", capacity: "available", economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "currency", currency: "USD" } }, pressure: 0 },
+      lease: { candidate: { account: createExecutionAccountRef("configured:account-one"), route: { providerId: "provider-one", providerModelId: "model-one", scope: "operator-session" }, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "capacity-one", credentialRevisionId: "b".repeat(64), usageEvidence: { health: "healthy", freshness: "fresh", availability: "available" }, capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 } },
+    }] },
+    accountCapacityAuthority: capacity,
+    credentials: { resolve: async () => ({ credential: { token: "secret" }, credentialId: "credential-one", credentialRevisionId: "b".repeat(64) }) },
+    evidenceStore: { persist, loadSessionFacet: () => undefined, readAdmission: () => persisted },
+    modelRoundActionClaims: { claim: modelClaim as never, settle: vi.fn() },
+    toolActionClaims: { claim: vi.fn() as never, settle: vi.fn() },
+    channelEgressActionClaims: { ownerGeneration: "harness-real", readAdmission: async () => persisted, store: { claim: vi.fn() as never, settle: vi.fn() } },
+    runtimeMediaActionClaims: { ownerGeneration: "harness-real-media", readAdmission: async () => persisted, store: { claim: vi.fn() as never, settle: vi.fn() } },
+    persistOperatorAdoptionDecision: async () => undefined,
+    createProvider: () => provider,
+    now: () => new Date("2026-08-22T00:00:00.000Z"),
+  });
+  return {
+    runtime: {
+      appName: "app-one", tenant: { tenantId: "tenant-1" }, systemPrompt: "system", sessionRegistry, gatewayAdmission,
+      orchestrator: new RuntimeSessionOrchestrator({ provider, model: "model-one" }),
+    },
+    persist, modelClaim, provider, capacity,
   };
 }
 
@@ -134,10 +279,21 @@ describe("createHarnessIngressRoutes", () => {
         onUnsupported: "deny",
       },
     }));
+    const runtime = fixture.resolveTarget.mock.results[0]?.value as ReturnType<typeof makeRuntime>;
+    expect(runtime.gatewayAdmission.execute).toHaveBeenCalledWith(expect.objectContaining({
+      ingressId: "request-1",
+      sessionId: "session-requested",
+      requestedAuthority: "audited",
+      channel: "harness",
+    }), expect.any(Function));
     expect(fixture.processAdmittedTurn).toHaveBeenCalledWith(expect.objectContaining({
-      appName: "app-one", tenantId: "tenant-1", userId: "user-1", sessionId: "session-requested", channel: "harness", requestedAuthority: "audited",
+      appName: "app-one", tenantId: "tenant-1", userId: "user-1", channel: "harness",
+      admittedSession: expect.objectContaining({ id: "session-requested" }),
+      authorityAdmission: expect.objectContaining({ sessionId: "session-requested", turnId: "session-requested:turn:1" }),
       perCallConfig: expect.objectContaining({
-        turnId: "request-1",
+        authorityAdmission: expect.objectContaining({ sessionId: "session-requested" }),
+        runtimeModelRoundDispatch: expect.objectContaining({ attemptId: "request-1" }),
+        runtimeToolActionClaims: expect.objectContaining({ attemptId: "request-1" }),
         deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
         communicationIntent: expect.objectContaining({
           intent: expect.objectContaining({
@@ -149,10 +305,46 @@ describe("createHarnessIngressRoutes", () => {
         abortSignal: expect.any(AbortSignal),
       }),
     }));
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     expect(sent(ws)).toEqual([
       { protocolVersion: "2", type: "turn_accepted", requestId: "request-1", turnId: "request-1", sessionId: "session-requested" },
       { protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed", content: "safe reply" },
     ]);
+  });
+
+  it("persists real Gateway admission and claims the real Runtime model round before provider dispatch", async () => {
+    const admitted = await makeRealAdmissionRuntime();
+    const upgrade = makeUpgrade();
+    const app = createHarnessIngressRoutes({
+      upgradeWebSocket: upgrade.upgradeWebSocket,
+      authenticate: async () => ({ callerId: "caller-1", appName: "app-one", userId: "user-1", tenantId: "tenant-1" }),
+      resolveTarget: () => admitted.runtime,
+      processAdmittedTurn: async (ctx) => {
+        const result = await ctx.orchestrator.processMessage(
+          ctx.admittedSession!, ctx.userParts, undefined, undefined, ctx.perCallConfig,
+        );
+        return {
+          ok: true,
+          result: {
+            ...result,
+            sessionId: ctx.admittedSession!.id,
+            sessionMode: ctx.admittedSession!.sessionMode,
+            traceId: "harness-real-trace",
+          },
+        };
+      },
+    });
+    await app.request("http://localhost/harness/v1/ws", { headers: { Authorization: "Bearer real" } });
+    const { handlers, ws } = upgrade.connect();
+    await message(handlers, ws, frame({ requestId: "request-real", sessionId: "session-real" }));
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
+
+    expect(sent(ws).at(-1)).toMatchObject({ type: "turn_completed", sessionId: "session-real", content: "real reply" });
+    expect(admitted.persist).toHaveBeenCalledOnce();
+    expect(admitted.modelClaim).toHaveBeenCalledOnce();
+    expect(admitted.provider.createMessage).toHaveBeenCalledOnce();
+    expect(admitted.capacity.fenceAccountCapacityDispatch).toHaveBeenCalledOnce();
+    expect(admitted.capacity.settleAccountCapacity).toHaveBeenCalledOnce();
   });
 
   it("prevents duplicate active work and allows only the same trusted identity to cancel it", async () => {
@@ -179,6 +371,7 @@ describe("createHarnessIngressRoutes", () => {
     const { handlers, ws } = fixture.upgrade.connect();
     await open(handlers, ws);
     await message(handlers, ws, frame());
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     const frames = sent(ws);
     expect(JSON.stringify(frames)).not.toContain("provider secret detail");
     expect(frames.at(-1)).toEqual({ protocolVersion: "2", type: "error", requestId: "request-1", code: "internal", redacted: true });
@@ -202,7 +395,7 @@ describe("createHarnessIngressRoutes", () => {
     const { handlers, ws } = fixture.upgrade.connect();
     await open(handlers, ws);
     await message(handlers, ws, frame());
-    await Promise.resolve();
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     const completion = sent(ws).at(-1);
     expect(completion).toEqual({
       protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed",
@@ -221,7 +414,7 @@ describe("createHarnessIngressRoutes", () => {
     const { handlers, ws } = fixture.upgrade.connect();
     await open(handlers, ws);
     await message(handlers, ws, frame());
-    await Promise.resolve();
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     expect(sent(ws).at(-1)).toEqual({ protocolVersion: "2", type: "error", requestId: "request-1", code: "unavailable", redacted: true });
   });
 
@@ -231,7 +424,8 @@ describe("createHarnessIngressRoutes", () => {
     ws.send.mockImplementationOnce(() => undefined).mockImplementationOnce(() => { throw new Error("socket closed"); });
     await open(handlers, ws);
     await message(handlers, ws, frame());
-    await Promise.resolve();
+    await vi.waitFor(() => expect(fixture.processAdmittedTurn).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(2));
     expect(fixture.processAdmittedTurn).toHaveBeenCalledOnce();
     expect(ws.send).toHaveBeenCalledTimes(2);
   });

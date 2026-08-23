@@ -10,6 +10,7 @@ import {
   transformAudioParts,
 } from "../../src/gateway/audio-preprocessor.js";
 import type { MediaDownloader } from "../../src/gateway/audio-preprocessor.js";
+import { createMediaActionTestContext } from "./media-action-test-fixture.js";
 
 function mockStt(text = "hello world"): SttAdapter {
   return {
@@ -28,15 +29,36 @@ function mockDownloader(): MediaDownloader {
 }
 
 function mockTransformOptions() {
+  const media = createMediaActionTestContext();
   return {
     artifactStore: new MemoryArtifactResourceStore({
       now: () => "2026-05-13T12:00:00.000Z",
     }),
     sourceIdPrefix: "test-app:tenant-1:user-1",
+    ...media,
+    attemptId: "media-attempt",
+    callerId: "test:audio",
+    idempotencyKey: "test-message",
+    logicalSendSlotPrefix: "inbound-stt",
   };
 }
 
 describe("transformAudioParts", () => {
+  it("does not call STT when the active turn is already cancelled", async () => {
+    const stt = mockStt();
+    const downloader = mockDownloader();
+    const abort = new AbortController();
+    abort.abort();
+    await expect(transformAudioParts(
+      [{ type: "audio", mimeType: "audio/ogg", url: "https://example.com/audio.ogg" }],
+      stt,
+      downloader,
+      { ...mockTransformOptions(), abortSignal: abort.signal },
+    )).rejects.toBeInstanceOf(AudioTransformError);
+    expect(downloader.download).not.toHaveBeenCalled();
+    expect(stt.transcribe).not.toHaveBeenCalled();
+  });
+
   it("passes through non-audio parts unchanged", async () => {
     const parts: ContentPart[] = [
       { type: "text", text: "hello" },
@@ -87,8 +109,8 @@ describe("transformAudioParts", () => {
         source: { kind: "webhook-attachment", id: "test-app:tenant-1:user-1:part:0" },
       },
     });
-    expect(dl.download).toHaveBeenCalledWith("https://example.com/audio.ogg");
-    expect(stt.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "audio/ogg");
+    expect(dl.download).toHaveBeenCalledWith("https://example.com/audio.ogg", undefined);
+    expect(stt.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "audio/ogg", { signal: undefined });
   });
 
   it("transcribes audio part with base64 data", async () => {
@@ -110,7 +132,7 @@ describe("transformAudioParts", () => {
       outputText: "from base64",
     }));
     expect(dl.download).not.toHaveBeenCalled();
-    expect(stt.transcribe).toHaveBeenCalledWith(raw, "audio/mp3");
+    expect(stt.transcribe).toHaveBeenCalledWith(raw, "audio/mp3", { signal: undefined });
   });
 
   it("uses an existing audio artifact URI as transform source evidence without storing a duplicate source artifact", async () => {
@@ -130,7 +152,7 @@ describe("transformAudioParts", () => {
       sourceBytes: 3,
     });
     expect(options.artifactStore.list("audio-transforms")).toEqual([]);
-    expect(stt.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "audio/ogg");
+    expect(stt.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "audio/ogg", { signal: undefined });
   });
 
   it("handles mixed parts preserving order", async () => {
@@ -162,7 +184,6 @@ describe("transformAudioParts", () => {
     ];
 
     const options = mockTransformOptions();
-    await expect(transformAudioParts(parts, stt, dl, options)).rejects.toThrow(AudioTransformError);
     try {
       await transformAudioParts(parts, stt, dl, options);
     } catch (err) {
@@ -171,7 +192,7 @@ describe("transformAudioParts", () => {
         expect.objectContaining({
           transform: "transcription",
           status: "failed",
-          sourceArtifactUri: "kiln://artifacts/audio-transforms/artifact_2/content",
+          sourceArtifactUri: "kiln://gateway/audio-transforms/source/0",
           errorMessage: "STT down",
         }),
       ]);
@@ -288,12 +309,20 @@ describe("createWhatsAppMediaDownloader", () => {
 
     try {
       const dl = createWhatsAppMediaDownloader("test-token");
-      const result = await dl.download("https://graph.facebook.com/v21.0/media123");
+      const abort = new AbortController();
+      const result = await dl.download("https://graph.facebook.com/v21.0/media123", abort.signal);
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(mockFetch.mock.calls[0]![0]).toBe("https://graph.facebook.com/v21.0/media123");
-      expect(mockFetch.mock.calls[0]![1]).toEqual({ headers: { Authorization: "Bearer test-token" } });
+      expect(mockFetch.mock.calls[0]![1]).toEqual({
+        headers: { Authorization: "Bearer test-token" },
+        signal: abort.signal,
+      });
       expect(mockFetch.mock.calls[1]![0]).toBe("https://cdn.whatsapp.net/media/123");
+      expect(mockFetch.mock.calls[1]![1]).toEqual({
+        headers: { Authorization: "Bearer test-token" },
+        signal: abort.signal,
+      });
       expect(result.mimeType).toBe("audio/ogg");
       expect(result.data).toBeInstanceOf(Uint8Array);
     } finally {
@@ -315,10 +344,12 @@ describe("createGenericMediaDownloader", () => {
 
     try {
       const dl = createGenericMediaDownloader();
-      const result = await dl.download("https://example.com/audio.mp3");
+      const abort = new AbortController();
+      const result = await dl.download("https://example.com/audio.mp3", abort.signal);
 
       expect(result.mimeType).toBe("audio/mp3");
       expect(result.data).toBeInstanceOf(Uint8Array);
+      expect(mockFetch).toHaveBeenCalledWith("https://example.com/audio.mp3", { signal: abort.signal });
     } finally {
       globalThis.fetch = originalFetch;
     }

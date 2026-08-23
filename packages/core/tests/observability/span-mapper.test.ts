@@ -23,7 +23,6 @@ import type {
   ErrorEvent,
   TraceSpanEvent,
   InjectionScannedEvent,
-  GuardianReviewedEvent,
   AuditEntryEvent,
   TenantIsolationViolationEvent,
   SecurityAlertEvent,
@@ -398,28 +397,6 @@ describe("mapEventToSpan", () => {
                 expect(result.attributes["safe"]).toBe(true);
                 expect(result.attributes["tier"]).toBe("heuristic");
                 expect(result.attributes["inputPreview"]).toBe("hello");
-            }
-        });
-    });
-
-    describe("guardian_reviewed", () => {
-        it("returns addEvent named 'security.guardian_review'", () => {
-            const result = mapEventToSpan(
-                ev<GuardianReviewedEvent>({
-                    type: "guardian_reviewed",
-                    approved: false,
-                    capabilityName: "delete_database",
-                    agentName: "destroyer",
-                    riskLevel: "critical",
-                    reason: "too dangerous",
-                }),
-            );
-            expect(result.action).toBe("addEvent");
-            if (result.action === "addEvent") {
-                expect(result.name).toBe("security.guardian_review");
-                expect(result.attributes["approved"]).toBe(false);
-                expect(result.attributes["riskLevel"]).toBe("critical");
-                expect(result.attributes["reason"]).toBe("too dangerous");
             }
         });
     });

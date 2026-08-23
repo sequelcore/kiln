@@ -18,7 +18,6 @@ mcp:
 
 billing:
   budgetEndpoint: http://localhost:3300/budget?tenantId={userId}
-  usageEndpoint: http://localhost:3300/usage
   overBudgetMessage: "Our assistant is temporarily unavailable. Please try again later or contact us directly."
   headers:
     X-Gateway-Secret: $GATEWAY_SECRET

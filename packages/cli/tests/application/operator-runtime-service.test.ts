@@ -38,6 +38,7 @@ describe("createOperatorRuntimeService", () => {
         acquire: vi.fn(),
         releasePreFence,
         fenceDispatch: vi.fn(),
+        readDispatch: vi.fn(),
         settleExecution: vi.fn(),
         recordExecutionSettlementPending: vi.fn(),
       },

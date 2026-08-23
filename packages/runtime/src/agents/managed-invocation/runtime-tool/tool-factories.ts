@@ -188,7 +188,7 @@ export function createManagedInvocationLifecycleToolExecutors(
     [MANAGED_AGENT_ORCHESTRATE_TOOL_NAME, async (input, context) => executeManagedAgentOrchestrationTool(input, context, attachment.callerIdentity, {
       ...options,
       invocationService: service,
-    })],
+    }, attachment.childAuthorityAdmission?.bundle)],
   ]);
 }
 

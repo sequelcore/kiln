@@ -50,8 +50,6 @@ function inferDeferredReasons(projectedContext: ProjectedContext): string[] {
       reasons.add("lower-priority-summary");
     } else if (block.kind === "memory") {
       reasons.add("lower-priority-memory");
-    } else if (block.kind === "knowledge") {
-      reasons.add("lower-priority-knowledge");
     } else if (block.kind === "artifact") {
       reasons.add("artifact-budget-pressure");
     } else if (block.kind === "ledger") {

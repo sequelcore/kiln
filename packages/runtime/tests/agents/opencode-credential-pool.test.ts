@@ -1,10 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AgentResponse,
-  AllCredentialsExhaustedError,
   type CreateMessageOptions,
   type ProviderAdapter,
 } from "@kilnai/core/agents";
@@ -133,18 +132,20 @@ describe("OpenCodeCredentialPoolService", () => {
     await expect(service.listStatus()).resolves.toEqual([]);
   });
 
-  it("creates a pooled adapter that rotates on rate limits", async () => {
+  it("does not select a successor credential after a productive effect fails", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", apiKey: "sk-first", tier: "go" });
     await service.linkCredential({ id: "second", apiKey: "sk-second", tier: "go" });
     const calls: string[] = [];
 
-    const adapter = await service.createPooledAdapter({
-      tier: "go",
+    const selected = (await service.listExecutionAccounts("go"))[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "model",
-      createAdapter: (auth) => new TestAdapter(async () => {
-        calls.push(auth.api_key);
-        if (auth.api_key === "sk-first") {
+      createAdapter: (resolved) => new TestAdapter(async () => {
+        calls.push(resolved.auth.api_key);
+        if (resolved.auth.api_key === "sk-first") {
           const error = new Error("rate limited");
           (error as { status?: number }).status = 429;
           throw error;
@@ -153,25 +154,16 @@ describe("OpenCodeCredentialPoolService", () => {
       }),
     });
 
-    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
-    expect(calls).toEqual(["sk-first", "sk-second"]);
+    await expect(adapter.createMessage(makeOptions())).rejects.toThrow("rate limited");
+    expect(calls).toEqual(["sk-first"]);
   });
 
-  it("throws AllCredentialsExhaustedError when all matching tier entries are exhausted", async () => {
+  it("excludes a credential after recording its provider failure without dispatching another credential", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "only", apiKey: "sk-only", tier: "go" });
 
-    const adapter = await service.createPooledAdapter({
-      tier: "go",
-      defaultModel: "model",
-      createAdapter: () => new TestAdapter(async () => {
-        const error = new Error("rate limited");
-        (error as { status?: number }).status = 429;
-        throw error;
-      }),
-    });
-
-    await expect(adapter.createMessage(makeOptions())).rejects.toBeInstanceOf(AllCredentialsExhaustedError);
+    await service.recordProviderOutcome("opencode-go", "only", Object.assign(new Error("rate limited"), { status: 429 }));
+    await expect(service.listExecutionAccounts("go")).resolves.toEqual([]);
   });
 
   it("maps provider status codes into credential outcomes", () => {
@@ -181,23 +173,28 @@ describe("OpenCodeCredentialPoolService", () => {
     expect(mapOpenCodeProviderError(new TypeError("fetch failed"))).toEqual({ type: "connection-failed" });
   });
 
-  it("can use a custom adapter factory for direct OpenCode adapters", async () => {
+  it("can use a custom adapter factory for an exact OpenCode adapter", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "only", apiKey: "sk-only", tier: "zen" });
-    const createAdapter = vi.fn((auth) => new TestAdapter(async () => makeResponse(auth.tier)));
+    const selected = (await service.listExecutionAccounts("zen"))[0]!;
+    const createAdapter = vi.fn((credential) => new TestAdapter(async () => makeResponse(credential.auth.tier)));
 
-    const adapter = await service.createPooledAdapter({
-      tier: "zen",
+    const adapter = await service.createExactAdapter({
+      selected,
       defaultModel: "model",
       createAdapter,
     });
 
     await adapter.createMessage(makeOptions());
-    expect(createAdapter).toHaveBeenCalledWith({
-      api_key: "sk-only",
-      tier: "zen",
-      created_at: expect.any(String),
-    });
+    expect(createAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "opencode-zen",
+      credentialId: "only",
+      auth: {
+        api_key: "sk-only",
+        tier: "zen",
+        created_at: expect.any(String),
+      },
+    }));
   });
 
   it("enumerates and resolves one exact OpenCode execution credential without exposing its secret", async () => {

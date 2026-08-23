@@ -10,6 +10,14 @@ import {
   resolveCommunicationIntent,
 } from "@kilnai/core/agents";
 import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import {
+  runtimeModelRoundEffectIdentity,
+  type RuntimeModelRoundActionClaim,
+  type RuntimeModelRoundActionClaimPermit,
+  type RuntimeModelRoundActionClaimStore,
+  type RuntimeModelRoundDispatchContext,
+} from "../../src/execution-kernel/runtime-model-round-action-claim.js";
 import {
   type AuxiliaryModalityRoute,
   extractText,
@@ -19,11 +27,13 @@ import {
   textParts,
 } from "@kilnai/core/engine";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { ManagedRemoteHarnessAdapter } from "../../src/agents/managed-invocation/remote-harness-adapter.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type {
   RuntimeMultimodalDelegationRoute,
   RuntimeMultimodalTransformRoute,
+  PerCallToolConfig,
 } from "../../src/session/runtime-session-orchestrator.types.js";
 
 function makeProvider(name = "mock"): ProviderAdapter {
@@ -129,9 +139,9 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
   return defineManagedAgentAdapterDescriptor({
     adapterDescriptorId: "adapter:vision-child:harness",
     providerId: "openai",
-    adapterKind: "harness",
+    adapterKind: "direct",
     supportedProfiles: ["foundation-readonly-plan"],
-    supportedExecutionModes: ["cli-harness"],
+    supportedExecutionModes: ["direct-provider"],
     lifecycle: {
       exposesStart: true,
       exposesTerminal: true,
@@ -247,14 +257,195 @@ function makeTransformRoute(
     outputModality: "text",
     provenance: "test-transform",
     degradation: "test transform degradation",
-    execute: vi.fn(async () => ({
-      parts: textParts("[OCR transform]: EXIT"),
-      summary: "OCR transform completed.",
-      outputArtifactUris: ["kiln://artifacts/multimodal-transforms/artifact_1/content"],
-    })),
+    implementation: "runtime-built-in",
     ...overrides,
   };
 }
+
+function makeFixtureModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const rows = new Map<string, RuntimeModelRoundActionClaim>();
+  const consumed = new WeakSet<object>();
+  return {
+    claim: (claim) => {
+      const permit = {
+        claimId: claim.claimId,
+        permitId: `fixture-model-round-permit:${claim.claimId}`,
+        consume: () => {
+          if (consumed.has(permit)) throw new Error("fixture model-round permit already consumed");
+          consumed.add(permit);
+        },
+      } as unknown as RuntimeModelRoundActionClaimPermit;
+      rows.set(claim.claimId, claim);
+      return permit;
+    },
+    settle: (permit, settlement) => {
+      const claim = rows.get(permit.claimId);
+      if (!claim || !consumed.has(permit)) throw new Error("fixture model-round permit was not consumed");
+      rows.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "unknown" ? { unknownReason: settlement.reason } : { outcome: "success" }),
+      });
+    },
+  };
+}
+
+function makeFixtureModelRoundAdmission(
+  session: RuntimeSession,
+  turnId: string,
+  providerId: string,
+  providerModelId: string,
+) {
+  const revision = { revisionSetId: "model-routing-test", revisions: { fixture: "model-routing-test" } } as const;
+  const routeId = `fixture:${providerId}:${providerModelId}`;
+  const accountId = "fixture-model-round-account";
+  const credentialRevision = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: session.id,
+    turnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "model-routing-test", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "Model routing fixture", subjectId: session.id },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "model-routing-test",
+        reason: "Model routing fixture",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId,
+          providerId,
+          providerModelId,
+          accountSelection: { mode: "exact", accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "Model routing fixture" } },
+        binding: {
+          status: "bound",
+          routeId,
+          accountId,
+          credentialId: "fixture-model-round-credential",
+          credentialRevision,
+        },
+      },
+    },
+  });
+}
+
+function fixtureModelRoundConfig(
+  orchestrator: RuntimeSessionOrchestrator,
+  session: RuntimeSession,
+  config: PerCallToolConfig | undefined,
+): { readonly config: PerCallToolConfig; readonly restore: () => void } {
+  if (config?.runtimeModelRoundDispatch) return { config, restore: () => undefined };
+  const deps = (orchestrator as unknown as { readonly deps: {
+    readonly provider: ProviderAdapter;
+    readonly model?: string;
+    readonly modelRouter?: ModelRouter;
+  } }).deps;
+  if (!deps.model) (deps as { model?: string }).model = "fixture-model";
+  const turnId = config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
+  let providerId = deps.provider.name;
+  let providerModelId = deps.model;
+  const hasExplicitAdmittedRoute = config?.admittedExecutionRoute !== undefined;
+  if (config?.admittedExecutionRoute) {
+    providerId = config.admittedExecutionRoute.providerId;
+    providerModelId = config.admittedExecutionRoute.providerModelId;
+  }
+  let admission = makeFixtureModelRoundAdmission(session, turnId, providerId, providerModelId);
+  const store = makeFixtureModelRoundStore();
+  const context = {
+    get admission() { return admission; },
+    intentFingerprint: runtimeModelRoundEffectIdentity({ fixture: "model-routing", sessionId: session.id, turnId }),
+    attemptId: `fixture-model-round-attempt:${session.id}:${turnId}`,
+    get routeId() { return admission.turn.execution.status === "routed" ? admission.turn.execution.route.routeId : ""; },
+    accountId: "fixture-model-round-account",
+    credentialRevision: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    readAdmission: async () => admission,
+    store,
+    state: { claimed: false },
+  } as unknown as RuntimeModelRoundDispatchContext;
+  const router = deps.modelRouter;
+  const originalRoute = router?.route;
+  if (router && originalRoute) {
+    router.route = ((request: RoutingRequest) => {
+      const decision = originalRoute.call(router, request);
+      // The fixture models route admission at the boundary: an automatic
+      // decision only changes the committed route when that provider is
+      // actually available in the provider pool. Otherwise the default route
+      // remains the exact canonical authority and the decision is diagnostic.
+      if (!hasExplicitAdmittedRoute && deps.providerPool?.has(decision.provider)) {
+        providerId = decision.provider;
+        providerModelId = decision.model;
+        admission = makeFixtureModelRoundAdmission(session, turnId, providerId, providerModelId);
+      }
+      return decision;
+    }) as ModelRouter["route"];
+  }
+  const modelOverride = config?.modelOverride?.source === "operator" ? config.modelOverride : undefined;
+  if (modelOverride && !hasExplicitAdmittedRoute) {
+    providerId = modelOverride.provider;
+    providerModelId = modelOverride.model;
+    admission = makeFixtureModelRoundAdmission(session, turnId, providerId, providerModelId);
+  }
+  return {
+    config: {
+      ...config,
+      // The persisted bundle is the sole Runtime execution authority. A
+      // getter keeps the fixture admission aligned with the route selected by
+      // the model router before the production route check runs.
+      get authorityAdmission() {
+        return admission;
+      },
+      runtimeModelRoundDispatch: context,
+    },
+    restore: () => {
+      if (router && originalRoute) router.route = originalRoute;
+    },
+  };
+}
+
+const canonicalProcessMessage = RuntimeSessionOrchestrator.prototype.processMessage;
+RuntimeSessionOrchestrator.prototype.processMessage = function fixtureProcessMessage(
+  session: RuntimeSession,
+  userParts: Parameters<RuntimeSessionOrchestrator["processMessage"]>[1],
+  governedContext?: Parameters<RuntimeSessionOrchestrator["processMessage"]>[2],
+  callBuiltinTools?: Parameters<RuntimeSessionOrchestrator["processMessage"]>[3],
+  perCallConfig?: PerCallToolConfig,
+): ReturnType<RuntimeSessionOrchestrator["processMessage"]> {
+  const fixture = fixtureModelRoundConfig(this, session, perCallConfig);
+  return canonicalProcessMessage.call(
+    this,
+    session,
+    userParts,
+    governedContext,
+    callBuiltinTools,
+    fixture.config,
+  ).finally(fixture.restore);
+};
 
 describe("RuntimeSessionOrchestrator model routing", () => {
   let defaultProvider: ProviderAdapter;
@@ -967,6 +1158,30 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(session.conversationHistory[0]?.role).toBe("user");
   });
 
+  it("fails closed before an external multimodal adapter when no full claim context is supplied", async () => {
+    const transport = {
+      invoke: vi.fn(),
+      cancel: vi.fn(),
+    };
+    const managedAdapter = new ManagedRemoteHarnessAdapter({
+      providerId: "openai",
+      model: "gpt-4o",
+      transport,
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      multimodalDelegationRoutes: [makeVisionDelegationRoute(managedAdapter)],
+    });
+
+    await expect(orchestrator.processMessage(makeSession(), [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow(/external action claim context/i);
+
+    expect(transport.invoke).not.toHaveBeenCalled();
+  });
+
   it("admits a multimodal delegation exactly once immediately before invoking it", async () => {
     const managedAdapter = makeManagedAdapter();
     const sessionTurnBudget = {
@@ -995,72 +1210,30 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 
-  it("applies a governed OCR transform before invoking a text-only provider", async () => {
-    const artifactUri = "kiln://artifacts/uploads/artifact_3/content";
+  it("fails closed before a built-in OCR command without a media action claim", async () => {
     const provider = makeProvider("deepseek");
-    const eventBus = { emit: vi.fn() };
     const ocrTransform = makeTransformRoute({
       transform: "ocr",
       sourceModalities: ["image"],
       outputModality: "text",
       provenance: "test-ocr",
       degradation: "extracts visible text only",
-      execute: vi.fn(async () => ({
-        parts: textParts("[Image OCR transform from kiln://runtime/session-artifact/0]: EXIT"),
-        summary: "OCR extracted 4 characters.",
-        outputArtifactUris: ["kiln://artifacts/multimodal-transforms/artifact_1/content"],
-        metadata: { textLength: 4 },
-      })),
     });
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       model: "deepseek-chat",
-      eventBus: eventBus as unknown as ConstructorParameters<typeof RuntimeSessionOrchestrator>[0]["eventBus"],
       multimodalTransformRoutes: [ocrTransform],
     });
     const session = makeSession();
 
-    const result = await orchestrator.processMessage(session, [
+    await expect(orchestrator.processMessage(session, [
       { type: "text", text: "Read this sign." },
-      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=", artifactUri },
-    ]);
-
-    expect(result.parts).toEqual(textParts("mock response"));
-    expect(ocrTransform.execute).toHaveBeenCalledWith(expect.objectContaining({
-      requestedCapability: "vision",
-      sourceArtifacts: [expect.objectContaining({
-        uri: artifactUri,
-        modality: "image",
-        replay: { uri: artifactUri },
-      })],
-    }));
-    const createMessageInput = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(createMessageInput.messages.at(-1)?.parts).toEqual([
-      { type: "text", text: "[Image OCR transform from kiln://runtime/session-artifact/0]: EXIT" },
-    ]);
-    expect(session.conversationHistory.at(-2)?.parts).toEqual([
-      { type: "text", text: "[Image OCR transform from kiln://runtime/session-artifact/0]: EXIT" },
-    ]);
-    expect(result.toolExecutions).toContainEqual(expect.objectContaining({
-      toolName: "multimodal_transform.ocr",
-      success: true,
-      resultSummary: "OCR extracted 4 characters.",
-      metadata: expect.objectContaining({
-        kind: "multimodal-transform",
-        transform: "ocr",
-        outputArtifactUris: ["kiln://artifacts/multimodal-transforms/artifact_1/content"],
-      }),
-    }));
-    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
-      type: "multimodal_routed",
-      strategy: "transform",
-      reasonCode: "transform_available",
-      requestedCapability: "vision",
-      artifactUris: [artifactUri],
-    }));
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow(/media action claim/i);
+    expect(provider.createMessage).not.toHaveBeenCalled();
   });
 
-  it("applies document extraction before invoking a text-only provider", async () => {
+  it("fails closed when the built-in document transform cannot process malformed input", async () => {
     const provider = makeProvider("deepseek");
     const documentTransform = makeTransformRoute({
       transform: "document-extraction",
@@ -1068,10 +1241,6 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       outputModality: "text",
       provenance: "test-unpdf",
       degradation: "extracts PDF text only",
-      execute: vi.fn(async () => ({
-        parts: textParts("[Document extraction from kiln://runtime/session-artifact/0]: Quarterly revenue is up."),
-        summary: "Document text extracted.",
-      })),
     });
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
@@ -1080,19 +1249,11 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
     const session = makeSession();
 
-    await orchestrator.processMessage(session, [
+    await expect(orchestrator.processMessage(session, [
       { type: "text", text: "Summarize this PDF." },
       { type: "file", mimeType: "application/pdf", data: "JVBERi0xLjQ=", filename: "report.pdf" },
-    ]);
-
-    const createMessageInput = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(createMessageInput.messages.at(-1)?.parts).toEqual([
-      { type: "text", text: "[Document extraction from kiln://runtime/session-artifact/0]: Quarterly revenue is up." },
-    ]);
-    expect(documentTransform.execute).toHaveBeenCalledWith(expect.objectContaining({
-      requestedCapability: "document",
-      sourceArtifacts: [expect.objectContaining({ modality: "document" })],
-    }));
+    ])).rejects.toThrow(/document-extraction.*failed closed/i);
+    expect(provider.createMessage).not.toHaveBeenCalled();
   });
 
   it("applies downsample before invoking a constrained vision provider", async () => {
@@ -1120,14 +1281,6 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       outputModality: "image",
       provenance: "test-sharp",
       degradation: "reduces image size",
-      execute: vi.fn(async () => ({
-        parts: [
-          { type: "text", text: "Describe this image." },
-          { type: "image", mimeType: "image/jpeg", data: "small-image" },
-        ],
-        summary: "Image downsampled.",
-        metadata: { outputMimeType: "image/jpeg" },
-      })),
     });
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
@@ -1137,20 +1290,11 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
     const session = makeSession();
 
-    await orchestrator.processMessage(session, [
+    await expect(orchestrator.processMessage(session, [
       { type: "text", text: "Describe this image." },
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB" },
-    ]);
-
-    const createMessageInput = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(createMessageInput.messages.at(-1)?.parts).toEqual([
-      { type: "text", text: "Describe this image." },
-      { type: "image", mimeType: "image/jpeg", data: "small-image" },
-    ]);
-    expect(downsampleTransform.execute).toHaveBeenCalledWith(expect.objectContaining({
-      requestedCapability: "vision",
-      sourceArtifacts: [expect.objectContaining({ modality: "image" })],
-    }));
+    ])).rejects.toThrow(/downsample.*failed closed/i);
+    expect(provider.createMessage).not.toHaveBeenCalled();
   });
 
   it("allows native provider execution for provider-qualified vision model ids", async () => {
@@ -1288,7 +1432,6 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       .rejects
       .toThrow("persisted history transform replay is not implemented");
 
-    expect(ocrTransform.execute).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 

@@ -1,8 +1,8 @@
 // Extracted from the gateway message pipeline; behavior is intentionally unchanged.
 import type {
-  PerCallToolConfig,
   ToolExecutionSummary
 } from "../../session/runtime-session-orchestrator.js";
+import type { EffectiveTurnAuthoritySnapshot } from "@kilnai/core";
 import {
   type RuntimeTurnDangerousCommandOutcome,
   type RuntimeTurnFileChange
@@ -61,7 +61,7 @@ export function dangerousCommandOutcomeFromExecution(
 }
 
 export function buildAuthorityMutationViolation(
-  effectiveTurnAuthority: PerCallToolConfig["effectiveTurnAuthority"] | undefined,
+  effectiveTurnAuthority: EffectiveTurnAuthoritySnapshot | undefined,
   fileChanges: readonly RuntimeTurnFileChange[],
 ): RuntimeTurnAuthorityMutationViolation | undefined {
   if (!effectiveTurnAuthority || fileChanges.length === 0) {
@@ -84,7 +84,7 @@ export function buildAuthorityMutationViolation(
 }
 
 function turnAuthorityDisallowsMutation(
-  authority: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>,
+  authority: EffectiveTurnAuthoritySnapshot,
 ): boolean {
   return authority.executionMode === "plan"
     || authority.requestedAuthority === "planning"

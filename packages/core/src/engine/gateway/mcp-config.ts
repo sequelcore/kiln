@@ -11,17 +11,11 @@ export interface GatewayMcpAuthConfig {
   readonly keyEnv?: string;
 }
 
-export interface GatewayMcpEvalConfig {
-  readonly provider: string;
-  readonly model?: string;
-  readonly apiKeyEnv?: string;
-}
-
 /**
  * Gateway-level MCP server configuration.
  * Loaded from the `mcp` block in gateway.yaml.
  *
- * Exposes internal gateway capabilities (memory, knowledge, cost, eval)
+ * Exposes governed gateway capabilities (cost, safety, evaluation, and coordination)
  * as MCP tools for external agents (Claude Code, Codex CLI, etc.).
  */
 export interface GatewayMcpConfig {
@@ -30,8 +24,6 @@ export interface GatewayMcpConfig {
   readonly path?: string;
   /** Optional authentication for the MCP endpoint */
   readonly auth?: GatewayMcpAuthConfig;
-  /** Optional LLM-as-judge provider config for eval_score MCP tool */
-  readonly eval?: GatewayMcpEvalConfig;
 }
 
 /** Validation error for MCP configuration */
@@ -63,12 +55,6 @@ export function validateGatewayMcpConfig(config: GatewayMcpConfig): GatewayMcpVa
       if (!config.auth.keyEnv || typeof config.auth.keyEnv !== "string" || !config.auth.keyEnv.trim()) {
         errors.push({ field: "mcp.auth.keyEnv", message: "required when type is api-key" });
       }
-    }
-  }
-
-  if (config.eval !== undefined) {
-    if (typeof config.eval.provider !== "string" || !config.eval.provider.trim()) {
-      errors.push({ field: "mcp.eval.provider", message: "must be a non-empty string" });
     }
   }
 

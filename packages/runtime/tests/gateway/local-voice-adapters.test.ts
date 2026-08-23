@@ -65,4 +65,18 @@ describe("local voice adapters", () => {
     await expect(adapter.transcribe(new Uint8Array([1]), "audio/wav"))
       .rejects.toThrow("Local voice command returned invalid JSON");
   });
+
+  it("terminates an in-flight local voice child when the active turn is cancelled", async () => {
+    const adapter = new WhisperLocalSttAdapter({
+      command: process.execPath,
+      args: ["-e", "process.stdin.resume(); setInterval(() => undefined, 1000)"],
+      model: "small",
+    });
+    const abort = new AbortController();
+    const transcription = adapter.transcribe(new Uint8Array([1]), "audio/wav", { signal: abort.signal });
+
+    abort.abort();
+
+    await expect(transcription).rejects.toThrow();
+  });
 });

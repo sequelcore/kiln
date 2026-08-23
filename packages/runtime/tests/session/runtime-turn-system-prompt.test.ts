@@ -85,7 +85,7 @@ function audit(
       },
       {
         id: "reference",
-        kind: "knowledge",
+        kind: "artifact",
         modelFacingSemantics: "evidence",
         source: "docs",
         contentHash: sha256ContentIdentity("deferred reference"),

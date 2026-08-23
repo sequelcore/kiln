@@ -7,6 +7,7 @@ import {
 import {
   createManagedInvocationToolOptionsCatalog,
   createManagedAccountRuntimeComposition,
+  managedInvocationServiceKey,
   resolveManagedInvocationToolOptions,
   type ManagedAgentRouteConfigSource,
   type ManagedInvocationToolOptionsCatalog,
@@ -46,8 +47,25 @@ export async function createStagedManagedInvocationRouteCatalog(
     : undefined;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
+  const ownsInvocationService = context.invocationService === undefined;
   const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => {
     const nextConfig = currentConfig();
+    // A changed lease/sandbox/action-claim key requires a replacement service.
+    // Release the current process-owned fixed-path owner before resolution
+    // constructs its successor; otherwise the singleton claim store correctly
+    // rejects the overlap and the refresh silently retains stale routes.
+    if (
+      ownsInvocationService
+      && invocationService
+      && nextConfig !== null
+      && nextConfig !== undefined
+      && nextConfig.managedAgents?.enabled !== false
+      && invocationServiceKey !== managedInvocationServiceKey(nextConfig, context.cwd)
+    ) {
+      invocationService.close();
+      invocationService = undefined;
+      invocationServiceKey = undefined;
+    }
     if (executionComposition && !context.managedEconomicAuthority && !managedAccountComposition && nextConfig) {
       managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd);
     }
@@ -89,7 +107,12 @@ export async function createStagedManagedInvocationRouteCatalog(
     }
     refreshInFlight = refreshCatalog(catalog, resolve, discoverProviderModels, options.onRefreshError, () => disposed)
       .then(() => {
-        invocationService = catalog.options.invocationService;
+        const previousInvocationService = invocationService;
+        const nextInvocationService = catalog.options.invocationService;
+        if (ownsInvocationService && previousInvocationService && nextInvocationService !== previousInvocationService) {
+          previousInvocationService.close();
+        }
+        invocationService = nextInvocationService;
         invocationServiceKey = catalog.options.invocationServiceKey;
       })
       .finally(() => {
@@ -122,6 +145,9 @@ export async function createStagedManagedInvocationRouteCatalog(
       if (refreshInterval !== undefined) {
         clearInterval(refreshInterval);
         refreshInterval = undefined;
+      }
+      if (ownsInvocationService) {
+        invocationService?.close();
       }
     },
   };

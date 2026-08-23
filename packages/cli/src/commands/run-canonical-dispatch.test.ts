@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 
 const compositionState = vi.hoisted(() => ({
   bind: vi.fn(),
   dispatchTurn: vi.fn(),
   close: vi.fn(),
+  modelRoundActionClaims: { claim: vi.fn(), settle: vi.fn() },
 }));
 const runSessionMock = vi.hoisted(() => vi.fn());
 const authorityEvidenceStore = vi.hoisted(() => ({
   persist: vi.fn(),
   loadSessionFacet: vi.fn(),
+  readAdmission: vi.fn(),
 }));
 const preparedResources = vi.hoisted(() => ({
   dispose: vi.fn(),
@@ -16,11 +20,82 @@ const preparedResources = vi.hoisted(() => ({
 }));
 const authorityCoordinatorState = vi.hoisted(() => ({ options: undefined as unknown }));
 
+const READ_AUTHORITY: AuthorityDescriptor = { level: 1, allowed: true, requiresApproval: false, reason: "model-only" };
+const READ_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "idempotent",
+};
+
+function routedAdmission(input: {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly routeId: string;
+  readonly providerModelId: string;
+  readonly accountId: string;
+  readonly credentialId: string;
+  readonly credentialRevision: string;
+}): EffectiveAuthorityAdmissionBundle {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    admittedAt: "2026-08-22T18:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "sha256:session-revision", revisions: { routes: "r1" } },
+      turnRevision: { revisionSetId: "sha256:turn-revision", revisions: { routes: "r1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "operator", revision: "skills-r1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "audited", reason: "canonical test", subjectId: input.sessionId },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "audited",
+        admittedAuthority: "audited",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "canonical test",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "workspace_write",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: READ_EFFECT,
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId: input.routeId,
+          providerId: "codex-oauth",
+          providerModelId: input.providerModelId,
+          accountSelection: { mode: "exact", accountId: input.accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "canonical test" } },
+        binding: {
+          status: "bound",
+          routeId: input.routeId,
+          accountId: input.accountId,
+          credentialId: input.credentialId,
+          credentialRevision: input.credentialRevision,
+        },
+      },
+    },
+  });
+}
+
 vi.mock("../application/operator-turn-dispatch-composition.js", () => ({
   createOperatorTurnDispatchComposition: vi.fn(() => ({
     bridge: { bind: compositionState.bind },
     authorityAdmissionBridge: { bind: vi.fn() },
     dispatcher: { dispatchTurn: compositionState.dispatchTurn },
+    modelRoundActionClaims: compositionState.modelRoundActionClaims,
     close: compositionState.close,
   })),
 }));
@@ -56,12 +131,23 @@ describe("createCanonicalRunSessionDispatcher", () => {
     compositionState.dispatchTurn.mockReset();
     compositionState.close.mockReset();
     runSessionMock.mockReset();
+    authorityEvidenceStore.readAdmission.mockReset();
     authorityCoordinatorState.options = undefined;
     preparedResources.dispose.mockReset();
     preparedResources.disconnect.mockReset();
   });
 
   it("passes one committed route/account/credential binding to runSession", async () => {
+    const authorityAdmission = routedAdmission({
+      sessionId: "session-1",
+      turnId: "turn-1",
+      routeId: "terra",
+      providerModelId: "gpt-5.6-terra",
+      accountId: "account-terra",
+      credentialId: "credential-terra",
+      credentialRevision: "post-fence-revision",
+    });
+    authorityEvidenceStore.readAdmission.mockReturnValue(authorityAdmission);
     let committedHandler: ((input: unknown) => Promise<unknown>) | undefined;
     compositionState.bind.mockImplementation((handler: (input: unknown) => Promise<unknown>) => {
       committedHandler = handler;
@@ -87,13 +173,16 @@ describe("createCanonicalRunSessionDispatcher", () => {
             accessToken: "synthetic-access-token",
             chatgptAccountId: "synthetic-account",
           },
-          authorityAdmission: { admissionId: "admission-1" },
+          authorityAdmission,
           executionId: "execution-1",
           payload: request.payload,
         }),
       };
     });
-    runSessionMock.mockResolvedValue({ sessionSucceeded: true });
+    runSessionMock.mockImplementation(async (options: { readonly sessionConfig: { readonly authorityAdmissionContext?: { readonly perCallConfig: { readonly runtimeModelRoundDispatch?: { readonly readAdmission: () => unknown } } } } }) => {
+      await options.sessionConfig.authorityAdmissionContext?.perCallConfig.runtimeModelRoundDispatch?.readAdmission();
+      return { sessionSucceeded: true };
+    });
 
     const dispatcher = createCanonicalRunSessionDispatcher({
       catalog: {} as never,
@@ -180,6 +269,16 @@ describe("createCanonicalRunSessionDispatcher", () => {
   });
 
   it("disposes consumed prepared resources when session creation throws", async () => {
+    const authorityAdmission = routedAdmission({
+      sessionId: "runtime-session-1",
+      turnId: "turn-1",
+      routeId: "terra",
+      providerModelId: "gpt-5.6-terra",
+      accountId: "account",
+      credentialId: "credential",
+      credentialRevision: "revision",
+    });
+    authorityEvidenceStore.readAdmission.mockReturnValue(authorityAdmission);
     let committedHandler: ((input: unknown) => Promise<unknown>) | undefined;
     compositionState.bind.mockImplementation((handler: (input: unknown) => Promise<unknown>) => {
       committedHandler = handler;
@@ -189,7 +288,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
         admission: { routeId: "terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra" },
         binding: { status: "bound", routeId: "terra", accountId: "account", credentialId: "credential", credentialRevision: "revision" },
         credential: {},
-        authorityAdmission: { admissionId: "admission-1" },
+        authorityAdmission,
         executionId: "execution-3",
         payload: request.payload,
       }),

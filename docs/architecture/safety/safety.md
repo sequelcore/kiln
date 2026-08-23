@@ -23,16 +23,8 @@ Fast deterministic scanning such as:
 
 - PII detection
 - content classification
-- prompt injection Tier 1
+- prompt injection detection
 - dangerous command detection
-
-### Analysis Layer
-
-Slower contextual analysis such as:
-
-- grounding checks
-- Guardian review
-- prompt injection Tier 2
 
 ## Default Behavior
 

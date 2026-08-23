@@ -31,6 +31,9 @@ Identity, control model, and the invariants everything else is built on.
 - [`core/governed-work-execution.md`](core/governed-work-execution.md)
   Governed work execution contract tying identity, coordination, and
   work-governance doctrine together.
+- [`core/execution-kernel.md`](core/execution-kernel.md)
+  Runtime sequencing, authority admission, action fencing, effect ownership,
+  conservative observation, and workload-owned recovery boundaries.
 - [`core/bounded-work-authority.md`](core/bounded-work-authority.md)
   Canonical bounded-work contract: immutable content-digested revisions, scope
   envelope, limits versus tripwires, admission and closeout decisions, and

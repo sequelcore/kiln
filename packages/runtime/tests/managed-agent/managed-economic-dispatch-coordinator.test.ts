@@ -11,6 +11,7 @@ import {
 import {
   ManagedEconomicDispatchCoordinator,
   ManagedEconomicLifecycleTimeoutError,
+  type ManagedEconomicActionClaim,
   type ManagedEconomicDispatchAdoption,
   type ManagedEconomicDispatchAuthorityPort,
   type ManagedEconomicLifecycleEventPort,
@@ -19,11 +20,55 @@ import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-in
 import { appendManagedEconomicLifecycleSessionEvent } from "../../src/agents/managed-invocation/session-events.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
 
 const AUTHORITY_PROFILE_ID = "authority:dispatch-test:foundation-readonly-plan";
 const INVOCATION_ID = "managed-invocation:dispatch-test";
 const PROFILE_AUTHORITY_DIGEST = `sha256:${"9".repeat(64)}`;
+
+function admissionBundle(): EffectiveAuthorityAdmissionBundle {
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "dispatch-test-session",
+    turnId: "dispatch-test-turn",
+    admittedAt: "2026-08-01T00:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "dispatch-session-revision", revisions: { routes: "1", skills: "1" } },
+      turnRevision: { revisionSetId: "dispatch-turn-revision", revisions: { routes: "1", skills: "1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "dispatch-test-skills", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "dispatch-test-session" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "test",
+        reason: "test",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+        sandboxProjection: "workspace_read",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+}
 
 function dispatchAdoption(): ManagedEconomicDispatchAdoption {
   return createEconomicRouteProofAdoption({
@@ -85,10 +130,11 @@ function authority(state: "held" | "dispatch-fenced" = "held") {
     acquire: vi.fn(() => ({
       status: "committed" as const,
       replay: state !== "held",
-      record: { commitment: selected, state } as never,
+      record: { commitment: selected, state, ownerGeneration: "managed-economic-owner:test" } as never,
     })),
     releasePreFence: vi.fn(),
     fenceDispatch: vi.fn(),
+    readDispatch: vi.fn(() => undefined),
     settleExecution: vi.fn(),
     recordExecutionSettlementPending: vi.fn(),
   };
@@ -96,7 +142,7 @@ function authority(state: "held" | "dispatch-fenced" = "held") {
 }
 
 describe("ManagedEconomicDispatchCoordinator", () => {
-  it("fences before constructing the exact committed adapter", async () => {
+  it("materializes the exact committed adapter before fencing the provider effect", async () => {
     const events: string[] = [];
     const economicAuthority = authority();
     const lifecycleEvents = recordingLifecycleEvents();
@@ -105,7 +151,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       return {
         status: "committed",
         replay: false,
-        record: { commitment: commitment(), state: "held" } as never,
+        record: { commitment: commitment(), state: "held", ownerGeneration: "managed-economic-owner:test" } as never,
       };
     });
     vi.mocked(economicAuthority.fenceDispatch).mockImplementation(() => {
@@ -133,6 +179,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -140,13 +188,13 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       lifecycleEvents: lifecycleEvents.port,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
-    expect(events).toEqual(["commit:economic-attempt-a", "fence", "adapter:account-bound"]);
+    expect(events).toEqual(["commit:economic-attempt-a", "adapter:account-bound", "fence"]);
     expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced"]);
     events.push("provider-effect");
     expect(events).toEqual([
       "commit:economic-attempt-a",
-      "fence",
       "adapter:account-bound",
+      "fence",
       "provider-effect",
     ]);
 
@@ -159,6 +207,47 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       economicSettlement,
     ));
     await vi.waitFor(() => expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced", "released"]));
+  });
+
+  it("binds the persisted admission receipt and named effect in the canonical claim", async () => {
+    const economicAuthority = authority();
+    const bundle = admissionBundle();
+    const claim = {
+      version: 1 as const,
+      attemptId: "economic-attempt-a",
+      admissionId: bundle.admissionId,
+      admissionBundle: bundle,
+      ownerGeneration: "managed-economic-owner:test",
+      effectIdentity: "managed-economic-dispatch:test",
+    };
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    const prepared = await coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: bundle,
+      effectIdentity: claim.effectIdentity,
+      adoption: dispatchAdoption(),
+      admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
+    });
+
+    expect(prepared).toMatchObject({ status: "prepared" });
+    expect(economicAuthority.fenceDispatch).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      expect.any(String),
+      {
+        ...claim,
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+      },
+    );
   });
 
   it("validates and consumes approval before fencing or materializing an adapter", async () => {
@@ -185,6 +274,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-apply-approved-writes",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -197,7 +288,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(validateAndConsumeApprovalBeforeFence).toHaveBeenCalledWith({
       commitment: expect.objectContaining({ commitmentId: "commitment-a" }),
     });
-    expect(order).toEqual(["approval:commitment-a", "fence", "adapter"]);
+    expect(order).toEqual(["approval:commitment-a", "adapter", "fence"]);
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
@@ -217,6 +308,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-apply-approved-writes",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -244,6 +337,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -252,7 +347,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(createAdapter).not.toHaveBeenCalled();
   });
 
-  it("keeps capacity pending when adapter construction fails after the dispatch fence", async () => {
+  it("releases capacity when adapter construction fails before the action fence", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
@@ -264,22 +359,19 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
     })).rejects.toThrow("synthetic adapter failure");
-    expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
-    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      expect.any(String),
-      "post-fence-adapter-materialization-failed",
-    );
-    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(economicAuthority.recordExecutionSettlementPending).not.toHaveBeenCalled();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
   });
 
-  it("fails closed on a post-fence authority digest mismatch before adapter creation", async () => {
+  it("fails closed on an authority digest mismatch before adapter materialization or fencing", async () => {
     const economicAuthority = authority();
     const createAdapter = vi.fn(async () => ({ descriptor: {} }) as never);
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -292,6 +384,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -300,14 +394,9 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         throw new Error("identity-revision-conflict: managed profile authority changed");
       },
     })).rejects.toThrow("identity-revision-conflict");
-    expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
-    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      expect.any(String),
-      "post-fence-profile-authority-mismatch",
-    );
-    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(economicAuthority.recordExecutionSettlementPending).not.toHaveBeenCalled();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
     expect(createAdapter).not.toHaveBeenCalled();
   });
 
@@ -323,6 +412,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -347,6 +438,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -377,6 +470,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       })),
       releasePreFence: vi.fn(),
       fenceDispatch: vi.fn(),
+      readDispatch: vi.fn(() => undefined),
       settleExecution: vi.fn(),
       recordExecutionSettlementPending: vi.fn(),
     };
@@ -390,6 +484,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -463,6 +559,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       } as never)),
       releasePreFence: vi.fn(),
       fenceDispatch: vi.fn(),
+      readDispatch: vi.fn(() => undefined),
       settleExecution: vi.fn(),
       recordExecutionSettlementPending: vi.fn(),
     };
@@ -476,6 +573,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -503,7 +602,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(createAdapter).not.toHaveBeenCalled();
   });
 
-  it("aborts bounded adapter materialization and keeps the fenced commitment pending", async () => {
+  it("aborts bounded adapter materialization and releases the unfenced commitment", async () => {
     const economicAuthority = authority();
     const controller = new AbortController();
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -516,23 +615,20 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
       invocationId: INVOCATION_ID,
       abortSignal: controller.signal,
     });
-    await vi.waitFor(() => expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce());
     controller.abort(new Error("synthetic lifecycle deadline"));
 
     await expect(preparation).rejects.toThrow("synthetic lifecycle deadline");
-    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
-      "job-a",
-      "economic-attempt-a",
-      expect.any(String),
-      "registered-execution-settlement-missing",
-    );
-    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(economicAuthority.recordExecutionSettlementPending).not.toHaveBeenCalled();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
   });
 
   it("expires an unused fenced commitment as settlement-pending", async () => {
@@ -547,6 +643,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -580,6 +678,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -609,6 +709,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -638,6 +740,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -674,6 +778,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -696,6 +802,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
+      admissionBundle: admissionBundle(),
+      effectIdentity: "managed-economic-dispatch:test",
       adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
       authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -763,9 +871,9 @@ describe("ManagedEconomicDispatchCoordinator", () => {
           economicIdentity: commitment.reservation.selectedIdentity,
         });
       });
-      const fenceDispatch = vi.fn((fenceJobId: string, fenceAttemptId: string, fenceId: string) => {
+      const fenceDispatch = vi.fn((fenceJobId: string, fenceAttemptId: string, fenceId: string, actionClaim: ManagedEconomicActionClaim) => {
         order.push("fence");
-        return authority.fenceDispatch(fenceJobId, fenceAttemptId, fenceId);
+        return authority.fenceDispatch(fenceJobId, fenceAttemptId, fenceId, actionClaim);
       });
       const createAdapter = vi.fn(async ({ commitment }: { readonly commitment: ManagedEconomicCommitment }) => {
         order.push(`adapter:${commitment.reservation.selectedIdentity.route.providerId}`);
@@ -779,6 +887,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
           acquire: (request) => authority.acquireCommitment(request),
           releasePreFence: (releaseJobId, releaseAttemptId) => authority.releaseCommitmentPreFence(releaseJobId, releaseAttemptId),
           fenceDispatch,
+          readDispatch: (readJobId, readAttemptId, readFenceId, actionClaim) =>
+            authority.readDispatch(readJobId, readAttemptId, readFenceId, actionClaim),
           settleExecution: (settleJobId, settleAttemptId, fenceId, settlement) =>
             authority.settleExecution(settleJobId, settleAttemptId, fenceId, settlement),
           recordExecutionSettlementPending: (pendingJobId, pendingAttemptId, fenceId, reason) =>
@@ -792,6 +902,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         jobId,
         economicAttemptId,
         intentFingerprint: digestManagedEconomicValue({ proof: "no-spend" }),
+        admissionBundle: admissionBundle(),
+        effectIdentity: "managed-economic-dispatch:test",
         adoption,
         admissionProfile: "foundation-readonly-plan",
         authorityProfileId: AUTHORITY_PROFILE_ID,
@@ -815,7 +927,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         stage: "economic-selection", reason: "ceiling-exceeded",
         alternativeIdentity: expect.objectContaining({ route: expect.objectContaining({ routeId: "route-codex" }) }),
       }));
-      expect(order).toEqual(["fence", "adapter:opencode-go"]);
+      expect(order).toEqual(["adapter:opencode-go", "fence"]);
       expect(fenceDispatch).toHaveBeenCalledOnce();
       expect(createAdapter).toHaveBeenCalledOnce();
       expect(constructOpenCodeAdapter).toHaveBeenCalledOnce();

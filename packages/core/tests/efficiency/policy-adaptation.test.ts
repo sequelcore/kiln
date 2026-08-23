@@ -354,7 +354,7 @@ function lifecycleEvidence() {
   const ledger = projectCostUpdatedEventToLifecycleLedger(event, {
     context: { policyVersion: "context-whole-block-v1" },
     allocations: [
-      { source: "knowledge", tokenClass: "admitted", tokens: 100, providerTokenClass: "input", quality: "provider_reported" },
+      { source: "repository_evidence", tokenClass: "admitted", tokens: 100, providerTokenClass: "input", quality: "provider_reported" },
       { source: "final_output", tokenClass: "generated", tokens: 10, providerTokenClass: "output", quality: "provider_reported" },
     ],
   });

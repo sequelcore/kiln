@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentResponse,
-  AllCredentialsExhaustedError,
   type CreateMessageOptions,
   type ProviderAdapter,
 } from "@kilnai/core/agents";
@@ -66,8 +65,10 @@ describe("DirectProviderCredentialPoolService", () => {
     });
 
     const seen: DirectProviderAuth[] = [];
-    const adapter = await service.createPooledAdapter({
-      provider: "openai",
+    const selected = (await service.listExecutionAccounts("openai"))[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       defaultModel: "gpt-5.4",
       createAdapter: (auth) => {
         seen.push(auth);
@@ -97,8 +98,10 @@ describe("DirectProviderCredentialPoolService", () => {
     });
 
     const seen: DirectProviderAuth[] = [];
-    const adapter = await service.createPooledAdapter({
-      provider: "anthropic",
+    const selected = (await service.listExecutionAccounts("anthropic"))[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       createAdapter: (auth) => {
         seen.push(auth);
         return new TestAdapter(async () => makeResponse("ok"));
@@ -109,7 +112,7 @@ describe("DirectProviderCredentialPoolService", () => {
     expect(seen).toEqual([{ apiKey: "sk-stored", baseUrl: undefined }]);
   });
 
-  it("rotates multi-key API providers on rate limits", async () => {
+  it("does not select a successor credential after a productive effect fails", async () => {
     const store = new CredentialFileStore<DirectProviderAuth>({ rootDir });
     await store.writeCredential({
       providerId: "anthropic",
@@ -126,8 +129,10 @@ describe("DirectProviderCredentialPoolService", () => {
     const service = new DirectProviderCredentialPoolService({ rootDir });
     const calls: string[] = [];
 
-    const adapter = await service.createPooledAdapter({
-      provider: "anthropic",
+    const selected = (await service.listExecutionAccounts("anthropic"))[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       createAdapter: (auth) => new TestAdapter(async () => {
         calls.push(auth.apiKey ?? "");
         if (auth.apiKey === "sk-first") {
@@ -139,18 +144,13 @@ describe("DirectProviderCredentialPoolService", () => {
       }),
     });
 
-    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
-    expect(calls).toEqual(["sk-first", "sk-second"]);
+    await expect(adapter.createMessage(makeOptions())).rejects.toThrow("rate limited");
+    expect(calls).toEqual(["sk-first"]);
   });
 
   it("throws when API-key providers have neither directory nor env credentials", async () => {
     const service = new DirectProviderCredentialPoolService({ rootDir, env: {} });
-    const adapter = await service.createPooledAdapter({
-      provider: "openai",
-      createAdapter: () => new TestAdapter(async () => makeResponse("unreachable")),
-    });
-
-    await expect(adapter.createMessage(makeOptions())).rejects.toBeInstanceOf(AllCredentialsExhaustedError);
+    await expect(service.listExecutionAccounts("openai")).resolves.toEqual([]);
     await expect(service.listStatus("openai")).resolves.toEqual([]);
   });
 
@@ -160,8 +160,10 @@ describe("DirectProviderCredentialPoolService", () => {
       env: { OLLAMA_BASE_URL: "http://127.0.0.1:11435" },
     });
     const seen: DirectProviderAuth[] = [];
-    const adapter = await service.createPooledAdapter({
-      provider: "ollama",
+    const selected = (await service.listExecutionAccounts("ollama"))[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       createAdapter: (auth) => {
         seen.push(auth);
         return new TestAdapter(async () => makeResponse("ok"));
@@ -178,8 +180,10 @@ describe("DirectProviderCredentialPoolService", () => {
       env: { LMSTUDIO_BASE_URL: "http://127.0.0.1:1234/v1" },
     });
     const seen: DirectProviderAuth[] = [];
-    const adapter = await service.createPooledAdapter({
-      provider: "lmstudio",
+    const selected = (await service.listExecutionAccounts("lmstudio"))[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+    const adapter = await service.createAdapterFromCredential({
+      credential,
       createAdapter: (auth) => {
         seen.push(auth);
         return new TestAdapter(async () => makeResponse("ok"));

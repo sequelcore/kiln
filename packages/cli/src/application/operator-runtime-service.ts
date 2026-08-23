@@ -429,8 +429,20 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
           authority.releasePreFence(request.jobId, request.economicAttemptId);
           return applicationSuccess(null);
         case "managed-economic.fence-dispatch":
-          authority.fenceDispatch(request.jobId, request.economicAttemptId, request.dispatchFenceId);
+          authority.fenceDispatch(
+            request.jobId,
+            request.economicAttemptId,
+            request.dispatchFenceId,
+            request.actionClaim as unknown as Parameters<typeof authority.fenceDispatch>[3],
+          );
           return applicationSuccess(null);
+        case "managed-economic.read-dispatch":
+          return applicationSuccess(authority.readDispatch(
+            request.jobId,
+            request.economicAttemptId,
+            request.dispatchFenceId,
+            request.actionClaim as unknown as Parameters<typeof authority.readDispatch>[3],
+          ));
         case "managed-economic.settle-execution":
           authority.settleExecution(
             request.jobId,

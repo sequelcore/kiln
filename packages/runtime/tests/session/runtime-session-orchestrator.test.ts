@@ -3,10 +3,18 @@ import type { ProviderAdapter } from "@kilnai/core/agents";
 import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
 import type { ContextAuditEntry, ProjectedContextBlock } from "@kilnai/core/context";
 import { extractText, textParts } from "@kilnai/core/engine";
+import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import {
+  runtimeModelRoundEffectIdentity,
+  type RuntimeModelRoundActionClaim,
+  type RuntimeModelRoundActionClaimPermit,
+  type RuntimeModelRoundActionClaimStore,
+  type RuntimeModelRoundDispatchContext,
+} from "../../src/execution-kernel/runtime-model-round-action-claim.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
-import type { ContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
 
 function makeProvider(): ProviderAdapter {
   return {
@@ -60,6 +68,124 @@ function makeGovernedContext(content: string) {
     } satisfies ContextAuditEntry,
   };
 }
+
+function makeModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const rows = new Map<string, RuntimeModelRoundActionClaim>();
+  const consumed = new WeakSet<object>();
+  return {
+    claim: (claim) => {
+      const permit = {
+        claimId: claim.claimId,
+        permitId: `runtime-session-test:${claim.claimId}`,
+        consume: () => {
+          if (consumed.has(permit)) throw new Error("model-round permit already consumed");
+          consumed.add(permit);
+        },
+      } as unknown as RuntimeModelRoundActionClaimPermit;
+      rows.set(claim.claimId, claim);
+      return permit;
+    },
+    settle: (permit, settlement) => {
+      const claim = rows.get(permit.claimId);
+      if (!claim || !consumed.has(permit)) throw new Error("model-round permit was not consumed");
+      rows.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "unknown" ? { unknownReason: settlement.reason } : { outcome: "success" }),
+      });
+    },
+  };
+}
+
+function withModelRoundClaim(
+  orchestrator: RuntimeSessionOrchestrator,
+  session: RuntimeSession,
+  config: PerCallToolConfig | undefined,
+): PerCallToolConfig {
+  if (config?.runtimeModelRoundDispatch) return config;
+  const deps = (orchestrator as unknown as { readonly deps: { model?: string } }).deps;
+  // A concrete model identity is required by the canonical route binding. The
+  // provider-only fixtures predate that boundary, so pin a synthetic model in
+  // the fixture object before creating the persisted admission.
+  if (!deps.model) (deps as { model?: string }).model = "fixture-model";
+  const turnId = config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
+  const routeId = "runtime-session-test-route";
+  const accountId = "runtime-session-test-account";
+  const credentialRevision = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const revision = { revisionSetId: "runtime-session-test", revisions: { fixture: "runtime-session-test" } } as const;
+  const admission = defineEffectiveAuthorityAdmissionBundle({
+    sessionId: session.id,
+    turnId,
+    admittedAt: "2026-08-22T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "runtime-session-test", revision: "1", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "Runtime session fixture", subjectId: session.id },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
+        sourcePolicy: "runtime-session-test", reason: "Runtime session fixture", completeness: "authoritative",
+        toolCount: 0, deniedToolCount: 0, sandboxProjection: "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+        identityUse: "none", consequences: [], idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId, providerId: "mock", providerModelId: deps.model!,
+          accountSelection: { mode: "exact", accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "Runtime session fixture" } },
+        binding: { status: "bound", routeId, accountId, credentialId: "runtime-session-test-credential", credentialRevision },
+      },
+    },
+  });
+  const context = {
+    admission,
+    intentFingerprint: runtimeModelRoundEffectIdentity({ fixture: "runtime-session", sessionId: session.id, turnId }),
+    attemptId: `runtime-session-test-attempt:${session.id}:${turnId}`,
+    routeId,
+    accountId,
+    credentialRevision,
+    readAdmission: async () => admission,
+    store: makeModelRoundStore(),
+    state: { claimed: false },
+  } satisfies RuntimeModelRoundDispatchContext;
+  void orchestrator;
+  return {
+    ...config,
+    // Runtime execution is admitted by the immutable bundle, not by the
+    // legacy per-call authority facets. Keep the fixture's round claim and
+    // bundle bound to the same synthetic turn.
+    authorityAdmission: config?.authorityAdmission ?? admission,
+    runtimeModelRoundDispatch: context,
+  };
+}
+
+const canonicalProcessMessage = RuntimeSessionOrchestrator.prototype.processMessage;
+RuntimeSessionOrchestrator.prototype.processMessage = function fixtureProcessMessage(
+  session: RuntimeSession,
+  userParts: Parameters<RuntimeSessionOrchestrator["processMessage"]>[1],
+  governedContext?: Parameters<RuntimeSessionOrchestrator["processMessage"]>[2],
+  callBuiltinTools?: Parameters<RuntimeSessionOrchestrator["processMessage"]>[3],
+  perCallConfig?: PerCallToolConfig,
+): ReturnType<RuntimeSessionOrchestrator["processMessage"]> {
+  return canonicalProcessMessage.call(
+    this,
+    session,
+    userParts,
+    governedContext,
+    callBuiltinTools,
+    withModelRoundClaim(this, session, perCallConfig),
+  );
+};
 
 describe("RuntimeSessionOrchestrator", () => {
   describe("constructor", () => {
@@ -357,23 +483,13 @@ describe("RuntimeSessionOrchestrator", () => {
 
       await orchestrator.processMessage(session, textParts("msg"), undefined, undefined, {
         workingDirectory: "C:\\workspace\\kiln",
-        effectiveTurnAuthority: {
-          executionMode: "execute",
-          requestedAuthority: "destructive",
-          admittedAuthority: "destructive",
-          sourcePolicy: "runtime_surface_projection",
-          reason: "Full Access admitted for the attended operator turn.",
-          completeness: "authoritative",
-          toolCount: 1,
-          deniedToolCount: 0,
-        },
       });
 
       expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
-        executionContext: {
+        executionContext: expect.objectContaining({
           workingDirectory: "C:\\workspace\\kiln",
-          requestedAuthority: "destructive",
-        },
+          requestedAuthority: "read_only",
+        }),
       }));
     });
   });
@@ -520,7 +636,7 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(result.escalation).toBeUndefined();
     });
 
-    it("generates context summary when escalation detected and summarizer is configured", async () => {
+    it("generates a deterministic local context summary when escalation is detected", async () => {
       const provider = makeProvider();
       const detector: EscalationDetector = {
         checkPreLLM: vi.fn().mockReturnValue({
@@ -530,23 +646,18 @@ describe("RuntimeSessionOrchestrator", () => {
         }),
         checkPostLLM: vi.fn().mockReturnValue(null),
       };
-      const summarizer: ContextSummarizer = {
-        summarize: vi.fn().mockResolvedValue("Customer needs billing help."),
-      };
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         escalationDetector: detector,
-        contextSummarizer: summarizer,
       });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("I want a human"));
 
-      expect(result.contextSummary).toBe("Customer needs billing help.");
-      expect(summarizer.summarize).toHaveBeenCalledWith(session);
+      expect(result.contextSummary).toContain("user: I want a human");
     });
 
-    it("proceeds without summary when summarizer throws", async () => {
+    it("keeps the local context summary independent of provider failures", async () => {
       const provider = makeProvider();
       const detector: EscalationDetector = {
         checkPreLLM: vi.fn().mockReturnValue({
@@ -556,20 +667,16 @@ describe("RuntimeSessionOrchestrator", () => {
         }),
         checkPostLLM: vi.fn().mockReturnValue(null),
       };
-      const summarizer: ContextSummarizer = {
-        summarize: vi.fn().mockRejectedValue(new Error("Provider unavailable")),
-      };
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         escalationDetector: detector,
-        contextSummarizer: summarizer,
       });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("I want a human"));
 
       expect(result.escalation).toBeDefined();
-      expect(result.contextSummary).toBeUndefined();
+      expect(result.contextSummary).toContain("user: I want a human");
     });
 
     it("does not generate summary when no escalation detected", async () => {
@@ -578,20 +685,15 @@ describe("RuntimeSessionOrchestrator", () => {
         checkPreLLM: vi.fn().mockReturnValue(null),
         checkPostLLM: vi.fn().mockReturnValue(null),
       };
-      const summarizer: ContextSummarizer = {
-        summarize: vi.fn().mockResolvedValue("Summary"),
-      };
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         escalationDetector: detector,
-        contextSummarizer: summarizer,
       });
       const session = makeSession();
 
       const result = await orchestrator.processMessage(session, textParts("hello"));
 
       expect(result.contextSummary).toBeUndefined();
-      expect(summarizer.summarize).not.toHaveBeenCalled();
     });
   });
 });

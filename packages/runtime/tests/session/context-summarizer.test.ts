@@ -1,99 +1,58 @@
-import { describe, it, expect, vi } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core/agents";
+import { describe, it, expect } from "vitest";
 import { textParts } from "@kilnai/core/engine";
-import { DefaultContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
+import { DefaultContextSummarizer, summarizeConversationLocally } from "../../src/session/support/summarization/context-summarizer.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-
-function makeProvider(responseText = "Customer needs help with billing."): ProviderAdapter {
-  return {
-    name: "mock",
-    createMessage: vi.fn().mockResolvedValue({
-      parts: textParts(responseText),
-      inputTokens: 50,
-      outputTokens: 30,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      toolCalls: [],
-    }),
-    streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
-  };
-}
 
 function makeSession(): RuntimeSession {
   return new RuntimeSession({ appName: "test", tenantId: "test-tenant", userId: "user-1", systemPrompt: "You are helpful." });
 }
 
 describe("DefaultContextSummarizer", () => {
-  it("calls provider with correct system prompt and recent messages", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultContextSummarizer(provider);
+  it("projects recent conversation locally without a provider", async () => {
+    const summarizer = new DefaultContextSummarizer();
     const session = makeSession();
-
     session.addUserMessage(textParts("I need help with my bill."));
     session.addAssistantMessage(textParts("Sure, let me look into that."));
 
-    await summarizer.summarize(session);
-
-    expect(provider.createMessage).toHaveBeenCalledTimes(1);
-    const callArgs = vi.mocked(provider.createMessage).mock.calls[0]![0];
-    expect(callArgs.system).toBe(
-      "Summarize this customer conversation in 1-3 sentences for a human agent. Include: what the customer needs, what has been tried, and the current status.",
+    await expect(summarizer.summarize(session)).resolves.toBe(
+      "user: I need help with my bill. | assistant: Sure, let me look into that.",
     );
-    expect(callArgs.messages).toHaveLength(2);
-    expect(callArgs.maxTokens).toBe(200);
   });
 
-  it("returns extracted text from provider response", async () => {
-    const provider = makeProvider("Customer asked about billing refund.");
-    const summarizer = new DefaultContextSummarizer(provider);
+  it("limits the projection to the last ten messages", async () => {
+    const summarizer = new DefaultContextSummarizer();
     const session = makeSession();
-
-    session.addUserMessage(textParts("I need a refund."));
-
-    const result = await summarizer.summarize(session);
-    expect(result).toBe("Customer asked about billing refund.");
-  });
-
-  it("limits to last 10 messages", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultContextSummarizer(provider);
-    const session = makeSession();
-
-    // Add 12 messages (6 user + 6 assistant)
     for (let i = 0; i < 6; i++) {
       session.addUserMessage(textParts(`User message ${i}`));
       session.addAssistantMessage(textParts(`Assistant message ${i}`));
     }
 
-    expect(session.conversationHistory.length).toBe(12);
-
-    await summarizer.summarize(session);
-
-    const callArgs = vi.mocked(provider.createMessage).mock.calls[0]![0];
-    expect(callArgs.messages).toHaveLength(10);
-  });
-
-  it("returns 'No conversation history.' for empty session", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultContextSummarizer(provider);
-    const session = makeSession();
-
     const result = await summarizer.summarize(session);
-
-    expect(result).toBe("No conversation history.");
-    expect(provider.createMessage).not.toHaveBeenCalled();
+    expect(result).not.toContain("User message 0");
+    expect(result).toContain("User message 1");
+    expect(result).toContain("Assistant message 5");
   });
 
-  it("uses maxTokens of 200", async () => {
-    const provider = makeProvider();
-    const summarizer = new DefaultContextSummarizer(provider);
+  it("returns 'No conversation history.' for an empty session", async () => {
+    await expect(new DefaultContextSummarizer().summarize(makeSession())).resolves.toBe("No conversation history.");
+  });
+
+  it("bounds long transcript projections", async () => {
+    const summarizer = new DefaultContextSummarizer();
     const session = makeSession();
+    session.addUserMessage(textParts("x".repeat(5000)));
+    const result = await summarizer.summarize(session);
+    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(result.endsWith("...")).toBe(true);
+  });
 
-    session.addUserMessage(textParts("Hello"));
+  it("represents non-text content without crossing the provider boundary", () => {
+    expect(summarizeConversationLocally([{ role: "user", parts: [] }])).toBe("user: [non-text content]");
+  });
 
-    await summarizer.summarize(session);
-
-    const callArgs = vi.mocked(provider.createMessage).mock.calls[0]![0];
-    expect(callArgs.maxTokens).toBe(200);
+  it("honors small and invalid local bounds safely", () => {
+    const message = [{ role: "user", parts: textParts("abcdef") }];
+    expect(summarizeConversationLocally(message, 2)).toHaveLength(2);
+    expect(summarizeConversationLocally(message, -10)).toHaveLength(1);
   });
 });

@@ -7,7 +7,6 @@ import type {
   ModelPricing,
   CostSummary,
   SttPricing,
-  EmbeddingPricing,
   ExecutionCostEvidence,
 } from "./index.js";
 import { MODEL_CATALOG } from "../agents/model-pricing.js";
@@ -58,12 +57,6 @@ export function resolveExecutionPricing(modelRef: CostedModelRef | undefined): M
 export const STT_PRICING: ReadonlyMap<string, SttPricing> = new Map([
   ["gpt-4o-transcribe", { ratePerMinute: 0.006 }],
   ["nova-3", { ratePerMinute: 0.0043 }],
-]);
-
-/** Embedding pricing: rate per million tokens */
-export const EMBEDDING_PRICING: ReadonlyMap<string, EmbeddingPricing> = new Map([
-  ["text-embedding-3-small", { ratePerMToken: 0.02 }],
-  ["text-embedding-3-large", { ratePerMToken: 0.13 }],
 ]);
 
 interface TokenUsage {
@@ -182,7 +175,6 @@ export function resolveExecutionCostEvidence(
  */
 export class CostTracker {
   private readonly usageByRoleModel = new Map<string, MutableRoleUsage>();
-  private embeddingCostUsd = 0;
   private sttCostUsd = 0;
 
   /** Record token usage for a specific role and model */
@@ -214,13 +206,6 @@ export class CostTracker {
     entry.cacheReadTokens += usage.cacheReadTokens;
     entry.cacheWriteTokens += usage.cacheWriteTokens;
     entry.calls += 1;
-  }
-
-  /** Record embedding cost for a specific model */
-  recordEmbedding(model: string, tokens: number): void {
-    const pricing = EMBEDDING_PRICING.get(model);
-    if (!pricing) return;
-    this.embeddingCostUsd += (tokens * pricing.ratePerMToken) / 1_000_000;
   }
 
   /** Record STT cost for a specific model */
@@ -273,8 +258,8 @@ export class CostTracker {
       };
     }
 
-    // Include embedding and STT costs in total
-    totalCostUsd += this.embeddingCostUsd + this.sttCostUsd;
+    // Include STT costs in total
+    totalCostUsd += this.sttCostUsd;
 
     return {
       totalInputTokens,
@@ -290,7 +275,6 @@ export class CostTracker {
   /** Clear all accumulated usage */
   reset(): void {
     this.usageByRoleModel.clear();
-    this.embeddingCostUsd = 0;
     this.sttCostUsd = 0;
   }
 }

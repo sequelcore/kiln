@@ -62,8 +62,8 @@ describe("gui command helpers", () => {
     expect(written).toContain("ui:");
     expect(written).toContain("theme: automata");
     expect(buildGuiUrl("http://localhost:5183/gui/", "automata")).toBe("http://localhost:5183/gui/?theme=automata");
-    expect(buildGuiUrl("http://localhost:5183/gui/", "automata", "terminal-secret")).toBe(
-      "http://localhost:5183/gui/?theme=automata#operatorToken=terminal-secret",
+    expect(buildGuiUrl("http://localhost:5183/gui/", "automata", "operator-secret")).toBe(
+      "http://localhost:5183/gui/?theme=automata#operatorToken=operator-secret",
     );
     expect(buildGuiAttachUrl("http://localhost:3800", "automata")).toBe("http://localhost:3800/gui/?theme=automata");
     expect(buildGuiAttachUrl("https://gateway.example.com/apps", "automata")).toBe("https://gateway.example.com/gui/?theme=automata");

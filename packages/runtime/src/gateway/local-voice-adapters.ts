@@ -2,7 +2,7 @@
 
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
-import type { KilnErrorCode, SttAdapter, SttResult, TtsAdapter, TtsOptions, TtsResult } from "@kilnai/core";
+import type { KilnErrorCode, SttAdapter, SttOptions, SttResult, TtsAdapter, TtsOptions, TtsResult } from "@kilnai/core";
 import { KilnError } from "@kilnai/core";
 
 const DEFAULT_LOCAL_VOICE_TIMEOUT_MS = 120_000;
@@ -45,7 +45,7 @@ export class WhisperLocalSttAdapter implements SttAdapter {
 
   constructor(private readonly config: WhisperLocalSttAdapterConfig) {}
 
-  async transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult> {
+  async transcribe(audio: Uint8Array, mimeType: string, options: SttOptions = {}): Promise<SttResult> {
     const response = await runLocalVoiceCommand(
       this.config,
       {
@@ -59,6 +59,7 @@ export class WhisperLocalSttAdapter implements SttAdapter {
         audioBase64: Buffer.from(audio).toString("base64"),
       },
       "STT_FAILED",
+      options.signal,
     );
 
     if (typeof response.text !== "string") {
@@ -97,6 +98,7 @@ export class KokoroLocalTtsAdapter implements TtsAdapter {
         format,
       },
       "TTS_FAILED",
+      options.signal,
     );
 
     if (typeof response.audioBase64 !== "string") {
@@ -124,8 +126,9 @@ async function runLocalVoiceCommand(
   config: LocalVoiceCommandConfig,
   request: LocalVoiceCommandRequest,
   failureCode: KilnErrorCode,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  const stdout = await executeLocalVoiceCommand(config, request, failureCode);
+  const stdout = await executeLocalVoiceCommand(config, request, failureCode, signal);
 
   try {
     const parsed = JSON.parse(stdout);
@@ -145,11 +148,13 @@ function executeLocalVoiceCommand(
   config: LocalVoiceCommandConfig,
   request: LocalVoiceCommandRequest,
   failureCode: KilnErrorCode,
+  signal?: AbortSignal,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(config.command, [...(config.args ?? [])], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      signal,
     });
 
     let settled = false;
@@ -163,7 +168,7 @@ function executeLocalVoiceCommand(
       child.kill();
       reject(new KilnError(failureCode, "Local voice command timed out", {
         context: { command: config.command, timeoutMs },
-        retryable: true,
+        retryable: false,
       }));
     }, timeoutMs);
 

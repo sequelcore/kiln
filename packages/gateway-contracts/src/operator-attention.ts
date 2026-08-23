@@ -12,7 +12,6 @@ export const OPERATOR_ATTENTION_REASONS = [
   "approval-required",
   "config-health",
   "route-health",
-  "browser-takeover",
   "missing-capability",
 ] as const;
 

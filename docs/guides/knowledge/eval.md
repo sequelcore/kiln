@@ -12,8 +12,8 @@ Datasets are JSONL files where each line is a JSON object with the following fie
 |-------|------|----------|-------------|
 | `id` | `string` | yes | Unique item identifier |
 | `input` | `string` | yes | The prompt or user message sent to the agent |
-| `expected` | `string` | no | Expected output (used by exact-match, faithfulness, etc.) |
-| `context` | `string[]` | no | Reference passages for faithfulness and relevance scoring |
+| `expected` | `string` | no | Expected output (used by exact-match and other declared scorers) |
+| `context` | `string[]` | no | Caller-supplied reference passages for evaluation-only context scorers |
 | `metadata` | `object` | no | Arbitrary metadata passed through to results |
 
 ```jsonl
@@ -35,7 +35,7 @@ Datasets are JSONL files where each line is a JSON object with the following fie
 | `length` | 0 or 1 | `minLength?`, `maxLength?` | Output length (characters) is within the declared range. |
 | `latency` | 0 or 1 | `maxLatencyMs` | Response time is within the declared limit. |
 | `cost` | 0 or 1 | `maxCostUsd` | Cost per call is within the declared limit. |
-| `effort` | 0–1 | — | Customer Effort Score from `metadata.effortComponents`. Uses the enrichment pipeline's deterministic formula, normalized from 0-10 to 0-1. |
+| `effort` | 0–1 | — | Customer Effort Score from `metadata.effortComponents`, normalized from 0-10 to 0-1. |
 | `resolution` | 0–1 | — | Resolution quality from `metadata.resolution`. Maps status (resolved=1.0, partial=0.5, ambiguous=0.25, unresolved=0.0), weighted by confidence. |
 | `tool-calling-accuracy` | 0–1 | — | BFCL-style deterministic tool calling accuracy. Compares `metadata.toolCalls` against `metadata.expectedToolCalls` using F1 score (precision + recall). Checks function name and parameter correctness. |
 | `routing-accuracy` | 0 or 1 | — | Compares `metadata.activeAgentId` against `metadata.expectedAgentId`. Exact match. |
@@ -47,14 +47,14 @@ All LLM-as-judge scorers return a continuous score from 0.0 to 1.0 with a `reaso
 
 | Type | Config Fields | What It Measures |
 |------|---------------|-----------------|
-| `faithfulness` | — | Output is grounded in `context`. Detects hallucinations relative to provided passages. |
+| `faithfulness` | — | Evaluation-only judge: output stays faithful to caller-supplied `context`. |
 | `relevance` | — | Output directly addresses the `input`. |
 | `coherence` | — | Output is logically consistent and well-structured. |
-| `hallucination` | — | Output contains factual claims absent from `context` (inverse of faithfulness). |
+| `hallucination` | — | Evaluation-only judge: output contains claims absent from caller-supplied `context`. |
 | `toxicity` | — | Output does not contain harmful, offensive, or inappropriate content. |
 | `custom-prompt` | `prompt: string` | Custom LLM evaluation. The `prompt` receives `{input}`, `{output}`, `{expected}`, and `{context}` template variables. |
 | `policy-adherence` | `policies: string[]` | Output complies with declared business policy rules. Enumerates policies in the prompt and evaluates adherence. |
-| `context-relevance` | — | Retrieved `context` chunks are relevant to the `input` query. Measures retrieval quality, not answer quality. |
+| `context-relevance` | — | Evaluation-only judge: supplied `context` passages are relevant to the `input` query. |
 | `tool-trajectory` | — | Tool-use sequence (from `metadata.toolCalls`) is efficient and appropriate. Evaluates tool selection, ordering, and redundancy. |
 | `multi-turn-consistency` | — | Context retention across conversation turns. Reads `metadata.conversationHistory` (array of `{role, content}`). Detects contradictions, forgotten facts, and unnecessary repetition. |
 | `safety-preservation` | — | AgentDojo-inspired dual scorer: evaluates safety (attack resistance) AND utility (helpfulness) under adversarial input. Combined score = (safety + utility) / 2. Reads optional `metadata.attackType`. |
@@ -69,7 +69,7 @@ scorers:
   - name: quality
     type: composite
     scorers:
-      - name: faithfulness-check
+      - name: context-faithfulness-check
         type: faithfulness
       - name: relevance-check
         type: relevance
@@ -93,7 +93,7 @@ eval:
     - name: response-contains-policy
       type: contains
       substrings: ["30-day", "refund"]
-    - name: grounded
+    - name: context-grounded
       type: faithfulness
     - name: fast-response
       type: latency
@@ -101,7 +101,7 @@ eval:
     - name: overall-quality
       type: composite
       scorers:
-        - name: grounded
+        - name: context-grounded
           type: faithfulness
         - name: relevant
           type: relevance
@@ -118,12 +118,12 @@ eval:
     - name: baseline
       dataset: support-qa
       team: support-team
-      scorers: [exact, grounded, fast-response]
+      scorers: [exact, context-grounded, fast-response]
 
     - name: improved
       dataset: support-qa-v2
       team: support-team
-      scorers: [exact, grounded, fast-response, overall-quality]
+      scorers: [exact, context-grounded, fast-response, overall-quality]
       compare: baseline
       overrides:
         model: claude-sonnet-4-6
@@ -153,12 +153,12 @@ experiments:
   - name: baseline
     dataset: support-qa
     team: support-team
-    scorers: [grounded, relevant]
+    scorers: [context-grounded, relevant]
 
   - name: v2
     dataset: support-qa
     team: support-team
-    scorers: [grounded, relevant]
+    scorers: [context-grounded, relevant]
     compare: baseline
 ```
 

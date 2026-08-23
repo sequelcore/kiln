@@ -10,7 +10,7 @@ import type {
   EffectiveTurnAuthorityPolicyMaximum,
   EffectiveTurnAuthoritySnapshot,
   GoalAuthorityEnvelopePolicyBound,
-  PerCallToolConfig,
+  RuntimeAuthorityAdmissionCandidateConfig,
   WorkItemAuthorityPolicyBound,
 } from "./runtime-session-orchestrator.types.js";
 
@@ -23,7 +23,7 @@ export type {
 } from "./runtime-session-orchestrator.types.js";
 
 export interface ProjectEffectiveTurnAuthorityInput {
-  readonly config?: PerCallToolConfig;
+  readonly config?: RuntimeAuthorityAdmissionCandidateConfig;
   readonly executionMode: EffectiveTurnAuthoritySnapshot["executionMode"];
   readonly requestedAuthority?: EffectiveTurnAuthoritySnapshot["requestedAuthority"];
   readonly reason: string;
@@ -46,7 +46,7 @@ export interface EffectiveTurnAuthorityActionability {
 
 export function projectEffectiveTurnAuthorityPerCallConfig(
   input: ProjectEffectiveTurnAuthorityInput,
-): PerCallToolConfig | undefined {
+): RuntimeAuthorityAdmissionCandidateConfig | undefined {
   const requestedAuthority = input.executionMode === "plan"
     ? "planning"
     : input.requestedAuthority;
@@ -358,14 +358,14 @@ function workItemAuthorityPolicyInput(
   };
 }
 
-function candidateToolNames(config: PerCallToolConfig | undefined): Set<string> {
+function candidateToolNames(config: RuntimeAuthorityAdmissionCandidateConfig | undefined): Set<string> {
   return config?.toolAllowlist
     ? new Set(config.toolAllowlist)
     : new Set((config?.additionalTools ?? []).map((tool) => tool.name));
 }
 
 function filterToolNames(input: {
-  readonly config: PerCallToolConfig | undefined;
+  readonly config: RuntimeAuthorityAdmissionCandidateConfig | undefined;
   readonly candidateNames: ReadonlySet<string>;
   readonly maximumAuthority: EffectiveTurnAuthorityPolicyMaximum;
   readonly authorityDescriptorFromCapability?: (

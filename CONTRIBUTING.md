@@ -115,7 +115,7 @@ type(scope): description
 
 **Types:** `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-**Scopes:** `core`, `engine`, `orchestrator`, `agents`, `domain`, `package`, `skill`, `memory`, `tree`, `events`, `cost`, `sandbox`, `verification`, `security`, `safety`, `knowledge`, `enrichment`, `eval`, `observability`, `a2a`, `runtime`, `gateway`, `trigger`, `session`, `tenant`, `channel`, `cli`, `sdk`, `widget`, `gui`, `native`, `docs`
+**Scopes:** `core`, `engine`, `orchestrator`, `agents`, `domain`, `package`, `skill`, `memory`, `tree`, `events`, `cost`, `sandbox`, `verification`, `security`, `safety`, `knowledge`, `enrichment`, `eval`, `observability`, `runtime`, `gateway`, `trigger`, `session`, `tenant`, `channel`, `cli`, `sdk`, `widget`, `gui`, `native`, `docs`
 
 Examples:
 ```

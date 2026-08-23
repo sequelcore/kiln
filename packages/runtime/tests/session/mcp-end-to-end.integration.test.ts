@@ -12,6 +12,7 @@ import { KilnMcpClient, type ResolvedMcpServer } from "@kilnai/core/mcp";
 import type { AuditLog } from "@kilnai/core/security";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { createFixtureClaimConfig, createFixtureToolPermission } from "./runtime-claim-fixture.js";
 
 const stdioFixture = fileURLToPath(new URL("../../../core/tests/mcp/client/fixtures/stdio-server.mjs", import.meta.url));
 
@@ -48,8 +49,16 @@ async function runModelToolCall(client: KilnMcpClient, selector: string, allowed
     authorize: vi.fn(() => ({ level: allowed ? 1 : 4, allowed, requiresApproval: false, reason: allowed ? "fixture read admitted" : "fixture denied" })),
   };
   const provider = toolCallProvider(selector);
+  const currentSession = new RuntimeSession({ appName: "mcp-e2e", tenantId: "tenant-a", userId: "operator", systemPrompt: "Use admitted tools." });
+  const toolPermissions = capabilities.map((entry) => createFixtureToolPermission(entry.name, entry.effectEnvelope, {
+    level: allowed ? 1 : 4,
+    allowed,
+    requiresApproval: !allowed,
+    reason: allowed ? "fixture read admitted" : "fixture denied",
+  }));
   const orchestrator = new RuntimeSessionOrchestrator({
     provider,
+    model: "unknown",
     tools: capabilities.map((entry) => ({ name: entry.name, description: entry.description, inputSchema: entry.schema, tags: new Set(entry.tags) })),
     capabilityMap: new Map(capabilities.map((entry) => [entry.name, entry])),
     mcpClients: [client],
@@ -57,9 +66,22 @@ async function runModelToolCall(client: KilnMcpClient, selector: string, allowed
     auditLog,
     eventBus,
   });
+  eventBus.on("approval_requested", (event) => {
+    orchestrator.emitApprovalReceived(false, "fixture denied", event.approvalId);
+  });
   const result = await orchestrator.processMessage(
-    new RuntimeSession({ appName: "mcp-e2e", tenantId: "tenant-a", userId: "operator", systemPrompt: "Use admitted tools." }),
+    currentSession,
     textParts("Use the fixture."),
+    undefined,
+    undefined,
+    {
+      ...createFixtureClaimConfig({
+        session: currentSession,
+        provider,
+        includeToolClaims: true,
+        toolPermissions,
+      }),
+    },
   );
   return { result, provider, append, eventBus };
 }
@@ -88,7 +110,7 @@ describe("canonical MCP execution end to end", () => {
       const execute = vi.spyOn(client, "executeCapability");
       const evidence = await runModelToolCall(client, "mcp:stdio-fixture:tool:echo", false);
       expect(execute).not.toHaveBeenCalled();
-      expect(evidence.result.toolExecutions).toContainEqual(expect.objectContaining({ success: false, resultSummary: expect.stringContaining("Authorization denied") }));
+      expect(evidence.result.toolExecutions).toContainEqual(expect.objectContaining({ success: false, resultSummary: expect.stringMatching(/(?:Authorization|Approval) denied/u) }));
       expect(evidence.append).toHaveBeenCalledWith(expect.objectContaining({ outcome: "error", metadata: expect.objectContaining({ authorityAllowed: false }) }));
     } finally {
       await client.disconnect();

@@ -6,7 +6,7 @@ import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
 } from "@kilnai/runtime";
-import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application/authority-admission-evidence-store.js";
 
