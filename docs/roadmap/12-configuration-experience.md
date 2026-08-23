@@ -867,7 +867,11 @@ matrix remains unrun.
 ### Slice 9 - Remaining Configuration Families
 
 Status: Ready. The project pilot, global intent proof, and Slice 8 activation
-contract are complete.
+contract are complete. The first bounded vertical is the `gateway.yaml` family
+under the existing Core gateway owner. It is the smallest remaining family that
+also closes the recorded strict-nested-validation, secret-reference, and real
+`restart-required` supervisor boundaries. Global and app configuration remain
+separate later verticals in this slice.
 
 Migrate global, app, and gateway configuration one bounded owner at a time.
 Generate separate schemas and descriptors, retain graph and cross-resource
