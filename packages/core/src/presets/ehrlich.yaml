@@ -3,14 +3,9 @@
 # Named after Paul Ehrlich, pioneer of systematic experimental methodology
 
 name: ehrlich
-channels: [web, api]
 
-memory:
-  scopes: [user, "agent:director", "agent:researcher", "agent:summarizer", "project:default"]
-  backend: postgresql
 
 router:
-  rules: []
   fallback: investigation
 
 teams:
@@ -22,7 +17,6 @@ teams:
         goal: Guide the scientific investigation and make strategic decisions
         tier: reasoning
         tools: []
-        structured: true
       researcher:
         name: Researcher
         role: Scientific Investigator
@@ -42,8 +36,6 @@ teams:
           - ehrlich_get_reference
           - ehrlich_run_statistical_test
           - ehrlich_run_categorical_test
-        count: 2
-        sandbox: true
       summarizer:
         name: Summarizer
         role: Evidence Synthesizer
@@ -53,17 +45,6 @@ teams:
           - ehrlich_classify_domain
           - ehrlich_compress_output
           - ehrlich_grade_evidence
-
-    workflow:
-      phases: [classification, literature, formulation, testing, controls, synthesis]
-      gates:
-        formulation:
-          requires: [human_approval]
-        testing:
-          requires: [hypotheses_approved]
-        synthesis:
-          requires: [evidence_graded]
-      maxIterations: 3
 
     capabilities:
       # Investigation lifecycle (8)
@@ -141,17 +122,3 @@ teams:
       - name: ehrlich_cost_summary
         description: Get cost breakdown by role and total for the investigation session
         tags: [cost]
-
-    qualityGates:
-      - name: evidence_threshold
-        command: "ehrlich verify --evidence-threshold"
-        description: Verify all findings meet minimum evidence quality threshold
-        required: true
-      - name: reproducibility_check
-        command: "ehrlich verify --reproducibility"
-        description: Check that experiments have documented methodology for reproducibility
-        required: true
-      - name: bias_assessment
-        command: "ehrlich verify --bias"
-        description: Assess and document potential biases in experimental design and interpretation
-        required: true

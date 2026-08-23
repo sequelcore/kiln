@@ -4,10 +4,6 @@ import { parseAppYaml, AppLoaderError } from "../../../src/engine/loader/app-loa
 function makeYaml(safetyBlock: string): string {
   return `
 name: test-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite
 teams:
   support:
     agents:
@@ -16,8 +12,6 @@ teams:
         role: Support agent
         goal: Help users
         tier: fast
-    workflow:
-      phases: [respond]
 router:
   fallback: support
 ${safetyBlock}

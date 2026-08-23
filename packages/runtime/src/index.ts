@@ -344,6 +344,39 @@ export type {
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
+export { readGatewayConfigurationSource } from "./gateway/gateway-configuration-source.js";
+export type {
+  GatewayAppConfigurationSource,
+  GatewayConfigurationRevision,
+  GatewayConfigurationSource,
+  GatewayConfigurationTextSource,
+} from "./gateway/gateway-configuration-source.js";
+export {
+  createGatewayDrainController,
+  handleAppGatewayControlRequest,
+  inspectAppGatewayListener,
+  requestAppGatewayShutdown,
+} from "./gateway/app-gateway-control.js";
+export type {
+  AppGatewayListenerInspection,
+  AppGatewayShutdownResult,
+  GatewayDrainController,
+} from "./gateway/app-gateway-control.js";
+export {
+  AppGatewaySupervisor,
+  nodeAppGatewayProcessAdapter,
+  readAppGatewayChildCredentials,
+  readAppGatewayRuntimeState,
+} from "./gateway/app-gateway-supervisor.js";
+export type {
+  AppGatewayChildCredentials,
+  AppGatewayLaunchDescriptor,
+  AppGatewayProcessAdapter,
+  AppGatewayRuntimeState,
+  AppGatewaySpawnDescriptor,
+  AppGatewaySupervisorDoctor,
+  AppGatewaySupervisorStatus,
+} from "./gateway/app-gateway-supervisor.js";
 export type { AppGatewayExecutionBundle, ModelGatewayExecutionBundle, StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
 export {

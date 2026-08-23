@@ -2,18 +2,13 @@ name: my-shop
 
 runtime: provider-adapter
 
-channels: [whatsapp]
 
 provider:
   name: codex-oauth
   model: gpt-5.6-luna
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: support
 
 teams:
@@ -33,9 +28,4 @@ teams:
         tier: fast
         tools: []
 
-    workflow:
-      phases: [respond]
-      gates: {}
-
     capabilities: []
-    qualityGates: []

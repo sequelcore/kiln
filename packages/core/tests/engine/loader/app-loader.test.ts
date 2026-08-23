@@ -3,17 +3,9 @@ import { parseAppYaml, validateAppGraph, AppLoaderError } from "../../../src/eng
 
 const SAMPLE_YAML = `
 name: my-app
-channels: [web, cli]
 
-memory:
-  scopes: [user, "project:default"]
-  backend: sqlite+fts5
-  sync: git
 
 router:
-  rules:
-    - match: "bug|fix"
-      team: hotfix
   fallback: development
 
 teams:
@@ -31,22 +23,10 @@ teams:
         goal: Write clean, well-tested code that follows team conventions
         tier: coding
         tools: [code_edit]
-        count: 2
-        sandbox: true
-    workflow:
-      phases: [analyze, implement, verify]
-      gates:
-        verify:
-          requires: [tests_pass]
     capabilities:
       - name: code_edit
         description: Edit code files
         tags: [coding]
-    qualityGates:
-      - name: test
-        command: "vitest run"
-        description: Run tests
-        required: true
   hotfix:
     agents:
       fixer:
@@ -55,27 +35,16 @@ teams:
         goal: Quickly fix production issues
         tier: coding
         tools: [code_edit]
-    workflow:
-      phases: [fix, verify]
-      gates:
-        verify:
-          requires: [tests_pass]
     capabilities:
       - name: code_edit
         description: Edit code files
         tags: [coding]
-    qualityGates:
-      - name: test
-        command: "vitest run"
-        description: Run tests
-        required: true
 `;
 
 describe("parseAppYaml", () => {
   it("parses valid YAML into correct App structure", () => {
     const app = parseAppYaml(SAMPLE_YAML);
     expect(app.name).toBe("my-app");
-    expect(app.channels).toEqual(["web", "cli"]);
     expect(Object.keys(app.teams)).toContain("development");
     expect(Object.keys(app.teams)).toContain("hotfix");
   });
@@ -96,15 +65,6 @@ describe("parseAppYaml", () => {
     expect(worker.goal).toBe("Write clean, well-tested code that follows team conventions");
     expect(worker.tier).toBe("coding");
     expect(worker.tools).toEqual(["code_edit"]);
-    expect(worker.count).toBe(2);
-    expect(worker.sandbox).toBe(true);
-  });
-
-  it("handles workflow phases and gates", () => {
-    const app = parseAppYaml(SAMPLE_YAML);
-    const wf = app.teams["development"]!.workflow;
-    expect(wf.phases).toEqual(["analyze", "implement", "verify"]);
-    expect(wf.gates["verify"]).toEqual({ requires: ["tests_pass"] });
   });
 
   it("handles capabilities", () => {
@@ -120,18 +80,12 @@ describe("parseAppYaml", () => {
   it("maps capability action effect envelopes", () => {
     const yaml = `
 name: effect-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
     agents:
       w: { name: W, role: Worker, goal: Work, tier: coding, tools: [read_status] }
-    workflow: { phases: [work], gates: {} }
     capabilities:
       - name: read_status
         description: Read status
@@ -144,7 +98,6 @@ teams:
           identityUse: none
           consequences: []
           idempotency: idempotent
-    qualityGates: []
 `;
     const app = parseAppYaml(yaml);
     expect(app.teams.dev?.capabilities[0]?.effectEnvelope).toMatchObject({
@@ -158,18 +111,12 @@ teams:
   it("throws AppLoaderError for malformed capability action effect envelopes", () => {
     const yaml = `
 name: bad-effect-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
     agents:
       w: { name: W, role: Worker, goal: Work, tier: coding, tools: [bad_tool] }
-    workflow: { phases: [work], gates: {} }
     capabilities:
       - name: bad_tool
         description: Bad effect
@@ -182,90 +129,21 @@ teams:
           identityUse: none
           consequences: [none]
           idempotency: idempotent
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
-  it("handles quality gates", () => {
+  it("handles router fallback", () => {
     const app = parseAppYaml(SAMPLE_YAML);
-    const gates = app.teams["development"]!.qualityGates;
-    expect(gates).toHaveLength(1);
-    expect(gates[0]!.name).toBe("test");
-    expect(gates[0]!.command).toBe("vitest run");
-    expect(gates[0]!.required).toBe(true);
-  });
-
-  it("handles router rules and classifier", () => {
-    const app = parseAppYaml(SAMPLE_YAML);
-    expect(app.router.rules).toHaveLength(1);
-    expect(app.router.rules[0]!.match).toBe("bug|fix");
-    expect(app.router.rules[0]!.team).toBe("hotfix");
     expect(app.router.fallback).toBe("development");
-    expect(app.router.classifier).toBeUndefined();
   });
 
-  it("handles router with classifier agent", () => {
-    const yaml = `
-name: app-with-classifier
-channels: [web]
-
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
-
-router:
-  rules: []
-  fallback: main
-  classifier:
-    name: Classifier
-    role: Intent Classifier
-    goal: Route requests to appropriate teams
-    tier: fast
-    tools: []
-
-teams:
-  main:
-    agents:
-      worker:
-        name: Worker
-        role: Implementation Specialist
-        goal: Write clean code
-        tier: coding
-        tools: []
-    workflow:
-      phases: [work]
-      gates: {}
-    capabilities: []
-    qualityGates: []
-`;
-    const app = parseAppYaml(yaml);
-    expect(app.router.classifier).toBeDefined();
-    expect(app.router.classifier!.tier).toBe("fast");
-    expect(app.router.classifier!.name).toBe("Classifier");
-    expect(app.router.classifier!.role).toBe("Intent Classifier");
-    expect(app.router.classifier!.goal).toBe("Route requests to appropriate teams");
-  });
-
-  it("handles memory config", () => {
-    const app = parseAppYaml(SAMPLE_YAML);
-    expect(app.memory.scopes).toContain("user");
-    expect(app.memory.scopes).toContain("project:default");
-    expect(app.memory.backend).toBe("sqlite+fts5");
-    expect(app.memory.sync).toBe("git");
-  });
-
-  it("handles memory config without sync", () => {
+  it("parses minimal YAML with one team", () => {
     const yaml = `
 name: minimal-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 teams:
@@ -277,61 +155,19 @@ teams:
         goal: Handle all tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
-`;
-    const app = parseAppYaml(yaml);
-    expect(app.memory.sync).toBeUndefined();
-  });
-
-  it("parses minimal YAML with one team and no router rules", () => {
-    const yaml = `
-name: minimal-app
-channels: [cli]
-
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
-
-router:
-  rules: []
-  fallback: solo
-
-teams:
-  solo:
-    agents:
-      worker:
-        name: Solo
-        role: Generalist
-        goal: Handle all tasks
-        tier: coding
-        tools: []
-    workflow:
-      phases: [work]
-      gates: {}
-    capabilities: []
-    qualityGates: []
 `;
     const app = parseAppYaml(yaml);
     expect(app.name).toBe("minimal-app");
     expect(Object.keys(app.teams)).toEqual(["solo"]);
-    expect(app.router.rules).toHaveLength(0);
   });
 
   it("maps MCP request timeout config", () => {
     const yaml = `
 name: mcp-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 mcp:
@@ -347,11 +183,7 @@ teams:
         goal: Handle all tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
     const app = parseAppYaml(yaml);
@@ -362,14 +194,9 @@ teams:
   it("maps cross-surface voice policy from YAML", () => {
     const yaml = `
 name: voice-app
-channels: [web, whatsapp]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 voice:
@@ -413,11 +240,7 @@ teams:
         goal: Handle all tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
     const app = parseAppYaml(yaml);
@@ -433,14 +256,9 @@ teams:
   it("maps local voice provider configuration from YAML", () => {
     const yaml = `
 name: voice-local
-channels: [gui, tui]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 voice:
@@ -471,11 +289,7 @@ teams:
         goal: Handle all tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
     const app = parseAppYaml(yaml);
@@ -504,14 +318,9 @@ teams:
   it("maps governed voice profiles and agent profile references from YAML", () => {
     const yaml = `
 name: profiled-voice-app
-channels: [gui, tui]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 voice:
@@ -556,11 +365,7 @@ teams:
         tier: coding
         tools: []
         voiceProfile: english-default
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
     const app = parseAppYaml(yaml);
@@ -592,14 +397,9 @@ teams:
   it("throws AppLoaderError for invalid MCP request timeout config", () => {
     const yaml = `
 name: mcp-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 mcp:
@@ -615,27 +415,18 @@ teams:
         goal: Handle all tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
-  it("supports quality key as alias for qualityGates", () => {
+  it("rejects the obsolete quality alias", () => {
     const yaml = `
 name: alias-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 teams:
@@ -647,9 +438,6 @@ teams:
         goal: Handle all tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
     quality:
       - name: lint
@@ -657,21 +445,15 @@ teams:
         description: Lint check
         required: true
 `;
-    const app = parseAppYaml(yaml);
-    expect(app.teams["solo"]!.qualityGates[0]!.name).toBe("lint");
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
   it("loads backstory and instructions from agent YAML", () => {
     const yaml = `
 name: identity-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 teams:
@@ -685,11 +467,7 @@ teams:
         tools: []
         backstory: Pragmatic architect who values simplicity.
         instructions: Always write tests before implementation.
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
     const app = parseAppYaml(yaml);
     const agent = app.teams["solo"]!.agents["writer"]!;
@@ -700,14 +478,9 @@ teams:
   it("trims whitespace from backstory and instructions", () => {
     const yaml = `
 name: trim-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: solo
 
 teams:
@@ -721,11 +494,7 @@ teams:
         tools: []
         backstory: "  padded backstory  "
         instructions: "  padded instructions  "
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
     const app = parseAppYaml(yaml);
     const agent = app.teams["solo"]!.agents["writer"]!;
@@ -736,20 +505,13 @@ teams:
   it("throws AppLoaderError when agent role is whitespace-only", () => {
     const yaml = `
 name: bad-role
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: t
 teams:
   t:
     agents:
       w: { name: W, role: "   ", goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -760,20 +522,13 @@ teams:
 
   it("throws AppLoaderError when name is missing", () => {
     const yaml = `
-channels: [web]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: main
 teams:
   main:
     agents:
       w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -781,20 +536,13 @@ teams:
   it("throws AppLoaderError when agent tier is invalid", () => {
     const yaml = `
 name: bad-tier
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: t
 teams:
   t:
     agents:
       w: { name: W, role: Worker, goal: Work, tier: superfast, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -802,20 +550,13 @@ teams:
   it("throws AppLoaderError when agent role is missing", () => {
     const yaml = `
 name: bad-agent
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: t
 teams:
   t:
     agents:
       w: { name: W, goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -823,20 +564,13 @@ teams:
   it("throws AppLoaderError when agent goal is missing", () => {
     const yaml = `
 name: bad-agent
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: t
 teams:
   t:
     agents:
       w: { name: W, role: Worker, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -844,20 +578,13 @@ teams:
   it("throws AppLoaderError when agent name is missing", () => {
     const yaml = `
 name: bad-agent
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: t
 teams:
   t:
     agents:
       w: { role: Worker, goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -869,12 +596,7 @@ teams:
   it("parses supervisor team mode with manager", () => {
     const yaml = `
 name: supervisor-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
@@ -893,11 +615,7 @@ teams:
         goal: Write code
         tier: coding
         tools: []
-    workflow:
-      phases: [plan, implement]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
     const app = parseAppYaml(yaml);
     expect(app.teams["dev"]!.mode).toBe("supervisor");
@@ -907,12 +625,7 @@ teams:
   it("throws AppLoaderError for removed swarm team mode", () => {
     const yaml = `
 name: swarm-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
@@ -930,15 +643,11 @@ teams:
         goal: Work on tasks
         tier: coding
         tools: [handoff_tool]
-    workflow:
-      phases: [execute]
-      gates: {}
     capabilities:
       - name: handoff_tool
         description: Hand off to another agent
         type: handoff
         tags: [swarm]
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -946,12 +655,7 @@ teams:
   it("parses capability with guardrail fields", () => {
     const yaml = `
 name: guardrail-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
@@ -962,9 +666,6 @@ teams:
         goal: Write code
         tier: coding
         tools: [guarded_tool]
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities:
       - name: guarded_tool
         description: Tool with guardrail
@@ -976,7 +677,6 @@ teams:
           properties:
             result:
               type: string
-    qualityGates: []
 `;
     const app = parseAppYaml(yaml);
     const cap = app.teams["dev"]!.capabilities[0]!;
@@ -991,21 +691,14 @@ teams:
   it("throws AppLoaderError for invalid team mode", () => {
     const yaml = `
 name: bad-mode
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
     mode: invalid_mode
     agents:
       w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities: []
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -1013,24 +706,17 @@ teams:
   it("throws AppLoaderError for invalid guardrailRetries", () => {
     const yaml = `
 name: bad-retries
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
     agents:
       w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities:
       - name: tool
         description: desc
         tags: []
         guardrailRetries: -1
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -1038,24 +724,17 @@ teams:
   it("throws AppLoaderError for invalid outputSchema (non-object)", () => {
     const yaml = `
 name: bad-schema
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: dev
 teams:
   dev:
     agents:
       w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
-    workflow: { phases: [work], gates: {} }
     capabilities:
       - name: tool
         description: desc
         tags: []
         outputSchema: "not-an-object"
-    qualityGates: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
@@ -1084,20 +763,6 @@ describe("validateAppGraph", () => {
     expect(result!.errors.some((e) => e.field.includes("router.fallback"))).toBe(true);
   });
 
-  it("returns AppLoaderError for dangling team ref in router rules", () => {
-    const app = parseAppYaml(SAMPLE_YAML);
-    const brokenApp = {
-      ...app,
-      router: {
-        ...app.router,
-        rules: [{ match: "bug", team: "ghost-team" }],
-      },
-    };
-    const result = validateAppGraph(brokenApp);
-    expect(result).toBeInstanceOf(AppLoaderError);
-    expect(result!.errors.some((e) => e.message.includes("ghost-team"))).toBe(true);
-  });
-
   it("returns AppLoaderError when teams is empty", () => {
     const app = parseAppYaml(SAMPLE_YAML);
     const brokenApp = { ...app, teams: {} };
@@ -1105,25 +770,14 @@ describe("validateAppGraph", () => {
     expect(result).toBeInstanceOf(AppLoaderError);
   });
 
-  it("returns AppLoaderError when channels is empty", () => {
-    const app = parseAppYaml(SAMPLE_YAML);
-    const brokenApp = { ...app, channels: [] };
-    const result = validateAppGraph(brokenApp);
-    expect(result).toBeInstanceOf(AppLoaderError);
-  });
 });
 
 describe("trigger YAML parsing", () => {
   const BASE_YAML = `
 name: trigger-app
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: ops
 
 teams:
@@ -1135,11 +789,7 @@ teams:
         goal: Handle ops tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
   it("parses app without triggers", () => {
@@ -1315,129 +965,4 @@ triggers:
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
-  describe("eval parsing", () => {
-    it("parses eval block with datasets, scorers, and experiments", () => {
-      const yaml = BASE_YAML + `
-eval:
-  datasets:
-    - name: test-ds
-      path: ./data.jsonl
-  scorers:
-    - name: accuracy
-      type: exact-match
-    - name: speed
-      type: latency
-      maxLatencyMs: 5000
-  experiments:
-    - name: exp1
-      dataset: test-ds
-      team: ops
-      scorers: [accuracy, speed]
-`;
-      const app = parseAppYaml(yaml);
-      expect(app.eval).toBeDefined();
-      expect(app.eval?.datasets).toHaveLength(1);
-      expect(app.eval?.datasets[0]?.name).toBe("test-ds");
-      expect(app.eval?.scorers).toHaveLength(2);
-      expect(app.eval?.experiments).toHaveLength(1);
-      expect(app.eval?.experiments[0]?.team).toBe("ops");
-    });
-
-    it("parses composite scorer with sub-scorers", () => {
-      const yaml = BASE_YAML + `
-eval:
-  datasets:
-    - name: ds1
-      path: ./data.jsonl
-  scorers:
-    - name: composite-scorer
-      type: composite
-      scorers:
-        - name: exact
-          type: exact-match
-        - name: contains-check
-          type: contains
-          substrings: ["hello", "world"]
-  experiments:
-    - name: exp1
-      dataset: ds1
-      team: ops
-      scorers: [composite-scorer]
-`;
-      const app = parseAppYaml(yaml);
-      expect(app.eval?.scorers[0]?.type).toBe("composite");
-      expect(app.eval?.scorers[0]?.scorers).toHaveLength(2);
-    });
-
-    it("throws AppLoaderError for missing eval.datasets", () => {
-      const yaml = BASE_YAML + `
-eval:
-  scorers:
-    - name: s1
-      type: exact-match
-  experiments:
-    - name: e1
-      dataset: ds1
-      team: ops
-      scorers: [s1]
-`;
-      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
-    });
-
-    it("throws AppLoaderError for missing eval.scorers", () => {
-      const yaml = BASE_YAML + `
-eval:
-  datasets:
-    - name: ds1
-      path: ./data.jsonl
-  experiments:
-    - name: e1
-      dataset: ds1
-      team: ops
-      scorers: []
-`;
-      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
-    });
-
-    it("throws AppLoaderError for experiment referencing unknown dataset", () => {
-      const yaml = BASE_YAML + `
-eval:
-  datasets:
-    - name: ds1
-      path: ./data.jsonl
-  scorers:
-    - name: s1
-      type: exact-match
-  experiments:
-    - name: e1
-      dataset: nonexistent
-      team: ops
-      scorers: [s1]
-`;
-      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
-    });
-
-    it("throws AppLoaderError for invalid scorer type", () => {
-      const yaml = BASE_YAML + `
-eval:
-  datasets:
-    - name: ds1
-      path: ./data.jsonl
-  scorers:
-    - name: s1
-      type: my-typo
-  experiments:
-    - name: e1
-      dataset: ds1
-      team: ops
-      scorers: [s1]
-`;
-      expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
-    });
-
-    it("returns undefined eval when not present", () => {
-      const app = parseAppYaml(BASE_YAML);
-      expect(app.eval).toBeUndefined();
-    });
-  });
 });

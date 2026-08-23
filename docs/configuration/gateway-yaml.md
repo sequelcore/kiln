@@ -1,6 +1,6 @@
 # Gateway YAML Reference
 
-This document is a transitional reference for the current gateway configuration
+This is the operator reference for the canonical `gateway.yaml` configuration
 surface.
 
 `gateway.yaml` describes how the deployable App Gateway is wired, but it does
@@ -16,6 +16,36 @@ Use this page to understand the current deployment and wiring surface for:
 - auth configuration
 - MCP exposure
 - session and handoff-related runtime wiring
+
+## Schema And Admission
+
+Core owns one strict TypeBox schema and derives the admitted TypeScript type,
+editor JSON Schema, and field descriptors from it. The committed artifacts are
+[`gateway-config-v1.json`](../../packages/core/schemas/gateway-config-v1.json)
+and
+[`gateway-config-descriptors-v1.json`](../../packages/core/schemas/gateway-config-descriptors-v1.json).
+Run `bun run --cwd packages/core config:schema:generate` after changing the
+schema owner.
+
+Every production reader uses the same boundary. Unknown root or nested fields,
+malformed values, and raw secret fields fail before semantic admission. Errors
+name the source file and exact property path; unknown-field diagnostics also
+identify the running Core schema build. Public examples are validation
+fixtures.
+
+Credential material is not valid YAML configuration. Store only canonical
+environment-variable names in fields ending in `Env`, such as
+`accessTokenEnv`, `secretEnv`, and `hmacKeyEnv`. The removed `botToken` field has
+no compatibility alias.
+
+All gateway fields currently activate at `restart-required`. There is no shared
+gateway writer, so authoring remains explicit. Apply an admitted file revision
+with `kiln gateway restart --config <path>` (or `start` when stopped). The
+project-local supervisor fences the exact gateway and bound App source bytes,
+authenticates loopback control, stops new admission, drains in-flight work,
+starts the replacement, and accepts it only after read-back reports that exact
+revision. A settings mutation surface must still not claim automatic restart
+activation until it invokes this owner and settles the returned evidence.
 
 ## Architectural Position
 
@@ -49,22 +79,6 @@ Relevant docs:
 - [Tool Execution](../architecture/tooling/tool-execution.md)
 - [Control Model](../architecture/core/control-model.md)
 - [Runtime Surfaces](../architecture/surfaces/runtime-surfaces.md)
-
-## Transitional Status
-
-The older exhaustive deployment narrative centered Kiln too strongly around the
-gateway/runtime stack. That is no longer acceptable as the primary framing.
-
-The App Gateway remains important as the deployable execution surface beneath
-the control plane.
-
-## Future Direction
-
-If this reference is rebuilt in detail later, it should:
-
-- align configuration terms to the canonical runtime-surface taxonomy
-- distinguish stable doctrine from implementation residue
-- describe runtime surfaces as subordinate to the control plane
 
 ## Channel Public Media
 

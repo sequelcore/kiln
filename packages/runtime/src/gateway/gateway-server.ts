@@ -1,11 +1,11 @@
 // Gateway: GatewayServer -- persistent Bun/Hono process hosting multiple Apps
 
-import { readFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { Hono } from "hono";
+import type { AppGatewayRuntimeIdentity } from "@kilnai/gateway-contracts";
 import {
-  parseGatewayYaml,
   KilnError,
   OTelExporter,
   SafetyPipeline,
@@ -30,6 +30,11 @@ import { WebChannel } from "../channels/web-channel.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
+import { readGatewayConfigurationSource } from "./gateway-configuration-source.js";
+import {
+  createGatewayDrainController,
+  handleAppGatewayControlRequest,
+} from "./app-gateway-control.js";
 import { createGatewayApp } from "./gateway-routes.js";
 import { startModelGatewayListener } from "../model-gateway/model-gateway-listener.js";
 import type { ModelGatewayListenerFetch } from "../model-gateway/model-gateway-listener.js";
@@ -136,6 +141,12 @@ async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
 export interface StartGatewayOptions {
   readonly port?: number;
   readonly onReady?: (url: string) => void;
+  /** Local supervisor ownership. The credential is runtime-only and never projected by control responses. */
+  readonly supervision?: {
+    readonly identity: AppGatewayRuntimeIdentity;
+    readonly controlToken: string;
+    readonly drainTimeoutMs?: number;
+  };
   readonly swarmCoordination?: "project-local";
   readonly guiDistPath?: string;
   /** Optional gateway security config (shared with HTTP middleware and runtime sanitizer wiring). */
@@ -341,18 +352,21 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 }
 
 async function startGatewayWithOwnedResources(configPath: string, options?: StartGatewayOptions): Promise<void> {
-  let content: string;
-  try {
-    content = readFileSync(configPath, "utf-8");
-  } catch {
-    throw new KilnError("CONFIG_INVALID", `Failed to read gateway config: ${configPath}`, {
-      context: { configPath },
-    });
-  }
-
-  const gatewayConfig = parseGatewayYaml(content);
-  const gatewayYamlDir = dirname(configPath);
+  const configurationSource = readGatewayConfigurationSource(configPath);
+  const gatewayConfig = configurationSource.config;
+  const gatewayYamlDir = dirname(configurationSource.gateway.path);
   const port = options?.port ?? gatewayConfig.port;
+  if (options?.supervision && (
+    options.supervision.identity.port !== port
+    || options.supervision.identity.configurationRevision !== configurationSource.configurationRevision
+    || options.supervision.identity.lifecycle !== "ready"
+  )) {
+    throw new KilnError(
+      "CONFIG_INVALID",
+      "App Gateway supervision identity does not match the exact admitted configuration revision and effective port.",
+      { context: { port, configurationRevision: configurationSource.configurationRevision }, retryable: false },
+    );
+  }
   const modelGatewayExecution = options?.modelGatewayExecution;
   if (gatewayConfig.modelGateway?.port === port) {
     throw new KilnError("CONFIG_INVALID", "The effective main gateway port must differ from the model gateway port.", { context: { port } });
@@ -365,7 +379,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
     );
   }
 
-  const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
+  const resolvedApps = resolveApps(configurationSource);
   const appGatewayExecution = options?.appGatewayExecution;
   if (resolvedApps.some((resolved) => resolved.runtimeModeConfig?.runtime === "provider-adapter") && !appGatewayExecution) {
     throw new KilnError(
@@ -1226,6 +1240,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       closeStartedResources,
       bunWebsocket,
       options?.onReady ? () => options.onReady?.(`http://localhost:${port}/gui/`) : undefined,
+      options?.supervision,
     );
   } catch (error) {
     await closeStartedResources();
@@ -1366,13 +1381,39 @@ async function serveAndWait(
   onShutdown?: () => void | Promise<void>,
   websocketHandler?: BunWebSocketHandler,
   onReady?: () => void,
+  supervision?: StartGatewayOptions["supervision"],
 ): Promise<void> {
   const websocket = websocketHandler ?? (await loadBunHonoAdapters()).createBunWebSocket().websocket;
 
   let server: ReturnType<typeof Bun.serve>;
+  let drainController: ReturnType<typeof createGatewayDrainController> | undefined;
   try {
     // idleTimeout: 255s is the uWebSockets max (uint8). Prevents Bun from killing SSE streams.
-    server = Bun.serve({ port, fetch: app.fetch, websocket, idleTimeout: 255 });
+    server = Bun.serve({
+      port,
+      fetch: (request, bunServer) => {
+        if (supervision && drainController) {
+          const identity: AppGatewayRuntimeIdentity = {
+            ...supervision.identity,
+            lifecycle: drainController.isDraining() ? "draining" : "ready",
+          };
+          const control = handleAppGatewayControlRequest({
+            request,
+            requestAddress: bunServer.requestIP(request)?.address,
+            identity,
+            controlToken: supervision.controlToken,
+            requestShutdown: () => { void drainController?.requestShutdown(); },
+          });
+          if (control) return control;
+          if (drainController.isDraining()) {
+            return Response.json({ error: "gateway-draining" }, { status: 503, headers: { "retry-after": "1" } });
+          }
+        }
+        return app.fetch(request);
+      },
+      websocket,
+      idleTimeout: 255,
+    });
   } catch (err: unknown) {
     if (err instanceof Error && "code" in err && err.code === "EADDRINUSE") {
       throw new Error(`Port ${port} is already in use.`, { cause: err });
@@ -1380,21 +1421,29 @@ async function serveAndWait(
     throw err;
   }
 
+  drainController = createGatewayDrainController({
+    server,
+    closeResources: async () => onShutdown?.(),
+    ...(supervision?.drainTimeoutMs === undefined ? {} : { timeoutMs: supervision.drainTimeoutMs }),
+  });
+
   try {
     onReady?.();
   } catch (error) {
-    server.stop(true);
+    await server.stop(true);
     throw error;
   }
 
-  await new Promise<void>((resolve) => {
-    const shutdown = async () => {
-      console.log("\nShutting down...");
-      await onShutdown?.();
-      server.stop(true);
-      resolve();
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-  });
+  const shutdown = (): void => {
+    console.log("\nShutting down...");
+    void drainController?.requestShutdown();
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  try {
+    await drainController.waitForShutdown();
+  } finally {
+    process.off("SIGINT", shutdown);
+    process.off("SIGTERM", shutdown);
+  }
 }

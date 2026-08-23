@@ -140,11 +140,17 @@ routes, either `Automatic (Kiln)` or an eligible account override. Use
 
 ### `kiln gateway`
 
-Start the production gateway:
+Start or reconcile the supervised production gateway:
 
 ```bash
-kiln gateway
+kiln gateway start
+kiln gateway status
+kiln gateway restart
 ```
+
+Use `kiln gateway serve` only for a foreground development process. Production
+lifecycle state and the local control credential live separately under
+`.kiln/runtime/app-gateway/`.
 
 ### `kiln domain`
 

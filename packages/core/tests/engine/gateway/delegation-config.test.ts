@@ -140,14 +140,9 @@ describe("isDelegationCapability", () => {
 describe("parseAppYaml -- delegation capabilities", () => {
   const DELEGATION_APP_YAML = `
 name: app-a
-channels: [cli]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: main
 
 teams:
@@ -159,9 +154,6 @@ teams:
         goal: Delegate tasks to appropriate services
         tier: coding
         tools: [delegate_to_arete]
-    workflow:
-      phases: [analyze, implement]
-      gates: {}
     capabilities:
       - name: delegate_to_arete
         description: Delegate workout analysis to arete-ai

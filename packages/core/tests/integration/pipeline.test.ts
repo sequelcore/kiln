@@ -7,60 +7,10 @@ import {
   EventBus,
   CostTracker,
   Orchestrator,
-  loadPresetConfig,
 } from "../../src/index.js";
 import type { CostUpdateEvent, KilnEvent, PhaseChangedEvent, TaskCompletedEvent } from "../../src/index.js";
 import type { ProviderAdapter, AgentStreamEvent } from "../../src/index.js";
 import { textParts } from "../../src/index.js";
-
-// ---------------------------------------------------------------------------
-// Shared YAML fixtures
-// ---------------------------------------------------------------------------
-
-const VALID_APP_YAML = `
-name: test-app
-memory:
-  scopes: [user, session]
-  backend: sqlite
-router:
-  fallback: default-team
-  rules:
-    - match: ".*"
-      team: default-team
-teams:
-  default-team:
-    agents:
-      coder:
-        name: Coder Agent
-        role: software engineer
-        goal: Write clean code
-        tier: coding
-        tools: []
-    workflow:
-      phases: [design, implement, review]
-      gates:
-        review:
-          requires: [human_approval]
-`;
-
-const SIMPLE_APP_YAML = `
-name: e2e-test-app
-memory:
-  scopes: [user]
-  backend: sqlite
-router:
-  fallback: team1
-teams:
-  team1:
-    agents:
-      agent1:
-        name: Test Agent
-        role: tester
-        goal: Run tests
-        tier: fast
-    workflow:
-      phases: [plan, execute]
-`;
 
 // ---------------------------------------------------------------------------
 // Mock provider adapter factory
@@ -99,42 +49,9 @@ describe("Pipeline Integration Tests", () => {
     vi.clearAllMocks();
   });
 
-  describe("YAML -> OrchestratorConfig bridge", () => {
-    it("should load valid YAML and produce OrchestratorConfig via loadPresetConfig", () => {
-      const app = parseAppYaml(VALID_APP_YAML);
-
-      expect(app.name).toBe("test-app");
-      expect(app.teams["default-team"]).toBeDefined();
-      expect(app.router.fallback).toBe("default-team");
-      expect(app.memory.scopes).toContain("user");
-
-      const config = loadPresetConfig(app);
-
-      expect(config.phases).toEqual(["design", "implement", "review"]);
-      expect(config.requireApproval).toBe(true);
-      expect(config.approvalAfterPhase).toBe("review");
-    });
-
-    it("should produce OrchestratorConfig targeting explicit team", () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-      const config = loadPresetConfig(app, "team1");
-
-      expect(config.phases).toEqual(["plan", "execute"]);
-      expect(config.requireApproval).toBe(false);
-    });
-
-    it("should throw PresetLoaderError for missing team name", () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-
-      expect(() => loadPresetConfig(app, "nonexistent-team")).toThrow(KilnError);
-    });
-  });
-
   describe("Orchestrator lifecycle with mock provider", () => {
     it("should start session and emit phase_changed event via EventBus", () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-      const config = loadPresetConfig(app);
-      const orchestrator = new Orchestrator(config);
+      const orchestrator = new Orchestrator({ phases: ["plan", "execute"] });
 
       const phaseEvents: string[] = [];
       orchestrator.eventBus.on("phase_changed", (e) => phaseEvents.push(e.phase));
@@ -148,9 +65,7 @@ describe("Pipeline Integration Tests", () => {
     });
 
     it("should register mock provider and have it accessible via providerRegistry", () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-      const config = loadPresetConfig(app);
-      const orchestrator = new Orchestrator(config);
+      const orchestrator = new Orchestrator({ phases: ["plan", "execute"] });
       const mockProvider = makeMockProvider();
 
       orchestrator.registerProvider("mock-provider", mockProvider);
@@ -160,9 +75,7 @@ describe("Pipeline Integration Tests", () => {
     });
 
     it("should accumulate cost via costSummary after recording usage", () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-      const config = loadPresetConfig(app);
-      const orchestrator = new Orchestrator(config);
+      const orchestrator = new Orchestrator({ phases: ["plan", "execute"] });
       orchestrator.start("test task");
 
       // Directly record cost via the eventBus-connected CostTracker
@@ -184,9 +97,7 @@ describe("Pipeline Integration Tests", () => {
     });
 
     it("should advance phase and emit phase_changed events", () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-      const config = loadPresetConfig(app);
-      const orchestrator = new Orchestrator(config);
+      const orchestrator = new Orchestrator({ phases: ["plan", "execute"] });
 
       const phaseEvents: string[] = [];
       orchestrator.eventBus.on("phase_changed", (e) => phaseEvents.push(e.phase));
@@ -201,9 +112,7 @@ describe("Pipeline Integration Tests", () => {
     });
 
     it("should propagate provider error without crashing orchestrator state", async () => {
-      const app = parseAppYaml(SIMPLE_APP_YAML);
-      const config = loadPresetConfig(app);
-      const orchestrator = new Orchestrator(config);
+      const orchestrator = new Orchestrator({ phases: ["plan", "execute"] });
       const failingProvider = makeMockProvider({ throws: true });
 
       orchestrator.registerProvider("mock-provider", failingProvider);
@@ -297,8 +206,6 @@ describe("Pipeline Integration Tests", () => {
     it("should throw AppLoaderError with code APP_YAML_INVALID for invalid YAML", () => {
       const invalidYaml = `
 name: 123
-memory:
-  scopes: invalid
 `;
 
       expect(() => parseAppYaml(invalidYaml)).toThrow(AppLoaderError);
@@ -317,8 +224,6 @@ memory:
     it("should aggregate all YAML validation errors, not just the first", () => {
       const invalidYaml = `
 name:
-memory:
-  scopes: not-an-array
 teams: []
 `;
 

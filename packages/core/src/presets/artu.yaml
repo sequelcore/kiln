@@ -3,14 +3,9 @@
 # 3 agents, 6-phase cyclical workflow, 26 MCP tools, scoped memory
 
 name: artu
-channels: [api, websocket, cli]
 
-memory:
-  scopes: [user, "agent:director", "agent:worker", "agent:optimizer", "project:default"]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: trading
 
 teams:
@@ -22,7 +17,6 @@ teams:
         goal: Develop and oversee trading strategies
         tier: reasoning
         tools: []
-        structured: true
       worker:
         name: Worker
         role: Trade Executor
@@ -61,25 +55,12 @@ teams:
           - artu_recall_similar_regime
           - artu_record_decision
           - artu_get_lessons
-        count: 2
-        sandbox: true
       optimizer:
         name: Optimizer
         role: Performance Optimizer
         goal: Optimize portfolio and strategy performance
         tier: fast
         tools: []
-
-    workflow:
-      phases: [scan, analyze, thesis, allocate, rebalance, monitor]
-      gates:
-        thesis:
-          requires: [human_approval]
-        rebalance:
-          requires: [directive_validated]
-        monitor:
-          requires: [positions_verified]
-      maxIterations: 3
 
     capabilities:
       # Market Intelligence (5)
@@ -110,7 +91,6 @@ teams:
         description: Perpetual futures funding rates for a symbol
         tags: [market]
         effectEnvelope: *artu_read_effect
-
       # ML & Features (4)
       - name: artu_compute_features
         description: Run full 45-feature pipeline and return feature vector summary
@@ -218,17 +198,3 @@ teams:
         description: Search extracted trading patterns and lessons from past outcomes
         tags: [memory]
         effectEnvelope: *artu_read_effect
-
-    qualityGates:
-      - name: model_validation
-        command: "artu validate --model"
-        description: CPCV validation (PBO < 10%, OOS Sharpe > 0.3, Deflated Sharpe > 0.5)
-        required: true
-      - name: paper_trading_metrics
-        command: "artu validate --paper"
-        description: Paper trading thresholds (Sharpe > 1.0, drawdown < 12%, win rate > 55%)
-        required: true
-      - name: directive_schema
-        command: "artu validate --directive"
-        description: TradingDirective JSON schema validation and allocation sum constraint
-        required: true

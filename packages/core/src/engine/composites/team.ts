@@ -1,30 +1,19 @@
-// Engine composite: Team -- agents + workflow + capabilities + quality gates
+// Engine composite: Team -- agents + capabilities
 // A self-contained unit that operates independently
 
 import type { Agent } from "../domain/agent.js";
 import type { Capability } from "../domain/capability.js";
-import type { Workflow } from "../domain/workflow.js";
-
-/** A quality gate command that must pass before phase transitions */
-export interface QualityGate {
-  readonly name: string;
-  readonly command: string;
-  readonly description: string;
-  readonly required: boolean;
-}
 
 /** Team execution mode */
 export type TeamMode = "sequential" | "supervisor";
 
-/** A self-contained unit: agents + workflow + capabilities + gates */
+/** A self-contained unit: agents + capabilities */
 export interface Team {
   readonly name: string;
   readonly mode?: TeamMode;
   readonly manager?: string;
   readonly agents: Record<string, Agent>;
-  readonly workflow: Workflow;
   readonly capabilities: readonly Capability[];
-  readonly qualityGates: readonly QualityGate[];
 }
 
 /** Validation error for team configuration */
@@ -73,11 +62,6 @@ export function validateTeam(team: Team): TeamValidationError[] {
     errors.push({ field: "manager", message: "only valid when mode is 'supervisor'" });
   }
 
-  // Workflow must have at least one phase
-  if (team.workflow.phases.length === 0) {
-    errors.push({ field: "workflow.phases", message: "must have at least one phase" });
-  }
-
   // Agent tool references must exist in capabilities
   const capabilityNames = new Set(team.capabilities.map((c) => c.name));
   for (const [agentName, agent] of Object.entries(team.agents)) {
@@ -108,17 +92,6 @@ export function validateTeam(team: Team): TeamValidationError[] {
           message: "must be a valid object",
         });
       }
-    }
-  }
-
-  // Gate phase references must exist in workflow phases
-  const phaseSet = new Set(team.workflow.phases);
-  for (const phaseName of Object.keys(team.workflow.gates)) {
-    if (!phaseSet.has(phaseName)) {
-      errors.push({
-        field: `workflow.gates.${phaseName}`,
-        message: `references unknown phase "${phaseName}"`,
-      });
     }
   }
 

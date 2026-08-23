@@ -1,29 +1,10 @@
 // Engine type: GatewayAuthConfig -- gateway-level JWT authentication configuration
 // Domain types only -- no external dependencies
 
-/** JWT algorithm supported at the gateway level */
-export type JwtAlgorithm = "RS256" | "HS256";
+import type { GatewayAuthConfig, JwtAlgorithm } from "./gateway-config-schema.js";
 
-/**
- * Gateway-level JWT authentication configuration.
- * Loaded from the `auth` block in gateway.yaml.
- *
- * RS256: verifies tokens by fetching public keys from a JWKS endpoint.
- * HS256: verifies tokens using a shared secret resolved from an env var.
- */
-export interface GatewayAuthConfig {
-  readonly algorithm: JwtAlgorithm;
-  /** RS256 only: URL of the JWKS endpoint (e.g. "https://auth.myapp.com/.well-known/jwks.json") */
-  readonly jwksUri?: string;
-  /** HS256 only: env var name containing the shared HMAC secret */
-  readonly secretEnv?: string;
-  /** Optional: expected `iss` claim. Tokens with a different issuer are rejected. */
-  readonly issuer?: string;
-  /** Optional: expected `aud` claim. Tokens must include this audience. */
-  readonly audience?: string;
-  /** Optional: tolerated clock skew in seconds for nbf/iat/exp checks. */
-  readonly clockToleranceSeconds?: number;
-}
+/** Schema-derived gateway JWT configuration and supported algorithms. */
+export type { GatewayAuthConfig, JwtAlgorithm } from "./gateway-config-schema.js";
 
 /** Validation error for auth configuration */
 export interface GatewayAuthValidationError {

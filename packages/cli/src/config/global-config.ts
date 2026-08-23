@@ -614,7 +614,10 @@ function validateGlobalModelGateway(value: unknown): void {
   if (!isRecord(value)) throw new KilnYamlError("modelGateway must be an object");
   const port = value.port === 4800 ? 4801 : 4800;
   try {
-    parseGatewayYaml(stringify({ port, apps: [], modelGateway: value }));
+    parseGatewayYaml(
+      stringify({ port, apps: [], modelGateway: value }),
+      `${resolveGlobalConfigPath()}#modelGateway`,
+    );
   } catch (error) {
     throw new KilnYamlError(`Invalid global modelGateway: ${error instanceof Error ? error.message : String(error)}`);
   }

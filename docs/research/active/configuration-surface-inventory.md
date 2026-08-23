@@ -207,23 +207,16 @@ This is the admitted reason that `.kiln/kiln.yaml` is the Slice 1 pilot. The old
 asserted type and partial validation path must not survive beside the new
 runtime schema.
 
-### B4 — App configuration has overlapping readers and incomplete admission
+### B4 — App configuration overlapping readers are resolved
 
-`parseAppYaml()` maps one `RawApp` contract
-([`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts#L1549)),
-while runtime mode is parsed independently from the same bytes
-([`runtime-mode-loader.ts`](../../../packages/core/src/engine/gateway/runtime-mode-loader.ts#L124)).
-
-The main loader does not call `validateAppGraph()`. Repository references to
-that validator were found only in its declaration and tests
-([`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts#L1699)).
-Runtime resolution catches runtime-mode parse errors and continues without
-that sub-configuration
-([`app-resolver.ts`](../../../packages/runtime/src/gateway/app-resolver.ts#L44)).
-
-The app pilot must distinguish structural fields, app-graph semantic admission,
-and optional runtime degradation. It cannot encode all three as one oversized
-schema refinement.
+Slice 9 replaced the audited split with one strict TypeBox structural owner
+([`app-config-schema.ts`](../../../packages/core/src/engine/loader/app-config-schema.ts))
+and one YAML reader
+([`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts)).
+Provider-adapter and billing admission consume that same parsed document; the
+separate runtime-mode reader and Runtime's non-fatal degradation path are
+deleted. Structural, named semantic, and graph concerns remain distinct stages
+rather than one oversized schema refinement.
 
 ### B5 — Declared app fields can be discarded by the loader
 
@@ -312,7 +305,7 @@ than surface-local inference.
 | --- | --- | --- | --- | --- |
 | Global `~/.kiln/config.yaml` | CLI `KilnGlobalConfig` plus handwritten validators | CLI composition with Core-owned routing, MCP, economics, communication, voice, and gateway contracts | Atomic global primitive; several direct typed and untyped callers | Source status plus merged raw effective object |
 | Project `.kiln/kiln.yaml` | CLI handwritten `KilnProjectConfig`; partially validated reader | CLI merge and widening admission | Direct non-atomic writer plus hash-fenced governed writes | Included in raw effective object; status merge bypasses narrowing admission |
-| `app.yaml` | Core `RawApp` mapper plus domain types | Core app validators and Runtime startup | Init and cron direct non-atomic writes | Not represented in `KilnConfigStatusSnapshot` |
+| `app.yaml` | Core TypeBox schema plus schema-derived raw types | Core app validators and Runtime startup through one reader | Explicit authoring; cron uses app-owned trigger AST mutation | Not represented in `KilnConfigStatusSnapshot` |
 | `gateway.yaml` | Core gateway loader and handwritten nested validators | Core gateway validation plus Runtime binding/startup | Init direct non-atomic write | Not represented in `KilnConfigStatusSnapshot` |
 
 The shared YAML extension does not make these one bounded context, schema, or
@@ -373,16 +366,22 @@ Project root fields and explicit global-only rejections are defined in
 
 | Field group | Current owner | Plane | Sensitivity / authority | Activation |
 | --- | --- | --- | --- | --- |
-| `name`, `channels[]`, `memory.*` | Core app loader/composite | intent | app identity and state topology | restart required in dev observer |
-| `router.*`, `teams.<team>.agents.*`, `.workflow.*`, `.capabilities[]`, `.qualityGates[]`, `.mode`, `.manager` | Core team/router/capability owners | intent | model, tools, effects, workflow and commands; high | restart required/unknown |
+| `name`, `router.fallback` | Core app loader/composite | intent | app identity and fallback team selection | restart required in dev observer |
+| `teams.<team>.agents.*`, `.capabilities[]`, `.mode`, `.manager` | Core team/capability owners | intent | model, tools, effects, and team execution; high | restart required/unknown |
 | `triggers[]` webhook/event/schedule variants | Core trigger types, Runtime registration | intent | webhook secrets by env and autonomous effects; high | restart required/unknown |
-| `knowledge.*`, `eval.*`, `mcp.*`, `toolSelection.*` | Core domain owners | intent | connection strings, API-key references, external capabilities; medium/high | restart required/unknown |
+| `knowledge.*`, `mcp.*` | Core domain owners | intent | connection strings, API-key references, external capabilities; medium/high | restart required/unknown |
 | `voice.*`, `safety.*` | Core voice and safety owners | intent | command/env references, artifact retention and safety policy; high | restart required/unknown |
 | partial roots `runtime`, `provider.*`, `billing.*`, `events.*` | separate Core readers, Runtime consumer | intent plus economic/runtime material | provider/API references, billing endpoints/headers, event webhook; high | restart required/unknown |
 
-App field declarations and mappers are concentrated in
-[`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts#L62).
-Unknown app fields are generally discarded rather than rejected.
+App structure is owned by
+[`app-config-schema.ts`](../../../packages/core/src/engine/loader/app-config-schema.ts)
+and mapped by
+[`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts).
+Unknown app fields are rejected before semantic mapping.
+Retired App `channels`, `memory`, `router.rules`, `eval`, and `toolSelection`
+reject at that structural boundary. Gateway app bindings own channel topology,
+and evaluation remains an explicit Core Eval workflow; no replacement App
+memory, pattern-routing, evaluation, or tool-selection state was introduced.
 
 ### Gateway configuration
 

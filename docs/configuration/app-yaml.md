@@ -1,6 +1,7 @@
 # App YAML Reference
 
-This document is now a transitional configuration reference.
+This is the operator reference for the canonical `app.yaml` configuration
+surface.
 
 `app.yaml` remains an important implementation surface, but it is not the
 architectural source of truth for Kiln. The source of truth is the modular
@@ -15,17 +16,48 @@ declaration with parallel surface-specific behavior.
 If the configuration surface and the architecture diverge, the architecture wins
 and the configuration must eventually be refactored to match it.
 
+## Schema And Admission
+
+Core owns one strict TypeBox structural schema and derives the admitted raw
+TypeScript shape, editor JSON Schema, and field descriptors from it. The
+committed artifacts are
+[`app-config-v1.json`](../../packages/core/schemas/app-config-v1.json) and
+[`app-config-descriptors-v1.json`](../../packages/core/schemas/app-config-descriptors-v1.json).
+Run `bun run --cwd packages/core config:schema:generate` after changing the
+schema owner.
+
+`parseAppYaml` is the only YAML reader. It parses app, provider-adapter, and
+billing fields from the same admitted document before named semantic and graph
+validation. Unknown root or nested fields fail with the source path, exact
+property path, and running schema identity. The former runtime-mode YAML reader
+and the test-only App-to-Orchestrator preset bridge have been deleted. Agent
+`count`, team `workflow`, and team `qualityGates` are not app configuration;
+the strict schema rejects them. App `channels`, `memory`, `router.rules`,
+`eval`, and `toolSelection` are also retired: Gateway app bindings own channel
+topology, runtime owns its memory stores and authority contracts, evaluation is
+an explicit Eval API workflow, and App routing retains only the consumed
+`router.fallback` team selection.
+
+Secret material is not valid app intent. `provider.apiKeyEnv` stores an
+environment-variable name. Every `billing.headers` value must be a `$NAME`
+environment reference and is resolved only in memory. All app fields currently
+activate at `restart-required` through the App Gateway supervisor.
+
+General app authoring remains explicit. The supported cron add/remove commands
+are the only shared writer: Core validates the existing document, mutates only
+the `triggers` YAML AST, validates the result, and preserves unrelated comments
+and presentation instead of serializing the whole app as a generic object.
+
 ## What This File Is For
 
 Use `app.yaml` documentation when you need to understand the currently supported
 runtime configuration surface:
 
-- routing and execution declarations
-- memory configuration
+- fallback routing and execution declarations
 - voice configuration
 - safety and tool configuration
-- channel and trigger wiring
-- evaluation and model-routing settings
+- trigger wiring
+- provider and runtime model settings
 
 Do not use `app.yaml` as the primary way to infer what Kiln fundamentally is.
 
@@ -34,24 +66,30 @@ Do not use `app.yaml` as the primary way to infer what Kiln fundamentally is.
 The configuration model still reflects earlier generations of Kiln in places:
 
 - team-centric execution structure
-- workflow and gate declarations
 - capability lists
 - app-first configuration language
 
 Those concepts may still exist in the running product, but they should be read
 as implementation-era structures, not as the final architectural vocabulary.
+Slice 9 is continuing with a property-by-property reachability decision: a
+declared field is retained only when a runtime consumer is demonstrated or
+completed in the same bounded change.
 
 ## Canonical Crosswalk
 
 When reading configuration, reinterpret it through the current architecture:
 
-- routing declarations map to admission and allocation concerns
-- workflow and gates map to governed execution flows
+- `router.fallback` maps to the App Gateway's fallback team selection
 - tool and permission declarations map to safety and tool-execution concerns
-- memory blocks map to layered memory and context governance
 - voice blocks map to the shared voice capability, multimodal transform, and
   artifact evidence model
 - model routing maps to control and adaptation policy, not product identity
+
+Workflow phases and verification gates belong to their execution and project
+configuration owners. They are not inferred from an app team.
+Channel exposure belongs to each `gateway.yaml` app binding. Memory storage and
+model-facing memory authority remain under their runtime and permission owners;
+`app.yaml` does not configure either concern.
 
 Relevant architecture docs:
 

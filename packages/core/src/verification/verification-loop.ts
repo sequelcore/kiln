@@ -1,6 +1,6 @@
 import type { EventBus } from "../events/event-bus.js";
 import type { VerificationResultEvent } from "../events/index.js";
-import type { QualityGate } from "../engine/composites/team.js";
+import type { QualityGate } from "../engine/domain/quality-gate.js";
 import type { VerificationCheck, VerificationResult, VerificationConfig } from "./index.js";
 import { checkCoverage } from "./coverage-parser.js";
 

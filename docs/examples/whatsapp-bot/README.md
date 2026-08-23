@@ -82,7 +82,7 @@ whatsapp-bot/
 ├── gateway.yaml         # Gateway config
 ├── apps/
 │   └── my-shop/
-│       └── app.yaml     # Agent definition (model, memory, team)
+│       └── app.yaml     # Agent definition (model and team)
 ├── tenant-example.json  # Example tenant config (copy to ~/.kiln/gateway/)
 ├── .env.example         # Required environment variables
 └── package.json
@@ -109,6 +109,7 @@ model from the current model-routing guide or the provider discovery surface.
 
 **Add more businesses:** Create another tenant JSON in `~/.kiln/gateway/my-shop/tenants/`. Each tenant gets isolated governed memory, its own system prompt, and WhatsApp credentials. One gateway process serves all of them.
 
-**Disable memory:** Remove the `memory:` block from `app.yaml`. The bot still works but won't remember past conversations.
+Memory storage is a Gateway runtime concern. Model-facing memory authority is
+configured through the canonical permission profiles, not `app.yaml`.
 
 **Disable owner notifications:** Remove `escalationContact` from the tenant JSON. The bot will still capture appointment details but won't notify anyone.

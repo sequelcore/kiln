@@ -1,23 +1,10 @@
 // Engine type: ObservabilityConfig -- optional top-level OTel observability configuration for gateway.yaml
 
 import type { GatewayValidationError } from "./gateway-config.js";
+import type { ObservabilityConfig, ObservabilityExporter } from "./gateway-config-schema.js";
 
-/** Supported OTel exporter backends */
-export type ObservabilityExporter = "otlp" | "console" | "none";
-
-/** Top-level observability configuration for gateway.yaml */
-export interface ObservabilityConfig {
-    /** Whether observability is active. Defaults to true when the block is present. */
-    readonly enabled: boolean;
-    /** Which exporter to use: otlp (OTLP/HTTP), console (stdout), or none (disable). */
-    readonly exporter: ObservabilityExporter;
-    /** OTLP collector endpoint. Required when exporter is "otlp". */
-    readonly endpoint?: string;
-    /** Service name reported to the OTel backend. */
-    readonly serviceName: string;
-    /** Optional custom resource attributes attached to all spans. */
-    readonly attributes?: Record<string, string>;
-}
+/** Schema-derived gateway observability configuration and exporter types. */
+export type { ObservabilityConfig, ObservabilityExporter } from "./gateway-config-schema.js";
 
 /** Validate an ObservabilityConfig. Returns array of errors; empty means valid. */
 export function validateObservabilityConfig(config: ObservabilityConfig): GatewayValidationError[] {

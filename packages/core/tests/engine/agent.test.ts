@@ -26,18 +26,12 @@ describe("Agent interface", () => {
       tools: ["code", "test", "lint"],
       backstory: "Detail-oriented developer who questions vague requirements.",
       instructions: "Always add tests for new features.",
-      structured: false,
-      count: 2,
-      sandbox: true,
     };
     expect(agent.name).toBe("Marcus");
     expect(agent.role).toBe("Implementation Specialist");
     expect(agent.goal).toBe("Write clean, well-tested code");
     expect(agent.backstory).toBe("Detail-oriented developer who questions vague requirements.");
     expect(agent.instructions).toBe("Always add tests for new features.");
-    expect(agent.count).toBe(2);
-    expect(agent.sandbox).toBe(true);
-    expect(agent.structured).toBe(false);
     expect(agent.tools).toHaveLength(3);
   });
 

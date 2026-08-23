@@ -60,12 +60,7 @@ function readAppYaml(dir: string): RawAppYaml {
 }
 
 const BASE_APP_YAML = `name: test-app
-channels: [cli]
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 router:
-  rules: []
   fallback: main
 teams:
   main:
@@ -76,11 +71,7 @@ teams:
         goal: Execute tasks
         tier: coding
         tools: []
-    workflow:
-      phases: [work]
-      gates: {}
     capabilities: []
-    qualityGates: []
 `;
 
 describe("cronCommand", () => {

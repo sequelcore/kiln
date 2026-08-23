@@ -226,6 +226,21 @@ export type {
   ModelGatewayVirtualModelConfig,
 } from "./engine/gateway/gateway-config.js";
 export { validateGatewayConfig } from "./engine/gateway/gateway-config.js";
+export {
+  GATEWAY_CONFIG_FIELD_DESCRIPTORS,
+  GATEWAY_CONFIG_SCHEMA,
+  GATEWAY_CONFIG_SCHEMA_ID,
+  GATEWAY_CONFIG_SCHEMA_REVISION,
+  describeRunningGatewayConfigSchema,
+  parseGatewayConfigStructure,
+  serializeGatewayConfigDescriptors,
+  serializeGatewayConfigEditorSchema,
+} from "./engine/gateway/gateway-config-schema.js";
+export type {
+  GatewayConfigFieldDescriptor,
+  GatewayConfigStructuralAdmission,
+  GatewayConfigStructuralError,
+} from "./engine/gateway/gateway-config-schema.js";
 export { GatewayLoaderError, parseGatewayYaml } from "./engine/gateway/gateway-loader.js";
 export type { ObservabilityConfig, ObservabilityExporter } from "./engine/gateway/observability-config.js";
 export { validateObservabilityConfig } from "./engine/gateway/observability-config.js";
@@ -235,11 +250,8 @@ export type { GatewayMcpConfig, GatewayMcpAuthConfig, GatewayMcpValidationError 
 export { validateGatewayMcpConfig } from "./engine/gateway/mcp-config.js";
 
 // App loader re-exported for direct access by runtime gateway
-export type { App, MemoryConfig, AppValidationError } from "./engine/composites/app.js";
+export type { App, AppValidationError } from "./engine/composites/app.js";
 export { AppLoaderError, parseAppYaml, validateAppGraph } from "./engine/loader/app-loader.js";
-
-// Preset loader re-exported for direct access by tests and tooling
-export { PresetLoaderError, loadPresetConfig } from "./engine/loader/preset-loader.js";
 
 // Runtime-mode config re-exported for direct access by the runtime gateway
 export type {
@@ -252,7 +264,25 @@ export type {
   RuntimeModeValidationError,
 } from "./engine/gateway/runtime-mode-config.js";
 export { validateRuntimeModeConfig } from "./engine/gateway/runtime-mode-config.js";
-export { RuntimeModeLoaderError, parseRuntimeModeConfig } from "./engine/gateway/runtime-mode-loader.js";
+export { mapRuntimeModeConfig } from "./engine/gateway/runtime-mode-config.js";
+export {
+  APP_CONFIG_FIELD_DESCRIPTORS,
+  APP_CONFIG_SCHEMA,
+  APP_CONFIG_SCHEMA_ID,
+  APP_CONFIG_SCHEMA_REVISION,
+  describeRunningAppConfigSchema,
+  parseAppConfigStructure,
+  serializeAppConfigDescriptors,
+  serializeAppConfigEditorSchema,
+} from "./engine/loader/app-config-schema.js";
+export { addAppScheduleTrigger, removeAppScheduleTrigger } from "./engine/loader/app-config-mutation.js";
+export type { AppConfigMutationResult, AppScheduleTriggerInput } from "./engine/loader/app-config-mutation.js";
+export type {
+  AppConfigDocument,
+  AppConfigFieldDescriptor,
+  AppConfigStructuralAdmission,
+  AppConfigStructuralError,
+} from "./engine/loader/app-config-schema.js";
 
 // Delegation types re-exported for direct access by runtime gateway
 export type {
@@ -315,14 +345,6 @@ export type {
   McpValidationError,
 } from "./engine/domain/mcp-config.js";
 export { validateMcpConfig } from "./engine/domain/mcp-config.js";
-
-// Tool selection types re-exported for direct access
-export type {
-  ToolSelectionConfig,
-  ToolSelectionStrategy,
-  ToolSelectionValidationError,
-} from "./engine/domain/tool-selection-config.js";
-export { validateToolSelectionConfig } from "./engine/domain/tool-selection-config.js";
 
 // Safety config types re-exported for direct access by runtime
 export type {

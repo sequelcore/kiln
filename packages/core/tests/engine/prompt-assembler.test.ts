@@ -294,9 +294,6 @@ describe("assembleAgentPrompt", () => {
         instructions: "Flag any eval() usage.",
         tier: "reasoning",
         tools: ["verify"],
-        structured: true,
-        count: 1,
-        sandbox: true,
       });
       const prompt = assembleAgentPrompt(agent);
       expect(prompt).toContain("You are Dr. Voss, Security Reviewer");

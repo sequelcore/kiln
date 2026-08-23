@@ -17,9 +17,7 @@ function makeTeam(overrides: Partial<Team> = {}): Team {
       worker: { name: "Marcus", role: "Coder", goal: "Write code", tier: "coding", tools: [] },
       reviewer: { name: "Zoe", role: "Reviewer", goal: "Review code", tier: "fast", tools: [] },
     },
-    workflow: { phases: ["implement"], gates: {} },
     capabilities: [],
-    qualityGates: [],
     ...overrides,
   };
 }

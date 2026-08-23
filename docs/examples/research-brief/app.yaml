@@ -2,15 +2,11 @@ name: research-brief
 
 runtime: provider-adapter
 
-channels: [web, api]
 
 provider:
   name: codex-oauth
   model: gpt-5.6-luna
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 mcp:
   servers:
@@ -52,16 +48,18 @@ teams:
           - mcp:research-tools:tool:read_source
           - mcp:research-tools:tool:save_brief
 
-    workflow:
-      phases: [respond]
-
     capabilities:
       - name: search_sources
         description: Search the local source catalog by topic or keyword
         tags: [research, sources]
-        annotations:
-          readOnly: true
-          cacheTtl: 60
+        effectEnvelope:
+          operation: observe
+          boundaries: [external-system]
+          reversibility: reversible
+          dataEgress: metadata
+          identityUse: authenticated
+          consequences: []
+          idempotency: idempotent
         schema:
           type: object
           properties:
@@ -73,9 +71,14 @@ teams:
       - name: read_source
         description: Read one source record by ID
         tags: [research, sources]
-        annotations:
-          readOnly: true
-          cacheTtl: 300
+        effectEnvelope:
+          operation: observe
+          boundaries: [external-system]
+          reversibility: reversible
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: []
+          idempotency: idempotent
         schema:
           type: object
           properties:
@@ -87,8 +90,14 @@ teams:
       - name: save_brief
         description: Store a generated brief draft for later review
         tags: [research, drafts]
-        annotations:
-          destructive: true
+        effectEnvelope:
+          operation: mutate
+          boundaries: [external-system]
+          reversibility: compensatable
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: [external-state]
+          idempotency: conditionally-idempotent
         schema:
           type: object
           properties:
@@ -104,5 +113,3 @@ teams:
                 type: string
               description: Source IDs cited by the brief
           required: [topic, summary, citations]
-
-    qualityGates: []

@@ -1,24 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { parseGatewayYaml } from "@kilnai/core/engine";
 import { resolveApps } from "../../src/gateway/app-resolver.js";
+import { readGatewayConfigurationSource } from "../../src/gateway/gateway-configuration-source.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const fixturesDir = join(__dirname, "fixtures");
 
-function loadGatewayConfig() {
-  const content = readFileSync(join(fixturesDir, "gateway.yaml"), "utf-8");
-  return parseGatewayYaml(content);
+function loadGatewaySource() {
+  return readGatewayConfigurationSource(join(fixturesDir, "gateway.yaml"));
 }
 
 describe("resolveApps", () => {
   it("resolves relative config paths correctly", () => {
-    const config = loadGatewayConfig();
-    const resolved = resolveApps(config, fixturesDir);
+    const resolved = resolveApps(loadGatewaySource());
 
     expect(resolved).toHaveLength(2);
     expect(resolved[0]!.name).toBe("test-app-a");
@@ -28,8 +26,7 @@ describe("resolveApps", () => {
   });
 
   it("computes memory base paths with app name prefix", () => {
-    const config = loadGatewayConfig();
-    const resolved = resolveApps(config, fixturesDir);
+    const resolved = resolveApps(loadGatewaySource());
 
     const expectedBase = join(homedir(), ".kiln", "gateway");
     expect(resolved[0]!.memoryBasePath).toBe(join(expectedBase, "test-app-a"));
@@ -37,8 +34,7 @@ describe("resolveApps", () => {
   });
 
   it("includes binding information for each resolved app", () => {
-    const config = loadGatewayConfig();
-    const resolved = resolveApps(config, fixturesDir);
+    const resolved = resolveApps(loadGatewaySource());
 
     expect(resolved[0]!.binding.name).toBe("test-app-a");
     expect(resolved[0]!.binding.config).toBe("apps/app-a.yaml");
@@ -46,20 +42,14 @@ describe("resolveApps", () => {
   });
 
   it("throws on missing App YAML file", () => {
-    const config = {
-      port: 4800,
-      apps: [
-        {
-          name: "missing-app",
-          config: "apps/does-not-exist.yaml",
-          channels: [{ type: "api", path: "/api/missing" }],
-        },
-      ],
-    };
-
-    expect(() => resolveApps(config, fixturesDir)).toThrow(
-      "Failed to load App config at apps/does-not-exist.yaml: file not found",
-    );
+    const sourcePath = join(fixturesDir, "tmp", "missing-gateway.yaml");
+    mkdirSync(dirname(sourcePath), { recursive: true });
+    try {
+      writeFileSync(sourcePath, "port: 4800\napps:\n  - name: missing-app\n    config: does-not-exist.yaml\n    channels:\n      - type: api\n        path: /api/missing\n");
+      expect(() => readGatewayConfigurationSource(sourcePath)).toThrow("App 'missing-app' configuration file not found");
+    } finally {
+      rmSync(sourcePath, { force: true });
+    }
   });
 
   it("throws on invalid App YAML content", () => {
@@ -72,23 +62,17 @@ describe("resolveApps", () => {
     const badYamlPath = join(tmpDir, "bad-app.yaml");
     writeFileSync(badYamlPath, "this: is: not: valid: yaml: content: [unclosed");
 
-    const config = {
-      port: 4800,
-      apps: [
-        {
-          name: "bad-app",
-          config: "tmp/bad-app.yaml",
-          channels: [{ type: "api", path: "/api/bad" }],
-        },
-      ],
-    };
-
-    expect(() => resolveApps(config, fixturesDir)).toThrow("Failed to parse App config at tmp/bad-app.yaml");
+    const gatewayPath = join(tmpDir, "bad-gateway.yaml");
+    try {
+      writeFileSync(gatewayPath, "port: 4800\napps:\n  - name: bad-app\n    config: bad-app.yaml\n    channels:\n      - type: api\n        path: /api/bad\n");
+      expect(() => resolveApps(readGatewayConfigurationSource(gatewayPath))).toThrow(`Failed to parse App config at ${badYamlPath}`);
+    } finally {
+      rmSync(gatewayPath, { force: true });
+    }
   });
 
   it("resolves multiple apps independently", () => {
-    const config = loadGatewayConfig();
-    const resolved = resolveApps(config, fixturesDir);
+    const resolved = resolveApps(loadGatewaySource());
 
     // Each app is independent -- different names, different apps, different memory paths
     expect(resolved[0]!.name).not.toBe(resolved[1]!.name);

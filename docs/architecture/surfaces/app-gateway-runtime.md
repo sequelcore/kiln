@@ -39,9 +39,16 @@ App Gateway, app, and tenant without guessing from display labels or URLs.
 The initial attach path is:
 
 ```bash
-kiln gateway --config ./gateway.yaml --port 3800
+kiln gateway start --config ./gateway.yaml --port 3800
 kiln gui --connect http://localhost:3800
 ```
+
+The project-local App Gateway supervisor owns process identity, the exact
+`gateway.yaml` plus bound App source revision, authenticated loopback control,
+and restart read-back. Restart first stops new admission, gives in-flight work
+a bounded drain interval, and only then uses forced process termination as a
+recovery fallback. `kiln gateway serve` remains the explicit foreground
+development path.
 
 `/gui/api/dashboard` publishes app descriptors, active app/tenant selection,
 and `operatorWorkspaceHome`. `/gui/ws` carries runtime operator frames.

@@ -166,7 +166,7 @@ export type {
   ResolvedCredential,
 } from "./domain/integration.js";
 export type { RateLimitConfig, RateLimitResult, RateLimiter } from "./domain/rate-limiter.js";
-export type { Workflow, Gate } from "./domain/workflow.js";
+export type { QualityGate } from "./domain/quality-gate.js";
 export type { Memory, MemoryScope, MemoryEntry } from "./domain/memory.js";
 export type { Task, TaskStatus, TreeAction } from "./domain/task.js";
 export type {
@@ -178,11 +178,11 @@ export type {
 } from "./domain/channel.js";
 
 // Engine composites -- 3 composition types (Phase 16)
-export type { Team, TeamMode, QualityGate, TeamValidationError } from "./composites/team.js";
+export type { Team, TeamMode, TeamValidationError } from "./composites/team.js";
 export { validateTeam } from "./composites/team.js";
-export type { Router, PatternRule, RouterValidationError } from "./composites/router.js";
+export type { Router, RouterValidationError } from "./composites/router.js";
 export { validateRouter } from "./composites/router.js";
-export type { App, MemoryConfig, AppValidationError } from "./composites/app.js";
+export type { App, AppValidationError } from "./composites/app.js";
 export { validateApp } from "./composites/app.js";
 
 // Engine loader -- YAML -> typed composites (Phase 16)
@@ -194,9 +194,6 @@ export type { OrchestratorConfig } from "./domain/orchestrator-config.js";
 // Model routing -- shared interfaces in engine domain
 export type { ModelRouter, RoutingRequest, RoutingDecision } from "./domain/model-router.js";
 export type { UserContext } from "./domain/user-context.js";
-
-// Preset loader -- App -> OrchestratorConfig (Phase 17)
-export { PresetLoaderError, loadPresetConfig } from "./loader/preset-loader.js";
 
 // Gateway -- multi-app hosting (Phase 22)
 export type {
@@ -210,6 +207,21 @@ export type {
   ModelGatewayVirtualModelConfig,
 } from "./gateway/gateway-config.js";
 export { validateGatewayConfig } from "./gateway/gateway-config.js";
+export {
+  GATEWAY_CONFIG_FIELD_DESCRIPTORS,
+  GATEWAY_CONFIG_SCHEMA,
+  GATEWAY_CONFIG_SCHEMA_ID,
+  GATEWAY_CONFIG_SCHEMA_REVISION,
+  describeRunningGatewayConfigSchema,
+  parseGatewayConfigStructure,
+  serializeGatewayConfigDescriptors,
+  serializeGatewayConfigEditorSchema,
+} from "./gateway/gateway-config-schema.js";
+export type {
+  GatewayConfigFieldDescriptor,
+  GatewayConfigStructuralAdmission,
+  GatewayConfigStructuralError,
+} from "./gateway/gateway-config-schema.js";
 export { GatewayLoaderError, parseGatewayYaml } from "./gateway/gateway-loader.js";
 
 // MCP server config (Phase 28)
@@ -232,7 +244,26 @@ export type {
   RuntimeModeValidationError,
 } from "./gateway/runtime-mode-config.js";
 export { validateRuntimeModeConfig } from "./gateway/runtime-mode-config.js";
-export { RuntimeModeLoaderError, parseRuntimeModeConfig } from "./gateway/runtime-mode-loader.js";
+export { mapRuntimeModeConfig } from "./gateway/runtime-mode-config.js";
+
+export {
+  APP_CONFIG_FIELD_DESCRIPTORS,
+  APP_CONFIG_SCHEMA,
+  APP_CONFIG_SCHEMA_ID,
+  APP_CONFIG_SCHEMA_REVISION,
+  describeRunningAppConfigSchema,
+  parseAppConfigStructure,
+  serializeAppConfigDescriptors,
+  serializeAppConfigEditorSchema,
+} from "./loader/app-config-schema.js";
+export { addAppScheduleTrigger, removeAppScheduleTrigger } from "./loader/app-config-mutation.js";
+export type { AppConfigMutationResult, AppScheduleTriggerInput } from "./loader/app-config-mutation.js";
+export type {
+  AppConfigDocument,
+  AppConfigFieldDescriptor,
+  AppConfigStructuralAdmission,
+  AppConfigStructuralError,
+} from "./loader/app-config-schema.js";
 
 // Delegation -- cross-app cognitive delegation (Phase 24)
 export type {

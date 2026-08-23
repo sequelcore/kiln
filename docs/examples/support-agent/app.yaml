@@ -2,15 +2,11 @@ name: support-agent
 
 runtime: provider-adapter
 
-channels: [web]
 
 provider:
   name: codex-oauth
   model: gpt-5.6-luna
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 mcp:
   servers:
@@ -48,9 +44,6 @@ teams:
           - mcp:support-tools:tool:get_account_info
           - mcp:support-tools:tool:create_support_ticket
 
-    workflow:
-      phases: [respond]
-
     capabilities:
       - name: check_order_status
         description: Look up the current status of a customer order by order ID
@@ -77,8 +70,14 @@ teams:
       - name: create_support_ticket
         description: Create a support ticket for issues that need follow-up
         tags: [support, tickets]
-        annotations:
-          destructive: true
+        effectEnvelope:
+          operation: mutate
+          boundaries: [external-system]
+          reversibility: compensatable
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: [external-state]
+          idempotency: conditionally-idempotent
         schema:
           type: object
           properties:
@@ -93,5 +92,3 @@ teams:
               type: string
               description: Full description of the issue and any relevant context
           required: [subject, priority, details]
-
-    qualityGates: []

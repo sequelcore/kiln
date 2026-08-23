@@ -1,6 +1,5 @@
 name: atendia
 runtime: provider-adapter
-channels: [api, whatsapp]
 
 provider:
   name: anthropic
@@ -11,12 +10,8 @@ billing:
   budgetEndpoint: https://api.example.com/users/{userId}/ai-budget
   overBudgetMessage: "Presupuesto agotado."
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: assistant
 
 teams:
@@ -25,8 +20,4 @@ teams:
       conversant:
         tier: fast
         tools: []
-    workflow:
-      phases: [understand, respond]
-      gates: {}
     capabilities: []
-    qualityGates: []

@@ -84,12 +84,12 @@ export async function devCommand(_appConfig: KilnAppConfig, flags: DevFlags = {}
   }
 
   try {
-    const { startGateway } = await import("@kilnai/runtime");
+    const { readGatewayConfigurationSource, startGateway } = await import("@kilnai/runtime");
     const mcp = loadResolvedKilnMcpConfiguration(root);
     if (mcp.diagnostics.length > 0) {
       throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
     }
-    const appGatewayExecution = gatewayRequiresAppGatewayExecution(plan.gatewayPath)
+    const appGatewayExecution = gatewayRequiresAppGatewayExecution(readGatewayConfigurationSource(plan.gatewayPath))
       ? createAppGatewayExecutionComposition({ projectPath: root, configPath: plan.gatewayPath })
       : undefined;
     try {

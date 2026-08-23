@@ -1,6 +1,8 @@
 # Evaluation Framework
 
-The evaluation framework measures agent output quality against labeled datasets using configurable scorers. It is declared in the `eval` block of `app.yaml` and implemented by the canonical Core evaluation contracts.
+The evaluation framework measures agent output quality against labeled datasets
+using Core-owned datasets, scorers, runners, and result contracts. `app.yaml`
+does not configure evaluation; callers construct an evaluation run explicitly.
 
 Source: `packages/core/src/eval/`.
 
@@ -62,80 +64,52 @@ All LLM-as-judge scorers return a continuous score from 0.0 to 1.0 with a `reaso
 
 ### Composite Scorer
 
-`composite` averages the scores of a named list of sub-scorers. Sub-scorers must be declared in the same `scorers` array.
+`composite` averages the scores produced by its nested scorer configuration.
 
-```yaml
-scorers:
-  - name: quality
-    type: composite
-    scorers:
-      - name: context-faithfulness-check
-        type: faithfulness
-      - name: relevance-check
-        type: relevance
+```typescript
+const quality = createScorer({
+  name: "quality",
+  type: "composite",
+  scorers: [
+    { name: "context-faithfulness-check", type: "faithfulness" },
+    { name: "relevance-check", type: "relevance" },
+  ],
+}, judge);
 ```
 
-## YAML Configuration
+## Programmatic Configuration
 
-The `eval` block in `app.yaml` declares datasets, scorers, and experiments:
+Callers parse a dataset, construct scorers, and provide the production execution
+adapter explicitly:
 
-```yaml
-eval:
-  datasets:
-    - name: support-qa
-      path: ./evals/support-qa.jsonl
-    - name: support-qa-v2
-      path: ./evals/support-qa-v2.jsonl
+```typescript
+import { createScorer, ExperimentRunner, parseDatasetJsonl } from "@kilnai/core";
 
-  scorers:
-    - name: exact
-      type: exact-match
-    - name: response-contains-policy
-      type: contains
-      substrings: ["30-day", "refund"]
-    - name: context-grounded
-      type: faithfulness
-    - name: fast-response
-      type: latency
-      maxLatencyMs: 2000
-    - name: overall-quality
-      type: composite
-      scorers:
-        - name: context-grounded
-          type: faithfulness
-        - name: relevant
-          type: relevance
-    - name: custom-eval
-      type: custom-prompt
-      prompt: |
-        Rate whether the following answer is accurate and helpful (0-1).
-        Question: {input}
-        Answer: {output}
-        Expected: {expected}
-        Respond with SCORE: <number> and REASONING: <explanation>
+const dataset = parseDatasetJsonl("support-qa", datasetJsonl);
+const scorers = [
+  createScorer({ name: "exact", type: "exact-match" }),
+  createScorer({
+    name: "response-contains-policy",
+    type: "contains",
+    substrings: ["30-day", "refund"],
+  }),
+];
 
-  experiments:
-    - name: baseline
-      dataset: support-qa
-      team: support-team
-      scorers: [exact, context-grounded, fast-response]
-
-    - name: improved
-      dataset: support-qa-v2
-      team: support-team
-      scorers: [exact, context-grounded, fast-response, overall-quality]
-      compare: baseline
-      overrides:
-        model: claude-sonnet-4-6
+const experiment = await new ExperimentRunner({
+  dataset,
+  scorers,
+  experimentName: "baseline",
+  generateOutput: runProductionEvaluationTurn,
+}).run();
 ```
 
 ## Experiment Runner
 
-`ExperimentRunner` generates outputs for each dataset item by calling the target team, then scores each output independently with every declared scorer.
+`ExperimentRunner` generates outputs for each dataset item through the caller's
+`generateOutput` adapter, then scores each output independently with every
+configured scorer.
 
 **Per-scorer error isolation:** If one scorer throws, its result is recorded as `score: 0` with the error message in `reasoning`. Other scorers in the same run are not affected.
-
-**Overrides:** The `overrides` field on an experiment accepts arbitrary key-value pairs passed to the team at run time (e.g., substitute a different model without changing the App YAML).
 
 Each `ExperimentResult` contains:
 - `itemId`: dataset item ID
@@ -146,20 +120,11 @@ Each `ExperimentResult` contains:
 
 ## Experiment Comparator
 
-The `compare` field names another experiment for side-by-side comparison. `compareExperiments()` produces a diff across all shared scorer names.
+`compareExperiments()` accepts two completed experiments and produces a diff
+across all shared scorer names.
 
-```yaml
-experiments:
-  - name: baseline
-    dataset: support-qa
-    team: support-team
-    scorers: [context-grounded, relevant]
-
-  - name: v2
-    dataset: support-qa
-    team: support-team
-    scorers: [context-grounded, relevant]
-    compare: baseline
+```typescript
+const comparison = compareExperiments(baseline, candidate);
 ```
 
 `compareExperiments()` returns scorer-level baseline, candidate, and delta data.
@@ -395,23 +360,3 @@ A built-in adversarial dataset at `packages/core/evals/safety-adversarial.jsonl`
 | Benign Controls | 18 | Normal questions, educational content, false positives |
 
 Each item has `metadata.category` and `metadata.subcategory` for filtering.
-
-## Validation Rules
-
-`validateEvalConfig()` enforces:
-
-- `datasets`, `scorers`, and `experiments` arrays must all be non-empty.
-- Dataset names must be unique across the `datasets` array.
-- Scorer names must be unique across the `scorers` array.
-- `composite` scorers must have a non-empty `scorers` sub-array.
-- `custom-prompt` scorers must have a non-empty `prompt` string.
-- `contains` scorers must have a non-empty `substrings` array.
-- `policy-adherence` scorers must have a non-empty `policies` array.
-- `length.minLength` must be less than `length.maxLength`.
-- `latency.maxLatencyMs` and `cost.maxCostUsd` must be greater than 0.
-- Each experiment's `dataset` must reference an existing dataset name.
-- Each scorer name in `experiment.scorers` must reference an existing scorer name.
-- `experiment.compare` cannot reference itself.
-- Circular `compare` chains are detected and rejected.
-
-All errors are collected before throwing, so the operator sees every problem in one pass.

@@ -1,30 +1,10 @@
 // Engine type: GatewayMcpConfig -- gateway-level MCP server configuration
 // Domain types only -- no external dependencies
 
-/** Authentication type for the MCP server endpoint */
-export type McpAuthType = "api-key" | "none";
+import type { GatewayMcpConfig, McpAuthType } from "./gateway-config-schema.js";
 
-/** Authentication configuration for the MCP server */
-export interface GatewayMcpAuthConfig {
-  readonly type: McpAuthType;
-  /** Required when type is "api-key": env var name containing the API key */
-  readonly keyEnv?: string;
-}
-
-/**
- * Gateway-level MCP server configuration.
- * Loaded from the `mcp` block in gateway.yaml.
- *
- * Exposes governed gateway capabilities (cost, safety, evaluation, and coordination)
- * as MCP tools for external agents (Claude Code, Codex CLI, etc.).
- */
-export interface GatewayMcpConfig {
-  readonly enabled: boolean;
-  /** URL path where the MCP server listens (default: "/mcp") */
-  readonly path?: string;
-  /** Optional authentication for the MCP endpoint */
-  readonly auth?: GatewayMcpAuthConfig;
-}
+/** Schema-derived gateway MCP configuration and authentication types. */
+export type { GatewayMcpAuthConfig, GatewayMcpConfig, McpAuthType } from "./gateway-config-schema.js";
 
 /** Validation error for MCP configuration */
 export interface GatewayMcpValidationError {

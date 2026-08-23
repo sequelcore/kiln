@@ -1,7 +1,7 @@
-// createScorer: creates a Scorer instance from YAML config
+// createScorer: creates a Scorer instance from Eval-owned configuration
 
 import type { Scorer, ScorerLLM } from "./types.js";
-import type { EvalScorerConfig } from "../engine/domain/eval-config.js";
+import type { EvalScorerConfig } from "./scorer-config.js";
 import { KilnError } from "../engine/errors.js";
 import { ExactMatchScorer } from "./scorers/exact-match-scorer.js";
 import { ContainsScorer } from "./scorers/contains-scorer.js";

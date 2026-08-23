@@ -1,6 +1,7 @@
 // Eval bounded context -- evaluation framework
 
 export type { EvalInput, EvalScore, Scorer, ScorerLLM, DatasetItem, Dataset, ExperimentTokenUsage, ExperimentTrial, ExperimentResult, Experiment } from "./types.js";
+export type { EvalScorerConfig, EvalScorerType } from "./scorer-config.js";
 export { ExactMatchScorer } from "./scorers/exact-match-scorer.js";
 export { ContainsScorer } from "./scorers/contains-scorer.js";
 export { JsonValidityScorer } from "./scorers/json-validity-scorer.js";

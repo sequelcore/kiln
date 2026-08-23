@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAppYaml, validateAppGraph, validateApp, loadPresetConfig } from "../../src/engine/index.js";
+import { parseAppYaml, validateAppGraph, validateApp } from "../../src/engine/index.js";
 
 const PRESET_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -30,23 +30,6 @@ describe("ehrlich.yaml preset", () => {
     expect(validateApp(app)).toEqual([]);
   });
 
-  it("has correct channels", () => {
-    const app = loadEhrlichPreset();
-    expect(app.channels).toEqual(["web", "api"]);
-  });
-
-  it("has memory config with 5 scopes and postgresql backend", () => {
-    const app = loadEhrlichPreset();
-    expect(app.memory.scopes).toHaveLength(5);
-    expect(app.memory.scopes).toContain("user");
-    expect(app.memory.scopes).toContain("agent:director");
-    expect(app.memory.scopes).toContain("agent:researcher");
-    expect(app.memory.scopes).toContain("agent:summarizer");
-    expect(app.memory.scopes).toContain("project:default");
-    expect(app.memory.backend).toBe("postgresql");
-    expect(app.memory.sync).toBeUndefined();
-  });
-
   it("has one team: investigation", () => {
     const app = loadEhrlichPreset();
     expect(Object.keys(app.teams)).toEqual(["investigation"]);
@@ -55,7 +38,6 @@ describe("ehrlich.yaml preset", () => {
   it("has router with fallback to investigation", () => {
     const app = loadEhrlichPreset();
     expect(app.router.fallback).toBe("investigation");
-    expect(app.router.rules).toHaveLength(0);
   });
 
   describe("investigation team", () => {
@@ -72,15 +54,12 @@ describe("ehrlich.yaml preset", () => {
       const director = loadEhrlichPreset().teams["investigation"]!.agents["director"]!;
       expect(director.tier).toBe("reasoning");
       expect(director.tools).toEqual([]);
-      expect(director.structured).toBe(true);
     });
 
-    it("researcher is coding tier with 13 tools, count 2, sandboxed", () => {
+    it("researcher is coding tier with 13 tools", () => {
       const researcher = loadEhrlichPreset().teams["investigation"]!.agents["researcher"]!;
       expect(researcher.tier).toBe("coding");
       expect(researcher.tools).toHaveLength(13);
-      expect(researcher.count).toBe(2);
-      expect(researcher.sandbox).toBe(true);
     });
 
     it("researcher has investigation + literature + statistics tools", () => {
@@ -109,20 +88,6 @@ describe("ehrlich.yaml preset", () => {
       expect(summarizer.tools).toContain("ehrlich_grade_evidence");
     });
 
-    it("has 6-phase scientific workflow", () => {
-      const team = loadEhrlichPreset().teams["investigation"]!;
-      expect(team.workflow.phases).toEqual([
-        "classification", "literature", "formulation", "testing", "controls", "synthesis",
-      ]);
-    });
-
-    it("has gates on formulation, testing, and synthesis phases", () => {
-      const gates = loadEhrlichPreset().teams["investigation"]!.workflow.gates;
-      expect(gates["formulation"]!.requires).toContain("human_approval");
-      expect(gates["testing"]!.requires).toContain("hypotheses_approved");
-      expect(gates["synthesis"]!.requires).toContain("evidence_graded");
-    });
-
     it("has 20 capabilities", () => {
       const team = loadEhrlichPreset().teams["investigation"]!;
       expect(team.capabilities).toHaveLength(20);
@@ -141,15 +106,6 @@ describe("ehrlich.yaml preset", () => {
       expect(allTags).toContain("cost");
     });
 
-    it("has 3 quality gates", () => {
-      const team = loadEhrlichPreset().teams["investigation"]!;
-      expect(team.qualityGates).toHaveLength(3);
-      const names = team.qualityGates.map((g) => g.name);
-      expect(names).toContain("evidence_threshold");
-      expect(names).toContain("reproducibility_check");
-      expect(names).toContain("bias_assessment");
-    });
-
     it("all agent tool refs exist in capabilities", () => {
       const team = loadEhrlichPreset().teams["investigation"]!;
       const capNames = new Set(team.capabilities.map((c) => c.name));
@@ -161,32 +117,4 @@ describe("ehrlich.yaml preset", () => {
     });
   });
 
-  describe("preset loader integration", () => {
-    it("produces OrchestratorConfig from ehrlich preset", () => {
-      const app = loadEhrlichPreset();
-      const config = loadPresetConfig(app);
-      expect(config.phases).toEqual([
-        "classification", "literature", "formulation", "testing", "controls", "synthesis",
-      ]);
-    });
-
-    it("approval gate is after formulation phase", () => {
-      const app = loadEhrlichPreset();
-      const config = loadPresetConfig(app);
-      expect(config.requireApproval).toBe(true);
-      expect(config.approvalAfterPhase).toBe("formulation");
-    });
-
-    it("has 2 parallel workers from researcher count", () => {
-      const app = loadEhrlichPreset();
-      const config = loadPresetConfig(app);
-      expect(config.parallelWorkers).toBe(2);
-    });
-
-    it("has maxIterations of 3", () => {
-      const app = loadEhrlichPreset();
-      const config = loadPresetConfig(app);
-      expect(config.maxIterations).toBe(3);
-    });
-  });
 });

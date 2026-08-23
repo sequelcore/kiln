@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAppYaml, validateAppGraph, validateApp, loadPresetConfig } from "../../src/engine/index.js";
+import { parseAppYaml, validateAppGraph, validateApp } from "../../src/engine/index.js";
 
 const PRESET_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -30,32 +30,14 @@ describe("artu.yaml preset", () => {
     expect(validateApp(app)).toEqual([]);
   });
 
-  it("has correct channels", () => {
-    const app = loadArtuPreset();
-    expect(app.channels).toEqual(["api", "websocket", "cli"]);
-  });
-
-  it("has memory config with 5 scopes and sqlite+fts5 backend, no sync", () => {
-    const app = loadArtuPreset();
-    expect(app.memory.scopes).toHaveLength(5);
-    expect(app.memory.scopes).toContain("user");
-    expect(app.memory.scopes).toContain("agent:director");
-    expect(app.memory.scopes).toContain("agent:worker");
-    expect(app.memory.scopes).toContain("agent:optimizer");
-    expect(app.memory.scopes).toContain("project:default");
-    expect(app.memory.backend).toBe("sqlite+fts5");
-    expect(app.memory.sync).toBeUndefined();
-  });
-
   it("has one team: trading", () => {
     const app = loadArtuPreset();
     expect(Object.keys(app.teams)).toEqual(["trading"]);
   });
 
-  it("has router with fallback to trading, no rules", () => {
+  it("has router with fallback to trading", () => {
     const app = loadArtuPreset();
     expect(app.router.fallback).toBe("trading");
-    expect(app.router.rules).toHaveLength(0);
   });
 
   describe("trading team", () => {
@@ -72,15 +54,12 @@ describe("artu.yaml preset", () => {
       const director = loadArtuPreset().teams["trading"]!.agents["director"]!;
       expect(director.tier).toBe("reasoning");
       expect(director.tools).toEqual([]);
-      expect(director.structured).toBe(true);
     });
 
-    it("worker is coding tier with 26 tools, count 2, sandboxed", () => {
+    it("worker is coding tier with 26 tools", () => {
       const worker = loadArtuPreset().teams["trading"]!.agents["worker"]!;
       expect(worker.tier).toBe("coding");
       expect(worker.tools).toHaveLength(26);
-      expect(worker.count).toBe(2);
-      expect(worker.sandbox).toBe(true);
     });
 
     it("worker has market + ml + regime + portfolio + execution + memory tools", () => {
@@ -126,20 +105,6 @@ describe("artu.yaml preset", () => {
       expect(optimizer.tools).toHaveLength(0);
     });
 
-    it("has 6-phase workflow: scan, analyze, thesis, allocate, rebalance, monitor", () => {
-      const team = loadArtuPreset().teams["trading"]!;
-      expect(team.workflow.phases).toEqual([
-        "scan", "analyze", "thesis", "allocate", "rebalance", "monitor",
-      ]);
-    });
-
-    it("has gates on thesis (human_approval), rebalance (directive_validated), monitor (positions_verified)", () => {
-      const gates = loadArtuPreset().teams["trading"]!.workflow.gates;
-      expect(gates["thesis"]!.requires).toContain("human_approval");
-      expect(gates["rebalance"]!.requires).toContain("directive_validated");
-      expect(gates["monitor"]!.requires).toContain("positions_verified");
-    });
-
     it("has 26 capabilities", () => {
       const team = loadArtuPreset().teams["trading"]!;
       expect(team.capabilities).toHaveLength(26);
@@ -154,15 +119,6 @@ describe("artu.yaml preset", () => {
       expect(allTags).toContain("portfolio");
       expect(allTags).toContain("execution");
       expect(allTags).toContain("memory");
-    });
-
-    it("has 3 quality gates: model_validation, paper_trading_metrics, directive_schema", () => {
-      const team = loadArtuPreset().teams["trading"]!;
-      expect(team.qualityGates).toHaveLength(3);
-      const names = team.qualityGates.map((g) => g.name);
-      expect(names).toContain("model_validation");
-      expect(names).toContain("paper_trading_metrics");
-      expect(names).toContain("directive_schema");
     });
 
     it("all agent tool refs exist in capabilities", () => {
@@ -199,32 +155,4 @@ describe("artu.yaml preset", () => {
     });
   });
 
-  describe("preset loader integration", () => {
-    it("produces OrchestratorConfig from artu preset", () => {
-      const app = loadArtuPreset();
-      const config = loadPresetConfig(app);
-      expect(config.phases).toEqual([
-        "scan", "analyze", "thesis", "allocate", "rebalance", "monitor",
-      ]);
-    });
-
-    it("approval gate is after thesis phase", () => {
-      const app = loadArtuPreset();
-      const config = loadPresetConfig(app);
-      expect(config.requireApproval).toBe(true);
-      expect(config.approvalAfterPhase).toBe("thesis");
-    });
-
-    it("has 2 parallel workers from worker count", () => {
-      const app = loadArtuPreset();
-      const config = loadPresetConfig(app);
-      expect(config.parallelWorkers).toBe(2);
-    });
-
-    it("has maxIterations of 3", () => {
-      const app = loadArtuPreset();
-      const config = loadPresetConfig(app);
-      expect(config.maxIterations).toBe(3);
-    });
-  });
 });

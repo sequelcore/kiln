@@ -2,15 +2,11 @@ name: booking
 
 runtime: provider-adapter
 
-channels: [web, api]
 
 provider:
   name: codex-oauth
   model: gpt-5.6-luna
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
   fallback: booking
@@ -29,8 +25,4 @@ teams:
         tier: fast
         tools: []
 
-    workflow:
-      phases: [respond]
-
     capabilities: []
-    qualityGates: []

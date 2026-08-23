@@ -1,106 +1,22 @@
-// Engine type: GatewayConfig -- multi-app gateway configuration
-// Declares which Apps to host and how they bind to channels
+// Semantic admission for the schema-owned GatewayConfig contract.
 
-import type { ObservabilityConfig } from "./observability-config.js";
-import type { GatewayAuthConfig } from "./auth-config.js";
-import type { GatewayMcpConfig } from "./mcp-config.js";
+import type {
+  GatewayConfig,
+  ModelGatewayCapabilityId,
+  ModelGatewayConfig,
+} from "./gateway-config-schema.js";
 
-/** Channel binding for a specific platform adapter */
-export interface GatewayChannelBinding {
-  readonly type: string;
-  readonly path?: string;
-  readonly phoneNumber?: string;
-  readonly botToken?: string;
-  readonly multiTenant?: boolean;
-  readonly verifyTokenEnv?: string;
-  readonly adminTokenEnv?: string;
-  readonly accessTokenEnv?: string;
-  readonly apiKeyEnv?: string;
-  readonly appSecretEnv?: string;
-  readonly publicMediaBaseUrlEnv?: string;
-  readonly publicMediaSigningSecretEnv?: string;
-  readonly allowedOrigins?: readonly string[];
-}
-
-/** App binding: name, config path, optional workspace, and channel bindings */
-export interface GatewayAppBinding {
-  readonly name: string;
-  readonly config: string;
-  readonly workspace?: string;
-  readonly channels: readonly GatewayChannelBinding[];
-}
-
-export type ModelGatewayCapabilityId =
-  | "text" | "input-image-url" | "input-image-base64" | "function-tools" | "custom-tools-lark"
-  | "parallel-tool-calls" | "json-schema-response" | "reasoning-controls" | "text-verbosity";
-
-export interface ModelGatewayPrincipalConfig {
-  readonly tokenEnv: string;
-  readonly ingress: "openai-responses" | "anthropic-messages";
-  readonly tenantId: string;
-  readonly applicationId: string;
-  readonly callerId: string;
-  readonly capabilityId: string;
-  readonly scopes: readonly string[];
-  readonly budgetEvidenceId: string;
-  readonly virtualModelIds: readonly string[];
-  readonly nativeHarness?: "codex" | "opencode" | "claude";
-}
-
-export interface ModelGatewayVirtualModelConfig {
-  readonly id: string;
-  readonly displayName?: string;
-  readonly contextTokens?: number;
-  readonly outputTokens?: number;
-  readonly baseInstructions?: string;
-  /** Canonical physical target owned by the global target catalog. */
-  readonly targetId: string;
-  readonly capabilities: readonly ModelGatewayCapabilityId[];
-  readonly deliberation?: {
-    readonly levels: readonly string[];
-    readonly defaultLevel?: string;
-    readonly supportsAdaptive: boolean;
-    readonly evidenceRevision: string;
-  };
-  readonly affinity: {
-    readonly continuity: "none" | "prefer" | "require";
-    readonly scope?: "session" | "turn";
-    readonly allowRebind?: boolean;
-  };
-}
-
-export interface ModelGatewayConfig {
-  readonly port: number;
-  readonly replay: { readonly ttlMs: number; readonly maxEntries: number; readonly hmacKeyEnv: string };
-  readonly principals: readonly ModelGatewayPrincipalConfig[];
-  readonly virtualModels: readonly ModelGatewayVirtualModelConfig[];
-  readonly surfaces: {
-    readonly openAIResponses?: ModelGatewayHttpSurfaceConfig;
-    readonly anthropicMessages?: ModelGatewayHttpSurfaceConfig;
-  };
-  /** Codex composite ingress policy; only meaningful with a native Codex principal. */
-  readonly codexComposite?: ModelGatewayCodexCompositeConfig;
-}
-
-export interface ModelGatewayCodexCompositeConfig {
-  readonly maxQueuedRequests: number;
-  readonly queueTimeoutMs: number;
-}
-
-export interface ModelGatewayHttpSurfaceConfig {
-  readonly maxBodyBytes: number;
-  readonly maxConcurrentRequests: number;
-}
-
-/** Top-level gateway configuration: port + multiple app bindings + optional observability + optional auth */
-export interface GatewayConfig {
-  readonly port: number;
-  readonly apps: readonly GatewayAppBinding[];
-  readonly observability?: ObservabilityConfig;
-  readonly auth?: GatewayAuthConfig;
-  readonly mcp?: GatewayMcpConfig;
-  readonly modelGateway?: ModelGatewayConfig;
-}
+export type {
+  GatewayAppBinding,
+  GatewayChannelBinding,
+  GatewayConfig,
+  ModelGatewayCapabilityId,
+  ModelGatewayCodexCompositeConfig,
+  ModelGatewayConfig,
+  ModelGatewayHttpSurfaceConfig,
+  ModelGatewayPrincipalConfig,
+  ModelGatewayVirtualModelConfig,
+} from "./gateway-config-schema.js";
 
 /** Validation error for gateway configuration */
 export interface GatewayValidationError {
@@ -179,10 +95,6 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const ENV = /^[A-Z_][A-Z0-9_]*$/;
 
 function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, errors: GatewayValidationError[]): void {
-  const rawGateway = value as unknown as Record<string, unknown>;
-  if (Object.prototype.hasOwnProperty.call(rawGateway, "accounts")) {
-    errors.push({ field: "modelGateway.accounts", message: "is owned by executionCatalog and is not supported here" });
-  }
   if (!Number.isSafeInteger(value.port) || value.port < 1 || value.port > 65535 || value.port === gatewayPort) errors.push({ field: "modelGateway.port", message: "must be a distinct integer port between 1 and 65535" });
   const surfaces = value.surfaces;
   if (!surfaces || typeof surfaces !== "object") { errors.push({ field: "modelGateway.surfaces", message: "must be an object" }); return; }
@@ -240,15 +152,6 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
   const claudeNativeModelIds = new Set((value.principals ?? []).flatMap((principal) => principal.nativeHarness === "claude" ? principal.virtualModelIds : []));
   for (const [index, model] of (value.virtualModels ?? []).entries()) {
     const path = `modelGateway.virtualModels[${index}]`;
-    const rawModel = model as unknown as Record<string, unknown>;
-    if (Object.prototype.hasOwnProperty.call(rawModel, "executionRouteId")) {
-      errors.push({ field: `${path}.executionRouteId`, message: "was removed; use targetId" });
-    }
-    for (const field of ["providerId", "providerModelId", "accountIds", "economics"]) {
-      if (Object.prototype.hasOwnProperty.call(rawModel, field)) {
-        errors.push({ field: `${path}.${field}`, message: "is owned by executionCatalog and is not supported here" });
-      }
-    }
     if (!ID.test(model.id ?? "") || models.has(model.id)) errors.push({ field: `${path}.id`, message: "must be a unique canonical id" }); else models.add(model.id);
     if (claudeNativeModelIds.has(model.id) && !/^(?:claude|anthropic)[A-Za-z0-9._:-]*$/.test(model.id)) errors.push({ field: `${path}.id`, message: "Claude native model ids must start with claude or anthropic" });
     const requiresPickerMetadata = nativeModelIds.has(model.id);

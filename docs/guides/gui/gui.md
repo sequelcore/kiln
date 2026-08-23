@@ -62,7 +62,7 @@ gateway over the operator HTTP/WS contract when operating those apps.
 Canonical topology:
 
 ```bash
-kiln gateway --config ./gateway.yaml --port 3800
+kiln gateway start --config ./gateway.yaml --port 3800
 kiln gui --connect http://localhost:3800
 ```
 

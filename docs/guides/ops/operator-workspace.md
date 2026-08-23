@@ -25,7 +25,7 @@ Architecture source: `../architecture/operator-workspace.md`.
    attaches to a running App Gateway:
 
    ```bash
-   kiln gateway --config ./gateway.yaml --port 3800
+   kiln gateway start --config ./gateway.yaml --port 3800
    kiln gui --connect http://localhost:3800
    ```
 

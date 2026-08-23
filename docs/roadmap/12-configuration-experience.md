@@ -2,13 +2,16 @@
 
 Status: Ready
 Priority: Urgent
-Execution: Slices 0-8 and 7A are code/integration complete. Slice 9 is the next
-bounded implementation slice. The remaining credential-bearing live matrix in
-issue #97 remains independently owned and unrun; it does not block Slice 9.
+Execution: Slices 0-8 and 7A are code/integration complete. Slice 9 is in
+progress; the `gateway.yaml` vertical, the `app.yaml` structural convergence,
+and two app property-reachability deletion tranches are complete. The
+remaining credential-bearing live matrix in issue #97 remains independently
+owned and unrun; it does not block Slice 9.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 Paused: 2026-08-22
 Resumption gates closed: 2026-08-22
+Slice 9 started: 2026-08-22
 
 ## Objective
 
@@ -866,12 +869,98 @@ matrix remains unrun.
 
 ### Slice 9 - Remaining Configuration Families
 
-Status: Ready. The project pilot, global intent proof, and Slice 8 activation
-contract are complete. The first bounded vertical is the `gateway.yaml` family
-under the existing Core gateway owner. It is the smallest remaining family that
-also closes the recorded strict-nested-validation, secret-reference, and real
-`restart-required` supervisor boundaries. Global and app configuration remain
-separate later verticals in this slice.
+Status: In progress. The `gateway.yaml` vertical now has one strict Core
+TypeBox schema, inferred admitted types, generated editor schema and field
+descriptors, source-qualified diagnostics, and public-example validation. The
+handwritten structural mapper and raw `botToken` path are deleted. Runtime reads
+the gateway and all bound App bytes once and identifies that exact source set.
+The project-local App Gateway supervisor owns authenticated loopback control,
+revision-fenced stop-admission, bounded graceful drain, replacement, and
+read-back. All fields declare `restart-required`; file authoring remains manual,
+while `kiln gateway restart` is the admitted activation owner. Configuration
+mutation cannot report automatic activation until it invokes and settles this
+owner. App and global configuration remain separate later verticals in this
+slice.
+
+The `app.yaml` structural convergence is also complete. Core owns one strict
+TypeBox schema, schema-derived raw types, generated editor schema and field
+descriptors, source-qualified diagnostics, and public-example admission. The
+single app reader maps provider-adapter and billing configuration from the same
+YAML parse; the separate runtime-mode reader and non-fatal fallback are deleted.
+The obsolete `teams.*.quality` alias rejects, billing headers admit only `$ENV`
+references, and public examples use canonical action-effect envelopes instead
+of ignored annotations. Cron add/remove now use an app-owned, validate-before-
+and-after trigger AST mutation instead of generic whole-document serialization.
+
+The app property-reachability pass is underway. Its first bounded tranche
+deleted `router.classifier` and agent `structured`, `sandbox`, and `modalities`:
+they had no production consumer after parsing, and the strict schema now rejects
+them. This adds no replacement state, fallback, or compatibility path.
+
+The second bounded tranche deleted the test-only App-to-Orchestrator preset
+bridge and its only app inputs: agent `count`, team `workflow`, and team
+`qualityGates`. `OrchestratorConfig` remains under the Orchestrator owner, while
+the independently used `QualityGate` contract moved out of the Team composite
+to the engine domain. The strict app schema rejects all retired fields; no shim,
+fallback, or replacement state remains.
+
+The third bounded tranche deleted App `channels`, `memory`, and `router.rules`.
+Gateway app bindings remain the sole channel-topology owner, runtime memory
+stores and permission contracts remain unchanged, and App routing retains only
+the consumed `router.fallback`. The strict schema rejects all three retired
+surfaces; no shim, inferred default, replacement state, or alternate owner was
+added.
+
+The fourth bounded tranche deleted App `eval` and `toolSelection`, which had no
+Runtime, Gateway, or CLI consumer. The independently consumed
+`EvalScorerConfig` moved from the App engine domain to the Eval bounded context;
+the obsolete aggregate evaluation validator and the entire tool-selection
+domain were deleted. The strict schema rejects both retired roots, and the Eval
+guide now documents the executable typed API instead of a no-op YAML contract.
+
+The next bounded decision is the remaining App agent/team reachability residue,
+including partial `tier` and `mode` use, `voiceProfile`, and the domain-only
+capability cache field. Gateway binding residue and the global configuration
+family follow as separate work.
+
+Fourth reachability tranche verification: 325 focused App and Eval tests pass;
+CLI cron mutation passes 13 focused tests. Foundation passes 4,117 tests;
+Runtime passes 3,260 with five intentional skips plus its Bun listener, SQLite,
+and economic-authority checks. Repository typechecking, production build,
+documentation validation, generated-artifact checks, and diff whitespace
+validation pass.
+
+Third reachability tranche verification: 212 focused schema, loader,
+composite, preset, mutation, delegation, and integration tests pass.
+Foundation passes 4,151 tests; Runtime passes 3,260 with five intentional
+skips; CLI passes 2,508 with one intentional skip. Repository typechecking,
+production build, documentation validation, generated-artifact checks, and
+diff whitespace validation pass.
+
+Second reachability tranche verification: 223 focused schema, loader,
+composite, preset, Orchestrator, strategy, and verification tests pass. CLI cron
+mutation passes 13 focused tests. Foundation passes 4,168 tests; Runtime passes
+3,260 with five intentional skips. Repository typechecking, production build,
+documentation validation, generated-artifact checks, and diff whitespace
+validation pass.
+
+First reachability tranche verification: 179 focused schema, loader, domain,
+prompt, preset, and router tests pass. Repository typechecking, production
+build, documentation validation, generated-artifact checks, and diff whitespace
+validation pass. Foundation passes 4,206 tests; Runtime passes 3,260 with five
+intentional skips.
+
+App structural convergence verification: repository typechecking, production
+build, documentation validation, and diff whitespace validation pass. Scripts
+pass 248 tests; foundation passes 4,206; Runtime passes 3,260 with five
+intentional skips; CLI passes 2,508 with one intentional skip; and surfaces
+pass 727.
+
+Gateway vertical verification: repository typechecking, production build,
+documentation validation, and diff whitespace validation pass. Foundation
+passes 4,198 tests; Runtime passes 3,260 tests with five intentional skips; CLI
+passes 2,508 tests with one intentional skip. The 15 focused source,
+resolution, control/drain, and supervisor tests also pass.
 
 Migrate global, app, and gateway configuration one bounded owner at a time.
 Generate separate schemas and descriptors, retain graph and cross-resource

@@ -26,9 +26,8 @@ explicit without repeating them hundreds of times.
 | `GC` | Core contract persisted by CLI | named Core communication/voice/gateway owner | `readGlobalConfig` | configuration mutation authority | policy resolver or Runtime ingress | global only unless the row says project precedence |
 | `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYaml` | configuration mutation authority, including `project.adopt` | run, status, GUI/TUI, Tools MCP | `.kiln/kiln.yaml`; project |
 | `PP` | shared CLI permission shape | CLI configured admission | `readKilnYaml` | project mutation paths | every model-facing surface | project; attenuation only |
-| `A` | Core `RawApp`/`AppLoader` | Core app domain | `parseAppYaml` | cron for triggers | App Gateway and Core validators | `app.yaml`; deployable app |
-| `AS` | separate Core app-side reader | Runtime/provider/events owner | specialized YAML reader | no shared writer | Runtime startup/request path | same `app.yaml`; deployable app |
-| `W` | Core `RawGateway`/gateway loader | Core gateway domain | `parseGatewayYaml` | no shared writer | Runtime App/Model Gateway | `gateway.yaml`; deployment |
+| `A` | Core App TypeBox schema and `AppLoader` | Core app and named runtime domains | `parseAppYaml` | Core app trigger AST mutation used by CLI cron | App Gateway and Core validators | `app.yaml`; deployable app |
+| `W` | Core gateway TypeBox schema | named Core gateway domains | `parseGatewayYaml` | no shared writer; explicit file authoring | Runtime App/Model Gateway | `gateway.yaml`; deployment |
 | `D` | `ResolvedKilnConfig` only | projection owner | global/project composition | none | status/runtime if reachable | derived; never canonical state |
 
 Plane is `I` desired intent, `E` managed evidence, or `P` derived projection.
@@ -419,21 +418,23 @@ fields reject at the project boundary.
 ## App Configuration
 
 Evidence:
-[`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts),
-and [`runtime-mode-loader.ts`](../../../packages/core/src/engine/gateway/runtime-mode-loader.ts).
-Rows marked unreachable are declared, parsed, or consumed on only one side of
-the YAML boundary; Slice 9 owns their deletion or completed mapping.
+[`app-config-schema.ts`](../../../packages/core/src/engine/loader/app-config-schema.ts),
+[`app-loader.ts`](../../../packages/core/src/engine/loader/app-loader.ts), and
+[`app-config-mutation.ts`](../../../packages/core/src/engine/loader/app-config-mutation.ts).
+Deleted rows record the strict-schema boundary so retired operator intent is
+not silently reintroduced. Gateway app bindings are the sole channel-topology
+owner; App configuration retains only fallback team selection.
 
 | Canonical property | Profile | Plane | Sensitivity / authority | Default | Activation | Disposition / transfer |
 | --- | --- | --- | --- | --- | --- | --- |
 | `name` | A | I | L | required | restart | supported |
-| `channels[]` | A | I | M | empty | restart | supported but duplicates gateway route intent; Slice 9 resolves |
-| `memory.scopes[]` | A | I | H | empty | restart | unreachable in App Gateway; Slice 9 |
-| `memory.backend` | A | I | H ref | required by validator | restart | unreachable in App Gateway; Slice 9 |
-| `memory.sync` | A | I | H | required by validator | restart | unreachable in App Gateway; Slice 9 |
-| `router.rules[].match` | A | I | H | empty rules | restart | unreachable in App Gateway; Slice 9 |
-| `router.rules[].team` | A | I | H | empty rules | restart | unreachable in App Gateway; Slice 9 |
-| `router.classifier` | A | I | H | absent | restart | unreachable in App Gateway; Slice 9 |
+| `channels[]` | A | I | M | none | restart | deleted as duplicate Gateway route intent; strict schema rejects it |
+| `memory.scopes[]` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `memory` |
+| `memory.backend` | A | I | H ref | none | restart | deleted as unreachable; strict schema rejects `memory` |
+| `memory.sync` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `memory` |
+| `router.rules[].match` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `router.rules` |
+| `router.rules[].team` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `router.rules` |
+| `router.classifier` | A | I | H | none | restart | deleted; strict schema rejects it |
 | `router.fallback` | A | I | H | required | restart | supported |
 | `teams.<team>.agents.<agent>.name` | A | I | M | required | restart | supported |
 | `teams.<team>.agents.<agent>.tier` | A | I | H | `fast` | restart | supported by validator; runtime use partial |
@@ -442,14 +443,14 @@ the YAML boundary; Slice 9 owns their deletion or completed mapping.
 | `teams.<team>.agents.<agent>.goal` | A | I | H | required | restart | supported |
 | `teams.<team>.agents.<agent>.backstory` | A | I | M | absent | restart | supported |
 | `teams.<team>.agents.<agent>.instructions` | A | I | H | absent | restart | supported |
-| `teams.<team>.agents.<agent>.structured` | A | I | M | absent | restart | unreachable in App Gateway; Slice 9 |
-| `teams.<team>.agents.<agent>.count` | A | I | H | absent | restart | unreachable in App Gateway; Slice 9 |
-| `teams.<team>.agents.<agent>.sandbox` | A | I | C | absent | restart | unreachable in App Gateway; Slice 9 |
-| `teams.<team>.agents.<agent>.modalities[]` | A | I | H | text | restart | unreachable in App Gateway; Slice 9 |
+| `teams.<team>.agents.<agent>.structured` | A | I | M | none | restart | deleted; strict schema rejects it |
+| `teams.<team>.agents.<agent>.count` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects it |
+| `teams.<team>.agents.<agent>.sandbox` | A | I | C | none | restart | deleted; strict schema rejects it |
+| `teams.<team>.agents.<agent>.modalities[]` | A | I | H | none | restart | deleted; strict schema rejects it |
 | `teams.<team>.agents.<agent>.voiceProfile` | A | I | H | absent | restart | validator/profile check; runtime reachability Slice 9 |
-| `teams.<team>.workflow.phases[]` | A | I | H | empty | restart | unreachable in App Gateway; Slice 9 |
-| `teams.<team>.workflow.gates.<phase>.requires[]` | A | I | H | empty | restart | unreachable in App Gateway; Slice 9 |
-| `teams.<team>.workflow.maxIterations` | A | I | H | absent | restart | unreachable in App Gateway; Slice 9 |
+| `teams.<team>.workflow.phases[]` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `workflow` |
+| `teams.<team>.workflow.gates.<phase>.requires[]` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `workflow` |
+| `teams.<team>.workflow.maxIterations` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `workflow` |
 | `teams.<team>.capabilities[].name` | A | I | H | required | restart | supported |
 | `teams.<team>.capabilities[].description` | A | I | L | absent | restart | supported |
 | `teams.<team>.capabilities[].schema` | A | I | H | empty object | restart | supported |
@@ -464,11 +465,11 @@ the YAML boundary; Slice 9 owns their deletion or completed mapping.
 | `teams.<team>.capabilities[].effectEnvelope` | A | I | C | conservative effect | restart | supported |
 | `teams.<team>.capabilities[].retry` | A | I | H | domain default | restart | supported |
 | `teams.<team>.capabilities[].cacheTtl` | A | I | H | domain only | restart | unreachable from YAML; Slice 9 |
-| `teams.<team>.qualityGates[].name` | A | I | M | required | restart | parsed, runtime-unreachable; Slice 9 |
-| `teams.<team>.qualityGates[].command` | A | I | H | required | restart | parsed, runtime-unreachable; Slice 9 |
-| `teams.<team>.qualityGates[].description` | A | I | L | absent | restart | parsed, runtime-unreachable; Slice 9 |
-| `teams.<team>.qualityGates[].required` | A | I | H | true | restart | parsed, runtime-unreachable; Slice 9 |
-| `teams.<team>.quality[]` | A | I | H | alias fallback | restart | obsolete alias; delete Slice 9 |
+| `teams.<team>.qualityGates[].name` | A | I | M | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
+| `teams.<team>.qualityGates[].command` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
+| `teams.<team>.qualityGates[].description` | A | I | L | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
+| `teams.<team>.qualityGates[].required` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
+| `teams.<team>.quality[]` | A | I | H | none | restart | obsolete alias deleted; strict schema rejects it |
 | `teams.<team>.mode` | A | I | H | absent | restart | supported partially |
 | `teams.<team>.manager` | A | I | H | absent | restart | supported |
 | `triggers[].name` | A | I | M | required | restart | supported |
@@ -483,29 +484,29 @@ the YAML boundary; Slice 9 owns their deletion or completed mapping.
 | `triggers[].filter` | A | I | H | event only | restart | supported |
 | `triggers[].cron` | A | I | H | schedule only | restart | supported |
 | `triggers[].timezone` | A | I | M | optional | restart | supported |
-| `eval.datasets[].name` | A | I | M | required | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.datasets[].path` | A | I | H | required | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].name` | A | I | M | required | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].type` | A | I | H | required | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].scorers[]` | A | I | H | composite only | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].schema` | A | I | H | schema scorer | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].prompt` | A | I | H | LLM scorer | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].minLength` | A | I | M | optional | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].maxLength` | A | I | M | optional | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].maxLatencyMs` | A | I | M | optional | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].maxCostUsd` | A | I | M | optional | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].substrings[]` | A | I | M | optional | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.scorers[].policies` | A | I | H | domain only | restart | unreachable from YAML; Slice 9 |
-| `eval.experiments[].name` | A | I | M | required | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.experiments[].dataset` | A | I | H | reference | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.experiments[].team` | A | I | H | reference | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.experiments[].scorers[]` | A | I | H | references | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.experiments[].overrides` | A | I | H | optional | restart | parsed; runtime owner unproven, Slice 9 |
-| `eval.experiments[].compare` | A | I | M | optional | restart | parsed; runtime owner unproven, Slice 9 |
+| `eval.datasets[].name` | A | I | M | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.datasets[].path` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.scorers[].name` | A | I | M | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].type` | A | I | H | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].scorers[]` | A | I | H | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].schema` | A | I | H | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].prompt` | A | I | H | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].minLength` | A | I | M | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].maxLength` | A | I | M | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].maxLatencyMs` | A | I | M | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].maxCostUsd` | A | I | M | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].substrings[]` | A | I | M | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.scorers[].policies` | A | I | H | none | restart | deleted from App; scorer configuration belongs to Eval |
+| `eval.experiments[].name` | A | I | M | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.experiments[].dataset` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.experiments[].team` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.experiments[].scorers[]` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.experiments[].overrides` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `eval` |
+| `eval.experiments[].compare` | A | I | M | none | restart | deleted as unreachable; strict schema rejects `eval` |
 | `mcp.servers[]` | A | I | C | non-empty | restart | supported |
-| `toolSelection.strategy` | A | I | H | all | restart | unreachable in App Gateway; Slice 9 |
-| `toolSelection.maxTools` | A | I | H | optional | restart | unreachable in App Gateway; Slice 9 |
-| `toolSelection.threshold` | A | I | H | optional | restart | unreachable in App Gateway; Slice 9 |
+| `toolSelection.strategy` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `toolSelection` |
+| `toolSelection.maxTools` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `toolSelection` |
+| `toolSelection.threshold` | A | I | H | none | restart | deleted as unreachable; strict schema rejects `toolSelection` |
 
 Voice leaf properties are shared by global `operatorVoice` and app `voice`;
 the app paths below are the complete Core shape and the global rows inherit the
@@ -574,20 +575,22 @@ same semantic owner.
 | `safety.rails[].triggers[]` | A | I | C | optional variant field | restart | supported |
 | `safety.rails[].required[]` | A | I | C | optional variant field | restart | supported |
 | `safety.rails[].forbid[]` | A | I | C | optional variant field | restart | supported |
-| `runtime` | AS | I | C | `claude-code` | restart | supported by separate reader; converge Slice 9 |
-| `provider.name` | AS | I | C | required for provider mode | restart | supported by separate reader |
-| `provider.model` | AS | I | H | optional | restart | supported by separate reader |
-| `provider.apiKeyEnv` | AS | I | C ref | optional | restart | supported by separate reader |
-| `billing.budgetEndpoint` | AS | I | H | optional | restart | supported by separate reader |
-| `billing.overBudgetMessage` | AS | I | M | optional | restart | supported by separate reader |
-| `billing.headers.<key>` | AS | I | C ref | environment references resolved ephemerally | restart | supported by separate reader |
-| `billing.tiers[]` | AS | I/E | H | runtime-mode contract | restart | supported; classification split Slice 9 |
+| `runtime` | A | I | C | `claude-code` | restart | supported by the single app reader |
+| `provider.name` | A | I | C | required for provider mode | restart | supported by provider-adapter semantic admission |
+| `provider.model` | A | I | H | optional | restart | supported by provider-adapter semantic admission |
+| `provider.apiKeyEnv` | A | I | C ref | optional | restart | secret reference only; supported |
+| `billing.budgetEndpoint` | A | I | H | optional | restart | supported by budget middleware |
+| `billing.overBudgetMessage` | A | I | M | optional | restart | supported by budget middleware |
+| `billing.headers.<key>` | A | I | C ref | `$ENV` references resolved ephemerally | restart | literal secret values reject structurally |
+| `billing.tiers[]` | A | I/E | H | runtime-mode contract | restart | supported; classification remains for reachability pass |
 
 ## Gateway Configuration
 
-Evidence:
+Structural evidence:
+[`gateway-config-schema.ts`](../../../packages/core/src/engine/gateway/gateway-config-schema.ts).
 [`gateway-loader.ts`](../../../packages/core/src/engine/gateway/gateway-loader.ts)
-and the imported gateway domain contracts.
+owns YAML parsing and delegates named semantic admission. The generated editor
+schema and descriptor artifact are committed under `packages/core/schemas`.
 
 | Canonical property | Profile | Plane | Sensitivity / authority | Default | Activation | Disposition / transfer |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -598,7 +601,6 @@ and the imported gateway domain contracts.
 | `apps[].channels[].type` | W | I | C | required | restart | supported |
 | `apps[].channels[].path` | W | I | C | optional | restart | supported |
 | `apps[].channels[].phoneNumber` | W | I | M | optional | restart | duplicate check only; Slice 9 disposition |
-| `apps[].channels[].botToken` | W | I | C | optional raw secret | restart | unreachable/unsafe; delete or replace with ref Slice 9 |
 | `apps[].channels[].multiTenant` | W | I | C | optional | restart | supported |
 | `apps[].channels[].verifyTokenEnv` | W | I | C ref | optional | restart | supported |
 | `apps[].channels[].adminTokenEnv` | W | I | C ref | optional | restart | supported |
@@ -612,7 +614,7 @@ and the imported gateway domain contracts.
 | `observability.exporter` | W | I | M | none | restart | supported |
 | `observability.endpoint` | W | I | M | optional | restart | supported |
 | `observability.serviceName` | W | I | L | optional | restart | supported |
-| `observability.attributes.<key>` | W | I | M | optional | restart | supported; strict nested schema Slice 9 |
+| `observability.attributes.<key>` | W | I | M | optional | restart | supported; strict string map |
 | `auth.algorithm` | W | I | C | validated | restart | supported |
 | `auth.jwksUri` | W | I | C | optional | restart | supported |
 | `auth.secretEnv` | W | I | C ref | optional | restart | supported |
@@ -692,8 +694,9 @@ These fields are not additional durable configuration sources.
 | Project adoption/config set | `project.adopt`, `setting.set`, and descriptor-keyed `setting.reset` edit the project document through the mutation authority with typed results; reset removes one exact YAML path, rejects aliases, prunes empty parents, and preserves unrelated document bytes; the direct whole-object project writer is deleted | complete in Slices 4-6 |
 | Cross-surface settings projection | Gateway Contracts owns one schema-revisioned, secret-free nine-section snapshot; CLI config status projects descriptor and effective-state evidence; CLI, TUI, and GUI consume it without rescanning YAML or rebuilding policy | complete in Slice 6; economic observations remain with their runtime owners and are connected in Slice 7A |
 | Project proposal/approval/apply | One config mutation authority for both scopes; base-revision fence, path-scoped lock held through reconciliation and settlement, durable in-progress evidence, atomic replace, write-once settlement, honest terminal outcome | done in Slices 4 and 5; multi-path atomicity still unproven because each operation writes one path |
-| App/gateway authoring | no init template or shared writer remains; deployable documents are authored explicitly | add a writer only when Slice 9 schemas and readers can admit its complete output |
-| App cron mutation | CLI rewrites `app.yaml` through generic serialization | replace with app-owned AST mutation in Slice 9 |
+| Gateway authoring | no init template or shared writer remains; operators author bytes explicitly and the strict Core reader admits them before process startup | authoring stays manual; `kiln gateway restart` owns exact gateway-plus-App revision fencing, bounded drain, replacement, and read-back |
+| App authoring | no init template or shared writer remains; deployable documents are authored explicitly | add a writer only when the Slice 9 app schema and reader can admit its complete output |
+| App cron mutation | Core app owner validates before and after a trigger-only YAML AST edit; CLI performs the file write | complete in Slice 9; unrelated comments and presentation are preserved |
 | Native/repo projection | CLI projection owners write generated artifacts and drift state | remain projections; bind canonical revision to projection/activation evidence in Slices 2 and 4 |
 
 ## Transferred Blockers
@@ -705,9 +708,9 @@ These fields are not additional durable configuration sources.
 | Intent mixed with target, context, and policy evidence | execution-routing/context owners, Slice 3 | managed evidence moves to named stores or is explicitly justified as intent; exact revisions remain referenced |
 | Divergent writer and activation lifecycles | CLI configuration application-port owner, Slice 4 | typed mutation result distinguishes rejected, committed, reconciliation-failed, and rolled-back; activation tests per field |
 | App/gateway generated authoring | Core app/gateway schema owner, Slice 9 | any future generated bytes pass the production readers; the invalid init templates were deleted in Slice 5 |
-| App root split among `AppLoader`, runtime-mode, billing, and events readers | Core app structural/graph owner, Slice 9 | one strict structural boundary delegates named semantic admission; no silent unknown roots |
+| App root split among `AppLoader`, runtime-mode, billing, and events readers | Core app structural/graph owner, Slice 9 | closed: one strict TypeBox boundary and one YAML parse delegate named semantic admission; the runtime-mode reader is deleted |
 | Declared-but-unreachable app/domain properties and duplicate app/gateway route intent | owning Core eval/tool/voice/safety/gateway domains, Slice 9 | each property is mapped and consumed, or deleted with examples/docs/tests aligned |
-| Gateway nested unknowns, raw `botToken`, and numeric `NaN` mapping | Core gateway schema owner, Slice 9 | strict schema rejects unknown/malformed fields and persists only secret references |
+| Gateway nested unknowns, raw `botToken`, numeric `NaN`, and restart ownership | Core gateway schema plus Runtime App Gateway supervisor, Slice 9 | closed: strict admission rejects unknown/malformed fields, `botToken` is deleted, credential fields admit only secret references, and exact-revision restart stops admission, drains, replaces, and reads back through authenticated local control |
 | Per-harness preventive enforcement fidelity | native harness integration owner, security workstream before global migration | side-effect-negative fixtures prove prevention or route admission rejects |
 
 Operator-specific files, installed package copies, generated `dist`, and live

@@ -1,11 +1,11 @@
 // Domain configuration: tech stack detection, quality gates, tool filtering
 // Domain-agnostic infrastructure -- no built-in configs, no hardcoded paths
 
-// Re-export QualityGate from engine (single source of truth)
-export type { QualityGate } from "../engine/composites/team.js";
+// Re-export the engine verification contract for domain configuration.
+export type { QualityGate } from "../engine/domain/quality-gate.js";
 export type { Agent, AgentTier } from "../engine/domain/agent.js";
 
-import type { QualityGate } from "../engine/composites/team.js";
+import type { QualityGate } from "../engine/domain/quality-gate.js";
 
 /** Domain configuration for a tech stack */
 export interface DomainConfig {

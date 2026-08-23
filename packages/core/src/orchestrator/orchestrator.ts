@@ -19,7 +19,7 @@ import { TaskTree, BatchExecutor } from "../tree/index.js";
 import type { TaskNode, TreeAction, TreeConfig } from "../tree/index.js";
 import type { VerificationResult } from "../verification/index.js";
 import type { FixHandler } from "../verification/index.js";
-import type { QualityGate } from "../engine/composites/team.js";
+import type { QualityGate } from "../engine/domain/quality-gate.js";
 import type { Team } from "../engine/composites/team.js";
 import { createStrategy } from "./strategies/index.js";
 import type { StrategyHandler } from "./strategies/index.js";
@@ -410,7 +410,6 @@ export class Orchestrator {
     const strategy = createStrategy(mode);
     const team = this._team ?? {
       agents: {},
-      workflow: { phases: this._config.phases, gates: {} },
     } as Team;
 
     return strategy.execute(

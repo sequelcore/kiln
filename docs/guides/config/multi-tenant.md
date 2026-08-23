@@ -28,11 +28,16 @@ apps:
     channels:
       - type: api
         path: /api/ops
-      - type: slack
-        botToken: xoxb-...
+      - type: whatsapp
+        verifyTokenEnv: OPS_WHATSAPP_VERIFY_TOKEN
+        accessTokenEnv: OPS_WHATSAPP_ACCESS_TOKEN
+        appSecretEnv: OPS_META_APP_SECRET
 ```
 
-`validateGatewayConfig()` enforces unique app names, unique API paths, unique phone numbers, unique Instagram page IDs, unique Messenger page IDs, and unique email addresses. Duplicate values are rejected at startup before any App is loaded.
+The strict gateway reader accepts secret references only; the referenced values
+remain in the process environment. `validateGatewayConfig()` enforces unique
+app names, API paths, and configured phone numbers. Duplicates are rejected at
+startup before any App is loaded.
 
 ## Per-App Isolation Model
 

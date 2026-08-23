@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import type { Team, QualityGate } from "../../../src/engine/composites/team.js";
+import type { Team } from "../../../src/engine/composites/team.js";
 import { validateTeam } from "../../../src/engine/composites/team.js";
 import type { Agent } from "../../../src/engine/domain/agent.js";
 import type { Capability } from "../../../src/engine/domain/capability.js";
-import type { Workflow } from "../../../src/engine/domain/workflow.js";
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -26,21 +25,11 @@ function makeCapability(overrides: Partial<Capability> = {}): Capability {
   };
 }
 
-function makeWorkflow(overrides: Partial<Workflow> = {}): Workflow {
-  return {
-    phases: ["implement", "verify"],
-    gates: { verify: { requires: ["tests_pass"] } },
-    ...overrides,
-  };
-}
-
 function makeTeam(overrides: Partial<Team> = {}): Team {
   return {
     name: "development",
     agents: { worker: makeAgent() },
-    workflow: makeWorkflow(),
     capabilities: [makeCapability()],
-    qualityGates: [{ name: "test", command: "vitest run", description: "Run tests", required: true }],
     ...overrides,
   };
 }
@@ -51,9 +40,7 @@ describe("Team composite", () => {
       const team = makeTeam();
       expect(team.name).toBe("development");
       expect(Object.keys(team.agents)).toHaveLength(1);
-      expect(team.workflow.phases).toHaveLength(2);
       expect(team.capabilities).toHaveLength(1);
-      expect(team.qualityGates).toHaveLength(1);
     });
 
     it("supports multiple agents", () => {
@@ -67,15 +54,6 @@ describe("Team composite", () => {
       expect(Object.keys(team.agents)).toHaveLength(3);
     });
 
-    it("supports QualityGate required field", () => {
-      const gate: QualityGate = {
-        name: "lint",
-        command: "biome check",
-        description: "Lint code",
-        required: false,
-      };
-      expect(gate.required).toBe(false);
-    });
   });
 
   describe("validateTeam", () => {
@@ -95,12 +73,6 @@ describe("Team composite", () => {
       expect(errors[0]!.field).toBe("agents");
     });
 
-    it("reports empty workflow phases", () => {
-      const errors = validateTeam(makeTeam({ workflow: { phases: [], gates: {} } }));
-      expect(errors).toHaveLength(1);
-      expect(errors[0]!.field).toBe("workflow.phases");
-    });
-
     it("reports agent tool referencing unknown capability", () => {
       const team = makeTeam({
         agents: { worker: makeAgent({ tools: ["unknown_tool"] }) },
@@ -109,18 +81,6 @@ describe("Team composite", () => {
       expect(errors).toHaveLength(1);
       expect(errors[0]!.field).toBe("agents.worker.tools");
       expect(errors[0]!.message).toContain("unknown_tool");
-    });
-
-    it("reports gate referencing unknown phase", () => {
-      const team = makeTeam({
-        workflow: {
-          phases: ["implement"],
-          gates: { nonexistent: { requires: ["check"] } },
-        },
-      });
-      const errors = validateTeam(team);
-      expect(errors).toHaveLength(1);
-      expect(errors[0]!.field).toBe("workflow.gates.nonexistent");
     });
 
     it("allows agents with no tools", () => {
@@ -134,10 +94,9 @@ describe("Team composite", () => {
       const team = makeTeam({
         name: "",
         agents: {},
-        workflow: makeWorkflow({ phases: [] }),
       });
       const errors = validateTeam(team);
-      expect(errors.length).toBeGreaterThanOrEqual(3);
+      expect(errors.length).toBeGreaterThanOrEqual(2);
     });
   });
 

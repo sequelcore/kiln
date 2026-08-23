@@ -1,7 +1,7 @@
 import { GateRunner, VerificationLoop } from "../verification/index.js";
 import type { VerificationResult, VerificationConfig, FixHandler } from "../verification/index.js";
 import type { EventBus } from "../events/event-bus.js";
-import type { QualityGate } from "../engine/composites/team.js";
+import type { QualityGate } from "../engine/domain/quality-gate.js";
 
 interface VerificationSupportDeps {
   readonly eventBus: EventBus;

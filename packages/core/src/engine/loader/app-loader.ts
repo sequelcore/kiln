@@ -1,16 +1,14 @@
 // Engine loader: AppLoader -- parses App YAML into typed composites
-// Validates dependency graph: team refs in router must exist in teams
+// Validates dependency graph: the fallback router team must exist in teams
 
 import { parse } from "yaml";
 import { KilnError } from "../errors.js";
-import type { App, MemoryConfig } from "../composites/app.js";
+import type { App } from "../composites/app.js";
 import { validateApp } from "../composites/app.js";
-import type { Team, QualityGate, TeamMode } from "../composites/team.js";
-import type { Router, PatternRule } from "../composites/router.js";
+import type { Team, TeamMode } from "../composites/team.js";
+import type { Router } from "../composites/router.js";
 import type { Agent, AgentTier } from "../domain/agent.js";
 import { normalizeActionEffectEnvelope } from "../domain/action-effect.js";
-import type { Modality } from "../domain/modality.js";
-import { VALID_MODALITIES } from "../domain/modality.js";
 import type {
   VoiceConfig,
   SttProviderConfig,
@@ -26,306 +24,62 @@ import type {
 import { validateVoiceConfig } from "../domain/speech-config.js";
 import type { Capability } from "../domain/capability.js";
 import type { RetryConfig, RetryStrategy } from "../domain/tool-execution.js";
-import type { Workflow, Gate } from "../domain/workflow.js";
-import type { MemoryScope } from "../domain/memory.js";
 import type { Trigger, TriggerType } from "../domain/trigger.js";
-import type { EvalConfig, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig } from "../domain/eval-config.js";
-import { validateEvalConfig } from "../domain/eval-config.js";
 import type { McpConfig } from "../domain/mcp-config.js";
 import { validateMcpConfig } from "../domain/mcp-config.js";
-import type { ToolSelectionConfig, ToolSelectionStrategy } from "../domain/tool-selection-config.js";
-import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
 import type { SafetyConfig, PiiType, PiiAction, ContentAction, RailConfig } from "../domain/safety-config.js";
 import { validateSafetyConfig } from "../domain/safety-config.js";
+import {
+  describeRunningAppConfigSchema,
+  parseAppConfigStructure,
+  type AppConfigDocument,
+  type RawAgent,
+  type RawCapability,
+  type RawContentCategoryConfig,
+  type RawContentConfig,
+  type RawMcp,
+  type RawPiiConfig,
+  type RawRailConfig,
+  type RawRouter,
+  type RawSafetyConfig,
+  type RawSttProvider,
+  type RawTeam,
+  type RawTrigger,
+  type RawTtsIntent,
+  type RawTtsProfile,
+  type RawTtsProvider,
+  type RawVoice,
+  type RawVoiceArtifacts,
+  type RawVoiceDefaults,
+  type RawVoiceInputPolicy,
+  type RawVoiceOutputPolicy,
+  type RawVoicePolicy,
+  type RawVoiceSurfacePolicy,
+} from "./app-config-schema.js";
+import { mapRuntimeModeConfig } from "../gateway/runtime-mode-config.js";
 
 /** Error class for YAML loader failures, aggregating all validation errors */
 export class AppLoaderError extends KilnError {
   readonly errors: readonly { field: string; message: string }[];
+  readonly sourcePath: string;
 
-  constructor(errors: readonly { field: string; message: string }[]) {
+  constructor(
+    errors: readonly { field: string; message: string }[],
+    sourcePath = "app.yaml",
+    options?: { readonly includeBuildIdentity?: boolean },
+  ) {
     const msg = errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
-    super("APP_YAML_INVALID", `Invalid app YAML:\n${msg}`, {
-      context: { errors },
+    const buildIdentity = options?.includeBuildIdentity === true
+      ? `\nValidated by ${describeRunningAppConfigSchema()}; if this field exists at HEAD, the running build predates it.`
+      : "";
+    super("APP_YAML_INVALID", `Invalid app YAML from ${sourcePath}:\n${msg}${buildIdentity}`, {
+      context: { errors, sourcePath },
       retryable: false,
     });
     this.name = "AppLoaderError";
     this.errors = errors;
+    this.sourcePath = sourcePath;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Internal YAML shape types (unvalidated raw structure from parse())
-// ---------------------------------------------------------------------------
-
-interface RawAgent {
-  name?: unknown;        // Persona name (e.g., "Aria") -- REQUIRED
-  tier?: unknown;
-  tools?: unknown;
-  role?: unknown;        // Expertise / function -- REQUIRED
-  goal?: unknown;        // What agent is trying to achieve -- REQUIRED
-  backstory?: unknown;   // Personality, perspective -- optional
-  instructions?: unknown; // Operating rules and constraints -- optional
-  structured?: unknown;
-  count?: unknown;
-  sandbox?: unknown;
-  modalities?: unknown;  // Content modalities -- optional (defaults to ["text"])
-  voiceProfile?: unknown;
-  // systemPrompt REMOVED -- replaced by auto-assembled prompt
-}
-
-interface RawGate {
-  requires?: unknown;
-}
-
-interface RawWorkflow {
-  phases?: unknown;
-  gates?: unknown;
-  maxIterations?: unknown;
-}
-
-interface RawCapability {
-  name?: unknown;
-  description?: unknown;
-  schema?: unknown;
-  tags?: unknown;
-  type?: unknown;
-  targetApp?: unknown;
-  task?: unknown;
-  timeout?: unknown;
-  guardrail?: unknown;
-  guardrailRetries?: unknown;
-  outputSchema?: unknown;
-  effectEnvelope?: unknown;
-  retry?: unknown;
-}
-
-interface RawQualityGate {
-  name?: unknown;
-  command?: unknown;
-  description?: unknown;
-  required?: unknown;
-}
-
-interface RawTeam {
-  agents?: unknown;
-  workflow?: unknown;
-  capabilities?: unknown;
-  qualityGates?: unknown;
-  quality?: unknown;
-  mode?: unknown;
-  manager?: unknown;
-}
-
-interface RawRule {
-  match?: unknown;
-  team?: unknown;
-}
-
-interface RawRouter {
-  rules?: unknown;
-  classifier?: unknown;
-  fallback?: unknown;
-}
-
-interface RawMemory {
-  scopes?: unknown;
-  backend?: unknown;
-  sync?: unknown;
-}
-
-interface RawTrigger {
-  name?: unknown;
-  type?: unknown;
-  team?: unknown;
-  task?: unknown;
-  enabled?: unknown;
-  path?: unknown;
-  method?: unknown;
-  secretEnv?: unknown;
-  event?: unknown;
-  filter?: unknown;
-  cron?: unknown;
-  timezone?: unknown;
-}
-
-interface RawEvalScorer {
-  name?: unknown;
-  type?: unknown;
-  scorers?: unknown;
-  schema?: unknown;
-  prompt?: unknown;
-  minLength?: unknown;
-  maxLength?: unknown;
-  maxLatencyMs?: unknown;
-  maxCostUsd?: unknown;
-  substrings?: unknown;
-}
-
-interface RawEvalDataset {
-  name?: unknown;
-  path?: unknown;
-}
-
-interface RawEvalExperiment {
-  name?: unknown;
-  dataset?: unknown;
-  team?: unknown;
-  scorers?: unknown;
-  overrides?: unknown;
-  compare?: unknown;
-}
-
-interface RawEval {
-  datasets?: unknown;
-  scorers?: unknown;
-  experiments?: unknown;
-}
-
-interface RawMcp {
-  servers?: unknown;
-}
-
-interface RawToolSelection {
-  strategy?: unknown;
-  maxTools?: unknown;
-  threshold?: unknown;
-}
-
-interface RawVoice {
-  stt?: unknown;
-  tts?: unknown;
-  defaults?: unknown;
-  ttsProfiles?: unknown;
-  policy?: unknown;
-}
-
-interface RawSttProvider {
-  provider?: unknown;
-  model?: unknown;
-  apiKeyEnv?: unknown;
-  language?: unknown;
-  command?: unknown;
-  commandEnv?: unknown;
-  args?: unknown;
-  modelPath?: unknown;
-  modelPathEnv?: unknown;
-  device?: unknown;
-  timeoutMs?: unknown;
-}
-
-interface RawTtsProvider {
-  provider?: unknown;
-  model?: unknown;
-  apiKeyEnv?: unknown;
-  voice?: unknown;
-  command?: unknown;
-  commandEnv?: unknown;
-  args?: unknown;
-  modelPath?: unknown;
-  modelPathEnv?: unknown;
-  device?: unknown;
-  timeoutMs?: unknown;
-  format?: unknown;
-}
-
-interface RawVoiceDefaults {
-  ttsProfile?: unknown;
-}
-
-interface RawTtsProfile {
-  style?: unknown;
-  voice?: unknown;
-  language?: unknown;
-  speed?: unknown;
-  speedRange?: unknown;
-  format?: unknown;
-  intents?: unknown;
-}
-
-interface RawTtsIntent {
-  delivery?: unknown;
-  appliesWhen?: unknown;
-  voice?: unknown;
-  language?: unknown;
-  speed?: unknown;
-  format?: unknown;
-}
-
-interface RawVoicePolicy {
-  defaultInputFailureMode?: unknown;
-  defaultOutputFailureMode?: unknown;
-  artifacts?: unknown;
-  surfaces?: unknown;
-}
-
-interface RawVoiceArtifacts {
-  storeSourceAudio?: unknown;
-  storeTranscripts?: unknown;
-  storeSynthesizedAudio?: unknown;
-  retentionMaxArtifacts?: unknown;
-}
-
-interface RawVoiceSurfacePolicy {
-  enabled?: unknown;
-  input?: unknown;
-  output?: unknown;
-}
-
-interface RawVoiceInputPolicy {
-  modes?: unknown;
-  failureMode?: unknown;
-}
-
-interface RawVoiceOutputPolicy {
-  modes?: unknown;
-  failureMode?: unknown;
-}
-
-interface RawPiiConfig {
-  detect?: unknown;
-  action?: unknown;
-  allowlist?: unknown;
-}
-
-interface RawContentCategoryConfig {
-  threshold?: unknown;
-  action?: unknown;
-}
-
-interface RawContentConfig {
-  enabled?: unknown;
-  categories?: unknown;
-}
-
-interface RawRailConfig {
-  type?: unknown;
-  block?: unknown;
-  escalate?: unknown;
-  competitors?: unknown;
-  response?: unknown;
-  triggers?: unknown;
-  required?: unknown;
-  forbid?: unknown;
-}
-
-interface RawSafetyConfig {
-  pii?: unknown;
-  content?: unknown;
-  rails?: unknown;
-}
-
-interface RawApp {
-  name?: unknown;
-  channels?: unknown;
-  memory?: unknown;
-  router?: unknown;
-  teams?: unknown;
-  triggers?: unknown;
-  eval?: unknown;
-  mcp?: unknown;
-  toolSelection?: unknown;
-  voice?: unknown;
-  safety?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,27 +133,6 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     }
   }
 
-  // modalities: optional content type declarations
-  let modalities: Modality[] | undefined;
-  if (raw.modalities !== undefined) {
-    if (!Array.isArray(raw.modalities)) {
-      errors.push({ field: `${path}.modalities`, message: "must be an array" });
-    } else {
-      modalities = [];
-      for (const m of raw.modalities) {
-        if (typeof m !== "string") {
-          errors.push({ field: `${path}.modalities`, message: "all entries must be strings" });
-          break;
-        }
-        if (!VALID_MODALITIES.includes(m as Modality)) {
-          errors.push({ field: `${path}.modalities`, message: `unknown modality "${m}", must be one of: ${VALID_MODALITIES.join(", ")}` });
-        } else {
-          modalities.push(m as Modality);
-        }
-      }
-    }
-  }
-
   if (raw.voiceProfile !== undefined && (typeof raw.voiceProfile !== "string" || raw.voiceProfile.trim() === "")) {
     errors.push({ field: `${path}.voiceProfile`, message: "must be a non-empty string" });
   }
@@ -412,56 +145,10 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     tools,
     ...(typeof raw.backstory === "string" ? { backstory: raw.backstory.trim() } : {}),
     ...(typeof raw.instructions === "string" ? { instructions: raw.instructions.trim() } : {}),
-    ...(typeof raw.structured === "boolean" ? { structured: raw.structured } : {}),
-    ...(typeof raw.count === "number" ? { count: raw.count } : {}),
-    ...(typeof raw.sandbox === "boolean" ? { sandbox: raw.sandbox } : {}),
-    ...(modalities && modalities.length > 0 ? { modalities } : {}),
     ...(typeof raw.voiceProfile === "string" && raw.voiceProfile.trim() !== "" ? { voiceProfile: raw.voiceProfile.trim() } : {}),
   };
 
   return { agent, errors };
-}
-
-function mapWorkflow(raw: RawWorkflow, path: string): { workflow: Workflow; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  const phases: string[] = [];
-  if (!raw.phases || !Array.isArray(raw.phases)) {
-    errors.push({ field: `${path}.phases`, message: "must be a non-empty array" });
-  } else {
-    for (const p of raw.phases) {
-      if (typeof p !== "string") {
-        errors.push({ field: `${path}.phases`, message: "all entries must be strings" });
-        break;
-      }
-      phases.push(p);
-    }
-  }
-
-  const gates: Record<string, Gate> = {};
-  if (raw.gates !== undefined) {
-    if (typeof raw.gates !== "object" || raw.gates === null || Array.isArray(raw.gates)) {
-      errors.push({ field: `${path}.gates`, message: "must be an object" });
-    } else {
-      for (const [phaseName, gateRaw] of Object.entries(raw.gates as Record<string, RawGate>)) {
-        const requires: string[] = [];
-        if (Array.isArray(gateRaw?.requires)) {
-          for (const r of gateRaw.requires) {
-            if (typeof r === "string") requires.push(r);
-          }
-        }
-        gates[phaseName] = { requires };
-      }
-    }
-  }
-
-  const workflow: Workflow = {
-    phases,
-    gates,
-    ...(typeof raw.maxIterations === "number" ? { maxIterations: raw.maxIterations } : {}),
-  };
-
-  return { workflow, errors };
 }
 
 function mapCapability(raw: RawCapability, path: string): { capability: Capability; errors: { field: string; message: string }[] } {
@@ -575,29 +262,6 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
   return { capability, errors };
 }
 
-function mapQualityGate(raw: RawQualityGate, path: string): { gate: QualityGate; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  if (!raw.name || typeof raw.name !== "string") {
-    errors.push({ field: `${path}.name`, message: "must be a non-empty string" });
-  }
-  if (!raw.command || typeof raw.command !== "string") {
-    errors.push({ field: `${path}.command`, message: "must be a non-empty string" });
-  }
-  if (!raw.description || typeof raw.description !== "string") {
-    errors.push({ field: `${path}.description`, message: "must be a non-empty string" });
-  }
-
-  const gate: QualityGate = {
-    name: typeof raw.name === "string" ? raw.name : "",
-    command: typeof raw.command === "string" ? raw.command : "",
-    description: typeof raw.description === "string" ? raw.description : "",
-    required: typeof raw.required === "boolean" ? raw.required : true,
-  };
-
-  return { gate, errors };
-}
-
 function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors: { field: string; message: string }[] } {
   const errors: { field: string; message: string }[] = [];
   const agents: Record<string, Agent> = {};
@@ -611,16 +275,6 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
       agents[agentName] = agent;
       errors.push(...agentErrors);
     }
-  }
-
-  // Workflow
-  let workflow: Workflow = { phases: [], gates: {} };
-  if (!raw.workflow || typeof raw.workflow !== "object" || Array.isArray(raw.workflow)) {
-    errors.push({ field: `${path}.workflow`, message: "must be an object" });
-  } else {
-    const { workflow: wf, errors: wfErrors } = mapWorkflow(raw.workflow as RawWorkflow, `${path}.workflow`);
-    workflow = wf;
-    errors.push(...wfErrors);
   }
 
   // Capabilities
@@ -648,24 +302,6 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
     }
   }
 
-  // Quality gates -- support both `qualityGates` and `quality` keys
-  const qualityGates: QualityGate[] = [];
-  const rawGates = raw.qualityGates ?? raw.quality;
-  if (rawGates !== undefined) {
-    if (!Array.isArray(rawGates)) {
-      errors.push({ field: `${path}.qualityGates`, message: "must be an array" });
-    } else {
-      for (let i = 0; i < rawGates.length; i++) {
-        const { gate, errors: gateErrors } = mapQualityGate(
-          rawGates[i] as RawQualityGate,
-          `${path}.qualityGates[${i}]`,
-        );
-        qualityGates.push(gate);
-        errors.push(...gateErrors);
-      }
-    }
-  }
-
   // Mode
   const validModes: TeamMode[] = ["sequential", "supervisor"];
   let mode: TeamMode | undefined;
@@ -690,9 +326,7 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
   const team: Team = {
     name,
     agents,
-    workflow,
     capabilities,
-    qualityGates,
     ...(mode ? { mode } : {}),
     ...(manager ? { manager } : {}),
   };
@@ -702,75 +336,15 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
 function mapRouter(raw: RawRouter, path: string): { router: Router; errors: { field: string; message: string }[] } {
   const errors: { field: string; message: string }[] = [];
 
-  const rules: PatternRule[] = [];
-  if (raw.rules !== undefined) {
-    if (!Array.isArray(raw.rules)) {
-      errors.push({ field: `${path}.rules`, message: "must be an array" });
-    } else {
-      for (let i = 0; i < raw.rules.length; i++) {
-        const ruleRaw = raw.rules[i] as RawRule;
-        if (!ruleRaw.match || typeof ruleRaw.match !== "string") {
-          errors.push({ field: `${path}.rules[${i}].match`, message: "must be a non-empty string" });
-        }
-        if (!ruleRaw.team || typeof ruleRaw.team !== "string") {
-          errors.push({ field: `${path}.rules[${i}].team`, message: "must be a non-empty string" });
-        }
-        rules.push({
-          match: typeof ruleRaw.match === "string" ? ruleRaw.match : "",
-          team: typeof ruleRaw.team === "string" ? ruleRaw.team : "",
-        });
-      }
-    }
-  }
-
   if (!raw.fallback || typeof raw.fallback !== "string") {
     errors.push({ field: `${path}.fallback`, message: "must be a non-empty string" });
   }
 
-  let classifier: Agent | undefined;
-  if (raw.classifier !== undefined) {
-    const classifierRaw = raw.classifier as RawAgent;
-    const { agent, errors: classifierErrors } = mapAgent(
-      "classifier",
-      { ...classifierRaw, tier: classifierRaw.tier ?? "fast" },
-      `${path}.classifier`,
-    );
-    classifier = agent;
-    errors.push(...classifierErrors);
-  }
-
   const router: Router = {
-    rules,
     fallback: typeof raw.fallback === "string" ? raw.fallback : "",
-    ...(classifier ? { classifier } : {}),
   };
 
   return { router, errors };
-}
-
-function mapMemory(raw: RawMemory, path: string): { memory: MemoryConfig; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  const scopes: MemoryScope[] = [];
-  if (!raw.scopes || !Array.isArray(raw.scopes)) {
-    errors.push({ field: `${path}.scopes`, message: "must be a non-empty array" });
-  } else {
-    for (const s of raw.scopes) {
-      if (typeof s === "string") scopes.push(s as MemoryScope);
-    }
-  }
-
-  if (!raw.backend || typeof raw.backend !== "string") {
-    errors.push({ field: `${path}.backend`, message: "must be a non-empty string" });
-  }
-
-  const memory: MemoryConfig = {
-    scopes,
-    backend: typeof raw.backend === "string" ? raw.backend : "",
-    ...(typeof raw.sync === "string" ? { sync: raw.sync } : {}),
-  };
-
-  return { memory, errors };
 }
 
 const VALID_TRIGGER_TYPES: TriggerType[] = ["webhook", "event", "schedule"];
@@ -851,111 +425,6 @@ function mapTrigger(raw: RawTrigger, path: string): { trigger: Trigger; errors: 
   }
 }
 
-const VALID_SCORER_TYPES = [
-  "exact-match", "contains", "json-validity", "length", "latency", "cost",
-  "faithfulness", "relevance", "coherence", "hallucination", "toxicity",
-  "custom-prompt", "composite",
-] as const;
-
-function mapEvalScorer(raw: RawEvalScorer): { scorer: EvalScorerConfig; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  const subScorers: EvalScorerConfig[] = [];
-  if (raw.scorers !== undefined && Array.isArray(raw.scorers)) {
-    for (let i = 0; i < raw.scorers.length; i++) {
-      const { scorer, errors: subErrors } = mapEvalScorer(raw.scorers[i] as RawEvalScorer);
-      subScorers.push(scorer);
-      errors.push(...subErrors);
-    }
-  }
-
-  let scorerType: EvalScorerConfig["type"] = "exact-match";
-  if (typeof raw.type === "string" && VALID_SCORER_TYPES.includes(raw.type as typeof VALID_SCORER_TYPES[number])) {
-    scorerType = raw.type as EvalScorerConfig["type"];
-  } else if (typeof raw.type === "string") {
-    errors.push({ field: "type", message: `unknown scorer type "${raw.type}", must be one of: ${VALID_SCORER_TYPES.join(", ")}` });
-  }
-
-  const scorer: EvalScorerConfig = {
-    name: typeof raw.name === "string" ? raw.name : "",
-    type: scorerType,
-    ...(subScorers.length > 0 ? { scorers: subScorers } : {}),
-    ...(typeof raw.schema === "object" && raw.schema !== null && !Array.isArray(raw.schema) ? { schema: raw.schema as Record<string, unknown> } : {}),
-    ...(typeof raw.prompt === "string" ? { prompt: raw.prompt } : {}),
-    ...(typeof raw.minLength === "number" ? { minLength: raw.minLength } : {}),
-    ...(typeof raw.maxLength === "number" ? { maxLength: raw.maxLength } : {}),
-    ...(typeof raw.maxLatencyMs === "number" ? { maxLatencyMs: raw.maxLatencyMs } : {}),
-    ...(typeof raw.maxCostUsd === "number" ? { maxCostUsd: raw.maxCostUsd } : {}),
-    ...(Array.isArray(raw.substrings) ? { substrings: raw.substrings.filter((s): s is string => typeof s === "string") } : {}),
-  };
-
-  return { scorer, errors };
-}
-
-function mapEval(raw: RawEval): { eval: EvalConfig | undefined; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  if (!raw || typeof raw !== "object") {
-    return { eval: undefined, errors: [] };
-  }
-
-  const datasets: EvalDatasetConfig[] = [];
-  if (Array.isArray(raw.datasets)) {
-    for (const ds of raw.datasets) {
-      const rawDs = ds as RawEvalDataset | undefined;
-      if (!rawDs) continue;
-      datasets.push({
-        name: typeof rawDs.name === "string" ? rawDs.name : "",
-        path: typeof rawDs.path === "string" ? rawDs.path : "",
-      });
-    }
-  }
-
-  const scorers: EvalScorerConfig[] = [];
-  if (Array.isArray(raw.scorers)) {
-    for (const s of raw.scorers) {
-      const { scorer, errors: scorerErrors } = mapEvalScorer(s as RawEvalScorer);
-      scorers.push(scorer);
-      errors.push(...scorerErrors);
-    }
-  }
-
-  const experiments: EvalExperimentConfig[] = [];
-  if (Array.isArray(raw.experiments)) {
-    for (const exp of raw.experiments) {
-      const rawExp = exp as RawEvalExperiment | undefined;
-      if (!rawExp) continue;
-      const expScorers: string[] = [];
-      if (Array.isArray(rawExp.scorers)) {
-        for (const s of rawExp.scorers) {
-          if (typeof s === "string") expScorers.push(s);
-        }
-      }
-      experiments.push({
-        name: typeof rawExp.name === "string" ? rawExp.name : "",
-        dataset: typeof rawExp.dataset === "string" ? rawExp.dataset : "",
-        team: typeof rawExp.team === "string" ? rawExp.team : "",
-        scorers: expScorers,
-        ...(typeof rawExp.overrides === "object" && rawExp.overrides !== null && !Array.isArray(rawExp.overrides) ? { overrides: rawExp.overrides as Record<string, unknown> } : {}),
-        ...(typeof rawExp.compare === "string" ? { compare: rawExp.compare } : {}),
-      });
-    }
-  }
-
-  const evalConfig: EvalConfig = {
-    datasets,
-    scorers,
-    experiments,
-  };
-
-  const validationErrors = validateEvalConfig(evalConfig);
-  for (const ve of validationErrors) {
-    errors.push({ field: `eval.${ve.field}`, message: ve.message });
-  }
-
-  return { eval: validationErrors.length > 0 ? undefined : evalConfig, errors };
-}
-
 function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: string; message: string }[] } {
   const errors: { field: string; message: string }[] = [];
 
@@ -978,29 +447,6 @@ function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: str
   }
 
   return { mcp: validationErrors.length > 0 ? undefined : mcpConfig, errors };
-}
-
-function mapToolSelection(raw: RawToolSelection): { toolSelection: ToolSelectionConfig | undefined; errors: { field: string; message: string }[] } {
-  const errors: { field: string; message: string }[] = [];
-
-  if (!raw || typeof raw !== "object") {
-    return { toolSelection: undefined, errors: [] };
-  }
-
-  const strategy = typeof raw.strategy === "string" ? raw.strategy as ToolSelectionStrategy : undefined;
-
-  const config: ToolSelectionConfig = {
-    strategy: strategy ?? "all",
-    ...(typeof raw.maxTools === "number" ? { maxTools: raw.maxTools } : {}),
-    ...(typeof raw.threshold === "number" ? { threshold: raw.threshold } : {}),
-  };
-
-  const validationErrors = validateToolSelectionConfig(config);
-  for (const ve of validationErrors) {
-    errors.push({ field: `toolSelection.${ve.field}`, message: ve.message });
-  }
-
-  return { toolSelection: validationErrors.length > 0 ? undefined : config, errors };
 }
 
 function mapVoiceConfig(raw: RawVoice): { voice: VoiceConfig | undefined; errors: { field: string; message: string }[] } {
@@ -1428,47 +874,30 @@ function mapSafety(raw: RawSafetyConfig): { safety: SafetyConfig | undefined; er
 // ---------------------------------------------------------------------------
 
 /** Parse a YAML string into a typed App composite. Throws AppLoaderError if invalid. */
-export function parseAppYaml(content: string): App {
+export function parseAppYaml(content: string, sourcePath = "app.yaml"): App {
   let data: unknown;
   try {
     data = parse(content);
   } catch (err) {
-    throw new AppLoaderError([{ field: "yaml", message: String(err) }]);
+    throw new AppLoaderError([{ field: "yaml", message: String(err) }], sourcePath);
   }
 
   const errors: { field: string; message: string }[] = [];
 
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new AppLoaderError([{ field: "root", message: "must be a YAML object" }]);
+  const structural = parseAppConfigStructure(data);
+  if (!structural.ok) {
+    throw new AppLoaderError(
+      structural.errors.map(({ field, message }) => ({ field, message })),
+      sourcePath,
+      { includeBuildIdentity: structural.errors.some((error) => error.unknownField) },
+    );
   }
 
-  const raw = data as RawApp;
+  const raw: AppConfigDocument = structural.value;
 
   // name
   if (!raw.name || typeof raw.name !== "string") {
     errors.push({ field: "name", message: "must be a non-empty string" });
-  }
-
-  // channels
-  const channels: string[] = [];
-  if (raw.channels !== undefined) {
-    if (!Array.isArray(raw.channels)) {
-      errors.push({ field: "channels", message: "must be an array" });
-    } else {
-      for (const c of raw.channels) {
-        if (typeof c === "string") channels.push(c);
-      }
-    }
-  }
-
-  // memory
-  let memory: MemoryConfig = { scopes: [], backend: "" };
-  if (!raw.memory || typeof raw.memory !== "object" || Array.isArray(raw.memory)) {
-    errors.push({ field: "memory", message: "must be an object" });
-  } else {
-    const { memory: mem, errors: memErrors } = mapMemory(raw.memory as RawMemory, "memory");
-    memory = mem;
-    errors.push(...memErrors);
   }
 
   // teams
@@ -1484,7 +913,7 @@ export function parseAppYaml(content: string): App {
   }
 
   // router
-  let router: Router = { rules: [], fallback: "" };
+  let router: Router = { fallback: "" };
   if (!raw.router || typeof raw.router !== "object" || Array.isArray(raw.router)) {
     errors.push({ field: "router", message: "must be an object" });
   } else {
@@ -1510,28 +939,12 @@ export function parseAppYaml(content: string): App {
     }
   }
 
-  // eval (optional)
-  let evalConfig: EvalConfig | undefined;
-  if (raw.eval !== undefined) {
-    const { eval: parsedEval, errors: evalErrors } = mapEval(raw.eval as RawEval);
-    evalConfig = parsedEval;
-    errors.push(...evalErrors);
-  }
-
   // mcp (optional)
   let mcpConfig: McpConfig | undefined;
   if (raw.mcp !== undefined) {
     const { mcp, errors: mcpErrors } = mapMcp(raw.mcp as RawMcp);
     mcpConfig = mcp;
     errors.push(...mcpErrors);
-  }
-
-  // toolSelection (optional)
-  let toolSelectionConfig: ToolSelectionConfig | undefined;
-  if (raw.toolSelection !== undefined) {
-    const { toolSelection, errors: tsErrors } = mapToolSelection(raw.toolSelection as RawToolSelection);
-    toolSelectionConfig = toolSelection;
-    errors.push(...tsErrors);
   }
 
   // voice (optional)
@@ -1550,20 +963,20 @@ export function parseAppYaml(content: string): App {
     errors.push(...safetyErrors);
   }
 
-  if (errors.length > 0) throw new AppLoaderError(errors);
+  const runtimeMode = mapRuntimeModeConfig(raw);
+  errors.push(...runtimeMode.errors);
+
+  if (errors.length > 0) throw new AppLoaderError(errors, sourcePath);
 
   return {
     name: raw.name as string,
     teams,
     router,
-    memory,
-    channels,
     ...(triggers.length > 0 ? { triggers } : {}),
-    ...(evalConfig ? { eval: evalConfig } : {}),
     ...(mcpConfig ? { mcp: mcpConfig } : {}),
-    ...(toolSelectionConfig ? { toolSelection: toolSelectionConfig } : {}),
     ...(voiceConfig ? { voice: voiceConfig } : {}),
     ...(safetyConfig ? { safety: safetyConfig } : {}),
+    ...(runtimeMode.config ? { runtimeModeConfig: runtimeMode.config } : {}),
   };
 }
 

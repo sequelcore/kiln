@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExecutionCatalog } from "@kilnai/core";
-import { parseGatewayYaml, parseRuntimeModeConfig } from "@kilnai/core";
+import { parseAppYaml, parseGatewayYaml } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
   createRuntimeMediaActionClaimContext,
   createOperatorSessionAccountCapacityAuthority,
   type AppGatewayExecutionBundle,
+  type GatewayConfigurationSource,
   type OperatorSessionExecutionCatalogSnapshot,
   type StartGatewayOptions,
 } from "@kilnai/runtime";
@@ -35,15 +36,9 @@ export interface AppGatewayExecutionComposition {
 }
 
 /** Returns whether a gateway config declares at least one provider-adapter App. */
-export function gatewayRequiresAppGatewayExecution(configPath: string): boolean {
-  const config = parseGatewayYaml(readFileSync(configPath, "utf8"));
-  return config.apps.some((binding) => {
-    try {
-      return parseRuntimeModeConfig(readFileSync(join(dirname(configPath), binding.config), "utf8"))?.runtime === "provider-adapter";
-    } catch {
-      return false;
-    }
-  });
+export function gatewayRequiresAppGatewayExecution(source: GatewayConfigurationSource): boolean {
+  return source.apps.some((appSource) =>
+    parseAppYaml(appSource.bytes, appSource.path).runtimeModeConfig?.runtime === "provider-adapter");
 }
 
 /**
@@ -175,7 +170,7 @@ function captureCompleteAppGatewaySnapshot(
 
 function readAppGatewayRevisionFamilies(configPath: string): Readonly<Record<string, string>> {
   const gatewayBytes = readFileSync(configPath, "utf8");
-  const gateway = parseGatewayYaml(gatewayBytes);
+  const gateway = parseGatewayYaml(gatewayBytes, configPath);
   const revisions: Record<string, string> = {
     "app-gateway:gateway": digest(gatewayBytes),
   };

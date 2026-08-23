@@ -2,15 +2,11 @@ name: booking-assistant
 
 runtime: provider-adapter
 
-channels: [web, api]
 
 provider:
   name: codex-oauth
   model: gpt-5.6-luna
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 mcp:
   servers:
@@ -54,16 +50,18 @@ teams:
           - mcp:booking-tools:tool:create_booking
           - mcp:booking-tools:tool:cancel_booking
 
-    workflow:
-      phases: [respond]
-
     capabilities:
       - name: list_available_slots
         description: List available appointment slots for a given date and optional service filter
         tags: [booking, calendar]
-        annotations:
-          readOnly: true
-          cacheTtl: 30
+        effectEnvelope:
+          operation: observe
+          boundaries: [external-system]
+          reversibility: reversible
+          dataEgress: metadata
+          identityUse: authenticated
+          consequences: []
+          idempotency: idempotent
         schema:
           type: object
           properties:
@@ -78,8 +76,14 @@ teams:
       - name: create_booking
         description: Book an appointment slot for a customer
         tags: [booking, calendar]
-        annotations:
-          destructive: true
+        effectEnvelope:
+          operation: mutate
+          boundaries: [external-system]
+          reversibility: compensatable
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: [external-state]
+          idempotency: conditionally-idempotent
         schema:
           type: object
           properties:
@@ -103,8 +107,14 @@ teams:
       - name: cancel_booking
         description: Cancel an existing booking by its booking ID
         tags: [booking, calendar]
-        annotations:
-          destructive: true
+        effectEnvelope:
+          operation: mutate
+          boundaries: [external-system]
+          reversibility: compensatable
+          dataEgress: metadata
+          identityUse: authenticated
+          consequences: [external-state]
+          idempotency: conditionally-idempotent
         schema:
           type: object
           properties:
@@ -112,5 +122,3 @@ teams:
               type: string
               description: "Booking ID (e.g., BK-1001)"
           required: [bookingId]
-
-    qualityGates: []

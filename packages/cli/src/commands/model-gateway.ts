@@ -481,7 +481,7 @@ function resolveAutostartLaunchDescriptor(dependencies: ModelGatewayCommandDepen
 
 function loadDevelopmentModelGateway(configPath: string): ModelGatewayConfig {
   if (!existsSync(configPath)) throw new Error(`Gateway config not found: ${configPath}`);
-  const parsed = parseGatewayYaml(readFileSync(configPath, "utf8"));
+  const parsed = parseGatewayYaml(readFileSync(configPath, "utf8"), configPath);
   if (!parsed.modelGateway) throw new Error(`Gateway config '${configPath}' does not declare modelGateway.`);
   return parsed.modelGateway;
 }

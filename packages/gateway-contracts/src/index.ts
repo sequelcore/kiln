@@ -13,6 +13,14 @@ export {
   AvailableModelCatalogEntrySchema,
   AvailableModelCatalogSchema,
 } from "./available-models.js";
+export type { AppGatewayRuntimeIdentity } from "./app-gateway-supervision.js";
+export {
+  APP_GATEWAY_CONTROL_PROTOCOL_VERSION,
+  APP_GATEWAY_HEALTH_PATH,
+  APP_GATEWAY_SERVICE,
+  APP_GATEWAY_SHUTDOWN_PATH,
+  AppGatewayRuntimeIdentitySchema,
+} from "./app-gateway-supervision.js";
 export type {
   CapabilityCatalogEntry,
   CapabilityCatalogProjection,

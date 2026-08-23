@@ -2,15 +2,11 @@ name: incident-triage
 
 runtime: provider-adapter
 
-channels: [web, api]
 
 provider:
   name: codex-oauth
   model: gpt-5.6-luna
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 mcp:
   servers:
@@ -54,16 +50,18 @@ teams:
           - mcp:incident-tools:tool:open_incident
           - mcp:incident-tools:tool:append_timeline_note
 
-    workflow:
-      phases: [respond]
-
     capabilities:
       - name: list_services
         description: List services known to the operations catalog
         tags: [ops, services]
-        annotations:
-          readOnly: true
-          cacheTtl: 30
+        effectEnvelope:
+          operation: observe
+          boundaries: [external-system]
+          reversibility: reversible
+          dataEgress: metadata
+          identityUse: authenticated
+          consequences: []
+          idempotency: idempotent
         schema:
           type: object
           properties: {}
@@ -71,9 +69,14 @@ teams:
       - name: get_service_status
         description: Read current mock health and signals for one service
         tags: [ops, status]
-        annotations:
-          readOnly: true
-          cacheTtl: 15
+        effectEnvelope:
+          operation: observe
+          boundaries: [external-system]
+          reversibility: reversible
+          dataEgress: metadata
+          identityUse: authenticated
+          consequences: []
+          idempotency: idempotent
         schema:
           type: object
           properties:
@@ -85,9 +88,14 @@ teams:
       - name: get_runbook
         description: Read the runbook for a service and symptom
         tags: [ops, runbook]
-        annotations:
-          readOnly: true
-          cacheTtl: 300
+        effectEnvelope:
+          operation: observe
+          boundaries: [external-system]
+          reversibility: reversible
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: []
+          idempotency: idempotent
         schema:
           type: object
           properties:
@@ -102,8 +110,14 @@ teams:
       - name: open_incident
         description: Open an incident record for operator follow-up
         tags: [ops, incident]
-        annotations:
-          destructive: true
+        effectEnvelope:
+          operation: mutate
+          boundaries: [external-system]
+          reversibility: compensatable
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: [external-state]
+          idempotency: conditionally-idempotent
         schema:
           type: object
           properties:
@@ -122,8 +136,14 @@ teams:
       - name: append_timeline_note
         description: Append an auditable timeline note to an incident record
         tags: [ops, incident]
-        annotations:
-          destructive: true
+        effectEnvelope:
+          operation: mutate
+          boundaries: [external-system]
+          reversibility: compensatable
+          dataEgress: project-data
+          identityUse: authenticated
+          consequences: [external-state]
+          idempotency: conditionally-idempotent
         schema:
           type: object
           properties:
@@ -134,5 +154,3 @@ teams:
               type: string
               description: Timeline note
           required: [incidentId, note]
-
-    qualityGates: []

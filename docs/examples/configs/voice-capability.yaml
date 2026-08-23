@@ -2,14 +2,9 @@
 # This is an app-level contract example, not a provider secret file.
 
 name: voice-capability-example
-channels: [api, web, whatsapp, instagram, messenger]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: assistant
 
 voice:
@@ -131,8 +126,4 @@ teams:
         tier: coding
         tools: []
         voiceProfile: assistant-default
-    workflow:
-      phases: [respond]
-      gates: {}
     capabilities: []
-    qualityGates: []

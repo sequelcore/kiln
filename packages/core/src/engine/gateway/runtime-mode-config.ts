@@ -1,5 +1,4 @@
-// Engine type: RuntimeModeConfig -- runtime-variant gateway configuration
-// Parsed from the same App YAML as the App composite, by a separate parser
+// Engine type: RuntimeModeConfig -- provider-adapter runtime configuration
 
 /** Runtime variant: subprocess ("claude-code") or provider-adapter runtime. */
 export type RuntimeMode = "claude-code" | "provider-adapter";
@@ -45,6 +44,39 @@ export interface RuntimeModeValidationError {
   readonly message: string;
 }
 
+/** Maps the already structurally admitted app document into its optional provider runtime. */
+export function mapRuntimeModeConfig(raw: {
+  readonly runtime?: unknown;
+  readonly provider?: unknown;
+  readonly billing?: unknown;
+}): { readonly config?: RuntimeModeConfig; readonly errors: readonly RuntimeModeValidationError[] } {
+  const runtime = typeof raw.runtime === "string" ? raw.runtime : "claude-code";
+  if (runtime !== "claude-code" && runtime !== "provider-adapter") {
+    return { errors: [{ field: "runtime", message: 'must be "claude-code" or "provider-adapter"' }] };
+  }
+  if (runtime === "claude-code") {
+    const errors: RuntimeModeValidationError[] = [];
+    if (raw.provider !== undefined) errors.push({ field: "provider", message: "requires runtime: provider-adapter" });
+    if (raw.billing !== undefined) errors.push({ field: "billing", message: "requires runtime: provider-adapter" });
+    return { errors };
+  }
+
+  const providerRaw = isRecord(raw.provider) ? raw.provider : {};
+  const provider: ProviderConfig = {
+    name: typeof providerRaw.name === "string" ? providerRaw.name : "",
+    ...(typeof providerRaw.model === "string" ? { model: providerRaw.model } : {}),
+    ...(typeof providerRaw.apiKeyEnv === "string" ? { apiKeyEnv: providerRaw.apiKeyEnv } : {}),
+  };
+  const billing = isRecord(raw.billing) ? mapBilling(raw.billing) : undefined;
+  const config: RuntimeModeConfig = {
+    runtime: "provider-adapter",
+    provider,
+    ...(billing ? { billing } : {}),
+  };
+  const errors = validateRuntimeModeConfig(config);
+  return errors.length > 0 ? { errors } : { config, errors: [] };
+}
+
 /** Validate a RuntimeModeConfig. Returns array of errors; empty means valid. */
 export function validateRuntimeModeConfig(config: RuntimeModeConfig): RuntimeModeValidationError[] {
   const errors: RuntimeModeValidationError[] = [];
@@ -88,4 +120,29 @@ export function validateRuntimeModeConfig(config: RuntimeModeConfig): RuntimeMod
   }
 
   return errors;
+}
+
+function mapBilling(raw: Readonly<Record<string, unknown>>): BillingConfig {
+  const headers = isRecord(raw.headers)
+    ? Object.fromEntries(Object.entries(raw.headers).map(([key, value]) => [
+        key,
+        typeof value === "string" && value.startsWith("$") ? process.env[value.slice(1)] ?? "" : "",
+      ]))
+    : undefined;
+  const tiers = isRecord(raw.tiers)
+    ? Object.fromEntries(Object.entries(raw.tiers).map(([name, value]) => [
+        name,
+        { agents: isRecord(value) && Array.isArray(value.agents) ? value.agents.filter((agent): agent is string => typeof agent === "string") : [] },
+      ]))
+    : undefined;
+  return {
+    budgetEndpoint: typeof raw.budgetEndpoint === "string" ? raw.budgetEndpoint : "",
+    overBudgetMessage: typeof raw.overBudgetMessage === "string" ? raw.overBudgetMessage : "",
+    ...(headers ? { headers } : {}),
+    ...(tiers ? { tiers } : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

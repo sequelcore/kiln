@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createScorer } from "../../src/eval/scorer-factory.js";
-import type { EvalScorerConfig, EvalScorerType } from "../../src/engine/domain/eval-config.js";
+import type { EvalScorerConfig, EvalScorerType } from "../../src/eval/scorer-config.js";
 import { KilnError } from "../../src/engine/errors.js";
 import type { ScorerLLM } from "../../src/eval/types.js";
 

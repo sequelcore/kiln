@@ -3,14 +3,9 @@
 # download model files.
 
 name: local-voice-capability-example
-channels: [api, web]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: assistant
 
 voice:
@@ -103,8 +98,4 @@ teams:
         tier: coding
         tools: []
         voiceProfile: english-default
-    workflow:
-      phases: [respond]
-      gates: {}
     capabilities: []
-    qualityGates: []

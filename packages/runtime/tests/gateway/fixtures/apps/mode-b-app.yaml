@@ -1,6 +1,5 @@
 name: test-mode-b
 runtime: provider-adapter
-channels: [api]
 
 provider:
   name: anthropic
@@ -16,12 +15,8 @@ billing:
     pro:
       agents: [fast, coding]
 
-memory:
-  scopes: [user]
-  backend: sqlite+fts5
 
 router:
-  rules: []
   fallback: assistant
 
 teams:
@@ -33,8 +28,4 @@ teams:
         goal: Respond helpfully to user queries
         tier: fast
         tools: []
-    workflow:
-      phases: [understand, respond]
-      gates: {}
     capabilities: []
-    qualityGates: []

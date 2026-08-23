@@ -40,14 +40,10 @@ function makeApp(name: string): App {
       default: {
         name: "default",
         agents: { w: { name: "w", tier: "coding", tools: [] } },
-        workflow: { phases: ["run"], gates: {} },
         capabilities: [],
-        qualityGates: [],
       },
     },
-    router: { rules: [], fallback: "default" },
-    memory: { scopes: ["user"], backend: "sqlite" },
-    channels: ["api"],
+    router: { fallback: "default" },
   };
 }
 

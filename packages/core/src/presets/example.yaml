@@ -2,15 +2,9 @@
 # 3 agents, 6-phase workflow, shared resources, scoped memory policy
 
 name: example
-channels: [cli, web]
 
-memory:
-  scopes: [user, "agent:architect", "agent:worker", "agent:optimizer", "project:default"]
-  backend: sqlite+fts5
-  sync: git
 
 router:
-  rules: []
   fallback: development
 
 teams:
@@ -22,7 +16,6 @@ teams:
         goal: Design robust, maintainable solutions with minimal complexity
         tier: reasoning
         tools: []
-        structured: true
       worker:
         name: Marcus
         role: Implementation Specialist
@@ -38,8 +31,6 @@ teams:
           - kiln_task_action
           - kiln_verify
           - kiln_cost_track
-        count: 2
-        sandbox: true
       optimizer:
         name: Zoe
         role: Performance Optimizer
@@ -49,15 +40,6 @@ teams:
           - resource_list
           - resource_read
           - kiln_cost_summary
-
-    workflow:
-      phases: [analyze, research, architect, implement, verify, synthesize]
-      gates:
-        architect:
-          requires: [human_approval]
-        verify:
-          requires: [tests_pass, typecheck, lint]
-      maxIterations: 3
 
     capabilities:
       - name: kiln_init
@@ -99,17 +81,3 @@ teams:
       - name: kiln_domain_detect
         description: Auto-detect project tech stack from file patterns
         tags: [domain]
-
-    qualityGates:
-      - name: typecheck
-        command: "tsc --noEmit"
-        description: Type-check TypeScript source
-        required: true
-      - name: test
-        command: "vitest run"
-        description: Run test suite
-        required: true
-      - name: lint
-        command: "biome check"
-        description: Lint and format code
-        required: true

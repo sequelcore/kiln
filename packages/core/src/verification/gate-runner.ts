@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { QualityGate } from "../engine/composites/team.js";
+import type { QualityGate } from "../engine/domain/quality-gate.js";
 import type { VerificationCheck } from "./index.js";
 
 const MAX_OUTPUT_LENGTH = 2000;

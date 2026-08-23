@@ -108,7 +108,7 @@ describe("KilnConfigActivationStatusSchema", () => {
   });
 
   it("rejects operator paths and secret-shaped text from the public activation projection", () => {
-    for (const path of ["C:/Users/alice/.kiln/kiln.yaml", "C:operator/config.yaml", "../config.yaml", "./config.yaml", ".kiln\\kiln.yaml"]) {
+    for (const path of ["C:/Users/test-user/.kiln/kiln.yaml", "C:operator/config.yaml", "../config.yaml", "./config.yaml", ".kiln\\kiln.yaml"]) {
       expect(() => KilnConfigActivationStatusSchema.parse({
         ...activeStatus,
         entries: [{ ...activeEntry, path }],

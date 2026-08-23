@@ -1,8 +1,6 @@
 // Engine primitive: Agent -- a persona with expertise
 // Ehrlich #6: domain-agnostic config (tiers, not hardcoded roles)
 
-import type { Modality } from "./modality.js";
-
 /** Agent tier determines model class and capabilities */
 export type AgentTier = "reasoning" | "coding" | "fast";
 
@@ -15,9 +13,5 @@ export interface Agent {
   readonly tier: AgentTier;       // Model class
   readonly tools: readonly string[];  // Capability references (can be [])
   readonly instructions?: string; // Operating rules and constraints
-  readonly structured?: boolean;  // Require JSON output
-  readonly count?: number;        // Parallel instance pool size
-  readonly sandbox?: boolean;     // Enable filesystem/network isolation
-  readonly modalities?: readonly Modality[];  // Supported content types (defaults to ["text"] if omitted)
   readonly voiceProfile?: string; // Optional governed TTS profile reference
 }

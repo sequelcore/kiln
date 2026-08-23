@@ -1,22 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse, stringify } from "yaml";
+import { addAppScheduleTrigger, removeAppScheduleTrigger } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
-
-interface RawTrigger {
-  name: string;
-  type: string;
-  team?: string;
-  cron?: string;
-  task?: string;
-  enabled?: boolean;
-  timezone?: string;
-}
-
-interface RawAppYaml {
-  triggers?: RawTrigger[];
-  [key: string]: unknown;
-}
 
 export async function cronCommand(
   _appConfig: KilnAppConfig,
@@ -150,25 +135,12 @@ async function addCommand(appYamlPath: string, args: string[]): Promise<void> {
   }
 
   const raw = readFileSync(appYamlPath, "utf-8");
-  const app = parse(raw) as RawAppYaml;
-
-  const triggers = app.triggers ?? [];
-  if (triggers.some((t) => t.name === name)) {
+  const mutation = addAppScheduleTrigger(raw, { name, cron, task, timezone }, appYamlPath);
+  if (!mutation.changed) {
     console.error(`A schedule named '${name}' already exists in app.yaml.`);
     process.exit(1);
   }
-
-  triggers.push({
-    name,
-    type: "schedule",
-    team: "main",
-    cron,
-    task,
-    timezone,
-  });
-
-  app.triggers = triggers;
-  writeFileSync(appYamlPath, stringify(app), "utf-8");
+  writeFileSync(appYamlPath, mutation.bytes, "utf-8");
 
   const expr = parseCronExpression(cron);
   const next = nextFireTime(expr, new Date(), timezone === "UTC" ? undefined : timezone);
@@ -190,20 +162,12 @@ function removeCommand(appYamlPath: string, args: string[]): void {
   }
 
   const raw = readFileSync(appYamlPath, "utf-8");
-  const app = parse(raw) as RawAppYaml;
-
-  const triggers = app.triggers ?? [];
-  const idx = triggers.findIndex((t) => t.name === name);
-
-  if (idx === -1) {
+  const mutation = removeAppScheduleTrigger(raw, name, appYamlPath);
+  if (!mutation.changed) {
     console.error(`No schedule named '${name}' found.`);
     process.exit(1);
   }
-
-  triggers.splice(idx, 1);
-  app.triggers = triggers;
-
-  writeFileSync(appYamlPath, stringify(app), "utf-8");
+  writeFileSync(appYamlPath, mutation.bytes, "utf-8");
   console.log(`Schedule '${name}' removed.`);
 }
 
