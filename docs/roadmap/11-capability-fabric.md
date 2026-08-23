@@ -1,7 +1,8 @@
 # 11 - Capability Fabric
 
 Status: Research capability-portability track
-Execution: Research - Slice 1 is complete; implement read-only discovery adapters next.
+Execution: Research - Slice 2 is next, but implementation is deferred behind
+Roadmap 00 Source Stability unless an explicit priority decision supersedes it.
 Created: 2026-08-14
 
 ## Objective
@@ -272,7 +273,7 @@ Runtime failure was introduced.
 
 ### Slice 2 - Read-Only Discovery Adapters
 
-Status: Ready.
+Status: Queued behind Roadmap 00 Source Stability.
 
 Implement read-only adapters for Codex, Claude, OpenCode V2, MCP, OpenAPI,
 GraphQL, admitted CLIs, and Kiln-owned tools. Normalize their declarations into

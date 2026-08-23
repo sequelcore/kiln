@@ -29,14 +29,15 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
-| 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
-| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
-| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
-| 5 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
-| 7 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
-| 8 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
+| 1 | [00 - Source Stability](00-source-stability.md) | Ready | Urgent | Complete [#101](https://github.com/sequelcore/kiln/issues/101): bind normal GUI startup to loopback, replace wildcard CORS, and inventory HTTP/WebSocket scopes. |
+| 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Queued | Normal | Reassess pairing only after Roadmap 00 names a supported source baseline. |
+| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 executes through Roadmap 00; later connectivity slices wait on Roadmap 00 and Roadmap 08 identity. |
+| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |
+| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
+| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters only after the source-stability gate or an explicit reprioritization. |
+| 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface is independently useful but is not the default before source stability. |
+| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
 ## Dependency Rules
 
@@ -49,13 +50,14 @@ roadmap reorganization.
   admissible safety work; later slices consume `08` session identity, and
   configuration-bearing slices consume the canonical effective-state and
   governed-mutation contracts.
-- The 2026-08-14 operator decision removed `07` as a prerequisite for `08`. The
-  2026-08-20 operator priority decision supersedes its queue priority: execute
-  `12` through the first safe-turn-without-YAML vertical proof, then reassess
-  Connect sequencing. This is product sequencing, not a transfer of bounded-
-  context ownership. Roadmap `08.5` Slice 0 remains independently admissible
-  safety hardening, but is not the default product task. Neither Connect track
-  admits a Kiln-hosted cloud; a managed relay requires a separate future
+- The 2026-08-14 operator decision removed `07` as a prerequisite for `08`.
+  Roadmap 12 then completed the first safe-turn-without-YAML vertical proof.
+  The 2026-08-23 source-stability decision now supersedes the former Connect
+  priority: Roadmap `00` is the default track, and Roadmap `08.5` Slice 0 is
+  its first bounded task. Roadmap `08` pairing and later connectivity slices
+  are queued until Roadmap `00` names a supported source baseline. This is
+  sequencing, not a transfer of bounded-context ownership. Neither Connect
+  track admits a Kiln-hosted cloud; a managed relay requires a separate future
   decision.
 - `08.75` owns inbound agents Kiln did not launch: their identity, bounded
   verification surface, lease-scoped sandboxes, and settlement. It consumes `08`
@@ -76,8 +78,10 @@ roadmap reorganization.
   never shared execution authority.
 - Configuration discoverability, desired intent, effective-value explanation,
   governed mutation, activation planning, and cross-surface settings parity
-  are stable architecture. The independently owned credential-bearing live
-  matrix remains tracked by [#97](https://github.com/sequelcore/kiln/issues/97).
+  are stable architecture. Project-state relocation is tracked by
+  [#100](https://github.com/sequelcore/kiln/issues/100). Crash-recovery and
+  authorized live validation are tracked separately by
+  [#97](https://github.com/sequelcore/kiln/issues/97).
 
 GUI execution presentation is canonical in
 [`docs/architecture/gui-execution-presentation.md`](../architecture/surfaces/gui-execution-presentation.md).
@@ -121,5 +125,9 @@ The current repository has no active release candidate and no supported
 installable package line. The historical `3.0.0-beta.1` candidate was not
 published and is no longer the target: additional live validation, a complete
 rebrand, and new package coordinates must precede any future release process.
-Release work starts only after those product decisions are canonical and the
-exact committed candidate satisfies `docs/operations/release.md`.
+Issue [#103](https://github.com/sequelcore/kiln/issues/103) owns the supported
+source baseline. Issue [#104](https://github.com/sequelcore/kiln/issues/104)
+owns the separately blocked installable-candidate admission. Release work
+starts only after Roadmap `00` is complete, the product decisions are
+canonical, and the exact committed candidate satisfies
+`docs/operations/release.md`.
