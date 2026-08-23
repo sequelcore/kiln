@@ -85,8 +85,8 @@ roadmap reorganization.
   ownership decision and convergence in
   [#98](https://github.com/sequelcore/kiln/issues/98), and the bounded synthetic
   oracle subset of [#97](https://github.com/sequelcore/kiln/issues/97) are
-  complete. Slice 8 is complete and Slice 9 is Ready. The remaining #97 live
-  matrix is independently owned and does not block it. This decision does not duplicate Slice 8 residuals outside
+  complete. Slices 8 and 9 are complete, and Slice 10 is Ready. The remaining
+  #97 live matrix is independently owned and does not block it. This decision does not duplicate Slice 8 residuals outside
   [#72](https://github.com/sequelcore/kiln/issues/72), and does not reprioritize
   Kiln Connect without a separate operator decision.
 
