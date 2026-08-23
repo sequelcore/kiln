@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, Download, FileCode2, LoaderCircle, RotateCcw, Save, Search, Upload } from "lucide-react";
 import type {
+  KilnConfigActivationStatus,
   KilnConfigMutationScope,
   KilnSettingsApplyRequest,
   KilnSettingsEntry,
@@ -164,6 +165,8 @@ export function SettingsPage(props: SettingsPageProps) {
           Refresh
         </Button>
       </header>
+
+      {props.snapshot ? <ConfigurationActivationStatus status={props.snapshot.activationStatus} /> : null}
 
       {feedback ? <p role="status" className="mb-5 text-sm text-foreground">{feedback}</p> : null}
       {proposalError ? (
@@ -639,6 +642,30 @@ function proposalSummary(proposal: KilnSettingsProposalProjection): string {
 
 function scopeLabel(scope: KilnConfigMutationScope): string {
   return scope === "project" ? "Project" : "Global";
+}
+
+function ConfigurationActivationStatus(props: { readonly status: KilnConfigActivationStatus }) {
+  const { status } = props;
+  const badgeVariant = status.state === "failed" || status.state === "unsupported"
+    ? "destructive" as const
+    : status.state === "pending" || status.state === "scheduled" || status.state === "superseded"
+      ? "secondary" as const
+      : "outline" as const;
+  return (
+    <section
+      aria-labelledby="configuration-activation-heading"
+      className="mb-5 border-y border-border/70 py-4"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 id="configuration-activation-heading" className="text-sm font-medium text-foreground">
+          Configuration activation
+        </h3>
+        <Badge variant={badgeVariant}>{title(status.state.replaceAll("-", " "))}</Badge>
+        {status.boundary ? <Badge variant="outline">{title(status.boundary.replaceAll("-", " "))}</Badge> : null}
+      </div>
+      <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">{status.summary}</p>
+    </section>
+  );
 }
 
 function sectionLabel(section: SettingsSection): string {

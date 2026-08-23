@@ -107,6 +107,23 @@ describe("KilnConfigActivationStatusSchema", () => {
     })).toThrow();
   });
 
+  it("rejects operator paths and secret-shaped text from the public activation projection", () => {
+    for (const path of ["C:/Users/alice/.kiln/kiln.yaml", "C:operator/config.yaml", "../config.yaml", "./config.yaml", ".kiln\\kiln.yaml"]) {
+      expect(() => KilnConfigActivationStatusSchema.parse({
+        ...activeStatus,
+        entries: [{ ...activeEntry, path }],
+      })).toThrow(/path|portable|relative/iu);
+    }
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      entries: [{ ...activeEntry, summary: "api_key=leaked" }],
+    })).toThrow(/secret|operator-specific/iu);
+    expect(() => KilnConfigActivationStatusSchema.parse({
+      ...activeStatus,
+      summary: "credential: leaked",
+    })).toThrow(/secret|operator-specific/iu);
+  });
+
   it("rejects active entries whose active revision does not equal the committed revision", () => {
     expect(() => KilnConfigActivationStatusSchema.parse({
       ...activeStatus,

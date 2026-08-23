@@ -162,8 +162,9 @@ function isReconciliationTarget(value: string): boolean {
 }
 
 function isLogicalPath(value: string): boolean {
-  return !/^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/u.test(value)
-    && !value.split(/[\\/]/u).some((segment) => segment === ".." || segment.length === 0);
+  return !/^(?:[A-Za-z]:|[\\/]{1,2})/u.test(value)
+    && !value.includes("\\")
+    && !value.split("/").some((segment) => segment === "." || segment === ".." || segment.length === 0);
 }
 
 function compareCodeUnits(left: string, right: string): number {

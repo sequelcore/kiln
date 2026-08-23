@@ -197,6 +197,36 @@ describe("EffectiveAuthorityAdmissionBundle", () => {
     expect(JSON.parse(JSON.stringify(first))).toEqual(first);
   });
 
+  it("admits only normalized portable activation-lineage paths inside configuration revisions", () => {
+    const candidate = input();
+    const activationLineage = [{
+      proposalId: "cfg-portable-lineage",
+      scope: "project" as const,
+      path: ".kiln/kiln.yaml",
+      committedRevision: `sha256:${"a".repeat(64)}` as const,
+      reconciliationGenerations: [],
+    }];
+    const bundle = defineEffectiveAuthorityAdmissionBundle({
+      ...candidate,
+      configuration: {
+        sessionRevision: { ...candidate.configuration.sessionRevision, activationLineage },
+        turnRevision: { ...candidate.configuration.turnRevision, activationLineage },
+      },
+    });
+
+    expect(bundle.configuration.turnRevision.activationLineage?.[0]?.path).toBe(".kiln/kiln.yaml");
+    expect(() => defineEffectiveAuthorityAdmissionBundle({
+      ...candidate,
+      configuration: {
+        ...candidate.configuration,
+        turnRevision: {
+          ...candidate.configuration.turnRevision,
+          activationLineage: [{ ...activationLineage[0]!, path: "../operator/config.yaml" }],
+        },
+      },
+    })).toThrow(/logical relative path|filesystem path/iu);
+  });
+
   it("detaches and deeply freezes every admitted facet", () => {
     const candidate = input();
     const bundle = defineEffectiveAuthorityAdmissionBundle(candidate);

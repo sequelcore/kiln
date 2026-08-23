@@ -609,9 +609,17 @@ describe("GuiGatewayClient", () => {
 
   it("reads and mutates settings through validated capability-bearing requests", async () => {
     const snapshot = {
-      schemaRevision: 1,
+      schemaRevision: 2,
       generatedAt: "2026-08-21T00:00:00.000Z",
       health: "current",
+      activationStatus: {
+        desiredRevisionSetId: `sha256:${"a".repeat(64)}`,
+        state: "not-started",
+        boundary: null,
+        activeRevision: null,
+        entries: [],
+        summary: "No activation evidence is available.",
+      },
       sections: KILN_SETTINGS_SECTION_IDS.map((id) => ({ id, label: id, description: id, entryKeys: [] })),
       entries: [],
       revisions: {},

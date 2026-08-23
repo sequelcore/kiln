@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  KILN_SETTINGS_SCHEMA_REVISION,
   KILN_SETTINGS_SECTION_IDS,
   KilnSettingsApplyRequestSchema,
   KilnSettingsMutationResultSchema,
@@ -8,6 +9,15 @@ import {
   projectKilnSettingsMutationResult,
   projectKilnSettingsProposal,
 } from "../src/configuration-settings.js";
+
+const activationStatus = {
+  desiredRevisionSetId: `sha256:${"a".repeat(64)}`,
+  state: "not-started" as const,
+  boundary: null,
+  activeRevision: null,
+  entries: [],
+  summary: "No activation evidence is available.",
+};
 
 describe("configuration settings contracts", () => {
   it("defines the one cross-surface section vocabulary", () => {
@@ -26,9 +36,10 @@ describe("configuration settings contracts", () => {
 
   it("validates a secret-free settings snapshot", () => {
     const snapshot = KilnSettingsSnapshotSchema.parse({
-      schemaRevision: 1,
+      schemaRevision: KILN_SETTINGS_SCHEMA_REVISION,
       generatedAt: "2026-08-21T00:00:00.000Z",
       health: "current",
+      activationStatus,
       sections: KILN_SETTINGS_SECTION_IDS.map((id) => ({ id, label: id, description: id, entryKeys: [] })),
       entries: [{
         key: "domain",
@@ -61,13 +72,25 @@ describe("configuration settings contracts", () => {
     });
 
     expect(snapshot.entries[0]?.effective.value).toBe("backend");
+    expect(snapshot.activationStatus).toEqual(activationStatus);
+
+    expect(() => KilnSettingsSnapshotSchema.parse({
+      schemaRevision: KILN_SETTINGS_SCHEMA_REVISION,
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      health: "current",
+      sections: KILN_SETTINGS_SECTION_IDS.map((id) => ({ id, label: id, description: id, entryKeys: [] })),
+      entries: [],
+      revisions: {},
+      modifiedCount: 0,
+    })).toThrow();
   });
 
   it("rejects secret/path leakage and unbounded fields", () => {
     expect(() => KilnSettingsSnapshotSchema.parse({
-      schemaRevision: 1,
+      schemaRevision: KILN_SETTINGS_SCHEMA_REVISION,
       generatedAt: "2026-08-21T00:00:00.000Z",
       health: "current",
+      activationStatus,
       sections: [],
       entries: [{
         key: "domain",
@@ -95,6 +118,20 @@ describe("configuration settings contracts", () => {
       revisions: { project: "sha256:abc" },
       modifiedCount: 1,
     })).toThrow();
+
+    expect(() => KilnSettingsSnapshotSchema.parse({
+      schemaRevision: KILN_SETTINGS_SCHEMA_REVISION,
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      health: "current",
+      activationStatus: {
+        ...activationStatus,
+        summary: "api_key=leaked",
+      },
+      sections: [],
+      entries: [],
+      revisions: {},
+      modifiedCount: 0,
+    })).toThrow(/secret|operator-specific/iu);
   });
 
   it("requires a key for both setting operations and never accepts a whole-scope reset", () => {

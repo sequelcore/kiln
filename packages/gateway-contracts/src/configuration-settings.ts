@@ -3,9 +3,11 @@ import type {
   KilnConfigMutationProposal,
   KilnConfigMutationResult,
 } from "./config-mutation.js";
+import { KilnConfigActivationStatusSchema } from "./config-status.js";
+import { SafePublicDisplayTextSchema } from "./public-projection-safety.js";
 
 /** Breaking revision for the cross-surface, secret-free settings information architecture. */
-export const KILN_SETTINGS_SCHEMA_REVISION = 1 as const;
+export const KILN_SETTINGS_SCHEMA_REVISION = 2 as const;
 
 export const KILN_SETTINGS_SECTION_IDS = [
   "general",
@@ -55,10 +57,7 @@ const ActivationSchema = z.enum(["hot", "next-turn", "next-session", "reconcile"
 const HealthSchema = z.enum(["current", "stale", "drifted", "unknown"]);
 const AuthorityImpactSchema = z.enum(["none", "expands-read", "expands-write", "unknown"]);
 const OperationSchema = z.enum(["setting.set", "setting.reset"]);
-const SafeDisplayTextSchema = z.string().min(1).refine(
-  (value) => !hasUnsafeSettingsText(value),
-  "Secret or absolute path text is not permitted in settings projections.",
-);
+const SafeDisplayTextSchema = SafePublicDisplayTextSchema;
 const ActivationObservationSchema = z.union([
   z.object({
     state: z.literal("not-started"), boundary: ActivationSchema,
@@ -121,11 +120,6 @@ function validateSecretFreeValue(value: unknown, context: z.RefinementCtx, path:
 
 function isAbsoluteOperatorPath(value: string): boolean {
   return /^(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|tmp|var|workspace|mnt)(?:[\\/]|$))/u.test(value.trim());
-}
-
-function hasUnsafeSettingsText(value: string): boolean {
-  return /(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|tmp|var|workspace|mnt)(?:[\\/]|$))/u.test(value)
-    || /(?:^|[=:;,\s])(token|secret|password|api[_-]?key|credential|private[_-]?key)\s*[=:]/iu.test(value);
 }
 
 const SelectOptionSchema = z.object({
@@ -232,6 +226,7 @@ export const KilnSettingsSnapshotSchema = z.object({
   schemaRevision: z.literal(KILN_SETTINGS_SCHEMA_REVISION),
   generatedAt: z.string().datetime(),
   health: HealthSchema,
+  activationStatus: KilnConfigActivationStatusSchema,
   sections: z.array(SettingsSectionSchema),
   entries: z.array(SettingsEntrySchema),
   revisions: RevisionsSchema,

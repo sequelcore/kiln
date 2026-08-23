@@ -2,10 +2,9 @@
 
 Status: Ready
 Priority: Urgent
-Execution: Slices 0-7 and 7A are code/integration complete. Slice 8 has a
-committed incomplete checkpoint and is the next bounded implementation slice.
-No Slice 8 production work has started from the resumed checkpoint. Live
-provider/runtime validation remains unrun.
+Execution: Slices 0-8 and 7A are code/integration complete. Slice 9 is the next
+bounded implementation slice. The remaining credential-bearing live matrix in
+issue #97 remains independently owned and unrun; it does not block Slice 9.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 Paused: 2026-08-22
@@ -741,7 +740,7 @@ negative validation proves the old YAML shape is rejected.
 
 ### Slice 8 - Live Activation And Reconciliation
 
-Status: In progress. The shared activation observation, Runtime turn/session
+Status: Complete. The shared activation observation, Runtime turn/session
 revision evidence pinning, target-aware generation-fenced reconciliation, and
 convergent status projection are implemented. Hot activation requires read-back
 proof; legacy settlements fail closed; rollback uses the governed mutation and
@@ -760,8 +759,7 @@ configuration digests, records the true requested authority, supplies the
 configured session budget, fences native delegation, and owns early-startup
 cleanup.
 
-The issue #98 Execution Kernel convergence is complete in this checkpoint;
-Slice 8 remains in progress for its separate activation families. Runtime now
+The issue #98 Execution Kernel convergence is complete. Runtime now
 owns one named durable action claim immediately before every Kiln-owned
 consequential model-round, tool, media, channel-egress, Agent Task, and managed
 external-invocation effect. Exact replay returns no permit, post-fence
@@ -780,7 +778,7 @@ not own a parallel lifecycle. No production descriptor owns
 `restart-required`; supervisor drain and restart wiring remains deferred until
 Slice 9 admits a real configuration family and owner.
 
-Completion evidence (2026-08-22): repository source and test typechecking,
+Execution Kernel convergence evidence (2026-08-22): repository source and test typechecking,
 production build, documentation validation, and diff whitespace validation
 pass. The component suites pass 10,904 tests: scripts 248; foundation 4,176;
 Runtime 3,248; CLI 2,506; and surfaces 726. Six platform- or
@@ -832,9 +830,10 @@ compatibility or dual-read path.
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their
 defined boundary. Reconcile changes update owned projections or runtime
-catalogs through generation fencing. Restart-required changes use the owning
-supervisor and graceful drain. Authority-expanding changes remain approval
-gated regardless of activation speed.
+catalogs through generation fencing. Restart-required changes remain
+unsupported until Slice 9 admits an owning supervisor and graceful drain;
+they must use that owner rather than a fallback authority. Authority-expanding
+changes remain approval gated regardless of activation speed.
 
 In-flight executions retain their committed revision. No live setting may
 alter permissions, route, budget, data policy, or credential authority midway
@@ -842,13 +841,33 @@ through an admitted effect.
 
 Acceptance: activation ordering, in-flight revision stability, projection
 failure, rollback, and status convergence are deterministic and visible from
-every surface. `restart-required` remains deterministically unsupported until
-Slice 9 admits a real configuration family, supervisor, and graceful-drain
-owner; Slice 8 must not simulate that proof.
+each settings surface admitted in this slice: CLI, GUI, TUI, and governed agent
+readers. Typed SDK and native-harness behavioral parity remains owned by Slice
+10. `restart-required` remains deterministically unsupported until Slice 9
+admits a real configuration family, supervisor, and graceful-drain owner;
+Slice 8 must not simulate that proof.
+
+Slice 8 delivery evidence (2026-08-22): the strict settings projection carries
+the canonical aggregate activation status to CLI, GUI, TUI, and governed
+agent readers without surface recomputation. A portable integration oracle
+drives real governed mutations through durable settlement, persisted admission,
+and public settings read-back for hot, next-turn, next-session, failed,
+superseded, rollback, and in-flight revision-pinning behavior. Activation
+lineage persists only normalized logical configuration identifiers; absolute
+or escaping operator paths remain rejected. Focused contract, lifecycle,
+Runtime authority, CLI, TUI, and GUI tests pass. Repository source and test
+typechecking, production build, documentation validation, and diff whitespace
+validation pass. The component suites pass 10,914 tests: scripts 248;
+foundation 4,177; Runtime 3,251; CLI 2,511; and surfaces 727. Six platform- or
+permission-specific tests remain intentionally skipped. The 21-case Playwright
+GUI parity harness also passes through the canonical authority bridge,
+admission read-back, and action-claim stores. The independently owned #97 live
+matrix remains unrun.
 
 ### Slice 9 - Remaining Configuration Families
 
-Status: Blocked on the project pilot and global intent proof.
+Status: Ready. The project pilot, global intent proof, and Slice 8 activation
+contract are complete.
 
 Migrate global, app, and gateway configuration one bounded owner at a time.
 Generate separate schemas and descriptors, retain graph and cross-resource

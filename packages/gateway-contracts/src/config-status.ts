@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PortableLogicalPathSchema, SafePublicDisplayTextSchema } from "./public-projection-safety.js";
 import type {
   KilnConfigActivationClass,
   KilnConfigMutationScope,
@@ -912,9 +913,9 @@ const KilnConfigActivationStatusGenerationSchema = z.object({
 }).strict();
 
 const KilnConfigActivationStatusEntrySchema = z.object({
-  proposalId: z.string().min(1),
+  proposalId: SafePublicDisplayTextSchema,
   scope: z.enum(["project", "global"]),
-  path: z.string().min(1),
+  path: PortableLogicalPathSchema,
   committedRevision: KilnConfigActivationStatusRevisionSchema,
   boundary: z.enum(["hot", "next-turn", "next-session", "reconcile", "restart-required"]),
   state: z.enum(KILN_CONFIG_ACTIVATION_STATUS_STATES),
@@ -922,7 +923,7 @@ const KilnConfigActivationStatusEntrySchema = z.object({
   evidence: z.enum(KILN_CONFIG_ACTIVATION_STATUS_EVIDENCE),
   reconciliationGenerations: z.array(KilnConfigActivationStatusGenerationSchema),
   settledAt: z.string().datetime().optional(),
-  summary: z.string().min(1),
+  summary: SafePublicDisplayTextSchema,
 }).strict().superRefine((entry, context) => {
   if (entry.state === "active") {
     if (entry.activeRevision === null || entry.activeRevision !== entry.committedRevision) {
@@ -950,7 +951,7 @@ export const KilnConfigActivationStatusSchema = z.object({
   boundary: z.enum(["hot", "next-turn", "next-session", "reconcile", "restart-required"]).nullable(),
   activeRevision: KilnConfigActivationStatusRevisionSchema.nullable(),
   entries: z.array(KilnConfigActivationStatusEntrySchema),
-  summary: z.string().min(1),
+  summary: SafePublicDisplayTextSchema,
 }).strict().superRefine((status, context) => {
   if (status.state === "active") {
     if (status.activeRevision === null || status.entries.length === 0 || status.entries.some((entry) => entry.state !== "active")) {

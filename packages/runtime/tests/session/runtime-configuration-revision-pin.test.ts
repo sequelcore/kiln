@@ -127,6 +127,18 @@ describe("Runtime configuration revision pin", () => {
         reconciliationGenerations: [],
       }],
     })).toThrow(/path|absolute/iu);
+    for (const path of ["C:operator\\config.yaml", "./config.yaml", ".kiln\\kiln.yaml"]) {
+      expect(() => normalizeRuntimeConfigurationRevision({
+        ...base,
+        activationLineage: [{
+          proposalId: "cfg-project",
+          scope: "project",
+          path,
+          committedRevision: "sha256:" + "b".repeat(64),
+          reconciliationGenerations: [],
+        }],
+      })).toThrow(/logical relative path/iu);
+    }
     expect(() => normalizeRuntimeConfigurationRevision({
       ...base,
       activationLineage: [{

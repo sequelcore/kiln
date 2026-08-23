@@ -11,6 +11,7 @@ import {
   type ReadConfigStatusOptions,
   type ReadConfigStatusViewOptions,
 } from "../../src/application/config-status.js";
+import { readSettingsSnapshot } from "../../src/application/config-settings.js";
 import { KilnConfigActivationStatusSchema, type KilnConfigReadView, type KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
 import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
@@ -271,6 +272,7 @@ describe("config-status", () => {
     writeFileSync(projectFile, 'version: "1"\ndomain: frontend\n', "utf-8");
     const result = await readConfigStatusView(snapshot, "settings");
     const settings = result.value as {
+      readonly activationStatus: KilnConfigStatusSnapshot["activationStatus"];
       readonly sections: readonly { readonly id: string }[];
       readonly entries: readonly {
         readonly key: string;
@@ -280,6 +282,7 @@ describe("config-status", () => {
         readonly writeTargets: readonly { readonly document: string; readonly current?: { readonly value?: unknown } }[];
       }[];
     };
+    expect(settings.activationStatus).toEqual(snapshot.activationStatus);
     expect(settings.sections.map((section) => section.id)).toEqual([
       "general", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
     ]);
@@ -422,6 +425,16 @@ describe("config-status", () => {
     expect(health.value).toMatchObject({
       global: { error: expect.stringContaining('Global config version must be "4"') },
     });
+  });
+
+  it("fails closed when a pre-Slice-8 status snapshot lacks activation evidence", async () => {
+    writeProjectConfig(tempDir);
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, view: "settings" });
+    delete (snapshot as { activationStatus?: unknown }).activationStatus;
+
+    expect(() => readSettingsSnapshot(snapshot)).toThrow(
+      "Settings projection requires canonical activation status evidence.",
+    );
   });
 
   it("publishes canonical MCP resolution in the shared status and bounded read view", async () => {

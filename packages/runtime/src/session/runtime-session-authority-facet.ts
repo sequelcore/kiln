@@ -56,7 +56,10 @@ function normalizeAuthorityCeiling(value: EffectiveTurnAuthorityPolicyBound): Ef
 
 function assertSerializableFacetValue(value: unknown, label: string, key?: string): void {
   if (key && /^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|credential|credentialMaterial)$/iu.test(key)) throw new TypeError(`${label} contains secret material.`);
-  if (key && /^(?:cwd|workingDirectory|canonicalRoot|filePath|path)$/u.test(key)) throw new TypeError(`${label} contains a filesystem path.`);
+  if (key && /^(?:cwd|workingDirectory|canonicalRoot|filePath|path)$/u.test(key)
+    && !(key === "path" && /^session authority facet\.sessionRevision\.activationLineage\[\d+\]\.path$/u.test(label))) {
+    throw new TypeError(`${label} contains a filesystem path.`);
+  }
   if (value === null || typeof value === "boolean") return;
   if (typeof value === "string") {
     if (/^(?:[A-Za-z]:[\\/]|\\\\|\/)/u.test(value)) throw new TypeError(`${label} contains a filesystem path.`);

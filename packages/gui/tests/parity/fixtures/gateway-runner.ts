@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildGuiOperatorDiscoveryResults,
+  createRuntimeMediaActionClaimContext,
+  defineEffectiveAuthorityAdmissionBundle,
+  defineRuntimeSessionAuthorityFacet,
+  OperatorSessionAuthorityAdmissionBridge,
   OperatorSessionExecutionBridge,
   projectAvailableModelCatalogForExecutionRoutes,
   projectGuiProviderModelDiscovery,
@@ -12,6 +16,7 @@ import {
   type OperatorTurnDispatchPort,
   type OperatorTurnDispatchResult,
   type OperatorTurnGuiDispatchPayload,
+  type EffectiveAuthorityAdmissionBundle,
 } from "../../../../runtime/src/index.js";
 import {
   createCurrentExecutionRoute,
@@ -664,6 +669,11 @@ function createDeterministicOperatorRouting(): {
   readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<unknown, OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorAuthorityAdmissionBridge: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["operatorAuthorityAdmissionBridge"];
+  readonly authorityAdmissionEvidenceStore: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["authorityAdmissionEvidenceStore"];
+  readonly runtimeModelRoundActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeModelRoundActionClaims"];
+  readonly runtimeToolActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeToolActionClaims"];
+  readonly runtimeMediaActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeMediaActionClaims"];
   readonly runExecutionTargetWizard: NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]>;
 } {
   const operatorTurnExecutionBridge = new OperatorSessionExecutionBridge<
@@ -671,6 +681,68 @@ function createDeterministicOperatorRouting(): {
     OperatorTurnGuiDispatchPayload,
     OperatorTurnDispatchResult
   >();
+  const operatorAuthorityAdmissionBridge = new OperatorSessionAuthorityAdmissionBridge<OperatorTurnGuiDispatchPayload>();
+  const persistedAdmissions = new Map<string, EffectiveAuthorityAdmissionBundle>();
+  const persistedSessionFacets = new Map([
+    [restoredSessionDetail.id, defineRuntimeSessionAuthorityFacet({
+      sessionId: restoredSessionDetail.id,
+      sessionRevision: { revisionSetId: "parity-R1", revisions: { execution: "parity-R1" } },
+      skillCatalog: { catalogId: "parity", revision: "skills-R1", skillIds: [] },
+      authorityCeiling: {
+        maximumAuthority: "audited",
+        reason: "Synthetic parity session authority.",
+        subjectId: restoredSessionDetail.id,
+      },
+    })],
+  ]);
+  const authorityAdmissionEvidenceStore = {
+    persist: async (bundle: EffectiveAuthorityAdmissionBundle) => {
+      persistedAdmissions.set(bundle.admissionId, bundle);
+      persistedSessionFacets.set(bundle.sessionId, defineRuntimeSessionAuthorityFacet({
+        sessionId: bundle.sessionId,
+        sessionRevision: bundle.configuration.sessionRevision,
+        ...bundle.session,
+      }));
+    },
+    loadSessionFacet: async (sessionId: string) => persistedSessionFacets.get(sessionId),
+    readAdmission: async (input: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string }) => {
+      const bundle = persistedAdmissions.get(input.admissionId);
+      return bundle?.sessionId === input.sessionId && bundle.turnId === input.turnId ? bundle : undefined;
+    },
+  };
+  const createActionClaimStore = () => {
+    const permits = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+    return {
+      claim(claim: { readonly claimId: string }) {
+        const state = { claimId: claim.claimId, consumed: false };
+        const permit = {
+          claimId: claim.claimId,
+          permitId: `parity:${claim.claimId}`,
+          consume: () => {
+            if (state.consumed) throw new Error("Parity action-claim permit already consumed.");
+            state.consumed = true;
+          },
+        };
+        permits.set(permit, state);
+        return permit;
+      },
+      settle(permit: { readonly claimId: string }) {
+        const state = permits.get(permit);
+        if (!state || state.claimId !== permit.claimId || !state.consumed) {
+          throw new Error("Unknown or unconsumed parity action-claim permit.");
+        }
+        permits.delete(permit);
+      },
+    };
+  };
+  const runtimeModelRoundActionClaims = createActionClaimStore() as NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeModelRoundActionClaims"];
+  const runtimeToolActionClaims = createActionClaimStore() as NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeToolActionClaims"];
+  const runtimeMediaActionClaimStore = createActionClaimStore() as NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeMediaActionClaims"]["store"];
+  const runtimeMediaActionClaims = createRuntimeMediaActionClaimContext({
+    ownerGeneration: "parity-gui:media:r1",
+    store: runtimeMediaActionClaimStore,
+    readAdmission: (input) => authorityAdmissionEvidenceStore.readAdmission(input),
+  });
   const accountId = "parity-codex-oauth-account";
   const accountPolicyId = "parity-codex-oauth-policy";
   let targetEvidence: ExecutionTargetEvidenceSnapshot = defineExecutionTargetEvidenceSnapshot({
@@ -753,29 +825,67 @@ function createDeterministicOperatorRouting(): {
         throw new Error(admission.reason);
       }
       const accountId = request.intent.accountOverrideId ?? "parity-account";
-      const result = await operatorTurnExecutionBridge.dispatchCommittedTurn({
-        admission: admission.admission,
+      const budget = await operatorAuthorityAdmissionBridge.preflight({ request });
+      const selectedAdmission = admission.admission;
+      const binding = {
+        status: "bound" as const,
+        routeId: selectedAdmission.routeId,
         accountId,
-        lease: {},
-        credential: { kind: "parity" },
-        binding: {
-          status: "bound",
-          routeId: admission.admission.routeId,
-          accountId,
-          credentialId: "parity-credential",
-          credentialRevision: "sha256:parity-revision",
+        credentialId: "parity-credential",
+        credentialRevision: `sha256:${"b".repeat(64)}`,
+      };
+      const snapshot = {
+        catalog: { routes: [{ id: selectedAdmission.routeId, providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId }] },
+        configurationRevision: { revisionSetId: "parity-R1", revisions: { execution: "parity-R1" } },
+      };
+      const dataPolicy = { decision: { status: "admitted" as const, freshness: "current" as const, reason: "synthetic parity policy" } };
+      const facets = await operatorAuthorityAdmissionBridge.prepare({
+        request,
+        admission: selectedAdmission,
+        snapshot,
+        binding,
+        dataPolicy,
+      });
+      const authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
+        sessionId: facets.sessionId,
+        turnId: facets.turnId,
+        admittedAt: new Date().toISOString(),
+        configuration: { sessionRevision: facets.sessionRevision, turnRevision: snapshot.configurationRevision },
+        session: facets.session,
+        turn: {
+          ...facets.turn,
+          budget,
+          execution: { status: "routed", route: selectedAdmission, dataPolicy, binding },
         },
-        payload: request.payload,
-      } as never);
+      });
+      await operatorAuthorityAdmissionBridge.persist(authorityAdmission);
+      let result: OperatorTurnDispatchResult;
+      try {
+        result = await operatorTurnExecutionBridge.dispatchCommittedTurn({
+          executionId: request.executionId,
+          intentFingerprint: request.intentFingerprint,
+          admission: selectedAdmission,
+          accountId,
+          lease: {},
+          credential: { kind: "parity" },
+          authorityAdmission,
+          configurationRevision: snapshot.configurationRevision,
+          binding,
+          payload: request.payload,
+        } as never);
+      } catch (error) {
+        await operatorAuthorityAdmissionBridge.abort(request.executionId);
+        throw error;
+      }
       return {
-        admission: admission.admission,
+        admission: selectedAdmission,
         accountId,
         leaseId: "parity-lease",
         evidence: {
-          routeId: admission.admission.routeId,
+          routeId: selectedAdmission.routeId,
           accountId,
           credentialId: "parity-credential",
-          credentialRevision: "sha256:parity-revision",
+          credentialRevision: binding.credentialRevision,
           capacityIdentity: "parity-capacity",
           leaseId: "parity-lease",
           dispatchFenceId: "parity-dispatch",
@@ -870,7 +980,17 @@ function createDeterministicOperatorRouting(): {
     };
   };
 
-  return { executionRouteSelection, operatorTurnDispatcher, operatorTurnExecutionBridge, runExecutionTargetWizard };
+  return {
+    executionRouteSelection,
+    operatorTurnDispatcher,
+    operatorTurnExecutionBridge,
+    operatorAuthorityAdmissionBridge,
+    authorityAdmissionEvidenceStore,
+    runtimeModelRoundActionClaims,
+    runtimeToolActionClaims,
+    runtimeMediaActionClaims,
+    runExecutionTargetWizard,
+  };
 }
 
 function executionRoute(
@@ -932,6 +1052,25 @@ const settingsRevision = `sha256:${"a".repeat(64)}` as const;
 let domainOverridden = true;
 let configuredTheme: OperatorThemeName = "system-follow";
 const settingsProposals = new Map<string, KilnSettingsProposalRequest>();
+let settingsActivationStatus: KilnSettingsSnapshot["activationStatus"] = {
+  desiredRevisionSetId: settingsRevision,
+  state: "active",
+  boundary: "hot",
+  activeRevision: settingsRevision,
+  entries: [{
+    proposalId: "cfg-theme-activation",
+    scope: "global",
+    path: "config.yaml",
+    committedRevision: settingsRevision,
+    boundary: "hot",
+    state: "active",
+    activeRevision: settingsRevision,
+    evidence: "read-back",
+    reconciliationGenerations: [],
+    summary: "The committed revision is active immediately.",
+  }],
+  summary: "The committed revision is active immediately.",
+};
 
 function settingsSnapshot(): KilnSettingsSnapshot {
   const sections: KilnSettingsSnapshot["sections"] = [
@@ -946,9 +1085,10 @@ function settingsSnapshot(): KilnSettingsSnapshot {
     { id: "advanced", label: "Advanced", description: "Descriptor-backed inspection and validation.", entryKeys: [] },
   ];
   return {
-    schemaRevision: 1,
+    schemaRevision: 2,
     generatedAt: new Date().toISOString(),
     health: "current",
+    activationStatus: settingsActivationStatus,
     sections,
     entries: [{
       key: "ui.theme",
@@ -1028,6 +1168,7 @@ seedMemoryRepository(memoryRepository);
 async function main(): Promise<void> {
   const port = parseGatewayPort();
   const operatorRouting = createDeterministicOperatorRouting();
+  const canonicalSessionEvents: unknown[] = [];
 
   const gateway = await startGuiGateway({
     port,
@@ -1082,6 +1223,43 @@ async function main(): Promise<void> {
         && (OPERATOR_THEME_NAMES as readonly string[]).includes(request.value)) {
         configuredTheme = request.value as OperatorThemeName;
       }
+      const activation = request?.key === "ui.theme" ? "hot" as const : "next-session" as const;
+      const activationObservation = activation === "hot"
+        ? {
+            state: "active" as const,
+            boundary: activation,
+            committedRevision: settingsRevision,
+            activeRevision: settingsRevision,
+            summary: "The committed revision is active immediately.",
+          }
+        : {
+            state: "scheduled" as const,
+            boundary: activation,
+            committedRevision: settingsRevision,
+            activeRevision: null,
+            summary: "The committed revision activates at the next session boundary.",
+          };
+      if (request) {
+        settingsActivationStatus = {
+          desiredRevisionSetId: settingsRevision,
+          state: activationObservation.state,
+          boundary: activation,
+          activeRevision: activationObservation.activeRevision,
+          entries: [{
+            proposalId,
+            scope: request.scope,
+            path: request.scope === "global" ? "config.yaml" : ".kiln/kiln.yaml",
+            committedRevision: settingsRevision,
+            boundary: activation,
+            state: activationObservation.state,
+            activeRevision: activationObservation.activeRevision,
+            evidence: activation === "hot" ? "read-back" : "scheduled",
+            reconciliationGenerations: [],
+            summary: activationObservation.summary,
+          }],
+          summary: activationObservation.summary,
+        };
+      }
       return {
         proposalId,
         scope: request?.scope ?? "project",
@@ -1089,7 +1267,16 @@ async function main(): Promise<void> {
         outcome: request ? "committed" : "rejected",
         rejectionCode: request ? null : "invalid-request",
         committedRevision: request ? settingsRevision : null,
-        activation: request?.key === "ui.theme" ? "hot" : "next-session",
+        activation,
+        activationObservation: request
+          ? activationObservation
+          : {
+              state: "not-started",
+              boundary: activation,
+              committedRevision: null,
+              activeRevision: null,
+              summary: "Configuration was not committed.",
+            },
         reconciliation: [],
         diagnostics: [],
         replayed: false,
@@ -1125,10 +1312,23 @@ async function main(): Promise<void> {
       onContinueSession: async (sessionId) => {
         continuationSessionId = sessionId;
       },
+      resumeSessionHydrator: async ({ session }) => {
+        session.addUserMessage([{ type: "text", text: "Read the persisted parity plan" }]);
+        session.addAssistantMessage([{ type: "text", text: "The persisted parity plan is ready." }]);
+        return { rehydrated: true, messageCount: 2, sourceSequence: 1 };
+      },
       contextArtifactCache,
       executionMode: "execute",
       operatorTurnDispatcher: operatorRouting.operatorTurnDispatcher,
       operatorTurnExecutionBridge: operatorRouting.operatorTurnExecutionBridge,
+      operatorAuthorityAdmissionBridge: operatorRouting.operatorAuthorityAdmissionBridge,
+      authorityAdmissionEvidenceStore: operatorRouting.authorityAdmissionEvidenceStore,
+      runtimeModelRoundActionClaims: operatorRouting.runtimeModelRoundActionClaims,
+      runtimeToolActionClaims: operatorRouting.runtimeToolActionClaims,
+      runtimeMediaActionClaims: operatorRouting.runtimeMediaActionClaims,
+      persistCanonicalSessionEvent: async (event) => {
+        canonicalSessionEvents.push(event);
+      },
     },
   });
 

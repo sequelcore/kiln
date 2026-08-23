@@ -638,7 +638,12 @@ write scopes, authority impact, activation, health, and canonical revisions.
 Each write target separately projects its current value, override state, owners,
 authority impact, approval requirement, and activation class; a multi-scope key
 never borrows project governance for a global write or vice versa. Entries
-never carry absolute operator paths or credential-like material.
+never carry absolute operator paths or credential-like material. The settings
+snapshot also requires the canonical aggregate activation status: desired
+revision, observed state, boundary, active revision, settlement lineage, and
+qualifying read-back, reconciliation, turn, or session evidence. CLI, GUI, TUI,
+and model-callable settings readers consume that value without recomputing
+activation policy.
 `kiln config explain <identity>` returns the same field record used by the
 bounded effective-config views. The tool may report provider health, projection
 status, and setup recommendations, but it does not grant mutation authority.
@@ -771,7 +776,10 @@ turn. A logical session separately binds its first admitted revision and
 persists that evidence, so later turns may observe a newer next-turn revision
 without rewriting the session boundary. Revision evidence identifies the
 configuration used by an execution; it does not duplicate configuration values
-or become a second effective-config authority.
+or become a second effective-config authority. Activation lineage carries only
+portable logical configuration identifiers such as `config.yaml` and
+`.kiln/kiln.yaml`; absolute operator paths remain forbidden in admission and
+session-facet evidence.
 
 Operator route admission captures the effective execution catalog and that
 revision set as one Runtime value before candidate selection, capacity fencing,
@@ -786,16 +794,20 @@ governance, permission, budget, route, sanitized data-policy, and
 execution-binding decisions. The complete bundle and session facet are durable
 evidence; credential material remains an ephemeral post-fence value. Gateway
 and referenced app YAML contribute content digests to the admitted revision set
-without persisting their values. The bundle is not installed as an optional
-authority field in `PerCallToolConfig`.
+without persisting their values. `PerCallToolConfig.authorityAdmission` is the
+sole productive Runtime authority field and may be omitted only at explicitly
+non-dispatching construction seams. Mutable revision, route, binding, turn,
+adoption, and effective-authority candidates exist only before Runtime composes
+and persists the bundle; consequential execution cannot reconstruct authority
+from them.
 
-This cutover is not complete at the current Slice 8 checkpoint. Model-gateway
-and managed-child persistence are under integration, webhook and tenant-WebSocket
-effects do not yet all remain inside the admitted fence, and the legacy
-per-call authority/revision projection still exists. Those paths must be
-replaced and deleted before the bundle is the sole productive Runtime authority;
-revision-only sessions remain non-authority transcript context until that proof
-exists.
+Model Gateway, managed-child, webhook, media, channel, and tenant-WebSocket
+effects converge on the Runtime Execution Kernel. Each workload persists and
+reads back the complete bundle, binds its `admissionId` to the canonical action
+claim, and obtains at most one process-local dispatch permit. Exact replay,
+restart, cancellation, timeout, transport ambiguity, and adapter fallback cannot
+redispatch a fenced attempt. Revision-only sessions remain non-authority
+transcript context.
 
 `restart-required` remains part of the shared vocabulary but has no admitted
 production descriptor in the current project/global pilot. Such a mutation is

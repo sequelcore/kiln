@@ -26,6 +26,42 @@ describe("RuntimeSessionAuthorityFacet", () => {
     expect(Object.isFrozen(facet.sessionRevision.revisions)).toBe(true);
   });
 
+  it("admits normalized portable activation-lineage paths in the pinned session revision", () => {
+    const candidate = makeFacet();
+    const facet = defineRuntimeSessionAuthorityFacet({
+      ...candidate,
+      sessionRevision: {
+        ...candidate.sessionRevision,
+        activationLineage: [{
+          proposalId: "cfg-session-lineage",
+          scope: "global",
+          path: "config.yaml",
+          committedRevision: `sha256:${"a".repeat(64)}`,
+          reconciliationGenerations: [],
+        }],
+      },
+    });
+
+    expect(facet.sessionRevision.activationLineage?.[0]?.path).toBe("config.yaml");
+  });
+
+  it("rejects activation-lineage paths that escape their portable configuration root", () => {
+    const candidate = makeFacet();
+    expect(() => defineRuntimeSessionAuthorityFacet({
+      ...candidate,
+      sessionRevision: {
+        ...candidate.sessionRevision,
+        activationLineage: [{
+          proposalId: "cfg-session-lineage",
+          scope: "global",
+          path: "../operator/config.yaml",
+          committedRevision: `sha256:${"a".repeat(64)}`,
+          reconciliationGenerations: [],
+        }],
+      },
+    })).toThrow(/logical relative path/iu);
+  });
+
   it.each([
     ["secret material", { token: "do-not-persist" }],
     ["filesystem path", { workingDirectory: "C:/private/project" }],

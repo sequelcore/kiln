@@ -6,9 +6,28 @@ const revision = `sha256:${"a".repeat(64)}`;
 
 function snapshot(): KilnSettingsSnapshot {
   return {
-    schemaRevision: 1,
+    schemaRevision: 2,
     generatedAt: "2026-08-21T00:00:00.000Z",
     health: "current",
+    activationStatus: {
+      desiredRevisionSetId: revision,
+      state: "scheduled",
+      boundary: "next-turn",
+      activeRevision: null,
+      entries: [{
+        proposalId: "cfg_settings",
+        scope: "project",
+        path: ".kiln/kiln.yaml",
+        committedRevision: revision,
+        boundary: "next-turn",
+        state: "scheduled",
+        activeRevision: null,
+        evidence: "scheduled",
+        reconciliationGenerations: [],
+        summary: "The committed revision remains scheduled until a matching turn admission is persisted.",
+      }],
+      summary: "The committed revision remains scheduled until a matching turn admission is persisted.",
+    },
     sections: [
       { id: "general", label: "General", description: "General preferences.", entryKeys: ["domain"] },
       { id: "providers", label: "Providers", description: "Provider state.", entryKeys: [] },
@@ -89,6 +108,7 @@ describe("settings snapshot formatting", () => {
   it("uses the shared section vocabulary and provenance", () => {
     const output = formatSettingsSnapshot(snapshot());
 
+    expect(output).toContain("activation: scheduled · next turn · The committed revision remains scheduled until a matching turn admission is persisted.");
     expect(output).toContain("General");
     expect(output).toContain("Domain: backend");
     expect(output).toContain("project: overridden · no authority impact · next session · project-configuration");

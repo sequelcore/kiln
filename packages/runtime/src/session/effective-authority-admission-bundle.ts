@@ -513,12 +513,15 @@ function validateOperatorAdoption(input: EffectiveAuthorityAdmissionBundleInput)
 const SECRET_KEY = /^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|credential|credentialMaterial)$/iu;
 const PATH_KEY = /^(?:cwd|workingDirectory|canonicalRoot|filePath|path)$/u;
 const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/u;
+const ACTIVATION_LINEAGE_PATH_LABEL = /^bundle\.configuration\.(?:sessionRevision|turnRevision)\.activationLineage\[\d+\]\.path$/u;
 
 function assertSerializableAdmissionValue(value: unknown, label: string, key?: string): void {
   if (key && SECRET_KEY.test(key) && key !== "credentialId" && key !== "credentialRevision") {
     throw new TypeError(`${label} contains secret material.`);
   }
-  if (key && PATH_KEY.test(key)) throw new TypeError(`${label} contains a filesystem path.`);
+  if (key && PATH_KEY.test(key) && !(key === "path" && ACTIVATION_LINEAGE_PATH_LABEL.test(label))) {
+    throw new TypeError(`${label} contains a filesystem path.`);
+  }
   if (value === null || typeof value === "boolean") return;
   if (typeof value === "string") {
     if (ABSOLUTE_PATH.test(value)) throw new TypeError(`${label} contains a filesystem path.`);

@@ -53,6 +53,9 @@ export function readSettingsSnapshot(
   snapshot: KilnConfigStatusSnapshot,
   options: ReadSettingsSnapshotOptions = {},
 ): KilnSettingsSnapshot {
+  if (!snapshot.activationStatus) {
+    throw new Error("Settings projection requires canonical activation status evidence.");
+  }
   const sources = readConfigSourceDetail(snapshot);
   if (!sources) {
     throw new Error("Settings projection requires the request-local canonical config capture.");
@@ -91,6 +94,7 @@ export function readSettingsSnapshot(
     schemaRevision: KILN_SETTINGS_SCHEMA_REVISION,
     generatedAt: snapshot.generatedAt,
     health: effectiveHealth,
+    activationStatus: snapshot.activationStatus,
     sections,
     entries: filteredEntries,
     revisions,

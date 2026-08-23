@@ -16,6 +16,7 @@ export function formatSettingsSnapshot(snapshot: KilnSettingsSnapshot, query = "
   const visibleKeys = new Set(entries.map((entry) => entry.key));
   const lines = [
     `${snapshot.modifiedCount} modified · ${snapshot.health}`,
+    `activation: ${snapshot.activationStatus.state}${snapshot.activationStatus.boundary === null ? "" : ` · ${snapshot.activationStatus.boundary.replaceAll("-", " ")}`} · ${snapshot.activationStatus.summary}`,
   ];
   for (const section of snapshot.sections) {
     const sectionEntries = section.entryKeys

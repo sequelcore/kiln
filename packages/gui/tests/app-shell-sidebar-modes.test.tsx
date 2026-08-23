@@ -420,6 +420,41 @@ describe("AppShell sidebar modes", () => {
           refetch: vi.fn(),
         };
       }
+      if (queryKey.includes("settings")) {
+        const revision = `sha256:${"a".repeat(64)}`;
+        return {
+          data: {
+            schemaRevision: 2 as const,
+            generatedAt: "2026-08-22T00:00:00.000Z",
+            health: "current" as const,
+            activationStatus: {
+              desiredRevisionSetId: revision,
+              state: "not-started" as const,
+              boundary: null,
+              activeRevision: null,
+              entries: [],
+              summary: "No committed configuration activation is pending.",
+            },
+            sections: [
+              { id: "general" as const, label: "General", description: "General preferences.", entryKeys: [] },
+              { id: "providers" as const, label: "Providers", description: "Provider readiness.", entryKeys: [] },
+              { id: "models" as const, label: "Models", description: "Models.", entryKeys: [] },
+              { id: "permissions" as const, label: "Permissions", description: "Authority policy.", entryKeys: [] },
+              { id: "tools" as const, label: "Tools", description: "Tools.", entryKeys: [] },
+              { id: "usage-and-limits" as const, label: "Usage and Limits", description: "Limits.", entryKeys: [] },
+              { id: "agents" as const, label: "Agents", description: "Agents.", entryKeys: [] },
+              { id: "health" as const, label: "Health", description: "Health.", entryKeys: [] },
+              { id: "advanced" as const, label: "Advanced", description: "Advanced.", entryKeys: [] },
+            ],
+            entries: [],
+            revisions: {},
+            modifiedCount: 0,
+          },
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }
       return {
         data: {
           providers: [],

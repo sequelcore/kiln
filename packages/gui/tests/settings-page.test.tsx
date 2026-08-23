@@ -19,9 +19,28 @@ function snapshot(): KilnSettingsSnapshot {
     { id: "advanced", label: "Advanced", description: "Advanced.", entryKeys: [] },
   ];
   return {
-    schemaRevision: 1,
+    schemaRevision: 2,
     generatedAt: "2026-08-21T00:00:00.000Z",
     health: "current",
+    activationStatus: {
+      desiredRevisionSetId: revision,
+      state: "scheduled",
+      boundary: "next-turn",
+      activeRevision: null,
+      entries: [{
+        proposalId: "cfg_activation",
+        scope: "project",
+        path: ".kiln/kiln.yaml",
+        committedRevision: revision,
+        boundary: "next-turn",
+        state: "scheduled",
+        activeRevision: null,
+        evidence: "scheduled",
+        reconciliationGenerations: [],
+        summary: "The committed revision remains scheduled until a matching turn admission is persisted.",
+      }],
+      summary: "The committed revision remains scheduled until a matching turn admission is persisted.",
+    },
     sections,
     entries: [
       {
@@ -63,6 +82,25 @@ const committedResult: KilnSettingsMutationResult = {
 };
 
 describe("SettingsPage", () => {
+  it("renders the canonical aggregate activation state and boundary", () => {
+    render(
+      <SettingsPage
+        section="general"
+        snapshot={snapshot()}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onPropose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const status = screen.getByRole("region", { name: "Configuration activation" });
+    expect(status).toHaveTextContent("Scheduled");
+    expect(status).toHaveTextContent("Next turn");
+    expect(status).toHaveTextContent("matching turn admission");
+  });
+
   it("keeps unavailable provider economics explicit in Usage and Limits", () => {
     render(
       <SettingsPage

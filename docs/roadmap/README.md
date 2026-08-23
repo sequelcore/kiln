@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Resume Slice 8 from its committed checkpoint as one bounded activation-and-reconciliation slice; do not absorb the remaining #97 live-validation matrix or begin Slice 9. |
+| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Begin Slice 9 with one remaining global, app, or gateway configuration family and its existing owner; do not absorb the independently owned #97 live-validation matrix. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
@@ -85,8 +85,8 @@ roadmap reorganization.
   ownership decision and convergence in
   [#98](https://github.com/sequelcore/kiln/issues/98), and the bounded synthetic
   oracle subset of [#97](https://github.com/sequelcore/kiln/issues/97) are
-  complete. Slice 8 is Ready. The remaining #97 live matrix is independently
-  owned and does not block it. This decision does not duplicate Slice 8 residuals outside
+  complete. Slice 8 is complete and Slice 9 is Ready. The remaining #97 live
+  matrix is independently owned and does not block it. This decision does not duplicate Slice 8 residuals outside
   [#72](https://github.com/sequelcore/kiln/issues/72), and does not reprioritize
   Kiln Connect without a separate operator decision.
 
