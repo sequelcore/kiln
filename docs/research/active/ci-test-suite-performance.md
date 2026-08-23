@@ -53,11 +53,11 @@ import depth — was the cost.
 The largest deliberate delay in any test is 500ms and there are only a handful.
 Fake timers are used in 38 files. The suite is not slow because it waits.
 
-### The CLI lane was reading the operator's home directory
+### The initial CLI profile was contaminated by operator state
 
-The CLI lane is execution-bound rather than import-bound: a full run measured
-1244s with 822s in test bodies and only 152s in imports. The cause was a
-hermeticity violation, not test volume.
+An initial full CLI run measured 1244s with 822s in test bodies and only 152s
+in imports. That profile described a hermeticity violation, not the stable cost
+of the test suite.
 
 `resolveManagedAgentRoutes` falls back to `context.userHome ?? homedir()`, and
 `loadManagedInvocationSkillCatalog` then scans that home. Under test this
@@ -128,6 +128,34 @@ The runtime lane went from 197.4s to 67.6s wall with 253 files and 3,370 tests
 passing — a 2.9x reduction from the import change alone. Foundation (315 core
 files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
 
+The clean Windows CLI lane now completes in 370.82–415.44s under Bun 1.4.0.
+Current Vitest buckets attribute roughly 235–261s to imports, 86–95s to test
+bodies, and 11–12s to transforms. Imports are therefore the largest remaining
+measured cost. Issue
+[#107](https://github.com/sequelcore/kiln/issues/107) owns current attribution
+and improvement; the old 1244s profile is retained only as defect history.
+
+### Clean-checkout gate (2026-08-23)
+
+A synthetic Windows worktree at commit `4a7bfb99` passed release validation,
+documentation validation, root typecheck, build, startup profiling, and the
+canonical root test command under Bun 1.4.0. The test lanes reported:
+
+| Lane | Result |
+| --- | ---: |
+| Scripts | 248 passed |
+| Foundation | 4,119 passed |
+| Runtime | 3,263 passed, 5 live tests skipped |
+| CLI | 2,517 passed, 1 live test skipped |
+| Surfaces | 730 passed |
+
+This proof also covered Bun and SQLite runtime probes. It does not replace
+hosted CI evidence or authorize a supported source baseline. The clean
+worktree's first `bun install --frozen-lockfile` reported no changes while
+dependencies were absent; `bun install --force --frozen-lockfile` completed the
+installation. Source-stability work must reproduce and explain that behavior
+before documenting the ordinary clean-install path.
+
 ## Rejected And Deferred
 
 - Sharding the CLI Vitest suite across four CI jobs: rejected for now. Vitest
@@ -155,28 +183,29 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
 
 ## Verification Required
 
-- One green hosted run of the matrix workflow, which is also the first per-job
-  timing sample for the current design.
-- On hosted CI, collect p50/p95 timings for every job — installation, compile,
+- Ten green post-change hosted runs of the matrix workflow.
+- On those runs, collect p50/p95 timings for every job — installation, compile,
   validation and typecheck, each test lane, startup profile, build, and overall
   critical path with queue time where available — and compare against the
   462–493s single-job baseline. Report p50 and p95.
 - Add a focused Windows CLI verification lane. The main test lanes run on Linux
   while the reported slowness and the resolved hermeticity defects were all
   observed on Windows.
+- Reproduce the Bun 1.4.0 clean-install no-op and either fix the repository
+  cause or document verified upstream behavior before source-baseline
+  admission.
 
 ## Remaining Work
 
-- The CLI lane still imports the `@kilnai/runtime` root barrel from 21 test
-  files at roughly 6.8s each. Only 3 of the 17 symbols those tests use are owned
-  by an existing `runtime/src` context barrel, so closing this means introducing
-  bounded-context boundaries in `runtime` and publishing them through its
-  exports map, exactly as `@kilnai/core` now is. It is an architecture slice with
-  its own review, not a test edit.
-- Five CLI test files concentrate most of the remaining lane time. Repair them by
-  cause rather than by timeout: `benchmark.test.ts` shells out to real `git`, and
-  `gui-dashboard-availability.test.ts` uses `vi.mock` with `importOriginal` to
-  load whole packages only to override pieces.
+- [#107](https://github.com/sequelcore/kiln/issues/107) owns profiling and
+  reducing the current 370–415s CLI lane. Runtime root-barrel imports and five
+  historically expensive files are leads, not accepted solutions; current
+  attribution must earn any production boundary change.
+- [#106](https://github.com/sequelcore/kiln/issues/106) owns admitting GUI test
+  sources to the canonical test-typechecking gate. Its current probe reports
+  197 errors across 28 files.
+- Ten hosted post-change runs remain necessary before this research can report
+  stable p50/p95 CI outcomes and satisfy its exit condition.
 
 ## Known Open Defects
 - Production code reaches the user home through `homedir()` fallbacks that no
@@ -191,7 +220,10 @@ to the root `typecheck:tests` gate. The correct Runtime test project initially
 reported 821 diagnostics across 118 files; it now reports zero without
 `skipLibCheck`, exclusions, baselines, or production-code relaxations. Live test
 sources are included in the same compiler project even though live providers
-are not invoked by the type gate.
+are not invoked by the type gate. The issue is closed. Follow-up commit
+`4a7bfb99` removed clean-checkout Windows CRLF/hash failures and made the
+affected formal-verification and CLI fixtures independent of global temporary
+and operator-home state.
 
 The first mutation pilot targets the consequential media-action claim owner.
 The initial eight-test suite killed 67 of 154 mutants, with 66 surviving and 18

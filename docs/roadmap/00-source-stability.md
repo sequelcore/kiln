@@ -34,7 +34,7 @@ listed below:
 ## Scope
 
 - Existing listener, origin, and approval-replay correctness defects.
-- Complete typechecking of the Runtime test surface.
+- Complete typechecking of the Runtime and GUI test surfaces.
 - Private project-state ownership outside repositories without collapsing
   project scope.
 - Deterministic recovery gates and separately authorized live evidence.
@@ -68,14 +68,16 @@ Runtime, GUI, CLI, surfaces, typecheck, and startup-profile gates pass.
 
 ### Slice 1 - Trustworthy Test Oracle
 
-Status: Queued behind Slice 0.
+Status: Runtime admission and repository-path hermeticity are complete; GUI
+test admission is queued behind the remaining Slice 0 defect.
 
-Complete [issue #85](https://github.com/sequelcore/kiln/issues/85) by making the
-Runtime test configuration typecheck cleanly and joining it to the ratcheted
-root gate. Reconcile and close
-[issue #88](https://github.com/sequelcore/kiln/issues/88) only when its fixed
-repository-path cases and the deliberate live-test execution signal are
-recorded accurately.
+[Issue #85](https://github.com/sequelcore/kiln/issues/85) admitted Runtime test
+sources to the ratcheted root typechecking gate, and
+[issue #88](https://github.com/sequelcore/kiln/issues/88) closed the owned
+repository-path defects while assigning live execution policy to issue #97.
+Complete [issue #106](https://github.com/sequelcore/kiln/issues/106) by repairing
+and admitting the remaining GUI test sources without baselines, exclusions, or
+production contract weakening.
 
 Exit gate: no supported package test surface is omitted because its current
 tests do not compile, and live tests remain typechecked even when ordinary CI
@@ -171,7 +173,7 @@ without registry evidence.
 - Normal GUI startup is explicitly loopback-only and has no wildcard CORS.
 - Approval replay preserves canonical identity and fails closed when identity
   is missing or malformed.
-- Runtime tests compile under the canonical test-typechecking gate.
+- Runtime and GUI tests compile under the canonical test-typechecking gate.
 - Project-private and mutable state have one final owner outside repositories.
 - Recovery and replay safety properties have deterministic evidence.
 - Live tests have explicit authority, entrypoints, reporting, and omissions.
