@@ -1,4 +1,4 @@
-import { createExecutionAccountRef } from "@kilnai/core";
+import { createExecutionAccountRef } from "@kilnai/core/agents";
 import { existsSync, writeFileSync } from "node:fs";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 

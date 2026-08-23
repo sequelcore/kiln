@@ -1,4 +1,4 @@
-import { adoptBoundedWorkContractRevision, type BoundedWorkContract } from "@kilnai/core";
+import { adoptBoundedWorkContractRevision, type BoundedWorkContract } from "@kilnai/core/work-governance";
 import { existsSync, writeFileSync } from "node:fs";
 import { SqliteBoundedWorkAuthority } from "../../src/work-governance/sqlite-bounded-work-authority.js";
 

@@ -173,8 +173,19 @@ describe("SqliteBoundedWorkAuthority", () => {
     const ids = ["attempt-one", "attempt-two"] as const;
     const ready = ids.map((id) => join(root, `${id}.ready`));
     const result = ids.map((id) => join(root, `${id}.result`));
-    const children = ids.map((id, index) => runProcess("bun", ["run", workerBundle, path, id, ready[index]!, start, result[index]!]));
-    await waitFor(ready, 20_000);
+    // Cold-process startup is not under test. Reach the barrier one worker at
+    // a time so only the authority reservation below races across processes.
+    const children: Array<ReturnType<typeof runProcess>> = [];
+    for (const [index, id] of ids.entries()) {
+      const child = runProcess("bun", ["run", workerBundle, path, id, ready[index]!, start, result[index]!]);
+      children.push(child);
+      await Promise.race([
+        waitFor([ready[index]!], 20_000),
+        child.then((outcome) => {
+          throw new Error(`Bounded-work worker exited before readiness: ${JSON.stringify(outcome)}`);
+        }),
+      ]);
+    }
     writeFileSync(start, "go");
     const outcomes = await Promise.all(children);
     expect(outcomes.map(({ code, stderr }) => ({ code, stderr }))).toEqual([
