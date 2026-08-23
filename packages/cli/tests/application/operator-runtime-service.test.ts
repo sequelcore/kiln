@@ -1,6 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ProjectRuntimeRegistry,
@@ -22,6 +21,7 @@ import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace
 
 const SECRET = new TextEncoder().encode("operator-runtime-service-test-secret-32-bytes");
 const roots: string[] = [];
+const fixtureParent = dirname(resolve(import.meta.dirname, "../../../.."));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -700,7 +700,7 @@ describe("createOperatorRuntimeService", () => {
 });
 
 function adoptedProject(label: string): ProjectFixture {
-  const canonicalRoot = mkdtempSync(join(tmpdir(), `kiln-operator-${label}-`));
+  const canonicalRoot = mkdtempSync(join(fixtureParent, `kiln-operator-${label}-`));
   roots.push(canonicalRoot);
   mkdirSync(join(canonicalRoot, ".kiln"), { recursive: true });
   writeFileSync(join(canonicalRoot, ".kiln", "kiln.yaml"), `version: "1"\nprojectName: ${label}\n`, "utf8");

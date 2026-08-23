@@ -388,6 +388,7 @@ describe("formal_verify observation metadata", () => {
 
   it("fails closed when sandbox.cwd is not a Git worktree", async () => {
     dir = await makePlainTempDir("kiln-formal-non-git-");
+    await git(dir, "init", "--bare", "--quiet");
     const filePath = join(dir, "policy.dfy");
     await writeFile(filePath, "method Foo() ensures true {}\n");
     const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [

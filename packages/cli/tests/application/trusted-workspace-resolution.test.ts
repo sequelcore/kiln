@@ -6,11 +6,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace-resolution.js";
 
 const fixtureRoots: string[] = [];
+const fixtureParent = dirname(resolve(import.meta.dirname, "../../../.."));
 
 afterEach(() => {
   for (const root of fixtureRoots.splice(0)) {
@@ -128,7 +128,7 @@ describe("resolveTrustedWorkspace", () => {
 });
 
 function createFixture(label: string): string {
-  const root = mkdtempSync(join(tmpdir(), `kiln-trusted-workspace-${label}-`));
+  const root = mkdtempSync(join(fixtureParent, `kiln-trusted-workspace-${label}-`));
   fixtureRoots.push(root);
   return root;
 }
