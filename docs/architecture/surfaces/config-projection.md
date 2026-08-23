@@ -27,8 +27,9 @@ The config projection boundary is owned by the CLI config layer.
 
 - `packages/cli/src/config/global-config-schema.ts` owns the strict global
   structural schema, inferred admitted type, diagnostics, editor schema, and
-  descriptors. `global-config.ts` retains named semantic and cross-resource
-  validation plus the single reader/writer lifecycle.
+  descriptors. `packages/cli/src/config/global-config/` separates semantic and
+  cross-resource admission by owner from the single document-store lifecycle;
+  `global-config.ts` is the explicit public boundary for those modules.
 - `packages/cli/src/application/config-setting-descriptors.ts` owns admitted
   settings operations, scope eligibility, value parsing, and reconciliation
   targets. It resolves ownership, sensitivity, and activation from the

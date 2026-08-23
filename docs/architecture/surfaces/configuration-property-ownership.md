@@ -43,10 +43,12 @@ app/gateway owner. Disposition is `supported`, `managed-evidence`,
 Structural evidence:
 [`global-config-schema.ts`](../../../packages/cli/src/config/global-config-schema.ts)
 owns the strict root and admitted type;
-[`global-config.ts`](../../../packages/cli/src/config/global-config.ts) retains
-named semantic and cross-resource validation. Imported contract semantics
-remain with their Core owner. Generated editor-schema and descriptor
-projections are committed under `packages/cli/schemas`.
+[`global-config/`](../../../packages/cli/src/config/global-config) owns the
+document store and composes named semantic and cross-resource admission through
+owner-specific modules. [`global-config.ts`](../../../packages/cli/src/config/global-config.ts)
+is its public boundary. Imported contract semantics remain with their Core
+owner. Generated editor-schema and descriptor projections are committed under
+`packages/cli/schemas`.
 
 | Canonical property | Profile | Plane | Sensitivity / authority | Merge or default | Activation | Disposition / transfer |
 | --- | --- | --- | --- | --- | --- | --- |

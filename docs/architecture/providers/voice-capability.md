@@ -317,7 +317,7 @@ Current contract and implementation entry points:
 - `packages/runtime/src/gateway/voice-output-synthesizer.ts`
 - `packages/runtime/src/gateway/voice-output-intent-selector.ts`
 - `packages/runtime/src/gateway/message-pipeline/`
-- `packages/cli/src/config/global-config.ts`
+- `packages/cli/src/config/global-config/admission/operator-preferences.ts`
 - `packages/cli/src/config/operator-voice.ts`
 - `packages/cli/src/commands/gui.ts`
 - `packages/cli/src/commands/tui.ts`

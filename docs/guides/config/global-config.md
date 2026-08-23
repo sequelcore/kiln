@@ -76,9 +76,10 @@ contracts and do not derive governance policy locally.
 `packages/cli/src/config/global-config-schema.ts` owns the strict root schema,
 schema-inferred admitted type, stable structural diagnostics, field
 descriptors, and generated editor schema. Named validators in
-`global-config.ts` retain semantic and cross-resource admission for imported
-Core and CLI contracts; the reader performs one YAML parse and returns only the
-schema-admitted value. The committed projections are
+`packages/cli/src/config/global-config/admission/` retain semantic and
+cross-resource admission for imported Core and CLI contracts. The document
+store performs one YAML parse and returns only the schema-admitted value;
+`global-config.ts` remains their public boundary. The committed projections are
 `packages/cli/schemas/global-config-v1.json` and
 `packages/cli/schemas/global-config-descriptors-v1.json`. Regenerate them with
 `bun run --cwd packages/cli config:schema:generate` after changing the owner.
