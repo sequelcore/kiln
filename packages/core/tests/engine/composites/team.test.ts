@@ -9,7 +9,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "Marcus",
     role: "Implementation Specialist",
     goal: "Write clean, well-tested code",
-    tier: "coding",
     tools: ["code_edit"],
     ...overrides,
   };
@@ -46,9 +45,9 @@ describe("Team composite", () => {
     it("supports multiple agents", () => {
       const team = makeTeam({
         agents: {
-          architect: makeAgent({ name: "Aria", role: "Senior Architect", goal: "Design robust solutions", tier: "reasoning", tools: [] }),
-          worker: makeAgent({ name: "Marcus", role: "Implementation Specialist", goal: "Write clean code", tier: "coding", tools: ["code_edit"] }),
-          optimizer: makeAgent({ name: "Zoe", role: "Performance Optimizer", goal: "Optimize for speed", tier: "fast", tools: [] }),
+          architect: makeAgent({ name: "Aria", role: "Senior Architect", goal: "Design robust solutions", tools: [] }),
+          worker: makeAgent({ name: "Marcus", role: "Implementation Specialist", goal: "Write clean code", tools: ["code_edit"] }),
+          optimizer: makeAgent({ name: "Zoe", role: "Performance Optimizer", goal: "Optimize for speed", tools: [] }),
         },
       });
       expect(Object.keys(team.agents)).toHaveLength(3);
@@ -117,7 +116,7 @@ describe("Team composite", () => {
         mode: "supervisor",
         manager: "architect",
         agents: {
-          architect: makeAgent({ name: "Aria", role: "Architect", goal: "Design systems", tier: "reasoning", tools: [] }),
+          architect: makeAgent({ name: "Aria", role: "Architect", goal: "Design systems", tools: [] }),
           worker: makeAgent({ tools: ["code_edit"] }),
         },
       });
@@ -136,10 +135,9 @@ describe("Team composite", () => {
       expect(errors.some((e) => e.field === "manager" && e.message.includes("not found"))).toBe(true);
     });
 
-    it("reports manager field without supervisor mode", () => {
+    it("allows manager selection without changing orchestration mode", () => {
       const team = makeTeam({ mode: "sequential", manager: "worker" });
-      const errors = validateTeam(team);
-      expect(errors.some((e) => e.field === "manager" && e.message.includes("only valid"))).toBe(true);
+      expect(validateTeam(team)).toEqual([]);
     });
 
     it("reports unsupported team mode values at the boundary", () => {

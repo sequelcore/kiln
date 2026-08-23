@@ -69,7 +69,6 @@ teams:
         name: Worker
         role: Generalist
         goal: Execute tasks
-        tier: coding
         tools: []
     capabilities: []
 `;

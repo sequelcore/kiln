@@ -152,7 +152,6 @@ teams:
         name: Worker
         role: Delegation Specialist
         goal: Delegate tasks to appropriate services
-        tier: coding
         tools: [delegate_to_arete]
     capabilities:
       - name: delegate_to_arete

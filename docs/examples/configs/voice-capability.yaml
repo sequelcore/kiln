@@ -123,7 +123,5 @@ teams:
         name: Voice Assistant
         role: Generalist assistant
         goal: Answer user requests with governed voice input and output policy
-        tier: coding
         tools: []
-        voiceProfile: assistant-default
     capabilities: []

@@ -5,6 +5,10 @@ import {
   serializeProjectConfigDescriptors,
   serializeProjectConfigEditorSchema,
 } from "../src/config/project-config-schema.js";
+import {
+  serializeGlobalConfigDescriptors,
+  serializeGlobalConfigEditorSchema,
+} from "../src/config/global-config-schema.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = join(packageRoot, "schemas");
@@ -14,5 +18,11 @@ writeFileSync(join(outputDirectory, "project-config-v1.json"), serializeProjectC
 writeFileSync(
   join(outputDirectory, "project-config-descriptors-v1.json"),
   serializeProjectConfigDescriptors(),
+  "utf8",
+);
+writeFileSync(join(outputDirectory, "global-config-v1.json"), serializeGlobalConfigEditorSchema(), "utf8");
+writeFileSync(
+  join(outputDirectory, "global-config-descriptors-v1.json"),
+  serializeGlobalConfigDescriptors(),
   "utf8",
 );

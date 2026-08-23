@@ -11,7 +11,6 @@ teams:
         name: Helper
         role: Support agent
         goal: Help users
-        tier: fast
 router:
   fallback: support
 ${safetyBlock}

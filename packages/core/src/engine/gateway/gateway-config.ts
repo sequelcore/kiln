@@ -41,7 +41,6 @@ export function validateGatewayConfig(config: GatewayConfig): GatewayValidationE
 
   const seenNames = new Set<string>();
   const seenPaths = new Set<string>();
-  const seenPhoneNumbers = new Set<string>();
 
   for (let i = 0; i < config.apps.length; i++) {
     const app = config.apps[i]!;
@@ -71,14 +70,6 @@ export function validateGatewayConfig(config: GatewayConfig): GatewayValidationE
             errors.push({ field: `${channelPrefix}.path`, message: `duplicate API path "${channel.path}"` });
           } else {
             seenPaths.add(channel.path);
-          }
-        }
-
-        if (channel.phoneNumber && typeof channel.phoneNumber === "string") {
-          if (seenPhoneNumbers.has(channel.phoneNumber)) {
-            errors.push({ field: `${channelPrefix}.phoneNumber`, message: `duplicate phone number "${channel.phoneNumber}"` });
-          } else {
-            seenPhoneNumbers.add(channel.phoneNumber);
           }
         }
       }

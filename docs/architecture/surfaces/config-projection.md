@@ -25,8 +25,10 @@ when adoption justifies the cost.
 
 The config projection boundary is owned by the CLI config layer.
 
-- `packages/cli/src/config/global-config.ts` owns canonical global config
-  validation.
+- `packages/cli/src/config/global-config-schema.ts` owns the strict global
+  structural schema, inferred admitted type, diagnostics, editor schema, and
+  descriptors. `global-config.ts` retains named semantic and cross-resource
+  validation plus the single reader/writer lifecycle.
 - `packages/cli/src/config/project-config-schema.ts` owns the strict runtime
   schema, inferred admitted type, stable structural diagnostics, editor schema,
   and field descriptors for project `.kiln/kiln.yaml`. The committed JSON
@@ -96,7 +98,7 @@ Global config is the active user-level contract. It includes:
   economic evidence is projected read-only
 - `identity`, `ui.theme`, and bundled `components`
 
-The current canonical global schema version is `"3"`. Kiln does not support
+The current canonical global schema version is `"4"`. Kiln does not support
 compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.

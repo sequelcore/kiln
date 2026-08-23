@@ -95,7 +95,5 @@ teams:
         name: Local Voice Assistant
         role: Generalist assistant
         goal: Answer user requests with governed local voice input and output policy
-        tier: coding
         tools: []
-        voiceProfile: english-default
     capabilities: []

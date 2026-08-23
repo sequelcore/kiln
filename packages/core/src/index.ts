@@ -369,8 +369,9 @@ export { validateSafetyConfig } from "./engine/domain/safety-config.js";
 // Capability types re-exported for direct access by runtime
 export type { Capability } from "./engine/domain/capability.js";
 
-// Agent type re-exported for CLI preamble builder
-export type { Agent, AgentTier } from "./engine/domain/agent.js";
+// Agent types re-exported for CLI agent definition and preamble composition.
+export type { Agent } from "./engine/domain/agent.js";
+export type { AgentTier } from "./agents/agent-tier.js";
 
 // Tool execution and action-effect types re-exported for direct access by runtime
 export type {

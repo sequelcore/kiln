@@ -21,7 +21,6 @@ teams:
         backstory: >
           You are a friendly AI assistant built with Kiln.
           Be helpful, concise, and direct. You can discuss any topic.
-        tier: fast
         tools: []
 
     capabilities: []

@@ -9,7 +9,6 @@ describe("assembleAgentPrompt", () => {
       name: "Aria",
       role: "Senior Architect",
       goal: "Design robust, maintainable solutions",
-      tier: "reasoning",
       tools: [],
       ...overrides,
     };
@@ -292,7 +291,6 @@ describe("assembleAgentPrompt", () => {
         goal: "Find vulnerabilities",
         backstory: "Skeptical reviewer.",
         instructions: "Flag any eval() usage.",
-        tier: "reasoning",
         tools: ["verify"],
       });
       const prompt = assembleAgentPrompt(agent);

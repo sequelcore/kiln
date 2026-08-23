@@ -18,6 +18,5 @@ teams:
   assistant:
     agents:
       conversant:
-        tier: fast
         tools: []
     capabilities: []

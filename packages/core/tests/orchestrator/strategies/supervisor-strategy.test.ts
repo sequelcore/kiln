@@ -13,9 +13,9 @@ function makeTeam(overrides: Partial<Team> = {}): Team {
     mode: "supervisor",
     manager: "architect",
     agents: {
-      architect: { name: "Aria", role: "Architect", goal: "Design", tier: "reasoning", tools: [] },
-      worker: { name: "Marcus", role: "Coder", goal: "Write code", tier: "coding", tools: [] },
-      reviewer: { name: "Zoe", role: "Reviewer", goal: "Review code", tier: "fast", tools: [] },
+      architect: { name: "Aria", role: "Architect", goal: "Design", tools: [] },
+      worker: { name: "Marcus", role: "Coder", goal: "Write code", tools: [] },
+      reviewer: { name: "Zoe", role: "Reviewer", goal: "Review code", tools: [] },
     },
     capabilities: [],
     ...overrides,
@@ -166,7 +166,7 @@ describe("SupervisorStrategy", () => {
   it("throws when no workers besides manager", async () => {
     const team = makeTeam({
       agents: {
-        architect: { name: "Aria", role: "Architect", goal: "Design", tier: "reasoning", tools: [] },
+        architect: { name: "Aria", role: "Architect", goal: "Design", tools: [] },
       },
     });
     const ctx = makeContext({ team });

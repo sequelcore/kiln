@@ -24,7 +24,6 @@ teams:
         name: Worker
         role: Assistant
         goal: Help the user
-        tier: fast
         tools: []
     capabilities: []
 `;
@@ -82,13 +81,33 @@ describe("app configuration schema", () => {
     expectAppError(BASE.replace("        tools: []", `        tools: []\n${fieldYaml}`), field);
   });
 
+  it.each([
+    ["tier", "        tier: fast", "teams.assistant.agents.worker.tier"],
+    ["voiceProfile", "        voiceProfile: default", "teams.assistant.agents.worker.voiceProfile"],
+  ])("rejects the unreachable App agent %s field", (_name, fieldYaml, field) => {
+    expectAppError(BASE.replace("        tools: []", `        tools: []\n${fieldYaml}`), field);
+  });
+
+  it("rejects the unreachable App team mode field while retaining manager selection", () => {
+    expectAppError(BASE.replace("    agents:", "    mode: supervisor\n    agents:"), "teams.assistant.mode");
+  });
+
+  it("rejects runtime-only capability cache policy in app.yaml", () => {
+    const yaml = BASE.replace("    capabilities: []", `    capabilities:
+      - name: lookup
+        description: Lookup
+        schema: {}
+        tags: []
+        cacheTtl: 60`);
+    expectAppError(yaml, "teams.assistant.capabilities[0].cacheTtl");
+  });
+
   it("rejects the retired router classifier field", () => {
     const yaml = BASE.replace("  fallback: assistant", `  fallback: assistant
   classifier:
     name: Classifier
     role: Intent Classifier
     goal: Route requests
-    tier: fast
     tools: []`);
     expectAppError(yaml, "router.classifier");
   });

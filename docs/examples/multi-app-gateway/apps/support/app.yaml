@@ -22,7 +22,6 @@ teams:
           You are a customer support agent. Be helpful, professional, and empathetic.
           Answer questions based on the business context provided in your system prompt.
           If you cannot help, suggest the customer contact support directly.
-        tier: fast
         tools: []
 
     capabilities: []

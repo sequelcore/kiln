@@ -2,11 +2,9 @@
 
 Status: Ready
 Priority: Urgent
-Execution: Slices 0-8 and 7A are code/integration complete. Slice 9 is in
-progress; the `gateway.yaml` vertical, the `app.yaml` structural convergence,
-and two app property-reachability deletion tranches are complete. The
-remaining credential-bearing live matrix in issue #97 remains independently
-owned and unrun; it does not block Slice 9.
+Execution: Slices 0-9 and 7A are code/integration complete. Slice 10 is the
+next bounded work. The remaining credential-bearing live matrix in issue #97
+remains independently owned and unrun; it did not block Slice 9.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 Paused: 2026-08-22
@@ -869,7 +867,7 @@ matrix remains unrun.
 
 ### Slice 9 - Remaining Configuration Families
 
-Status: In progress. The `gateway.yaml` vertical now has one strict Core
+Status: Complete. The `gateway.yaml` vertical has one strict Core
 TypeBox schema, inferred admitted types, generated editor schema and field
 descriptors, source-qualified diagnostics, and public-example validation. The
 handwritten structural mapper and raw `botToken` path are deleted. Runtime reads
@@ -879,8 +877,7 @@ revision-fenced stop-admission, bounded graceful drain, replacement, and
 read-back. All fields declare `restart-required`; file authoring remains manual,
 while `kiln gateway restart` is the admitted activation owner. Configuration
 mutation cannot report automatic activation until it invokes and settles this
-owner. App and global configuration remain separate later verticals in this
-slice.
+owner.
 
 The `app.yaml` structural convergence is also complete. Core owns one strict
 TypeBox schema, schema-derived raw types, generated editor schema and field
@@ -892,7 +889,7 @@ references, and public examples use canonical action-effect envelopes instead
 of ignored annotations. Cron add/remove now use an app-owned, validate-before-
 and-after trigger AST mutation instead of generic whole-document serialization.
 
-The app property-reachability pass is underway. Its first bounded tranche
+The app property-reachability pass is complete. Its first bounded tranche
 deleted `router.classifier` and agent `structured`, `sandbox`, and `modalities`:
 they had no production consumer after parsing, and the strict schema now rejects
 them. This adds no replacement state, fallback, or compatibility path.
@@ -918,10 +915,27 @@ the obsolete aggregate evaluation validator and the entire tool-selection
 domain were deleted. The strict schema rejects both retired roots, and the Eval
 guide now documents the executable typed API instead of a no-op YAML contract.
 
-The next bounded decision is the remaining App agent/team reachability residue,
-including partial `tier` and `mode` use, `voiceProfile`, and the domain-only
-capability cache field. Gateway binding residue and the global configuration
-family follow as separate work.
+The fifth bounded tranche deleted App agent `tier` and `voiceProfile`, team
+`mode`, Gateway app-binding `workspace`, and channel-binding `phoneNumber`.
+None influenced App Gateway execution after admission. Team `manager` remains
+the consumed fallback-team primary-persona selector; programmatic Orchestrator
+team modes remain under the Orchestrator owner; discovered/runtime capabilities
+retain cache policy while the App schema explicitly rejects `cacheTtl`.
+
+The global vertical completes the family set. CLI now owns one strict TypeBox
+root schema, schema-inferred admitted type, source-qualified structural
+diagnostics, generated editor schema, and field descriptors. Named validators
+retain deep semantic and cross-resource admission for imported Core/CLI
+contracts. The single reader parses YAML once and no longer returns an asserted
+typed value; the existing revision-fenced atomic mutation authority remains the
+sole writer. No compatibility shape or second semantic owner was added.
+
+Slice 9 closure verification: Foundation passes 4,119 tests. Runtime passes
+3,260 tests with five intentional skips plus its Bun listener, SQLite
+durability/fencing/recovery, and economic-authority checks. CLI passes 2,511
+tests with one intentional skip plus the Bun global-projection lock check.
+Repository typechecking, production build, documentation validation, generated
+schema/artifact checks, and diff whitespace validation pass.
 
 Fourth reachability tranche verification: 325 focused App and Eval tests pass;
 CLI cron mutation passes 13 focused tests. Foundation passes 4,117 tests;

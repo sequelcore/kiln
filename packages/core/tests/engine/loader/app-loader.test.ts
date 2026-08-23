@@ -15,13 +15,11 @@ teams:
         name: Aria
         role: Senior Architect
         goal: Design robust, maintainable solutions with minimal complexity
-        tier: reasoning
         tools: []
       worker:
         name: Marcus
         role: Implementation Specialist
         goal: Write clean, well-tested code that follows team conventions
-        tier: coding
         tools: [code_edit]
     capabilities:
       - name: code_edit
@@ -33,7 +31,6 @@ teams:
         name: FixBot
         role: Hotfix Specialist
         goal: Quickly fix production issues
-        tier: coding
         tools: [code_edit]
     capabilities:
       - name: code_edit
@@ -49,21 +46,19 @@ describe("parseAppYaml", () => {
     expect(Object.keys(app.teams)).toContain("hotfix");
   });
 
-  it("correctly maps agents with identity fields and tiers", () => {
+  it("correctly maps agent identity fields", () => {
     const app = parseAppYaml(SAMPLE_YAML);
     const devTeam = app.teams["development"]!;
     const architect = devTeam.agents["architect"]!;
     expect(architect.name).toBe("Aria");
     expect(architect.role).toBe("Senior Architect");
     expect(architect.goal).toBe("Design robust, maintainable solutions with minimal complexity");
-    expect(architect.tier).toBe("reasoning");
     expect(architect.tools).toEqual([]);
 
     const worker = devTeam.agents["worker"]!;
     expect(worker.name).toBe("Marcus");
     expect(worker.role).toBe("Implementation Specialist");
     expect(worker.goal).toBe("Write clean, well-tested code that follows team conventions");
-    expect(worker.tier).toBe("coding");
     expect(worker.tools).toEqual(["code_edit"]);
   });
 
@@ -85,7 +80,7 @@ router:
 teams:
   dev:
     agents:
-      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [read_status] }
+      w: { name: W, role: Worker, goal: Work, tools: [read_status] }
     capabilities:
       - name: read_status
         description: Read status
@@ -116,7 +111,7 @@ router:
 teams:
   dev:
     agents:
-      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [bad_tool] }
+      w: { name: W, role: Worker, goal: Work, tools: [bad_tool] }
     capabilities:
       - name: bad_tool
         description: Bad effect
@@ -153,7 +148,6 @@ teams:
         name: Solo
         role: Generalist
         goal: Handle all tasks
-        tier: coding
         tools: []
     capabilities: []
 `;
@@ -181,7 +175,6 @@ teams:
         name: Solo
         role: Generalist
         goal: Handle all tasks
-        tier: coding
         tools: []
     capabilities: []
 `;
@@ -238,7 +231,6 @@ teams:
         name: Solo
         role: Generalist
         goal: Handle all tasks
-        tier: coding
         tools: []
     capabilities: []
 `;
@@ -287,7 +279,6 @@ teams:
         name: Solo
         role: Generalist
         goal: Handle all tasks
-        tier: coding
         tools: []
     capabilities: []
 `;
@@ -315,7 +306,7 @@ teams:
     });
   });
 
-  it("maps governed voice profiles and agent profile references from YAML", () => {
+  it("maps governed voice profiles from YAML", () => {
     const yaml = `
 name: profiled-voice-app
 
@@ -362,9 +353,7 @@ teams:
         name: Assistant
         role: Generalist
         goal: Answer with a stable governed voice
-        tier: coding
         tools: []
-        voiceProfile: english-default
     capabilities: []
 `;
 
@@ -391,7 +380,6 @@ teams:
         },
       },
     });
-    expect(app.teams.solo?.agents.assistant?.voiceProfile).toBe("english-default");
   });
 
   it("throws AppLoaderError for invalid MCP request timeout config", () => {
@@ -413,7 +401,6 @@ teams:
         name: Solo
         role: Generalist
         goal: Handle all tasks
-        tier: coding
         tools: []
     capabilities: []
 `;
@@ -436,7 +423,6 @@ teams:
         name: Solo
         role: Generalist
         goal: Handle all tasks
-        tier: coding
         tools: []
     capabilities: []
     quality:
@@ -463,7 +449,6 @@ teams:
         name: Aria
         role: Senior Architect
         goal: Design robust solutions
-        tier: reasoning
         tools: []
         backstory: Pragmatic architect who values simplicity.
         instructions: Always write tests before implementation.
@@ -490,7 +475,6 @@ teams:
         name: Aria
         role: Senior Architect
         goal: Design robust solutions
-        tier: reasoning
         tools: []
         backstory: "  padded backstory  "
         instructions: "  padded instructions  "
@@ -510,7 +494,7 @@ router:
 teams:
   t:
     agents:
-      w: { name: W, role: "   ", goal: Work, tier: coding, tools: [] }
+      w: { name: W, role: "   ", goal: Work, tools: [] }
     capabilities: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
@@ -527,13 +511,13 @@ router:
 teams:
   main:
     agents:
-      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+      w: { name: W, role: Worker, goal: Work, tools: [] }
     capabilities: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
   });
 
-  it("throws AppLoaderError when agent tier is invalid", () => {
+  it("throws AppLoaderError for the retired agent tier field", () => {
     const yaml = `
 name: bad-tier
 router:
@@ -555,7 +539,7 @@ router:
 teams:
   t:
     agents:
-      w: { name: W, goal: Work, tier: coding, tools: [] }
+      w: { name: W, goal: Work, tools: [] }
     capabilities: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
@@ -569,7 +553,7 @@ router:
 teams:
   t:
     agents:
-      w: { name: W, role: Worker, tier: coding, tools: [] }
+      w: { name: W, role: Worker, tools: [] }
     capabilities: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
@@ -583,7 +567,7 @@ router:
 teams:
   t:
     agents:
-      w: { role: Worker, goal: Work, tier: coding, tools: [] }
+      w: { role: Worker, goal: Work, tools: [] }
     capabilities: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
@@ -593,32 +577,28 @@ teams:
     expect(() => parseAppYaml("- just a list")).toThrow(AppLoaderError);
   });
 
-  it("parses supervisor team mode with manager", () => {
+  it("parses the manager used to select the primary team persona", () => {
     const yaml = `
 name: supervisor-app
 router:
   fallback: dev
 teams:
   dev:
-    mode: supervisor
     manager: architect
     agents:
       architect:
         name: Aria
         role: Senior Architect
         goal: Design solutions
-        tier: reasoning
         tools: []
       worker:
         name: Marcus
         role: Coder
         goal: Write code
-        tier: coding
         tools: []
     capabilities: []
 `;
     const app = parseAppYaml(yaml);
-    expect(app.teams["dev"]!.mode).toBe("supervisor");
     expect(app.teams["dev"]!.manager).toBe("architect");
   });
 
@@ -635,13 +615,11 @@ teams:
         name: Alpha
         role: Worker A
         goal: Work on tasks
-        tier: coding
         tools: [handoff_tool]
       beta:
         name: Beta
         role: Worker B
         goal: Work on tasks
-        tier: coding
         tools: [handoff_tool]
     capabilities:
       - name: handoff_tool
@@ -664,7 +642,6 @@ teams:
         name: Worker
         role: Coder
         goal: Write code
-        tier: coding
         tools: [guarded_tool]
     capabilities:
       - name: guarded_tool
@@ -697,7 +674,7 @@ teams:
   dev:
     mode: invalid_mode
     agents:
-      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+      w: { name: W, role: Worker, goal: Work, tools: [] }
     capabilities: []
 `;
     expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
@@ -711,7 +688,7 @@ router:
 teams:
   dev:
     agents:
-      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+      w: { name: W, role: Worker, goal: Work, tools: [] }
     capabilities:
       - name: tool
         description: desc
@@ -729,7 +706,7 @@ router:
 teams:
   dev:
     agents:
-      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [] }
+      w: { name: W, role: Worker, goal: Work, tools: [] }
     capabilities:
       - name: tool
         description: desc
@@ -787,7 +764,6 @@ teams:
         name: Worker
         role: Ops Worker
         goal: Handle ops tasks
-        tier: coding
         tools: []
     capabilities: []
 `;

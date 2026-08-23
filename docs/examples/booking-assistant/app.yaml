@@ -44,7 +44,6 @@ teams:
           You help customers find and book appointment slots for various services.
           Be conversational, helpful, and confirm all details before booking.
           When listing available slots, present them in a clear, organized format.
-        tier: fast
         tools:
           - mcp:booking-tools:tool:list_available_slots
           - mcp:booking-tools:tool:create_booking

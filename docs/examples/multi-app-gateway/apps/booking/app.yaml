@@ -22,7 +22,6 @@ teams:
           You are a scheduling assistant. Help customers find available times
           and answer questions about services. Be conversational and friendly.
           Guide customers through the booking process step by step.
-        tier: fast
         tools: []
 
     capabilities: []

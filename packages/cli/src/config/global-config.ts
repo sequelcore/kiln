@@ -32,128 +32,37 @@ import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG, validateAgentScopeInheritance } from "../kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./mcp-config.js";
 import { validateSkillVisibilityConfig } from "./skill-visibility.js";
-import type {
-  KilnManagedAgentsConfig,
-  KilnHooksConfig,
-  KilnDeliberationPolicyConfig,
-  KilnModelTaskSuitabilityOverride,
-  KilnYamlWebExtractProvider,
-  KilnYamlWebSearchProvider,
-  KilnYamlMcp,
-  KilnYamlPermissions,
-  KilnYamlSkillsConfig,
-  KilnWorkGovernanceConfig,
-  KilnAuthorityProfileConfig,
-  KilnTargetCatalogIntentConfig,
-} from "../kiln-yaml-types.js";
 import {
   projectExecutionCatalogFromIntent,
   readExecutionTargetEvidenceSnapshot,
   type ExecutionTargetEvidenceRevision,
   type ExecutionTargetEvidenceSnapshot,
 } from "./execution-target-evidence-store.js";
-
-export interface KilnGlobalIdentity {
-  readonly name?: string;
-  readonly timezone?: string;
-}
-
-export type KilnEngineBilling = "subscription" | "plus-quota" | "free" | "api-key" | "local";
-
-export interface KilnGlobalEngineConfig {
-  readonly enabled?: boolean;
-  readonly billing?: KilnEngineBilling;
-}
-
-export interface KilnTargetRoutingConfig {
-  readonly defaultTargetId: string;
-}
-
-export interface KilnSessionTurnBudgetConfig {
-  readonly tokenLimit: number;
-  readonly action: "stop";
-}
-
-export interface KilnGlobalUiConfig {
-  readonly theme?: string;
-  readonly targetSelection?: KilnGlobalUiTargetSelectionConfig;
-}
-
-export interface KilnGlobalUiTargetSelectionConfig {
-  readonly targetId: string;
-  readonly accountOverrideId?: string;
-}
-
-export interface KilnGlobalComponentsConfig {
-  readonly include?: readonly string[];
-}
-
-/** Maximum project/session authority; distinct from the global default request. */
-export interface KilnGlobalPermissionCeilingConfig {
-  readonly approval?: NonNullable<KilnYamlPermissions["approval"]>;
-  readonly sandbox?: NonNullable<KilnYamlPermissions["sandbox"]>;
-}
-
-export interface KilnGlobalWebConfig {
-  readonly searchProvider?: KilnYamlWebSearchProvider;
-  readonly searchFallbackProviders?: readonly KilnYamlWebSearchProvider[];
-  readonly extractProvider?: KilnYamlWebExtractProvider;
-}
-
-/** Operator-owned machine capability used by the deterministic formal verifier. */
-export interface KilnGlobalDafnyConfig {
-  readonly executable: string;
-  readonly expectedVersion: string;
-}
-
-export interface KilnGlobalLemmaScriptScreeningConfig {
-  readonly packageRoot: string;
-  readonly entrypoint: string;
-  readonly expectedVersion: string;
-}
-
-export interface KilnGlobalFormalScreeningConfig {
-  readonly packagePath: string;
-  readonly lemmaScript: KilnGlobalLemmaScriptScreeningConfig;
-}
-
-export interface KilnGlobalFormalVerificationConfig {
-  readonly dafny: KilnGlobalDafnyConfig;
-  readonly screening?: KilnGlobalFormalScreeningConfig;
-}
-
-export interface KilnGlobalVerificationConfig {
-  readonly formal: KilnGlobalFormalVerificationConfig;
-}
-
-export const CANONICAL_GLOBAL_CONFIG_VERSION = "4" as const;
-
-export interface KilnGlobalConfig {
-  readonly version: typeof CANONICAL_GLOBAL_CONFIG_VERSION;
-  readonly identity?: KilnGlobalIdentity;
-  readonly activeInstructionProfiles?: readonly string[];
-  readonly workGovernance?: KilnWorkGovernanceConfig;
-  readonly engines?: Record<string, KilnGlobalEngineConfig>;
-  readonly targetCatalog?: KilnTargetCatalogIntentConfig;
-  readonly targetRouting?: KilnTargetRoutingConfig;
-  readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
-  readonly sessionTurnBudget?: KilnSessionTurnBudgetConfig;
-  readonly permissions?: KilnYamlPermissions;
-  readonly permissionCeiling?: KilnGlobalPermissionCeilingConfig;
-  readonly mcp?: KilnYamlMcp;
-  readonly hooks?: KilnHooksConfig;
-  readonly managedAgents?: KilnManagedAgentsConfig;
-  readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
-  readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
-  readonly communication?: CommunicationIntent;
-  readonly web?: KilnGlobalWebConfig;
-  readonly verification?: KilnGlobalVerificationConfig;
-  readonly ui?: KilnGlobalUiConfig;
-  readonly skills?: KilnYamlSkillsConfig;
-  readonly components?: KilnGlobalComponentsConfig;
-  readonly operatorVoice?: VoiceConfig;
-  readonly modelGateway?: ModelGatewayConfig;
-}
+import {
+  CANONICAL_GLOBAL_CONFIG_VERSION,
+  GLOBAL_CONFIG_SCHEMA,
+  parseGlobalConfigStructure,
+  type KilnEngineBilling,
+  type KilnGlobalConfig,
+  type KilnGlobalIdentity,
+  type KilnGlobalUiConfig,
+  type KilnGlobalWebConfig,
+} from "./global-config-schema.js";
+export { CANONICAL_GLOBAL_CONFIG_VERSION } from "./global-config-schema.js";
+export type {
+  KilnEngineBilling,
+  KilnGlobalComponentsConfig,
+  KilnGlobalConfig,
+  KilnGlobalEngineConfig,
+  KilnGlobalIdentity,
+  KilnGlobalPermissionCeilingConfig,
+  KilnGlobalUiConfig,
+  KilnGlobalUiTargetSelectionConfig,
+  KilnGlobalVerificationConfig,
+  KilnGlobalWebConfig,
+  KilnSessionTurnBudgetConfig,
+  KilnTargetRoutingConfig,
+} from "./global-config-schema.js";
 
 /**
  * Field allowlists are derived from the interfaces they guard: a field added to
@@ -163,33 +72,6 @@ export interface KilnGlobalConfig {
 function fieldNamesOf<T>(fields: Record<keyof T, true>): readonly string[] {
   return Object.keys(fields);
 }
-
-const ROOT_FIELDS = fieldNamesOf<KilnGlobalConfig>({
-  version: true,
-  identity: true,
-  activeInstructionProfiles: true,
-  workGovernance: true,
-  engines: true,
-  targetCatalog: true,
-  targetRouting: true,
-  authorityProfiles: true,
-  sessionTurnBudget: true,
-  permissions: true,
-  permissionCeiling: true,
-  mcp: true,
-  hooks: true,
-  managedAgents: true,
-  modelTaskSuitability: true,
-  deliberationPolicy: true,
-  communication: true,
-  web: true,
-  verification: true,
-  ui: true,
-  skills: true,
-  components: true,
-  operatorVoice: true,
-  modelGateway: true,
-});
 
 const IDENTITY_FIELDS = fieldNamesOf<KilnGlobalIdentity>({
   name: true,
@@ -217,9 +99,9 @@ export function readGlobalConfig(): KilnGlobalConfig | null {
   }
   const raw = readFileSync(configPath, "utf-8");
   try {
-    const parsed = parse(raw);
+    const parsed: unknown = parse(raw);
     validateGlobalConfig(parsed);
-    return parsed as KilnGlobalConfig;
+    return parsed;
   } catch (err) {
     if (err instanceof KilnYamlError) {
       throw err;
@@ -247,9 +129,9 @@ export interface GlobalConfigMutationEvidence {
 function parseGlobalConfigRaw(raw: string | null): KilnGlobalConfig | null {
   if (raw === null) return null;
   try {
-    const parsed = parse(raw);
+    const parsed: unknown = parse(raw);
     validateGlobalConfig(parsed);
-    return parsed as KilnGlobalConfig;
+    return parsed;
   } catch (error) {
     if (error instanceof KilnYamlError) throw error;
     throw new KilnYamlError(
@@ -545,7 +427,7 @@ export function resolveGlobalUiTheme(config: KilnGlobalConfig | null | undefined
   return config?.ui?.theme;
 }
 
-export function validateGlobalConfig(config: unknown): void {
+export function validateGlobalConfig(config: unknown): asserts config is KilnGlobalConfig {
   if (!isRecord(config)) {
     throw new KilnYamlError("Global config must be an object");
   }
@@ -554,7 +436,7 @@ export function validateGlobalConfig(config: unknown): void {
       `Global config version must be "${CANONICAL_GLOBAL_CONFIG_VERSION}". Recreate the canonical config through an explicit adoption flow.`,
     );
   }
-  rejectUnknownFields(config, ROOT_FIELDS, "global config");
+  rejectUnknownFields(config, Object.keys(GLOBAL_CONFIG_SCHEMA.properties), "global config");
   validateRecordField(config, "identity");
   validateRecordField(config, "workGovernance");
   validateRecordField(config, "engines");
@@ -601,6 +483,7 @@ export function validateGlobalConfig(config: unknown): void {
     scope: "global",
     sourcePath: resolveGlobalConfigPath(),
   });
+  parseGlobalConfigStructure(config, resolveGlobalConfigPath());
 }
 
 

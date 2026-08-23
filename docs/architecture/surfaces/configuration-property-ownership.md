@@ -17,7 +17,7 @@ explicit without repeating them hundreds of times.
 
 | Profile | Structural owner | Semantic owner | Reader | Current writer | Main consumers | Durable store and scope |
 | --- | --- | --- | --- | --- | --- | --- |
-| `G` | CLI `KilnGlobalConfig` validators | CLI configuration | `readGlobalConfig` | configuration mutation authority via `commitGlobalConfigBytes` | composition, status, CLI/GUI/TUI | `~/.kiln/config.yaml`; global |
+| `G` | CLI global TypeBox schema plus named semantic validators | CLI configuration | `readGlobalConfig` | configuration mutation authority via `commitGlobalConfigBytes` | composition, status, CLI/GUI/TUI | `~/.kiln/config.yaml`; global |
 | `GG` | CLI work-governance shape | work-governance application | `readGlobalConfig` | configuration mutation authority | work admission and managed work | global; project may narrow |
 | `GR` | CLI catalog shape | Core execution routing/economics | `readGlobalConfig` | configuration mutation authority, typed target operations | Runtime route admission | global only |
 | `GE` | CLI managed-evidence schema | Core data-policy/routing/economics | `readGlobalExecutionTargetAuthority` | evidence publication and target migration | Runtime route admission | `~/.kiln/evidence/execution-targets/<sha256>.json`; global, immutable |
@@ -41,9 +41,12 @@ app/gateway owner. Disposition is `supported`, `managed-evidence`,
 ## Global Configuration
 
 Structural evidence:
-[`global-config.ts`](../../../packages/cli/src/config/global-config.ts) and
-[`kiln-yaml-types.ts`](../../../packages/cli/src/kiln-yaml-types.ts). Imported
-contract semantics remain with their Core owner.
+[`global-config-schema.ts`](../../../packages/cli/src/config/global-config-schema.ts)
+owns the strict root and admitted type;
+[`global-config.ts`](../../../packages/cli/src/config/global-config.ts) retains
+named semantic and cross-resource validation. Imported contract semantics
+remain with their Core owner. Generated editor-schema and descriptor
+projections are committed under `packages/cli/schemas`.
 
 | Canonical property | Profile | Plane | Sensitivity / authority | Merge or default | Activation | Disposition / transfer |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -437,7 +440,7 @@ owner; App configuration retains only fallback team selection.
 | `router.classifier` | A | I | H | none | restart | deleted; strict schema rejects it |
 | `router.fallback` | A | I | H | required | restart | supported |
 | `teams.<team>.agents.<agent>.name` | A | I | M | required | restart | supported |
-| `teams.<team>.agents.<agent>.tier` | A | I | H | `fast` | restart | supported by validator; runtime use partial |
+| `teams.<team>.agents.<agent>.tier` | A | I | H | none | restart | deleted as unreachable App intent; strict schema rejects it |
 | `teams.<team>.agents.<agent>.tools[]` | A | I | C | empty | restart | supported |
 | `teams.<team>.agents.<agent>.role` | A | I | H | required | restart | supported |
 | `teams.<team>.agents.<agent>.goal` | A | I | H | required | restart | supported |
@@ -447,7 +450,7 @@ owner; App configuration retains only fallback team selection.
 | `teams.<team>.agents.<agent>.count` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects it |
 | `teams.<team>.agents.<agent>.sandbox` | A | I | C | none | restart | deleted; strict schema rejects it |
 | `teams.<team>.agents.<agent>.modalities[]` | A | I | H | none | restart | deleted; strict schema rejects it |
-| `teams.<team>.agents.<agent>.voiceProfile` | A | I | H | absent | restart | validator/profile check; runtime reachability Slice 9 |
+| `teams.<team>.agents.<agent>.voiceProfile` | A | I | H | none | restart | deleted as unreachable App intent; app-level `voice.defaults.ttsProfile` remains |
 | `teams.<team>.workflow.phases[]` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `workflow` |
 | `teams.<team>.workflow.gates.<phase>.requires[]` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `workflow` |
 | `teams.<team>.workflow.maxIterations` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `workflow` |
@@ -464,14 +467,14 @@ owner; App configuration retains only fallback team selection.
 | `teams.<team>.capabilities[].outputSchema` | A | I | H | absent | restart | supported |
 | `teams.<team>.capabilities[].effectEnvelope` | A | I | C | conservative effect | restart | supported |
 | `teams.<team>.capabilities[].retry` | A | I | H | domain default | restart | supported |
-| `teams.<team>.capabilities[].cacheTtl` | A | I | H | domain only | restart | unreachable from YAML; Slice 9 |
+| `teams.<team>.capabilities[].cacheTtl` | A | I | H | none | restart | not App intent; strict schema rejects it while discovered/runtime capabilities retain cache policy |
 | `teams.<team>.qualityGates[].name` | A | I | M | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
 | `teams.<team>.qualityGates[].command` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
 | `teams.<team>.qualityGates[].description` | A | I | L | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
 | `teams.<team>.qualityGates[].required` | A | I | H | none | restart | deleted with test-only preset bridge; strict schema rejects `qualityGates` |
 | `teams.<team>.quality[]` | A | I | H | none | restart | obsolete alias deleted; strict schema rejects it |
-| `teams.<team>.mode` | A | I | H | absent | restart | supported partially |
-| `teams.<team>.manager` | A | I | H | absent | restart | supported |
+| `teams.<team>.mode` | A | I | H | none | restart | deleted as unreachable App intent; programmatic Orchestrator team modes remain under their owner |
+| `teams.<team>.manager` | A | I | H | absent | restart | supported as fallback-team primary-persona selection |
 | `triggers[].name` | A | I | M | required | restart | supported |
 | `triggers[].type` | A | I | H | required | restart | supported |
 | `triggers[].team` | A | I | H | required | restart | supported |
@@ -597,10 +600,10 @@ schema and descriptor artifact are committed under `packages/core/schemas`.
 | `port` | W | I | C | 4800; command may override | restart | supported; effective precedence projected Slice 2/9 |
 | `apps[].name` | W | I | H | required unique | restart | supported |
 | `apps[].config` | W | I | C ref | required path | restart | supported |
-| `apps[].workspace` | W | I | H ref | optional path | restart | parsed but runtime consumer unproven; Slice 9 |
+| `apps[].workspace` | W | I | H ref | none | restart | deleted as unreachable; strict schema rejects it |
 | `apps[].channels[].type` | W | I | C | required | restart | supported |
 | `apps[].channels[].path` | W | I | C | optional | restart | supported |
-| `apps[].channels[].phoneNumber` | W | I | M | optional | restart | duplicate check only; Slice 9 disposition |
+| `apps[].channels[].phoneNumber` | W | I | M | none | restart | deleted as parse-only duplicate intent; strict schema rejects it |
 | `apps[].channels[].multiTenant` | W | I | C | optional | restart | supported |
 | `apps[].channels[].verifyTokenEnv` | W | I | C ref | optional | restart | supported |
 | `apps[].channels[].adminTokenEnv` | W | I | C ref | optional | restart | supported |
@@ -709,7 +712,7 @@ These fields are not additional durable configuration sources.
 | Divergent writer and activation lifecycles | CLI configuration application-port owner, Slice 4 | typed mutation result distinguishes rejected, committed, reconciliation-failed, and rolled-back; activation tests per field |
 | App/gateway generated authoring | Core app/gateway schema owner, Slice 9 | any future generated bytes pass the production readers; the invalid init templates were deleted in Slice 5 |
 | App root split among `AppLoader`, runtime-mode, billing, and events readers | Core app structural/graph owner, Slice 9 | closed: one strict TypeBox boundary and one YAML parse delegate named semantic admission; the runtime-mode reader is deleted |
-| Declared-but-unreachable app/domain properties and duplicate app/gateway route intent | owning Core eval/tool/voice/safety/gateway domains, Slice 9 | each property is mapped and consumed, or deleted with examples/docs/tests aligned |
+| Declared-but-unreachable app/domain properties and duplicate app/gateway route intent | owning Core eval/tool/voice/safety/gateway domains, Slice 9 | closed: each property is mapped and consumed, or deleted with examples/docs/tests aligned; App tier/voice/mode and Gateway workspace/phone residue reject |
 | Gateway nested unknowns, raw `botToken`, numeric `NaN`, and restart ownership | Core gateway schema plus Runtime App Gateway supervisor, Slice 9 | closed: strict admission rejects unknown/malformed fields, `botToken` is deleted, credential fields admit only secret references, and exact-revision restart stops admission, drains, replaces, and reads back through authenticated local control |
 | Per-harness preventive enforcement fidelity | native harness integration owner, security workstream before global migration | side-effect-negative fixtures prove prevention or route admission rejects |
 

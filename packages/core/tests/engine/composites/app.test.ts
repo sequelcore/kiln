@@ -12,7 +12,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "Marcus",
     role: "Implementation Specialist",
     goal: "Write clean, well-tested code",
-    tier: "coding",
     tools: ["code_edit"],
     ...overrides,
   };

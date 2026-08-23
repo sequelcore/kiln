@@ -36,7 +36,10 @@ the strict schema rejects them. App `channels`, `memory`, `router.rules`,
 `eval`, and `toolSelection` are also retired: Gateway app bindings own channel
 topology, runtime owns its memory stores and authority contracts, evaluation is
 an explicit Eval API workflow, and App routing retains only the consumed
-`router.fallback` team selection.
+`router.fallback` team selection. Agent `tier` and `voiceProfile`, plus team
+`mode`, were also deleted because App execution did not consume them. `manager`
+remains the optional primary-persona selector. Capability `cacheTtl` remains a
+runtime/MCP capability concern and is rejected in `app.yaml`.
 
 Secret material is not valid app intent. `provider.apiKeyEnv` stores an
 environment-variable name. Every `billing.headers` value must be a `$NAME`
@@ -143,9 +146,9 @@ Voice profiles are configured under `voice.ttsProfiles`. A profile must set
 `style` and may set `voice`, `language`, `speed`, `speedRange`, `format`, and
 named `intents`. Supported intent ids are `neutral`, `calm`, `brief`, and
 `careful`; each configured intent must include `delivery` and `appliesWhen`.
-`voice.defaults.ttsProfile` selects the app default, and agents may reference a
-profile with `voiceProfile`. Runtime applies a requested intent only for the
-current synthesis call and validates it against the named profile.
+`voice.defaults.ttsProfile` selects the app profile. Runtime applies a requested
+intent only for the current synthesis call and validates it against that
+profile.
 
 If no valid `voiceOutputIntent` is admitted for a turn, runtime can derive one
 from the final assistant text and runtime escalation evidence. The derived

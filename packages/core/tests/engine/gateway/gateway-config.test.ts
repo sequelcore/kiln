@@ -130,7 +130,7 @@ describe("validateGatewayConfig", () => {
     const config = makeConfig({
       apps: [
         makeAppBinding({ name: "app-a", channels: [{ type: "api", path: "/api/a" }] }),
-        makeAppBinding({ name: "app-b", channels: [{ type: "whatsapp", phoneNumber: "+521234567890" }] }),
+        makeAppBinding({ name: "app-b", channels: [{ type: "whatsapp" }] }),
       ],
     });
     expect(validateGatewayConfig(config)).toEqual([]);
@@ -141,18 +141,17 @@ describe("validateGatewayConfig", () => {
     expect(errors.some((e) => e.field === "apps")).toBe(true);
   });
 
-  it("reports duplicate app names, API paths, and phone numbers", () => {
+  it("reports duplicate app names and API paths", () => {
     const config = makeConfig({
       apps: [
-        makeAppBinding({ name: "duplicate", channels: [{ type: "api", path: "/api/shared", phoneNumber: "+521234567890" }] }),
-        makeAppBinding({ name: "duplicate", channels: [{ type: "whatsapp", phoneNumber: "+521234567890" }] }),
+        makeAppBinding({ name: "duplicate", channels: [{ type: "api", path: "/api/shared" }] }),
+        makeAppBinding({ name: "duplicate", channels: [{ type: "whatsapp" }] }),
         makeAppBinding({ name: "other", channels: [{ type: "api", path: "/api/shared" }] }),
       ],
     });
     const errors = validateGatewayConfig(config);
     expect(errors.some((e) => e.message.includes("duplicate"))).toBe(true);
     expect(errors.some((e) => e.message.includes("/api/shared"))).toBe(true);
-    expect(errors.some((e) => e.message.includes("+521234567890"))).toBe(true);
   });
 
   it("reports invalid ports and accumulates app errors", () => {

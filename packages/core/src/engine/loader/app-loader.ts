@@ -5,9 +5,9 @@ import { parse } from "yaml";
 import { KilnError } from "../errors.js";
 import type { App } from "../composites/app.js";
 import { validateApp } from "../composites/app.js";
-import type { Team, TeamMode } from "../composites/team.js";
+import type { Team } from "../composites/team.js";
 import type { Router } from "../composites/router.js";
-import type { Agent, AgentTier } from "../domain/agent.js";
+import type { Agent } from "../domain/agent.js";
 import { normalizeActionEffectEnvelope } from "../domain/action-effect.js";
 import type {
   VoiceConfig,
@@ -86,8 +86,6 @@ export class AppLoaderError extends KilnError {
 // Mapping helpers
 // ---------------------------------------------------------------------------
 
-const VALID_TIERS: AgentTier[] = ["reasoning", "coding", "fast"];
-
 function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Agent; errors: { field: string; message: string }[] } {
   const errors: { field: string; message: string }[] = [];
 
@@ -111,12 +109,6 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     errors.push({ field: `${path}.goal`, message: "must be a non-empty string (what agent achieves)" });
   }
 
-  // tier: model class (required)
-  const tier = raw.tier;
-  if (!tier || !VALID_TIERS.includes(tier as AgentTier)) {
-    errors.push({ field: `${path}.tier`, message: `must be one of: ${VALID_TIERS.join(", ")}` });
-  }
-
   // tools: capability references (can be [])
   const tools: string[] = [];
   if (raw.tools !== undefined) {
@@ -133,19 +125,13 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     }
   }
 
-  if (raw.voiceProfile !== undefined && (typeof raw.voiceProfile !== "string" || raw.voiceProfile.trim() === "")) {
-    errors.push({ field: `${path}.voiceProfile`, message: "must be a non-empty string" });
-  }
-
   const agent: Agent = {
     name,
     role,
     goal,
-    tier: (tier as AgentTier) ?? "coding",
     tools,
     ...(typeof raw.backstory === "string" ? { backstory: raw.backstory.trim() } : {}),
     ...(typeof raw.instructions === "string" ? { instructions: raw.instructions.trim() } : {}),
-    ...(typeof raw.voiceProfile === "string" && raw.voiceProfile.trim() !== "" ? { voiceProfile: raw.voiceProfile.trim() } : {}),
   };
 
   return { agent, errors };
@@ -302,17 +288,6 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
     }
   }
 
-  // Mode
-  const validModes: TeamMode[] = ["sequential", "supervisor"];
-  let mode: TeamMode | undefined;
-  if (raw.mode !== undefined) {
-    if (typeof raw.mode !== "string" || !validModes.includes(raw.mode as TeamMode)) {
-      errors.push({ field: `${path}.mode`, message: `must be one of: ${validModes.join(", ")}` });
-    } else {
-      mode = raw.mode as TeamMode;
-    }
-  }
-
   // Manager
   let manager: string | undefined;
   if (raw.manager !== undefined) {
@@ -327,7 +302,6 @@ function mapTeam(name: string, raw: RawTeam, path: string): { team: Team; errors
     name,
     agents,
     capabilities,
-    ...(mode ? { mode } : {}),
     ...(manager ? { manager } : {}),
   };
   return { team, errors };

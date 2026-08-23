@@ -23,7 +23,6 @@ teams:
   assistant:
     agents:
       conversant:
-        tier: fast
         tools: []
     workflow:
       phases: [understand, respond]

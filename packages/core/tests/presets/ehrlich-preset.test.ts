@@ -50,15 +50,13 @@ describe("ehrlich.yaml preset", () => {
       expect(agentNames).toContain("summarizer");
     });
 
-    it("director is reasoning tier with no tools and structured output", () => {
+    it("director has no tools", () => {
       const director = loadEhrlichPreset().teams["investigation"]!.agents["director"]!;
-      expect(director.tier).toBe("reasoning");
       expect(director.tools).toEqual([]);
     });
 
-    it("researcher is coding tier with 13 tools", () => {
+    it("researcher has 13 tools", () => {
       const researcher = loadEhrlichPreset().teams["investigation"]!.agents["researcher"]!;
-      expect(researcher.tier).toBe("coding");
       expect(researcher.tools).toHaveLength(13);
     });
 
@@ -79,9 +77,8 @@ describe("ehrlich.yaml preset", () => {
       expect(tools).toContain("ehrlich_run_categorical_test");
     });
 
-    it("summarizer is fast tier with 3 tools", () => {
+    it("summarizer has 3 tools", () => {
       const summarizer = loadEhrlichPreset().teams["investigation"]!.agents["summarizer"]!;
-      expect(summarizer.tier).toBe("fast");
       expect(summarizer.tools).toHaveLength(3);
       expect(summarizer.tools).toContain("ehrlich_classify_domain");
       expect(summarizer.tools).toContain("ehrlich_compress_output");

@@ -42,7 +42,6 @@ teams:
           When asked for a brief, use search_sources before answering. Use
           read_source for the best matching source IDs. End with a compact
           source list.
-        tier: fast
         tools:
           - mcp:research-tools:tool:search_sources
           - mcp:research-tools:tool:read_source

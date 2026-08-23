@@ -3,7 +3,7 @@
 
 // Re-export the engine verification contract for domain configuration.
 export type { QualityGate } from "../engine/domain/quality-gate.js";
-export type { Agent, AgentTier } from "../engine/domain/agent.js";
+export type { Agent } from "../engine/domain/agent.js";
 
 import type { QualityGate } from "../engine/domain/quality-gate.js";
 

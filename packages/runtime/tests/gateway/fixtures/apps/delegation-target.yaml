@@ -16,6 +16,5 @@ teams:
   assistant:
     agents:
       reasoner:
-        tier: reasoning
         tools: []
     capabilities: []

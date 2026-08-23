@@ -22,7 +22,7 @@ export interface TeamValidationError {
   readonly message: string;
 }
 
-/** Valid team modes */
+/** Valid orchestration modes for programmatically constructed teams. */
 const VALID_MODES: readonly TeamMode[] = ["sequential", "supervisor"];
 
 /** Validate a Team composite configuration */
@@ -39,27 +39,21 @@ export function validateTeam(team: Team): TeamValidationError[] {
     errors.push({ field: "agents", message: "must have at least one agent" });
   }
 
-  // Validate mode
   const mode = team.mode ?? "sequential";
   if (!VALID_MODES.includes(mode)) {
     errors.push({ field: "mode", message: `must be one of: ${VALID_MODES.join(", ")}` });
   }
 
-  // Supervisor mode: manager must exist in agents
-  if (mode === "supervisor") {
-    if (!team.manager || typeof team.manager !== "string") {
-      errors.push({ field: "manager", message: "required when mode is 'supervisor'" });
-    } else if (!team.agents[team.manager]) {
-      errors.push({
-        field: "manager",
-        message: `agent "${team.manager}" not found in agents`,
-      });
-    }
+  if (mode === "supervisor" && !team.manager) {
+    errors.push({ field: "manager", message: "required when mode is 'supervisor'" });
   }
 
-  // Manager field only valid with supervisor mode
-  if (team.manager && mode !== "supervisor") {
-    errors.push({ field: "manager", message: "only valid when mode is 'supervisor'" });
+  // The optional manager selects the primary team persona and must name an agent.
+  if (team.manager && !team.agents[team.manager]) {
+    errors.push({
+      field: "manager",
+      message: `agent "${team.manager}" not found in agents`,
+    });
   }
 
   // Agent tool references must exist in capabilities

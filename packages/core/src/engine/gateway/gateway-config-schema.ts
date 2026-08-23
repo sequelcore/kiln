@@ -37,7 +37,6 @@ const stringArray = Type.Array(Type.String());
 const channelBinding = strictObject({
   type: Type.Readonly(nonEmptyString),
   path: Type.ReadonlyOptional(Type.String()),
-  phoneNumber: Type.ReadonlyOptional(Type.String()),
   multiTenant: Type.ReadonlyOptional(Type.Boolean()),
   verifyTokenEnv: Type.ReadonlyOptional(environmentName),
   adminTokenEnv: Type.ReadonlyOptional(environmentName),
@@ -69,7 +68,6 @@ for (const key of [
 const appBinding = strictObject({
   name: Type.Readonly(nonEmptyString),
   config: Type.Readonly(nonEmptyString),
-  workspace: Type.ReadonlyOptional(nonEmptyString),
   channels: Type.Readonly(Type.Array(channelBinding, { minItems: 1 })),
 }, {
   description: "One deployable App bound into this gateway process.",

@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Continue Slice 9 with the `app.yaml` property reachability pass; its strict single-reader schema and trigger AST mutation now join the completed exact-revision gateway vertical, while the independently owned #97 live-validation matrix remains out of scope. |
+| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Start Slice 10 cross-surface promotion and cleanup from the completed project, global, App, and Gateway schema/read contracts; the independently owned #97 live-validation matrix remains out of scope. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |

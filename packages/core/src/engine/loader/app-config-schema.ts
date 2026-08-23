@@ -46,13 +46,11 @@ const retry = strictObject({
 
 const agent = strictObject({
   name: optionalUnknown(),
-  tier: optionalUnknown(),
   tools: optionalUnknown(),
   role: optionalUnknown(),
   goal: optionalUnknown(),
   backstory: optionalUnknown(),
   instructions: optionalUnknown(),
-  voiceProfile: optionalUnknown(),
 }, { "x-kiln-semantic-owner": "agent" });
 
 const capability = strictObject({
@@ -74,7 +72,6 @@ const capability = strictObject({
 const team = strictObject({
   agents: Type.ReadonlyOptional(Type.Record(Type.String(), agent)),
   capabilities: Type.ReadonlyOptional(Type.Array(capability)),
-  mode: optionalUnknown(),
   manager: optionalUnknown(),
 }, { "x-kiln-semantic-owner": "team" });
 

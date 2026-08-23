@@ -6,7 +6,6 @@ port: 5000
 apps:
   - name: test-app
     config: apps/test.yaml
-    workspace: /workspaces/test
     channels:
       - type: api
         path: /api/test
@@ -15,7 +14,6 @@ apps:
     config: apps/other.yaml
     channels:
       - type: whatsapp
-        phoneNumber: "+521234567890"
 `;
 
 describe("parseGatewayYaml", () => {
@@ -27,7 +25,6 @@ describe("parseGatewayYaml", () => {
     const first = config.apps[0]!;
     expect(first.name).toBe("test-app");
     expect(first.config).toBe("apps/test.yaml");
-    expect(first.workspace).toBe("/workspaces/test");
     expect(first.channels).toHaveLength(2);
     expect(first.channels[0]!.type).toBe("api");
     expect(first.channels[0]!.path).toBe("/api/test");
@@ -36,9 +33,7 @@ describe("parseGatewayYaml", () => {
     const second = config.apps[1]!;
     expect(second.name).toBe("other-app");
     expect(second.config).toBe("apps/other.yaml");
-    expect(second.workspace).toBeUndefined();
     expect(second.channels[0]!.type).toBe("whatsapp");
-    expect(second.channels[0]!.phoneNumber).toBe("+521234567890");
   });
 
   it("defaults port to 4800 when omitted", () => {
@@ -101,20 +96,6 @@ apps:
     expect(config.apps[0]!.channels[0]!.path).toBe("/api/v1");
   });
 
-  it("preserves phoneNumber on whatsapp channel", () => {
-    const yaml = `
-port: 4800
-apps:
-  - name: wa-app
-    config: app.yaml
-    channels:
-      - type: whatsapp
-        phoneNumber: "+521112223333"
-`;
-    const config = parseGatewayYaml(yaml);
-    expect(config.apps[0]!.channels[0]!.phoneNumber).toBe("+521112223333");
-  });
-
   it("preserves public media env bindings for channel delivery", () => {
     const yaml = `
 port: 4800
@@ -130,33 +111,6 @@ apps:
     const channel = config.apps[0]!.channels[0]!;
     expect(channel.publicMediaBaseUrlEnv).toBe("GATEWAY_PUBLIC_URL");
     expect(channel.publicMediaSigningSecretEnv).toBe("GATEWAY_MEDIA_SIGNING_SECRET");
-  });
-
-  it("preserves workspace field when present", () => {
-    const yaml = `
-port: 4800
-apps:
-  - name: ws-app
-    config: app.yaml
-    workspace: /workspaces/ws-app
-    channels:
-      - type: cli
-`;
-    const config = parseGatewayYaml(yaml);
-    expect(config.apps[0]!.workspace).toBe("/workspaces/ws-app");
-  });
-
-  it("omits workspace field when not present", () => {
-    const yaml = `
-port: 4800
-apps:
-  - name: no-ws-app
-    config: app.yaml
-    channels:
-      - type: cli
-`;
-    const config = parseGatewayYaml(yaml);
-    expect(config.apps[0]!.workspace).toBeUndefined();
   });
 
   it("throws GatewayLoaderError when root is not an object", () => {

@@ -3,6 +3,8 @@ import type { ContextUsageRawEvidence } from "../events/context-usage-projection
 import type { DeliberationResolution } from "./deliberation-policy.js";
 import type { CommunicationResolution } from "./communication-policy.js";
 
+export type { AgentTier } from "./agent-tier.js";
+
 /**
  * Agent role in the orchestration.
  * Built-in roles: "architect", "worker", "optimizer".

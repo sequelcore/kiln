@@ -118,11 +118,14 @@ export interface ReadConfigStatusViewOptions {
     (projectPath: string) => Promise<ManagedAgentRouteAdmissionResolver>;
 }
 
-interface ConfigLoadState {
+interface ConfigLoadState<T> {
   readonly source: KilnConfigSourceSnapshot;
-  readonly config: KilnGlobalConfig | ResolvedKilnConfig | null;
+  readonly config: T | null;
   readonly revision: `sha256:${string}` | "absent";
 }
+
+type GlobalConfigLoadState = ConfigLoadState<KilnGlobalConfig>;
+type ProjectConfigLoadState = ConfigLoadState<KilnProjectConfig>;
 
 interface NativeAgentProjectionSummary {
   readonly target: string;
@@ -146,8 +149,8 @@ const skillCatalogDetails = new WeakMap<
 >();
 const resolvedConfigDetails = new WeakMap<KilnConfigStatusSnapshot, ResolvedKilnConfig>();
 const configSourceDetails = new WeakMap<KilnConfigStatusSnapshot, {
-  readonly global: ConfigLoadState;
-  readonly project: ConfigLoadState;
+  readonly global: GlobalConfigLoadState;
+  readonly project: ProjectConfigLoadState;
 }>();
 
 export async function readConfigStatusSnapshot(
@@ -180,8 +183,8 @@ export async function readConfigStatusSnapshot(
   const effectiveConfigProjection = effectiveConfig
     ? projectEffectiveConfig({
       effectiveConfig,
-      globalConfig: globalState.config as KilnGlobalConfig | null,
-      projectConfig: projectState.config as KilnProjectConfig | null,
+      globalConfig: globalState.config,
+      projectConfig: projectState.config,
       globalSource: globalState.source,
       projectSource: projectState.source,
       projections: projectionState.projections,
@@ -248,8 +251,8 @@ export async function readConfigStatusSnapshot(
 async function readActivationStatus(
   projectPath: string,
   globalConfigPath: string,
-  globalState: ConfigLoadState,
-  projectState: ConfigLoadState,
+  globalState: GlobalConfigLoadState,
+  projectState: ProjectConfigLoadState,
   errors: string[],
 ): Promise<NonNullable<KilnConfigStatusSnapshot["activationStatus"]>> {
   try {
@@ -297,10 +300,10 @@ async function readActivationStatus(
 }
 
 function degradedActivationRevisionSetId(
-  globalState: ConfigLoadState,
-  projectState: ConfigLoadState,
+  globalState: GlobalConfigLoadState,
+  projectState: ProjectConfigLoadState,
 ): `sha256:${string}` {
-  const globalConfig = globalState.config as KilnGlobalConfig | null;
+  const globalConfig = globalState.config;
   return createRuntimeConfigurationRevisionSetId({
     global: globalState.revision,
     project: projectState.revision,
@@ -319,8 +322,8 @@ export function readConfigSourceDetail(snapshot: KilnConfigStatusSnapshot) {
 }
 
 function buildMcpStatus(
-  globalState: ConfigLoadState,
-  projectState: ConfigLoadState,
+  globalState: GlobalConfigLoadState,
+  projectState: ProjectConfigLoadState,
   rootPath: string,
   userHome: string,
 ): KilnMcpStatusSnapshot {
@@ -329,7 +332,7 @@ function buildMcpStatus(
   }
   const credentials = createMcpCredentialAccess(process.env, userHome);
   const resolution = resolveKilnMcpConfiguration({
-    globalConfig: globalState.config as KilnGlobalConfig | null,
+    globalConfig: globalState.config,
     globalPath: globalState.source.path,
     projectConfig: projectState.config as ResolvedKilnConfig | null,
     projectPath: projectState.source.path,
@@ -428,7 +431,7 @@ export function isConfigReadView(value: string): value is KilnConfigReadView {
   return (KILN_CONFIG_READ_VIEWS as readonly string[]).includes(value);
 }
 
-function readGlobalConfigState(): ConfigLoadState {
+function readGlobalConfigState(): GlobalConfigLoadState {
   const path = resolveGlobalConfigPath();
   if (!existsSync(path)) {
     return {
@@ -454,7 +457,7 @@ function readGlobalConfigState(): ConfigLoadState {
   }
 }
 
-function readProjectConfigState(projectPath: string): ConfigLoadState {
+function readProjectConfigState(projectPath: string): ProjectConfigLoadState {
   const kilnDir = join(projectPath, ".kiln");
   const path = join(kilnDir, "kiln.yaml");
   if (!existsSync(path)) {
@@ -482,16 +485,16 @@ function readProjectConfigState(projectPath: string): ConfigLoadState {
 }
 
 function buildEffectiveConfig(
-  globalState: ConfigLoadState,
-  projectState: ConfigLoadState,
+  globalState: GlobalConfigLoadState,
+  projectState: ProjectConfigLoadState,
   errors: string[],
 ): ResolvedKilnConfig | null {
   if (globalState.source.status === "invalid" || projectState.source.status === "invalid") {
     return null;
   }
 
-  const globalConfig = globalState.config as KilnGlobalConfig | null;
-  const projectConfig = projectState.config as KilnProjectConfig | null;
+  const globalConfig = globalState.config;
+  const projectConfig = projectState.config;
 
   try {
     return deriveEffectiveKilnYaml(globalConfig, projectConfig);

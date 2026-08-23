@@ -1,0 +1,304 @@
+{
+  "$id": "https://kiln.dev/schemas/global-config-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical structural schema for ~/.kiln/config.yaml.",
+  "properties": {
+    "activeInstructionProfiles": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "authorityProfiles": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "authority-profiles"
+    },
+    "communication": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "communication-policy"
+    },
+    "components": {
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "deliberationPolicy": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "deliberation-policy"
+    },
+    "engines": {
+      "patternProperties": {
+        "^(.*)$": {
+          "additionalProperties": false,
+          "properties": {
+            "billing": {
+              "anyOf": [
+                {
+                  "const": "subscription",
+                  "type": "string"
+                },
+                {
+                  "const": "plus-quota",
+                  "type": "string"
+                },
+                {
+                  "const": "free",
+                  "type": "string"
+                },
+                {
+                  "const": "api-key",
+                  "type": "string"
+                },
+                {
+                  "const": "local",
+                  "type": "string"
+                }
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "hooks": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "hook-configuration"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "timezone": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "managedAgents": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "managed-agent-configuration"
+    },
+    "mcp": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "mcp-configuration",
+      "x-kiln-sensitivity": "secret-reference"
+    },
+    "modelGateway": {
+      "x-kiln-activation": "restart-required",
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "model-gateway",
+      "x-kiln-sensitivity": "secret-reference"
+    },
+    "modelTaskSuitability": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "model-task-suitability"
+    },
+    "operatorVoice": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "voice",
+      "x-kiln-sensitivity": "secret-reference"
+    },
+    "permissionCeiling": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {},
+        "sandbox": {}
+      },
+      "type": "object"
+    },
+    "permissions": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "configured-permissions"
+    },
+    "sessionTurnBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "stop",
+          "type": "string"
+        },
+        "tokenLimit": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "tokenLimit",
+        "action"
+      ],
+      "type": "object"
+    },
+    "skills": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "skills-configuration"
+    },
+    "targetCatalog": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "execution-routing"
+    },
+    "targetRouting": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultTargetId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "defaultTargetId"
+      ],
+      "type": "object"
+    },
+    "ui": {
+      "additionalProperties": false,
+      "properties": {
+        "targetSelection": {
+          "additionalProperties": false,
+          "properties": {
+            "accountOverrideId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "targetId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "targetId"
+          ],
+          "type": "object"
+        },
+        "theme": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "verification": {
+      "additionalProperties": false,
+      "properties": {
+        "formal": {
+          "additionalProperties": false,
+          "properties": {
+            "dafny": {
+              "additionalProperties": false,
+              "properties": {
+                "executable": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "expectedVersion": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "executable",
+                "expectedVersion"
+              ],
+              "type": "object"
+            },
+            "screening": {
+              "additionalProperties": false,
+              "properties": {
+                "lemmaScript": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "entrypoint": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "expectedVersion": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "packageRoot": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "packageRoot",
+                    "entrypoint",
+                    "expectedVersion"
+                  ],
+                  "type": "object"
+                },
+                "packagePath": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "packagePath",
+                "lemmaScript"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "dafny"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "formal"
+      ],
+      "type": "object"
+    },
+    "version": {
+      "const": "4",
+      "type": "string"
+    },
+    "web": {
+      "additionalProperties": false,
+      "properties": {
+        "extractProvider": {},
+        "searchFallbackProviders": {
+          "items": {},
+          "type": "array"
+        },
+        "searchProvider": {}
+      },
+      "type": "object"
+    },
+    "workGovernance": {
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "work-governance"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "Kiln global configuration",
+  "type": "object",
+  "x-kiln-activation": "next-session",
+  "x-kiln-authority-impact": "none",
+  "x-kiln-default-posture": "omitted",
+  "x-kiln-schema-revision": 1,
+  "x-kiln-scope": "global",
+  "x-kiln-semantic-owner": "global-configuration",
+  "x-kiln-sensitivity": "public",
+  "x-kiln-structural-owner": "global-configuration"
+}

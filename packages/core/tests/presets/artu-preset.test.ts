@@ -50,15 +50,13 @@ describe("artu.yaml preset", () => {
       expect(agentNames).toContain("optimizer");
     });
 
-    it("director is reasoning tier with no tools and structured output", () => {
+    it("director has no tools", () => {
       const director = loadArtuPreset().teams["trading"]!.agents["director"]!;
-      expect(director.tier).toBe("reasoning");
       expect(director.tools).toEqual([]);
     });
 
-    it("worker is coding tier with 26 tools", () => {
+    it("worker has 26 tools", () => {
       const worker = loadArtuPreset().teams["trading"]!.agents["worker"]!;
-      expect(worker.tier).toBe("coding");
       expect(worker.tools).toHaveLength(26);
     });
 
@@ -99,9 +97,8 @@ describe("artu.yaml preset", () => {
       expect(tools).toContain("artu_get_lessons");
     });
 
-    it("optimizer is fast tier with 0 tools", () => {
+    it("optimizer has no tools", () => {
       const optimizer = loadArtuPreset().teams["trading"]!.agents["optimizer"]!;
-      expect(optimizer.tier).toBe("fast");
       expect(optimizer.tools).toHaveLength(0);
     });
 

@@ -25,7 +25,6 @@ teams:
           You are a friendly virtual assistant for a small business.
           You communicate via WhatsApp -- keep messages short, natural, and human.
           Never use Markdown formatting, bullet points, or asterisks.
-        tier: fast
         tools: []
 
     capabilities: []

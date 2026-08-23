@@ -11,7 +11,7 @@ function makeTeam(overrides: Partial<Team> = {}): Team {
   return {
     name: "dev",
     agents: {
-      worker: { name: "Marcus", role: "Coder", goal: "Write code", tier: "coding", tools: [] },
+      worker: { name: "Marcus", role: "Coder", goal: "Write code", tools: [] },
     },
     capabilities: [],
     ...overrides,
@@ -57,8 +57,8 @@ describe("SequentialStrategy", () => {
   it("uses the first agent key as default agent name", async () => {
     const team = makeTeam({
       agents: {
-        alpha: { name: "Alpha", role: "Worker", goal: "Work", tier: "coding", tools: [] },
-        beta: { name: "Beta", role: "Worker", goal: "Work", tier: "coding", tools: [] },
+        alpha: { name: "Alpha", role: "Worker", goal: "Work", tools: [] },
+        beta: { name: "Beta", role: "Worker", goal: "Work", tools: [] },
       },
     });
     const ctx = makeContext({ team });

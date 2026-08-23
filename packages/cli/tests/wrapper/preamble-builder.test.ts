@@ -46,7 +46,6 @@ const FULL_AGENT: Agent = {
   backstory:
     "You are a senior Python engineer with deep expertise in async programming, testing, and clean architecture.",
   instructions: "Always run lint before committing. Use type hints everywhere.",
-  tier: "coding",
   tools: ["bash", "edit"],
 };
 
@@ -87,7 +86,6 @@ describe("buildPreamble", () => {
       name: "Aria",
       role: "Engineer",
       goal: "Assist",
-      tier: "fast",
       tools: [],
     };
     const result = buildPreamble(
@@ -312,7 +310,6 @@ describe("buildPreamble", () => {
       name: "Bot",
       role: "Assistant",
       goal: "Help",
-      tier: "fast",
       tools: [],
     };
     const result = buildPreamble(MINIMAL_CONTEXT, { approval: "on-request", sandbox: "read-only" }, minimalAgent);

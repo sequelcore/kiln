@@ -46,9 +46,6 @@
                 "path": {
                   "type": "string"
                 },
-                "phoneNumber": {
-                  "type": "string"
-                },
                 "publicMediaBaseUrlEnv": {
                   "pattern": "^[A-Z_][A-Z0-9_]*$",
                   "type": "string",
@@ -87,11 +84,6 @@
             "type": "string"
           },
           "name": {
-            "minLength": 1,
-            "pattern": "\\S",
-            "type": "string"
-          },
-          "workspace": {
             "minLength": 1,
             "pattern": "\\S",
             "type": "string"

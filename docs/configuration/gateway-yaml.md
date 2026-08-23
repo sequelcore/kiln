@@ -36,7 +36,9 @@ fixtures.
 Credential material is not valid YAML configuration. Store only canonical
 environment-variable names in fields ending in `Env`, such as
 `accessTokenEnv`, `secretEnv`, and `hmacKeyEnv`. The removed `botToken` field has
-no compatibility alias.
+no compatibility alias. App-binding `workspace` and channel-binding
+`phoneNumber` were also removed because Runtime never consumed them; channel
+identity comes from each admitted transport request and tenant authority.
 
 All gateway fields currently activate at `restart-required`. There is no shared
 gateway writer, so authoring remains explicit. Apply an admitted file revision

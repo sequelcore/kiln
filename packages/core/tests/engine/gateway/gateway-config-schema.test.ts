@@ -94,6 +94,13 @@ describe("gateway configuration schema", () => {
     }
   });
 
+  it.each([
+    ["workspace", BASE.replace("    config: app.yaml", "    config: app.yaml\n    workspace: /unused"), "apps[0].workspace"],
+    ["phoneNumber", BASE.replace("      - type: web", "      - type: whatsapp\n        phoneNumber: '+521234567890'"), "apps[0].channels[0].phoneNumber"],
+  ])("rejects the unreachable gateway binding %s field", (_name, yaml, field) => {
+    expectGatewayError(yaml, field);
+  });
+
   it("keeps committed editor-schema and descriptor projections current", () => {
     expect(readFileSync(join(packageRoot, "schemas", "gateway-config-v1.json"), "utf8"))
       .toBe(serializeGatewayConfigEditorSchema());

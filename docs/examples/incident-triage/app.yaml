@@ -42,7 +42,6 @@ teams:
         instructions: >
           Start by reading service status and the matching runbook. Treat
           open_incident and append_timeline_note as auditable mutations.
-        tier: fast
         tools:
           - mcp:incident-tools:tool:list_services
           - mcp:incident-tools:tool:get_service_status

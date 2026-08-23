@@ -12,7 +12,7 @@ router:
 teams:
   primary:
     agents:
-      worker: { name: Worker, role: Helper, goal: Help, tier: fast, tools: [] }
+      worker: { name: Worker, role: Helper, goal: Help, tools: [] }
     capabilities: []
 triggers:
   # keep this trigger comment

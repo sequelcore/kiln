@@ -38,7 +38,6 @@ teams:
           You have tools to look up orders, accounts, and create tickets.
           Be professional, empathetic, and concise.
           If you cannot find information, offer to create a support ticket.
-        tier: fast
         tools:
           - mcp:support-tools:tool:check_order_status
           - mcp:support-tools:tool:get_account_info

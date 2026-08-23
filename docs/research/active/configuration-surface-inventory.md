@@ -367,7 +367,7 @@ Project root fields and explicit global-only rejections are defined in
 | Field group | Current owner | Plane | Sensitivity / authority | Activation |
 | --- | --- | --- | --- | --- |
 | `name`, `router.fallback` | Core app loader/composite | intent | app identity and fallback team selection | restart required in dev observer |
-| `teams.<team>.agents.*`, `.capabilities[]`, `.mode`, `.manager` | Core team/capability owners | intent | model, tools, effects, and team execution; high | restart required/unknown |
+| `teams.<team>.agents.*`, `.capabilities[]`, `.manager` | Core team/capability owners | intent | persona, tools, effects, and primary-persona selection; high | restart required |
 | `triggers[]` webhook/event/schedule variants | Core trigger types, Runtime registration | intent | webhook secrets by env and autonomous effects; high | restart required/unknown |
 | `knowledge.*`, `mcp.*` | Core domain owners | intent | connection strings, API-key references, external capabilities; medium/high | restart required/unknown |
 | `voice.*`, `safety.*` | Core voice and safety owners | intent | command/env references, artifact retention and safety policy; high | restart required/unknown |
@@ -387,15 +387,16 @@ memory, pattern-routing, evaluation, or tool-selection state was introduced.
 
 | Field group | Current owner | Plane | Sensitivity / authority | Activation |
 | --- | --- | --- | --- | --- |
-| `port`, `apps[].{name,config,workspace,channels[]}` | Core gateway loader, Runtime binding | intent | listener exposure, routes, tokens/env references and tenant behavior; critical | restart required |
+| `port`, `apps[].{name,config,channels[]}` | Core gateway loader, Runtime binding | intent | listener exposure, routes, tokens/env references and tenant behavior; critical | restart required |
 | `observability.*` | Core observability config | intent | endpoint and attributes; low/medium | restart required |
 | `auth.*` | Core gateway auth | intent | JWT secret/JWKS references, issuer/audience; critical | restart required |
 | `mcp.*` | Core gateway MCP | intent | endpoint, auth and evaluator credentials; critical | restart required |
 | `modelGateway.*` | Core gateway contract, Runtime ingress | mixed intent and evidence references | principals, scopes, replay key, virtual targets, capacity and budgets; critical | restart/reconcile unknown |
 
-Root and model-gateway unknown fields reject; several other nested gateway
-objects ignore unknown keys. Structural mapping is in
-[`gateway-loader.ts`](../../../packages/core/src/engine/gateway/gateway-loader.ts#L37).
+Slice 9 replaced the gateway mapper with one strict TypeBox boundary; root and
+nested unknown fields reject before named semantic admission. Structural
+ownership is in
+[`gateway-config-schema.ts`](../../../packages/core/src/engine/gateway/gateway-config-schema.ts).
 
 ## Merge And Precedence Rules
 

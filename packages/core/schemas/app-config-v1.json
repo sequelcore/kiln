@@ -135,9 +135,7 @@
                     "instructions": {},
                     "name": {},
                     "role": {},
-                    "tier": {},
-                    "tools": {},
-                    "voiceProfile": {}
+                    "tools": {}
                   },
                   "type": "object",
                   "x-kiln-semantic-owner": "agent"
@@ -191,8 +189,7 @@
               },
               "type": "array"
             },
-            "manager": {},
-            "mode": {}
+            "manager": {}
           },
           "type": "object",
           "x-kiln-semantic-owner": "team"

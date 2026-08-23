@@ -7,7 +7,7 @@ export type { KilnErrorCode } from "./errors.js";
 export { getErrorSuggestion } from "./error-catalog.js";
 export type { ErrorSuggestion } from "./error-catalog.js";
 
-export type { Agent, AgentTier } from "./domain/agent.js";
+export type { Agent } from "./domain/agent.js";
 export type { ContentPart, TextPart, ImagePart, AudioPart, FilePart, ToolUsePart, ToolResultPart, ToolResultPayloadPart } from "./domain/content.js";
 export { textPart, textParts, extractText, hasModality, validateContentPart, validateContentParts } from "./domain/content.js";
 export type { Modality } from "./domain/modality.js";

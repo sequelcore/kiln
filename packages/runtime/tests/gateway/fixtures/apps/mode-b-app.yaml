@@ -26,6 +26,5 @@ teams:
         name: Conversant Agent
         role: conversational assistant
         goal: Respond helpfully to user queries
-        tier: fast
         tools: []
     capabilities: []
