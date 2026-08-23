@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { join, resolve } from "node:path";
 import type { GatewayConfigurationSource } from "@kilnai/runtime";
 import {
   gatewayCommand,
@@ -6,9 +7,11 @@ import {
 } from "../../src/commands/gateway.js";
 
 const revision = `sha256:${"a".repeat(64)}` as const;
+const projectPath = resolve("/project");
+const gatewayPath = join(projectPath, "gateway.yaml");
 const source: GatewayConfigurationSource = {
   config: { port: 4_800, apps: [] },
-  gateway: { path: "C:/project/gateway.yaml", bytes: "port: 4800\napps: []\n" },
+  gateway: { path: gatewayPath, bytes: "port: 4800\napps: []\n" },
   apps: [],
   configurationRevision: revision,
 };
@@ -50,11 +53,11 @@ describe("gatewayCommand", () => {
     await gatewayCommand(["start", "--port", "4900"], dependencies({ createSupervisor, log }));
 
     expect(createSupervisor).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeDir: "C:\\project\\.kiln\\runtime\\app-gateway",
+      runtimeDir: join(projectPath, ".kiln", "runtime", "app-gateway"),
       desired: { port: 4_900, configurationRevision: revision },
       launch: expect.objectContaining({
         command: "bun",
-        args: ["cli.js", "gateway", "serve", "--config", "C:\\project\\gateway.yaml", "--port", "4900"],
+        args: ["cli.js", "gateway", "serve", "--config", gatewayPath, "--port", "4900"],
       }),
     }));
     expect(start).toHaveBeenCalledOnce();
@@ -69,7 +72,7 @@ describe("gatewayCommand", () => {
 
 function dependencies(overrides: Partial<GatewayCommandDependencies> = {}): Partial<GatewayCommandDependencies> {
   return {
-    projectPath: "C:/project",
+    projectPath,
     entrypoint: "cli.js",
     executable: "bun",
     version: "3.0.0-test",
