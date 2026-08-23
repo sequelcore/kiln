@@ -214,45 +214,70 @@ structured plan, work-item, or approval system when one exists.
   }),
   defineBuiltinSkill({
     name: "tdd-workflow",
-    description: "Design failing tests first, then implement and verify behavior without broadening scope.",
+    description: "Design behavior-focused tests and small red-green-refactor loops from trustworthy executable oracles.",
     tools: ["read", "grep", "glob", "bash", "write"],
     tags: ["engineering", "testing", "tdd"],
     instructions: `
 # TDD Workflow
 
-Use this skill for behavior changes and bug fixes where tests can express the
-expected behavior.
+Treat TDD as a disciplined feedback workflow, not a guarantee of quality or
+productivity. Prefer a test-first loop when expected behavior can be expressed
+through a trustworthy executable oracle. In unclear legacy or brownfield code,
+investigate and characterize first, then establish the intended failing check.
 
 Workflow:
-1. Identify the owning test layer.
-2. Write or specify the smallest failing test that proves the intended behavior.
-3. Implement only enough production code to pass.
-4. Refactor without changing behavior.
-5. Run the focused test during red-green iteration.
+1. Identify the observable behavior, owning boundary, affected consumers, and
+   closest existing test owner.
+2. Choose the oracle mode explicitly. A specification or regression oracle comes
+   from an independent contract, issue reproduction, requirement, domain invariant,
+   or trusted external observation; do not derive it only from the possibly buggy
+   implementation. A characterization oracle records current behavior and must be
+   labelled as preservation evidence only; it does not establish correctness.
+3. Choose the smallest meaningful behavior increment that can fail and pass
+   independently. Do not enforce a universal cycle duration.
+4. Run the narrowest relevant check and confirm it fails because the behavior is
+   absent, not because of syntax, environment, fixtures, or unrelated failures.
+   A red test proves sensitivity, not correctness of its expectation.
+5. Implement only enough production behavior to pass. Refactor afterward in
+   small behavior-preserving steps, rerunning affected behavior and callers.
 6. Run the owning suite and affected downstream suites before completion when
    behavior, contracts, or shared dependencies change.
 7. Run the complete suite when repository evidence, risk, integration, release,
    or scheduled CI requires it. If impact is uncertain, widen the gate and state
    what remains uncertain.
 
-Test value:
+Choose the narrowest layer capable of faithfully observing the risk. Use pure
+tests for decisions and invariants; integration tests for wiring, persistence,
+protocol, configuration, filesystem, or real dependency semantics; contract
+tests for agreed consumer/provider behavior; end-to-end tests for a small set of
+critical composed journeys; and runtime-specific probes when deployment semantics
+matter. Do not prescribe fixed test-pyramid ratios.
+
+Test value and bloat:
 - Before adding a test, search the owning layer for the same observable behavior.
   Strengthen or replace the existing owner when it can carry the regression
   signal; a new test must protect a distinct regression, boundary, invariant,
   or failure mode.
-- Retain a test when it protects distinct public behavior, a regression, a
-  boundary or invariant, or a materially different failure mode.
-- Prefer strengthening an existing test when it already provides the required
-  regression signal. Do not use test count or raw coverage as quality objectives.
-- Repair or delete tests that are obsolete, redundant, flaky,
-  implementation-coupled, or behavior-free.
-- Do not delete a test solely because its line coverage overlaps another test.
-  Use behavioral and fault-detection evidence when distinct value is uncertain.
+- Do not use test count or raw coverage as quality objectives. Use coverage to
+  locate omissions and targeted mutation to diagnose assertion sensitivity;
+  neither percentage proves correctness.
+- Treat duplication, large fixtures, multiple assertions, eager setup, and
+  indirect testing as investigation prompts, not automatic smells.
+- Similar code, identical coverage, or an overlapping happy path does not prove
+  redundancy. Identify the behavior or fault class protected elsewhere and run
+  the retained verification before deletion.
 - After compiler-driven fixture repairs or broad test refactors, perturb a
   representative subject condition and confirm the owning assertion fails.
-  Restore the subject before completion. Use mutation testing when available.
+  Restore the subject before completion.
 
-Fixture hygiene:
+AI-generated tests:
+- AI may draft fixtures and candidate tests, but independently validate the source
+  of behavior, assertion, boundary cases, fail-to-pass transition, existing owner,
+  and mock semantics.
+- Passing, compiling, coverage, or mutation score alone does not validate an
+  AI-generated oracle or prove that it did not encode the current bug.
+
+Fixtures, determinism, and speed:
 - Use synthetic, portable fixture values that express only the behavior under test.
 - Never copy operator-specific paths, usernames, home directories, credentials,
   tokens, or raw incident payloads into tests.
@@ -260,9 +285,17 @@ Fixture hygiene:
   path only when that path syntax is itself part of the contract.
 - Do not paste user-supplied bug text verbatim unless the exact literal is the
   contract. Reduce it to the smallest sanitized equivalent that still fails.
+- Restore clocks, timers, environment, globals, cwd, mocks, files, services, and
+  handles. A retry-pass is evidence of nondeterminism, not successful verification.
+- Keep the inner loop fast with focused checks first, then broader gates. Measure
+  repository-specific latency; do not weaken isolation or encode an arbitrary
+  universal threshold without evidence.
 
 If a failing test is impractical, explain why and choose the closest executable
-verification.
+verification. Report the behavior exercised, evidence established, oracle source,
+cases, layers and runtimes covered, baseline limitations, and residual untested
+risks. Red-green-refactor alone does not prove correctness, maintainability, or
+productivity.
 `,
   }),
   defineBuiltinSkill({

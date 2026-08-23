@@ -304,10 +304,20 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("If impact is uncertain, widen the gate");
     expect(skill?.instructions).toContain("Do not use test count or raw coverage as quality objectives");
     expect(skill?.instructions).toContain("Before adding a test, search the owning layer");
-    expect(skill?.instructions).toContain("Do not delete a test solely because its line coverage overlaps");
+    expect(skill?.instructions).toMatch(/does not prove\s+redundancy/);
     expect(skill?.instructions).toContain("confirm the owning assertion fails");
     expect(skill?.instructions).toContain("Use synthetic, portable fixture values");
     expect(skill?.instructions).toContain("Never copy operator-specific paths");
     expect(skill?.instructions).toContain("temporary directories");
+    expect(skill?.instructions).toMatch(/possibly buggy\s+implementation/);
+    expect(skill?.instructions).toContain("characterization oracle records current behavior");
+    expect(skill?.instructions).toContain("does not establish correctness");
+    expect(skill?.instructions).toContain("A red test proves sensitivity, not correctness");
+    expect(skill?.instructions).toContain("Do not prescribe fixed test-pyramid ratios");
+    expect(skill?.instructions).toContain("Passing, compiling, coverage, or mutation score alone");
+    expect(skill?.instructions).toContain("retry-pass is evidence of nondeterminism");
+    expect(skill?.instructions.replace(/\s+/g, " ")).toContain(
+      "does not prove correctness, maintainability, or productivity",
+    );
   });
 });
