@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { executeDefaultRuntimeMultimodalTransform } from "../../src/session/runtime-multimodal-transforms.js";
 import { createMediaActionTestContext } from "../gateway/media-action-test-fixture.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 describe("executeDefaultRuntimeMultimodalTransform cancellation", () => {
   it("does not download an OCR URL source when the active turn is already cancelled", async () => {
     const originalFetch = globalThis.fetch;
-    const fetchSpy = vi.fn();
+    const fetchSpy = createTestFetch(vi.fn(async (..._args: Parameters<typeof fetch>) => new Response()));
     globalThis.fetch = fetchSpy;
     const abort = new AbortController();
     abort.abort();
@@ -51,9 +52,9 @@ describe("executeDefaultRuntimeMultimodalTransform cancellation", () => {
   it("forwards in-flight OCR URL cancellation to fetch", async () => {
     const originalFetch = globalThis.fetch;
     const abort = new AbortController();
-    const fetchSpy = vi.fn((_url: URL | RequestInfo, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    const fetchSpy = createTestFetch(vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
-    }));
+    })));
     globalThis.fetch = fetchSpy;
     const media = createMediaActionTestContext();
 

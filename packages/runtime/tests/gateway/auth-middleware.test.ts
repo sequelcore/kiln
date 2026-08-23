@@ -223,8 +223,8 @@ describe("requireJwt", () => {
     throw new Error("JWTExpired");
   };
 
-  function makeApp(verifier: JwtVerifyFn): Hono {
-    const app = new Hono();
+  function makeApp(verifier: JwtVerifyFn): Hono<{ Variables: { jwtPayload: JwtPayload } }> {
+    const app = new Hono<{ Variables: { jwtPayload: JwtPayload } }>();
     app.use("*", requireJwt(verifier));
     app.get("/test", (c) => c.json({ ok: true, payload: c.get("jwtPayload") }));
     return app;

@@ -47,11 +47,11 @@ describe("DefaultContextSummarizer", () => {
   });
 
   it("represents non-text content without crossing the provider boundary", () => {
-    expect(summarizeConversationLocally([{ role: "user", parts: [] }])).toBe("user: [non-text content]");
+    expect(summarizeConversationLocally([{ role: "user" as const, parts: [] }])).toBe("user: [non-text content]");
   });
 
   it("honors small and invalid local bounds safely", () => {
-    const message = [{ role: "user", parts: textParts("abcdef") }];
+    const message = [{ role: "user" as const, parts: textParts("abcdef") }];
     expect(summarizeConversationLocally(message, 2)).toHaveLength(2);
     expect(summarizeConversationLocally(message, -10)).toHaveLength(1);
   });

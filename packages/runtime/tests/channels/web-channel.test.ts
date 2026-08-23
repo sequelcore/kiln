@@ -99,6 +99,7 @@ describe("WebChannel", () => {
 
       const msg: OutgoingMessage = {
         parts: textParts("For A only"),
+        target: "web",
         userId: "session-a",
       };
       await channel.send(msg);
@@ -118,7 +119,7 @@ describe("WebChannel", () => {
       channel.addClient(wsA, "session-a");
       channel.addClient(wsB, "session-b");
 
-      const msg: OutgoingMessage = { parts: textParts("Broadcast") };
+      const msg: OutgoingMessage = { parts: textParts("Broadcast"), target: "web" };
       await channel.send(msg);
 
       expect(wsA.send).toHaveBeenCalledOnce();
@@ -129,7 +130,7 @@ describe("WebChannel", () => {
       const ws = makeMockWs();
       channel.addClient(ws, "session-a");
 
-      await channel.send({ parts: textParts("lost"), userId: "unknown" });
+      await channel.send({ parts: textParts("lost"), target: "web", userId: "unknown" });
 
       expect(ws.send).not.toHaveBeenCalled();
     });
@@ -140,7 +141,7 @@ describe("WebChannel", () => {
       channel.addClient(open, "session-a");
       channel.addClient(closed, "session-a");
 
-      await channel.send({ parts: textParts("test"), userId: "session-a" });
+      await channel.send({ parts: textParts("test"), target: "web", userId: "session-a" });
 
       expect(open.send).toHaveBeenCalledOnce();
       expect(closed.send).not.toHaveBeenCalled();
@@ -155,7 +156,7 @@ describe("WebChannel", () => {
       channel.addClient(good, "session-a");
       channel.addClient(bad, "session-a");
 
-      await channel.send({ parts: textParts("test"), userId: "session-a" });
+      await channel.send({ parts: textParts("test"), target: "web", userId: "session-a" });
 
       expect(channel.clientCount).toBe(1);
     });

@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { checkBudget, checkTier } from "../../src/gateway/budget-middleware.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const originalFetch = globalThis.fetch;
-let mockFetch: ReturnType<typeof vi.fn>;
+const mockFetch = createTestFetch(vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response()));
 
 beforeEach(() => {
-  mockFetch = vi.fn();
+  mockFetch.mockReset();
   globalThis.fetch = mockFetch;
 });
 

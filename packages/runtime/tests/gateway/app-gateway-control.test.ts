@@ -9,6 +9,7 @@ import {
   handleAppGatewayControlRequest,
   inspectAppGatewayListener,
 } from "../../src/gateway/app-gateway-control.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const identity: AppGatewayRuntimeIdentity = {
   protocolVersion: APP_GATEWAY_CONTROL_PROTOCOL_VERSION,
@@ -52,10 +53,10 @@ describe("App Gateway control", () => {
   });
 
   it("classifies exact revision drift as a foreign listener", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify(identity), {
+    const fetch = createTestFetch(vi.fn(async () => new Response(JSON.stringify(identity), {
       status: 200,
       headers: { "content-type": "application/json", "x-kiln-service": APP_GATEWAY_SERVICE },
-    }));
+    })));
     await expect(inspectAppGatewayListener({
       port: 4_800,
       controlToken: "secret",

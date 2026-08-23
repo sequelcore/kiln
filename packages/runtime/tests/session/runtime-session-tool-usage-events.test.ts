@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core/events";
+import type { CanonicalSessionEvent, ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core/events";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -263,7 +263,9 @@ describe("runtime session tool usage events", () => {
       ],
     });
 
-    expect(events.filter((event) => event.kind.startsWith("tool_call")).map((event) => ({
+    const persistedToolEvents = events.filter((event): event is Extract<CanonicalSessionEvent, { kind: "tool_call_started" | "tool_call_completed" }> =>
+      event.kind === "tool_call_started" || event.kind === "tool_call_completed");
+    expect(persistedToolEvents.map((event) => ({
       kind: event.kind,
       toolCallId: event.toolCallId,
       toolCallScopeId: event.toolCallScopeId,

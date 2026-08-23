@@ -1,4 +1,4 @@
-import { createExecutionAccountRef } from "@kilnai/core/agents";
+import { createExecutionAccountPolicyId, createExecutionAccountRef } from "@kilnai/core/agents";
 import { existsSync, writeFileSync } from "node:fs";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
@@ -12,7 +12,7 @@ try {
   writeFileSync(result, JSON.stringify(authority.acquireAccountCapacity({
     runtimeInvocationId: id,
     intentFingerprint: `sha256:${"a".repeat(64)}`,
-    accountPolicyId: "policy",
+    accountPolicyId: createExecutionAccountPolicyId("policy"),
     route,
     candidates: [{ candidate: { account: createExecutionAccountRef("configured:account"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "stable-account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 } }],
   })));

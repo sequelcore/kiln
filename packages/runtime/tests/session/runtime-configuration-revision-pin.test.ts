@@ -6,6 +6,11 @@ import {
 } from "../../src/session/runtime-configuration-revision-pin.js";
 
 describe("Runtime configuration revision pin", () => {
+  const DIGEST_A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const DIGEST_B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const DIGEST_C = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  const DIGEST_D = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+
   it("captures one frozen snapshot while a later turn observes the next revision", async () => {
     let current: RuntimeConfigurationRevisionSnapshot = {
       revisionSetId: "R1",
@@ -57,35 +62,35 @@ describe("Runtime configuration revision pin", () => {
   });
 
   it("normalizes activation lineage independently from the revision-set digest", () => {
-    const revisionSetId = "sha256:" + "a".repeat(64);
+    const revisionSetId = DIGEST_A;
     const first = normalizeRuntimeConfigurationRevision({
       revisionSetId,
-      revisions: { project: "sha256:" + "b".repeat(64) },
+      revisions: { project: DIGEST_B },
       activationLineage: [
         {
           proposalId: "cfg-project",
           scope: "project",
           path: ".kiln/kiln.yaml",
-          committedRevision: "sha256:" + "b".repeat(64),
+          committedRevision: DIGEST_B,
           reconciliationGenerations: [
-            { target: "native-skills", generation: "sha256:" + "d".repeat(64) },
-            { target: "native-agents", generation: "sha256:" + "c".repeat(64) },
+            { target: "native-skills", generation: DIGEST_D },
+            { target: "native-agents", generation: DIGEST_C },
           ],
         },
       ],
     });
     const second = normalizeRuntimeConfigurationRevision({
       revisionSetId,
-      revisions: { project: "sha256:" + "b".repeat(64) },
+      revisions: { project: DIGEST_B },
       activationLineage: [
         {
           proposalId: "cfg-project",
           scope: "project",
           path: ".kiln/kiln.yaml",
-          committedRevision: "sha256:" + "b".repeat(64),
+          committedRevision: DIGEST_B,
           reconciliationGenerations: [
-            { target: "native-agents", generation: "sha256:" + "c".repeat(64) },
-            { target: "native-skills", generation: "sha256:" + "d".repeat(64) },
+            { target: "native-agents", generation: DIGEST_C },
+            { target: "native-skills", generation: DIGEST_D },
           ],
         },
       ],
@@ -99,7 +104,7 @@ describe("Runtime configuration revision pin", () => {
     expect(Object.isFrozen(first.activationLineage?.[0]?.reconciliationGenerations)).toBe(true);
     const generation = first.activationLineage?.[0]?.reconciliationGenerations[0];
     expect(Object.isFrozen(generation)).toBe(true);
-    expect(Reflect.set(generation!, "generation", "sha256:" + "e".repeat(64))).toBe(false);
+    expect(Reflect.set(generation!, "generation", DIGEST_A)).toBe(false);
   });
 
   it("rejects malformed activation lineage instead of treating it as activation evidence", () => {
@@ -113,7 +118,7 @@ describe("Runtime configuration revision pin", () => {
         proposalId: "",
         scope: "project",
         path: ".kiln/kiln.yaml",
-        committedRevision: "sha256:" + "b".repeat(64),
+        committedRevision: DIGEST_B,
         reconciliationGenerations: [],
       }],
     })).toThrow(/proposalId|non-empty/iu);
@@ -123,7 +128,7 @@ describe("Runtime configuration revision pin", () => {
         proposalId: "cfg-project",
         scope: "project",
         path: "C:/operator/project/.kiln/kiln.yaml",
-        committedRevision: "sha256:" + "b".repeat(64),
+        committedRevision: DIGEST_B,
         reconciliationGenerations: [],
       }],
     })).toThrow(/path|absolute/iu);
@@ -134,7 +139,7 @@ describe("Runtime configuration revision pin", () => {
           proposalId: "cfg-project",
           scope: "project",
           path,
-          committedRevision: "sha256:" + "b".repeat(64),
+          committedRevision: DIGEST_B,
           reconciliationGenerations: [],
         }],
       })).toThrow(/logical relative path/iu);
@@ -145,8 +150,8 @@ describe("Runtime configuration revision pin", () => {
         proposalId: "cfg-project",
         scope: "project",
         path: ".kiln/kiln.yaml",
-        committedRevision: "sha256:" + "b".repeat(64),
-        reconciliationGenerations: [{ target: "native-skills", generation: "not-a-generation" }],
+        committedRevision: DIGEST_B,
+        reconciliationGenerations: [{ target: "native-skills", generation: "sha256:not-a-generation" }],
       }],
     })).toThrow(/generation/iu);
     expect(() => normalizeRuntimeConfigurationRevision({
@@ -156,14 +161,14 @@ describe("Runtime configuration revision pin", () => {
           proposalId: "cfg-project-a",
           scope: "project",
           path: ".kiln/kiln.yaml",
-          committedRevision: "sha256:" + "b".repeat(64),
+          committedRevision: DIGEST_B,
           reconciliationGenerations: [],
         },
         {
           proposalId: "cfg-project-b",
           scope: "project",
           path: ".kiln/kiln.yaml",
-          committedRevision: "sha256:" + "c".repeat(64),
+          committedRevision: DIGEST_C,
           reconciliationGenerations: [],
         },
       ],

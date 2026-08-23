@@ -44,7 +44,7 @@ describe("AppGatewaySupervisor", () => {
     const prior = identity("instance-old", 111, priorRevision);
     await writeFile(join(root, "credentials.json"), JSON.stringify({ schemaVersion: 1, controlToken: "old-private-control-token" }), "utf8");
     await writeFile(join(root, "state.json"), JSON.stringify(state(prior)), "utf8");
-    const inspect = vi.fn()
+    const inspect = vi.fn<() => Promise<AppGatewayListenerInspection>>()
       .mockResolvedValueOnce({ state: "ready", identity: prior })
       .mockResolvedValueOnce({ state: "ready", identity: prior })
       .mockResolvedValueOnce({ state: "stopped" })
@@ -60,7 +60,8 @@ describe("AppGatewaySupervisor", () => {
   it("never spawns or terminates when listener ownership is foreign", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-app-gateway-foreign-"));
     const processAdapter = adapter(222);
-    const supervisor = createSupervisor(root, vi.fn(async () => ({ state: "foreign", reason: "unauthorized" })), processAdapter);
+    const foreignInspect = vi.fn<() => Promise<AppGatewayListenerInspection>>(async () => ({ state: "foreign", reason: "unauthorized" }));
+    const supervisor = createSupervisor(root, foreignInspect, processAdapter);
     await expect(supervisor.ensure()).resolves.toEqual({ state: "foreign", reason: "unauthorized" });
     await expect(supervisor.stop()).resolves.toEqual({ state: "foreign", reason: "unauthorized" });
     expect(processAdapter.spawn).not.toHaveBeenCalled();

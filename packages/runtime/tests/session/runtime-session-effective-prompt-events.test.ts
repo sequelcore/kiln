@@ -29,7 +29,7 @@ const providerRequest: ProviderRequestEvidence = {
   stablePrefixRegionCount: 1,
   volatileRegionBytes: 2,
   cacheRegions: [],
-  cachePartition: { dimensions: [] },
+  cachePartition: { hash: hash("cache-partition"), dimensions: [] },
   toolCount: 0,
   effectivePrompt: {
     version: "v1",

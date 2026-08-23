@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeContextAudit } from "../../src/gateway/message-pipeline/index.js";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
 import { projectRuntimeLifecycleAttributionAllocations } from "../../src/session/runtime-lifecycle-attribution-allocations.js";
 
 const ROUTE = "codex-oauth/gpt-5.5";
@@ -15,11 +16,16 @@ const CONTEXT_AUDIT: RuntimeContextAudit = {
   tokenBudget: 40,
   overflow: true,
   overflowReason: "budget-cap",
+  allocationMode: "whole-block",
+  positionProfile: "balanced",
+  requiredOverflowPolicy: "admit-and-report",
   blocks: [
     {
       id: "memory-1",
       kind: "memory",
+      modelFacingSemantics: "evidence",
       source: "memory-recall:episodic",
+      contentHash: sha256ContentIdentity("memory-recall:episodic"),
       memoryRecordId: "memory-record-1",
       required: false,
       estimatedTokens: 18,
@@ -32,7 +38,9 @@ const CONTEXT_AUDIT: RuntimeContextAudit = {
     {
       id: "procedure-1",
       kind: "procedural",
+      modelFacingSemantics: "directive",
       source: "kiln://instructions/sequel-engineering",
+      contentHash: sha256ContentIdentity("kiln://instructions/sequel-engineering"),
       required: true,
       estimatedTokens: 12,
       baseScore: 1,
@@ -44,7 +52,9 @@ const CONTEXT_AUDIT: RuntimeContextAudit = {
     {
       id: "reference-1",
       kind: "artifact",
+      modelFacingSemantics: "evidence",
       source: "kiln://artifacts/reference-1",
+      contentHash: sha256ContentIdentity("kiln://artifacts/reference-1"),
       required: false,
       estimatedTokens: 14,
       baseScore: 0.4,
@@ -180,7 +190,9 @@ describe("runtime lifecycle attribution allocation projection", () => {
         blocks: [{
           id: "instruction-1",
           kind: "instruction",
+          modelFacingSemantics: "directive",
           source: "kiln://instructions/session-policy",
+          contentHash: sha256ContentIdentity("kiln://instructions/session-policy"),
           required: true,
           estimatedTokens: 7,
           baseScore: 1,
@@ -212,7 +224,9 @@ describe("runtime lifecycle attribution allocation projection", () => {
         blocks: [{
           id: "procedure-path-source",
           kind: "procedural",
+          modelFacingSemantics: "directive",
           source: "runtime-skill:C:/repo/.agents/skills/review/SKILL.md",
+          contentHash: sha256ContentIdentity("runtime-skill:C:/repo/.agents/skills/review/SKILL.md"),
           required: true,
           estimatedTokens: 9,
           baseScore: 1,

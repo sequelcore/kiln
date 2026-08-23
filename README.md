@@ -66,7 +66,7 @@ loops and capabilities.
 ## Evaluate Kiln from source
 
 You need [Git](https://git-scm.com/) and
-[Bun 1.3.14](https://bun.sh/docs/installation).
+[Bun 1.4.0](https://bun.sh/docs/installation).
 
 ```bash
 git clone https://github.com/sequelcore/kiln.git

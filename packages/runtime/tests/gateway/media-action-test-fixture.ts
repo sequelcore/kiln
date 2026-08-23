@@ -1,4 +1,4 @@
-import { createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
@@ -18,7 +18,7 @@ export function createMediaActionTestContext(): {
   const revision = { revisionSetId: "media-fixture", revisions: { execution: "media-fixture" } } as const;
   const authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
     sessionId: "media-session",
-    turnId: "media-turn",
+    turnId: canonicalTurnId("media-session", 1),
     admittedAt: "2026-08-22T18:00:00.000Z",
     configuration: { sessionRevision: revision, turnRevision: revision },
     session: {
@@ -34,7 +34,7 @@ export function createMediaActionTestContext(): {
       workGovernance: { status: "not-required" },
       operatorAdoption: {
         status: "admitted",
-        decision: createOperatorAdoptionDecisionAuthority({ ownerSessionId: "media-session", operatorTurnId: "media-turn", actorId: "media-user" }),
+        decision: createOperatorAdoptionDecisionAuthority({ ownerSessionId: "media-session", operatorTurnId: canonicalTurnId("media-session", 1), actorId: "media-user" }),
       },
       tools: { allowedToolPermissions: [], deniedToolNames: [] },
       effectCeiling: {
@@ -45,7 +45,7 @@ export function createMediaActionTestContext(): {
       execution: {
         status: "routed",
         route: { routeId: "media-route", providerId: "media-provider", providerModelId: "media-model", accountSelection: { mode: "exact", accountId: "media-account", source: "route" } },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "media fixture" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "media-route", accountId: "media-account", credentialId: "media-credential", credentialRevision: "media-r1" },
       },
     },

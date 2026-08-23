@@ -60,6 +60,9 @@ function makeGovernedContext(content: string) {
       requiredTokens: 1,
       tokenBudget: 1,
       overflow: false,
+      allocationMode: "whole-block",
+      positionProfile: "balanced",
+      requiredOverflowPolicy: "admit-and-report",
       blocks: [{
         id: block.id, kind: block.kind, modelFacingSemantics: block.modelFacingSemantics,
         source: block.source, contentHash: sha256ContentIdentity(block.content), required: block.required, estimatedTokens: 1, baseScore: 1,
@@ -108,7 +111,9 @@ function withModelRoundClaim(
   // provider-only fixtures predate that boundary, so pin a synthetic model in
   // the fixture object before creating the persisted admission.
   if (!deps.model) (deps as { model?: string }).model = "fixture-model";
-  const turnId = config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
+  const turnId = config?.authorityAdmission?.turnId
+    ?? config?.turnCorrelationId
+    ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
   const routeId = "runtime-session-test-route";
   const accountId = "runtime-session-test-account";
   const credentialRevision = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -125,7 +130,7 @@ function withModelRoundClaim(
     turn: {
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
-        sourcePolicy: "runtime-session-test", reason: "Runtime session fixture", completeness: "authoritative",
+        sourcePolicy: "runtime_surface_projection", reason: "Runtime session fixture", completeness: "authoritative",
         toolCount: 0, deniedToolCount: 0, sandboxProjection: "read_only",
       },
       workGovernance: { status: "not-required" },
@@ -139,10 +144,10 @@ function withModelRoundClaim(
       execution: {
         status: "routed",
         route: {
-          routeId, providerId: "mock", providerModelId: deps.model!,
+          routeId, providerId: "mock", providerModelId: deps.model ?? "fixture-model",
           accountSelection: { mode: "exact", accountId, source: "route" },
         },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "Runtime session fixture" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId, accountId, credentialId: "runtime-session-test-credential", credentialRevision },
       },
     },
@@ -243,7 +248,8 @@ describe("RuntimeSessionOrchestrator", () => {
     it("builds correct system prompt from session", async () => {
       const session = makeSession("You are a coding assistant.");
       await orchestrator.processMessage(session, textParts("help me"));
-      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0]?.[0];
+      if (!callArgs) throw new Error("Expected provider request for system-prompt assertion.");
       expect(callArgs.system).toContain("You are a coding assistant.");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
       expect(callArgs.system).toContain("provider: mock");
@@ -252,7 +258,8 @@ describe("RuntimeSessionOrchestrator", () => {
     it("appends governed context to system prompt", async () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("help"), makeGovernedContext("some governed context"));
-      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0]?.[0];
+      if (!callArgs) throw new Error("Expected provider request for governed-context assertion.");
       expect(callArgs.system).toContain("--- Governed Context Directives ---");
       expect(callArgs.system).toContain("some governed context");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
@@ -290,7 +297,8 @@ describe("RuntimeSessionOrchestrator", () => {
           localDate: "2026-07-18",
         },
       });
-      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0]?.[0];
+      if (!callArgs) throw new Error("Expected provider request for temporal-context assertion.");
       expect(callArgs.system).toContain("Base prompt.");
       expect(callArgs.system).toContain("--- Turn Temporal Context ---");
       expect(callArgs.system).toContain("Observed at (UTC): 2026-07-19T04:45:46.720Z");
@@ -307,9 +315,10 @@ describe("RuntimeSessionOrchestrator", () => {
         parts: textParts("Chivas perdió 0-2 hoy."),
         inputTokens: 100,
         outputTokens: 10,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        toolCalls: [],
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      toolCalls: [],
+      stopReason: "end_turn",
       });
       const result = await orchestrator.processMessage(
         makeSession(),
@@ -337,6 +346,7 @@ describe("RuntimeSessionOrchestrator", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         toolCalls: [],
+        stopReason: "end_turn",
       });
       const result = await orchestrator.processMessage(
         makeSession(),
@@ -370,7 +380,8 @@ describe("RuntimeSessionOrchestrator", () => {
     it("does not append governed context section when not provided", async () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("help"));
-      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0]?.[0];
+      if (!callArgs) throw new Error("Expected provider request for system-prompt assertion.");
       expect(callArgs.system).toContain("Base prompt.");
       expect(callArgs.system).not.toContain("--- Governed Context ---");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
@@ -464,7 +475,8 @@ describe("RuntimeSessionOrchestrator", () => {
     it("uses session systemPrompt as system parameter", async () => {
       const session = makeSession("custom system prompt");
       await orchestrator.processMessage(session, textParts("msg"));
-      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0]?.[0];
+      if (!callArgs) throw new Error("Expected provider request for system-prompt assertion.");
       expect(callArgs.system).toContain("custom system prompt");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });

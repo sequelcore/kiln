@@ -10,14 +10,16 @@ import {
   AgentTaskApplicationService,
   AgentTaskExecutionFailure,
   type AgentTaskApplicationOptions,
-  type AgentTaskEconomicProfile,
   type AgentTaskEconomicAdoption,
   type AgentTaskExecutionContext,
+  type AgentTaskExecutionFailureClassification,
+  type AgentTaskProfile,
   type AgentTaskRecord,
   type AgentTaskNativeHarnessProfile,
   type AgentTaskNativeHarnessRoute,
 } from "../../src/agent-tasks/index.js";
-import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import type { ManagedEconomicReplayEvidence } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import type { ManagedWriteApprovalReceipt } from "../../src/managed-write-approvals/sqlite-managed-write-approval-authority.js";
 import {
   adoptManagedEconomicSnapshot,
   digestManagedEconomicValue,
@@ -39,6 +41,7 @@ const query = {
   callerId: "codex-app:caller-001",
 } as const;
 const testProfileAuthorityDigest = `sha256:${"9".repeat(64)}`;
+type AgentTaskEconomicProfile = Extract<AgentTaskProfile, { readonly kind: "economic" }>;
 
 function testAdmissionBundle(): EffectiveAuthorityAdmissionBundle {
   return defineEffectiveAuthorityAdmissionBundle({
@@ -58,12 +61,12 @@ function testAdmissionBundle(): EffectiveAuthorityAdmissionBundle {
         executionMode: "execute",
         requestedAuthority: "read_only",
         admittedAuthority: "read_only",
-        sourcePolicy: "test",
+        sourcePolicy: "runtime_surface_projection",
         reason: "test",
         completeness: "authoritative",
         toolCount: 0,
         deniedToolCount: 0,
-        sandboxProjection: "workspace_read",
+        sandboxProjection: "read_only",
       },
       workGovernance: { status: "not-required" },
       operatorAdoption: { status: "not-required" },
@@ -91,6 +94,16 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, reject, resolve };
+}
+
+function executionFailure(
+  classification: AgentTaskExecutionFailureClassification,
+  diagnosticUri: string,
+  privateMessage: string,
+): AgentTaskExecutionFailure {
+  const failure = new AgentTaskExecutionFailure(classification, diagnosticUri);
+  failure.message = privateMessage;
+  return failure;
 }
 
 class PausingFilesystemAgentTaskStore extends FilesystemAgentTaskStore {
@@ -153,6 +166,7 @@ function profile(
   return {
     kind: "economic",
     id: "scout",
+    authorityProfileId: "authority:agent-task-readonly",
     economicPolicyId: "economy-policy",
     economicPolicyRevision: "revision-001",
     admissionProfileId: "foundation-readonly-plan",
@@ -322,6 +336,7 @@ const nativeHarnessAcknowledgement = {
 const nativeHarnessProfile: AgentTaskNativeHarnessProfile = {
   kind: "native-harness",
   id: "claude-reviewer",
+  authorityProfileId: "authority:agent-task-native-readonly",
   admissionProfileId: "foundation-readonly-plan",
   routeId: "claude-sonnet-readonly",
   routeRevision: "configured-v1",
@@ -464,7 +479,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
           admissionProfileId: "foundation-apply-approved-writes",
         }),
       }),
-      execution: { execute },
+      economicExecution: { execute },
     });
 
     const accepted = await service.accept(submission);
@@ -697,7 +712,11 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       readonly runtimeInvocationId: string;
       readonly completedAt: string;
       readonly resultHandoff: {
-        readonly provenance: { readonly delivery: "runtime-generated" };
+        readonly provenance: {
+          readonly delivery: "runtime-generated";
+          readonly configuredModelId: string;
+          readonly observedModelIds: readonly string[];
+        };
         readonly summary: string;
         readonly resourceUris: readonly string[];
         readonly memoryWriteProposalUris: readonly string[];
@@ -734,7 +753,11 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       runtimeInvocationId: "runtime-invocation-late",
       completedAt: now.toISOString(),
       resultHandoff: {
-        provenance: { delivery: "runtime-generated" },
+        provenance: {
+          delivery: "runtime-generated",
+          configuredModelId: nativeHarnessRoute.model,
+          observedModelIds: [nativeHarnessRoute.model],
+        },
         summary: "Late completion must not be published.",
         resourceUris: [],
         memoryWriteProposalUris: [],
@@ -991,7 +1014,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
       nativeHarnessExecution: {
         execute: async () => {
-          throw new AgentTaskExecutionFailure(
+          throw executionFailure(
             "harness_version_mismatch",
             "kiln://diagnostics/agent-tasks/harness-version-mismatch",
             "C:\\operator\\secret payload",
@@ -1002,11 +1025,6 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     });
 
     const job = await dispatchAccepted(service, { ...submission, configuredAgentProfileId: nativeHarnessProfile.id });
-    const expectedEvidence = {
-      version: 1,
-      classification: "harness_version_mismatch",
-      diagnosticUri: "kiln://diagnostics/agent-tasks/harness-version-mismatch",
-    };
     expect(job).toMatchObject({ state: "interrupted", diagnostic: "result_pending" });
     expect(job).not.toHaveProperty("failureEvidence");
     expect(JSON.stringify(job)).not.toContain("secret payload");
@@ -1017,7 +1035,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
 
   it("fails closed to sanitized unknown evidence for invalid diagnostic URIs and untyped errors", async () => {
     const execute = vi.fn()
-      .mockRejectedValueOnce(new AgentTaskExecutionFailure("native_session_error", "https://provider.invalid/private", "raw provider message"))
+      .mockRejectedValueOnce(executionFailure("native_session_error", "https://provider.invalid/private", "raw provider message"))
       .mockRejectedValueOnce(new Error("C:\\operator\\provider-secret"));
     const makeService = () => new AgentTaskApplicationService({
       ...createOptions(),
@@ -1170,6 +1188,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
         route: nativeHarnessRoute,
       }),
       admissionId: accepted.admissionId,
+      admissionBundle: accepted.admissionBundle,
       ownerGeneration: "agent-task-owner:test",
       effectIdentity: `agent-task:${nativeHarnessRoute.adapterCapabilityId}:external-launch`,
     };
@@ -1311,7 +1330,9 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
 
       const stagedEntries = await readdir(staging);
       expect(stagedEntries).toEqual([expect.stringMatching(/^owner-.+\.json$/u)]);
-      await expect(JSON.parse(await readFile(join(staging, stagedEntries[0]!)))).toMatchObject({
+      const [stagedOwner] = stagedEntries;
+      if (!stagedOwner) throw new Error("Expected one staged lock owner.");
+      await expect(JSON.parse(await readFile(join(staging, stagedOwner), "utf8"))).toMatchObject({
         version: 1,
         ownerToken: expect.any(String),
         leaseGeneration: expect.any(String),
@@ -1357,7 +1378,9 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       await expect(readdir(lock)).rejects.toMatchObject({ code: "ENOENT" });
       const stagedEntries = await readdir(staging);
       expect(stagedEntries).toEqual([expect.stringMatching(/^owner-.+\.json$/u)]);
-      await expect(JSON.parse(await readFile(join(staging, stagedEntries[0]!)))).toMatchObject({
+      const [stagedOwner] = stagedEntries;
+      if (!stagedOwner) throw new Error("Expected one staged lock owner.");
+      await expect(JSON.parse(await readFile(join(staging, stagedOwner), "utf8"))).toMatchObject({
         version: 1,
         ownerToken: expect.any(String),
         leaseGeneration: expect.any(String),
@@ -1475,7 +1498,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
 
   it("enforces paid-spend approval and consumes the write receipt in one pre-fence callback", async () => {
     const approvalOrder: string[] = [];
-    let receipt: import("../../src/managed-write-approvals/sqlite-managed-write-approval-authority.js").ManagedWriteApprovalReceipt | undefined;
+    let receipt: ManagedWriteApprovalReceipt | undefined;
     const consume = vi.fn(() => {
       if (!receipt) throw new Error("missing approval receipt");
       approvalOrder.push("write");
@@ -1532,7 +1555,8 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
     if (accepted.dispatch.kind !== "economic") throw new Error("Expected an economic task.");
     const candidate = accepted.dispatch.candidateSet.candidates[0];
     if (!candidate) throw new Error("Expected one economic candidate.");
-    receipt = {
+    if (!candidate.model) throw new Error("Expected the admitted economic candidate model.");
+    const approvalReceipt = {
       approvalId: "managed-write-approval:combined-001",
       state: "issued",
       binding: {
@@ -1554,8 +1578,9 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       issuedAt: now.toISOString(),
       expiresAt: "2099-08-10T00:00:00.000Z",
       approverId: "operator",
-    };
-    await service.attachWriteApproval(query, accepted.id, receipt.approvalId);
+    } satisfies ManagedWriteApprovalReceipt;
+    receipt = approvalReceipt;
+    await service.attachWriteApproval(query, accepted.id, approvalReceipt.approvalId);
 
     await service.dispatch(accepted.id);
 
@@ -2095,7 +2120,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
   });
 
   it("joins replay evidence by the persisted job and economic attempt without changing lifecycle", async () => {
-    const inspect = vi.fn(() => ({
+    const inspect = vi.fn((): ManagedEconomicReplayEvidence => ({
       evidenceVersion: 1 as const,
       status: "denied" as const,
       policyId: "economy-policy",
@@ -2161,6 +2186,7 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
         }),
         releasePreFence: vi.fn(),
         fenceDispatch,
+        readDispatch: () => undefined,
         settleExecution,
         recordExecutionSettlementPending: vi.fn(),
       },
@@ -2482,6 +2508,8 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
           throw new Error("C:\\operator\\secret-provider-payload");
         },
         get: async () => undefined,
+        attachWriteApproval: async () => { throw new Error("unused"); },
+        recordWriteApproval: async () => { throw new Error("unused"); },
         transition: async () => {
           throw new Error("unused");
         },

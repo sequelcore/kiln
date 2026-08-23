@@ -13,7 +13,6 @@ import {
   type EffectiveAuthorityAdmissionBundleInput,
 } from "../../src/session/effective-authority-admission-bundle.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.types.js";
-import { projectEffectiveTurnAuthorityPerCallConfig } from "../../src/session/effective-turn-authority.js";
 import type { ActionEffectEnvelope, AuthorityDescriptor, Capability } from "@kilnai/core/engine";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 

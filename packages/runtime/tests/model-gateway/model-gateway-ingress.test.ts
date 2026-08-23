@@ -6,6 +6,7 @@ import {
   createModelGatewayExecutionRoutingPort,
   createModelGatewayIngress,
   type ModelGatewayExecutionCandidatePort,
+  type ModelGatewayIngressOptions,
 } from "../../src/model-gateway/model-gateway-ingress.js";
 
 const evidence = {
@@ -97,6 +98,18 @@ function authority(): SqliteManagedAccountLeaseAuthority {
 const env = { REPLAY_SECRET: "r".repeat(32), TOKEN: "t".repeat(32) };
 const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: vi.fn(async () => []) };
 const noDispatcher = { resolve: vi.fn(async () => { throw new Error("No dispatcher is available in this fixture."); }) };
+const admissionPorts = {
+  budgetAdmission: {
+    admit: async () => ({
+      status: "admitted",
+      reason: "observed-below-limit",
+      observation: { observedTokens: 0, source: "fixture" },
+    }),
+  },
+  authorityAdmission: {
+    compose: async () => { throw new Error("Authority composition is outside this routing fixture."); },
+  },
+} satisfies Pick<ModelGatewayIngressOptions, "budgetAdmission" | "authorityAdmission">;
 
 describe("createModelGatewayIngress", () => {
   const authorities: SqliteManagedAccountLeaseAuthority[] = [];
@@ -116,6 +129,7 @@ describe("createModelGatewayIngress", () => {
       executionCandidates: noCandidates,
       executionDispatcher: noDispatcher,
       accountCapacityAuthority: sharedAuthority,
+      ...admissionPorts,
       databasePath: ":memory:",
       env,
     })).rejects.toThrow(/unknown target/);
@@ -132,6 +146,7 @@ describe("createModelGatewayIngress", () => {
       executionCandidates: candidates,
       executionDispatcher: noDispatcher,
       accountCapacityAuthority: sharedAuthority,
+      ...admissionPorts,
       databasePath: ":memory:",
       env,
     });
@@ -145,7 +160,7 @@ describe("createModelGatewayIngress", () => {
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         route: response!.route,
         authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
-        budget: { status: "admitted", evidenceId: "budget" },
+        budget: { status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 0, source: "fixture" } },
       });
       expect(listed.admission.routeId).toBe("route");
       expect(candidates.resolve).toHaveBeenCalledWith(expect.objectContaining({
@@ -165,7 +180,7 @@ describe("createModelGatewayIngress", () => {
     const handle = await createModelGatewayIngress({
       config: config("route-other"), executionCatalog: duplicate,
       executionRouting: createModelGatewayExecutionRoutingPort(duplicate), executionCandidates: candidates,
-      executionDispatcher: noDispatcher, accountCapacityAuthority: sharedAuthority, databasePath: ":memory:", env,
+      executionDispatcher: noDispatcher, accountCapacityAuthority: sharedAuthority, ...admissionPorts, databasePath: ":memory:", env,
     });
     try {
       const resolved = await handle.openAIResponses!.resolveVirtualModel({
@@ -175,12 +190,12 @@ describe("createModelGatewayIngress", () => {
       await expect(handle.openAIResponses!.invocationPorts.candidateCatalog.list({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         route: resolved!.route, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
-        budget: { status: "admitted", evidenceId: "budget" },
+        budget: { status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 0, source: "fixture" } },
       })).resolves.toMatchObject({ admission: { routeId: "route-other" } });
       await expect(handle.openAIResponses!.invocationPorts.candidateCatalog.list({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "drift" },
         route: { ...resolved!.route, routeId: "route" }, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
-        budget: { status: "admitted", evidenceId: "budget" },
+        budget: { status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 0, source: "fixture" } },
       })).rejects.toThrow(/unavailable/u);
     } finally { handle.close(); }
   });

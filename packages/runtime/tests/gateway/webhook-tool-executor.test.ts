@@ -3,6 +3,7 @@ import { WebhookToolExecutor } from "../../src/gateway/webhook-tool-executor.js"
 import type { WebhookToolConfig } from "../../src/gateway/webhook-tool-executor.js";
 import { verifyHmacSha256 } from "../../src/utils/hmac.js";
 import { KilnError } from "@kilnai/core/engine";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const SECRET = "test-webhook-secret";
 
@@ -26,11 +27,11 @@ const configs: WebhookToolConfig[] = [
 
 describe("WebhookToolExecutor", () => {
   let executor: WebhookToolExecutor;
-  let mockFetch: ReturnType<typeof vi.fn>;
+  const mockFetch = createTestFetch(vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response()));
 
   beforeEach(() => {
     executor = new WebhookToolExecutor(configs);
-    mockFetch = vi.fn();
+    mockFetch.mockReset();
     globalThis.fetch = mockFetch;
   });
 
@@ -56,16 +57,20 @@ describe("WebhookToolExecutor", () => {
       await executor.execute("create_ticket", { title: "Bug report" });
 
       expect(mockFetch).toHaveBeenCalledOnce();
-      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const call = mockFetch.mock.calls.at(0);
+      if (!call) throw new Error("Expected webhook request");
+      const url = call[0];
+      const init = call[1];
+      if (!init) throw new Error("Expected webhook request options");
       expect(url).toBe("https://api.example.com/tickets");
       expect(init.method).toBe("POST");
       expect(init.headers).toMatchObject({
         "Content-Type": "application/json",
       });
 
-      const headers = init.headers as Record<string, string>;
-      expect(headers["X-Kiln-Signature"]).toMatch(/^sha256=[0-9a-f]{64}$/);
-      expect(headers["X-Kiln-Timestamp"]).toBeDefined();
+      const headers = new Headers(init.headers);
+      expect(headers.get("X-Kiln-Signature")).toMatch(/^sha256=[0-9a-f]{64}$/);
+      expect(headers.get("X-Kiln-Timestamp")).toBeDefined();
     });
 
     it("sends a valid HMAC-SHA256 signature", async () => {
@@ -73,10 +78,14 @@ describe("WebhookToolExecutor", () => {
 
       await executor.execute("create_ticket", { title: "Test" });
 
-      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      const headers = init.headers as Record<string, string>;
-      const body = init.body as string;
-      const signature = headers["X-Kiln-Signature"].replace("sha256=", "");
+      const call = mockFetch.mock.calls.at(0);
+      if (!call?.[1]) throw new Error("Expected signed webhook request");
+      const init = call[1];
+      const headers = new Headers(init.headers);
+      if (typeof init.body !== "string") throw new Error("Expected signed webhook body");
+      const body = init.body;
+      const signature = headers.get("X-Kiln-Signature")?.replace("sha256=", "");
+      if (!signature) throw new Error("Expected webhook signature");
 
       expect(verifyHmacSha256(SECRET, body, signature)).toBe(true);
     });

@@ -15,11 +15,11 @@ function makeBundle() {
     turnId: "turn-1",
     admittedAt: "2026-08-22T18:00:00.000Z",
     configuration: {
-      sessionRevision: { revisionSetId: "R1", revisions: { skills: "s1" } },
-      turnRevision: { revisionSetId: "R2", revisions: { routes: "r2" } },
+      sessionRevision: { revisionSetId: "R1", revisions: { skills: "sha256:s1" } },
+      turnRevision: { revisionSetId: "R2", revisions: { routes: "sha256:r2" } },
     },
     session: {
-      skillCatalog: { catalogId: "operator", revision: "skills-r1", skillIds: ["research"] },
+      skillCatalog: { catalogId: "operator", revision: "sha256:skills-r1", skillIds: ["research"] },
       authorityCeiling: { maximumAuthority: "audited", reason: "operator policy", subjectId: "session-1" },
     },
     turn: {
@@ -44,7 +44,7 @@ describe("AuthorityAdmissionEvidenceStore", () => {
     expect(assertPersistableAuthorityAdmissionBundle(bundle)).toEqual(bundle);
     expect(() => assertPersistableAuthorityAdmissionBundle({
       ...bundle,
-      admissionId: "sha256:" + "0".repeat(64),
+       admissionId: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     })).toThrow(/digest|admission|bundle/iu);
   });
 

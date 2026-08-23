@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createExecutionAccountRef } from "@kilnai/core/agents";
+import { createExecutionAccountPolicyId, createExecutionAccountRef } from "@kilnai/core/agents";
 import {
   adoptManagedEconomicSnapshot,
   digestManagedEconomicValue,
@@ -15,9 +15,11 @@ import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
 } from "../../src/session/effective-authority-admission-bundle.js";
+import type { ManagedEconomicRouteCapacity } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
 const roots: string[] = [];
 const authorities: SqliteManagedAccountLeaseAuthority[] = [];
+const MANAGED_POLICY_ID = createExecutionAccountPolicyId("managed-policy");
 
 afterEach(() => {
   for (const authority of authorities.splice(0)) authority.close();
@@ -133,8 +135,8 @@ function admissionBundle(): EffectiveAuthorityAdmissionBundle {
     turn: {
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
-        sourcePolicy: "test", reason: "test", completeness: "authoritative", toolCount: 0,
-        deniedToolCount: 0, sandboxProjection: "workspace_read",
+        sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative", toolCount: 0,
+        deniedToolCount: 0, sandboxProjection: "read_only",
       },
       workGovernance: { status: "not-required" },
       operatorAdoption: { status: "not-required" },
@@ -172,9 +174,9 @@ function accountSnapshot(): ManagedEconomicAdoptedSnapshot {
     routes: [{
       ...adopted,
       admittedIdentity: { ...adopted.admittedIdentity, accountPolicy: {
-        kind: "account-bound", accountPolicyId: "managed-policy",
+        kind: "account-bound", accountPolicyId: MANAGED_POLICY_ID,
       } },
-      route: { ...adopted.route, accountPolicyId: "managed-policy" },
+      route: { ...adopted.route, accountPolicyId: MANAGED_POLICY_ID },
     }],
   });
 }
@@ -360,11 +362,11 @@ describe("managed economic commitment authority", () => {
     const adopted = accountSnapshot(); const { route, candidate } = accountCapacity(adopted);
     const economic = create();
     expect(economic.acquireCommitment({ ...input(adopted), routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }] })).toMatchObject({ status: "committed" });
-    expect(economic.acquireAccountCapacity({ runtimeInvocationId: "gateway-after-economic", intentFingerprint: `sha256:${"a".repeat(64)}`, accountPolicyId: "managed-policy", route, candidates: [candidate] }))
+    expect(economic.acquireAccountCapacity({ runtimeInvocationId: "gateway-after-economic", intentFingerprint: `sha256:${"a".repeat(64)}`, accountPolicyId: MANAGED_POLICY_ID, route, candidates: [candidate] }))
       .toMatchObject({ status: "unavailable" });
 
     const gateway = create();
-    expect(gateway.acquireAccountCapacity({ runtimeInvocationId: "gateway-before-economic", intentFingerprint: `sha256:${"b".repeat(64)}`, accountPolicyId: "managed-policy", route, candidates: [candidate] }))
+    expect(gateway.acquireAccountCapacity({ runtimeInvocationId: "gateway-before-economic", intentFingerprint: `sha256:${"b".repeat(64)}`, accountPolicyId: MANAGED_POLICY_ID, route, candidates: [candidate] }))
       .toMatchObject({ status: "acquired" });
     expect(gateway.acquireCommitment({ ...input(adopted), routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }] }))
       .toMatchObject({ status: "denied" });
@@ -684,7 +686,7 @@ describe("managed economic commitment authority", () => {
     const authority = createAt(path, "owner-a", () => 1_000);
     expect(authority.acquireAccountCapacity({
       runtimeInvocationId: "account-only", intentFingerprint: `sha256:${"c".repeat(64)}`,
-      accountPolicyId: "managed-policy", route, candidates: [candidate],
+      accountPolicyId: MANAGED_POLICY_ID, route, candidates: [candidate],
     })).toMatchObject({ status: "acquired" });
 
     expect(authority.recoverCommitments()).toEqual([]);
@@ -852,13 +854,13 @@ describe("managed economic commitment authority", () => {
   it("consumes only completed immutable adoption data and cannot invoke external callbacks", async () => {
     let authorityStarted = false;
     const calls: string[] = [];
-    const external = (name: string, value: unknown) => async () => {
+    const external = <T>(name: string, value: T) => async (): Promise<T> => {
       if (authorityStarted) throw new Error(`${name} callback crossed the transaction boundary`);
       calls.push(name);
       return value;
     };
     const resolveSnapshot = external("snapshot", snapshot());
-    const resolveCandidates = external("candidates", [{ routeId: "route-direct" }] as const);
+    const resolveCandidates = external<readonly ManagedEconomicRouteCapacity[]>("candidates", [{ routeId: "route-direct" }]);
     const resolveProvider = external("provider", Object.freeze({ ready: true }));
     const readConfig = external("config", Object.freeze({ revision: "one" }));
     const readFilesystem = external("filesystem", Object.freeze({ available: true }));

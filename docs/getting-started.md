@@ -12,7 +12,7 @@ current project name and `@kilnai/*` package coordinates are provisional.
 You need:
 
 - Git;
-- Bun 1.3.14, matching `packageManager` in the root `package.json` and CI, for
+- Bun 1.4.0, matching `packageManager` in the root `package.json` and CI, for
   repository commands and short-lived CLI execution; and
 - a shell on Windows, macOS, or Linux.
 

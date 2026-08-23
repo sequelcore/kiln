@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { type TenantConfig, textParts } from "@kilnai/core/engine";
+import { EventBus, type HandoffCompletedEvent, type HandoffRequestedEvent } from "@kilnai/core/events";
 import { resolveAgentContextAsync } from "../../src/tenant/agent-resolver.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -34,7 +35,7 @@ function makeSession(activeAgentId?: string): RuntimeSession {
   return session;
 }
 
-const mockEventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() };
+const mockEventBus = new EventBus(100);
 
 describe("resolveAgentContextAsync", () => {
   it("no agent change -- does not create a handoff brief", async () => {
@@ -168,7 +169,7 @@ describe("resolveAgentContextAsync", () => {
   it("handoff_requested event emitted on agent change", async () => {
     const tenant = makeTenant();
     const session = makeSession("agent-a");
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() };
+    const eventBus = new EventBus(100);
     await resolveAgentContextAsync(
       tenant,
       textParts("hello there"),
@@ -176,11 +177,10 @@ describe("resolveAgentContextAsync", () => {
       { eventBus },
     );
 
-    const requestedCall = eventBus.emit.mock.calls.find(
-      (c: unknown[]) => (c[0] as { type: string }).type === "handoff_requested",
+    const event = eventBus.history().find(
+      (candidate): candidate is HandoffRequestedEvent => candidate.type === "handoff_requested",
     );
-    expect(requestedCall).toBeDefined();
-    const event = requestedCall![0] as { type: string; fromAgent: string; toAgent: string; sessionId: string };
+    if (event?.type !== "handoff_requested") throw new Error("Expected handoff_requested event.");
     expect(event.fromAgent).toBe("Agent A");
     expect(event.toAgent).toBe("Agent B");
     expect(event.sessionId).toBe(session.id);
@@ -189,7 +189,7 @@ describe("resolveAgentContextAsync", () => {
   it("handoff_completed event emitted on agent change", async () => {
     const tenant = makeTenant();
     const session = makeSession("agent-a");
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() };
+    const eventBus = new EventBus(100);
     await resolveAgentContextAsync(
       tenant,
       textParts("hello there"),
@@ -197,11 +197,10 @@ describe("resolveAgentContextAsync", () => {
       { eventBus },
     );
 
-    const completedCall = eventBus.emit.mock.calls.find(
-      (c: unknown[]) => (c[0] as { type: string }).type === "handoff_completed",
+    const event = eventBus.history().find(
+      (candidate): candidate is HandoffCompletedEvent => candidate.type === "handoff_completed",
     );
-    expect(completedCall).toBeDefined();
-    const event = completedCall![0] as { type: string; fromAgent: string; toAgent: string; accepted: boolean; sessionId: string };
+    if (event?.type !== "handoff_completed") throw new Error("Expected handoff_completed event.");
     expect(event.fromAgent).toBe("Agent A");
     expect(event.toAgent).toBe("Agent B");
     expect(event.accepted).toBe(true);

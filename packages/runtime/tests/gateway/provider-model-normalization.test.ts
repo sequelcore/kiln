@@ -46,17 +46,19 @@ describe("normalizeProviderCatalogObservation", () => {
       metadata: { tier: "standard" },
     });
     expect(normalized.routes).toHaveLength(2);
+    const firstRoute = normalized.routes.at(0);
+    if (!firstRoute) throw new Error("Expected normalized provider route");
     expect(normalized.routes.map((route) => route.identity.route)).toEqual([
       { providerId: "provider-a", providerModelId: "family-x-route-a", scope: "interactive" },
       { providerId: "provider-a", providerModelId: "family-x-route-b", scope: "managed-agent" },
     ]);
-    expect(normalized.routes[0].identity.normalizedModel).toEqual({ family: "family-x" });
-    expect(normalized.routes[0].aliases).toEqual([
+    expect(firstRoute.identity.normalizedModel).toEqual({ family: "family-x" });
+    expect(firstRoute.aliases).toEqual([
       expect.objectContaining({ alias: "family-x", rawId: "family-x/latest", provenance: "provider-a-catalog" }),
       expect.objectContaining({ alias: "family-x/latest", rawId: "family-x/latest", provenance: "provider-a-catalog" }),
       expect.objectContaining({ alias: "family-x", rawId: "family-x-stable", provenance: "provider-a-catalog" }),
     ]);
-    expect(normalized.routes[0].states).toMatchObject({
+    expect(firstRoute.states).toMatchObject({
       discovered: "confirmed",
       configured: "unknown",
       authenticated: "unknown",
@@ -173,7 +175,9 @@ describe("normalizeProviderCatalogObservation", () => {
         },
       }),
     ]);
-    expect(normalized.routes[0].states).toMatchObject({
+    const openRouterRoute = normalized.routes.at(0);
+    if (!openRouterRoute) throw new Error("Expected OpenRouter route");
+    expect(openRouterRoute.states).toMatchObject({
       discovered: "confirmed",
       authenticated: "confirmed",
       entitled: "unknown",
@@ -197,7 +201,9 @@ describe("normalizeProviderCatalogObservation", () => {
       },
     });
 
-    expect(normalized.routes[0].states).toMatchObject({
+    const openCodeRoute = normalized.routes.at(0);
+    if (!openCodeRoute) throw new Error("Expected OpenCode route");
+    expect(openCodeRoute.states).toMatchObject({
       discovered: "confirmed",
       authenticated: "confirmed",
       entitled: "confirmed",
@@ -205,7 +211,7 @@ describe("normalizeProviderCatalogObservation", () => {
       routeHealthy: "confirmed",
       selectable: "confirmed",
     });
-    expect(normalized.routes[0].observations).toEqual(expect.arrayContaining([
+    expect(openCodeRoute.observations).toEqual(expect.arrayContaining([
       expect.objectContaining({ state: "entitled", authority: "provider-authoritative" }),
       expect.objectContaining({ state: "policyAdmitted", authority: "runtime-observed" }),
       expect.objectContaining({ state: "routeHealthy", authority: "runtime-observed" }),
@@ -233,7 +239,9 @@ describe("normalizeProviderCatalogObservation", () => {
       catalogEvidenceCurrent: false,
     });
     expect(normalized.rawEntries).toHaveLength(397);
-    expect(normalized.routes[0].identity).toMatchObject({
+    const staleRoute = normalized.routes.at(0);
+    if (!staleRoute) throw new Error("Expected stale OpenCode route");
+    expect(staleRoute.identity).toMatchObject({
       harness: {
         harnessId: "opencode",
         reportedProviderId: "opencode-go",

@@ -4,6 +4,7 @@ import { textParts } from "@kilnai/core/engine";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { ManagedCliHarnessAdapter } from "../../src/agents/managed-invocation/cli-harness-adapter.js";
 import type { CliSessionFactory } from "../../src/execution/cli-session-contract.js";
+import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
 const WRITE_AUTHORITY = {
   proposalSupported: true,
@@ -37,6 +38,9 @@ describe("managed agent adapter parity", () => {
       tools: [],
       builtinTools: new Map(),
       writeAuthority: WRITE_AUTHORITY,
+      runtimeToolActionClaims: createFixtureToolActionStore(),
+      readAuthorityAdmission: () => undefined,
+      runtimeModelRoundActionClaims: createFixtureModelRoundStore(),
     });
     const harness = new ManagedCliHarnessAdapter({
       providerId: "opencode",

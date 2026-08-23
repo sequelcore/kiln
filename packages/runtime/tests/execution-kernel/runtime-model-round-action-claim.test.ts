@@ -75,7 +75,9 @@ function memoryStore() {
           state.consumed = true;
           events.push("consume");
         }),
-      } as RuntimeModelRoundActionClaimPermit;
+      // The production brand is intentionally private; the in-memory store
+      // enforces the same one-use object-identity contract.
+      } as unknown as RuntimeModelRoundActionClaimPermit;
       claims.set(claim.claimId, claim);
       permits.set(permit.permitId, { permit, consumed: false });
       events.push("claim");

@@ -36,7 +36,9 @@ describe("messenger-api", () => {
       const result = await sendMessengerMessage("token-1", "psid-1", "Hello");
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, opts] = fetchMock.mock.calls[0];
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Messenger request");
+      const [url, opts] = call;
       expect(url).toContain("/me/messages");
       expect(opts.method).toBe("POST");
       expect(opts.headers.Authorization).toBe("Bearer token-1");
@@ -87,7 +89,11 @@ describe("messenger-api", () => {
         "image",
       );
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Messenger request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Messenger request options");
+      const body = JSON.parse(opts.body);
       expect(body.messaging_type).toBe("RESPONSE");
       expect(body.recipient.id).toBe("psid-2");
       expect(body.message.attachment.type).toBe("image");
@@ -108,7 +114,11 @@ describe("messenger-api", () => {
         "audio",
       );
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Messenger request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Messenger request options");
+      const body = JSON.parse(opts.body);
       expect(body.messaging_type).toBe("RESPONSE");
       expect(body.recipient.id).toBe("psid-2");
       expect(body.message.attachment.type).toBe("audio");

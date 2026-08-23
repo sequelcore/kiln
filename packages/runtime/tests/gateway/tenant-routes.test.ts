@@ -10,8 +10,12 @@ import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-or
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const originalFetch = globalThis.fetch;
+const mockFetch = createTestFetch(vi.fn(async () => new Response(JSON.stringify({ allowed: true, remaining: 50000, unit: "tokens" }), {
+  headers: { "content-type": "application/json" },
+})));
 
 function makeMockProvider(): ProviderAdapter {
   return {
@@ -67,10 +71,11 @@ function makeBillingConfig() {
 
 describe("createTenantRoutes", () => {
   beforeEach(() => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ allowed: true, remaining: 50000, unit: "tokens" }),
-    });
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async () => new Response(JSON.stringify({ allowed: true, remaining: 50000, unit: "tokens" }), {
+      headers: { "content-type": "application/json" },
+    }));
+    globalThis.fetch = mockFetch;
   });
 
   afterEach(() => {
@@ -232,10 +237,9 @@ describe("createTenantRoutes", () => {
     });
 
     it("returns budgetExhausted when budget exhausted", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ allowed: false, remaining: 0, unit: "tokens", reason: "Monthly token quota exhausted" }),
-      });
+      mockFetch.mockResolvedValue(new Response(JSON.stringify({ allowed: false, remaining: 0, unit: "tokens", reason: "Monthly token quota exhausted" }), {
+        headers: { "content-type": "application/json" },
+      }));
 
       const runtime = makeRuntime({ billing: makeBillingConfig() });
       runtime.tenantRegistry.create(makeTenantConfig());

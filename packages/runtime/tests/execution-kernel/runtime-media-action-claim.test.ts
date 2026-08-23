@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
 } from "../../src/session/effective-authority-admission-bundle.js";
 import {
   dispatchRuntimeMediaAction,
+  prepareRuntimeMediaActionClaim,
   RuntimeMediaActionClaimedError,
   RuntimeMediaActionPreDispatchCancellationError,
   type RuntimeMediaActionClaim,
@@ -17,9 +18,10 @@ import {
 
 function bundle(): EffectiveAuthorityAdmissionBundle {
   const revision = { revisionSetId: "runtime-media-test", revisions: { execution: "runtime-media-test" } } as const;
+  const turnId = canonicalTurnId("session-1", 1);
   return defineEffectiveAuthorityAdmissionBundle({
     sessionId: "session-1",
-    turnId: "turn-1",
+    turnId,
     admittedAt: "2026-08-22T18:00:00.000Z",
     configuration: { sessionRevision: revision, turnRevision: revision },
     session: {
@@ -35,7 +37,7 @@ function bundle(): EffectiveAuthorityAdmissionBundle {
       workGovernance: { status: "not-required" },
       operatorAdoption: {
         status: "admitted",
-        decision: createOperatorAdoptionDecisionAuthority({ ownerSessionId: "session-1", operatorTurnId: "turn-1", actorId: "caller-1" }),
+        decision: createOperatorAdoptionDecisionAuthority({ ownerSessionId: "session-1", operatorTurnId: turnId, actorId: "caller-1" }),
       },
       tools: { allowedToolPermissions: [], deniedToolNames: [] },
       effectCeiling: {
@@ -46,7 +48,7 @@ function bundle(): EffectiveAuthorityAdmissionBundle {
       execution: {
         status: "routed",
         route: { routeId: "route-1", providerId: "provider-1", providerModelId: "model-1", accountSelection: { mode: "exact", accountId: "account-1", source: "route" } },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "media test" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "route-1", accountId: "account-1", credentialId: "credential-1", credentialRevision: "credential-r1" },
       },
     },
@@ -76,7 +78,9 @@ function storeRecorder(): RuntimeMediaActionClaimStore & {
           state.consumed = true;
           consumed.push(input.claimId);
         }),
-      } as RuntimeMediaActionClaimPermit;
+      // The brand is intentionally process-private; this store validates the
+      // permit by object identity before settlement.
+      } as unknown as RuntimeMediaActionClaimPermit;
       states.set(permit, state);
       return permit;
     },
@@ -134,6 +138,44 @@ describe("runtime media action claim", () => {
     expect(store.claims).toHaveLength(0);
   });
 
+  it("honors cancellation raised during admission readback before claiming", async () => {
+    const admitted = bundle();
+    const store = storeRecorder();
+    const abort = new AbortController();
+    const call = vi.fn(async () => "unreachable");
+    const claimContext: RuntimeMediaActionClaimContext = {
+      ...context(admitted, store),
+      readAdmission: vi.fn(async () => {
+        abort.abort();
+        return admitted;
+      }),
+    };
+
+    await expect(dispatchRuntimeMediaAction({
+      context: claimContext, authorityAdmission: admitted, ...action, abortSignal: abort.signal, call,
+    })).rejects.toBeInstanceOf(RuntimeMediaActionPreDispatchCancellationError);
+    expect(store.claims).toHaveLength(0);
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("keeps claim identity stable across object key order and changes it with payload semantics", async () => {
+    const admitted = bundle();
+    const now = () => "2026-08-22T18:00:01.000Z";
+    const prepare = (payload: unknown) => prepareRuntimeMediaActionClaim({
+      context: context(admitted, storeRecorder()), authorityAdmission: admitted, ...action, payload, now,
+    });
+
+    const ordered = await prepare({ sourceArtifactUri: "artifact:audio-1", mimeType: "audio/ogg", byteLength: 42 });
+    const reordered = await prepare({ byteLength: 42, mimeType: "audio/ogg", sourceArtifactUri: "artifact:audio-1" });
+    const changed = await prepare({ sourceArtifactUri: "artifact:audio-1", mimeType: "audio/ogg", byteLength: 43 });
+
+    expect(reordered.claim.claimId).toBe(ordered.claim.claimId);
+    expect(reordered.claim.payloadFingerprint).toBe(ordered.claim.payloadFingerprint);
+    expect(changed.claim.payloadFingerprint).not.toBe(ordered.claim.payloadFingerprint);
+    expect(changed.claim.effectIdentity).not.toBe(ordered.claim.effectIdentity);
+    expect(changed.claim.claimId).not.toBe(ordered.claim.claimId);
+  });
+
   it("consumes immediately before exactly one call and settles success", async () => {
     const admitted = bundle();
     const store = storeRecorder();
@@ -161,13 +203,20 @@ describe("runtime media action claim", () => {
   it("settles unknown after provider loss and never retries", async () => {
     const admitted = bundle();
     const store = storeRecorder();
-    const call = vi.fn().mockRejectedValue(new Error("response lost"));
+    const providerLoss = new Error("response lost");
+    const call = vi.fn().mockRejectedValue(providerLoss);
 
     await expect(dispatchRuntimeMediaAction({
       context: context(admitted, store), authorityAdmission: admitted, ...action, call,
-    })).rejects.toBeInstanceOf(RuntimeMediaActionClaimedError);
+    })).rejects.toMatchObject({
+      name: "RuntimeMediaActionClaimedError",
+      retryable: false,
+      outcome: "unknown",
+      cause: providerLoss,
+    });
     expect(call).toHaveBeenCalledOnce();
-    expect(store.settlements[0]!.settlement).toMatchObject({ kind: "unknown", reason: "response lost" });
+    expect(store.settlements).toHaveLength(1);
+    expect(store.settlements[0]!.settlement).toEqual({ kind: "unknown", reason: "response lost" });
   });
 
   it("settles unknown when cancellation aborts an in-flight claimed effect", async () => {
@@ -218,29 +267,4 @@ describe("runtime media action claim", () => {
     expect(store.claims).toHaveLength(0);
   });
 
-  it("does not accept a copied or unconsumed permit at settlement", () => {
-    const admitted = bundle();
-    const store = storeRecorder();
-    const claim = {
-      claimId: "sha256:" + "0".repeat(64),
-      admissionId: admitted.admissionId,
-      sessionId: admitted.sessionId,
-      turnId: admitted.turnId,
-      attemptId: "attempt-1",
-      ownerGeneration: "process-1",
-      callerId: "caller",
-      idempotencyKey: "idempotency",
-      actionKind: "tts-synthesize" as const,
-      sourceIdentity: "text:turn-1",
-      adapterIdentity: "tts:test",
-      logicalSendSlot: "tts:0",
-      intentFingerprint: "sha256:" + "1".repeat(64),
-      payloadFingerprint: "sha256:" + "2".repeat(64),
-      effectIdentity: "sha256:" + "3".repeat(64),
-      status: "claimed" as const,
-    };
-    const permit = store.claim(claim);
-    expect(() => store.settle({ ...permit }, { kind: "unknown", reason: "forged" })).toThrow(/unknown|unconsumed/iu);
-    expect(() => store.settle(permit, { kind: "unknown", reason: "unconsumed" })).toThrow(/unknown|unconsumed/iu);
-  });
 });

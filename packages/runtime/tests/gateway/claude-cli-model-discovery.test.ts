@@ -92,6 +92,7 @@ describe("discoverClaudeCliModelDiscovery", () => {
       value: "haiku",
       resolvedModel: "claude-haiku-4-5",
       supportsEffort: false,
+      supportedEffortLevels: [],
       supportsAdaptiveThinking: false,
     }]);
 

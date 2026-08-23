@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createWsTenantRoutes } from "../../src/gateway/ws-tenant-routes.js";
 import type { WsTenantRoutesConfig } from "../../src/gateway/ws-tenant-routes.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
-import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
@@ -12,7 +11,11 @@ import { type Capability, type SttAdapter, type TenantConfig, textParts } from "
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
-import type { GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
+import type {
+  GatewayAuthorityAdmissionCommit,
+  GatewayAuthorityAdmissionPort,
+  GatewayAuthorityAdmissionRequest,
+} from "../../src/gateway/gateway-authority-admission.js";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -59,7 +62,7 @@ const providerRequestEvidence = {
   stablePrefixRegionCount: 1,
   volatileRegionBytes: 2,
   cacheRegions: [],
-  cachePartition: { dimensions: [] },
+  cachePartition: { hash: hash("9"), dimensions: [] },
   toolCount: 0,
   effectivePrompt: {
     version: "v1" as const,
@@ -104,13 +107,23 @@ function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
  * Simulates the upgradeWebSocket middleware -- captures the factory for direct invocation.
  */
 function makeUpgradeWebSocket() {
-  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  type MockWebSocket = {
+    readonly send: ReturnType<typeof vi.fn>;
+    readyState: number;
+    readonly close: ReturnType<typeof vi.fn>;
+  };
+  type Handlers = {
+    readonly onOpen?: (event: Event, ws: MockWebSocket) => void | Promise<void>;
+    readonly onMessage?: (event: MessageEvent, ws: MockWebSocket) => void | Promise<void>;
+    readonly onClose?: (event: CloseEvent, ws: MockWebSocket) => void | Promise<void>;
+  };
+  type HandlerFactory = (context: unknown) => Handlers;
   let capturedFactory: HandlerFactory | null = null;
 
-  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
-    capturedFactory = factory;
-    return async (_c, next) => next();
-  };
+  const upgradeWebSocket = ((factory: unknown) => {
+    capturedFactory = factory as HandlerFactory;
+    return async (_c: unknown, next: () => Promise<void>) => next();
+  }) as UpgradeWebSocket;
 
   function simulateConnection(queryParams: Record<string, string> = {}) {
     if (!capturedFactory) throw new Error("upgradeWebSocket not called yet");
@@ -124,11 +137,11 @@ function makeUpgradeWebSocket() {
       req: {
         query: (key: string) => url.searchParams.get(key) ?? undefined,
       },
-    } as Parameters<HandlerFactory>[0];
+    };
 
     const handlers = capturedFactory(ctx);
-    const mockWs: WebSocketLike & { close: ReturnType<typeof vi.fn> } = { send: vi.fn(), readyState: 1, close: vi.fn() };
-    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<typeof handlers.onOpen>[1] };
+    const mockWs: MockWebSocket = { send: vi.fn(), readyState: 1, close: vi.fn() };
+    return { handlers, mockWs, wsCtx: mockWs };
   }
 
   return { upgradeWebSocket, simulateConnection };
@@ -168,22 +181,27 @@ function makeConfig(
 function observeAdmissionFence(
   config: WsTenantRoutesConfig,
   state: { active: boolean; outboundWhileActive: boolean },
-): void {
+): WsTenantRoutesConfig {
   const base = config.gatewayAdmission;
-  config.gatewayAdmission = {
-    channelEgressActionClaims: base.channelEgressActionClaims,
-    runtimeMediaActionClaims: base.runtimeMediaActionClaims,
-    async execute<Result>(request, dispatch) {
-      return base.execute(request, async (commit) => {
-        state.active = true;
-        try {
-          return await dispatch(commit);
-        } finally {
-          state.active = false;
-        }
-      });
-    },
-  } satisfies GatewayAuthorityAdmissionPort;
+  return {
+    ...config,
+    gatewayAdmission: {
+      channelEgressActionClaims: base.channelEgressActionClaims,
+      async execute<Result>(
+        request: GatewayAuthorityAdmissionRequest,
+        dispatch: (commit: GatewayAuthorityAdmissionCommit) => Promise<Result>,
+      ): Promise<Result> {
+        return base.execute(request, async (commit) => {
+          state.active = true;
+          try {
+            return await dispatch(commit);
+          } finally {
+            state.active = false;
+          }
+        });
+      },
+    } satisfies GatewayAuthorityAdmissionPort,
+  };
 }
 
 describe("createWsTenantRoutes", () => {
@@ -191,7 +209,7 @@ describe("createWsTenantRoutes", () => {
   let mockTenantRegistry: TenantRegistry;
   let mockSessionRegistry: SessionRegistry;
   let mockOrchestrator: RuntimeSessionOrchestrator;
-  let mockSession: { id: string; userId: string; tenantId: string };
+  let mockSession: RuntimeSession;
 
   beforeEach(() => {
     mockedResolveAgentContextAsync.mockReset();
@@ -215,8 +233,8 @@ describe("createWsTenantRoutes", () => {
       resolveByWidgetId: vi.fn(),
     } as unknown as TenantRegistry;
 
-    mockSession = new RuntimeSession({ sessionId: "sess-1", appName: TEST_APP, userId: "user-1", tenantId: "salon-test", systemPrompt: "Mock system prompt" }) as typeof mockSession;
-    vi.spyOn(mockSession as RuntimeSession, "setSystemPrompt");
+    mockSession = new RuntimeSession({ sessionId: "sess-1", appName: TEST_APP, userId: "user-1", tenantId: "salon-test", systemPrompt: "Mock system prompt" });
+    vi.spyOn(mockSession, "setSystemPrompt");
 
     mockSessionRegistry = {
       getOrCreate: vi.fn().mockResolvedValue(mockSession),
@@ -615,11 +633,13 @@ describe("createWsTenantRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
       const state = { active: false, outboundWhileActive: false };
-      const config = makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator);
-      observeAdmissionFence(config, state);
+       const config = observeAdmissionFence(
+         makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator),
+         state,
+       );
       createWsTenantRoutes(config);
       const connection = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
-      connection.mockWs.send.mockImplementation((data: string) => {
+       connection.mockWs.send.mockImplementation(() => {
         state.outboundWhileActive ||= state.active;
       });
       connection.handlers.onOpen!(new Event("open"), connection.wsCtx);
@@ -629,11 +649,12 @@ describe("createWsTenantRoutes", () => {
       );
       expect(state.outboundWhileActive).toBe(true);
 
-      const rejected = makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator, {
-        gatewayAdmission: {
-          async execute<Result>() {
-            throw new Error("admission rejected");
-          },
+       const rejected = makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator, {
+         gatewayAdmission: {
+           channelEgressActionClaims: config.gatewayAdmission.channelEgressActionClaims,
+           async execute() {
+             throw new Error("admission rejected");
+           },
         } satisfies GatewayAuthorityAdmissionPort,
       });
       createWsTenantRoutes(rejected);
@@ -739,9 +760,12 @@ describe("createWsTenantRoutes", () => {
       vi.mocked(mockOrchestrator.processMessage).mockResolvedValueOnce({
         parts: textParts("Respuesta"),
         outcome: "completed",
-        inputTokens: 3,
-        outputTokens: 2,
-        providerRequests: [providerRequestEvidence],
+         inputTokens: 3,
+         outputTokens: 2,
+         cacheReadTokens: 0,
+         cacheWriteTokens: 0,
+         queued: false,
+         providerRequests: [providerRequestEvidence],
       });
 
       createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
@@ -1050,7 +1074,12 @@ describe("createWsTenantRoutes", () => {
       );
 
       const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
-      expect(governedContext?.content ?? "").not.toContain(rawFailureMarker);
+      const projectedContext = JSON.stringify({
+        directives: governedContext?.directives,
+        guidance: governedContext?.guidance,
+        evidence: governedContext?.evidence,
+      });
+      expect(projectedContext).not.toContain(rawFailureMarker);
       expect(governedContext?.audit?.blocks.some((block) => block.kind === "coordination")).toBe(false);
       expect(JSON.stringify(governedContext?.audit)).not.toContain(rawFailureMarker);
       expect((governedContext?.audit as { coordinationProviderFailures?: unknown[] })?.coordinationProviderFailures)
@@ -1084,7 +1113,12 @@ describe("createWsTenantRoutes", () => {
       );
 
       const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
-      expect(governedContext?.content ?? "").not.toContain(rawFailureMarker);
+      const projectedContext = JSON.stringify({
+        directives: governedContext?.directives,
+        guidance: governedContext?.guidance,
+        evidence: governedContext?.evidence,
+      });
+      expect(projectedContext).not.toContain(rawFailureMarker);
       expect(JSON.stringify(governedContext?.audit)).not.toContain(rawFailureMarker);
       expect((governedContext?.audit as { coordinationProviderFailures?: unknown[] })?.coordinationProviderFailures)
         .toContainEqual({

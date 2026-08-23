@@ -18,6 +18,7 @@ import {
   inspectOperatorRuntimeListener,
   startOperatorRuntimeListener,
 } from "../../src/operator-runtime/operator-listener.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const port = 47_321;
 const origin = `http://127.0.0.1:${port}`;
@@ -167,9 +168,10 @@ async function expectDenied(
 
 describe("startOperatorRuntimeListener", () => {
   it("routes authenticated operator-surface application commands outside MCP", async () => {
+    const surfacePrincipal = { kind: "operator-surface", surface: "gui" } as const;
     const surfaceClaims: OperatorSessionClaims = {
       ...claims,
-      principal: { kind: "operator-surface", surface: "gui" },
+      principal: surfacePrincipal,
       sessionId: "gui-session-1",
     };
     const credential = signOperatorSessionCredential(surfaceClaims, sessionSecret);
@@ -184,7 +186,7 @@ describe("startOperatorRuntimeListener", () => {
         "x-kiln-project-runtime-id": surfaceClaims.projectRuntimeId,
         "x-kiln-marker-digest": surfaceClaims.markerDigest,
         "x-kiln-principal-kind": surfaceClaims.principal.kind,
-        "x-kiln-principal-id": surfaceClaims.principal.surface,
+        "x-kiln-principal-id": surfacePrincipal.surface,
         "x-kiln-session-id": surfaceClaims.sessionId,
       },
       body: JSON.stringify({
@@ -326,6 +328,7 @@ describe("startOperatorRuntimeListener", () => {
       controlToken,
       sessionSecret,
       onMcpRequest: handler,
+      onApplicationRequest: vi.fn(),
       onSessionOpen: vi.fn(),
       listen: () => { throw new Error("bind failed"); },
     })).rejects.toThrow("bind failed");
@@ -427,14 +430,16 @@ describe("operator runtime private session-open route", () => {
 
 describe("inspectOperatorRuntimeListener", () => {
   it("sends the exact private loopback boundary headers and returns a strict ready identity", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(identity), {
-      headers: { "content-type": "application/json", "x-kiln-service": "operator-runtime" },
-    }));
+    const fetchMock = createTestFetch(vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(
+      async () => new Response(JSON.stringify(identity), {
+        headers: { "content-type": "application/json", "x-kiln-service": "operator-runtime" },
+      }),
+    ));
     await expect(inspectOperatorRuntimeListener({
       port,
       controlToken,
       expectedIdentity: identity,
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     })).resolves.toEqual({ state: "ready", identity });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0]!;
@@ -449,10 +454,10 @@ describe("inspectOperatorRuntimeListener", () => {
     const inspection = await inspectOperatorRuntimeListener({
       port,
       controlToken,
-      fetch: async () => new Response(JSON.stringify({ secret: "must-not-escape" }), {
+      fetch: createTestFetch(async () => new Response(JSON.stringify({ secret: "must-not-escape" }), {
         status: 401,
         headers: { "x-kiln-service": "operator-runtime" },
-      }),
+      })),
     });
     expect(inspection).toEqual({ state: "foreign", reason: "unauthorized" });
     expect(JSON.stringify(inspection)).not.toContain("must-not-escape");
@@ -468,7 +473,7 @@ describe("inspectOperatorRuntimeListener", () => {
     await expect(inspectOperatorRuntimeListener({
       port,
       controlToken,
-      fetch: async () => response,
+      fetch: createTestFetch(async () => response),
     })).resolves.toEqual({ state: "foreign", reason: "unexpected-response" });
   });
 
@@ -476,9 +481,9 @@ describe("inspectOperatorRuntimeListener", () => {
     await expect(inspectOperatorRuntimeListener({
       port,
       controlToken,
-      fetch: async () => new Response(JSON.stringify({ ...identity, port: port + 1 }), {
+      fetch: createTestFetch(async () => new Response(JSON.stringify({ ...identity, port: port + 1 }), {
         headers: { "x-kiln-service": "operator-runtime" },
-      }),
+      })),
     })).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
   });
 
@@ -487,21 +492,23 @@ describe("inspectOperatorRuntimeListener", () => {
       port,
       controlToken,
       expectedIdentity: { ...identity, instanceId: "expected-instance" },
-      fetch: async () => new Response(JSON.stringify(identity), {
+      fetch: createTestFetch(async () => new Response(JSON.stringify(identity), {
         headers: { "x-kiln-service": "operator-runtime" },
-      }),
+      })),
     })).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
   });
 
   it("bounds inspection time and classifies timeout as unexpected", async () => {
-    const hangingFetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "AbortError")), { once: true });
-    }));
+    const hangingFetch = createTestFetch(vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(
+      (_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "AbortError")), { once: true });
+      }),
+    ));
     await expect(inspectOperatorRuntimeListener({
       port,
       controlToken,
       timeoutMs: 5,
-      fetch: hangingFetch as typeof fetch,
+      fetch: hangingFetch,
     })).resolves.toEqual({ state: "foreign", reason: "unexpected-response" });
   });
 
@@ -509,7 +516,7 @@ describe("inspectOperatorRuntimeListener", () => {
     await expect(inspectOperatorRuntimeListener({
       port,
       controlToken,
-      fetch: async () => { throw Object.assign(new Error("private error"), { cause: { code } }); },
+      fetch: createTestFetch(async () => { throw Object.assign(new Error("private error"), { cause: { code } }); }),
     })).resolves.toEqual({ state: "stopped" });
   });
 });

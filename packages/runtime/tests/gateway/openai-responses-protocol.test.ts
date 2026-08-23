@@ -8,6 +8,16 @@ import {
   parseOpenAIResponsesRequest,
 } from "../../src/gateway/openai-responses-protocol.js";
 
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+function requireArray(value: unknown, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value;
+}
+
 describe("parseOpenAIResponsesRequest", () => {
   const request = {
     model: "gpt-5-codex",
@@ -369,21 +379,21 @@ describe("Responses SSE builders", () => {
     stream.outputItemDone({ itemId: "ctc_synthetic", outputIndex: 2, item: { id: "ctc_synthetic", type: "custom_tool_call", call_id: "call_custom", name: "apply_patch", input: "patch", status: "completed" } });
     const done = stream.completed({ input_tokens: 3, output_tokens: 5, total_tokens: 8 });
 
-    expect(created.response.id).toBe("resp_synthetic");
-    expect(message.item.id).toBe("msg_synthetic");
+    expect(requireRecord(created.response, "created response").id).toBe("resp_synthetic");
+    expect(requireRecord(message.item, "message item").id).toBe("msg_synthetic");
     expect(inProgress.type).toBe("response.in_progress");
     expect(partAdded.type).toBe("response.content_part.added");
     expect(delta.type).toBe("response.output_text.delta");
     expect(textDone.type).toBe("response.output_text.done");
     expect(partDone.type).toBe("response.content_part.done");
     expect(messageDone.type).toBe("response.output_item.done");
-    expect(functionCall.item.type).toBe("function_call");
-    expect(customCall.item.type).toBe("custom_tool_call");
+    expect(requireRecord(functionCall.item, "function call item").type).toBe("function_call");
+    expect(requireRecord(customCall.item, "custom call item").type).toBe("custom_tool_call");
     expect(fnDelta.type).toBe("response.function_call_arguments.delta");
     expect(fnDone.type).toBe("response.function_call_arguments.done");
     expect(customDelta.type).toBe("response.custom_tool_call_input.delta");
     expect(customDone.type).toBe("response.custom_tool_call_input.done");
-    expect(done.response.usage).toEqual({ input_tokens: 3, output_tokens: 5, total_tokens: 8 });
+    expect(requireRecord(done.response, "completed response").usage).toEqual({ input_tokens: 3, output_tokens: 5, total_tokens: 8 });
     expect(encodeSseEvent(created)).toBe(`event: response.created\ndata: ${JSON.stringify(created)}\n\n`);
     expect(() => stream.failed("internal_error")).toThrow("terminal");
   });
@@ -412,13 +422,16 @@ describe("Responses SSE builders", () => {
     ((messageDone.item as { content: Array<{ text: string }> }).content[0]!).text = "event mutation";
     const completed = stream.completed({ input_tokens: 2, output_tokens: 3, total_tokens: 5 });
 
-    expect(completed.response.output).toEqual([
+    const completedOutput = requireArray(requireRecord(completed.response, "completed response").output, "completed response output");
+    expect(completedOutput).toEqual([
       { id: "msg_1", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "hello", annotations: [] }] },
       functionItem,
       customItem,
     ]);
-    expect(completed.response.output[0]).not.toBe(messageItem);
-    expect(Object.getPrototypeOf(completed.response.output[0])).toBe(Object.prototype);
+    const firstCompletedOutput = completedOutput.at(0);
+    if (firstCompletedOutput === undefined) throw new Error("Expected completed message output");
+    expect(firstCompletedOutput).not.toBe(messageItem);
+    expect(Object.getPrototypeOf(firstCompletedOutput)).toBe(Object.prototype);
   });
 
   it("emits and retains a Codex reasoning-summary lifecycle with cache details", () => {
@@ -431,8 +444,8 @@ describe("Responses SSE builders", () => {
     stream.outputItemDone({ itemId: "rs_1", outputIndex: 0, item: { id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] } });
     const completed = stream.completed({ input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 3 } });
     expect([added.type, part.type, delta.type, done.type]).toEqual(["response.output_item.added", "response.reasoning_summary_part.added", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done"]);
-    expect(completed.response.output).toEqual([{ id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] }]);
-    expect(completed.response.usage).toEqual({ input_tokens: 10, input_tokens_details: { cached_tokens: 3 }, output_tokens: 4, total_tokens: 14 });
+    expect(requireRecord(completed.response, "completed response").output).toEqual([{ id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] }]);
+    expect(requireRecord(completed.response, "completed response").usage).toEqual({ input_tokens: 10, input_tokens_details: { cached_tokens: 3 }, output_tokens: 4, total_tokens: 14 });
   });
 
   it("enforces lifecycle order and emits canonical non-leaking failures", () => {
@@ -442,7 +455,7 @@ describe("Responses SSE builders", () => {
     stream.inProgress();
     const failed = stream.failed("service_unavailable");
     expect(failed.error).toEqual({ code: "service_unavailable", message: "The service is temporarily unavailable." });
-    expect(failed.response.error).toEqual(failed.error);
+    expect(requireRecord(failed.response, "failed response").error).toEqual(failed.error);
     expect(JSON.stringify(failed)).not.toContain("provider");
   });
 

@@ -13,12 +13,12 @@ function emptyRecovery(): ManagedAgentStaleRecoveryResult {
 }
 
 function makeService(): ManagedAgentRuntimeRecoveryDaemonService & {
-  readonly recoverStaleInvocations: ReturnType<ReturnType<typeof vi.fn>>;
-  readonly recoverPersistedInvocations: ReturnType<ReturnType<typeof vi.fn>>;
+  readonly recoverStaleInvocations: ReturnType<typeof vi.fn<ManagedAgentRuntimeRecoveryDaemonService["recoverStaleInvocations"]>>;
+  readonly recoverPersistedInvocations: ReturnType<typeof vi.fn<ManagedAgentRuntimeRecoveryDaemonService["recoverPersistedInvocations"]>>;
 } {
   return {
-    recoverStaleInvocations: vi.fn(async () => emptyRecovery()),
-    recoverPersistedInvocations: vi.fn(async () => ({ recovered: [], accountLeases: [] })),
+    recoverStaleInvocations: vi.fn<ManagedAgentRuntimeRecoveryDaemonService["recoverStaleInvocations"]>(async () => emptyRecovery()),
+    recoverPersistedInvocations: vi.fn<ManagedAgentRuntimeRecoveryDaemonService["recoverPersistedInvocations"]>(async () => ({ recovered: [], accountLeases: [] })),
   };
 }
 
@@ -53,7 +53,7 @@ function makeTimerHarness(): {
   const setTimeoutImpl = vi.fn((callback: () => void, delay?: number) => {
     callbacks.push(callback);
     delays.push(delay ?? 0);
-    return { delay } as ReturnType<typeof setTimeout>;
+    return setTimeout(() => undefined, 0);
   }) as unknown as typeof setTimeout;
   const clearTimeoutImpl = vi.fn() as unknown as typeof clearTimeout;
   return {

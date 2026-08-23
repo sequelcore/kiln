@@ -11,6 +11,7 @@ import {
 } from "../../src/gateway/audio-preprocessor.js";
 import type { MediaDownloader } from "../../src/gateway/audio-preprocessor.js";
 import { createMediaActionTestContext } from "./media-action-test-fixture.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 function mockStt(text = "hello world"): SttAdapter {
   return {
@@ -294,15 +295,14 @@ describe("emitAudioTransformRoutingEvents", () => {
 
 describe("createWhatsAppMediaDownloader", () => {
   it("performs two-step download with auth header", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ url: "https://cdn.whatsapp.net/media/123", mime_type: "audio/ogg" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
-      });
+    const mockFetch = createTestFetch(vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input) === "https://graph.facebook.com/v21.0/media123") {
+        return new Response(JSON.stringify({ url: "https://cdn.whatsapp.net/media/123", mime_type: "audio/ogg" }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(new Uint8Array(4));
+    }));
 
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetch;
@@ -333,11 +333,9 @@ describe("createWhatsAppMediaDownloader", () => {
 
 describe("createGenericMediaDownloader", () => {
   it("downloads media with content-type detection", async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
-      headers: new Headers({ "content-type": "audio/mp3" }),
-    });
+    const mockFetch = createTestFetch(vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(new Uint8Array(4), {
+      headers: { "content-type": "audio/mp3" },
+    })));
 
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetch;

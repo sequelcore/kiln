@@ -31,6 +31,7 @@ describe("runtime session feedback evidence", () => {
       runtimeEvents: [
         {
           type: "tool_called",
+          sessionId: session.id,
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-shell-typecheck",
           toolName: "shell_command",
@@ -39,6 +40,7 @@ describe("runtime session feedback evidence", () => {
         },
         {
           type: "tool_result",
+          sessionId: session.id,
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-shell-typecheck",
           toolName: "shell_command",
@@ -51,6 +53,8 @@ describe("runtime session feedback evidence", () => {
         },
         {
           type: "error",
+          sessionId: session.id,
+          taskId: null,
           code: "runtime_typecheck_failed",
           message: "Typecheck failed while collecting feedback evidence.",
           timestamp: new Date("2026-05-18T10:00:04.000Z"),
@@ -85,6 +89,7 @@ describe("runtime session feedback evidence", () => {
             },
           ],
           resultHandoff: {
+            provenance: { delivery: "runtime-generated", configuredModelId: "fixture-model", observedModelIds: [] },
             summary: "Managed reviewer stopped before producing findings.",
             resourceUris: ["kiln://artifacts/managed-invocation-1/result"],
             memoryWriteProposalUris: [],
@@ -171,6 +176,7 @@ describe("runtime session feedback evidence", () => {
             retention: "session",
           },
           resultHandoff: {
+            provenance: { delivery: "runtime-generated", configuredModelId: "fixture-model", observedModelIds: [] },
             summary: "Repair analysis completed.",
             resourceUris: ["kiln://artifacts/managed-completed/result"],
             memoryWriteProposalUris: [],

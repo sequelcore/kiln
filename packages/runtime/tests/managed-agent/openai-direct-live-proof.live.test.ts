@@ -7,6 +7,7 @@ import {
   RuntimeManagedAgentInvocationService,
 } from "../../src/index.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
+import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 import {
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   describeManagedAgentProviderLive,
@@ -48,6 +49,9 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
         capabilityMap: childSurface.capabilities,
         toolAuthority: childSurface.toolAuthority,
         executionEnvelope: { toolRounds: { max: 4 } },
+        runtimeToolActionClaims: createFixtureToolActionStore(),
+        readAuthorityAdmission: () => undefined,
+        runtimeModelRoundActionClaims: createFixtureModelRoundStore(),
       });
       const request = defineManagedAgentInvocationRequest({
         invocationId: "invocation-openai-direct-live-readonly-1",

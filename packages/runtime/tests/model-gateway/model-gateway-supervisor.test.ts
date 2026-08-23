@@ -13,11 +13,10 @@ import {
 
 const config: ModelGatewayConfig = {
   port: 4819,
-  accounts: [{ id: "primary", providerId: "codex-oauth", credentialId: "credential-a", maxConcurrency: 1, reservedAffinitySlots: 0 }],
   replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
   surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
   principals: [{ tokenEnv: "BEARER_TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["codex"] }],
-  virtualModels: [{ id: "codex", providerId: "codex-oauth", providerModelId: "gpt-test", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "none" } }],
+  virtualModels: [{ id: "codex", targetId: "route", capabilities: ["text"], affinity: { continuity: "none" } }],
 };
 
 describe("ModelGatewaySupervisor", () => {
@@ -47,7 +46,7 @@ describe("ModelGatewaySupervisor", () => {
   it("does not spawn or terminate a foreign listener", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-foreign-"));
     const processAdapter = adapter({ spawnPid: 222 });
-    const supervisor = createSupervisor(root, vi.fn(async () => ({ state: "foreign", reason: "identity-mismatch" })), processAdapter);
+    const supervisor = createSupervisor(root, vi.fn(async (): Promise<ModelGatewayListenerInspection> => ({ state: "foreign", reason: "identity-mismatch" })), processAdapter);
     await expect(supervisor.ensure()).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
     await expect(supervisor.stop()).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
     expect(processAdapter.spawn).not.toHaveBeenCalled();
@@ -156,7 +155,7 @@ describe("ModelGatewaySupervisor", () => {
 
   it("fails closed for malformed v1 state", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-invalid-v1-"));
-    const supervisor = createSupervisor(root, vi.fn(async () => ({ state: "stopped" })), adapter({ spawnPid: 222 }));
+    const supervisor = createSupervisor(root, vi.fn(async (): Promise<ModelGatewayListenerInspection> => ({ state: "stopped" })), adapter({ spawnPid: 222 }));
     await writeFile(join(root, "state.json"), JSON.stringify({ schemaVersion: 1 }), "utf8");
 
     await expect(supervisor.ensure()).rejects.toThrow("unsupported or invalid");
@@ -174,7 +173,7 @@ describe("ModelGatewaySupervisor", () => {
       configDigest: createModelGatewayConfigDigest(config), startedAt: "2026-08-12T00:00:00.000Z",
       launch: { schemaVersion: 2, command: "bun", args: ["cli.js"], mode: "local-dev", version: "3.0.0-test", host: observedHost, requiredEnvNames: [] },
     })}\n`, "utf8");
-    const supervisor = createSupervisor(root, vi.fn(async () => ({ state: "stopped" })), adapter({ spawnPid: 222 }));
+    const supervisor = createSupervisor(root, vi.fn(async (): Promise<ModelGatewayListenerInspection> => ({ state: "stopped" })), adapter({ spawnPid: 222 }));
 
     await expect(supervisor.doctor()).resolves.toMatchObject({
       host: { desired: hostIdentity, observed: observedHost },

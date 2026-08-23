@@ -22,10 +22,21 @@ import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-le
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
+import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
 const AUTHORITY_PROFILE_ID = "authority:dispatch-test:foundation-readonly-plan";
 const INVOCATION_ID = "managed-invocation:dispatch-test";
 const PROFILE_AUTHORITY_DIGEST = `sha256:${"9".repeat(64)}`;
+
+function unknownQuotaEvidence(capacityIdentity: string) {
+  return {
+    kind: "unknown" as const,
+    capacityIdentity,
+    subscriptionClass: "unknown" as const,
+    reason: "fixture usage evidence is unavailable",
+    evidence: null,
+  };
+}
 
 function admissionBundle(): EffectiveAuthorityAdmissionBundle {
   return defineEffectiveAuthorityAdmissionBundle({
@@ -45,12 +56,12 @@ function admissionBundle(): EffectiveAuthorityAdmissionBundle {
         executionMode: "execute",
         requestedAuthority: "read_only",
         admittedAuthority: "read_only",
-        sourcePolicy: "test",
+        sourcePolicy: "runtime_surface_projection",
         reason: "test",
         completeness: "authoritative",
         toolCount: 0,
         deniedToolCount: 0,
-        sandboxProjection: "workspace_read",
+        sandboxProjection: "read_only",
       },
       workGovernance: { status: "not-required" },
       operatorAdoption: { status: "not-required" },
@@ -76,7 +87,7 @@ function dispatchAdoption(): ManagedEconomicDispatchAdoption {
     routeId: "route-a",
     modelId: "gpt-test",
     priceKind: "metered",
-    quotaEvidence: { kind: "missing" },
+    quotaEvidence: unknownQuotaEvidence("route-a"),
     quotaRequirement: "optional",
   });
 }
@@ -459,12 +470,19 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     const lifecycleEvents = recordingLifecycleEvents();
     const createAdapter = vi.fn();
     const economicAuthority: ManagedEconomicDispatchAuthorityPort = {
-      acquire: vi.fn(() => ({
-        status: "denied",
+      acquire: vi.fn<ManagedEconomicDispatchAuthorityPort["acquire"]>((_input) => ({
+        ...(_input && {}),
+        status: "denied" as const,
         replay: false,
-        decision: { kind: "denied", rejected: [] },
+        decision: { kind: "denied" as const, rejected: [] },
         evidence: {
-          decision: { kind: "denied", rejected: [] },
+          evidenceVersion: 1,
+          policy: {
+            policyId: "dispatch-policy",
+            policyRevision: "dispatch-policy-revision",
+            policyDigest: `sha256:${"d".repeat(64)}`,
+          },
+          decision: { kind: "denied" as const, rejected: [] },
           authorityRejections: [],
         },
       })),
@@ -869,6 +887,9 @@ describe("ManagedEconomicDispatchCoordinator", () => {
           tools: [],
           builtinTools: new Map(),
           economicIdentity: commitment.reservation.selectedIdentity,
+          runtimeToolActionClaims: createFixtureToolActionStore(),
+          readAuthorityAdmission: () => admissionBundle(),
+          runtimeModelRoundActionClaims: createFixtureModelRoundStore(),
         });
       });
       const fenceDispatch = vi.fn((fenceJobId: string, fenceAttemptId: string, fenceId: string, actionClaim: ManagedEconomicActionClaim) => {
@@ -1031,7 +1052,7 @@ function accountlessCompetingRoutes(codexCeilingAtoms = "0"): ManagedEconomicDis
     routeId: "route-codex",
     modelId: "codex-model",
     priceKind: "metered",
-    quotaEvidence: { kind: "missing" },
+    quotaEvidence: unknownQuotaEvidence("route-codex"),
     quotaRequirement: "optional",
   });
   const openCode = createEconomicRouteProofAdoption({
@@ -1039,7 +1060,7 @@ function accountlessCompetingRoutes(codexCeilingAtoms = "0"): ManagedEconomicDis
     routeId: "route-opencode",
     modelId: "open-model",
     priceKind: "metered",
-    quotaEvidence: { kind: "missing" },
+    quotaEvidence: unknownQuotaEvidence("route-opencode"),
     quotaRequirement: "optional",
   });
   const comparisonDomain = codex.snapshot.routes[0]!.comparisonDomain;

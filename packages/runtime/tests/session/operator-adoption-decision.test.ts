@@ -6,8 +6,75 @@ import {
 } from "../../src/session/runtime-session-event-ledger.js";
 import { prepareOperatorAdoptionTurn } from "../../src/session/operator-adoption-authority.js";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
+import type { CanonicalSessionEvent } from "@kilnai/core/events";
+import { adoptBoundedWorkContractRevision, GoalRunStore } from "@kilnai/core/work-governance";
+import type { SerializedSessionData } from "../../src/session/runtime-session.js";
 
-function replayEnvelope(sessionEvents: readonly Record<string, unknown>[]) {
+function makeGoalRun(authority: ReturnType<typeof createOperatorAdoptionDecisionAuthority>, turnId: ReturnType<typeof canonicalTurnId>) {
+  const boundedWorkContractRevision = adoptBoundedWorkContractRevision({
+    accountingLineageId: "goal-1",
+    adoptedAt: "2026-08-12T18:00:00.000Z",
+    adoptedBy: authority.contractAuthority,
+    contract: {
+      schema: "kiln.bounded-work-contract/v2",
+      intent: {
+        objective: "Adopt bounded work.",
+        acceptanceCriteria: [{ id: "evidence", statement: "Evidence is recorded." }],
+        nonGoals: [],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{ id: "obligation", symbol: "Test.Main", subjectPaths: ["src/Test.dfy"] }],
+          mappings: [{ criterionId: "evidence", obligationIds: ["obligation"] }],
+        },
+      },
+      scope: {
+        allowedWorkItemIds: ["work-1"],
+        permittedEffects: ["inspect"],
+        permittedSurfaces: ["runtime"],
+        allowedRoots: ["packages/runtime"],
+        deniedRoots: [],
+        refactorAuthority: "scoped",
+        migrationAuthority: "none",
+        dependencyAuthority: "none",
+      },
+      limits: {
+        maxExecutionAttempts: 1,
+        maxManagedInvocations: 1,
+        maxConcurrentManagedInvocations: 1,
+        maxChildDepth: 1,
+        maxReviewRounds: 1,
+        maxRemediationRounds: 1,
+        maxToolCalls: 1,
+        maxActiveDurationMs: 60_000,
+      },
+      tripwires: {},
+      policy: {
+        scopeExpansion: "approval_required",
+        budgetExhaustion: "pause",
+        minimumHarnessCapability: "authoritative",
+      },
+    },
+  });
+  return new GoalRunStore({ now: () => "2026-08-12T18:00:00.000Z" }).create({
+    id: "goal-1",
+    objective: "Adopt bounded work.",
+    ownerSessionId: "session-1",
+    source: { kind: "operator_direct", turnId },
+    boundedWorkContractRevision,
+    workItemIds: ["work-1"],
+    authorityEnvelope: {
+      maximumAuthority: "audited",
+      escalationPolicy: "approval_required",
+      reason: "Operator adopted bounded work.",
+    },
+    routePolicy: { workflowProfile: "verification-heavy" },
+    evidenceRequirements: [],
+  });
+}
+
+function replayEnvelope(sessionEvents: readonly CanonicalSessionEvent[]): SerializedSessionData {
   return {
     id: "session-1",
     appName: "test",
@@ -143,11 +210,7 @@ describe("runtime operator adoption decision", () => {
       ...authority,
       turnOrdinal: 1,
     };
-    const goal = {
-      id: "goal-1",
-      ownerSessionId: "session-1",
-      boundedWorkContractRevision: { adoptedBy: authority.contractAuthority },
-    };
+    const goal = makeGoalRun(authority, turnId);
     const supersession = {
       eventId: "goal-update",
       kilnSessionId: "session-1",
@@ -171,7 +234,12 @@ describe("runtime operator adoption decision", () => {
         ...supersession,
         goal: {
           ...goal,
-          boundedWorkContractRevision: { adoptedBy: { ...authority.contractAuthority, decisionId: "forged" } },
+          boundedWorkContractRevision: {
+            ...goal.boundedWorkContractRevision,
+            adoptedBy: authority.contractAuthority.kind === "operator"
+              ? { ...authority.contractAuthority, decisionId: "forged" }
+              : { ...authority.contractAuthority, planDigest: "sha256:forged" },
+          },
         },
       },
     ]))).toThrow("adoption authority does not match");

@@ -158,15 +158,19 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
         timestamp: new Date("2026-05-06T12:00:00.000Z"),
       });
 
-      expect(events[2]).toMatchObject({
+      const completedEvent = events.find((event) => event.kind === "agent_invocation_completed");
+      expect(completedEvent).toMatchObject({
         managedInvocationEvidence: {
           writeEvidence: result.record.writeEvidence,
         },
       });
-      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+      if (!completedEvent || completedEvent.kind !== "agent_invocation_completed") {
+        throw new Error("Expected a canonical managed invocation completed event.");
+      }
+      expect(JSON.stringify(completedEvent.managedInvocationEvidence?.writeAuthority)).toContain(
         `kiln://managed-agents/invocations/${request.invocationId}/resources/write`,
       );
-      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+      expect(JSON.stringify(completedEvent.managedInvocationEvidence?.writeAuthority)).toContain(
         `kiln://managed-agents/invocations/${request.invocationId}/resources/approval`,
       );
     });
@@ -186,7 +190,6 @@ function createCodexLiveSessionFactory(options: {
     sandboxMode: options.sandboxMode,
     skipGitRepoCheck: true,
     sessionLedgerOwner: "host",
-    deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
   });
 }
 

@@ -18,6 +18,7 @@ import {
 } from "../../src/model-gateway/model-gateway-listener.js";
 import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -316,17 +317,17 @@ describe("startModelGatewayListener", () => {
       status: 200,
       headers: { "content-type": "application/json", "x-kiln-service": "model-gateway" },
     });
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => readyResponse.clone() })).resolves.toMatchObject({ state: "ready", identity: { pid: 7, configDigest: digest } });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: createTestFetch(async () => readyResponse.clone()) })).resolves.toMatchObject({ state: "ready", identity: { pid: 7, configDigest: digest } });
     const mismatchedResponse = new Response(JSON.stringify({ service: "kiln-model-gateway", status: "ready", protocolVersion: 1, instanceId: "instance-b", pid: 7, version: "3.0.0-test", configDigest: "f".repeat(64), port: 4819 }), { status: 200, headers: { "content-type": "application/json", "x-kiln-service": "model-gateway" } });
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => mismatchedResponse.clone() })).resolves.toMatchObject({ state: "foreign", reason: "identity-mismatch" });
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), expected: { port: 4819, configDigest: "f".repeat(64) }, fetch: async () => mismatchedResponse.clone() })).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-b" } });
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }); } })).resolves.toEqual({ state: "stopped" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: createTestFetch(async () => mismatchedResponse.clone()) })).resolves.toMatchObject({ state: "foreign", reason: "identity-mismatch" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), expected: { port: 4819, configDigest: "f".repeat(64) }, fetch: createTestFetch(async () => mismatchedResponse.clone()) })).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-b" } });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: createTestFetch(async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }); }) })).resolves.toEqual({ state: "stopped" });
     // Bun reports a refused connection as a top-level `ConnectionRefused`, so
     // recognising only the Node spelling reports a stopped gateway as foreign
     // and blocks start.
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => { throw Object.assign(new Error("Unable to connect. Is the computer able to access the url?"), { code: "ConnectionRefused" }); } })).resolves.toEqual({ state: "stopped" });
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => { throw new TypeError("invalid HTTP listener"); } })).resolves.toMatchObject({ state: "foreign", reason: "unexpected-response" });
-    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => new Response("not kiln") })).resolves.toMatchObject({ state: "foreign" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: createTestFetch(async () => { throw Object.assign(new Error("Unable to connect. Is the computer able to access the url?"), { code: "ConnectionRefused" }); }) })).resolves.toEqual({ state: "stopped" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: createTestFetch(async () => { throw new TypeError("invalid HTTP listener"); }) })).resolves.toMatchObject({ state: "foreign", reason: "unexpected-response" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: createTestFetch(async () => new Response("not kiln")) })).resolves.toMatchObject({ state: "foreign" });
   });
 
   it("requests shutdown only from the exact authenticated listener", async () => {
@@ -335,13 +336,13 @@ describe("startModelGatewayListener", () => {
       config,
       token: "t".repeat(32),
       identity,
-      fetch: async (_url, init) => {
+      fetch: createTestFetch(async (_url: RequestInfo | URL, init?: RequestInit) => {
         expect(init?.method).toBe("POST");
         expect(new Headers(init?.headers).get("x-kiln-instance-id")).toBe("instance-a");
         return new Response(null, { status: 202, headers: { "x-kiln-service": "model-gateway" } });
-      },
+      }),
     })).resolves.toEqual({ state: "accepted" });
-    await expect(requestModelGatewayShutdown({ config, token: "t".repeat(32), identity, fetch: async () => new Response(null, { status: 409, headers: { "x-kiln-service": "model-gateway" } }) })).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
+    await expect(requestModelGatewayShutdown({ config, token: "t".repeat(32), identity, fetch: createTestFetch(async () => new Response(null, { status: 409, headers: { "x-kiln-service": "model-gateway" } })) })).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
   });
 
   it("mounts configured Responses and Anthropic surfaces on the same listener", async () => {

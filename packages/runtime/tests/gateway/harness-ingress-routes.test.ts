@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
+import { canonicalTurnId } from "@kilnai/core/events";
 import {
   createExecutionAccountPolicyId,
   createExecutionAccountRef,
@@ -9,21 +10,27 @@ import {
 import { textParts } from "@kilnai/core/engine";
 import { createHarnessIngressRoutes } from "../../src/gateway/harness-ingress-routes.js";
 import { FixedRouteGatewayAuthorityAdmission, type GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
-import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { AccountCapacityRecord, ExecutionAccountCapacityAuthority } from "../../src/execution-kernel/execution-account-capacity-authority.js";
 
-type Handlers = ReturnType<Parameters<UpgradeWebSocket>[0]>;
+type MockWebSocket = { readonly send: ReturnType<typeof vi.fn>; readonly readyState: number };
+type Handlers = {
+  readonly onOpen?: (event: Event, ws: MockWebSocket) => void | Promise<void>;
+  readonly onMessage?: (event: MessageEvent, ws: MockWebSocket) => void | Promise<void>;
+};
+type HandlerFactory = (context: unknown) => Handlers;
 
 function makeUpgrade() {
-  let factory: Parameters<UpgradeWebSocket>[0] | undefined;
-  const upgradeWebSocket: UpgradeWebSocket = (candidate) => {
-    factory = candidate;
-    return async (_c, next) => next();
-  };
+  let factory: HandlerFactory | undefined;
+  // Hono's overload accepts either a context or event factory. The route only
+  // uses the event-factory branch; this adapter captures that third-party seam.
+  const upgradeWebSocket = ((candidate: unknown) => {
+    factory = candidate as HandlerFactory;
+    return async (_c: unknown, next: () => Promise<void>) => next();
+  }) as UpgradeWebSocket;
   return {
     upgradeWebSocket,
     connect(headers: Record<string, string> = {}) {
@@ -36,9 +43,9 @@ function makeUpgrade() {
           userId: headers["X-User"] ?? "user-1",
           tenantId: "tenant-1",
         }),
-      } as never);
-      const ws: WebSocketLike = { send: vi.fn(), readyState: 1 };
-      return { handlers, ws: ws as never };
+      });
+      const ws: MockWebSocket = { send: vi.fn(), readyState: 1 };
+      return { handlers, ws };
     },
   };
 }
@@ -58,7 +65,7 @@ function makeRuntime() {
       const revision = { revisionSetId: "harness-r1", revisions: { gateway: "r1" } };
       const bundle = defineEffectiveAuthorityAdmissionBundle({
         sessionId: request.sessionId,
-        turnId: `${request.sessionId}:turn:1`,
+        turnId: canonicalTurnId(request.sessionId, 1),
         admittedAt: "2026-08-22T00:00:00.000Z",
         configuration: { sessionRevision: revision, turnRevision: revision },
         session: {
@@ -78,7 +85,7 @@ function makeRuntime() {
           execution: {
             status: "routed",
             route: { routeId: "route-one", providerId: "provider-one", providerModelId: "model-one", accountSelection: { mode: "exact", accountId: "account-one", source: "route" } },
-            dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "route-data-policy-admitted" } },
+            dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
             binding: { status: "bound", routeId: "route-one", accountId: "account-one", credentialId: "credential-one", credentialRevision: "credential-r1" },
           },
         },
@@ -145,7 +152,7 @@ async function makeRealAdmissionRuntime() {
     ...(state === "held" ? {} : { dispatchFenceId: "request-real:dispatch" }),
   });
   const capacity: ExecutionAccountCapacityAuthority = {
-    acquireAccountCapacity: vi.fn(() => ({ status: "acquired", record: capacityRecord("held"), replay: false })),
+    acquireAccountCapacity: vi.fn<ExecutionAccountCapacityAuthority["acquireAccountCapacity"]>(() => ({ status: "acquired", record: capacityRecord("held"), replay: false })),
     releaseAccountCapacityPreFence: vi.fn(() => capacityRecord("held")),
     fenceAccountCapacityDispatch: vi.fn(() => capacityRecord("dispatch-fenced")),
     settleAccountCapacity: vi.fn(() => capacityRecord("released")),
@@ -182,7 +189,7 @@ async function makeRealAdmissionRuntime() {
   });
   return {
     runtime: {
-      appName: "app-one", tenant: { tenantId: "tenant-1" }, systemPrompt: "system", sessionRegistry, gatewayAdmission,
+      appName: "app-one", tenant: { tenantId: "tenant-1", appName: "app-one", name: "Harness tenant", enabled: true, createdAt: "2026-08-22T00:00:00.000Z", updatedAt: "2026-08-22T00:00:00.000Z" }, systemPrompt: "system", sessionRegistry, gatewayAdmission,
       orchestrator: new RuntimeSessionOrchestrator({ provider, model: "model-one" }),
     },
     persist, modelClaim, provider, capacity,
@@ -207,15 +214,15 @@ function createFixture(overrides: Record<string, unknown> = {}) {
   return { app, upgrade, processAdmittedTurn, authenticate, resolveTarget };
 }
 
-async function open(handlers: Handlers, ws: never) {
+async function open(handlers: Handlers, ws: MockWebSocket) {
   await handlers.onOpen?.(new Event("open"), ws);
 }
 
-async function message(handlers: Handlers, ws: never, payload: string) {
+async function message(handlers: Handlers, ws: MockWebSocket, payload: string) {
   await handlers.onMessage?.({ data: payload } as MessageEvent, ws);
 }
 
-function sent(ws: { send: ReturnType<typeof vi.fn> }) {
+function sent(ws: MockWebSocket) {
   return ws.send.mock.calls.map(([value]) => JSON.parse(value as string));
 }
 

@@ -8,8 +8,18 @@ import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
-} from "../../src/index.js";
+} from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../../cli/src/config/managed-agent-direct-adapters.js";
+import type { ManagedCommittedInvocationRequest, ManagedInvocationRouteProfile } from "@kilnai/runtime";
+import type {
+  RuntimeModelRoundActionClaim,
+  RuntimeModelRoundActionClaimPermit,
+  RuntimeModelRoundActionClaimStore,
+  RuntimeToolActionClaim,
+  RuntimeToolActionClaimPermit,
+  RuntimeToolActionClaimStore,
+} from "@kilnai/runtime";
+import type { DirectProviderCredentialBinding } from "../../../cli/src/wrapper/direct-provider-adapter-factory.js";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
@@ -38,22 +48,16 @@ describeManagedAgentProviderLive(
         const model = process.env.KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL ?? "gpt-5.5";
         const adapter = await createManagedDirectProviderAdapterFactory({
           builtinToolOptions: createSessionBuiltinToolOptions(),
+          runtimeToolActionClaims: createLiveToolActionStore(),
+          readAuthorityAdmission: () => undefined,
+          runtimeModelRoundActionClaims: createLiveModelRoundStore(),
         })({
           id: "codex-oauth-readonly-live",
           kind: "direct",
-          provider: "codex-oauth",
-          model,
-          profiles: ["foundation-readonly-plan"],
-          workingDirectory: "project",
-          tools: {
-            allowed: ["read"],
-            writes: false,
-            network: false,
-          },
-          credentials: { mode: "runtime-selected" },
-          memory: { access: "read-only" },
-          timeoutMs: 120000,
-        });
+          authorityProfiles: [],
+        }, credentialBindingFor("codex-oauth-readonly-live"), undefined,
+        committedRequestFor("codex-oauth-readonly-live", "codex-oauth", model, "invocation-codex-oauth-direct-live-readonly-1"),
+        directProfile("read-only", "foundation-readonly-plan", "credential-route:codex-oauth:runtime-selected", "read-only"));
         if (!adapter) {
           throw new Error("Expected Codex OAuth direct live adapter");
         }
@@ -135,22 +139,16 @@ describeManagedAgentProviderLive(
         const model = process.env.KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL ?? "gpt-5.5";
         const adapter = await createManagedDirectProviderAdapterFactory({
           builtinToolOptions: createSessionBuiltinToolOptions(),
+          runtimeToolActionClaims: createLiveToolActionStore(),
+          readAuthorityAdmission: () => undefined,
+          runtimeModelRoundActionClaims: createLiveModelRoundStore(),
         })({
           id: "codex-oauth-approved-write-live",
           kind: "direct",
-          provider: "codex-oauth",
-          model,
-          profiles: ["foundation-apply-approved-writes"],
-          workingDirectory: "project",
-          tools: {
-            allowed: ["read", "edit"],
-            writes: true,
-            network: false,
-          },
-          credentials: { mode: "runtime-selected" },
-          memory: { access: "write-proposals" },
-          timeoutMs: 120000,
-        });
+          authorityProfiles: [],
+        }, credentialBindingFor("codex-oauth-approved-write-live"), undefined,
+        committedRequestFor("codex-oauth-approved-write-live", "codex-oauth", model, "invocation-codex-oauth-direct-live-write-1"),
+        directProfile("apply-approved-writes", "foundation-apply-approved-writes", "credential-route:codex-oauth:runtime-selected", "workspace-write", true));
         if (!adapter) {
           throw new Error("Expected Codex OAuth direct approved-write live adapter");
         }
@@ -268,6 +266,173 @@ function createCodexOauthDirectLiveService(): RuntimeManagedAgentInvocationServi
       allowedRouteIds: ["credential-route:codex-oauth:runtime-selected"],
     }),
   });
+}
+
+function credentialBindingFor(routeId: string): DirectProviderCredentialBinding {
+  return {
+    routeId,
+    accountId: "codex-oauth-live-account",
+    credentialId: "codex-oauth-live-credential",
+    credentialRevision: "codex-oauth-live-credential-revision",
+  };
+}
+
+function createLiveToolActionStore(): RuntimeToolActionClaimStore {
+  const claims = new Map<string, RuntimeToolActionClaim>();
+  const states = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("Live tool-action claim already exists; no redispatch.");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `live-tool-action:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("Live tool-action permit already consumed.");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeToolActionClaimPermit;
+      claims.set(input.claimId, input);
+      states.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = states.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("Live tool-action permit was not consumed.");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success" ? { outcome: "success" as const } : { unknownReason: settlement.reason }),
+        ...(settlement.settledAt ? { settledAt: settlement.settledAt } : {}),
+      });
+      states.delete(permit);
+    },
+  };
+}
+
+function createLiveModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const claims = new Map<string, RuntimeModelRoundActionClaim>();
+  const states = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("Live model-round claim already exists; no redispatch.");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `live-model-round:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("Live model-round permit already consumed.");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeModelRoundActionClaimPermit;
+      claims.set(input.claimId, input);
+      states.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = states.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("Live model-round permit was not consumed.");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success"
+          ? { outcome: "success" as const }
+          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+        ...(settlement.settledAt ? { settledAt: settlement.settledAt } : {}),
+      });
+      states.delete(permit);
+    },
+  };
+}
+
+function directProfile(
+  permissionProfile: "read-only" | "apply-approved-writes",
+  admissionProfile: "foundation-readonly-plan" | "foundation-apply-approved-writes",
+  credentialRouteId: string,
+  workingDirectoryMode: "read-only" | "workspace-write",
+  writeAllowed = false,
+): ManagedInvocationRouteProfile {
+  return {
+    authorityProfileId: `authority:codex-oauth-live:${permissionProfile}`,
+    admissionProfile,
+    permissionProfile,
+    allowedToolNames: writeAllowed ? ["read", "edit"] : ["read"],
+    writeAllowed,
+    networkAllowed: false,
+    workingDirectory: { path: "project", mode: workingDirectoryMode },
+    timeoutMs: 120000,
+    credentialRoute: { mode: "runtime-selected", routeId: credentialRouteId },
+    memoryScope: {
+      scope: { kind: "project", id: "kiln" },
+      access: writeAllowed ? "write-proposals" : "read-only",
+    },
+  };
+}
+
+function committedRequestFor(
+  routeId: string,
+  providerId: string,
+  modelId: string,
+  invocationId: string,
+): ManagedCommittedInvocationRequest {
+  const route = {
+    routeId,
+    providerId,
+    modelId,
+    adapterCapabilityId: "text",
+    adapterCapabilityVersion: "1",
+    authBillingChannel: "subscription",
+    executionMode: "direct",
+    serviceTier: "default",
+    accountPolicyId: null,
+    fallbackPosture: "disabled" as const,
+    overagePosture: "disabled" as const,
+    rateCardId: "codex-oauth-live",
+    rateCardRevision: "1",
+    priceEvidenceDigest: "sha256:codex-oauth-live-price",
+    unit: "request",
+    scheme: { kind: "unit" as const },
+    contextClass: "default",
+    cacheClass: "none",
+    auxiliaryScheduleDigest: "sha256:codex-oauth-live-auxiliary",
+    envelopeDigest: "sha256:codex-oauth-live-envelope",
+  };
+  const selectedIdentity = { route, account: { kind: "accountless" as const } };
+  const policy = {
+    policyId: "codex-oauth-live-policy",
+    schemaVersion: 1,
+    policyRevision: "codex-oauth-live-policy-revision",
+    policyDigest: "sha256:codex-oauth-live-policy",
+    comparisonDomains: [],
+    noRouteAction: "deny" as const,
+    evidenceRequirements: { quota: "optional" as const, price: "optional" as const },
+  };
+  return {
+    commitment: {
+      commitmentId: `codex-oauth-live-commitment:${invocationId}`,
+      reservation: {
+        reservationId: `codex-oauth-live-reservation:${invocationId}`,
+        jobId: `codex-oauth-live-job:${invocationId}`,
+        economicAttemptId: `codex-oauth-live-attempt:${invocationId}`,
+        policy,
+        selectedIdentity,
+        priceIdentity: null,
+        envelope: { kind: "bounded", digest: "sha256:codex-oauth-live-envelope", limits: [] },
+        amounts: [],
+        authorityRevision: "sha256:codex-oauth-live-authority",
+      },
+      rejected: [],
+      notSelected: [],
+    },
+    dispatchFenceId: `codex-oauth-live-fence:${invocationId}`,
+    abortSignal: new AbortController().signal,
+    authorityProfileId: "authority:codex-oauth-live",
+    admissionProfile: "foundation-readonly-plan",
+    profileAuthorityDigest: "sha256:codex-oauth-live-profile",
+    invocationId,
+  };
 }
 
 function expectCompletedLiveRecord(

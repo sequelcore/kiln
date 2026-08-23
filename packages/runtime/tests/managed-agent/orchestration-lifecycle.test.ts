@@ -564,6 +564,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         onAdmissionResolved: ({ decision }) => {
           decisions.push(decision);
         },
+        onTerminal: () => undefined,
       },
     })).rejects.toThrow("external-runtime-attachment-unsupported-route");
 
@@ -588,9 +589,12 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
   it("commits, fences, invokes, and settles every economic orchestration child", async () => {
     const managedInvocation = createManagedInvocation();
     const primaryRoute = managedInvocation.routes[0]!;
+    const primaryAdapter = await primaryRoute.createAdapter?.();
+    if (!primaryAdapter) throw new Error("fixture adapter unavailable");
     const orchestrationRequest = request(2);
     const events: string[] = [];
-    const preparation = vi.fn(async (input) => ({
+    type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
+    const preparation = vi.fn<EconomicPrepare>(async (input) => ({
       status: "prepared" as const,
       commitment: {
         reservation: {
@@ -606,14 +610,27 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         },
       } as never,
       adapter: {
-        ...primaryRoute.adapter!,
-        invoke: async (invocation) => {
+        ...primaryAdapter,
+        invoke: async (invocation: ManagedAgentRuntimeInvocationInput) => {
           invocation.registerAdapterCompletion(Promise.resolve());
           invocation.registerEconomicSettlement?.(Promise.resolve({} as never));
-          return await primaryRoute.adapter!.invoke(invocation);
+          return await primaryAdapter.invoke(invocation);
         },
       },
-      recordExecutionSettlementPending: () => { events.push(`pending:${input.jobId}`); },
+      dispatchFenceId: `dispatch-fence:${input.economicAttemptId}`,
+      actionClaim: {
+        version: 1 as const,
+        attemptId: input.economicAttemptId,
+        admissionId: input.admissionBundle.admissionId,
+        admissionBundle: input.admissionBundle,
+        intentFingerprint: input.intentFingerprint,
+        ownerGeneration: "managed-economic-owner:orchestration-test",
+        effectIdentity: input.effectIdentity,
+      },
+      abortSignal: input.abortSignal ?? new AbortController().signal,
+      recordExecutionSettlementPending: async (reason) => {
+        events.push(`pending:${input.jobId}:${reason}`);
+      },
       createExecutionSettlement: () => ({} as never),
       registerEconomicSettlement: (settlement) => {
         events.push(`settlement:${input.jobId}`);
@@ -633,7 +650,6 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         ...managedInvocation,
         routes: [{
           ...primaryRoute,
-          adapter: undefined,
           economicPolicyIds: ["economy-policy"],
           economicCapability: {
             status: "verified",
@@ -645,7 +661,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
           name: "economic-worker",
           role: "Economic worker",
           goal: "Execute only after durable commitment.",
-          tier: "reasoning",
+          tier: "reasoning" as const,
           authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
           admissionProfile: "foundation-apply-approved-writes",
           economicPolicyId: "economy-policy",
@@ -874,12 +890,6 @@ function createManagedInvocation(input: {
         authorityCeiling: "destructive", toolNames: ["read", "grep", "apply-patch"], supportsRecursion: true, supportsAttachments: false, supportsWrite: true,
         proof: { status: "configured", source: "test", provenProfiles: ["foundation-apply-approved-writes"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
       },
-      adapter: createAdapter({
-        failOrdinals: input.failOrdinals ?? new Set(),
-        recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
-        holdOrdinals: input.holdOrdinals ?? new Set(),
-        ...(input.requestObserver ? { requestObserver: input.requestObserver } : {}),
-      }),
       createAdapter: async () => createAdapter({
         failOrdinals: input.failOrdinals ?? new Set(),
         recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
@@ -960,22 +970,28 @@ function createEconomicManagedInvocation(input: {
     ...(input.failOrdinals ? { failOrdinals: input.failOrdinals } : {}),
   });
   const route = base.routes[0]!;
-  const invoked = vi.fn();
-  const adapter = {
-    ...route.adapter!,
+  const invoked = vi.fn<(request: ManagedAgentRuntimeInvocationInput["request"]) => void>();
+  const baseAdapter = createAdapter({
+    failOrdinals: input.failOrdinals ?? new Set(),
+    recoveredOrdinals: new Set(),
+    holdOrdinals: new Set(),
+  });
+  const adapter: ManagedAgentRuntimeAdapter = {
+    ...baseAdapter,
     invoke: async (invocation: ManagedAgentRuntimeInvocationInput) => {
       invoked(invocation.request);
       invocation.registerEconomicSettlement?.(Promise.resolve({} as never));
-      return await route.adapter!.invoke(invocation);
+      return await baseAdapter.invoke(invocation);
     },
   };
   const recordExecutionSettlementPending = vi.fn();
-  const prepare = vi.fn(async () => {
+  type EconomicPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
+  const prepare = vi.fn<EconomicPrepare>(async (prepareInput) => {
     if (input.status === "already-dispatched") {
       return { status: "already-dispatched" as const, record: {} as never };
     }
     if (input.status === "denied") {
-      return { status: "denied" as const, decision: {} as never };
+      return { status: "denied" as const, result: {} as never };
     }
     return {
       status: "prepared" as const,
@@ -988,6 +1004,17 @@ function createEconomicManagedInvocation(input: {
         },
       } as never,
       adapter,
+      dispatchFenceId: `dispatch-fence:${prepareInput.economicAttemptId}`,
+      actionClaim: {
+        version: 1 as const,
+        attemptId: prepareInput.economicAttemptId,
+        admissionId: prepareInput.admissionBundle.admissionId,
+        admissionBundle: prepareInput.admissionBundle,
+        intentFingerprint: prepareInput.intentFingerprint,
+        ownerGeneration: "managed-economic-owner:orchestration-test",
+        effectIdentity: prepareInput.effectIdentity,
+      },
+      abortSignal: prepareInput.abortSignal ?? new AbortController().signal,
       recordExecutionSettlementPending,
       createExecutionSettlement: () => ({} as never),
       registerEconomicSettlement: () => undefined,
@@ -998,11 +1025,10 @@ function createEconomicManagedInvocation(input: {
       ...base,
       routes: [{
         ...route,
-        adapter: undefined,
         ...(input.deliberationLevel ? {
           deliberationCapabilities: {
             provider: route.providerId,
-            model: route.model,
+            model: route.model ?? "gpt-5.5",
             levels: ["low", "high"].map((level) => ({ id: defineDeliberationLevelId(level) })),
             defaultLevel: defineDeliberationLevelId("low"),
             supportsAdaptive: false,
@@ -1024,7 +1050,7 @@ function createEconomicManagedInvocation(input: {
         name: "economic-worker",
         role: "Economic worker",
         goal: "Execute only after durable commitment.",
-        tier: "reasoning",
+        tier: "reasoning" as const,
         authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
         admissionProfile: "foundation-apply-approved-writes" as const,
         economicPolicyId: "economy-policy",
@@ -1033,10 +1059,10 @@ function createEconomicManagedInvocation(input: {
         ...(input.deliberationLevel ? {
           providerRoute: {
             providerId: route.providerId,
-            model: route.model,
+            ...(route.model ? { model: route.model } : {}),
             deliberationIntent: {
               mode: "fixed" as const,
-              preferredLevel: input.deliberationLevel,
+              preferredLevel: defineDeliberationLevelId(input.deliberationLevel),
               onUnsupported: "deny" as const,
             },
           },
@@ -1083,11 +1109,6 @@ function createReadOnlyManagedInvocation(): ManagedInvocationToolOptions {
         authorityCeiling: "audited", toolNames: ["read", "grep"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
         proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
       },
-      adapter: createAdapter({
-        failOrdinals: new Set(),
-        recoveredOrdinals: new Set(),
-        holdOrdinals: new Set(),
-      }),
       createAdapter: async () => createAdapter({
         failOrdinals: new Set(), recoveredOrdinals: new Set(), holdOrdinals: new Set(),
       }),

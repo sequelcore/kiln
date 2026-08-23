@@ -258,7 +258,6 @@ describe("CodexOAuthCredentialPoolService", () => {
   it("does not overwrite a replacement while pre-admission refresh is in flight", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "work", tokenFile: accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" }) });
-    const [selected] = await service.listExecutionAccounts();
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => { release = resolve; });
     const fetch = vi.fn(async () => {

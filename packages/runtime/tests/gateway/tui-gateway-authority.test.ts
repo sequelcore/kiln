@@ -370,11 +370,23 @@ describe("TUI authority forwarding", () => {
       buildTuiWelcomeFramePayload,
       buildTuiDoneFramePayload,
     } = await import("../../src/gateway/tui-gateway.js");
+    const { projectGuiProviderModelDiscovery } = await import("../../src/gateway/gui-provider-models.js");
 
     const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
       buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
     );
+    const executionRouteCatalog = { routes: [] } as const;
+    const providerModelDiscovery = projectGuiProviderModelDiscovery([], {
+      observedAt: "2026-08-23T00:00:00.000Z",
+    });
+    const availableModels = {
+      observedAt: "2026-08-23T00:00:00.000Z",
+      entries: [],
+    } as const;
     const welcome = buildTuiWelcomeFramePayload({
+      executionRouteCatalog,
+      availableModels,
+      providerModelDiscovery,
       models: {},
       executionMode: "execute",
       authorityStatus,

@@ -236,6 +236,10 @@ Workflow:
    what remains uncertain.
 
 Test value:
+- Before adding a test, search the owning layer for the same observable behavior.
+  Strengthen or replace the existing owner when it can carry the regression
+  signal; a new test must protect a distinct regression, boundary, invariant,
+  or failure mode.
 - Retain a test when it protects distinct public behavior, a regression, a
   boundary or invariant, or a materially different failure mode.
 - Prefer strengthening an existing test when it already provides the required
@@ -244,6 +248,9 @@ Test value:
   implementation-coupled, or behavior-free.
 - Do not delete a test solely because its line coverage overlaps another test.
   Use behavioral and fault-detection evidence when distinct value is uncertain.
+- After compiler-driven fixture repairs or broad test refactors, perturb a
+  representative subject condition and confirm the owning assertion fails.
+  Restore the subject before completion. Use mutation testing when available.
 
 Fixture hygiene:
 - Use synthetic, portable fixture values that express only the behavior under test.

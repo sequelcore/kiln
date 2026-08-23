@@ -52,7 +52,7 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
         model,
         summary: "Inspect a fixture through Claude Code plan mode.",
         prompt: "Read proof.txt and report its exact contents. Do not write, create, delete, or rename any file.",
-        deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
+        deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("low"), onUnsupported: "deny" },
         handoff: {
           roleIntent: "read-only fixture inspector",
           requiredResultFields: ["summary"],
@@ -83,6 +83,7 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
       );
 
       expect(result.status).toBe("completed");
+      if (result.status !== "completed") throw new Error(`Expected completed Claude live proof, received ${result.status}.`);
       expect(result.record.lifecycleState, JSON.stringify(result.record.resultHandoff)).toBe("completed");
       expect(observedPermissionMode).toBe("plan");
       expect(observedDeliberationResolution).toMatchObject({

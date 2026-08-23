@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import type { ExecutionSessionRunOptions } from "@kilnai/core/events";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   ManagedCliHarnessAdapter,
@@ -17,7 +18,7 @@ import {
   makeManagedAgentLiveHarnessWriteRequest,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
-import type { CliSession, CliSessionFactory, SessionRunOptions } from "../../src/execution/cli-session-contract.js";
+import type { CliSession, CliSessionFactory } from "../../src/execution/cli-session-contract.js";
 
 const itOpenCodeWriteProof = process.env[KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV] === "1" ? it : it.skip;
 
@@ -152,16 +153,21 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         timestamp: new Date("2026-05-05T12:00:00.000Z"),
       });
 
-      expect(events[2].managedInvocationEvidence?.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+      const completedEvent = events.find((event) => event.kind === "agent_invocation_completed");
+      expect(completedEvent).toBeDefined();
+      if (!completedEvent || completedEvent.kind !== "agent_invocation_completed") {
+        throw new Error("Expected a canonical managed invocation completed event.");
+      }
+      expect(completedEvent.managedInvocationEvidence?.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
         "write-proposal-created",
         "write-proposal-approved",
         "write-attempt-completed",
       ]);
-      expect(JSON.stringify(events[2].managedInvocationEvidence)).not.toContain(workspace.workspaceRoot);
-      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+      expect(JSON.stringify(completedEvent.managedInvocationEvidence)).not.toContain(workspace.workspaceRoot);
+      expect(JSON.stringify(completedEvent.managedInvocationEvidence?.writeAuthority)).toContain(
         `kiln://managed-agents/invocations/${request.invocationId}/resources/write`,
       );
-      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+      expect(JSON.stringify(completedEvent.managedInvocationEvidence?.writeAuthority)).toContain(
         `kiln://managed-agents/invocations/${request.invocationId}/resources/approval`,
       );
     });
@@ -299,7 +305,7 @@ function createObservedOpenCodeLiveSessionFactory(options: {
 
 function observeCliSessionRun(session: CliSession, onRunStarted: () => void): CliSession {
   return {
-    async *run(options: SessionRunOptions) {
+    async *run(options: ExecutionSessionRunOptions) {
       const iterator = session.run(options)[Symbol.asyncIterator]();
       const first = iterator.next();
       const firstObservation = await Promise.race([
@@ -307,7 +313,7 @@ function observeCliSessionRun(session: CliSession, onRunStarted: () => void): Cl
         sleep(1_000).then(() => ({ kind: "pending" as const })),
       ]);
       let observedInFlight = firstObservation.kind === "pending";
-      if (observedInFlight) {
+      if (firstObservation.kind === "pending") {
         onRunStarted();
         const firstResult = await first;
         if (firstResult.done) {
@@ -374,6 +380,7 @@ async function expectCancelledJoinStable(input: {
   do {
     await sleep(input.intervalMs);
     const joined = await input.service.join(input.invocationId);
+    if (joined.status !== "completed") throw new Error(`Expected completed joined cancellation result, received ${joined.status}.`);
     expect(joined.record.lifecycleState).toBe("cancelled");
     expect(joined.record.resultHandoff?.summary).toBe(input.expectedSummary);
     expect(joined.record.writeEvidence).toEqual(input.expectedWriteEvidence);

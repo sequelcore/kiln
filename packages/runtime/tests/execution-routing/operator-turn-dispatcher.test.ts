@@ -238,6 +238,7 @@ describe("OperatorTurnDispatcher", () => {
       preflight: async () => ({ status: "not-configured" as const }),
       prepare: async () => { throw new Error("unused"); },
       persist: async () => undefined,
+      abort: async () => undefined,
     };
     bridge.bind(handler);
     await expect(bridge.preflight({ request: {} as never })).resolves.toEqual({ status: "not-configured" });

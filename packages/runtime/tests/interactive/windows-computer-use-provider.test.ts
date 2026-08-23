@@ -6,6 +6,7 @@ import {
 import {
   NUT_JS_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE,
   WindowsComputerUseProvider,
+  type NutJsLoader,
 } from "../../src/interactive/windows-computer-use-provider.js";
 
 describe("WindowsComputerUseProvider", () => {
@@ -305,7 +306,7 @@ describe("WindowsComputerUseProvider", () => {
   });
 });
 
-function fakeNut(events: string[] = []) {
+function fakeNut(events: string[] = []): Awaited<ReturnType<NutJsLoader>> {
   class Point {
     constructor(readonly x: number, readonly y: number) {}
   }
@@ -323,15 +324,21 @@ function fakeNut(events: string[] = []) {
       return point;
     },
     mouse: {
-      async move(point: { readonly x: number; readonly y: number }) {
+      async move(movement: unknown) {
+        if (!isPoint(movement)) throw new Error("expected mouse movement coordinates");
+        const point = movement;
         events.push(`mouse.move:${point.x},${point.y}`);
       },
-      async click(button: string) {
+      async click(button: unknown) {
+        if (typeof button !== "string") throw new Error("expected a mouse button");
         events.push(`mouse.click:${button}`);
       },
     },
     keyboard: {
-      type: vi.fn(async (...keys: readonly string[]) => {
+      type: vi.fn(async (...keys: readonly unknown[]) => {
+        if (!keys.every((key): key is string => typeof key === "string")) {
+          throw new Error("expected keyboard input strings");
+        }
         events.push(`keyboard.type:${keys.join("+")}`);
       }),
     },
@@ -354,6 +361,15 @@ function fakeNut(events: string[] = []) {
       },
     },
   };
+}
+
+function isPoint(value: unknown): value is { readonly x: number; readonly y: number } {
+  return typeof value === "object"
+    && value !== null
+    && "x" in value
+    && typeof value.x === "number"
+    && "y" in value
+    && typeof value.y === "number";
 }
 
 function sequenceNow(values: readonly string[]): () => Date {

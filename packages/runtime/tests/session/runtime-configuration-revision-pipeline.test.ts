@@ -34,7 +34,7 @@ function makeContext(
         executionMode: "execute",
         requestedAuthority: "read_only",
         admittedAuthority: "read_only",
-        sourcePolicy: "revision-test",
+        sourcePolicy: "runtime_surface_projection",
         reason: "Revision pipeline fixture",
         completeness: "authoritative",
         toolCount: 0,
@@ -68,7 +68,7 @@ function makeContext(
     sessionId,
     runtimeConfigurationRevisionProvider: provider,
     authorityAdmission,
-    perCallConfig: { authorityAdmission, turnId },
+    perCallConfig: { authorityAdmission, turnCorrelationId: turnId },
   };
 }
 

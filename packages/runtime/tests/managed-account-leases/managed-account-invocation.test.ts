@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createExecutionAccountPolicyId,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRequest,
 } from "@kilnai/core/agents";
@@ -65,7 +66,7 @@ describe("managed account invocation boundary", () => {
         credentialRoute: {
           mode: "account-leased",
           routeId: "credential-route:opencode:primary",
-          accountPolicyId: "managed-opencode",
+          accountPolicyId: createExecutionAccountPolicyId("managed-opencode"),
         },
         memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
       },

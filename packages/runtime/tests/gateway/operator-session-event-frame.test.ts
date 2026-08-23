@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CanonicalSessionEvent } from "@kilnai/core/events";
+import { createSessionEvent, type CanonicalSessionEvent } from "@kilnai/core/events";
 import type { WorkItem } from "@kilnai/core/work-governance";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 
@@ -64,7 +64,7 @@ function workItemEvent(workItem: WorkItem): CanonicalSessionEvent {
     sequence: 1,
     timestamp: new Date("2026-05-23T12:00:10.000Z"),
     kind: "work_item_updated",
-    source: "runtime",
+    source: { actor: "runtime", surface: "gateway" },
     workItem,
     operation: "complete",
   };
@@ -88,7 +88,7 @@ describe("operator session event frame", () => {
         lifecycleState: "stale",
         errorCode: "ENGINE_STALE",
         errorMessage: "Managed invocation heartbeat expired.",
-        diagnosticKind: "heartbeat",
+         diagnosticKind: "timeout",
         diagnosticUri: "kiln://managed-invocations/child-stale/heartbeat",
       }),
       terminalManagedInvocationEvent({
@@ -175,18 +175,17 @@ describe("operator session event frame", () => {
   });
 
   it("does not add adoption-gate snapshots to non-work-item frames", () => {
-    const frame = toOperatorSessionEventFrame({
+    const event = createSessionEvent<"agent_invocation_completed">({
       eventId: "evt-child",
       kilnSessionId: "session-1",
       sequence: 1,
       timestamp: new Date("2026-05-23T12:00:00.000Z"),
       kind: "agent_invocation_completed",
-      source: "runtime",
-      managedInvocationId: "child-adoption",
-      invocationId: "child-adoption",
+      source: { actor: "runtime", surface: "gateway" },
+       invocationId: "child-adoption",
       agentId: "coder",
-      status: "completed",
-    } as CanonicalSessionEvent, {
+    });
+    const frame = toOperatorSessionEventFrame(event, {
       eventId: "frame-2",
       sequence: 11,
     });
@@ -195,16 +194,18 @@ describe("operator session event frame", () => {
   });
 
   it("preserves web freshness evidence when replaying canonical tool results to the operator surface", () => {
-    const frame = toOperatorSessionEventFrame({
+    const event = createSessionEvent<"tool_call_completed">({
       eventId: "evt-web-search",
       kilnSessionId: "session-1",
       sequence: 1,
       timestamp: new Date("2026-07-19T04:45:46.720Z"),
       kind: "tool_call_completed",
-      turnId: "turn-1",
-      toolCallId: "tool-1",
+       turnId: "turn-1",
+       toolCallId: "tool-1",
+       toolCallScopeId: "tool-scope-1",
       toolName: "web_search",
-      status: "succeeded",
+      status: { state: "succeeded" },
+      durationMs: 1,
       outputSummary: "Found 1 source",
       metadata: {
         toolName: "web_search",
@@ -230,8 +231,9 @@ describe("operator session event frame", () => {
           publishedAt: "2026-07-18T23:00:00.000Z",
         }],
       },
-      source: "runtime",
-    } as CanonicalSessionEvent, {
+      source: { actor: "runtime", surface: "gateway" },
+    });
+    const frame = toOperatorSessionEventFrame(event, {
       eventId: "frame-web-search",
       sequence: 2,
     });
@@ -346,23 +348,24 @@ function terminalManagedInvocationEvent(input: {
   readonly lifecycleState: "timed_out" | "stale" | "failed";
   readonly errorCode: string;
   readonly errorMessage: string;
-  readonly diagnosticKind: string;
+   readonly diagnosticKind: "timeout" | "failure" | "adapter" | "cleanup";
   readonly diagnosticUri: string;
 }): CanonicalSessionEvent {
-  return {
+  return createSessionEvent<"agent_invocation_failed">({
     eventId: input.eventId,
     kilnSessionId: "session-1",
     sequence: 1,
     timestamp: new Date("2026-05-24T12:00:00.000Z"),
     kind: input.kind,
-    source: "runtime",
+    source: { actor: "runtime", surface: "gateway" },
     invocationId: `child-${input.lifecycleState}`,
     agentId: "agent-coder",
     parentSessionId: "session-1",
     lifecycleState: input.lifecycleState,
-    providerRoute: {
-      providerId: "opencode",
-      model: "minimax-m2.5",
+     providerRoute: {
+       providerId: "opencode",
+       surface: "gateway",
+         model: "minimax-m2.5",
     },
     errorCode: input.errorCode,
     errorMessage: input.errorMessage,
@@ -372,33 +375,41 @@ function terminalManagedInvocationEvent(input: {
         kind: input.diagnosticKind,
       }],
       resultHandoff: {
+        provenance: {
+          delivery: "runtime-generated",
+          configuredModelId: "minimax-m2.5",
+          observedModelIds: ["minimax-m2.5"],
+        },
         summary: input.errorMessage,
         resourceUris: [`kiln://managed-invocations/child-${input.lifecycleState}/handoff`],
         memoryWriteProposalUris: [],
       },
-      lifecycle: {
+         lifecycle: {
         lifecycleState: input.lifecycleState,
         invocationId: `child-${input.lifecycleState}`,
         parentSessionId: "session-1",
         parentTurnId: "session-1:turn:1",
-        routeId: "opencode-readonly",
-        providerId: "opencode",
+         routeId: "opencode-readonly",
+         routeSource: "explicit-managed-route",
+         providerId: "opencode",
         model: "minimax-m2.5",
         profile: "foundation-readonly-plan",
         contextMode: "isolated",
         authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
-        resourceLease: {
+         resourceLease: {
           leaseId: `child-${input.lifecycleState}:resource-lease`,
+          createdAt: "2026-05-24T12:00:00.000Z",
           healthStatus: "leaked",
           cleanupStatus: "failed",
           workingDirectoryPath: "C:/workspace/kiln",
           workingDirectoryMode: "isolated-worktree",
           resourceUris: [`kiln://artifacts/child-${input.lifecycleState}/lease`],
           diagnosticUris: [`kiln://artifacts/child-${input.lifecycleState}/lease-diagnostic`],
-        },
+         },
+         sourceResourceUris: [],
         diagnosticUris: [input.diagnosticUri],
         handoffResourceUris: [`kiln://managed-invocations/child-${input.lifecycleState}/handoff`],
       },
     },
-  } as CanonicalSessionEvent;
+  });
 }

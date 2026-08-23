@@ -29,11 +29,13 @@ import {
   adoptBoundedWorkContractRevision,
   GoalRunStore,
   WorkItemStore,
+  type WorkItemExecutionAttempt,
 } from "@kilnai/core/work-governance";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
+import type { AttachedRuntimeManagedInvocationConfig } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { readRuntimeFormalVerificationFinishTransport } from "../../src/index.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { collectRuntimeFormalVerificationObservations } from "../../src/work-governance/formal-verification-observations.js";
@@ -49,6 +51,33 @@ const TEST_HANDOFF_PROVENANCE = {
   configuredModelId: "test-model",
   observedModelIds: [],
 } as const;
+
+function isToolResult(value: unknown): value is ToolResult {
+  return typeof value === "object"
+    && value !== null
+    && typeof Reflect.get(value, "output") === "string"
+    && typeof Reflect.get(value, "isError") === "boolean";
+}
+
+function testExecutionAttempt(
+  overrides: Partial<WorkItemExecutionAttempt> = {},
+): WorkItemExecutionAttempt {
+  return {
+    id: "attempt-1",
+    workItemId: "work-managed",
+    goalRunId: "goal-managed",
+    boundedWorkContractRevisionDigest: "sha256:test-bounded-work-revision",
+    status: "started",
+    executionMode: "managed_delegation",
+    startedAt: "2026-08-12T00:00:00.000Z",
+    providedEvidence: [],
+    missingEvidence: [],
+    missingResidualRisk: false,
+    skippedVerificationGates: [],
+    verificationGateResults: [],
+    ...overrides,
+  };
+}
 
 const ALWAYS_ON_CONTEXT_TOOLS = ["memory_search", "resource_list", "resource_template_list", "resource_read"];
 
@@ -411,37 +440,6 @@ function managedRouteCapability(input: {
   };
 }
 
-function makeFailedManagedAdapter(): ManagedAgentRuntimeAdapter {
-  return {
-    descriptor: makeManagedDescriptor(),
-    invoke: vi.fn(async ({ request, admission }: {
-      readonly request: ManagedAgentInvocationRequest;
-      readonly admission: {
-        readonly capabilitySnapshot: ReturnType<typeof buildManagedAgentCapabilitySnapshot>;
-      };
-    }) =>
-      defineManagedAgentInvocationRecord({
-        invocationId: request.invocationId,
-        agentId: request.agentId,
-        parentSessionId: request.parentSessionId,
-        parentTurnId: request.parentTurnId,
-        profile: request.profile,
-        lifecycleState: "failed",
-        providerRoute: request.providerRoute,
-        adapterKind: request.adapterKind,
-        executionMode: request.executionMode,
-        authority: request.authority,
-        capabilitySnapshot: admission.capabilitySnapshot,
-        resultHandoff: {
-          provenance: TEST_HANDOFF_PROVENANCE,
-          summary: "Managed child failed before producing governed evidence.",
-          resourceUris: [],
-          memoryWriteProposalUris: [],
-        },
-      })),
-  };
-}
-
 function makeManagedExecutionStartTool(
   managedInvocationRequest: Record<string, unknown> = {
     profile: "foundation-readonly-plan",
@@ -510,9 +508,7 @@ function makeManagedExecutionStartTool(
           operation: "execution_started",
           id: "work-managed",
           status: "in_progress",
-          attempt: {
-            managedInvocationId,
-          },
+          attempt: testExecutionAttempt({ managedInvocationId }),
         },
       };
     },
@@ -790,6 +786,7 @@ describe("attached runtime builtin tool surface", () => {
 
   it("records expected skipped evidence as a skip while ignoring unrelated phase results", () => {
     const handoff: ManagedAgentResultHandoff = {
+      provenance: TEST_HANDOFF_PROVENANCE,
       summary: "Verification could not run in the read-only environment.",
       resourceUris: ["kiln://managed-invocations/invocation-1/handoff"],
       memoryWriteProposalUris: [],
@@ -1685,7 +1682,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(runtimeSurface.listResources().map((resource) => resource.uri)).toContain("kiln://session/authority");
 
     const snapshot = await runtimeSurface.readResource("kiln://session/authority");
-    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+    const snapshotContent = snapshot.contents[0];
+    expect(snapshotContent).toBeDefined();
+    if (!snapshotContent || !("text" in snapshotContent)) {
+      throw new Error("The authority resource must expose a text payload.");
+    }
+    expect(JSON.parse(snapshotContent.text)).toMatchObject({
       latest: {
         source: "runtime",
         authority: {
@@ -2300,32 +2302,52 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         instructionProfileHash: "hash-2",
         instructionProfileIds: ["sequel-engineering"],
       },
-    }) as { readonly isError?: boolean; readonly metadata?: Record<string, unknown> } | undefined;
-
-    expect(planResult?.isError).toBe(false);
-    expect(planResult?.metadata).toMatchObject({
-      operation: "submit_plan",
-      sourceSpecificationId: specificationId,
-      riskClassification: "high",
-      workflowProfile: "architecture-change",
-      proposedWorkItems: [{
-        id: "wi-1",
-        summary: "Add structured plan schema and validation.",
-        workflowProfile: "architecture-change",
-        risk: "high",
-      }],
     });
-    expect(planResult?.output).toContain("Ship typed plan submission contract.");
-    expect(planResult?.output).toContain("- source specification: spec_1");
-    expect(planResult?.output).toContain("- work item wi-1: Add structured plan schema and validation.");
 
-    const plans = await runtimeSurface.readResource("kiln://session/plans") as {
-      readonly contents: readonly { readonly text?: string }[];
-    };
-    const plansPayload = JSON.parse(plans.contents[0]?.text ?? "{}") as {
-      readonly plans?: readonly { readonly id?: string; readonly proposedWorkItems?: readonly Record<string, unknown>[] }[];
-    };
-    expect(plansPayload.plans?.[0]?.proposedWorkItems).toEqual(planResult?.metadata?.proposedWorkItems);
+    expect(planResult).toMatchObject({
+      isError: false,
+      metadata: {
+        operation: "submit_plan",
+        sourceSpecificationId: specificationId,
+        riskClassification: "high",
+        workflowProfile: "architecture-change",
+        proposedWorkItems: [{
+          id: "wi-1",
+          summary: "Add structured plan schema and validation.",
+          workflowProfile: "architecture-change",
+          risk: "high",
+        }],
+      },
+    });
+    if (!isToolResult(planResult)) {
+      throw new Error("submit_plan must return a complete tool result.");
+    }
+    expect(planResult.output).toContain("Ship typed plan submission contract.");
+    expect(planResult.output).toContain("- source specification: spec_1");
+    expect(planResult.output).toContain("- work item wi-1: Add structured plan schema and validation.");
+
+    const plans = await runtimeSurface.readResource("kiln://session/plans");
+    const plansContent = plans.contents[0];
+    expect(plansContent).toBeDefined();
+    if (!plansContent || !("text" in plansContent)) {
+      throw new Error("The plans resource must expose a text payload.");
+    }
+    const plansPayload: unknown = JSON.parse(plansContent.text);
+    const planEntries = typeof plansPayload === "object" && plansPayload !== null
+      ? Reflect.get(plansPayload, "plans")
+      : undefined;
+    const firstPlan = Array.isArray(planEntries) && typeof planEntries[0] === "object" && planEntries[0] !== null
+      ? planEntries[0]
+      : undefined;
+    const persistedProposedWorkItems = firstPlan
+      ? Reflect.get(firstPlan, "proposedWorkItems")
+      : undefined;
+    const submittedProposedWorkItems = planResult.metadata
+      ? Reflect.get(planResult.metadata, "proposedWorkItems")
+      : undefined;
+    expect(persistedProposedWorkItems).toEqual(
+      submittedProposedWorkItems,
+    );
 
     const invalidPlanResult = await submitPlan?.({
       objective: "Invalid high-risk plan.",
@@ -2463,12 +2485,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
       goalRunId: "goal-managed",
       governanceRecommendation: "orchestrate",
-    }, context) as {
-      readonly isError: boolean;
-      readonly metadata?: Record<string, unknown>;
-    };
+    }, context);
 
-    expect(result, result.output).toMatchObject({ isError: false });
+    expect(result).toMatchObject({ isError: false });
+    if (!isToolResult(result)) {
+      throw new Error("Managed execution start must return a complete tool result.");
+    }
     expect(startTool.calls).toHaveLength(2);
     expect(startTool.calls[1]?.input).toMatchObject({
       goalRunId: "goal-managed",
@@ -2764,7 +2786,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
       execute,
     });
-    const startTool = tool("work_item.execution.start", async (toolInput) => {
+    const startTool = tool("work_item.execution.start", async (toolInput): Promise<ToolResult> => {
       startCalls.push(toolInput);
       const invocationId = typeof toolInput.input.managedInvocationId === "string"
         ? toolInput.input.managedInvocationId
@@ -2772,7 +2794,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       if (invocationId) {
         return {
           output: JSON.stringify({ status: "started", attempt: { id: "attempt-1", managedInvocationId: invocationId } }),
-          metadata: { attempt: { id: "attempt-1", managedInvocationId: invocationId } },
+          metadata: {
+            kind: "work_item",
+            toolName: "work_item.execution.start",
+            operation: "execution_started",
+            attempt: testExecutionAttempt({ managedInvocationId: invocationId }),
+          },
           isError: false,
         };
       }
@@ -2808,11 +2835,16 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       phase = "closeout";
       return { output: JSON.stringify({ status: "pending" }), isError: false };
     });
-    const finishTool = tool("work_item.execution.finish", async (toolInput) => {
+    const finishTool = tool("work_item.execution.finish", async (toolInput): Promise<ToolResult> => {
       finishCalls.push(toolInput);
       return {
         output: JSON.stringify({ status: "completed", attempt: { id: "attempt-1", status: "completed" } }),
-        metadata: { operation: "execution_finished", attempt: { id: "attempt-1", status: "completed" } },
+        metadata: {
+          kind: "work_item",
+          toolName: "work_item.execution.finish",
+          operation: "execution_finished",
+          attempt: testExecutionAttempt({ status: "completed", completedAt: "2026-08-12T00:01:00.000Z" }),
+        },
         isError: false,
       };
     });
@@ -2849,9 +2881,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
     const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
       goalRunId: "goal-managed",
-    }, context) as { readonly isError: boolean; readonly metadata?: Record<string, unknown> };
+    }, context);
 
-    expect(result, result.output).toMatchObject({ isError: false });
+    expect(result).toMatchObject({ isError: false });
+    if (!isToolResult(result)) {
+      throw new Error("Managed execution lifecycle must return a complete tool result.");
+    }
     expect(adapter.invoke).toHaveBeenCalledTimes(2);
     const invocationIds = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls
       .map((call) => call[0].request.invocationId);
@@ -3888,7 +3923,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         profiles: ["foundation-readonly-plan"] as const,
         reason: "Direct provider route is unavailable.",
       }],
-    };
+    } satisfies AttachedRuntimeManagedInvocationConfig;
 
     const makeSequencedStartTool = (
       phases: readonly Record<string, unknown>[],
@@ -3962,7 +3997,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           calls.push(input);
           return {
             output: JSON.stringify({ status: "updated", id: input.input.id }, null, 2),
-            metadata: { kind: "work_item", toolName: "work_item.update", operation: "updated" },
+            metadata: { kind: "work_item", toolName: "work_item.update", operation: "update" },
             isError: false,
           };
         },
@@ -4636,8 +4671,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
   });
 
   it("routes interactive browser and computer tools through runtime-injected providers", async () => {
-    const browserRequests: Record<string, unknown>[] = [];
-    const computerRequests: Record<string, unknown>[] = [];
+    const browserRequests: unknown[] = [];
+    const computerRequests: unknown[] = [];
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: {
         browserUse: {
@@ -4791,6 +4826,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const result = await runtimeSurface.callBuiltinTools.get("web_search")?.({
       query: "kiln docs",
     }, {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-web-search", name: "web_search", input: {} },
       sandbox: {
         cwd: "C:/workspace",
         policy: new SandboxPolicy({
@@ -4866,6 +4903,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         oldString: "before",
         newString: "blocked",
       }, {
+        session: makeRuntimeSession(),
+        toolCall: { id: "tool-call-edit-denied", name: "edit", input: {} },
         authority: {
           level: 4,
           allowed: false,
@@ -4879,6 +4918,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         oldString: "before",
         newString: "after",
       }, {
+        session: makeRuntimeSession(),
+        toolCall: { id: "tool-call-edit-allowed", name: "edit", input: {} },
         authority: {
           level: 4,
           allowed: true,

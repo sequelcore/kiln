@@ -2,7 +2,7 @@
 
 Status: incomplete
 Owner: Kiln engineering
-Evidence cutoff: 2026-08-15
+Evidence cutoff: 2026-08-23
 Promotion targets: CI workflow and testing guidance
 Exit condition: ten post-change CI runs provide p50/p95 timings for compile,
 validation, each test lane, startup profile, build, and the overall critical
@@ -19,8 +19,9 @@ Decision-oriented performance research, not a systematic benchmark. The
 investigation combined repository inspection, Vitest JSON profiles already
 present in `.kiln/`, fresh local timed runs, GitHub Actions run metadata
 retrieved with `gh`, and current first-party Bun, Vitest, and GitHub Actions
-documentation. Local timings are single-machine observations on Windows 11,
-12 CPU, Bun 1.3.14, Vitest 4.1.10. They are not hosted-CI claims.
+documentation. The historical local timings are single-machine observations on
+Windows 11, 12 CPU, Bun 1.3.14, Vitest 4.1.10. The current verification line is
+Bun 1.4.0. Neither is a hosted-CI claim.
 
 ## Repository Evidence
 
@@ -182,73 +183,43 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   test can observe. The synthetic home closes this for the CLI suite, but the
   fallback itself remains untested authority: a caller that forgets to pass
   `userHome` silently reads operator state in production too.
-- [#85](https://github.com/sequelcore/kiln/issues/85) — Test sources are largely untypechecked. Package build configs use
-  `include: ["src"]` and exclude `src/**/*.test.ts`, while suites live in
-  `tests/`, so type drift between tests and source has been invisible. The
-  `typecheck:tests` gate now exists and admits packages one at a time;
-  `@kilnai/tools`, `@kilnai/gateway-contracts`, `@kilnai/sdk`, `@kilnai/tui`,
-  `@kilnai/core`, and `@kilnai/cli` currently qualify.
-  `@kilnai/runtime` is the last package outside the gate.
 
-  Remaining backlog, measured by extending each package's own `tsconfig.json`
-  with `rootDir` at the package root so `src` and `tests` compile together:
+## Resolved Test Signal Baseline (2026-08-23)
 
-  | Package | Errors |
-  | --- | --- |
-  | tools | 0 (admitted) |
-  | gateway-contracts | 0 (admitted) |
-  | sdk | 0 (admitted) |
-  | tui | 0 (admitted) |
-  | core | 0 (admitted) |
-  | cli | 0 (admitted) |
-  | runtime | 996 |
+Issue [#85](https://github.com/sequelcore/kiln/issues/85) admitted Runtime tests
+to the root `typecheck:tests` gate. The correct Runtime test project initially
+reported 821 diagnostics across 118 files; it now reports zero without
+`skipLibCheck`, exclusions, baselines, or production-code relaxations. Live test
+sources are included in the same compiler project even though live providers
+are not invoked by the type gate.
 
-  The `sdk` admission needed one structural deviation from the package-root
-  `rootDir`: its `operator-governance-exports` suite imports
-  `gateway-contracts/tests/fixtures/*`, which pulls `gateway-contracts/src`
-  into the `sdk` program. A package-root `rootDir` therefore reports 44
-  `TS6059` violations that cannot be resolved from inside `sdk`, so
-  `packages/sdk/tsconfig.test.json` uses `"rootDir": "../.."` (the monorepo
-  root) instead. No compiler option is loosened; the same pattern now applies
-  to `tui`, `core`, and `cli`, and will apply to `gui`, which shares
-  the fixtures.
+The first mutation pilot targets the consequential media-action claim owner.
+The initial eight-test suite killed 67 of 154 mutants, with 66 surviving and 18
+uncovered. Mutation evidence exposed one behavior-free test that exercised only
+its local mock; that test was deleted. Strengthening the existing owners for the
+second cancellation fence, stable effect identity, and single unknown
+settlement raised the result to 84 killed, 51 surviving, and 16 uncovered with
+only one net additional test (56.49% total score). This is diagnostic evidence,
+not a global score target.
 
-  Backlog counts are provisional until a package is actually admitted, because
-  each one is only as good as the probe config that produced it. Both `native`
-  figures were artifacts. The first probe reported 596, mostly `TS17004`, because
-  it did not enable JSX. Extending `packages/native/tsconfig.json` reported 262
-  and was recorded here as drift, but that file is a solution file — `files: []`
-  and references only, carrying no `compilerOptions` — so the probe inherited no
-  `lib`, `types`, or JSX setting. Its 262 were 146 `TS2300` and 88 `TS2451`
-  duplicate-identifier errors from doubly-declared globals, and contained no
-  `TS17004` at all. Extending `tsconfig.renderer.json`, which is where native's
-  JSX and bundler resolution live, exposes the real figure: 5.
+Stryker runs as a deliberately bounded pilot: one production owner, one owning
+test file, per-test coverage, no incremental baseline, and no break threshold.
+TypeScript remains a separate mandatory gate because generated mutants often
+violate types. Stryker 10 still calls a compiler API removed in TypeScript 7
+while rewriting tsconfig files, so the pilot skips that optional rewrite while
+keeping the sandbox. The TypeScript checker plugin is not admitted until the
+upstream TypeScript 7 migration is complete.
 
-  The remaining three were re-measured after that correction. Each has a real
-  package config rather than a solution file, so extending it is correct, and
-  their error codes are ordinary drift — `TS2322`, `TS2353`, `TS2339`, `TS2345` —
-  with none of the duplicate-identifier clustering that exposed the `native`
-  artifact. `cli` and `core` are confirmed unchanged. `runtime` falls from 1087 to
-  996 once the monorepo-root `rootDir` removes 91 `TS6059` violations from the
-  shared-fixture import. Treat a baseline measured against a correct config as
-  authoritative over this table.
-
-  The drift is genuine. Samples: `content` asserted on `IncomingMessage`
-  which no longer declares it; `expiresAt` on a route-capability snapshot that
-  no longer declares it; `"session_started"` used where `OperatorSessionEventKind`
-  no longer admits it; `.sort()` called on a `readonly` array. These tests pass
-  because the extra properties are ignored at runtime, so they assert against
-  contracts that no longer exist. The `gateway-contracts` admission confirmed the
-  class empirically: a lease-projection test read `releasedAt` from a fixture
-  constant that never declared it, so its rejection assertion passed on a missing
-  release instant rather than on the invalid affinity discriminator it named. The
-  defect fixed in
-  `managed-agent-route-catalog.test.ts` during this work — calling `.some()` on
-  an optional `agentHealth` — is the same class and would have been a compile
-  error under this gate.
+The remaining supported package inventory is explicit. Widget already includes
+its four test sources in `packages/widget/tsconfig.json`. GUI includes only
+`src` today: a correct test probe found 197 errors across 28 of its 75 test
+files, all confined to `packages/gui`. Issue
+[#106](https://github.com/sequelcore/kiln/issues/106) owns that separate
+admission rather than expanding #85.
 
 ## Sources
 
+- Bun, [1.4 release notes](https://bun.com/blog/bun-v1.4)
 - Bun, [workspace filtering and parallel script execution](https://bun.sh/docs/pm/filter)
 - Bun, [install and cache paths](https://bun.sh/docs/pm/cli/install)
 - Vitest 4.1.10, [improving performance](https://vitest.dev/guide/improving-performance)
@@ -256,3 +227,6 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
 - Vitest 4.1.10, [reporters](https://vitest.dev/guide/reporters) for `blob` and `--merge-reports`
 - GitHub, [dependency caching](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/caching-dependencies-to-speed-up-workflows)
 - Oven, [setup-bun](https://github.com/oven-sh/setup-bun)
+- Stryker, [Vitest runner](https://stryker-mutator.io/docs/stryker-js/vitest-runner/)
+- Stryker, [TypeScript 7 tsconfig preprocessing migration](https://github.com/stryker-mutator/stryker-js/issues/6111)
+- Stryker, [incremental Vitest result instability](https://github.com/stryker-mutator/stryker-js/issues/6004)

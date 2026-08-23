@@ -45,7 +45,9 @@ describe("whatsapp-api", () => {
       });
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, opts] = fetchMock.mock.calls[0];
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected WhatsApp request");
+      const [url, opts] = call;
       expect(url).toContain("/phone1/messages");
       expect(opts.method).toBe("POST");
       expect(opts.headers.Authorization).toBe("Bearer token1");
@@ -84,7 +86,11 @@ describe("whatsapp-api", () => {
       );
 
       expect(result.whatsappMessageId).toBe("wamid.audio");
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected WhatsApp request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected WhatsApp request options");
+      const body = JSON.parse(opts.body);
       expect(body.type).toBe("audio");
       expect(body.audio.link).toBe("https://media.example.com/audio.mp3");
     });
@@ -107,7 +113,11 @@ describe("whatsapp-api", () => {
 
       expect(result.whatsappMessageId).toBe("wamid.abc123");
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected WhatsApp request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected WhatsApp request options");
+      const body = JSON.parse(opts.body);
       expect(body.type).toBe("template");
       expect(body.template.name).toBe("order_confirmation");
       expect(body.template.language.code).toBe("es_MX");
@@ -147,7 +157,11 @@ describe("whatsapp-api", () => {
 
       expect(result.whatsappMessageId).toBe("wamid.xyz789");
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected WhatsApp request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected WhatsApp request options");
+      const body = JSON.parse(opts.body);
       expect(body.template.components).toHaveLength(2);
       expect(body.template.components[0].type).toBe("body");
       expect(body.template.components[0].parameters[0].text).toBe("Maria");
@@ -161,7 +175,11 @@ describe("whatsapp-api", () => {
 
       await sendWhatsAppTemplate("phone1", "token1", "+5551234", "hello_world", "en_US", []);
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected WhatsApp request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected WhatsApp request options");
+      const body = JSON.parse(opts.body);
       expect(body.template.components).toBeUndefined();
     });
 

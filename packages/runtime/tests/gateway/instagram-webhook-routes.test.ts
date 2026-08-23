@@ -16,6 +16,7 @@ import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -36,6 +37,9 @@ vi.mock("../../src/tenant/agent-resolver.js", () => ({
 }));
 
 const originalFetch = globalThis.fetch;
+const mockFetch = createTestFetch(vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ recipient_id: "user-1", message_id: "mid-1" }), {
+  headers: { "content-type": "application/json" },
+})));
 const originalEnv = { ...process.env };
 
 interface InstagramWebhookPayload {
@@ -141,6 +145,7 @@ function makeConfig(overrides: Partial<InstagramWebhookConfig> = {}): InstagramW
 
 describe("createInstagramWebhookRoutes", () => {
   beforeEach(() => {
+    mockFetch.mockReset();
     mockedResolveAgentContextAsync.mockResolvedValue({
       systemPrompt: "Mock system prompt",
       tenantToolContext: {
@@ -155,10 +160,7 @@ describe("createInstagramWebhookRoutes", () => {
       isHandoff: false,
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ recipient_id: "user-1", message_id: "mid-1" }),
-    });
+    globalThis.fetch = mockFetch;
     process.env.IG_ACCESS_TOKEN = "test-ig-access-token";
   });
 
@@ -217,9 +219,12 @@ describe("createInstagramWebhookRoutes", () => {
 
       // fetch should have been called to send Instagram reply
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-      const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      const fetchCall = mockFetch.mock.calls.at(0);
+      if (!fetchCall) throw new Error("Expected Instagram reply request");
       expect(fetchCall[0]).toContain("/page-456/messages");
-      const fetchBody = JSON.parse(fetchCall[1]?.body as string);
+      const requestOptions = fetchCall[1];
+      if (!requestOptions?.body || typeof requestOptions.body !== "string") throw new Error("Expected Instagram request body");
+      const fetchBody = JSON.parse(requestOptions.body);
       expect(fetchBody.recipient.id).toBe("user-sender");
       expect(fetchBody.message.text).toBe("mock ig response");
     });
@@ -271,9 +276,16 @@ describe("createInstagramWebhookRoutes", () => {
       expect(res.status).toBe(200);
       await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
 
-      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const textBody = JSON.parse(fetchCalls[0]![1]?.body as string);
-      const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
+      const textCall = mockFetch.mock.calls.at(0);
+      const audioCall = mockFetch.mock.calls.at(1);
+      if (!textCall || !audioCall) throw new Error("Expected Instagram text and audio requests");
+      const textOptions = textCall[1];
+      const audioOptions = audioCall[1];
+      if (!textOptions?.body || typeof textOptions.body !== "string" || !audioOptions?.body || typeof audioOptions.body !== "string") {
+        throw new Error("Expected Instagram request bodies");
+      }
+      const textBody = JSON.parse(textOptions.body);
+      const audioBody = JSON.parse(audioOptions.body);
 
       expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock ig response", { voice: "alloy" });
       expect(textBody.message.text).toBe("mock ig response");
@@ -393,7 +405,7 @@ describe("createInstagramWebhookRoutes", () => {
       const config = makeConfig({ artifactStore });
       config.tenantRegistry.create(makeTenantConfig());
       const processSpy = vi.spyOn(config.orchestrator, "processMessage");
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const attachmentFetch = createTestFetch(vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const url = String(input);
         if (url === "https://cdn.example.test/ig-image.jpg") {
           return new Response(new Uint8Array([4, 5, 6]), {
@@ -405,7 +417,8 @@ describe("createInstagramWebhookRoutes", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      }) as typeof fetch;
+      }));
+      globalThis.fetch = attachmentFetch;
 
       const app = createInstagramWebhookRoutes(config);
       const payload: InstagramWebhookPayload = {

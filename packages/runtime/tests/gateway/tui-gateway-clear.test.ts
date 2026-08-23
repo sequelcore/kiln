@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
+import type { GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
+import type { EventEmitter as EventEmitterType } from "node:events";
 import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
@@ -30,13 +32,23 @@ const TEST_PARENT_AUTHORITY = {
 const tuiProcessAdmittedTurn = vi.hoisted(() => vi.fn());
 
 const tuiSocketHarness = vi.hoisted(() => {
-  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  type MockWebSocket = {
+    readonly send: ReturnType<typeof vi.fn>;
+    readonly readyState: number;
+    readonly close: ReturnType<typeof vi.fn>;
+  };
+  type TuiHandlers = {
+    readonly onOpen?: (event: Event, ws: MockWebSocket) => void | Promise<void>;
+    readonly onMessage?: (event: MessageEvent, ws: MockWebSocket) => void | Promise<void>;
+    readonly onClose?: (event: CloseEvent, ws: MockWebSocket) => void | Promise<void>;
+  };
+  type HandlerFactory = (context: unknown) => TuiHandlers;
   let capturedFactory: HandlerFactory | null = null;
 
-  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
-    capturedFactory = factory;
-    return async (_c, next) => next();
-  };
+  const upgradeWebSocket = ((factory: unknown) => {
+    capturedFactory = factory as HandlerFactory;
+    return async (_c: unknown, next: () => Promise<void>) => next();
+  }) as UpgradeWebSocket;
 
   function simulateConnection(queryParams: Record<string, string> = {}) {
     if (!capturedFactory) throw new Error("upgradeWebSocket not called yet");
@@ -50,16 +62,16 @@ const tuiSocketHarness = vi.hoisted(() => {
       req: {
         query: (key: string) => url.searchParams.get(key) ?? undefined,
       },
-    } as Parameters<HandlerFactory>[0];
+    };
 
     const handlers = capturedFactory(ctx);
-    const mockWs = {
+    const mockWs: MockWebSocket = {
       send: vi.fn(),
       readyState: 1,
       close: vi.fn(),
     };
 
-    return { handlers, mockWs, wsCtx: mockWs as never };
+    return { handlers, mockWs, wsCtx: mockWs };
   }
 
   function reset(): void {
@@ -245,8 +257,8 @@ vi.mock("node:child_process", async (importOriginal) => {
     ...actual,
     execSync: vi.fn(() => ""),
     spawn: vi.fn(() => {
-      const proc = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
+      const proc = new EventEmitter() as EventEmitterType & {
+        stdout: EventEmitterType;
         stdin: { write: ReturnType<typeof vi.fn> };
         kill: ReturnType<typeof vi.fn>;
       };
@@ -458,21 +470,6 @@ function makeTuiOperatorDiscoveryFromModels(
   }));
 }
 
-function makeUnavailableTuiOperatorDiscovery(
-  provider: string,
-  reason: string,
-): GuiProviderDiscoveryResult {
-  return {
-    provider,
-    available: false,
-    models: [],
-    status: "missing_auth",
-    reason,
-    authState: "missing",
-    lastCheckedAt: "2026-04-28T12:00:00.000Z",
-  };
-}
-
 async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -663,7 +660,7 @@ describe("TUI gateway execution-route catalog", () => {
           label: "OpenCode GPT-5",
           providerId: "opencode",
           providerModelId: "openai/gpt-5",
-          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true as const },
           availability: routeAvailable ? "available" as const : "unavailable" as const,
           reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
           repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
@@ -958,7 +955,7 @@ describe("TUI gateway message fail-closed behavior", () => {
         throw new Error("managed_agent.invoke was not attached to the TUI turn surface");
       }
       const managedInvokePermission = input.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions
-        .find((permission) => permission.toolName === "managed_agent.invoke");
+        .find((permission: { readonly toolName?: string }) => permission.toolName === "managed_agent.invoke");
       expect(managedInvokePermission?.authority).toMatchObject({
         allowed: false,
         requiresApproval: true,

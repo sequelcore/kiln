@@ -11,12 +11,14 @@ import {
   digestManagedEconomicCandidateProfileAuthority,
   type ManagedAgentRuntimeInvocationInput,
   type ManagedInvocationToolAttachment,
+  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolRoute,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   EffectiveTurnAuthoritySnapshot,
-  RuntimeBuiltinToolExecutionContext,
 } from "../../src/session/runtime-session-orchestrator.types.js";
 import { managedEconomicAdmissionContract } from "./managed-economic-admission-fixture.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
@@ -97,9 +99,28 @@ describe("managed_agent.orchestrate", () => {
   });
 
   it("dispatches adapterless economic children through the attached executor with stable caller-bound commitments", async () => {
-    const invoked = vi.fn();
+    const invoked = vi.fn<(invocationId: string) => void>();
     const adapter = economicAdapter(invoked);
-    const prepare = vi.fn(async (input) => ({
+    const prepare = vi.fn<NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"]>(async (input) => ({
+      ...(() => {
+        const admissionBundle = managedEconomicAdmissionContract({
+          sessionId: "session-test",
+          turnId: "turn-test",
+        }).bundle;
+        return {
+          dispatchFenceId: "dispatch-fence:orchestration-tool",
+          actionClaim: {
+            version: 1 as const,
+            attemptId: "economic-attempt:orchestration-tool",
+            admissionId: admissionBundle.admissionId,
+            admissionBundle,
+            intentFingerprint: input.intentFingerprint,
+            ownerGeneration: "managed-economic-owner:orchestration-tool",
+            effectIdentity: "managed-economic:orchestration-tool",
+          },
+          abortSignal: new AbortController().signal,
+        };
+      })(),
       status: "prepared" as const,
       commitment: {
         reservation: {
@@ -190,7 +211,7 @@ describe("managed_agent.orchestrate", () => {
 
 async function execute(
   input: Record<string, unknown>,
-  optionOverrides: ManagedInvocationToolAttachment["options"] = {},
+  optionOverrides: Partial<ManagedInvocationToolOptions> = {},
   childAuthorityAdmission?: ManagedInvocationToolAttachment["childAuthorityAdmission"],
 ): Promise<{
   readonly output: string;
@@ -214,15 +235,16 @@ async function execute(
   const executor = createManagedInvocationLifecycleToolExecutors(attachment)
     .get("managed_agent.orchestrate");
   if (!executor) throw new Error("managed_agent.orchestrate executor was not registered");
-  const sessionEvents: any[] = [];
+  const session = new RuntimeSession({
+    appName: "managed-orchestration-test",
+    tenantId: "test-tenant",
+    userId: "test-user",
+    systemPrompt: "managed orchestration test",
+    sessionId: "session-test",
+  });
+  (session as { createdAt: Date }).createdAt = new Date("2026-08-01T00:00:00.000Z");
   return await executor(input, {
-    session: {
-      id: "session-test",
-      createdAt: new Date("2026-08-01T00:00:00.000Z"),
-      get sessionEvents() { return sessionEvents; },
-      nextSessionEventSequence: () => sessionEvents.length + 1,
-      appendSessionEvents: (events: readonly unknown[]) => { sessionEvents.push(...events); },
-    } as RuntimeBuiltinToolExecutionContext["session"],
+    session,
     turnId: "turn-test",
     effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
     toolCall: {
@@ -237,7 +259,7 @@ async function execute(
   };
 }
 
-function economicRoute() {
+function economicRoute(): ManagedInvocationToolRoute {
   return {
     routeId: "economic-route",
     routeSource: "explicit-managed-route" as const,
@@ -276,7 +298,7 @@ function economicRoute() {
   };
 }
 
-function economicAdapter(invoked: ReturnType<typeof vi.fn>) {
+function economicAdapter(invoked: (invocationId: string) => void) {
   return {
     descriptor: defineManagedAgentAdapterDescriptor({
       adapterDescriptorId: "adapter:economic-test",

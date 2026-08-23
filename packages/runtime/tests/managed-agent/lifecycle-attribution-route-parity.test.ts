@@ -5,6 +5,7 @@ import { ManagedCliHarnessAdapter } from "../../src/agents/managed-invocation/cl
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { ManagedRemoteHarnessAdapter } from "../../src/agents/managed-invocation/remote-harness-adapter.js";
 import type { CliSessionFactory } from "../../src/execution/cli-session-contract.js";
+import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
 describe("managed agent lifecycle attribution route parity", () => {
   it("normalizes direct, CLI harness, and remote harness usage evidence with explicit source-granularity gaps", () => {
@@ -29,6 +30,9 @@ describe("managed agent lifecycle attribution route parity", () => {
       provider,
       tools: [],
       builtinTools: new Map(),
+      runtimeToolActionClaims: createFixtureToolActionStore(),
+      readAuthorityAdmission: () => undefined,
+      runtimeModelRoundActionClaims: createFixtureModelRoundStore(),
     });
     const cliHarness = new ManagedCliHarnessAdapter({
       providerId: "opencode",

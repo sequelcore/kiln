@@ -16,6 +16,7 @@ import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -36,6 +37,9 @@ vi.mock("../../src/tenant/agent-resolver.js", () => ({
 }));
 
 const originalFetch = globalThis.fetch;
+const mockFetch = createTestFetch(vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({}), {
+  headers: { "content-type": "application/json" },
+})));
 const originalEnv = { ...process.env };
 
 interface MetaWebhookPayload {
@@ -134,7 +138,7 @@ async function waitForMockFetchCall(
 ): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock?.calls ?? [];
+    const calls = mockFetch.mock.calls;
     if (calls.some((call) => predicate(String(call[0])))) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -143,6 +147,10 @@ async function waitForMockFetchCall(
 
 describe("createWhatsAppWebhookRoutes", () => {
   beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async () => new Response(JSON.stringify({}), {
+      headers: { "content-type": "application/json" },
+    }));
     mockedResolveAgentContextAsync.mockResolvedValue({
       systemPrompt: "Mock system prompt",
       tenantToolContext: {
@@ -157,10 +165,7 @@ describe("createWhatsAppWebhookRoutes", () => {
       isHandoff: false,
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    });
+    globalThis.fetch = mockFetch;
     process.env.WA_ACCESS_TOKEN = "test-access-token-value";
   });
 
@@ -233,9 +238,12 @@ describe("createWhatsAppWebhookRoutes", () => {
 
       // fetch should have been called to send WhatsApp reply
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-      const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      const fetchCall = mockFetch.mock.calls.at(0);
+      if (!fetchCall) throw new Error("Expected WhatsApp reply request");
       expect(fetchCall[0]).toBe("https://graph.facebook.com/v21.0/phone-123/messages");
-      const fetchBody = JSON.parse(fetchCall[1]?.body as string);
+      const requestOptions = fetchCall[1];
+      if (!requestOptions?.body || typeof requestOptions.body !== "string") throw new Error("Expected WhatsApp request body");
+      const fetchBody = JSON.parse(requestOptions.body);
       expect(fetchBody.messaging_product).toBe("whatsapp");
       expect(fetchBody.to).toBe("+5211234567");
       expect(fetchBody.text.body).toBe("mock response");
@@ -275,10 +283,9 @@ describe("createWhatsAppWebhookRoutes", () => {
           ttlMs: 300_000,
         },
       });
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ messages: [{ id: "wamid.voice" }] }),
-      });
+      mockFetch.mockResolvedValue(new Response(JSON.stringify({ messages: [{ id: "wamid.voice" }] }), {
+        headers: { "content-type": "application/json" },
+      }));
       config.tenantRegistry.create(makeTenantConfig());
       const app = createWhatsAppWebhookRoutes(config);
 
@@ -292,10 +299,17 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(res.status).toBe(200);
       await waitForMockFetchCall((url) => url.includes("/phone-123/messages"), 1_000);
 
-      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const fetchCalls = mockFetch.mock.calls;
       await vi.waitFor(() => expect(fetchCalls.length).toBeGreaterThanOrEqual(2));
-      const textBody = JSON.parse(fetchCalls[0]![1]?.body as string);
-      const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
+      const textCall = fetchCalls.at(0);
+      const audioCall = fetchCalls.at(1);
+      if (!textCall || !audioCall) throw new Error("Expected WhatsApp text and audio requests");
+      const textOptions = textCall[1];
+      const audioOptions = audioCall[1];
+      if (!textOptions?.body || typeof textOptions.body !== "string") throw new Error("Expected WhatsApp text request body");
+      if (!audioOptions?.body || typeof audioOptions.body !== "string") throw new Error("Expected WhatsApp audio request body");
+      const textBody = JSON.parse(textOptions.body);
+      const audioBody = JSON.parse(audioOptions.body);
 
       expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock response", { voice: "alloy" });
       expect(textBody.type).toBe("text");
@@ -382,7 +396,7 @@ describe("createWhatsAppWebhookRoutes", () => {
                 value: {
                   messaging_product: "whatsapp",
                   metadata: { phone_number_id: "phone-123" },
-                  messages: [{ from: "+5211234567", type: "image" }],
+                   messages: [{ id: "incoming-image", from: "+5211234567", type: "image" }],
                 },
               },
             ],
@@ -463,7 +477,7 @@ describe("createWhatsAppWebhookRoutes", () => {
       const config = makeConfig({ artifactStore });
       config.tenantRegistry.create(makeTenantConfig());
       const processSpy = vi.spyOn(config.orchestrator, "processMessage");
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      mockFetch.mockImplementation(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith("/media-image-1")) {
           return new Response(JSON.stringify({
@@ -484,7 +498,7 @@ describe("createWhatsAppWebhookRoutes", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      }) as typeof fetch;
+      });
 
       const app = createWhatsAppWebhookRoutes(config);
       const payload = {
@@ -607,7 +621,7 @@ describe("createWhatsAppWebhookRoutes", () => {
       const tenant = makeTenantConfig({ whatsappCoexistence: { enabled: true } });
       config.tenantRegistry.create(tenant);
 
-      const session = await config.sessionRegistry.getOrCreate({
+      await config.sessionRegistry.getOrCreate({
         appName: "test-app",
         tenantId: "test-tenant",
         userId: "521234567890",

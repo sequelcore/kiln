@@ -14,7 +14,6 @@ import {
 } from "../../src/gateway/gateway-server.js";
 import { CredentialPoolObservabilityRegistry } from "../../src/agents/credential-pool/credential-pool-observability.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
-import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
@@ -30,16 +29,20 @@ import {
 import type { EventBus } from "@kilnai/core/events";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const originalFetch = globalThis.fetch;
+const mockFetch = createTestFetch(vi.fn(async () => new Response(JSON.stringify({ remaining: 50000, unit: "tokens" }), {
+  headers: { "content-type": "application/json" },
+})));
 
-function makeApp(name: string): App {
+function makeApp(name: string, tools: readonly string[] = []): App {
   return {
     name,
     teams: {
       default: {
         name: "default",
-        agents: { w: { name: "w", tier: "coding", tools: [] } },
+        agents: { w: { name: "w", role: "test", goal: "test", tools } },
         capabilities: [],
       },
     },
@@ -110,13 +113,23 @@ function makeMetaAudioResponseVoiceConfig(channelType: "whatsapp" | "instagram" 
 }
 
 function makeUpgradeWebSocket() {
-  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  type MockWebSocket = {
+    readonly send: ReturnType<typeof vi.fn>;
+    readonly readyState: number;
+    readonly close: ReturnType<typeof vi.fn>;
+  };
+  type Handlers = {
+    readonly onOpen?: (event: Event, ws: MockWebSocket) => void | Promise<void>;
+    readonly onMessage?: (event: MessageEvent, ws: MockWebSocket) => void | Promise<void>;
+    readonly onClose?: (event: CloseEvent, ws: MockWebSocket) => void | Promise<void>;
+  };
+  type HandlerFactory = (context: unknown) => Handlers;
   let capturedFactory: HandlerFactory | null = null;
 
-  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
-    capturedFactory = factory;
-    return async (_c, next) => next();
-  };
+  const upgradeWebSocket = ((factory: unknown) => {
+    capturedFactory = factory as HandlerFactory;
+    return async (_c: unknown, next: () => Promise<void>) => next();
+  }) as UpgradeWebSocket;
 
   function simulateConnection(queryParams: Record<string, string> = {}) {
     if (!capturedFactory) throw new Error("upgradeWebSocket not called yet");
@@ -130,15 +143,15 @@ function makeUpgradeWebSocket() {
       req: {
         query: (key: string) => url.searchParams.get(key) ?? undefined,
       },
-    } as Parameters<HandlerFactory>[0];
+    };
 
     const handlers = capturedFactory(ctx);
-    const mockWs: WebSocketLike & { close: ReturnType<typeof vi.fn> } = {
+    const mockWs: MockWebSocket = {
       send: vi.fn(),
       readyState: 1,
       close: vi.fn(),
     };
-    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<typeof handlers.onOpen>[1] };
+    return { handlers, mockWs, wsCtx: mockWs };
   }
 
   return { upgradeWebSocket, simulateConnection };
@@ -375,8 +388,7 @@ describe("createGatewayApp", () => {
   });
 
   it("retries MCP discovery when configured tools are initially missing", async () => {
-    const app = makeApp("artu");
-    app.teams.default.agents.w.tools = ["mcp:artu-trading:tool:get_opportunity_report"];
+    const app = makeApp("artu", ["mcp:artu-trading:tool:get_opportunity_report"]);
     const discoverProviderCapabilities = vi.fn()
       .mockResolvedValueOnce([{ name: "mcp:artu-trading:tool:get_opportunity" }])
       .mockResolvedValueOnce([
@@ -400,8 +412,7 @@ describe("createGatewayApp", () => {
   });
 
   it("does not make one canonical server satisfy another server's configured selectors", async () => {
-    const app = makeApp("artu");
-    app.teams.default.agents.w.tools = ["mcp:other-server:tool:lookup"];
+    const app = makeApp("artu", ["mcp:other-server:tool:lookup"]);
     const discoverProviderCapabilities = vi.fn().mockResolvedValue([]);
 
     await discoverMcpCapabilitiesWithConfiguredToolRetry({
@@ -529,10 +540,11 @@ describe("createGatewayApp", () => {
 
 describe("createGatewayApp multi-tenant wiring", () => {
   beforeEach(() => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ remaining: 50000, unit: "tokens" }),
-    });
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async () => new Response(JSON.stringify({ remaining: 50000, unit: "tokens" }), {
+      headers: { "content-type": "application/json" },
+    }));
+    globalThis.fetch = mockFetch;
   });
 
   afterEach(() => {
@@ -583,6 +595,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
     tenantRegistry.create(makeTenantConfig({ whatsappPhoneNumberId: "12345" }));
 
     const provider = makeMockProvider();
+    const whatsappSessionRegistry = new SessionRegistry();
     const loadedApp: LoadedApp = {
       name: "atendia",
       app: makeApp("atendia"),
@@ -597,9 +610,10 @@ describe("createGatewayApp multi-tenant wiring", () => {
       whatsappWebhookConfig: {
         appName: "atendia",
         orchestrator: new RuntimeSessionOrchestrator({ provider }),
-        sessionRegistry: new SessionRegistry(),
+        sessionRegistry: whatsappSessionRegistry,
         tenantRegistry,
         verifyToken: "test-verify-token",
+        gatewayAdmission: makeGatewayTestAdmission(whatsappSessionRegistry, provider),
       },
     };
 
@@ -629,6 +643,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
       },
       tenantAdminConfig: {
         tenantRegistry,
+        sessionRegistry: new SessionRegistry(),
         appName: "atendia",
       },
     };
@@ -676,6 +691,8 @@ describe("createGatewayApp multi-tenant wiring", () => {
     tenantRegistry.create(makeTenantConfig());
 
     const provider = makeMockProvider();
+    const tenantSessionRegistry = new SessionRegistry();
+    const providerSessionRegistry = new SessionRegistry();
     const loadedApp: LoadedApp = {
       name: "atendia",
       app: makeApp("atendia"),
@@ -688,15 +705,17 @@ describe("createGatewayApp multi-tenant wiring", () => {
       tenantRuntime: {
         appName: "atendia",
         orchestrator: new RuntimeSessionOrchestrator({ provider }),
-        sessionRegistry: new SessionRegistry(),
+        sessionRegistry: tenantSessionRegistry,
         tenantRegistry,
+        gatewayAdmission: makeGatewayTestAdmission(tenantSessionRegistry, provider),
       },
       providerAdapterRuntime: {
         appName: "atendia",
         orchestrator: new RuntimeSessionOrchestrator({ provider }),
-        sessionRegistry: new SessionRegistry(),
+        sessionRegistry: providerSessionRegistry,
         billing: undefined,
         systemPrompt: "test",
+        gatewayAdmission: makeGatewayTestAdmission(providerSessionRegistry, provider),
       },
     };
 

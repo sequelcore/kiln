@@ -3,13 +3,13 @@ import {
   createManagedExternalInvocationPermit,
   type ManagedExternalInvocationActionClaim,
   type ManagedExternalInvocationActionClaimContext,
-  type ManagedExternalInvocationActionClaimSettlement,
+  type ManagedExternalInvocationClaimSettlement,
 } from "../../src/agents/managed-invocation/external-invocation-action-claim.js";
 import {
   RuntimeManagedAgentInvocationService,
-  type RuntimeManagedAgentInvocationLifecycleOptions,
-  type RuntimeManagedAgentInvocationServiceOptions,
+  type ManagedAgentRuntimeInvocationLifecycleOptions,
 } from "../../src/agents/managed-invocation/invocation-service.js";
+import type { RuntimeManagedAgentInvocationServiceOptions } from "../../src/agents/managed-invocation/invocation-service.js";
 import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
@@ -81,7 +81,7 @@ export function externalHarnessTestAdmission(): EffectiveAuthorityAdmissionBundl
  */
 export class ExternalHarnessTestClaimStore {
   readonly claims: ManagedExternalInvocationActionClaim[] = [];
-  readonly settlements: ManagedExternalInvocationActionClaimSettlement[] = [];
+  readonly settlements: ManagedExternalInvocationClaimSettlement[] = [];
   private readonly permits = new WeakMap<object, { readonly claimId: string; consumed: boolean; settled: boolean }>();
   private readonly slots = new Set<string>();
   private closed = false;
@@ -109,7 +109,7 @@ export class ExternalHarnessTestClaimStore {
 
   settle(
     permit: ReturnType<typeof createManagedExternalInvocationPermit>,
-    settlement: ManagedExternalInvocationActionClaimSettlement,
+    settlement: ManagedExternalInvocationClaimSettlement,
   ): void {
     const state = this.permits.get(permit);
     if (!state || state.claimId !== permit.claimId || !state.consumed || state.settled) {
@@ -157,7 +157,7 @@ export class ExternalHarnessTestService {
     request: Parameters<RuntimeManagedAgentInvocationService["invoke"]>[0],
     adapter: Parameters<RuntimeManagedAgentInvocationService["invoke"]>[1],
     capabilitySnapshotInput: Parameters<RuntimeManagedAgentInvocationService["invoke"]>[2],
-    lifecycleOptions: RuntimeManagedAgentInvocationLifecycleOptions = {},
+    lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): ReturnType<RuntimeManagedAgentInvocationService["invoke"]> {
     return this.service.invoke(request, adapter, capabilitySnapshotInput, {
       ...lifecycleOptions,

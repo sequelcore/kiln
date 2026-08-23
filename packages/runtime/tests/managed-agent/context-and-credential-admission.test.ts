@@ -67,6 +67,9 @@ function makeAudit(): ContextAuditEntry {
     requiredTokens: 1,
     tokenBudget: 256,
     overflow: false,
+    allocationMode: "whole-block",
+    positionProfile: "balanced",
+    requiredOverflowPolicy: "admit-and-report",
     blocks: [
       {
         id: "fixture:directive",

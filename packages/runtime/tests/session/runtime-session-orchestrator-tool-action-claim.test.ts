@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority, type CanonicalTurnId } from "@kilnai/core/events";
 import type { ProviderAdapter } from "@kilnai/core/agents";
-import type { Capability, ResolvedInvocationEffect, ToolAuthorizer } from "@kilnai/core/engine";
+import type { Capability, ResolvedInvocationEffect } from "@kilnai/core/engine";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
-import type { OrchestratorDeps, PerCallToolConfig, RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
+import type { OrchestratorDeps, RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
 import type {
   RuntimeToolActionClaim,
   RuntimeToolActionClaimPermit,
@@ -53,7 +53,7 @@ function store(events: string[] = []) {
 
 function admission(
   sessionId: string,
-  turnId: string,
+  turnId: CanonicalTurnId,
   toolAuthority = { level: 2 as const, allowed: true, requiresApproval: false, reason: "test" },
   toolName = "write_data",
   toolEffect: ResolvedInvocationEffect = EFFECT,
@@ -83,7 +83,7 @@ function admission(
       execution: {
         status: "routed",
         route: { routeId: "route-1", providerId: "provider-1", providerModelId: "model-1", accountSelection: { mode: "exact", accountId: "account-1", source: "route" } },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "test" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "route-1", accountId: "account-1", credentialId: "credential-1", credentialRevision: "revision-1" },
       },
     },
@@ -92,7 +92,7 @@ function admission(
 
 function claimsContext(
   session: RuntimeSession,
-  turnId: string,
+  turnId: CanonicalTurnId,
   actionStore: RuntimeToolActionClaimStore,
   state?: RuntimeToolActionClaimsContext["state"],
   toolAuthority?: Parameters<typeof admission>[2],
@@ -128,16 +128,17 @@ describe("RuntimeSessionToolExecutor consequential action boundary", () => {
     const action = vi.fn(async () => { events.push("invoke"); return "written"; });
     const fallback = vi.fn(async () => "fallback");
     const { actionStore } = store(events);
-    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user" });
+    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user", systemPrompt: "Test system prompt." });
+    const turnId = canonicalTurnId(session.id, 1);
     const capability: Capability = {
       name: "write_data", description: "write", schema: {}, tags: [], effectEnvelope: EFFECT,
       retry: { maxAttempts: 3, onTransientError: "exponential", fallback: "fallback_data" },
     };
-    const claims = claimsContext(session, "turn-1", actionStore);
+    const claims = claimsContext(session, turnId, actionStore);
     const result = await executor(baseDeps({
       builtinTools: new Map([["write_data", action], ["fallback_data", fallback]]),
       capabilityMap: new Map([["write_data", capability]]),
-    })).executeToolCalls(session, [{ id: "call-1", name: "write_data", input: { value: 1 } }], "turn-1:response:1", {
+    })).executeToolCalls(session, [{ id: "call-1", name: "write_data", input: { value: 1 } }], `${turnId}:response:1`, {
       perCallCapabilities: new Map([["write_data", capability]]),
       authorityAdmission: claims.admission,
       runtimeToolActionClaims: claims,
@@ -151,12 +152,13 @@ describe("RuntimeSessionToolExecutor consequential action boundary", () => {
   it("uses the persisted bundle authority and effect over execution capability metadata", async () => {
     const { actionStore, rows } = store();
     const action = vi.fn(async () => "written");
-    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user" });
+    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user", systemPrompt: "Test system prompt." });
+    const turnId = canonicalTurnId(session.id, 1);
     const legacyCapability: Capability = { name: "write_data", description: "write", schema: {}, tags: [], effectEnvelope: READ_EFFECT };
-    const claims = claimsContext(session, "turn-1", actionStore);
+    const claims = claimsContext(session, turnId, actionStore);
     const result = await executor(baseDeps({
       builtinTools: new Map([["write_data", action]]), capabilityMap: new Map([["write_data", legacyCapability]]),
-    })).executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], "turn-1:response:1", {
+    })).executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], `${turnId}:response:1`, {
       perCallCapabilities: new Map([["write_data", legacyCapability]]),
       authorityAdmission: claims.admission,
       runtimeToolActionClaims: claims,
@@ -168,11 +170,12 @@ describe("RuntimeSessionToolExecutor consequential action boundary", () => {
 
   it("fails closed without a durable consequential claim context", async () => {
     const action = vi.fn(async () => "must not run");
-    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user" });
+    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user", systemPrompt: "Test system prompt." });
+    const turnId = canonicalTurnId(session.id, 1);
     const capability: Capability = { name: "write_data", description: "write", schema: {}, tags: [], effectEnvelope: EFFECT };
-    const bundle = admission(session.id, "turn-1");
+    const bundle = admission(session.id, turnId);
     const result = await executor(baseDeps({ builtinTools: new Map([["write_data", action]]), capabilityMap: new Map([["write_data", capability]]) }))
-      .executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], "turn-1:response:1", { authorityAdmission: bundle, perCallCapabilities: new Map([["write_data", capability]]) });
+      .executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], `${turnId}:response:1`, { authorityAdmission: bundle, perCallCapabilities: new Map([["write_data", capability]]) });
     expect(action).not.toHaveBeenCalled();
     expect(result.toolExecutions[0]?.success).toBe(false);
     expect(result.resultParts[0]?.content).toContain("claim context");
@@ -182,11 +185,12 @@ describe("RuntimeSessionToolExecutor consequential action boundary", () => {
     const { actionStore, events } = store();
     const executeCapability = vi.fn(async () => "mcp-result");
     const mcp = { serverName: "server", executeCapability };
-    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user" });
+    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user", systemPrompt: "Test system prompt." });
+    const turnId = canonicalTurnId(session.id, 1);
     const capability: Capability = { name: "mcp:server:tool", description: "mcp", schema: {}, tags: [], effectEnvelope: READ_EFFECT };
-    const claims = claimsContext(session, "turn-1", actionStore, undefined, undefined, capability.name, READ_EFFECT);
+    const claims = claimsContext(session, turnId, actionStore, undefined, undefined, capability.name, READ_EFFECT);
     const result = await executor(baseDeps({ mcpClients: [mcp] as never, capabilityMap: new Map([[capability.name, capability]]) }))
-      .executeToolCalls(session, [{ id: "call-1", name: capability.name, input: {} }], "turn-1:response:1", {
+      .executeToolCalls(session, [{ id: "call-1", name: capability.name, input: {} }], `${turnId}:response:1`, {
         perCallCapabilities: new Map([[capability.name, capability]]),
         authorityAdmission: claims.admission,
         runtimeToolActionClaims: claims,
@@ -206,12 +210,13 @@ describe("RuntimeSessionToolExecutor consequential action boundary", () => {
         effectExecuted = true;
         return "written";
       });
-    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user" });
+    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user", systemPrompt: "Test system prompt." });
+    const turnId = canonicalTurnId(session.id, 1);
     const capability: Capability = { name: "write_data", description: "write", schema: {}, tags: [], effectEnvelope: EFFECT };
     const authority = { level: 2 as const, allowed: false, requiresApproval: true, reason: "operator approval" };
-    const claims = claimsContext(session, "turn-1", actionStore, undefined, authority);
+    const claims = claimsContext(session, turnId, actionStore, undefined, authority);
     await expect(executor(baseDeps({ builtinTools: new Map([["write_data", action]]), capabilityMap: new Map([["write_data", capability]]) }), requestApproval)
-      .executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], "turn-1:response:1", {
+      .executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], `${turnId}:response:1`, {
         perCallCapabilities: new Map([["write_data", capability]]),
         authorityAdmission: claims.admission, runtimeToolActionClaims: claims,
       })).rejects.toMatchObject({ name: "RuntimeToolActionCommittedError", retryable: false });
@@ -222,13 +227,14 @@ describe("RuntimeSessionToolExecutor consequential action boundary", () => {
   it("propagates a post-claim sanitizer failure as committed unknown", async () => {
     const { actionStore } = store();
     const action = vi.fn(async () => "written");
-    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user" });
+    const session = new RuntimeSession({ appName: "test", tenantId: "tenant", userId: "user", systemPrompt: "Test system prompt." });
+    const turnId = canonicalTurnId(session.id, 1);
     const capability: Capability = { name: "write_data", description: "write", schema: {}, tags: [], effectEnvelope: EFFECT };
     const sanitizer = { sanitize: vi.fn(async () => { throw new Error("projection failed"); }) };
-    const claims = claimsContext(session, "turn-1", actionStore);
+    const claims = claimsContext(session, turnId, actionStore);
     await expect(executor(baseDeps({
       builtinTools: new Map([["write_data", action]]), capabilityMap: new Map([["write_data", capability]]), toolResultSanitizer: sanitizer as never,
-    })).executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], "turn-1:response:1", {
+    })).executeToolCalls(session, [{ id: "call-1", name: "write_data", input: {} }], `${turnId}:response:1`, {
       perCallCapabilities: new Map([["write_data", capability]]), authorityAdmission: claims.admission, runtimeToolActionClaims: claims,
     })).rejects.toMatchObject({ name: "RuntimeToolActionCommittedError", retryable: false });
     expect(action).toHaveBeenCalledOnce();

@@ -8,6 +8,7 @@ import { FileProviderUsageStore } from "../../src/agents/provider-usage/file-pro
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const OBSERVED_AT = "2026-07-22T12:00:00.000Z";
 const VALID_UNTIL = "2026-07-22T12:05:00.000Z";
@@ -228,7 +229,7 @@ describe("Codex provider usage adapter", () => {
     }
 
     it("classifies a rejected request status instead of reporting absent usage", async () => {
-      const snapshot = await read(async () => new Response("forbidden", { status: 403 }));
+      const snapshot = await read(createTestFetch(async () => new Response("forbidden", { status: 403 })));
 
       expect(snapshot).toMatchObject({
         availability: "unknown",
@@ -241,10 +242,10 @@ describe("Codex provider usage adapter", () => {
     });
 
     it("distinguishes an empty successful response from a failed request", async () => {
-      const snapshot = await read(async () => new Response("{}", {
+      const snapshot = await read(createTestFetch(async () => new Response("{}", {
         status: 200,
         headers: { "content-type": "application/json" },
-      }));
+      })));
 
       expect(snapshot).toMatchObject({
         availability: "unknown",
@@ -264,7 +265,7 @@ describe("Codex provider usage adapter", () => {
       );
 
       const snapshot = await new Reader({
-        fetch: async () => new Response("{}", { status: 200 }),
+        fetch: createTestFetch(async () => new Response("{}", { status: 200 })),
         store: new InMemoryProviderUsageStore(),
         now: () => new Date(OBSERVED_AT),
       }).read({
@@ -285,7 +286,7 @@ describe("Codex provider usage adapter", () => {
     });
 
     it("separates an unusable credential from a failed request", async () => {
-      const snapshot = await reader(async () => new Response("{}", { status: 200 })).read({
+      const snapshot = await reader(createTestFetch(async () => new Response("{}", { status: 200 }))).read({
         provider: "codex-oauth",
         credentialId: credential.credentialId,
         resolveCredential: async () => { throw new Error("refresh rejected for operator@example.test"); },
@@ -301,13 +302,13 @@ describe("Codex provider usage adapter", () => {
     });
 
     it("still reads rate-limit headers carried by a rejected response", async () => {
-      const snapshot = await read(async () => new Response("too many requests", {
+      const snapshot = await read(createTestFetch(async () => new Response("too many requests", {
         status: 429,
         headers: {
           "x-codex-primary-used-percent": "100",
           "x-codex-primary-reset-at": "1784725200",
         },
-      }));
+      })));
 
       expect(snapshot).toMatchObject({
         availability: "exhausted",
@@ -558,11 +559,11 @@ describe("Codex provider usage reader", () => {
         accessToken: "secret-token",
         chatgptAccountId: "account-secret",
       }));
-      const fetch = vi.fn(async () => new Response(JSON.stringify({
+      const fetch = createTestFetch(vi.fn(async () => new Response(JSON.stringify({
         plan_type: "plus",
         rate_limit: { allowed: true, limit_reached: false, primary_window: { used_percent: 12, reset_at: 1784725200 } },
         email: "operator@example.test",
-      }), { status: 200, headers: { authorization: "must-not-survive" } }));
+      }), { status: 200, headers: { authorization: "must-not-survive" } })));
       const reader = new CodexProviderUsageReader({ fetch, store, now: () => new Date(OBSERVED_AT) });
 
       const snapshot = await reader.read({ provider: "codex-oauth", credentialId: "credential-opaque-1", resolveCredential });
@@ -579,7 +580,7 @@ describe("Codex provider usage reader", () => {
   it("classifies a transport failure and persists no transport error details", async () => {
     const store = new InMemoryProviderUsageStore();
     const reader = new CodexProviderUsageReader({
-      fetch: async () => { throw new Error("secret transport failure"); },
+      fetch: createTestFetch(async () => { throw new Error("secret transport failure"); }),
       store,
       now: () => new Date(OBSERVED_AT),
     });

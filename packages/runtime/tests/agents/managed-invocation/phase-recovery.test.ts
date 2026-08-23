@@ -182,6 +182,9 @@ describe("buildManagedInvocationPhaseRecovery - regression guard for the last-wi
       kind: "capability",
       summary: "Prior managed invocation failure, since resolved by the operator.",
       status: "resolved",
+      resolvedBy: "operator",
+      resolvedAt: "2026-08-23T12:00:00.000Z",
+      resolution: "Capability was restored and verified.",
     };
     const recovery = buildManagedInvocationPhaseRecovery(executionFinishRequest(), "failed", undefined, {
       priorPauseRequirements: [resolvedPrior],

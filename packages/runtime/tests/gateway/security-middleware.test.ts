@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { securityMiddleware } from "../../src/gateway/security-middleware.js";
 import type {
@@ -255,6 +255,7 @@ describe("securityMiddleware", () => {
       });
 
       // Middleware should skip scan and pass through (body parse error -> skip)
+      expect(res.status).toBe(200);
       expect(scanner.scan).not.toHaveBeenCalled();
     });
 
@@ -271,6 +272,7 @@ describe("securityMiddleware", () => {
         body: JSON.stringify({ message: "" }),
       });
 
+      expect(res.status).toBe(200);
       expect(scanner.scan).not.toHaveBeenCalled();
     });
 
@@ -287,6 +289,7 @@ describe("securityMiddleware", () => {
         body: JSON.stringify({ message: 42 }),
       });
 
+      expect(res.status).toBe(200);
       expect(scanner.scan).not.toHaveBeenCalled();
     });
 

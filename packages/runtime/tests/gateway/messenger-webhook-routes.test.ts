@@ -12,11 +12,16 @@ import type { MessengerWebhookConfig } from "../../src/gateway/messenger-webhook
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
-import type { GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
+import type {
+  GatewayAuthorityAdmissionCommit,
+  GatewayAuthorityAdmissionPort,
+  GatewayAuthorityAdmissionRequest,
+} from "../../src/gateway/gateway-authority-admission.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -37,6 +42,9 @@ vi.mock("../../src/tenant/agent-resolver.js", () => ({
 }));
 
 const originalFetch = globalThis.fetch;
+const mockFetch = createTestFetch(vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ recipient_id: "psid-1", message_id: "mid-1" }), {
+  headers: { "content-type": "application/json" },
+})));
 const originalEnv = { ...process.env };
 
 interface MessengerWebhookPayload {
@@ -79,22 +87,27 @@ function makeMockProvider(): ProviderAdapter {
 function withAdmissionFenceObservation(
   config: MessengerWebhookConfig,
   state: { active: boolean; outboundWhileActive: boolean },
-): void {
+): MessengerWebhookConfig {
   const base = config.gatewayAdmission;
-  config.gatewayAdmission = {
-    channelEgressActionClaims: base.channelEgressActionClaims,
-    runtimeMediaActionClaims: base.runtimeMediaActionClaims,
-    async execute<Result>(request, dispatch) {
-      return base.execute(request, async (commit) => {
-        state.active = true;
-        try {
-          return await dispatch(commit);
-        } finally {
-          state.active = false;
-        }
-      });
-    },
-  } satisfies GatewayAuthorityAdmissionPort;
+  return {
+    ...config,
+    gatewayAdmission: {
+      channelEgressActionClaims: base.channelEgressActionClaims,
+      async execute<Result>(
+        request: GatewayAuthorityAdmissionRequest,
+        dispatch: (commit: GatewayAuthorityAdmissionCommit) => Promise<Result>,
+      ): Promise<Result> {
+        return base.execute(request, async (commit) => {
+          state.active = true;
+          try {
+            return await dispatch(commit);
+          } finally {
+            state.active = false;
+          }
+        });
+      },
+    } satisfies GatewayAuthorityAdmissionPort,
+  };
 }
 
 function makeMessengerPayload(
@@ -163,6 +176,10 @@ function makeConfig(overrides: Partial<MessengerWebhookConfig> = {}): MessengerW
 
 describe("createMessengerWebhookRoutes", () => {
   beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async () => new Response(JSON.stringify({ recipient_id: "psid-1", message_id: "mid-1" }), {
+      headers: { "content-type": "application/json" },
+    }));
     mockedResolveAgentContextAsync.mockResolvedValue({
       systemPrompt: "Mock system prompt",
       tenantToolContext: {
@@ -177,10 +194,7 @@ describe("createMessengerWebhookRoutes", () => {
       isHandoff: false,
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ recipient_id: "psid-1", message_id: "mid-1" }),
-    });
+    globalThis.fetch = mockFetch;
     process.env.MSG_ACCESS_TOKEN = "test-msg-access-token";
   });
 
@@ -236,9 +250,12 @@ describe("createMessengerWebhookRoutes", () => {
       expect(provider.createMessage).toHaveBeenCalledTimes(1);
 
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-      const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      const fetchCall = mockFetch.mock.calls.at(0);
+      if (!fetchCall) throw new Error("Expected Messenger reply request");
       expect(fetchCall[0]).toContain("/me/messages");
-      const fetchBody = JSON.parse(fetchCall[1]?.body as string);
+      const requestOptions = fetchCall[1];
+      if (!requestOptions?.body || typeof requestOptions.body !== "string") throw new Error("Expected Messenger request body");
+      const fetchBody = JSON.parse(requestOptions.body);
       expect(fetchBody.messaging_type).toBe("RESPONSE");
       expect(fetchBody.recipient.id).toBe("psid-sender");
       expect(fetchBody.message.text).toBe("mock messenger response");
@@ -246,16 +263,16 @@ describe("createMessengerWebhookRoutes", () => {
 
     it("keeps outbound delivery inside the admission fence and sends nothing on rejection", async () => {
       const state = { active: false, outboundWhileActive: false };
-      const config = makeConfig();
-      withAdmissionFenceObservation(config, state);
+      const fencedConfig = withAdmissionFenceObservation(makeConfig(), state);
+      const config = fencedConfig;
       config.tenantRegistry.create(makeTenantConfig());
-      globalThis.fetch = vi.fn(async () => {
+      globalThis.fetch = createTestFetch(vi.fn(async () => {
         state.outboundWhileActive ||= state.active;
         return new Response(JSON.stringify({ recipient_id: "psid-sender", message_id: "mid-reply" }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      }) as typeof fetch;
+      }));
       await createMessengerWebhookRoutes(config).request("/webhook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -266,14 +283,14 @@ describe("createMessengerWebhookRoutes", () => {
       const rejectedConfig = makeConfig({
         gatewayAdmission: {
           channelEgressActionClaims: config.gatewayAdmission.channelEgressActionClaims,
-          async execute<Result>() {
+          async execute() {
             throw new Error("admission rejected");
           },
         } satisfies GatewayAuthorityAdmissionPort,
       });
       rejectedConfig.tenantRegistry.create(makeTenantConfig());
       const rejectedFetch = vi.fn(async () => new Response("unexpected", { status: 500 }));
-      globalThis.fetch = rejectedFetch as typeof fetch;
+      globalThis.fetch = createTestFetch(rejectedFetch);
       await createMessengerWebhookRoutes(rejectedConfig).request("/webhook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -330,9 +347,15 @@ describe("createMessengerWebhookRoutes", () => {
       expect(res.status).toBe(200);
       await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
 
-      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const textBody = JSON.parse(fetchCalls[0]![1]?.body as string);
-      const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
+      const textCall = mockFetch.mock.calls.at(0);
+      const audioCall = mockFetch.mock.calls.at(1);
+      if (!textCall || !audioCall) throw new Error("Expected Messenger text and audio requests");
+      const textOptions = textCall[1];
+      const audioOptions = audioCall[1];
+      if (!textOptions?.body || typeof textOptions.body !== "string") throw new Error("Expected Messenger text request body");
+      if (!audioOptions?.body || typeof audioOptions.body !== "string") throw new Error("Expected Messenger audio request body");
+      const textBody = JSON.parse(textOptions.body);
+      const audioBody = JSON.parse(audioOptions.body);
 
       expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock messenger response", { voice: "alloy" });
       expect(textBody.message.text).toBe("mock messenger response");
@@ -450,7 +473,7 @@ describe("createMessengerWebhookRoutes", () => {
       const config = makeConfig({ artifactStore });
       config.tenantRegistry.create(makeTenantConfig());
       const processSpy = vi.spyOn(config.orchestrator, "processMessage");
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      globalThis.fetch = createTestFetch(vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const url = String(input);
         if (url === "https://cdn.example.test/msg-image.jpg") {
           return new Response(new Uint8Array([7, 8, 9]), {
@@ -462,7 +485,7 @@ describe("createMessengerWebhookRoutes", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      }) as typeof fetch;
+      }));
 
       const app = createMessengerWebhookRoutes(config);
       const payload: MessengerWebhookPayload = {

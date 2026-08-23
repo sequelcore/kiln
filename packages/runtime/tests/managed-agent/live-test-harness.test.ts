@@ -15,7 +15,7 @@ import {
   makeManagedAgentLiveHarnessReadOnlyRequest,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
-import { defineManagedAgentWriteEvidence } from "@kilnai/core/agents";
+import { defineDeliberationLevelId, defineManagedAgentWriteEvidence } from "@kilnai/core/agents";
 import {
   evaluateManagedAgentLivePreflight,
   KILN_LIVE_CODEX_MODEL,
@@ -133,7 +133,7 @@ describe("managed agent live test harness", () => {
       workspaceRoot: "C:/portable/workspace",
       providerId: "claude",
       model: "claude-sonnet-5",
-      deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
+      deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("low"), onUnsupported: "deny" },
       handoff: {
         roleIntent: "read-only fixture inspector",
         requiredResultFields: ["summary"],

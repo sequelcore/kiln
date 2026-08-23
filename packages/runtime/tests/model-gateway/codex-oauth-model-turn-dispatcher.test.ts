@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createExecutionAccountRef,
+  defineDeliberationLevelId,
   type ModelTurn,
   type OneRoundModelDispatchInput,
 } from "@kilnai/core/agents";
@@ -10,6 +11,7 @@ import {
   CODEX_OAUTH_RESPONSES_ENDPOINT,
   encodeCodexOAuthResponsesRequest,
 } from "../../src/execution-kernel/provider-adapters/codex-oauth-model-turn-dispatcher.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const account = createExecutionAccountRef("account-fixture");
 const route = { providerId: "codex-oauth", providerModelId: "gpt-5-codex", scope: "direct" };
@@ -33,7 +35,7 @@ function richTurn(): ModelTurn {
     toolChoice: { kind: "tool", name: "apply_patch" }, parallelToolCalls: true,
     deliberationResolution: {
       status: "exact",
-      selectedLevel: "high",
+      selectedLevel: defineDeliberationLevelId("high"),
       source: "operator",
       capabilityEvidence: {
         sourceIdentity: "codex-model-catalog",
@@ -123,7 +125,9 @@ describe("CodexOAuthModelTurnDispatcher", () => {
       { type: "response.output_item.done", item: { type: "custom_tool_call", id: "ctc_1", call_id: "call_custom", name: "apply_patch", input: raw } },
       completed(richOutput),
     ];
-    const fetchFn = vi.fn(async () => sseResponse(frames, { requestId: "req_safe_1", chunkSize: 3, crlf: true }));
+    const fetchFn = createTestFetch(vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>(
+      async () => sseResponse(frames, { requestId: "req_safe_1", chunkSize: 3, crlf: true }),
+    ));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret", chatgptAccountId: "chat-account" }, fetch: fetchFn });
     const result = await dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createExecutionAccountRef("account-fixture") }));
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -139,7 +143,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
 
   it("preserves namespace on provider function calls", async () => {
     const output = [{ type: "function_call", id: "fc_ns", call_id: "call_ns", namespace: "workspace", name: "read", arguments: "{}" }];
-    const fetchFn = vi.fn(async () => sseResponse([{ type: "response.output_item.done", item: output[0] }, completed(output)]));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse([{ type: "response.output_item.done", item: output[0] }, completed(output)])));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
 
     const result = await dispatcher.dispatchOneRound(dispatchInput({
@@ -151,7 +155,8 @@ describe("CodexOAuthModelTurnDispatcher", () => {
   });
 
   it("rejects binding and capability errors without fetching", async () => {
-    const fetchFn = vi.fn(); const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn as typeof fetch });
+    const fetchFn = createTestFetch(vi.fn(async () => { throw new Error("unexpected fetch"); }));
+    const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createExecutionAccountRef("other") }))).rejects.toMatchObject({ code: "account-mismatch" });
     await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { route: { ...route, providerId: "other" } }))).rejects.toMatchObject({ code: "route-mismatch" });
     await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [{ role: "assistant", parts: [{ type: "image", source: { kind: "url", url: "https://example.test/a" } }] }] }))).rejects.toMatchObject({ code: "unsupported-capability" });
@@ -165,7 +170,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
     ["provider-incomplete", async () => sseResponse([{ type: "response.incomplete", response: { incomplete_details: { reason: "sentinel-token-secret" } } }])],
     ["incomplete-stream", async () => sseResponse([{ type: "response.created", response: { id: "r" } }])],
   ])("fails closed once for %s without leaking provider data", async (code, responseFactory) => {
-    const fetchFn = vi.fn(responseFactory); const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
+    const fetchFn = createTestFetch(vi.fn(responseFactory)); const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     const error = await dispatcher.dispatchOneRound(dispatchInput()).catch((value: unknown) => value) as CodexOAuthModelTurnError;
     expect(fetchFn).toHaveBeenCalledTimes(1); expect(error).toMatchObject({ code });
     expect(JSON.stringify(error)).not.toMatch(/sentinel-token-secret|token-secret|Be concise|Inspect/);
@@ -174,7 +179,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
 
   it("canonicalizes network and abort failures without retry", async () => {
     for (const aborted of [false, true]) {
-      const fetchFn = vi.fn(async () => { throw new Error("sentinel-token-secret"); });
+      const fetchFn = createTestFetch(vi.fn(async () => { throw new Error("sentinel-token-secret"); }));
       const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
       const controller = new AbortController(); if (aborted) controller.abort();
       const error = await dispatcher.dispatchOneRound(dispatchInput(richTurn(), { signal: controller.signal })).catch((value: unknown) => value) as CodexOAuthModelTurnError;
@@ -187,7 +192,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
     ["response-too-large", { maxBytes: 1, maxEvents: 10 }],
     ["too-many-events", { maxBytes: 10_000, maxEvents: 1 }],
   ])("enforces the bounded SSE decoder with %s", async (code, sseLimits) => {
-    const fetchFn = vi.fn(async () => sseResponse([{ type: "response.created", response: { id: "r" } }, completed()]));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse([{ type: "response.created", response: { id: "r" } }, completed()])));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn, sseLimits });
     await expect(dispatcher.dispatchOneRound(dispatchInput())).rejects.toMatchObject({ code });
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -198,7 +203,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
     const body = new ReadableStream<Uint8Array>({
       pull(stream) { controller.abort(); stream.error(new Error("sentinel-token-secret")); },
     });
-    const fetchFn = vi.fn(async () => new Response(body, { status: 200 }));
+    const fetchFn = createTestFetch(vi.fn(async () => new Response(body, { status: 200 })));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     const error = await dispatcher.dispatchOneRound(dispatchInput(richTurn(), { signal: controller.signal })).catch((value: unknown) => value) as CodexOAuthModelTurnError;
     expect(error.code).toBe("aborted");
@@ -207,7 +212,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
   });
 
   it("ignores injected endpoint-shaped data and always posts to the official endpoint", async () => {
-    const fetchFn = vi.fn(async () => sseResponse([completed()]));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse([completed()])));
     const options = { account, credential: { accessToken: "token-secret" }, fetch: fetchFn, endpoint: "https://attacker.invalid/responses" };
     const dispatcher = new CodexOAuthModelTurnDispatcher(options);
     await dispatcher.dispatchOneRound(dispatchInput({ history: [] }));
@@ -215,16 +220,18 @@ describe("CodexOAuthModelTurnDispatcher", () => {
   });
 
   it("accepts terminal-only output and maps it authoritatively", async () => {
-    const fetchFn = vi.fn(async () => sseResponse([completed([richOutput[1]!])]));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse([
+      completed([richOutput[1]!]),
+    ])));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [] }))).resolves.toMatchObject({ parts: [{ type: "text", text: "hello" }] });
   });
 
   it("accepts complete streamed output when the terminal frame omits its output copy", async () => {
-    const fetchFn = vi.fn(async () => sseResponse([
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse([
       { type: "response.output_item.done", item: richOutput[1] },
       completed([]),
-    ]));
+    ])));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [] }))).resolves.toMatchObject({ parts: [{ type: "text", text: "hello" }] });
   });
@@ -235,7 +242,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
     ["truncated terminal output", [{ type: "response.output_item.done", item: richOutput[0] }, { type: "response.output_item.done", item: richOutput[1] }, completed([richOutput[0]!])]],
     ["duplicate terminal output", [completed([richOutput[1]!, richOutput[1]!])]],
   ])("fails closed for %s", async (_label, frames) => {
-    const fetchFn = vi.fn(async () => sseResponse(frames));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse(frames)));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [] }))).rejects.toMatchObject({ code: "malformed-sse" });
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -246,7 +253,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
       { type: "response.output_item.done", item: { type: "function_call", id: "item_1", call_id: "duplicate_call", name: "lookup", arguments: "{}" } },
       { type: "response.output_item.done", item: { type: "function_call", id: "item_2", call_id: "duplicate_call", name: "lookup", arguments: "{}" } },
     ];
-    const fetchFn = vi.fn(async () => sseResponse(frames));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse(frames)));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     const error = await dispatcher.dispatchOneRound(dispatchInput({ history: [] })).catch((value: unknown) => value) as CodexOAuthModelTurnError;
     expect(error).toMatchObject({ code: "malformed-sse" });
@@ -256,7 +263,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
 
   it("wraps final core contract validation failures as typed provider errors", async () => {
     const invalidOutput = [{ type: "reasoning", id: "reasoning_invalid", summary: [{ type: "summary_text", text: "" }] }];
-    const fetchFn = vi.fn(async () => sseResponse([completed(invalidOutput)]));
+    const fetchFn = createTestFetch(vi.fn(async () => sseResponse([completed(invalidOutput)])));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     const error = await dispatcher.dispatchOneRound(dispatchInput({ history: [] })).catch((value: unknown) => value);
     expect(error).toBeInstanceOf(CodexOAuthModelTurnError);

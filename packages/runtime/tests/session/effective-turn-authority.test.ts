@@ -198,14 +198,14 @@ describe("projectEffectiveTurnAuthorityPerCallConfig", () => {
 
 function toolConfig(): PerCallToolConfig {
   const additionalTools: ToolDefinition[] = [
-    { name: "read_file", description: "Read a file.", inputSchema: { type: "object" } },
-    { name: "write_file", description: "Write a file.", inputSchema: { type: "object" } },
-    { name: "shell_command", description: "Run a command.", inputSchema: { type: "object" } },
+    { name: "read_file", description: "Read a file.", inputSchema: { type: "object" }, tags: new Set(["read"]) },
+    { name: "write_file", description: "Write a file.", inputSchema: { type: "object" }, tags: new Set(["write"]) },
+    { name: "shell_command", description: "Run a command.", inputSchema: { type: "object" }, tags: new Set(["shell"]) },
   ];
   const capabilities = new Map<string, Capability>([
-    ["read_file", { name: "read_file", description: "Read a file.", schema: { type: "object" }, annotations: { readOnly: true } }],
-    ["write_file", { name: "write_file", description: "Write a file.", schema: { type: "object" } }],
-    ["shell_command", { name: "shell_command", description: "Run a command.", schema: { type: "object" }, annotations: { destructive: true } }],
+    ["read_file", { name: "read_file", description: "Read a file.", schema: { type: "object" }, tags: [] }],
+    ["write_file", { name: "write_file", description: "Write a file.", schema: { type: "object" }, tags: [] }],
+    ["shell_command", { name: "shell_command", description: "Run a command.", schema: { type: "object" }, tags: [] }],
   ]);
   const toolAuthority = new Map<string, AuthorityDescriptor>([
     ["read_file", { level: 1, allowed: true, requiresApproval: false, reason: "Read-only tool." }],

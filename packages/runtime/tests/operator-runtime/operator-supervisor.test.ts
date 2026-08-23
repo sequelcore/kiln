@@ -2,7 +2,7 @@ import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OperatorSupervisorIdentity } from "@kilnai/gateway-contracts";
+import { OPERATOR_RUNTIME_PROTOCOL_VERSION, type OperatorSupervisorIdentity } from "@kilnai/gateway-contracts";
 import {
   OperatorRuntimeSupervisor,
   readOperatorRuntimeBridgeCredentials,
@@ -29,7 +29,7 @@ describe("OperatorRuntimeSupervisor", () => {
     root = await tempRuntime();
     const processAdapter = adapter(222);
     let ready = false;
-    const inspect: OperatorRuntimeListenerInspector = vi.fn(async (input) => {
+    const inspect = vi.fn<OperatorRuntimeListenerInspector>(async (input) => {
       if (!ready || !input.expectedIdentity) return { state: "stopped" };
       return { state: "ready", identity: input.expectedIdentity };
     });
@@ -60,7 +60,7 @@ describe("OperatorRuntimeSupervisor", () => {
     root = await tempRuntime();
     const processAdapter = adapter(222);
     let readyIdentity: OperatorSupervisorIdentity | undefined;
-    const inspect: OperatorRuntimeListenerInspector = vi.fn(async (input) => readyIdentity
+    const inspect = vi.fn<OperatorRuntimeListenerInspector>(async () => readyIdentity
       ? { state: "ready", identity: readyIdentity }
       : { state: "stopped" });
     vi.mocked(processAdapter.spawn).mockImplementation(async () => ({ pid: 222 }));
@@ -122,7 +122,7 @@ describe("OperatorRuntimeSupervisor", () => {
     const processAdapter = adapter(222);
     let current: OperatorSupervisorIdentity | undefined;
     let stopping = false;
-    const inspect: OperatorRuntimeListenerInspector = vi.fn(async (input) => {
+    const inspect = vi.fn<OperatorRuntimeListenerInspector>(async (input) => {
       if (stopping) {
         stopping = false;
         return { state: "stopped" };
@@ -183,8 +183,9 @@ describe("OperatorRuntimeSupervisor", () => {
   });
 
   it("rejects launch descriptors that could persist root or credential authority", async () => {
-    root = await tempRuntime();
-    expect(() => createSupervisor(root, async () => ({ state: "stopped" }), adapter(222), {
+    const runtimeRoot = await tempRuntime();
+    root = runtimeRoot;
+    expect(() => createSupervisor(runtimeRoot, async () => ({ state: "stopped" }), adapter(222), {
       launch: {
         schemaVersion: 1,
         command: "bun",
@@ -193,7 +194,7 @@ describe("OperatorRuntimeSupervisor", () => {
         version,
       },
     })).toThrow("Invalid operator runtime launch descriptor");
-    expect(() => createSupervisor(root!, async () => ({ state: "stopped" }), adapter(222), {
+    expect(() => createSupervisor(runtimeRoot, async () => ({ state: "stopped" }), adapter(222), {
       launch: {
         schemaVersion: 1,
         command: "bun",
@@ -265,7 +266,7 @@ function adapter(spawnPid: number): OperatorRuntimeProcessAdapter {
 
 function identity(overrides: Partial<OperatorSupervisorIdentity> = {}): OperatorSupervisorIdentity {
   return {
-    protocolVersion: "1",
+    protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
     service: "kiln-operator-runtime",
     instanceId: "instance-a",
     version,
@@ -290,7 +291,7 @@ function runtimeState(overrides: Record<string, unknown> = {}): Record<string, u
 }
 
 function stoppedThenExpectedReady(): OperatorRuntimeListenerInspector {
-  return vi.fn(async (input) => input.expectedIdentity?.instanceId === "instance-a"
+  return vi.fn<OperatorRuntimeListenerInspector>(async (input) => input.expectedIdentity?.instanceId === "instance-a"
     ? { state: "ready", identity: input.expectedIdentity }
     : { state: "stopped" });
 }

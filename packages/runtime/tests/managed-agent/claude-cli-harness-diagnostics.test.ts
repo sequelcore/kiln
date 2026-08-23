@@ -3,10 +3,13 @@ import {
   defineManagedAgentInvocationRequest,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
+  type ManagedAgentResultHandoff,
 } from "@kilnai/core/agents";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import {
   ManagedCliHarnessAdapter,
+  type ManagedAgentRuntimeInvocationResult,
+  type ManagedAgentRuntimeInvocationRecord,
 } from "../../src/agents/managed-invocation/index.js";
 import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 
@@ -97,6 +100,10 @@ const privatePlanCleanupEvidence = {
   unexpectedDelta: false,
 } as const;
 
+type CompletedResultWithHandoff = Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }> & {
+  readonly record: Omit<ManagedAgentRuntimeInvocationRecord, "resultHandoff"> & { readonly resultHandoff: ManagedAgentResultHandoff };
+};
+
 async function invokeWith(
   events: readonly ExecutionSessionEvent[],
   admittedProviderModelId?: string,
@@ -105,7 +112,7 @@ async function invokeWith(
     readonly capabilityVersion?: "2.1.220" | "2.1.226";
     readonly observedVersion?: string;
   } = {},
-) {
+): Promise<CompletedResultWithHandoff> {
   const run = vi.fn(() => eventStream(events));
   const dispose = vi.fn().mockResolvedValue(undefined);
   const privatePlanCapabilityVersion = privatePlanOptions.capabilityVersion ?? "2.1.220";
@@ -132,7 +139,11 @@ async function invokeWith(
   });
   const service = createExternalHarnessTestService();
   const request = makeRequest();
-  return service.invoke(request, adapter, snapshotInputFor(request));
+  const result = await service.invoke(request, adapter, snapshotInputFor(request));
+  if (result.status !== "completed") throw new Error(`Expected completed invocation, received ${result.status}.`);
+  const { resultHandoff } = result.record;
+  if (!resultHandoff) throw new Error("Expected the harness diagnostics fixture to persist a result handoff.");
+  return { ...result, record: { ...result.record, resultHandoff } };
 }
 
 const structuredResult = {
@@ -570,14 +581,16 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") return;
+      const resultHandoff = result.record.resultHandoff;
+      if (!resultHandoff) throw new Error("Expected timeout cleanup to persist a result handoff.");
       expect(result.record.lifecycleState).toBe("failed");
-      expect(result.record.resultHandoff.ephemeralHarnessState).toEqual([privatePlanCleanupEvidence]);
+      expect(resultHandoff.ephemeralHarnessState).toEqual([privatePlanCleanupEvidence]);
       expect(result.record.diagnostics).toEqual([{
         uri: "kiln://managed-agents/invocations/invocation-claude-1/resources/external-action-unknown",
         kind: "failure",
         classification: "unknown_failure",
       }]);
-      expect(result.record.resultHandoff.resourceUris).toContain(
+      expect(resultHandoff.resourceUris).toContain(
         "kiln://managed-agents/invocations/invocation-claude-1/resources/timeout",
       );
       expect(dispose).toHaveBeenCalledTimes(1);

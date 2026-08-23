@@ -113,7 +113,7 @@ MCP listeners have distinct owners and were reviewed but not changed:
 
 ## Standards Basis
 
-Reviewed 2026-08-23 against the repository's Bun `1.3.14` line and current
+Reviewed 2026-08-23 against the repository's Bun `1.4.0` line and current
 authoritative web documentation:
 
 - [Bun HTTP server configuration](https://bun.com/docs/runtime/http/server)

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { defineDeliberationLevelId } from "@kilnai/core/agents";
 import { extractText } from "@kilnai/core/engine";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
@@ -144,7 +145,7 @@ describe("CliSubscriptionExecutor", () => {
       messages: [],
       deliberationResolution: {
         status: "exact",
-        selectedLevel: "high",
+        selectedLevel: defineDeliberationLevelId("high"),
         source: "operator",
         capabilityEvidence: {
           sourceIdentity: "codex/gpt-test",

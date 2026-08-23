@@ -8,7 +8,9 @@ vi.mock("jose", () => ({
 }));
 
 async function getJose() {
-  return (await import("jose")) as {
+  // The module mock intentionally narrows the third-party namespace to its two
+  // mocked entry points; production code still receives the real package shape.
+  return (await import("jose")) as unknown as {
     jwtVerify: ReturnType<typeof vi.fn>;
     createRemoteJWKSet: ReturnType<typeof vi.fn>;
   };

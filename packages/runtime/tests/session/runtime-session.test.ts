@@ -31,12 +31,10 @@ describe("RuntimeSession", () => {
     });
 
     it("sets default idle timeout to 30 minutes", () => {
-      const before = Date.now();
       const session = new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "u", systemPrompt: "sys" });
       // isExpired should be false immediately
       expect(session.isExpired).toBe(false);
-      // The default is 30 * 60 * 1000 ms -- verified via the timeout test
-      const _ = before;
+      expect(session.idleTimeoutMs).toBe(30 * 60 * 1000);
     });
   });
 
@@ -404,7 +402,7 @@ describe("RuntimeSession", () => {
       });
 
       session.appendSessionEvents([
-        createSessionEvent({
+        createSessionEvent<"agent_invocation_requested">({
           kind: "agent_invocation_requested",
           kilnSessionId: session.id,
           sequence: 1,
@@ -415,7 +413,7 @@ describe("RuntimeSession", () => {
           requestedBy: "user",
           requestSource: "manual",
         }),
-        createSessionEvent({
+        createSessionEvent<"agent_invocation_started">({
           kind: "agent_invocation_started",
           kilnSessionId: session.id,
           sequence: 2,
@@ -425,7 +423,7 @@ describe("RuntimeSession", () => {
           agentName: "Planner",
           attempt: 1,
         }),
-        createSessionEvent({
+        createSessionEvent<"agent_invocation_completed">({
           kind: "agent_invocation_completed",
           kilnSessionId: session.id,
           sequence: 3,
@@ -453,7 +451,7 @@ describe("RuntimeSession", () => {
         systemPrompt: "sys",
       });
 
-      const requested = createSessionEvent({
+      const requested = createSessionEvent<"agent_invocation_requested">({
         kind: "agent_invocation_requested",
         kilnSessionId: session.id,
         sequence: 1,
@@ -463,7 +461,7 @@ describe("RuntimeSession", () => {
         requestedBy: "runtime",
         requestSource: "policy",
       });
-      const failed = createSessionEvent({
+      const failed = createSessionEvent<"agent_invocation_failed">({
         kind: "agent_invocation_failed",
         kilnSessionId: session.id,
         sequence: 2,

@@ -11,6 +11,7 @@ import { InMemoryEmailThreadStore } from "../../src/gateway/email-thread-store.j
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -31,6 +32,9 @@ vi.mock("../../src/tenant/agent-resolver.js", () => ({
 }));
 
 const originalFetch = globalThis.fetch;
+const mockFetch = createTestFetch(vi.fn(async () => new Response(JSON.stringify({}), {
+  headers: { "content-type": "application/json" },
+})));
 
 interface InboundEmailPayload {
   from: string;
@@ -107,6 +111,7 @@ function makeConfig(overrides: Partial<EmailWebhookConfig> = {}): EmailWebhookCo
 
 describe("createEmailWebhookRoutes", () => {
   beforeEach(() => {
+    mockFetch.mockReset();
     mockedResolveAgentContextAsync.mockResolvedValue({
       systemPrompt: "Mock system prompt",
       tenantToolContext: {
@@ -121,10 +126,7 @@ describe("createEmailWebhookRoutes", () => {
       isHandoff: false,
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    });
+    globalThis.fetch = mockFetch;
   });
 
   afterEach(() => {
@@ -311,10 +313,9 @@ describe("createEmailWebhookRoutes", () => {
       (config.tenantRegistry as unknown as Record<string, unknown>).resolveByEmailAddress = vi.fn().mockReturnValue(tenant);
 
       // Mock budget check to return not allowed
-      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ allowed: false, remaining: 0, unit: "tokens" }),
-      });
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ allowed: false, remaining: 0, unit: "tokens" }), {
+        headers: { "content-type": "application/json" },
+      }));
 
       const app = createEmailWebhookRoutes(config);
       const payload = makeEmailPayload();

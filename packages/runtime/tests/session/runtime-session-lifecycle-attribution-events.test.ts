@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import type { ContextAuditEntry } from "@kilnai/core/context";
 import type { CostUpdateEvent } from "@kilnai/core/events";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
-const contextAudit = {
+const contextAudit: ContextAuditEntry = {
   governor: "DefaultContextGovernor" as const,
   selectedBlockIds: ["memory-1"],
   deferredBlockIds: [],
@@ -14,10 +16,15 @@ const contextAudit = {
   requiredTokens: 0,
   tokenBudget: 100,
   overflow: false,
+  allocationMode: "whole-block",
+  positionProfile: "balanced",
+  requiredOverflowPolicy: "admit-and-report",
   blocks: [{
     id: "memory-1",
     kind: "memory" as const,
+    modelFacingSemantics: "evidence" as const,
     source: "kiln://memory/records/memory-1",
+    contentHash: sha256ContentIdentity("kiln://memory/records/memory-1"),
     memoryRecordId: "memory-record-1",
     required: false,
     estimatedTokens: 25,
@@ -298,7 +305,9 @@ describe("runtime session lifecycle attribution events", () => {
           blocks: [{
             id: "procedural-path",
             kind: "procedural",
+            modelFacingSemantics: "directive",
             source: "runtime-skill:C:/repo/.agents/skills/review/SKILL.md",
+            contentHash: sha256ContentIdentity("runtime-skill:C:/repo/.agents/skills/review/SKILL.md"),
             required: true,
             estimatedTokens: 10,
             baseScore: 1,

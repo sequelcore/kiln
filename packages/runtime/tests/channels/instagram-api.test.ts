@@ -36,7 +36,9 @@ describe("instagram-api", () => {
       const result = await sendInstagramMessage("page-1", "token-1", "user-1", "Hello");
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, opts] = fetchMock.mock.calls[0];
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Instagram request");
+      const [url, opts] = call;
       expect(url).toContain("/page-1/messages");
       expect(opts.method).toBe("POST");
       expect(opts.headers.Authorization).toBe("Bearer token-1");
@@ -87,7 +89,11 @@ describe("instagram-api", () => {
         "image",
       );
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Instagram request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Instagram request options");
+      const body = JSON.parse(opts.body);
       expect(body.recipient.id).toBe("user-2");
       expect(body.message.attachment.type).toBe("image");
       expect(body.message.attachment.payload.url).toBe("https://cdn.example.com/img.jpg");
@@ -108,7 +114,11 @@ describe("instagram-api", () => {
         "audio",
       );
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Instagram request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Instagram request options");
+      const body = JSON.parse(opts.body);
       expect(body.recipient.id).toBe("user-2");
       expect(body.message.attachment.type).toBe("audio");
       expect(body.message.attachment.payload.url).toBe("https://cdn.example.com/audio.mp3");

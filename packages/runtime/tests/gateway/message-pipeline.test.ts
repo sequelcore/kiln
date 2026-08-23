@@ -33,11 +33,14 @@ import type {
   RuntimeMediaActionClaim,
   RuntimeMediaActionClaimPermit,
 } from "../../src/execution-kernel/runtime-media-action-claim.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 const processInboundMessage = processAdmittedTurn;
 
 const originalFetch = globalThis.fetch;
-let fetchMock: ReturnType<typeof vi.fn>;
+type FetchImplementation = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
+type FetchMock = ReturnType<typeof vi.fn<FetchImplementation>>;
+let fetchMock: FetchMock;
 
 function memoryCandidates(content: string) {
   return [{
@@ -170,42 +173,36 @@ function makeGovernedWorkPerCallConfig(): NonNullable<AdmittedTurnContext["perCa
         description: "Assess governed work.",
         schema: {},
         tags: [],
-        annotations: { idempotent: true },
       }],
       ["work_item.update", {
         name: "work_item.update",
         description: "Create or update governed work.",
         schema: {},
         tags: [],
-        annotations: { idempotent: true },
       }],
       ["work_item.execution.start", {
         name: "work_item.execution.start",
         description: "Start governed execution.",
         schema: {},
         tags: [],
-        annotations: { idempotent: true },
       }],
       ["work_item.execution.finish", {
         name: "work_item.execution.finish",
         description: "Finish governed execution.",
         schema: {},
         tags: [],
-        annotations: { idempotent: true },
       }],
       ["work_item.complete", {
         name: "work_item.complete",
         description: "Complete governed work.",
         schema: {},
         tags: [],
-        annotations: { idempotent: true },
       }],
       ["managed_agent.invoke", {
         name: "managed_agent.invoke",
         description: "Invoke a managed agent.",
         schema: {},
         tags: [],
-        annotations: { idempotent: true },
       }],
     ]),
   };
@@ -227,7 +224,7 @@ function makePipelineFixtureAdmission(session: RuntimeSession, turnId = resolveC
         executionMode: "execute",
         requestedAuthority: "read_only",
         admittedAuthority: "read_only",
-        sourcePolicy: "message-pipeline-fixture",
+        sourcePolicy: "runtime_surface_projection",
         reason: "Message-pipeline fixture admission",
         completeness: "authoritative",
         toolCount: 0,
@@ -262,20 +259,17 @@ function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): Admitted
     ?? makePipelineFixtureAdmission(fixtureSession);
   const perCallConfig: NonNullable<AdmittedTurnContext["perCallConfig"]> = {
     ...(overrides.perCallConfig ?? {}),
-    turnId: authorityAdmission.turnId,
+    turnCorrelationId: overrides.perCallConfig?.turnCorrelationId,
     authorityAdmission: overrides.perCallConfig?.authorityAdmission ?? authorityAdmission,
   };
   return {
     orchestrator: makeMockOrchestrator(),
-    sessionRegistry,
     appName: "test-app",
     tenantId: "test-tenant",
     userId: "user-1",
     systemPrompt: "You are a test assistant.",
     userParts: textParts("hello"),
     channel: "api",
-    perCallConfig,
-    authorityAdmission,
     ...overrides,
     sessionRegistry,
     perCallConfig,
@@ -298,7 +292,7 @@ function makeMediaAdmission(session: RuntimeSession): Pick<AdmittedTurnContext, 
     turn: {
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
-        sourcePolicy: "message-pipeline-media-test", reason: "Media test admission", completeness: "authoritative",
+        sourcePolicy: "runtime_surface_projection", reason: "Media test admission", completeness: "authoritative",
         toolCount: 0, deniedToolCount: 0, sandboxProjection: "read_only",
       },
       workGovernance: { status: "not-required" },
@@ -350,7 +344,7 @@ function makeMediaAdmission(session: RuntimeSession): Pick<AdmittedTurnContext, 
   return {
     authorityAdmission: bundle,
     runtimeMediaActionClaims: claims,
-    perCallConfig: { authorityAdmission: bundle, turnId, runtimeModelRoundDispatch },
+    perCallConfig: { authorityAdmission: bundle, turnCorrelationId: turnId, runtimeModelRoundDispatch },
   };
 }
 
@@ -369,11 +363,10 @@ function getGovernedContextContent(orchestrator: RuntimeSessionOrchestrator): st
 
 describe("processAdmittedTurn", () => {
   beforeEach(() => {
-    fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ allowed: true, remaining: 50000, unit: "tokens" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    fetchMock = vi.fn<FetchImplementation>().mockResolvedValue(
+      new Response(JSON.stringify({ allowed: true, remaining: 50000, unit: "tokens" })),
+    );
+    globalThis.fetch = createTestFetch(fetchMock);
   });
 
   afterEach(() => {
@@ -438,14 +431,10 @@ describe("processAdmittedTurn", () => {
       persistCanonicalSessionEvent,
       authorityAdmission: bundle,
       perCallConfig: {
-        turnId: adoption.turnId,
         turnCorrelationId: adoption.correlationId,
-        operatorAdoptionDecision: adoption.operatorAdoptionDecision,
         toolAllowlist: new Set(),
         toolAuthority: new Map(),
         perCallCapabilities: new Map(),
-        effectiveTurnAuthority: authority,
-        runtimeConfigurationRevision: revision,
       },
     }))).resolves.toMatchObject({ ok: true });
 
@@ -456,7 +445,6 @@ describe("processAdmittedTurn", () => {
       expect.any(Object),
       undefined,
       expect.objectContaining({
-        turnId: adoption.turnId,
         authorityAdmission: bundle,
       }),
     );
@@ -535,7 +523,7 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
-      perCallConfig: { turnId: `${session.id}:turn:3` },
+       perCallConfig: { turnCorrelationId: `${session.id}:turn:3` },
       userParts: textParts("Start child."),
     }));
 
@@ -566,7 +554,7 @@ describe("processAdmittedTurn", () => {
 
     const result = await processInboundMessage(makeBaseContext({
       sessionRegistry,
-      perCallConfig: { turnId: `${session.id}:turn:1` },
+      perCallConfig: { turnCorrelationId: `${session.id}:turn:1` },
       publishCanonicalSessionEvents: (events) => published.push(events),
     }));
 
@@ -615,7 +603,7 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
-      perCallConfig: { turnId: `${session.id}:turn:1` },
+      perCallConfig: { turnCorrelationId: `${session.id}:turn:1` },
       contextUsageWindow: {
         providerId: "anthropic",
         modelId: "claude-sonnet",
@@ -671,11 +659,10 @@ describe("processAdmittedTurn", () => {
   });
 
   it("returns ok:false with budgetDenied when budget exhausted", async () => {
-    fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ allowed: false, remaining: 0, unit: "tokens" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    fetchMock = vi.fn<FetchImplementation>().mockResolvedValue(
+      new Response(JSON.stringify({ allowed: false, remaining: 0, unit: "tokens" })),
+    );
+    globalThis.fetch = createTestFetch(fetchMock);
 
     const ctx = makeBaseContext({ billing: makeBillingConfig() });
 
@@ -803,7 +790,7 @@ describe("processAdmittedTurn", () => {
         evidence: expect.arrayContaining([expect.objectContaining({ content: "Relevant durable memory." })]),
       }),
       undefined,
-      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
+      expect.objectContaining({ authorityAdmission: expect.objectContaining({ turnId: expect.stringContaining(":turn:") }) }),
     ]);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "turn_started",
@@ -1166,7 +1153,7 @@ describe("processAdmittedTurn", () => {
       ],
       expect.anything(),
       undefined,
-      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
+      expect.objectContaining({ authorityAdmission: expect.objectContaining({ turnId: expect.stringContaining(":turn:") }) }),
     );
     expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
       mimeType: "image/png",
@@ -1232,7 +1219,7 @@ describe("processAdmittedTurn", () => {
       [{ type: "text", text: "[Voice note transcription]: hello from microphone" }],
       expect.anything(),
       undefined,
-      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
+      expect.objectContaining({ authorityAdmission: expect.objectContaining({ turnId: expect.stringContaining(":turn:") }) }),
     );
     expect(session.sessionEvents).toContainEqual(expect.objectContaining({
       kind: "multimodal_routed",
@@ -1771,7 +1758,7 @@ describe("processAdmittedTurn", () => {
       textParts("hello"),
       expect.anything(),
       undefined,
-      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
+      expect.objectContaining({ authorityAdmission: expect.objectContaining({ turnId: expect.stringContaining(":turn:") }) }),
     );
   });
 
@@ -1834,7 +1821,7 @@ describe("processAdmittedTurn", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       undefined,
-      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
+      expect.objectContaining({ authorityAdmission: expect.objectContaining({ turnId: expect.stringContaining(":turn:") }) }),
     );
   });
 
@@ -1860,7 +1847,7 @@ describe("processAdmittedTurn", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       builtinTools,
-      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
+      expect.objectContaining({ authorityAdmission: expect.objectContaining({ turnId: expect.stringContaining(":turn:") }) }),
     );
   });
 
@@ -2105,7 +2092,6 @@ describe("processAdmittedTurn", () => {
 
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
-      requestedAuthority: "auto",
       perCallConfig: {
         toolAllowlist: new Set(["managed_agent.invoke"]),
         perCallCapabilities: new Map([[
@@ -2115,7 +2101,6 @@ describe("processAdmittedTurn", () => {
             description: "Invoke a managed agent.",
             schema: {},
             tags: [],
-            annotations: { idempotent: true },
           },
         ]]),
       },
@@ -2134,7 +2119,6 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       userParts: textParts("Fix the governed runtime closeout behavior."),
-      requestedAuthority: "auto",
       perCallConfig: makeGovernedWorkPerCallConfig(),
     }));
 
@@ -2152,7 +2136,6 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       userParts: textParts("Investigate web best practices and compare other harnesses."),
-      requestedAuthority: "auto",
       perCallConfig: makeGovernedWorkPerCallConfig(),
     }));
 
@@ -2176,7 +2159,6 @@ describe("processAdmittedTurn", () => {
             description: "Search the web.",
             schema: {},
             tags: [],
-            annotations: { idempotent: true },
           },
         ]]),
       },
@@ -2941,7 +2923,6 @@ describe("processAdmittedTurn", () => {
 
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
-      requestedAuthority: "read_only",
       sessionRegistry,
       perCallConfig: {
         toolAllowlist: new Set(["read_file"]),
@@ -2996,7 +2977,6 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       tenantId: "tenant-policy-1",
-      requestedAuthority: "audited",
       sessionRegistry: makeMockSessionRegistry(session),
       perCallConfig: {
         tenantId: "tenant-policy-1",
@@ -3008,7 +2988,6 @@ describe("processAdmittedTurn", () => {
             description: "Lookup customer",
             schema: {},
             tags: [],
-            annotations: { idempotent: true },
             effectEnvelope: {
               operation: "observe",
               boundaries: ["process"],

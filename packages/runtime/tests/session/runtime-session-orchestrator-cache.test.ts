@@ -8,10 +8,11 @@ import {
 } from "@kilnai/core/agents";
 import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
 import { type ActionEffectEnvelope, type Capability, textParts } from "@kilnai/core/engine";
-import { EventBus } from "@kilnai/core/events";
+import { EventBus, type ToolCalledEvent, type ToolResultEvent } from "@kilnai/core/events";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { measureProviderRequestRegions } from "../../src/session/runtime-session-orchestrator-telemetry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.types.js";
 import { createFixtureClaimConfig, createFixtureToolPermission } from "./runtime-claim-fixture.js";
 
 const READ_ONLY_EFFECT: ActionEffectEnvelope = {
@@ -91,11 +92,11 @@ function claimConfig(session: RuntimeSession, provider: ProviderAdapter, extra: 
 
 describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
   let toolCache: ToolCache;
-  let toolFn: ReturnType<typeof vi.fn>;
+  let toolFn: ReturnType<typeof vi.fn<RuntimeBuiltinToolExecutor>>;
 
   beforeEach(() => {
     toolCache = new ToolCache();
-    toolFn = vi.fn().mockResolvedValue("sunny, 20C");
+    toolFn = vi.fn<RuntimeBuiltinToolExecutor>().mockResolvedValue("sunny, 20C");
   });
 
   it("executes tool normally on first call and caches result", async () => {
@@ -487,18 +488,22 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
     await orchestrator.processMessage(currentSession, textParts("weather in London"), undefined, undefined, claimConfig(currentSession, provider));
 
-    const toolCalledEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_called");
+    const toolCalledEvents = emitSpy.mock.calls
+      .map(([event]) => event)
+      .filter((event): event is ToolCalledEvent => event.type === "tool_called");
     expect(toolCalledEvents).toHaveLength(1);
-    const toolCallId = toolCalledEvents[0]?.[0].toolCallId;
+    const toolCallId = toolCalledEvents[0]?.toolCallId;
     expect(toolCallId).toEqual(expect.any(String));
 
-    const toolResultEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_result");
+    const toolResultEvents = emitSpy.mock.calls
+      .map(([event]) => event)
+      .filter((event): event is ToolResultEvent => event.type === "tool_result");
     expect(toolResultEvents).toEqual([
-      [expect.objectContaining({
+      expect.objectContaining({
         toolCallId,
         toolName: "get_weather",
         success: true,
-      })],
+      }),
     ]);
   });
 });

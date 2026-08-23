@@ -167,7 +167,7 @@ describe("serializeSession / deserializeSession", () => {
   it("roundtrips canonical session events with timestamp restoration", () => {
     const session = makeSession();
     session.appendSessionEvents([
-      createSessionEvent({
+      createSessionEvent<"turn_started">({
         kilnSessionId: session.id,
         sequence: 1,
         kind: "turn_started",
@@ -175,7 +175,7 @@ describe("serializeSession / deserializeSession", () => {
         turnOrdinal: 1,
         trigger: "user_message",
       }),
-      createSessionEvent({
+      createSessionEvent<"user_message">({
         kilnSessionId: session.id,
         sequence: 2,
         kind: "user_message",
@@ -183,7 +183,7 @@ describe("serializeSession / deserializeSession", () => {
         messageId: `${session.id}:turn:1:user`,
         content: "hello",
       }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_requested">({
         kilnSessionId: session.id,
         sequence: 3,
         kind: "agent_invocation_requested",
@@ -194,7 +194,7 @@ describe("serializeSession / deserializeSession", () => {
         requestedBy: "user",
         requestSource: "manual",
       }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_started">({
         kilnSessionId: session.id,
         sequence: 4,
         kind: "agent_invocation_started",
@@ -203,7 +203,7 @@ describe("serializeSession / deserializeSession", () => {
         agentId: "agent-planner",
         attempt: 1,
       }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_completed">({
         kilnSessionId: session.id,
         sequence: 5,
         kind: "agent_invocation_completed",
@@ -252,7 +252,7 @@ describe("serializeSession / deserializeSession", () => {
           }],
         },
       }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_failed">({
         kilnSessionId: session.id,
         sequence: 6,
         kind: "agent_invocation_failed",
@@ -262,7 +262,7 @@ describe("serializeSession / deserializeSession", () => {
         errorCode: "ENGINE_TIMEOUT",
         errorMessage: "Timed out",
       }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_cancelled">({
         kilnSessionId: session.id,
         sequence: 7,
         kind: "agent_invocation_cancelled",

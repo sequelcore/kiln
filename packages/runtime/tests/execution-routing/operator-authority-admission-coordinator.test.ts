@@ -6,6 +6,7 @@ import type {
   OperatorSessionExecutionRequest,
 } from "../../src/execution-routing/operator-session-execution-routing-service.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { defineRuntimeSessionAuthorityFacet } from "../../src/session/runtime-session-authority-facet.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const REVISION = { revisionSetId: "R1", revisions: { project: "p1" } } as const;
@@ -60,7 +61,12 @@ function bundle(
 function prepareInput(turnRequest: ReturnType<typeof request>) {
   return {
     request: turnRequest,
-    admission: { routeId: "route-1", providerId: "provider", providerModelId: "model" },
+    admission: {
+      routeId: "route-1",
+      providerId: "provider",
+      providerModelId: "model",
+      accountSelection: { mode: "exact", accountId: "account", source: "route" },
+    },
     snapshot: { catalog: {} as never, configurationRevision: REVISION },
     binding: { status: "bound", routeId: "route-1", accountId: "account", credentialId: "cred", credentialRevision: "c1" },
     dataPolicy: {} as never,
@@ -206,7 +212,7 @@ describe("OperatorAuthorityAdmissionCoordinator", () => {
       prepare: () => ({ facets: facets(session.id), prepared: true }), saveSession: () => undefined,
       evidenceStore: {
         persist: () => undefined,
-        loadSessionFacet: () => ({
+        loadSessionFacet: () => defineRuntimeSessionAuthorityFacet({
           sessionId: persistedBundle.sessionId,
           sessionRevision: persistedBundle.configuration.sessionRevision,
           ...persistedBundle.session,

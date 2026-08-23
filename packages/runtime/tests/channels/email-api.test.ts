@@ -34,7 +34,9 @@ describe("email-api", () => {
       const result = await transport.send(baseEmail);
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, opts] = fetchMock.mock.calls[0];
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Postmark request");
+      const [url, opts] = call;
       expect(url).toBe("https://api.postmarkapp.com/email");
       expect(opts.method).toBe("POST");
       expect(opts.headers["X-Postmark-Server-Token"]).toBe("pk-test");
@@ -51,7 +53,11 @@ describe("email-api", () => {
       const transport = createEmailTransport({ provider: "postmark", apiKey: "pk-test" });
       await transport.send(baseEmail);
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Postmark request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Postmark request options");
+      const body = JSON.parse(opts.body);
       expect(body.From).toBe("Support Bot <bot@example.com>");
       expect(body.To).toBe("user@example.com");
       expect(body.Subject).toBe("Re: Help");
@@ -68,7 +74,11 @@ describe("email-api", () => {
       const transport = createEmailTransport({ provider: "postmark", apiKey: "pk-test" });
       await transport.send({ ...baseEmail, inReplyTo: "<msg-1@ex.com>", references: "<msg-0@ex.com>" });
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Postmark request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Postmark request options");
+      const body = JSON.parse(opts.body);
       const headerNames = body.Headers.map((h: { Name: string }) => h.Name);
       expect(headerNames).toContain("In-Reply-To");
       expect(headerNames).toContain("References");
@@ -108,7 +118,9 @@ describe("email-api", () => {
       const transport = createEmailTransport({ provider: "resend", apiKey: "re_test" });
       const result = await transport.send(baseEmail);
 
-      const [url, opts] = fetchMock.mock.calls[0];
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Resend request");
+      const [url, opts] = call;
       expect(url).toBe("https://api.resend.com/emails");
       expect(opts.headers.Authorization).toBe("Bearer re_test");
       expect(result.messageId).toBe("re-123");
@@ -123,7 +135,11 @@ describe("email-api", () => {
       const transport = createEmailTransport({ provider: "resend", apiKey: "re_test" });
       await transport.send(baseEmail);
 
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected Resend request");
+      const opts = call[1];
+      if (!opts) throw new Error("Expected Resend request options");
+      const body = JSON.parse(opts.body);
       expect(body.from).toBe("Support Bot <bot@example.com>");
       expect(body.to).toBe("user@example.com");
       expect(body.subject).toBe("Re: Help");
@@ -157,7 +173,9 @@ describe("email-api", () => {
       });
       const result = await transport.send(baseEmail);
 
-      const [url, opts] = fetchMock.mock.calls[0];
+      const call = fetchMock.mock.calls.at(0);
+      if (!call) throw new Error("Expected generic email request");
+      const [url, opts] = call;
       expect(url).toBe("https://mail.internal.io/send");
       expect(opts.headers.Authorization).toBe("Bearer key-1");
       expect(result.messageId).toBe("gen-123");

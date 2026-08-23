@@ -111,9 +111,9 @@ describe("ProjectRuntimeRegistry", () => {
       descriptor(PROJECT_A_ID, MARKER_1, "sensitive-other-root"),
     );
 
-    await expect(attempt).rejects.toMatchObject<ProjectRuntimeRegistryError>({
+    await expect(attempt).rejects.toMatchObject({
       code: "identity_collision",
-    });
+    } satisfies Partial<ProjectRuntimeRegistryError>);
     await expect(attempt).rejects.not.toThrow(
       /sensitive-other-root|canonical-project-a/,
     );
@@ -315,17 +315,17 @@ describe("ProjectRuntimeRegistry", () => {
     await registry.ensure(descriptor());
 
     const close = registry.close(PROJECT_A_ID);
-    await expect(close).rejects.toMatchObject<ProjectRuntimeRegistryError>({
+    await expect(close).rejects.toMatchObject({
       code: "close_failed",
       failureCount: 1,
-    });
+    } satisfies Partial<ProjectRuntimeRegistryError>);
     await expect(close).rejects.not.toThrow(
       /secret close detail|canonical-project-a/,
     );
     const retry = registry.ensure(descriptor());
-    await expect(retry).rejects.toMatchObject<ProjectRuntimeRegistryError>({
+    await expect(retry).rejects.toMatchObject({
       code: "close_failed",
-    });
+    } satisfies Partial<ProjectRuntimeRegistryError>);
     expect(registry.statuses()).toHaveLength(1);
   });
 
@@ -343,10 +343,10 @@ describe("ProjectRuntimeRegistry", () => {
     );
 
     const close = registry.closeAll();
-    await expect(close).rejects.toMatchObject<ProjectRuntimeRegistryError>({
+    await expect(close).rejects.toMatchObject({
       code: "close_failed",
       failureCount: 1,
-    });
+    } satisfies Partial<ProjectRuntimeRegistryError>);
     await expect(close).rejects.not.toThrow(
       /private project failure|canonical-project/,
     );
@@ -358,10 +358,10 @@ describe("ProjectRuntimeRegistry", () => {
         diagnostic: "project_unavailable",
       },
     ]);
-    await expect(registry.closeAll()).rejects.toMatchObject<ProjectRuntimeRegistryError>({
+    await expect(registry.closeAll()).rejects.toMatchObject({
       code: "close_failed",
       failureCount: 1,
-    });
+    } satisfies Partial<ProjectRuntimeRegistryError>);
   });
 
   it("never exposes canonical roots or runtime values in public status", async () => {

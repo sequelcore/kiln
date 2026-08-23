@@ -37,29 +37,34 @@ function execution(
     toolCallId: "formal-1",
     toolName: "formal_verify",
     success: true,
-    metadata: metadata(),
+    metadata: { ...metadata() },
     executionScope: scope,
     ...overrides,
   };
 }
 
 function replayEvent(
-  overrides: Partial<Extract<CanonicalSessionEvent, { kind: "tool_call_completed" }>> = {},
+  overrides: {
+    readonly eventId?: string;
+    readonly kilnSessionId?: string;
+    readonly sequence?: number;
+    readonly toolCallId?: string;
+  } = {},
 ): Extract<CanonicalSessionEvent, { kind: "tool_call_completed" }> {
   return {
-    eventId: "event-1",
-    kilnSessionId: "session-1",
-    sequence: 1,
+    eventId: overrides.eventId ?? "event-1",
+    kilnSessionId: overrides.kilnSessionId ?? "session-1",
+    sequence: overrides.sequence ?? 1,
     timestamp: new Date("2026-08-19T12:00:00.000Z"),
     kind: "tool_call_completed",
     turnId: "session-1:turn:1",
-    toolCallId: "formal-1",
+    toolCallId: overrides.toolCallId ?? "formal-1",
     toolCallScopeId: "session-1:turn:1:response:1",
     toolName: "formal_verify",
     status: { state: "succeeded" },
-    metadata: metadata(),
+    durationMs: 1,
+    metadata: { ...metadata() },
     executionScope: scope,
-    ...overrides,
   };
 }
 

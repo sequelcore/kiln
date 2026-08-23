@@ -7,6 +7,8 @@ import {
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteEvidence,
   defineManagedAgentWriteScope,
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
   type ManagedAgentAdmissionDecision,
   type ManagedAgentInvocationRecord,
   type ManagedAgentInvocationRequest,
@@ -224,6 +226,8 @@ function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecis
       status: "denied",
       invocationId: "invocation-1",
       profile: "foundation-readonly-plan",
+      routeId: "fixture-route",
+      routeSource: "explicit-managed-route",
       reason: "foundation-readonly-plan denied: timeout.supported",
       missingCapabilities: ["timeout.supported"],
     };
@@ -231,7 +235,7 @@ function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecis
   return makeAdmittedDecision(request);
 }
 
-function makeAdmittedDecision(request: ManagedAgentInvocationRequest): ManagedAgentAdmissionDecision {
+function makeAdmittedDecision(request: ManagedAgentInvocationRequest): Extract<ManagedAgentAdmissionDecision, { status: "admitted" }> {
   return {
     status: "admitted",
     invocationId: request.invocationId,
@@ -250,6 +254,8 @@ function makeWriteDecision(status: "admitted" | "denied", request = makeWriteReq
       status: "denied",
       invocationId: request.invocationId,
       profile: request.profile,
+      routeId: "fixture-route",
+      routeSource: "explicit-managed-route",
       reason: "foundation-propose-writes denied: writeAuthority.proposalSupported",
       missingCapabilities: ["writeAuthority.proposalSupported"],
     };
@@ -643,8 +649,8 @@ describe("appendManagedInvocationSessionEvents", () => {
       parentTurnId: request.parentTurnId,
       accountLease: {
         leaseId: "lease-account-a",
-        accountPolicyId: "managed-opencode",
-        accountRef: "configured:account-a",
+         accountPolicyId: createExecutionAccountPolicyId("managed-opencode"),
+         accountRef: createExecutionAccountRef("configured:account-a"),
         route: {
           providerId: "opencode",
           providerModelId: "sonic",
@@ -1080,6 +1086,8 @@ describe("appendManagedInvocationSessionEvents", () => {
       status: "denied",
       invocationId: request.invocationId,
       profile: request.profile,
+      routeId: "fixture-route",
+      routeSource: "explicit-managed-route",
       reason: [
         "Managed agent same-checkout parallel write conflict:",
         "active-write already holds C:/workspace/kiln.",
@@ -1490,6 +1498,10 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
   it("projects Runtime-owned managed-run explanation evidence across the Gateway boundary", () => {
     const session = makeSession("session-economic-explanation");
     const baseCommitment = makeEconomicCommitment();
+    const baseAccount = baseCommitment.reservation.selectedIdentity.account;
+    if (baseAccount.kind !== "account-bound") {
+      throw new Error("Expected the economic fixture to select an account-bound identity.");
+    }
     const comparableCommitment: ManagedEconomicCommitment = {
       ...baseCommitment,
       reservation: {
@@ -1503,7 +1515,7 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
         selectedIdentity: {
           ...baseCommitment.reservation.selectedIdentity,
           account: {
-            ...baseCommitment.reservation.selectedIdentity.account,
+            ...baseAccount,
             quotaEvidence: {
               kind: "known",
               capacityIdentity: "account-b",

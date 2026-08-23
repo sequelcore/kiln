@@ -6,8 +6,10 @@ import { FixedRouteGatewayAuthorityAdmission } from "../../src/gateway/gateway-a
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
-import type { ChannelEgressActionClaimContext } from "../../src/channels/channel-egress-action-claim.js";
+import type { ChannelEgressActionClaim, ChannelEgressActionClaimContext } from "../../src/channels/channel-egress-action-claim.js";
 import type { RuntimeMediaActionClaimContext } from "../../src/execution-kernel/runtime-media-action-claim.js";
+import type { RuntimeMediaActionClaim } from "../../src/execution-kernel/runtime-media-action-claim.js";
+import type { OperatorSessionExecutionCandidatePort } from "../../src/execution-routing/operator-session-execution-routing-service.js";
 
 const catalog = defineExecutionCatalog({
   accounts: [{ id: "account-1", providerId: "provider-1", credentialId: "credential-1", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "capacity-1", subscriptionClass: "subscription", quotaClassId: "quota-1", creditPosture: "disabled", overagePosture: "disabled" } }],
@@ -30,7 +32,7 @@ async function fixture(overrides: { readonly persistBundle?: (bundle: unknown) =
   await sessionRegistry.save(session);
   const provider: ProviderAdapter = { name: "provider-1", createMessage: vi.fn(), streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"] };
   const capacity: ExecutionAccountCapacityAuthority = {
-    acquireAccountCapacity: vi.fn(() => ({ status: "acquired", record: capacityRecord("held"), replay: false })),
+    acquireAccountCapacity: vi.fn<ExecutionAccountCapacityAuthority["acquireAccountCapacity"]>(() => ({ status: "acquired", record: capacityRecord("held"), replay: false })),
     releaseAccountCapacityPreFence: vi.fn(() => capacityRecord("held")),
     fenceAccountCapacityDispatch: vi.fn(() => capacityRecord("dispatch-fenced")),
     settleAccountCapacity: vi.fn(() => capacityRecord("released")),
@@ -41,7 +43,7 @@ async function fixture(overrides: { readonly persistBundle?: (bundle: unknown) =
     ownerGeneration: "gateway-authority-test",
     readAdmission: async () => persistedBundle,
     store: {
-      claim: (claim: never) => ({ claimId: claim.claimId, permitId: `channel-permit:${claim.claimId}`, consume: vi.fn() } as never),
+      claim: (claim: ChannelEgressActionClaim) => ({ claimId: claim.claimId, permitId: `channel-permit:${claim.claimId}`, consume: vi.fn() } as never),
       settle: vi.fn(),
     },
   };
@@ -49,14 +51,14 @@ async function fixture(overrides: { readonly persistBundle?: (bundle: unknown) =
     ownerGeneration: "gateway-authority-test-media",
     readAdmission: async () => persistedBundle,
     store: {
-      claim: (claim: never) => ({ claimId: claim.claimId, consume: vi.fn() } as never),
+      claim: (claim: RuntimeMediaActionClaim) => ({ claimId: claim.claimId, consume: vi.fn() } as never),
       settle: vi.fn(),
     },
   };
   const routes = overrides.duplicateRoute ? [...catalog.routes, { ...catalog.routes[0]!, id: "route-duplicate" }] : catalog.routes;
   const admission = new FixedRouteGatewayAuthorityAdmission({
     appName: "app-1", routeId: "route-1", snapshot: { catalog: { ...catalog, routes }, configurationRevision: { revisionSetId: "gateway-r1", revisions: { global: "global-r1" } } }, sessionRegistry,
-    candidates: { resolve: vi.fn(async () => [{ candidate: { accountId: "account-1", safety: "eligible", health: "healthy", quota: "available", capacity: "available", economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "currency", currency: "USD" } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("configured:account-1"), route: { providerId: "provider-1", providerModelId: "model-1", scope: "operator-session" }, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "capacity-1", credentialRevisionId: "b".repeat(64), usageEvidence: { health: "healthy", freshness: "fresh", availability: "available" }, capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 } } }]) },
+    candidates: { resolve: vi.fn<OperatorSessionExecutionCandidatePort["resolve"]>(async () => [{ candidate: { accountId: "account-1", safety: "eligible", health: "healthy", quota: "available", capacity: "available", economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "currency", currency: "USD" } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("configured:account-1"), route: { providerId: "provider-1", providerModelId: "model-1", scope: "operator-session" }, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "capacity-1", credentialRevisionId: "b".repeat(64), usageEvidence: { health: "healthy", freshness: "fresh", availability: "available" }, capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 } } }]) },
     accountCapacityAuthority: capacity,
     credentials: { resolve: vi.fn(async () => ({ credential: { token: "secret" }, credentialId: "credential-1", credentialRevisionId: "b".repeat(64) })) },
     evidenceStore: {
@@ -68,6 +70,7 @@ async function fixture(overrides: { readonly persistBundle?: (bundle: unknown) =
       claim: vi.fn((claim: unknown) => ({ claimId: (claim as { claimId: string }).claimId, permitId: "permit" } as never)),
       settle: vi.fn(),
     },
+    toolActionClaims: { claim: vi.fn(() => ({}) as never), settle: vi.fn() },
     channelEgressActionClaims, runtimeMediaActionClaims,
     persistOperatorAdoptionDecision: vi.fn(async () => undefined), createProvider: vi.fn(() => provider), now: () => new Date("2026-08-22T18:00:00.000Z"),
   });

@@ -565,13 +565,12 @@ describe("GuiWsClient", () => {
     });
 
     it("All outbound frame shapes serialize through Zod without error", () => {
+      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const frames: GuiOutboundFrame[] = [
         { type: "message", content: "hello world" },
         { type: "clear" },
         { type: "provider_auth", provider: "codex-oauth", requestId: "provider-auth-1" },
         { type: "provider_auth", provider: "opencode-go", requestId: "provider-auth-2", apiKey: "sk-test", tier: "go" },
-        { type: "provider", provider: "openai", model: "gpt-4", requestId: "provider-switch-1" },
-        { type: "provider", provider: "claude", requestId: "provider-switch-2" },
         { type: "continue", sessionId: "session-123", gatewayTargetId: "gateway:local-app" },
         {
           type: "managed_agent_control",
@@ -601,33 +600,27 @@ describe("GuiWsClient", () => {
           wakeRequested: true,
           requestId: "managed-agent-control-3",
         },
-        { type: "approve", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
-        { type: "reject", reason: "not approved", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
+        { type: "approve", requestId: "approval-approve-1", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
+        { type: "reject", requestId: "approval-reject-1", reason: "not approved", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
         { type: "execution_mode_transition", toMode: "execute", gatewayTargetId: "gateway:local-app" },
       ];
 
+      const testClient = createClient();
+      testClient.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      wsInstance.simulateOpen();
+
       for (const frame of frames) {
-        // Create a new client for each frame to test serialization
-        const testClient = createClient();
-        
-        // connect() initializes WebSocket but won't throw
-        // send() validates the frame through Zod
-        testClient.connect();
-        
-        // This will validate the frame through the Zod schema
-        // If invalid, it would log a warning and return early
-        if (frame.type === "provider" || frame.type === "provider_auth") {
-          const wsInstance = wsInstances[wsInstances.length - 1];
-          wsInstance.simulateOpen();
-        }
         testClient.send(frame);
       }
-      
-      // If we get here, all frames validated successfully
-      expect(true).toBe(true);
+
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+      expect(wsInstance.send.mock.calls.map(([payload]) => payload)).toEqual(
+        frames.map((frame) => JSON.stringify(frame)),
+      );
     });
 
-    it("rejects legacy outbound text and approval_response frames", () => {
+    it("rejects legacy outbound text, provider, and approval_response frames", () => {
       const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       client = createClient();
       client.connect();
@@ -636,13 +629,29 @@ describe("GuiWsClient", () => {
 
       client.send({ type: "message", text: "legacy text" } as unknown as GuiOutboundFrame);
       client.send({
+        type: "provider",
+        provider: "openai",
+        model: "gpt-4",
+        requestId: "legacy-provider-switch",
+      } as unknown as GuiOutboundFrame);
+      client.send({
         type: "approval_response",
         approved: true,
         sessionId: "session-123",
       } as unknown as GuiOutboundFrame);
 
       expect(wsInstance.send).not.toHaveBeenCalledWith(expect.stringContaining("legacy text"));
+      expect(wsInstance.send).not.toHaveBeenCalledWith(expect.stringContaining('"type":"provider"'));
       expect(wsInstance.send).not.toHaveBeenCalledWith(expect.stringContaining("approval_response"));
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "[GuiWsClient] Invalid outbound frame:",
+        JSON.stringify({
+          type: "provider",
+          provider: "openai",
+          model: "gpt-4",
+          requestId: "legacy-provider-switch",
+        }),
+      );
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         "[GuiWsClient] Invalid outbound frame:",
         JSON.stringify({ type: "message", text: "legacy text" }),

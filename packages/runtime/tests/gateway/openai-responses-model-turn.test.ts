@@ -11,6 +11,16 @@ import { parseOpenAIResponsesRequest } from "../../src/gateway/openai-responses-
 
 const rawCustomInput = "*** Begin Patch\r\n+ synthetic\r\n*** End Patch";
 
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+function requireArray(value: unknown, label: string): readonly unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value;
+}
+
 function richRequest() {
   return parseOpenAIResponsesRequest({
     model: "gpt-5-codex",
@@ -236,9 +246,10 @@ describe("ModelTurnResult to Responses SSE", () => {
       "response.completed",
     ]);
     expect(events.find((event) => event.type === "response.custom_tool_call_input.done")?.input).toBe(rawCustomInput);
-    expect(events.at(-1)?.response.usage).toEqual({ input_tokens: 8, input_tokens_details: { cached_tokens: 2 }, output_tokens: 5, total_tokens: 13 });
+    const terminalResponse = requireRecord(events.at(-1)?.response, "terminal response");
+    expect(terminalResponse.usage).toEqual({ input_tokens: 8, input_tokens_details: { cached_tokens: 2 }, output_tokens: 5, total_tokens: 13 });
     expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 1, protocolVersion: "codex-0.147.0" }]);
-    expect((events.at(-1)?.response as { output: unknown[] }).output.map((item: any) => item.type)).toEqual(["reasoning", "message", "function_call", "custom_tool_call"]);
+    expect(requireArray(terminalResponse.output, "terminal response output").map((item, index) => requireRecord(item, `terminal response output[${index}]`).type)).toEqual(["reasoning", "message", "function_call", "custom_tool_call"]);
   });
 
   it("maps one normal Codex round through request preflight and reasoning/function/custom response", () => {
@@ -251,7 +262,8 @@ describe("ModelTurnResult to Responses SSE", () => {
       { type: "tool-call", call: { kind: "custom", id: "custom", name: "apply_patch", input: { kind: "raw-text", value: rawCustomInput } } },
     ], usage: { inputTokens: 12, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: 2 }, stopReason: "tool_calls" };
     const events = mapModelTurnResultToOpenAIResponsesEvents({ responseId: "resp_round", model: request.model, result });
-    expect({ verbosity: turn.textVerbosity, degradation: admitted.unavailableOptional, output: (events.at(-1)?.response as any).output.map((item: any) => item.type), usage: events.at(-1)?.response.usage }).toEqual({
+    const terminalResponse = requireRecord(events.at(-1)?.response, "terminal response");
+    expect({ verbosity: turn.textVerbosity, degradation: admitted.unavailableOptional, output: requireArray(terminalResponse.output, "terminal response output").map((item, index) => requireRecord(item, `terminal response output[${index}]`).type), usage: terminalResponse.usage }).toEqual({
       verbosity: "low", degradation: ["reasoning-encrypted-content"], output: ["reasoning", "message", "function_call", "custom_tool_call"],
       usage: { input_tokens: 12, input_tokens_details: { cached_tokens: 4 }, output_tokens: 6, total_tokens: 18 },
     });

@@ -9,6 +9,7 @@ import {
   describeManagedAgentProviderLive,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
+import { createTestFetch } from "../fetch-fixture.js";
 
 describeManagedAgentProviderLive(
   "managed opencode-go direct approved-write live proof",
@@ -27,7 +28,7 @@ describeManagedAgentProviderLive(
       }, async (workspace) => {
         const requestTrace: Array<Record<string, unknown>> = [];
         const originalFetch = globalThis.fetch;
-        globalThis.fetch = async (input, init) => {
+        const fetchImplementation = async (input: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1]) => {
           const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
           if (url.endsWith("/chat/completions") && typeof init?.body === "string") {
             try {
@@ -70,9 +71,10 @@ describeManagedAgentProviderLive(
           trace.hasResponseBody = response.body !== null;
           return observeOpenCodeResponse(response, trace);
         };
+        globalThis.fetch = createTestFetch(fetchImplementation);
         const routeId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
           || "opencode-go-critical-approved-write";
-        const liveRoute = assertLiveRoute(routeId);
+        const liveRoute = assertLiveTarget(routeId);
         const composition = await createOperatorProjectAgentTaskApplicationComposition({
           projectPath: workspace.workspaceRoot,
         });
@@ -292,7 +294,7 @@ function liveAgentDefinition(): string {
   ].join("\n");
 }
 
-function assertLiveTarget(targetId: string): { readonly authorityProfileId: string } {
+function assertLiveTarget(targetId: string): { readonly authorityProfileId: string; readonly model: string } {
   const config = readGlobalConfig();
   const target = config?.targetCatalog?.targets.find((candidate) => candidate.id === targetId);
   const authorityProfile = config?.authorityProfiles?.find(
@@ -310,11 +312,11 @@ function assertLiveTarget(targetId: string): { readonly authorityProfileId: stri
     || !authorityProfile
     || authorityProfile.tools?.writes !== true
     || authorityProfile.tools?.network !== false
-    || authorityProfile.writeAuthority?.workspace.mode !== "apply-approved"
-    || authorityProfile.writeAuthority.approval.mode !== "required-before-apply"
+    || authorityProfile.writeAuthority?.workspace?.mode !== "apply-approved"
+    || authorityProfile.writeAuthority?.approval.mode !== "required-before-apply"
     || !intent
   ) {
     throw new Error("Live proof requires one account-leased opencode-go direct approved-write target and authority profile.");
   }
-  return { authorityProfileId: authorityProfile.id };
+  return { authorityProfileId: authorityProfile.id, model: target.providerModelId };
 }

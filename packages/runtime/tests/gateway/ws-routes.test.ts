@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createWsRoutes } from "../../src/gateway/ws-routes.js";
 import type { WsRoutesConfig } from "../../src/gateway/ws-routes.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
-import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import { textParts } from "@kilnai/core/engine";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
@@ -53,14 +52,20 @@ const providerRequestEvidence = {
  * then invoking it directly with a mock request context and WSContext.
  */
 function makeUpgradeWebSocket() {
-  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  type MockWebSocket = { readonly send: ReturnType<typeof vi.fn>; readonly readyState: number };
+  type Handlers = {
+    readonly onOpen?: (event: Event, ws: MockWebSocket) => void | Promise<void>;
+    readonly onMessage?: (event: MessageEvent, ws: MockWebSocket) => void | Promise<void>;
+    readonly onClose?: (event: CloseEvent, ws: MockWebSocket) => void | Promise<void>;
+  };
+  type HandlerFactory = (context: unknown) => Handlers;
   let capturedFactory: HandlerFactory | null = null;
 
-  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
-    capturedFactory = factory;
-    // Return a no-op Hono middleware -- we test the factory directly
-    return async (_c, next) => next();
-  };
+  const upgradeWebSocket = ((factory: unknown) => {
+    capturedFactory = factory as HandlerFactory;
+    // Return a no-op Hono middleware -- we test the factory directly.
+    return async (_c: unknown, next: () => Promise<void>) => next();
+  }) as UpgradeWebSocket;
 
   function simulateConnection(queryParams: Record<string, string> = {}) {
     if (!capturedFactory) throw new Error("upgradeWebSocket not called yet");
@@ -75,13 +80,12 @@ function makeUpgradeWebSocket() {
       req: {
         query: (key: string) => url.searchParams.get(key) ?? undefined,
       },
-    } as Parameters<HandlerFactory>[0];
+    };
 
     const handlers = capturedFactory(ctx);
 
-    const mockWs: WebSocketLike = { send: vi.fn(), readyState: 1 };
-    // WSContext is compatible enough via cast for our tests
-    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<typeof handlers.onOpen>[1] };
+    const mockWs: MockWebSocket = { send: vi.fn(), readyState: 1 };
+    return { handlers, mockWs, wsCtx: mockWs };
   }
 
   return { upgradeWebSocket, simulateConnection };
@@ -160,7 +164,7 @@ describe("createWsRoutes", () => {
       handlers.onOpen!(new Event("open"), wsCtx);
 
       // Send to that session -- should reach the client
-      await channel.send({ parts: textParts("hi"), userId: "sess-123" });
+      await channel.send({ target: "web", parts: textParts("hi"), userId: "sess-123" });
       expect(mockWs.send).toHaveBeenCalledOnce();
     });
 
@@ -171,7 +175,7 @@ describe("createWsRoutes", () => {
       const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-abc" });
       handlers.onOpen!(new Event("open"), wsCtx);
 
-      await channel.send({ parts: textParts("hi"), userId: "user-abc" });
+      await channel.send({ target: "web", parts: textParts("hi"), userId: "user-abc" });
       expect(mockWs.send).toHaveBeenCalledOnce();
     });
 
@@ -196,7 +200,7 @@ describe("createWsRoutes", () => {
       connA.handlers.onOpen!(new Event("open"), connA.wsCtx);
       connB.handlers.onOpen!(new Event("open"), connB.wsCtx);
 
-      await channel.send({ parts: textParts("only A"), userId: "sess-a" });
+      await channel.send({ target: "web", parts: textParts("only A"), userId: "sess-a" });
 
       expect(connA.mockWs.send).toHaveBeenCalledOnce();
       expect(connB.mockWs.send).not.toHaveBeenCalled();
@@ -276,7 +280,7 @@ describe("createWsRoutes", () => {
 
       createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
 
-      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
+      const { handlers, wsCtx } = simulateConnection({ userId: "user-1" });
       handlers.onOpen!(new Event("open"), wsCtx);
 
       await handlers.onMessage!(
@@ -431,7 +435,9 @@ describe("createWsRoutes", () => {
       );
 
       expect(mockWs.send).toHaveBeenCalledOnce();
-      const sent = JSON.parse(mockWs.send.mock.calls[0][0] as string);
+      const call = mockWs.send.mock.calls.at(0);
+      if (!call || typeof call[0] !== "string") throw new Error("Expected WebSocket done frame");
+      const sent = JSON.parse(call[0]);
       expect(sent).toEqual({
         type: "done",
         content: "world",
@@ -571,7 +577,9 @@ describe("createWsRoutes", () => {
       );
 
       expect(mockWs.send).toHaveBeenCalledOnce();
-      const sent = JSON.parse(mockWs.send.mock.calls[0][0] as string);
+      const call = mockWs.send.mock.calls.at(0);
+      if (!call || typeof call[0] !== "string") throw new Error("Expected WebSocket error frame");
+      const sent = JSON.parse(call[0]);
       expect(sent).toEqual({
         type: "error",
         message: "Processing failed",
@@ -680,7 +688,7 @@ describe("createWsRoutes", () => {
       const { handlers, mockWs, wsCtx } = simulateConnection({ token: "valid-token" });
       handlers.onOpen!(new Event("open"), wsCtx);
 
-      await channel.send({ parts: textParts("hello"), userId: "token-user-id" });
+      await channel.send({ target: "web", parts: textParts("hello"), userId: "token-user-id" });
       expect(mockWs.send).toHaveBeenCalledOnce();
     });
 
@@ -697,7 +705,7 @@ describe("createWsRoutes", () => {
       const { handlers, mockWs, wsCtx } = simulateConnection({ sessionId: "fallback-sess" });
       handlers.onOpen!(new Event("open"), wsCtx);
 
-      await channel.send({ parts: textParts("hi"), userId: "fallback-sess" });
+      await channel.send({ target: "web", parts: textParts("hi"), userId: "fallback-sess" });
       expect(mockWs.send).toHaveBeenCalledOnce();
     });
   });

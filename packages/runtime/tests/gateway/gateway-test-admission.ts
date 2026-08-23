@@ -100,13 +100,12 @@ function createTestMediaClaims(): {
 /** A complete, bundle-owned admission used by route tests. */
 export function makeGatewayTestAdmission(
   sessionRegistry: SessionRegistry,
-  provider: ProviderAdapter = { name: "gateway-test", createMessage: async () => ({ parts: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: [] }), streamMessage: async function* () {} },
+  provider: ProviderAdapter = { name: "gateway-test", createMessage: async () => ({ parts: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: [], stopReason: "completed" }), streamMessage: async function* () {} },
 ): GatewayAuthorityAdmissionPort {
   const channelEgress = createTestChannelEgressClaims();
   const mediaActionClaims = createTestMediaClaims();
   return {
     channelEgressActionClaims: channelEgress.context,
-    runtimeMediaActionClaims: mediaActionClaims.context,
     async execute(request, dispatch) {
       const session = await sessionRegistry.getById(request.sessionId)
         ?? await sessionRegistry.get(request.appName, request.userId, request.tenantId);
@@ -138,7 +137,7 @@ export function makeGatewayTestAdmission(
           tools: { allowedToolPermissions: [], deniedToolNames: [] },
           effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
           budget: { status: "not-configured" },
-          execution: { status: "routed", route: { routeId: "gateway-test", providerId: provider.name, providerModelId: provider.name, accountSelection: { mode: "exact", accountId: "gateway-test", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "gateway test" } }, binding: { status: "bound", routeId: "gateway-test", accountId: "gateway-test", credentialId: "gateway-test", credentialRevision: "gateway-test" } },
+          execution: { status: "routed", route: { routeId: "gateway-test", providerId: provider.name, providerModelId: provider.name, accountSelection: { mode: "exact", accountId: "gateway-test", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "gateway-test", accountId: "gateway-test", credentialId: "gateway-test", credentialRevision: "gateway-test" } },
         },
       });
       const perCallConfig = { authorityAdmission: bundle, turnId };

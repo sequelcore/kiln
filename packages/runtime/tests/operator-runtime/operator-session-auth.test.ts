@@ -162,12 +162,12 @@ describe("operator session credentials", () => {
   });
 
   it.each([
-    [{ ...expected, principal: { kind: "native-harness", harness: "claude" } }, "principal"],
-    [{ ...expected, principal: { kind: "operator-surface", surface: "gui" } }, "principal kind"],
-    [{ ...expected, sessionId: "session-02" }, "session"],
-    [{ ...expected, projectRuntimeId: `krp_${"c".repeat(64)}` }, "project"],
-    [{ ...expected, markerDigest: `sha256:${"d".repeat(64)}` }, "binding"],
-  ] as const)("rejects an expected %s mismatch", (wrongExpected) => {
+    ["principal", { ...expected, principal: { kind: "native-harness", harness: "claude" } }],
+    ["principal kind", { ...expected, principal: { kind: "operator-surface", surface: "gui" } }],
+    ["session", { ...expected, sessionId: "session-02" }],
+    ["project", { ...expected, projectRuntimeId: `krp_${"c".repeat(64)}` }],
+    ["binding", { ...expected, markerDigest: `sha256:${"d".repeat(64)}` }],
+  ] as const)("rejects an expected %s mismatch", (_label, wrongExpected) => {
     const credential = signOperatorSessionCredential(claims, secret);
     expectCredentialError(
       () => verifyOperatorSessionCredential(credential, secret, wrongExpected, { nowEpochSeconds: now }),

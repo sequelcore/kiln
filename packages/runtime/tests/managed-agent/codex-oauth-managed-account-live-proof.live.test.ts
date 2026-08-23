@@ -1,18 +1,26 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { buildManagedAgentBackgroundJobOrchestrationRequest } from "@kilnai/core/agents";
+import { admitOperatorExecutionIntent, buildManagedAgentBackgroundJobOrchestrationRequest } from "@kilnai/core/agents";
 import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   CodexOAuthCredentialPoolService,
   ConfiguredExecutionAccountRuntime,
-  SqliteManagedAccountLeaseAuthority,
   runManagedAgentOrchestrationLifecycle,
-} from "../../src/index.js";
+  SqliteManagedAccountLeaseAuthority,
+} from "@kilnai/runtime";
+import type {
+  RuntimeModelRoundActionClaim,
+  RuntimeModelRoundActionClaimPermit,
+  RuntimeModelRoundActionClaimStore,
+  RuntimeToolActionClaim,
+  RuntimeToolActionClaimPermit,
+  RuntimeToolActionClaimStore,
+} from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../../cli/src/config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../../../cli/src/config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../../../cli/src/config/managed-agent-routes.js";
-import { readGlobalConfig } from "../../../cli/src/config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionCatalog } from "../../../cli/src/config/global-config.js";
 import { createDefaultRegistry } from "../../../cli/src/wrapper/session-registry.js";
 import {
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
@@ -45,27 +53,27 @@ describeManagedAgentProviderLive(
         const config = readGlobalConfig();
         if (!config) throw new Error("Managed-account live proof requires ~/.kiln/config.yaml.");
 
-        const configuredRoute = config.managedAgents?.routes?.find((route) => route.id === routeId);
+        const targetCatalog = config.targetCatalog;
+        const configuredRoute = targetCatalog?.targets.find((target) => target.id === routeId);
         if (
           !configuredRoute
           || configuredRoute.kind !== "direct"
-          || configuredRoute.provider !== "codex-oauth"
-          || configuredRoute.credentials?.mode !== "runtime-selected"
-          || configuredRoute.tools?.writes !== false
-          || configuredRoute.tools?.network !== false
+          || configuredRoute.providerId !== "codex-oauth"
+          || configuredRoute.accountSelection.mode !== "automatic"
         ) {
           throw new Error(
             "Managed-account live route must be a configured read-only Codex OAuth direct route.",
           );
         }
-        const policy = config.modelGateway?.virtualModels.find(
-          (candidate) => candidate.id === configuredRoute.credentials?.accountPolicyId,
+        const policy = targetCatalog?.accountPolicies.find(
+          (candidate) => configuredRoute.accountSelection.mode === "automatic"
+            && candidate.id === configuredRoute.accountSelection.accountPolicyId,
         );
-        if (!policy || policy.accountIds.length !== 2) {
+        if (!targetCatalog || !policy || policy.accountIds.length !== 2) {
           throw new Error("Managed-account live policy must configure exactly two account candidates.");
         }
         const policyCredentialIds = policy.accountIds.map((accountId) => {
-          const account = config.modelGateway?.accounts.find((candidate) => candidate.id === accountId);
+          const account = targetCatalog.accounts.find((candidate) => candidate.id === accountId);
           if (!account || account.providerId !== "codex-oauth") {
             throw new Error("Managed-account live policy contains an invalid Codex account.");
           }
@@ -83,22 +91,23 @@ describeManagedAgentProviderLive(
         credentialResolutions.mockClear();
         const runtimeDirectory = join(workspace.workspaceRoot, ".kiln", "runtime");
         await mkdir(runtimeDirectory, { recursive: true });
-        const routing = new ConfiguredExecutionAccountRuntime({
-          config: config.modelGateway,
-          codexPool,
-        });
-        const usagePreflight = await routing.resolve({
-          accountPolicyId: policy.id,
-          providerRoute: {
-            providerId: configuredRoute.provider,
-            surface: "managed-account-live-preflight",
-            model: configuredRoute.model,
+        const executionCatalog = readGlobalExecutionCatalog(config);
+        if (!executionCatalog) throw new Error("Managed-account live proof requires an admitted execution catalog.");
+        const routing = new ConfiguredExecutionAccountRuntime({ catalog: executionCatalog, codexPool });
+        const admission = admitOperatorExecutionIntent(executionCatalog, { routeId });
+        const usagePreflight = await routing.modelGatewayCandidates.resolve({
+          admission,
+          route: {
+            routeId,
+            providerId: configuredRoute.providerId,
+            providerModelId: configuredRoute.providerModelId,
+            scope: "virtual:managed-account-live-preflight",
           },
         });
-        if (!usagePreflight.candidates.some(
+        if (!usagePreflight.some(
           (candidate) =>
-            candidate.usageEvidence.freshness === "fresh"
-            && candidate.usageEvidence.availability === "available",
+            candidate.lease.usageEvidence.freshness === "fresh"
+            && candidate.lease.usageEvidence.availability === "available",
         )) {
           throw new Error(
             "Managed-account live proof requires at least one policy candidate with fresh available usage.",
@@ -112,16 +121,20 @@ describeManagedAgentProviderLive(
           cwd: workspace.workspaceRoot,
           userHome: process.env.USERPROFILE,
           registry,
-          surface: "cli",
+          surface: "operator",
           isProviderAvailable: (provider) => provider === "codex-oauth",
           providerModelEligibility: await discoverManagedAgentProviderModels(),
           directAdapterFactory: createManagedDirectProviderAdapterFactory({
             builtinToolOptions: createSessionBuiltinToolOptions(),
+            runtimeToolActionClaims: createLiveToolActionStore(),
+            readAuthorityAdmission: () => undefined,
+            runtimeModelRoundActionClaims: createLiveModelRoundStore(),
           }),
           managedAccountComposition: {
             routing,
             authority: leaseAuthority,
-            updateConfig: (next) => routing.updateConfig(next),
+            updateCatalog: (next) => routing.updateCatalog(next),
+            close: () => leaseAuthority?.close(),
           },
         });
         const managedInvocation = resolution.managedInvocation;
@@ -171,6 +184,76 @@ describeManagedAgentProviderLive(
     }, 240_000);
   },
 );
+
+function createLiveToolActionStore(): RuntimeToolActionClaimStore {
+  const claims = new Map<string, RuntimeToolActionClaim>();
+  const states = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("Live tool-action claim already exists; no redispatch.");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `live-tool-action:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("Live tool-action permit already consumed.");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeToolActionClaimPermit;
+      claims.set(input.claimId, input);
+      states.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = states.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("Live tool-action permit was not consumed.");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success" ? { outcome: "success" as const } : { unknownReason: settlement.reason }),
+        ...(settlement.settledAt ? { settledAt: settlement.settledAt } : {}),
+      });
+      states.delete(permit);
+    },
+  };
+}
+
+function createLiveModelRoundStore(): RuntimeModelRoundActionClaimStore {
+  const claims = new Map<string, RuntimeModelRoundActionClaim>();
+  const states = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
+  return {
+    claim(input) {
+      if (claims.has(input.claimId)) throw new Error("Live model-round claim already exists; no redispatch.");
+      const state = { claimId: input.claimId, consumed: false };
+      const permit = Object.freeze({
+        claimId: input.claimId,
+        permitId: `live-model-round:${input.claimId}`,
+        consume: () => {
+          if (state.consumed) throw new Error("Live model-round permit already consumed.");
+          state.consumed = true;
+        },
+      }) as unknown as RuntimeModelRoundActionClaimPermit;
+      claims.set(input.claimId, input);
+      states.set(permit, state);
+      return permit;
+    },
+    settle(permit, settlement) {
+      const state = states.get(permit);
+      const claim = claims.get(permit.claimId);
+      if (!state || !claim || !state.consumed) throw new Error("Live model-round permit was not consumed.");
+      claims.set(permit.claimId, {
+        ...claim,
+        status: settlement.kind === "success" ? "settled" : "unknown",
+        ...(settlement.kind === "success"
+          ? { outcome: "success" as const }
+          : { outcome: "unknown" as const, unknownReason: settlement.reason }),
+        ...(settlement.settledAt ? { settledAt: settlement.settledAt } : {}),
+      });
+      states.delete(permit);
+    },
+  };
+}
 
 function requireEnvironment(name: string): string {
   const value = process.env[name]?.trim();

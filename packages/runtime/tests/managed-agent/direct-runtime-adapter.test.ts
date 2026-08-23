@@ -5,8 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type AgentResponse,
   AllCredentialsExhaustedError,
-  type AuthorityDescriptor,
-  type Capability,
   defineManagedAgentInvocationRequest,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRecord,
@@ -14,7 +12,7 @@ import {
   type ProviderAdapter,
   type ToolDefinition,
 } from "@kilnai/core/agents";
-import { textParts } from "@kilnai/core/engine";
+import { textParts, type AuthorityDescriptor, type Capability } from "@kilnai/core/engine";
 import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   ManagedRuntimeSandboxLeaseManager,
@@ -42,6 +40,7 @@ import type {
   RuntimeModelRoundActionClaimStore,
 } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
 import type { ManagedAgentRuntimeInvocationInput } from "../../src/agents/managed-invocation/index.js";
+import { createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
 const DIRECT_TEST_ADMISSIONS = new Map<string, EffectiveAuthorityAdmissionBundle>();
 
@@ -125,13 +124,13 @@ function directTestAdmission(
     consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
     idempotency: "non-idempotent" as const,
   };
-  const toolPermissions = allowedToolNames.map((toolName) => ({
+  const toolPermissions: EffectiveAuthorityAdmissionBundle["turn"]["tools"]["allowedToolPermissions"] = allowedToolNames.map((toolName) => ({
     toolName,
     authority: {
       level: request.authority.toolAuthority.writeAllowed ? 3 : 1,
       allowed: true,
       requiresApproval: false,
-      reason: "direct provider test admission",
+    reason: "policy-admitted",
     },
     effectEnvelope: observeEffect,
   }));
@@ -167,7 +166,7 @@ function directTestAdmission(
           providerModelId: model,
           accountSelection: { mode: "exact", accountId, source: "route" },
         },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "direct provider test admission" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId, accountId, credentialId: "direct-test-credential", credentialRevision },
         ...(economicCommitmentId
           ? { economicCommitment: { commitmentId: economicCommitmentId, authorityRevision: "direct-test-authority-revision" } }
@@ -177,8 +176,8 @@ function directTestAdmission(
   });
 }
 
-type DirectTestAdapterConfig = Omit<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims">
-  & Partial<Pick<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims">>;
+type DirectTestAdapterConfig = Omit<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims">
+  & Partial<Pick<ManagedDirectProviderRuntimeAdapterConfig, "readAuthorityAdmission" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims">>;
 
 class ManagedDirectProviderRuntimeAdapter extends ProductionManagedDirectProviderRuntimeAdapter {
   constructor(config: DirectTestAdapterConfig) {
@@ -228,6 +227,7 @@ class ManagedDirectProviderRuntimeAdapter extends ProductionManagedDirectProvide
       ...config,
       ...(config.capabilityMap === undefined ? { capabilityMap: fallbackCapabilities } : {}),
       ...(config.toolAuthority === undefined ? { toolAuthority: fallbackAuthority } : {}),
+      runtimeToolActionClaims: config.runtimeToolActionClaims ?? createFixtureToolActionStore(),
       runtimeModelRoundActionClaims: directTestModelRoundStore(),
       readAuthorityAdmission: async ({ admissionId }) => DIRECT_TEST_ADMISSIONS.get(admissionId),
     });
@@ -1779,7 +1779,8 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(evidence).toContain('Metadata: {"eventType":"response_headers","phase":"headers","status":200}');
     expect(evidence).not.toContain("unsafe-project-path");
     expect(evidence).not.toContain("unsafe-request");
-    const transportEventIds = service.status("inv-direct-1")?.progressEvents
+    const progressEvents = service.status("inv-direct-1")?.progressEvents ?? [];
+    const transportEventIds = progressEvents
       .filter((event) => event.kind === "provider_transport")
       .map((event) => event.eventId) ?? [];
     expect(transportEventIds).toHaveLength(2);
@@ -1926,6 +1927,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     const cancelled = await service.cancel("inv-direct-1", "Operator stopped direct child.");
     await flushMicrotasks();
 
+    if (cancelled.status !== "cancelled") throw new Error(`Expected cancellation to settle, received ${cancelled.status}.`);
     expect(cancelled.record.lifecycleState).toBe("cancelled");
     expect(observedSignal?.aborted).toBe(true);
     expect(service.status("inv-direct-1")).toMatchObject({

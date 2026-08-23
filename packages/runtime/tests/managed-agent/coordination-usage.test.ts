@@ -9,6 +9,11 @@ describe("managed-agent coordination usage", () => {
       parentPrompt: "Inspect the bounded context and report evidence.",
       sourceResourceUris: ["kiln://artifacts/context/source/content"],
       resultHandoff: {
+        provenance: {
+          delivery: "runtime-generated",
+          configuredModelId: "fixture-model",
+          observedModelIds: ["fixture-model"],
+        },
         summary: "Found one boundary issue.",
         resourceUris: ["kiln://artifacts/results/finding/content"],
         memoryWriteProposalUris: [],

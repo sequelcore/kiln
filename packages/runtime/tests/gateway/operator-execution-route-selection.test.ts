@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ExecutionRouteCatalogEntry } from "@kilnai/gateway-contracts";
 import { rejectUnavailableExecutionRoute } from "../../src/gateway/operator-execution-route-selection.js";
 
 const route = {
@@ -10,8 +11,8 @@ const route = {
   accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
   availability: "available" as const,
   reasonCodes: ["configured" as const],
-  repairActions: [] as const,
-};
+  repairActions: [],
+} satisfies ExecutionRouteCatalogEntry;
 
 describe("operator execution route selection", () => {
   it("rejects an unknown route without materializing a provider", () => {

@@ -24,6 +24,7 @@ import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-le
 import { deserializeSession, serializeSession } from "../../src/session/persistence/session-serializer.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { managedEconomicAdmissionBundle } from "./managed-economic-admission-fixture.js";
+import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
 const DECISION_AT = "2026-08-02T12:00:00.000Z";
 
@@ -77,6 +78,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
           authority.releaseCommitmentPreFence(jobId2, economicAttemptId2),
         fenceDispatch: (jobId2, economicAttemptId2, dispatchFenceId, actionClaim) =>
           authority.fenceDispatch(jobId2, economicAttemptId2, dispatchFenceId, actionClaim),
+        readDispatch: (jobId2, economicAttemptId2, dispatchFenceId, actionClaim) =>
+          authority.readDispatch(jobId2, economicAttemptId2, dispatchFenceId, actionClaim),
         settleExecution: (jobId2, economicAttemptId2, dispatchFenceId, settlement) => {
           record = authority.settleExecution(jobId2, economicAttemptId2, dispatchFenceId, settlement);
           return record;
@@ -94,6 +97,9 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
           builtinTools: new Map(),
           economicIdentity: commitment.reservation.selectedIdentity,
           now: () => new Date(DECISION_AT),
+          runtimeToolActionClaims: createFixtureToolActionStore(),
+          readAuthorityAdmission: () => admissionBundle,
+          runtimeModelRoundActionClaims: createFixtureModelRoundStore(),
         });
       },
     });
@@ -105,6 +111,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
       effectIdentity: "managed-economic-proof:provider-dispatch",
       adoption,
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: "economic-route-proof",
+      invocationId: `economic-route-proof:${input.providerId}`,
       lifecycleEvents,
     });
     if (prepared.status !== "prepared") {

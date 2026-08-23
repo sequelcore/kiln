@@ -11,6 +11,7 @@ const tenant: TenantConfig = {
   businessName: "Test",
   enabled: true,
   createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
   agents: [
     { id: "sales", name: "Sales Agent", role: "seller", goal: "sell" },
     { id: "support", name: "Support Agent", role: "helper", goal: "help", isDefault: true },
@@ -30,6 +31,7 @@ const tenantNoRouting: TenantConfig = {
   name: "No Routing",
   enabled: true,
   createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
 };
 
 function postRouting(app: ReturnType<typeof createRoutingTestRoutes>, tenantId: string, body: unknown) {

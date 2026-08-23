@@ -3,6 +3,7 @@ import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineDeliberationLevelId,
   type ManagedAgentAdapterDescriptor,
   type ManagedAgentInvocationRequest,
   type ModelCapabilityRegistry,
@@ -26,15 +27,57 @@ import {
   type RoutingRequest,
   textParts,
 } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { ManagedRemoteHarnessAdapter } from "../../src/agents/managed-invocation/remote-harness-adapter.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type {
+  ModelRoutingRouteCapabilities,
   RuntimeMultimodalDelegationRoute,
   RuntimeMultimodalTransformRoute,
   PerCallToolConfig,
 } from "../../src/session/runtime-session-orchestrator.types.js";
+
+function makeEventBus(): EventBus {
+  const eventBus = new EventBus(100);
+  vi.spyOn(eventBus, "emit");
+  return eventBus;
+}
+
+function emittedEvents(eventBus: EventBus): readonly unknown[][] {
+  return vi.mocked(eventBus.emit).mock.calls;
+}
+
+function makeDeliberationCapabilities(
+  provider: string,
+  model: string,
+  levels: readonly string[],
+  defaultLevel: string,
+): ModelRoutingRouteCapabilities {
+  return {
+    deliberation: {
+      provider,
+      model,
+      levels: levels.map((id) => ({ id: defineDeliberationLevelId(id) })),
+      defaultLevel: defineDeliberationLevelId(defaultLevel),
+      supportsAdaptive: false,
+      evidence: {
+        sourceIdentity: "routed/models",
+        sourceRevision: "test-r1",
+        observedAt: "2026-05-12T00:00:00.000Z",
+      },
+    },
+  };
+}
+
+function requireRoutingRationale(
+  result: { readonly routingDecision?: { readonly rationale?: RoutingDecision["rationale"] } },
+): NonNullable<RoutingDecision["rationale"]> {
+  const rationale = result.routingDecision?.rationale;
+  if (!rationale) throw new Error("Expected the routing decision to include rationale evidence.");
+  return rationale;
+}
 
 function makeProvider(name = "mock"): ProviderAdapter {
   return {
@@ -296,7 +339,7 @@ function makeFixtureModelRoundAdmission(
   providerId: string,
   providerModelId: string,
 ) {
-  const revision = { revisionSetId: "model-routing-test", revisions: { fixture: "model-routing-test" } } as const;
+  const revision = { revisionSetId: "runtime_surface_projection", revisions: { fixture: "model-routing-test" } } as const;
   const routeId = `fixture:${providerId}:${providerModelId}`;
   const accountId = "fixture-model-round-account";
   const credentialRevision = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -314,7 +357,7 @@ function makeFixtureModelRoundAdmission(
         executionMode: "execute",
         requestedAuthority: "read_only",
         admittedAuthority: "read_only",
-        sourcePolicy: "model-routing-test",
+        sourcePolicy: "runtime_surface_projection",
         reason: "Model routing fixture",
         completeness: "authoritative",
         toolCount: 0,
@@ -342,7 +385,7 @@ function makeFixtureModelRoundAdmission(
           providerModelId,
           accountSelection: { mode: "exact", accountId, source: "route" },
         },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "Model routing fixture" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {
           status: "bound",
           routeId,
@@ -365,15 +408,16 @@ function fixtureModelRoundConfig(
     readonly provider: ProviderAdapter;
     readonly model?: string;
     readonly modelRouter?: ModelRouter;
+    readonly providerPool?: ReadonlyMap<string, ProviderAdapter>;
   } }).deps;
   if (!deps.model) (deps as { model?: string }).model = "fixture-model";
-  const turnId = config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
+  const turnId = config?.turnCorrelationId ?? `${session.id}:turn:${Math.max(session.userTurnCount + 1, 1)}`;
   let providerId = deps.provider.name;
-  let providerModelId = deps.model;
-  const hasExplicitAdmittedRoute = config?.admittedExecutionRoute !== undefined;
-  if (config?.admittedExecutionRoute) {
-    providerId = config.admittedExecutionRoute.providerId;
-    providerModelId = config.admittedExecutionRoute.providerModelId;
+  let providerModelId = deps.model ?? "fixture-model";
+  const hasExplicitAdmittedRoute = config?.authorityAdmission?.turn.execution.status === "routed";
+  if (hasExplicitAdmittedRoute && config?.authorityAdmission?.turn.execution.status === "routed") {
+    providerId = config.authorityAdmission.turn.execution.route.providerId;
+    providerModelId = config.authorityAdmission.turn.execution.route.providerModelId;
   }
   let admission = makeFixtureModelRoundAdmission(session, turnId, providerId, providerModelId);
   const store = makeFixtureModelRoundStore();
@@ -397,7 +441,7 @@ function fixtureModelRoundConfig(
       // decision only changes the committed route when that provider is
       // actually available in the provider pool. Otherwise the default route
       // remains the exact canonical authority and the decision is diagnostic.
-      if (!hasExplicitAdmittedRoute && deps.providerPool?.has(decision.provider)) {
+       if (!hasExplicitAdmittedRoute && deps.providerPool?.has(decision.provider)) {
         providerId = decision.provider;
         providerModelId = decision.model;
         admission = makeFixtureModelRoundAdmission(session, turnId, providerId, providerModelId);
@@ -545,34 +589,25 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     const result = await orchestrator.processMessage(session, textParts("analyze the boundary\n```ts\nclass Boundary {}\n```"), undefined, undefined, {
-      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" },
       deliberationSource: "operator",
       modelRoutingPolicy: {
-        routeCapabilities: new Map([["routed/routed-model", {
-          deliberation: {
-            provider: "routed",
-            model: "routed-model",
-            levels: [{ id: "low" }, { id: "medium" }, { id: "high" }],
-            defaultLevel: "medium",
-            supportsAdaptive: false,
-            evidence: { sourceIdentity: "routed/models", sourceRevision: "test-r1", observedAt: "2026-05-12T00:00:00.000Z" },
-          },
-        }]]),
+        routeCapabilities: new Map([["routed/routed-model", makeDeliberationCapabilities("routed", "routed-model", ["low", "medium", "high"], "medium")]]),
       },
     });
 
     expect(router.route).toHaveBeenCalledWith(expect.objectContaining({
-      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" },
     }));
     expect(result.routingDecision?.deliberationResolution).toMatchObject({ status: "exact", selectedLevel: "high" });
-    expect(result.routingDecision?.rationale.inputsUsed).toMatchObject({
-      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+    expect(requireRoutingRationale(result).inputsUsed).toMatchObject({
+      deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" },
       hasTools: false,
       toolCount: 0,
       tenantId: "default",
       complexityClass: "simple",
     });
-    expect(result.routingDecision?.rationale.inputsUsed.complexityScore).toBeGreaterThan(0.2);
+    expect(requireRoutingRationale(result).inputsUsed.complexityScore).toBeGreaterThan(0.2);
   });
 
   it("rejects undeclared deliberation transport before direct provider I/O", async () => {
@@ -591,23 +626,10 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
 
     await expect(orchestrator.processMessage(makeSession(), textParts("analyze"), undefined, undefined, {
-      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" },
       deliberationSource: "operator",
       modelRoutingPolicy: {
-        routeCapabilities: new Map([["routed/routed-model", {
-          deliberation: {
-            provider: "routed",
-            model: "routed-model",
-            levels: [{ id: "high" }],
-            defaultLevel: "high",
-            supportsAdaptive: false,
-            evidence: {
-              sourceIdentity: "routed/models",
-              sourceRevision: "test-r1",
-              observedAt: "2026-05-12T00:00:00.000Z",
-            },
-          },
-        }]]),
+        routeCapabilities: new Map([["routed/routed-model", makeDeliberationCapabilities("routed", "routed-model", ["high"], "high")]]),
       },
     })).rejects.toThrow("cannot transport the resolved deliberation level");
     expect(routedProvider.createMessage).not.toHaveBeenCalled();
@@ -714,20 +736,11 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     await expect(orchestrator.processMessage(session, textParts("do hard work"), undefined, undefined, {
-      deliberationIntent: { mode: "fixed", preferredLevel: "xhigh", onUnsupported: "deny" },
+      deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("xhigh"), onUnsupported: "deny" },
       deliberationSource: "operator",
       modelRoutingPolicy: {
         routeCapabilities: new Map([
-          ["routed/routed-model", {
-            deliberation: {
-              provider: "routed",
-              model: "routed-model",
-              levels: [{ id: "low" }, { id: "medium" }, { id: "high" }],
-              defaultLevel: "medium",
-              supportsAdaptive: false,
-              evidence: { sourceIdentity: "routed/models", sourceRevision: "test-r1", observedAt: "2026-05-12T00:00:00.000Z" },
-            },
-          }],
+          ["routed/routed-model", makeDeliberationCapabilities("routed", "routed-model", ["low", "medium", "high"], "medium")],
         ]),
       },
     })).rejects.toThrow("preferred-level-unsupported");
@@ -792,7 +805,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   });
 
   it("emits multimodal routing evidence for native image admission", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const visionProvider = makeProvider("openai");
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: visionProvider,
@@ -806,7 +819,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
     ]);
 
-    const multimodalEvents = eventBus.emit.mock.calls.filter(
+    const multimodalEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
     );
     expect(multimodalEvents).toHaveLength(1);
@@ -824,7 +837,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
   it("uses persisted artifact URIs for native multimodal routing evidence", async () => {
     const artifactUri = "kiln://artifacts/uploads/artifact_1/content";
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const visionProvider = makeProvider("openai");
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: visionProvider,
@@ -838,7 +851,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=", artifactUri },
     ]);
 
-    const multimodalEvents = eventBus.emit.mock.calls.filter(
+    const multimodalEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
     );
     expect(multimodalEvents).toHaveLength(1);
@@ -850,7 +863,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   });
 
   it("emits multimodal routing evidence for rejected image admission", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       model: "deepseek-chat",
@@ -863,7 +876,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
     ])).rejects.toThrow("unsupported_modality");
 
-    const multimodalEvents = eventBus.emit.mock.calls.filter(
+    const multimodalEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
     );
     expect(multimodalEvents).toHaveLength(1);
@@ -982,7 +995,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       cacheInvalidationCostUsd: 0.01,
       verifierCostUsd: 0.03,
     }));
-    expect(result.routingDecision?.rationale.inputsUsed).toMatchObject({
+    expect(requireRoutingRationale(result).inputsUsed).toMatchObject({
       task: "verified-change",
       phase: "verify",
       uncertainty: 0.7,
@@ -1014,7 +1027,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   });
 
   it("delegates image admission to a managed auxiliary route when the active route lacks vision", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const managedAdapter = makeManagedAdapter();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
@@ -1093,7 +1106,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       resultSummary: "Delegated vision summary.",
     });
 
-    const multimodalEvents = eventBus.emit.mock.calls.filter(
+    const multimodalEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
     );
     expect(multimodalEvents).toHaveLength(1);
@@ -1117,7 +1130,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   });
 
   it("returns a terminal failure without invoking a denied multimodal delegation", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const managedAdapter = makeManagedAdapter();
     const sessionTurnBudget = {
       admit: vi.fn().mockResolvedValue({
@@ -1151,7 +1164,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(1);
     expect(managedAdapter.invoke).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
-    expect(eventBus.emit.mock.calls.filter(
+    expect(emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string; message?: string }).type === "error"
         && (call[0] as { message?: string }).message === "Delegation denied by the session limit.",
     )).toHaveLength(1);
@@ -1398,10 +1411,6 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       transform: "ocr",
       sourceModalities: ["image"],
       outputModality: "text",
-      execute: vi.fn(async () => ({
-        parts: textParts("[OCR transform]: history"),
-        summary: "OCR transform completed.",
-      })),
     });
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
@@ -1469,7 +1478,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   });
 
   it("does not emit successful model_routed telemetry for rejected multimodal input", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const routedProvider = makeProvider("deepseek");
     const router = makeRouter({
       provider: "deepseek",
@@ -1493,7 +1502,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
     ])).rejects.toThrow("unsupported_modality");
 
-    const modelRoutedEvents = eventBus.emit.mock.calls.filter(
+    const modelRoutedEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "model_routed",
     );
     expect(modelRoutedEvents).toEqual([]);
@@ -1630,15 +1639,17 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
   it("rejects an operator model override that differs from the admitted execution route before provider dispatch", async () => {
     const overrideProvider = makeProvider("override");
+    const session = makeSession();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       model: "default-model",
       providerPool: new Map([["override", overrideProvider]]),
     });
 
-    await expect(orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
+    await expect(orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
       modelOverride: { provider: "override", model: "override-model", source: "operator" },
-      admittedExecutionRoute: { routeId: "route-default", providerId: "default", providerModelId: "default-model" },
+      authorityAdmission: makeFixtureModelRoundAdmission(session, `${session.id}:turn:1`, "default", "default-model"),
+      turnCorrelationId: `${session.id}:turn:1`,
     })).rejects.toThrow("does not match admitted execution route");
     expect(overrideProvider.createMessage).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
@@ -1646,6 +1657,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
   it("rejects an automatic routed provider that differs from the admitted execution route before provider dispatch", async () => {
     const routedProvider = makeProvider("routed");
+    const session = makeSession();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       model: "default-model",
@@ -1659,8 +1671,9 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       providerPool: new Map([["routed", routedProvider]]),
     });
 
-    await expect(orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
-      admittedExecutionRoute: { routeId: "route-default", providerId: "default", providerModelId: "default-model" },
+    await expect(orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      authorityAdmission: makeFixtureModelRoundAdmission(session, `${session.id}:turn:1`, "default", "default-model"),
+      turnCorrelationId: `${session.id}:turn:1`,
     })).rejects.toThrow("does not match admitted execution route");
     expect(routedProvider.createMessage).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
@@ -1783,15 +1796,15 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       },
     });
 
-    expect(result.routingDecision?.rationale.rankingEvidence).toEqual([]);
-    expect(result.routingDecision?.rationale.diagnostics).toContainEqual(expect.objectContaining({
+    expect(requireRoutingRationale(result).rankingEvidence).toEqual([]);
+    expect(requireRoutingRationale(result).diagnostics).toContainEqual(expect.objectContaining({
       code: "stale_ranking_evidence",
       severity: "warning",
     }));
   });
 
   it("uses modelOverride for execution identity and cost telemetry even without a provider pool", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       eventBus,
@@ -1811,7 +1824,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(defaultCall?.system).toContain("model: gpt-4o-mini");
     expect(defaultCall?.system).toContain("source: runtime-routed");
 
-    const modelRoutedEvents = eventBus.emit.mock.calls.filter(
+    const modelRoutedEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "model_routed",
     );
     expect(modelRoutedEvents.length).toBe(1);
@@ -1823,7 +1836,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       billingMode: "metered",
     });
 
-    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+    const costUpdateEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
     );
     expect(costUpdateEvents.length).toBe(1);
@@ -1847,7 +1860,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
   it("accepts provider-qualified free-tier runtime model ids without missing-pricing warnings", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       eventBus,
@@ -1858,7 +1871,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       modelOverride: { provider: "opencode", model: "opencode/minimax-m2.5-free", source: "operator" },
     });
 
-    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+    const costUpdateEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
     );
     expect(costUpdateEvents.length).toBe(1);
@@ -1898,7 +1911,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
   it("accepts provider-qualified nemotron runtime model ids without missing-pricing warnings", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       eventBus,
@@ -1909,7 +1922,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       modelOverride: { provider: "opencode", model: "opencode/nemotron-3-super-free", source: "operator" },
     });
 
-    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+    const costUpdateEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
     );
     expect(costUpdateEvents.length).toBe(1);
@@ -1949,7 +1962,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
   it("emits non-comparable cost evidence for unpriced subscription and metered routes", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: defaultProvider,
       eventBus,
@@ -1960,7 +1973,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       modelOverride: { provider: "codex-oauth", model: "gpt-5.5", source: "operator" },
     });
 
-    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+    const costUpdateEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
     );
     expect(costUpdateEvents[0]?.[0]).toMatchObject({
@@ -1991,12 +2004,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       expect.stringContaining("No metered pricing found"),
     );
 
-    eventBus.emit.mockClear();
+    vi.mocked(eventBus.emit).mockClear();
     await orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
       modelOverride: { provider: "openai", model: "unknown-metered-model", source: "operator" },
     });
 
-    const unknownCostUpdateEvents = eventBus.emit.mock.calls.filter(
+    const unknownCostUpdateEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
     );
     expect(unknownCostUpdateEvents[0]?.[0]).toMatchObject({
@@ -2049,7 +2062,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   });
 
   it("emits model_routed event via eventBus", async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const eventBus = makeEventBus();
     const router = makeRouter({
       provider: "openai",
       model: "gpt-4o-mini",
@@ -2066,11 +2079,13 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
     await orchestrator.processMessage(session, textParts("hello"));
 
-    const modelRoutedEvents = eventBus.emit.mock.calls.filter(
+    const modelRoutedEvents = emittedEvents(eventBus).filter(
       (call: unknown[]) => (call[0] as { type: string }).type === "model_routed",
     );
     expect(modelRoutedEvents.length).toBe(1);
-    expect(modelRoutedEvents[0][0]).toMatchObject({
+    const firstModelRoutedEvent = modelRoutedEvents[0];
+    if (!firstModelRoutedEvent) throw new Error("Expected a model_routed event.");
+    expect(firstModelRoutedEvent[0]).toMatchObject({
       type: "model_routed",
       model: "gpt-4o-mini",
       provider: "openai",

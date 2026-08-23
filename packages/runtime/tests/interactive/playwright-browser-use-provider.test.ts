@@ -511,7 +511,10 @@ describe("PlaywrightBrowserUseProvider", () => {
         },
       },
     });
-    expect(manifest.tracks.events[0].resource.uri).toBe(proof.capture.eventTrackUri);
+    const [manifestEventTrack] = manifest.tracks.events;
+    expect(manifestEventTrack).toBeDefined();
+    if (!manifestEventTrack) throw new Error("expected the recorder manifest to contain an event track");
+    expect(manifestEventTrack.resource.uri).toBe(proof.capture.eventTrackUri);
     expect(readArtifact(artifactStore, proof.video.exportUri).mimeType).toBe("video/webm");
     expect(readArtifact(artifactStore, proof.editor.captionsSrtUri).mimeType).toBe("application/x-subrip");
     expect(readArtifact(artifactStore, proof.editor.captionsVttUri).mimeType).toBe("text/vtt");

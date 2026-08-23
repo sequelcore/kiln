@@ -15,6 +15,7 @@ dist/
 /.mcp.json
 /opencode.json
 /memory/
+/.stryker-tmp/
 .kiln/*
 !.kiln/kiln.yaml
 !.kiln/project-context.md

@@ -3,13 +3,14 @@ import {
   collectManagedEconomicCandidates,
   createManagedInvocationLifecycleToolExecutors,
   MANAGED_AGENT_INVOKE_TOOL,
-  type ManagedEconomicDispatchPrepareInput,
   RuntimeManagedAgentInvocationService,
   type ManagedInvocationToolAttachment,
+  type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
 } from "../../src/agents/managed-invocation/index.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { managedEconomicAdmissionContract } from "./managed-economic-admission-fixture.js";
 
 const TEST_PARENT_AUTHORITY = {
@@ -66,19 +67,17 @@ function route(input: {
       proof: { status: "live-proven", source: "test", freshness: "fresh", observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", provenProfiles: ["foundation-readonly-plan"] },
       capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
     },
-    ...(input.capability
+    ...(input.capability === "verified"
       ? {
           economicCapability: {
-            status: input.capability,
-            ...(input.capability === "verified"
-              ? {
-                  adapterCapabilityId: `${input.providerId}-direct`,
-                  adapterCapabilityVersion: "1",
-                }
-              : {}),
+            status: "verified" as const,
+            adapterCapabilityId: `${input.providerId}-direct`,
+            adapterCapabilityVersion: "1",
           },
         }
-      : {}),
+      : input.capability === "unverified"
+        ? { economicCapability: { status: "unverified" as const } }
+        : {}),
     profiles: input.profile === false ? [] : [readonlyProfile],
   };
 }
@@ -107,8 +106,10 @@ function paidApprovalCommitment(): never {
   } as never;
 }
 
+type EconomicDispatchPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
+
 function approvalProducerAttachment(
-  prepare: (input: ManagedEconomicDispatchPrepareInput) => Promise<never>,
+  prepare: EconomicDispatchPrepare,
 ): ManagedInvocationToolAttachment {
   const service = new RuntimeManagedAgentInvocationService();
   return {
@@ -367,7 +368,6 @@ describe("managed economic candidate admission", () => {
           providerRoute: {
             providerId: "codex-oauth",
             model: "gpt-test",
-            surface: "configured",
             deliberationIntent: {
               mode: "fixed",
               preferredLevel: "high" as never,
@@ -478,8 +478,8 @@ describe("managed economic candidate admission", () => {
   });
 
   it("asks before fencing comparable paid usage through the producer callback", async () => {
-    const requestApproval = vi.fn(async () => ({ approved: true as const }));
-    const prepare = async (input: ManagedEconomicDispatchPrepareInput): Promise<never> => {
+    const requestApproval = vi.fn<NonNullable<RuntimeBuiltinToolExecutionContext["requestApproval"]>>(async () => ({ approved: true as const }));
+    const prepare: EconomicDispatchPrepare = async (input) => {
       await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
       throw new Error("stop after approval callback");
     };
@@ -490,7 +490,7 @@ describe("managed economic candidate admission", () => {
   });
 
   it("denies ask-before-spend when the producer has no approval callback", async () => {
-    const prepare = async (input: ManagedEconomicDispatchPrepareInput): Promise<never> => {
+    const prepare: EconomicDispatchPrepare = async (input) => {
       await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
       throw new Error("approval callback unexpectedly returned");
     };
@@ -499,8 +499,8 @@ describe("managed economic candidate admission", () => {
   });
 
   it("denies ask-before-spend when the operator rejects the producer approval", async () => {
-    const requestApproval = vi.fn(async () => ({ approved: false as const, reason: "operator declined" }));
-    const prepare = async (input: ManagedEconomicDispatchPrepareInput): Promise<never> => {
+    const requestApproval = vi.fn<NonNullable<RuntimeBuiltinToolExecutionContext["requestApproval"]>>(async () => ({ approved: false as const, reason: "operator declined" }));
+    const prepare: EconomicDispatchPrepare = async (input) => {
       await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
       throw new Error("approval callback unexpectedly returned");
     };
@@ -541,13 +541,21 @@ describe("managed economic candidate admission", () => {
         invocationService: service,
         workspaceRoot: "C:/workspace",
         economicDispatch: {
-          prepare: async (input: { readonly lifecycleEvents?: { readonly record: (recordInput: unknown) => void } }) => {
+          prepare: async (input) => {
+            const admissionBundle = managedEconomicAdmissionContract({
+              sessionId: "session-test",
+              turnId: "turn-test",
+            }).bundle;
             input.lifecycleEvents?.record({
               transition: "held",
               policy: {
                 policyId: "economy-policy",
+                schemaVersion: 1,
                 policyRevision: "revision-001",
                 policyDigest: "sha256:test-policy-digest",
+                comparisonDomains: [],
+                noRouteAction: "deny",
+                evidenceRequirements: { quota: "optional", price: "optional" },
               },
             });
             return {
@@ -564,6 +572,17 @@ describe("managed economic candidate admission", () => {
                 },
               } as never,
               adapter: { descriptor: { providerId: "codex-oauth", adapterKind: "direct", supportedExecutionModes: ["direct-provider"] } } as never,
+              dispatchFenceId: "dispatch-fence:test",
+              actionClaim: {
+                version: 1,
+                attemptId: "economic-attempt:test",
+                admissionId: admissionBundle.admissionId,
+                admissionBundle,
+                intentFingerprint: "sha256:test-intent",
+                ownerGeneration: "managed-economic-owner:test",
+                effectIdentity: "managed-economic:test",
+              },
+              abortSignal: new AbortController().signal,
               recordExecutionSettlementPending,
               createExecutionSettlement: () => ({} as never),
               registerEconomicSettlement: () => undefined,
@@ -585,20 +604,20 @@ describe("managed economic candidate admission", () => {
       .get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
-    const sessionEvents: any[] = [];
+    const session = new RuntimeSession({
+      appName: "managed-economic-capability-test",
+      tenantId: "test-tenant",
+      userId: "test-user",
+      systemPrompt: "managed economic capability test",
+      sessionId: "session-test",
+    });
+    session.addUserMessage([{ type: "text", text: "synthetic test turn" }]);
     const result = await executor({
       profile: "foundation-readonly-plan",
       agentProfile: "scout",
       task: "Inspect the policy boundary.",
     }, {
-      session: {
-        id: "session-test",
-        createdAt: new Date("2026-08-01T00:00:00.000Z"),
-        userTurnCount: 1,
-        get sessionEvents() { return sessionEvents; },
-        nextSessionEventSequence: () => sessionEvents.length + 1,
-        appendSessionEvents: (events: readonly unknown[]) => { sessionEvents.push(...events); },
-      } as RuntimeBuiltinToolExecutionContext["session"],
+      session,
       turnId: "turn-test",
       effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
@@ -614,8 +633,8 @@ describe("managed economic candidate admission", () => {
     // though the recursive "already-admitted" call that would normally reach that computation
     // failed here (postcommit context realization failure). The invocationId is computed once,
     // from context alone, before the economic block runs.
-    expect(sessionEvents).toHaveLength(1);
-    expect(sessionEvents[0]).toMatchObject({
+    expect(session.sessionEvents).toHaveLength(1);
+    expect(session.sessionEvents[0]).toMatchObject({
       kind: "managed_economic_lifecycle",
       invocationId: "managed-session-test-1-tool-call-test",
     });

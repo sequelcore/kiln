@@ -6,7 +6,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderAdapter } from "@kilnai/core/agents";
-import { textParts, type ToolAuthorizer } from "@kilnai/core/engine";
+import { textParts, type AuthorityDescriptor, type ResolvedInvocationEffect, type ToolAuthorizer } from "@kilnai/core/engine";
 import { EventBus } from "@kilnai/core/events";
 import { KilnMcpClient, type ResolvedMcpServer } from "@kilnai/core/mcp";
 import type { AuditLog } from "@kilnai/core/security";
@@ -44,9 +44,19 @@ async function runModelToolCall(client: KilnMcpClient, selector: string, allowed
   if (!capability) throw new Error(`Fixture capability '${selector}' was not discovered.`);
   const eventBus = new EventBus(100);
   const append = vi.fn();
-  const auditLog: AuditLog = { append };
+  const auditLog: AuditLog = {
+    append,
+    query: () => [],
+    verifyChain: () => ({ valid: true, entriesChecked: 0 }),
+    count: () => 0,
+  };
+  const authority: AuthorityDescriptor = allowed
+    ? { level: 1, allowed: true, requiresApproval: false, reason: "fixture read admitted" }
+    : { level: 4, allowed: false, requiresApproval: false, reason: "fixture denied" };
   const authorizer: ToolAuthorizer = {
-    authorize: vi.fn(() => ({ level: allowed ? 1 : 4, allowed, requiresApproval: false, reason: allowed ? "fixture read admitted" : "fixture denied" })),
+    authorize: vi.fn<ToolAuthorizer["authorize"]>(
+      (_toolName: string, _resolvedEffect: ResolvedInvocationEffect) => authority,
+    ),
   };
   const provider = toolCallProvider(selector);
   const currentSession = new RuntimeSession({ appName: "mcp-e2e", tenantId: "tenant-a", userId: "operator", systemPrompt: "Use admitted tools." });

@@ -12,8 +12,8 @@ import { safetyMiddleware } from "../../src/gateway/safety-middleware.js";
 function makeTestApp(
   pipeline: SafetyPipeline,
   options?: { eventBus?: EventBus; auditLog?: AuditLog },
-): Hono {
-  const app = new Hono();
+): Hono<{ Variables: { safetyRedactedMessage: string } }> {
+  const app = new Hono<{ Variables: { safetyRedactedMessage: string } }>();
   app.use("*", safetyMiddleware(pipeline, options));
   app.post("/test", (c) => c.json({ content: "Hello from handler" }));
   app.get("/test", (c) => c.json({ content: "GET response" }));
@@ -174,7 +174,7 @@ describe("safetyMiddleware", () => {
         makeAllowedResult({ redactedText: "Contact me at [REDACTED]" }),
       );
 
-      const app = new Hono();
+      const app = new Hono<{ Variables: { safetyRedactedMessage: string } }>();
       app.use("*", safetyMiddleware(pipeline));
       app.post("/test", (c) => {
         const redacted = c.get("safetyRedactedMessage");

@@ -18,6 +18,7 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   CliSession,
+  CliSessionFactory,
 } from "../../src/execution/cli-session-contract.js";
 import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 
@@ -209,7 +210,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
     const run = vi.fn(() => eventStream([
       { type: "structured_output", value: structuredResult },
-      { type: "completed", exitCode: 0, totalUsd: 0 },
+      { type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false },
     ]));
     const adapter = new ManagedCliHarnessAdapter({
       providerId: "opencode",
@@ -248,8 +249,8 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         handoff: { requiredResultFields: ["summary"] },
       },
     });
-    const factory = vi.fn(() => ({
-      run: () => eventStream([{ type: "completed", exitCode: 0, totalUsd: 0 }]),
+    const factory = vi.fn<CliSessionFactory>(() => ({
+      run: () => eventStream([{ type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false }]),
       dispose: vi.fn(async () => undefined),
     }));
     const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
@@ -268,8 +269,8 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       ...baseRequest,
       providerRoute: { ...baseRequest.providerRoute, providerId: "claude", model: "claude-sonnet-4-5-20250929" },
     });
-    const factory = vi.fn(() => ({
-      run: () => eventStream([{ type: "completed", exitCode: 0, totalUsd: 0 }]),
+    const factory = vi.fn<CliSessionFactory>(() => ({
+      run: () => eventStream([{ type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false }]),
       dispose: vi.fn(async () => undefined),
     }));
     const adapter = new ManagedCliHarnessAdapter({ providerId: "claude", model: "claude-sonnet-4-5-20250929", factory });
@@ -280,7 +281,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("executes an admitted foundation-readonly-plan invocation and records replayable evidence", async () => {
-    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => { void options; return eventStream([
       { type: "text_delta", content: "Review complete." },
       {
         type: "cost_update",
@@ -292,7 +293,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         cacheReadTokens: 3,
       },
       { type: "completed", totalUsd: 0.02, durationMs: 25, outcome: "completed", isPreflightCrash: false },
-    ]));
+    ]); });
     const dispose = vi.fn().mockResolvedValue(undefined);
     const session: CliSession = { run, dispose };
     const factory = vi.fn(() => session);
@@ -518,10 +519,10 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("hydrates admitted resource context into the CLI harness system prompt", async () => {
-    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => { void options; return eventStream([
       { type: "text_delta", content: options.system?.includes("Child transcript body.") ? "Context read." : "Missing context." },
       { type: "completed", totalUsd: 0.01, durationMs: 25, outcome: "completed", isPreflightCrash: false },
-    ]));
+    ]); });
     const dispose = vi.fn().mockResolvedValue(undefined);
     const resourceReader = vi.fn(async () => ({
       output: "# Managed Invocation Transcript\n\nChild transcript body.",
@@ -732,7 +733,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("proves admitted write authority with replayable proposal, decision, attempt, and terminal evidence", async () => {
-    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => { void options; return eventStream([
       { type: "text_delta", content: "Approved fixture update applied." },
       {
         type: "file_changed",
@@ -744,7 +745,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         diffTruncated: true,
       },
       { type: "completed", totalUsd: 0.01, durationMs: 20, outcome: "completed", isPreflightCrash: false },
-    ]));
+    ]); });
     const dispose = vi.fn().mockResolvedValue(undefined);
     const factory = vi.fn(() => ({ run, dispose }));
     const adapter = new ManagedCliHarnessAdapter({
@@ -900,7 +901,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("records read-only OpenCode write denials as replayable authority-denied evidence", async () => {
-    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => { void options; return eventStream([
       { type: "text_delta", content: "Write denied by policy." },
       {
         type: "write_decision",
@@ -910,7 +911,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         reason: "OpenCode denied edit permission for proof.txt.",
       },
       { type: "completed", totalUsd: 0.01, durationMs: 20, outcome: "completed", isPreflightCrash: false },
-    ]));
+    ]); });
     const dispose = vi.fn().mockResolvedValue(undefined);
     const adapter = new ManagedCliHarnessAdapter({
       providerId: "opencode",
@@ -934,7 +935,9 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       resourceUris: ["kiln://managed-agents/invocations/invocation-opencode-1/resources/write-denials/opencode-denial-1"],
       recordedAt: expect.any(String),
     }]);
-    expect(result.record.resultHandoff.resourceUris).toContain(
+    const resultHandoff = result.record.resultHandoff;
+    if (!resultHandoff) throw new Error("Expected write-denial diagnostics to persist a result handoff.");
+    expect(resultHandoff.resourceUris).toContain(
       "kiln://managed-agents/invocations/invocation-opencode-1/resources/write-denials/opencode-denial-1",
     );
   });
@@ -1290,7 +1293,9 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     if (result.status !== "completed") {
       throw new Error("Expected completed managed invocation result");
     }
-    expect(result.record.resultHandoff.summary).toBe("Port 49152 received.");
+    const resultHandoff = result.record.resultHandoff;
+    if (!resultHandoff) throw new Error("Expected environment lease evidence to persist a result handoff.");
+    expect(resultHandoff.summary).toBe("Port 49152 received.");
     expect(result.record.resourceLease?.resourceUris).toEqual([
       "kiln://artifacts/invocation-opencode-1/environment/KILN_DEV_SERVER_PORT",
     ]);

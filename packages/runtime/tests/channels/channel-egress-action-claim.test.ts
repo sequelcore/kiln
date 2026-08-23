@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import {
   ChannelEgressClaimedError,
@@ -14,7 +14,7 @@ import {
 
 function bundle(): EffectiveAuthorityAdmissionBundle {
   const revision = { revisionSetId: "channel-egress-test", revisions: { execution: "channel-egress-test" } } as const;
-  const turnId = "turn-1";
+  const turnId = canonicalTurnId("session-1", 1);
   return defineEffectiveAuthorityAdmissionBundle({
     sessionId: "session-1",
     turnId,
@@ -44,7 +44,7 @@ function bundle(): EffectiveAuthorityAdmissionBundle {
       execution: {
         status: "routed",
         route: { routeId: "route-1", providerId: "provider-1", providerModelId: "model-1", accountSelection: { mode: "exact", accountId: "account-1", source: "route" } },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "channel egress test" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "route-1", accountId: "account-1", credentialId: "credential-1", credentialRevision: "credential-r1" },
       },
     },
@@ -69,7 +69,9 @@ function claimStoreRecorder(): ChannelEgressActionClaimStore & {
         permitId: `permit-${claims.length}`,
         claimId: input.claimId,
         consume: vi.fn(() => { consumed.push(input.claimId); }),
-      } as ChannelEgressActionClaimPermit;
+      // The permit brand is private to the durable claim owner. This fixture
+      // intentionally constructs the opaque capability returned by that owner.
+      } as unknown as ChannelEgressActionClaimPermit;
     },
     settle(permit, settlement) {
       settlements.push({ permit, settlement });

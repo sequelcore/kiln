@@ -303,7 +303,9 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("Run the owning suite and affected downstream suites");
     expect(skill?.instructions).toContain("If impact is uncertain, widen the gate");
     expect(skill?.instructions).toContain("Do not use test count or raw coverage as quality objectives");
+    expect(skill?.instructions).toContain("Before adding a test, search the owning layer");
     expect(skill?.instructions).toContain("Do not delete a test solely because its line coverage overlaps");
+    expect(skill?.instructions).toContain("confirm the owning assertion fails");
     expect(skill?.instructions).toContain("Use synthetic, portable fixture values");
     expect(skill?.instructions).toContain("Never copy operator-specific paths");
     expect(skill?.instructions).toContain("temporary directories");

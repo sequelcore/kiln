@@ -331,7 +331,7 @@ function appendCanonicalPlanEvents(
   expect(plan).toBeDefined();
   expect(report).toBeDefined();
   session.appendSessionEvents([
-    createSessionEvent({
+     createSessionEvent<"plan_submitted">({
       kilnSessionId: session.id,
       sequence: session.nextSessionEventSequence(),
       kind: "plan_submitted",
@@ -362,7 +362,7 @@ function appendCanonicalPlanEvents(
       summary: plan!.objective,
       timestamp: new Date("2026-05-11T12:01:00.000Z"),
     }),
-    createSessionEvent({
+     createSessionEvent<"plan_analysis_reported">({
       kilnSessionId: session.id,
       sequence: session.nextSessionEventSequence() + 1,
       kind: "plan_analysis_reported",

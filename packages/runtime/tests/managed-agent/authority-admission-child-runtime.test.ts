@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AgentResponse,
+  CreateMessageOptions,
   ManagedAgentInvocationRequest,
   ProviderAdapter,
   ToolDefinition,
@@ -22,6 +23,7 @@ import type {
   RuntimeModelRoundActionClaimPermit,
   RuntimeModelRoundActionClaimStore,
 } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
+import { createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 
 const TEST_ADMISSIONS = new Map<string, EffectiveAuthorityAdmissionBundle>();
 
@@ -198,7 +200,7 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
           providerModelId: "gpt-test",
           accountSelection: { mode: "exact", accountId: "authority-test-account", source: "route" },
         },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "authority test route" } },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {
           status: "bound",
           routeId: "openai:foundation-readonly-plan",
@@ -245,6 +247,7 @@ function adapter(provider: ProviderAdapter, childRequest: ManagedAgentInvocation
       ["write", WRITE_AUTHORITY],
     ]),
     runtimeModelRoundActionClaims: testModelRoundStore(),
+    runtimeToolActionClaims: createFixtureToolActionStore(),
     readAuthorityAdmission: async ({ admissionId }) => TEST_ADMISSIONS.get(admissionId),
   });
 }
@@ -262,7 +265,7 @@ describe("managed child authority admission", () => {
     });
     const provider = {
       name: "openai",
-      createMessage: vi.fn(async (input) => {
+      createMessage: vi.fn(async (input: CreateMessageOptions) => {
         expect(input.tools?.map((tool) => tool.name)).toEqual(["read"]);
         return response("read complete");
       }),

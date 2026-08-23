@@ -4,7 +4,7 @@ import { projectMemoryLatticeInvalidationFrame } from "../../src/gateway/gui-mem
 
 describe("projectMemoryLatticeInvalidationFrame", () => {
   it("projects memory domain events into bounded GUI invalidation frames", () => {
-    const frame = projectMemoryLatticeInvalidationFrame({
+    const event: MemoryRecordCreatedEvent = {
       type: "memory_record_created",
       timestamp: new Date("2026-04-30T12:00:00.000Z"),
       sessionId: "memory-session",
@@ -12,7 +12,8 @@ describe("projectMemoryLatticeInvalidationFrame", () => {
       scope: { kind: "project", id: "kiln" },
       layer: "semantic",
       topicKey: "Memory Lattice",
-    } satisfies MemoryRecordCreatedEvent);
+    };
+    const frame = projectMemoryLatticeInvalidationFrame(event);
 
     expect(frame).toEqual({
       type: "memory_lattice_invalidated",
@@ -25,14 +26,16 @@ describe("projectMemoryLatticeInvalidationFrame", () => {
   });
 
   it("ignores unrelated runtime events", () => {
-    const frame = projectMemoryLatticeInvalidationFrame({
+    const event: ModelRoutedEvent = {
       type: "model_routed",
       timestamp: new Date("2026-04-30T12:00:00.000Z"),
       sessionId: "session-1",
       provider: "codex",
       model: "gpt-5.4",
       reason: "operator selection",
-    } satisfies ModelRoutedEvent);
+      routingTier: "default",
+    };
+    const frame = projectMemoryLatticeInvalidationFrame(event);
 
     expect(frame).toBeNull();
   });

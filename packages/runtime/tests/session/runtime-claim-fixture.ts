@@ -234,7 +234,7 @@ export function createFixtureClaimConfig(input: {
     state: { claimed: false },
   };
   const config: PerCallToolConfig = {
-    turnId,
+    turnCorrelationId: turnId,
     authorityAdmission: admission,
     runtimeModelRoundDispatch: modelRound,
   };

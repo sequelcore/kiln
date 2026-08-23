@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { admitOperatorExecutionIntent, defineExecutionCatalog } from "@kilnai/core/agents";
+import {
+  admitOperatorExecutionIntent,
+  createExecutionAccountPolicyId,
+  defineExecutionCatalog,
+  type ProviderUsageSnapshot,
+} from "@kilnai/core/agents";
 import { ConfiguredExecutionAccountRuntime } from "../../src/managed-account-leases/configured-execution-account-runtime.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
@@ -8,6 +13,7 @@ const codexExecution = {
   fileIdentity: "a".repeat(64),
   revision: "b".repeat(64),
 };
+const CODEX_POLICY_ID = createExecutionAccountPolicyId("codex-policy");
 
 const dataPolicyEvidence = (expiresAt = "2026-12-31T00:00:00.000Z") => ({
   providerId: "codex-oauth", providerModelId: "gpt-test", dataUse: "not-used" as const,
@@ -36,7 +42,7 @@ const catalog = defineExecutionCatalog({
       economics: accountEconomics("codex-capacity-b"),
     },
   ],
-  accountPolicies: [{ id: "codex-policy", accountIds: ["account-a", "account-b"], strategy: "economic-least-pressure" }],
+  accountPolicies: [{ id: CODEX_POLICY_ID, accountIds: ["account-a", "account-b"], strategy: "economic-least-pressure" }],
   routes: [{
     id: "codex-route",
     label: "Codex route",
@@ -44,7 +50,7 @@ const catalog = defineExecutionCatalog({
     providerModelId: "gpt-test",
     dataClassification: "internal",
     dataPolicyEvidence: dataPolicyEvidence(),
-    accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" },
+    accountSelection: { mode: "automatic", accountPolicyId: CODEX_POLICY_ID },
     economics: routeEconomics(),
   }],
 });
@@ -74,7 +80,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       accountId: "account-a", credentialId: "credential-a",
       ...snapshotContext(duplicateCatalog),
       lease: {
-        leaseId: "lease-duplicate", runtimeInvocationId: "turn-duplicate", accountPolicyId: "codex-policy" as never,
+        leaseId: "lease-duplicate", runtimeInvocationId: "turn-duplicate", accountPolicyId: CODEX_POLICY_ID,
         accountRef: selected.lease.candidate.account, route: selected.lease.candidate.route,
         capacityIdentity: selected.lease.capacityIdentity, credentialRevisionId: selected.lease.credentialRevisionId,
         state: "dispatch-fenced", selectionReason: "least-pressure", candidateRejections: [], dispatchFenceId: "turn-duplicate:dispatch",
@@ -109,7 +115,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       accountId: "account-a", credentialId: "credential-a",
       ...snapshotContext(expiredCatalog),
       lease: {
-        leaseId: "lease-denied", runtimeInvocationId: "turn-denied", accountPolicyId: "codex-policy" as never,
+        leaseId: "lease-denied", runtimeInvocationId: "turn-denied", accountPolicyId: CODEX_POLICY_ID,
         accountRef: "configured:synthetic" as never,
         route: { providerId: "codex-oauth", providerModelId: "gpt-test", scope: "operator-session" },
         capacityIdentity: "codex-capacity-a", credentialRevisionId: "synthetic", state: "dispatch-fenced",
@@ -190,7 +196,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       const acquired = authority.acquireAccountCapacity({
         runtimeInvocationId: "attempt",
         intentFingerprint: `sha256:${"a".repeat(64)}`,
-        accountPolicyId: "codex-policy",
+        accountPolicyId: CODEX_POLICY_ID,
         route,
         candidates: candidates.map(({ lease }) => lease),
       });
@@ -245,7 +251,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     const lease = {
       leaseId: "lease-1",
       runtimeInvocationId: "turn-1",
-      accountPolicyId: "codex-policy" as never,
+      accountPolicyId: CODEX_POLICY_ID,
       accountRef: selected.lease.candidate.account,
       route: selected.lease.candidate.route,
       capacityIdentity: selected.lease.capacityIdentity,
@@ -363,8 +369,8 @@ describe("ConfiguredExecutionAccountRuntime", () => {
 
 function pool(
   accounts: readonly typeof codexExecution[],
-  usage: readonly Record<string, unknown>[] = [],
-  refreshedUsage: readonly Record<string, unknown>[] = usage,
+  usage: readonly ProviderUsageSnapshot[] = [],
+  refreshedUsage: readonly ProviderUsageSnapshot[] = usage,
 ) {
   return {
     listExecutionAccounts: vi.fn(async () => accounts),
@@ -389,7 +395,7 @@ function usageSnapshot(credentialId: string, availability: "available" | "exhaus
     validUntil: "2026-08-11T12:05:00.000Z",
     source: "provider-endpoint",
     confidence: "authoritative",
-    exhaustionReason: availability === "exhausted" ? "primary-window" : null,
+    exhaustionReason: availability === "exhausted" ? "rate-limit-reached" : null,
   } as const;
 }
 
