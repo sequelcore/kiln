@@ -1,13 +1,15 @@
 # 12 - Configuration Experience
 
-Status: Blocked at the Slice 8 checkpoint by an operator dependency decision
+Status: Ready
 Priority: Urgent
 Execution: Slices 0-7 and 7A are code/integration complete. Slice 8 has a
-committed incomplete checkpoint and must not resume until the pre-resumption
-gates below close. Live provider/runtime validation remains unrun.
+committed incomplete checkpoint and is the next bounded implementation slice.
+No Slice 8 production work has started from the resumed checkpoint. Live
+provider/runtime validation remains unrun.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 Paused: 2026-08-22
+Resumption gates closed: 2026-08-22
 
 ## Objective
 
@@ -36,12 +38,13 @@ product sequence, not a claim that every slice in this track is a technical
 dependency of Connect. Roadmap 08.5 Slice 0 remains independently admissible
 safety hardening.
 
-The 2026-08-22 operator dependency decision pauses further Slice 8 integration
+The 2026-08-22 operator dependency decision paused further Slice 8 integration
 until the active development branch has automatic CI, the Execution Kernel
 ownership boundary is fixed, and the exact Slice 8 crash/recovery invariants
 have a deterministic synthetic oracle. The pause prevents the admission bundle,
 dispatch fencing, and settlement lifecycle from being copied into more Runtime
-owners and then removed during later convergence. It does not transfer
+owners and then removed during later convergence. Those bounded gates are now
+closed. The decision does not transfer
 configuration ownership out of this roadmap or admit the complete Execution
 Kernel and reliability programs as prerequisites.
 
@@ -793,7 +796,9 @@ are complete:
 1. **Active-branch CI** — [#96](https://github.com/sequelcore/kiln/issues/96)
    runs the existing complete workflow for `dev` without deleting, weakening,
    or allowing failure in a lane. This is validation reachability, not a new
-   release process.
+   release process. Exact candidate `8743646c` passed every required lane and
+   the aggregate check in
+   [CI run 32615149667](https://github.com/sequelcore/kiln/actions/runs/32615149667).
 2. **Execution Kernel ownership** — decision complete in
    [Execution Kernel](../architecture/core/execution-kernel.md). The decision
    distinguishes resource commitments from the canonical action claim, maps
@@ -802,14 +807,15 @@ are complete:
    `EffectiveAuthorityAdmissionBundle.admissionId` at
    the fence, retains workload-owned claim stores and recovery, and limits an
    external-harness claim to the invocation Kiln launches. The full
-   [#98](https://github.com/sequelcore/kiln/issues/98) migration is not a
-   resumption gate.
+   [#98](https://github.com/sequelcore/kiln/issues/98) migration is also
+   complete, although only the ownership decision was a resumption gate.
 3. **Deterministic recovery oracle** — the bounded Slice 8 subset of
    [#97](https://github.com/sequelcore/kiln/issues/97) covers configuration
    mutation during an admitted turn, crash before and after the dispatch fence,
    crash before settlement, duplicate replay/ingress, cancellation-settlement
    races, and restart with active evidence. A generic chaos platform and the
-   complete credential-bearing live matrix are not resumption gates.
+   complete credential-bearing live matrix remain owned by #97 and are not
+   resumption gates.
 4. **Recoverable checkpoint** — commit `bf43298b` exists on a remote checkpoint
    ref before more production work starts, and the three recorded fixture groups
    pass root test typechecking. This preserves the exact paused candidate and a

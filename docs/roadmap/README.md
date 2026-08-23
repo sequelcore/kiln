@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Blocked | Urgent | Do not continue Slice 8 integration. Complete the bounded resumption gates in order: #96 active-`dev` CI, the ownership-decision slice of #98, the Slice 8 synthetic-oracle subset of #97, and remote checkpoint plus green recorded fixture typechecking. |
+| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Resume Slice 8 from its committed checkpoint as one bounded activation-and-reconciliation slice; do not absorb the remaining #97 live-validation matrix or begin Slice 9. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
@@ -79,15 +79,14 @@ roadmap reorganization.
   explanation, governed mutation, activation planning, and cross-surface
   settings parity. It consumes `11` capability identities but never owns
   capability eligibility or execution.
-- The 2026-08-22 operator dependency decision pauses `12` at its committed
-  Slice 8 checkpoint. Its pre-resumption gates are the default next work even
-  though they are tracked by GitHub issues rather than new roadmap tracks:
-  [#96](https://github.com/sequelcore/kiln/issues/96), the ownership-decision
-  slice of [#98](https://github.com/sequelcore/kiln/issues/98), and the bounded
-  synthetic-oracle subset of
-  [#97](https://github.com/sequelcore/kiln/issues/97). This decision does not
-  admit the complete Execution Kernel or reliability programs before `12`, does
-  not duplicate Slice 8 residuals outside
+- The 2026-08-22 operator dependency decision paused `12` at its committed
+  Slice 8 checkpoint. The active-`dev` CI gate in
+  [#96](https://github.com/sequelcore/kiln/issues/96), the Execution Kernel
+  ownership decision and convergence in
+  [#98](https://github.com/sequelcore/kiln/issues/98), and the bounded synthetic
+  oracle subset of [#97](https://github.com/sequelcore/kiln/issues/97) are
+  complete. Slice 8 is Ready. The remaining #97 live matrix is independently
+  owned and does not block it. This decision does not duplicate Slice 8 residuals outside
   [#72](https://github.com/sequelcore/kiln/issues/72), and does not reprioritize
   Kiln Connect without a separate operator decision.
 
