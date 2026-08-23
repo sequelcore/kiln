@@ -12,9 +12,6 @@ engines:
   opencode:
     enabled: false
     billing: free
-permissions:
-  approval: on-request
-  sandbox: read-only
 permissionCeiling:
   approval: on-request
   sandbox: workspace-write

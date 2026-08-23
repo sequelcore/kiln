@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentResponse, AgentStreamEvent, CreateMessageOptions, ProviderAdapter } from "@kilnai/core";
+import type { AgentResponse, AgentStreamEvent, CreateMessageOptions, ProviderAdapter } from "@kilnai/core/agents";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import {

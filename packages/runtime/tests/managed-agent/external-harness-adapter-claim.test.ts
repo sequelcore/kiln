@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ActionEffectEnvelope, AuthorityDescriptor, ManagedAgentInvocationRecord, ManagedAgentInvocationRequest } from "@kilnai/core";
+import type { ManagedAgentInvocationRecord, ManagedAgentInvocationRequest } from "@kilnai/core/agents";
 import { defineManagedAgentInvocationRecord, defineManagedAgentInvocationRequest } from "@kilnai/core/agents";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import { RuntimeManagedAgentInvocationService } from "../../src/agents/managed-invocation/invocation-service.js";
 import { ManagedCliHarnessAdapter } from "../../src/agents/managed-invocation/cli-harness-adapter.js";

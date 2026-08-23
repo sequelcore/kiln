@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
-import type { Capability, ProviderAdapter, ResolvedInvocationEffect, ToolAuthorizer } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import type { Capability, ResolvedInvocationEffect, ToolAuthorizer } from "@kilnai/core/engine";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";

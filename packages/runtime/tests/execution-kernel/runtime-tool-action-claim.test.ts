@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
-import type { ResolvedInvocationEffect } from "@kilnai/core";
+import type { ResolvedInvocationEffect } from "@kilnai/core/engine";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import {
   RuntimeToolActionCommittedError,

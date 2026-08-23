@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ActionEffectEnvelope, AuthorityDescriptor, ManagedAgentInvocationRequest } from "@kilnai/core";
-import { defineManagedAgentInvocationRequest } from "@kilnai/core/agents";
+import { defineManagedAgentInvocationRequest, type ManagedAgentInvocationRequest } from "@kilnai/core/agents";
+import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import {
   defineEffectiveAuthorityAdmissionBundle,
   type EffectiveAuthorityAdmissionBundle,
