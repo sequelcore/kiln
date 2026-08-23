@@ -81,7 +81,7 @@ export interface ManagedAgentCockpitTranscriptProjection {
   readonly events: readonly OperatorSessionEvent[];
 }
 
-const DEFAULT_MANAGED_AGENT_GATEWAY_URL = "http://localhost:4810";
+const DEFAULT_MANAGED_AGENT_GATEWAY_URL = "http://127.0.0.1:4810";
 const DEFAULT_MANAGED_AGENT_CONTROL_TIMEOUT_MS = 10_000;
 const CLI_MANAGED_AGENT_OPERATOR_ID = "cli-operator";
 
@@ -918,7 +918,7 @@ function printManagedAgentHelp(): void {
   console.log("");
   console.log("Options:");
   console.log("  --session <id>          Session id to read; defaults to latest recorded session");
-  console.log("  --gateway <url>         Gateway URL; defaults to http://localhost:4810");
+  console.log("  --gateway <url>         Gateway URL; defaults to http://127.0.0.1:4810");
   console.log("  --reason <text>         Cancellation reason");
   console.log("  --json                  Print JSON");
   console.log("");

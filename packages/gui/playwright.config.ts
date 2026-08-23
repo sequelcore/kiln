@@ -18,7 +18,7 @@ export default defineConfig({
   workers: 1,
 
   use: {
-    baseURL: `http://localhost:${guiPort}`,
+    baseURL: `http://127.0.0.1:${guiPort}`,
     headless: true,
     trace: "on-first-retry",
   },
@@ -34,7 +34,7 @@ export default defineConfig({
 
   webServer: {
     command: "bun run dev",
-    url: `http://localhost:${guiPort}`,
+    url: `http://127.0.0.1:${guiPort}`,
     reuseExistingServer: !CI,
     timeout: 30_000,
     env: {

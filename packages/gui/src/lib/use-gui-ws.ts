@@ -39,7 +39,7 @@ export interface UseGuiWsOptions {
  * Creates one GuiWsClient per mount and cleans up on unmount.
  * Returns the current connection state, send function, and last received inbound frame.
  *
- * @param baseUrl - WebSocket endpoint base URL (e.g., "ws://localhost:3800/gui")
+ * @param baseUrl - WebSocket endpoint base URL (e.g., "ws://127.0.0.1:3800/gui")
  */
 export function useGuiWs(baseUrl: string, options?: UseGuiWsOptions): UseGuiWsResult {
   const [state, setState] = useState<GuiConnectionState>("idle");

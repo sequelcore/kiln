@@ -5,7 +5,7 @@ test.describe("parity category 6 - gateway transport behavior", () => {
     await page.goto("/");
     await waitForGuiReady(page);
 
-    const wsUrl = `ws://localhost:${gatewayPort}/gui/ws?userId=test-reconnect-user`;
+    const wsUrl = `ws://127.0.0.1:${gatewayPort}/gui/ws?userId=test-reconnect-user`;
 
     const connection = await page.evaluate((url) => {
       return new Promise<{ state: string; userId: string | null }>((resolve) => {

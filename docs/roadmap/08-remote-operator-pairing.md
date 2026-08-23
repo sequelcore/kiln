@@ -239,8 +239,8 @@ provider becomes mandatory for local-first Connect by accident.
   source use.
 - The 2026-08-14 operator priority decision supersedes the former sequencing
   gate behind Roadmap 07. Roadmap 07 is no longer a prerequisite.
-- Roadmap 08.5 Slice 0 must close the current GUI listener/exposure guardrail
-  before any remote ingress is admitted.
+- Roadmap 08.5 Slice 0 closed the local GUI/TUI listener and browser-origin
+  guardrail. That safety boundary does not admit remote ingress.
 - Roadmap 08.5 transport slices consume this track's session contract; they do
   not mint or widen operator authority.
 - Operator Runtime remains the authenticated-session consumer and execution

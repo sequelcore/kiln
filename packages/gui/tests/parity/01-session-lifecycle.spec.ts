@@ -65,13 +65,13 @@ test.describe("parity category 1 - session lifecycle", () => {
     });
     expect(sentFrames.some((frame) => frame.type === "execution_mode_transition")).toBe(true);
 
-    const before = await fetch(`http://localhost:${gatewayPort}/health`).then((response) => response.json() as Promise<{ connections?: number }>);
+    const before = await fetch(`http://127.0.0.1:${gatewayPort}/health`).then((response) => response.json() as Promise<{ connections?: number }>);
     expect((before.connections ?? 0) >= 1).toBe(true);
 
     await page.close();
 
     await expect.poll(async () => {
-      const payload = await fetch(`http://localhost:${gatewayPort}/health`).then((response) => response.json() as Promise<{ connections?: number }>);
+      const payload = await fetch(`http://127.0.0.1:${gatewayPort}/health`).then((response) => response.json() as Promise<{ connections?: number }>);
       return payload.connections ?? 0;
     }, { timeout: 5_000 }).toBe(0);
   });

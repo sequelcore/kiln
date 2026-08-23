@@ -28,6 +28,9 @@ bun packages/cli/src/index.ts gui --dev
 
 The command starts the source-tree Vite server and the local GUI Operator
 Gateway. It requires a Chromium-family browser unless you pass `--no-open`.
+Both local listeners bind explicitly to `127.0.0.1`. The gateway admits only
+its exact bundled-GUI origin or the exact loopback Vite origin selected by this
+startup. It never exposes a wildcard listener or wildcard CORS policy.
 
 To exercise built production assets instead, build the workspace first:
 
@@ -97,6 +100,10 @@ summary/attention state before falling back to local reconstruction. Global
 | `--prod` | Use the built GUI static assets |
 | `--open` | Launch the managed GUI window |
 | `--no-open` | Start the gateway without opening a window |
+
+`--port` and `--gui-port` select ports only. They cannot change the listener
+host or admit a non-loopback browser origin. Remote access is not a mode of
+`kiln gui`; it is governed by the separate Kiln Connect roadmap.
 
 ## Managed Window Host
 

@@ -126,11 +126,12 @@ checks are useful precedent, but those internal credentials are not remote
 browser tokens.
 
 The GUI is already web-first and has narrow-viewport behavior, making a
-responsive browser the smallest mobile client. Its gateway is not yet a safe
-remote boundary: it does not explicitly set the listener hostname, uses
-wildcard CORS, and accepts a client-supplied anonymous `userId` for WebSocket
-identity. The first connectivity slice must close that local exposure boundary
-before admitting any tunnel.
+responsive browser the smallest mobile client. Roadmap 08.5 Slice 0 closed the
+local exposure gap identified at this evidence cutoff: GUI and TUI now bind
+explicitly to `127.0.0.1`, and the GUI admits only startup-bound exact browser
+origins. That local boundary is still not a remote boundary. In particular,
+the GUI WebSocket still accepts a client-supplied anonymous `userId`; Roadmap
+08 must replace that identity model before any tunnel is admitted.
 
 ## Decision Supported By The Evidence
 

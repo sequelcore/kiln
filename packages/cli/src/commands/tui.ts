@@ -1133,7 +1133,7 @@ async function bootstrapGatewaySession(
   options.startupProfiler?.mark("gateway-started", { port: gateway.port });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
-  await waitForGateway(`http://localhost:${gateway.port}/health`);
+  await waitForGateway(`http://127.0.0.1:${gateway.port}/health`);
   options.startupProfiler?.mark("gateway-health-ready", { port: gateway.port });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
 

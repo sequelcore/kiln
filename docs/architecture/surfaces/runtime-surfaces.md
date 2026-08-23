@@ -35,6 +35,11 @@ but they must not become separate app control planes.
    or tool semantics.
 5. Operator helper gateways may use separate local ports. Separate ports are
    acceptable; duplicate app control planes are not.
+   Local GUI and TUI listener and browser-origin rules are canonical in
+   [Local Operator Gateway Security](local-operator-gateway-security.md).
+   Local Operator Gateways bind only to `127.0.0.1`; remote reachability must
+   use the separately authenticated Connect contracts rather than widening
+   that listener.
 6. MCP is the external tool/host boundary. GUI, Native, CLI, and TUI should use
    the operator HTTP/WS contract for administrative state, live sessions, logs,
    replay, approvals, config diagnostics, and telemetry.

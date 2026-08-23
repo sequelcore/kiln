@@ -80,6 +80,13 @@ import {
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { appendManagedInvocationPromptAdmissionSessionEvent } from "../agents/managed-invocation/prompt-admission.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
+import {
+  LOCAL_OPERATOR_GATEWAY_HOST,
+  localOperatorGatewayHttpOrigin,
+  localOperatorGatewayHttpUrl,
+  localOperatorGatewayWebSocketUrl,
+  parseExternalGuiOrigin,
+} from "./operator-gateway-network.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
@@ -174,6 +181,8 @@ export interface StartGuiGatewayOptions {
   readonly port?: number;
   readonly guiDistPath?: string;
   readonly guiAssetMode?: "bundled" | "external";
+  /** Exact loopback origin of an externally served local GUI, such as the Vite development surface. */
+  readonly externalGuiOrigin?: string;
   readonly getSnapshot: (context?: {
     readonly operatorModels?: Record<string, string[]>;
     readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -478,6 +487,10 @@ export function deriveGuiDoneAuthorityStatus(
 
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
+  const externalGuiOrigin = parseExternalGuiOrigin(options.externalGuiOrigin);
+  if (externalGuiOrigin && options.guiAssetMode !== "external") {
+    throw new Error("External GUI origin is valid only when GUI assets are external.");
+  }
   const managedInvocation = options.managedInvocation
     ? {
         ...options.managedInvocation,
@@ -534,30 +547,21 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     return operatorDiscovery ?? [];
   };
 
-  let operatorWsUrl: string | undefined;
+  let allowedBrowserOrigins: ReadonlySet<string> = externalGuiOrigin
+    ? new Set([externalGuiOrigin])
+    : new Set();
   const updateConnectionCount = (count: number) => {
     options.onConnectionCountChange?.(count);
   };
 
-  const guiCorsMiddleware = async (c: Context, next: Next): Promise<Response | void> => {
-    c.header("Access-Control-Allow-Origin", "*");
-    c.header("Access-Control-Allow-Headers", "Content-Type, Accept, X-Kiln-Operator-Token");
-    c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-
-    if (c.req.method === "OPTIONS") {
-      return c.body(null, 204);
-    }
-
-    await next();
-  };
+  const guiCorsMiddleware = createGuiBrowserOriginMiddleware(() => allowedBrowserOrigins);
 
   app.use("/health", guiCorsMiddleware);
-  app.use("/gui-api/*", guiCorsMiddleware);
   app.use("/gui/api/*", guiCorsMiddleware);
   app.use("/operator/api/*", guiCorsMiddleware);
+  app.use("/gui/ws", guiCorsMiddleware);
 
   app.get("/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
-  app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
   app.route("/gui/api", createGuiMemoryLatticeRoutes({
     resources: memoryLatticeResources,
     ...(options.memoryLatticeDefaultScope ? { defaultScope: options.memoryLatticeDefaultScope } : {}),
@@ -715,7 +719,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   };
 
   app.post("/gui/api/window-closed", handleManagedWindowClose);
-  app.post("/gui-api/window-closed", handleManagedWindowClose);
 
   const loadOperatorSessionHistory = async (): Promise<readonly OperatorSessionSummary[]> => {
     if (!options.loadOperatorSessionHistory) {
@@ -746,7 +749,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   let disposeOperatorResourceSurfaces: (() => void) | undefined;
   if (transportOptions) {
     disposeOperatorResourceSurfaces = wireOperatorTransport(app, upgradeWebSocket, {
-      port,
       transport: transportOptions,
       initialDiscovery: operatorDiscovery ?? [],
       getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
@@ -761,9 +763,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       runExecutionTargetWizard: options.runExecutionTargetWizard,
       operatorCapability,
       goalController: options.goalController,
-      onReady: (url) => {
-        operatorWsUrl = url;
-      },
       onSocketOpen: () => {
         activeConnections += 1;
         updateConnectionCount(activeConnections);
@@ -808,6 +807,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   app.get("/gui", (c) => c.redirect("/gui/"));
 
   const server = Bun.serve({
+    hostname: LOCAL_OPERATOR_GATEWAY_HOST,
     port,
     fetch: app.fetch,
     websocket,
@@ -815,11 +815,19 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   operatorCatalog?.startBackgroundRefresh({ force: true });
 
   const boundPort = server.port ?? port;
+  const canonicalOrigin = localOperatorGatewayHttpOrigin(boundPort);
+  allowedBrowserOrigins = new Set([
+    canonicalOrigin,
+    ...(externalGuiOrigin ? [externalGuiOrigin] : []),
+  ]);
+  const operatorWsUrl = transportOptions
+    ? localOperatorGatewayWebSocketUrl(boundPort, "/gui/ws")
+    : undefined;
 
   return {
     port: boundPort,
-    url: `http://localhost:${boundPort}/gui/`,
-    apiUrl: `http://localhost:${boundPort}/gui/api/dashboard`,
+    url: localOperatorGatewayHttpUrl(boundPort, "/gui/"),
+    apiUrl: localOperatorGatewayHttpUrl(boundPort, "/gui/api/dashboard"),
     operatorWsUrl,
     get operatorModels() {
       const currentDiscovery = operatorCatalog?.snapshot().discovery;
@@ -859,7 +867,6 @@ function wireOperatorTransport(
   app: Hono,
   upgradeWebSocket: BunUpgradeWebSocket,
   input: {
-    port: number;
     transport: OperatorGuiSessionTransportOptions;
     initialDiscovery: readonly GuiProviderDiscoveryResult[];
     getDiscovery: (options?: { readonly force?: boolean }) => Promise<readonly GuiProviderDiscoveryResult[]>;
@@ -872,7 +879,6 @@ function wireOperatorTransport(
     runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
     executionRouteSelection?: OperatorExecutionRouteSelectionPort;
     runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
-    onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
     operatorCapability?: string;
@@ -2056,8 +2062,65 @@ function wireOperatorTransport(
     }),
   );
 
-  input.onReady(`ws://localhost:${input.port}/gui/ws`);
   return () => disposeGuiResourceSurfaces(resourceSurfaces);
+}
+
+const GUI_CORS_ALLOWED_METHODS = new Set(["GET", "POST"]);
+const GUI_CORS_ALLOWED_HEADERS = new Set([
+  "accept",
+  "content-type",
+  "x-kiln-operator-token",
+]);
+
+function createGuiBrowserOriginMiddleware(
+  readAllowedOrigins: () => ReadonlySet<string>,
+): (c: Context, next: Next) => Promise<Response | undefined> {
+  return async (c, next): Promise<Response | undefined> => {
+    const origin = c.req.header("origin");
+    if (!origin) {
+      if (c.req.method === "OPTIONS") {
+        return c.body(null, 403);
+      }
+      await next();
+      return;
+    }
+
+    if (!readAllowedOrigins().has(origin) || !isAdmittedCorsPreflight(c)) {
+      return c.body(null, 403);
+    }
+
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Access-Control-Allow-Headers", "Content-Type, Accept, X-Kiln-Operator-Token");
+    c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    c.header("Vary", "Origin");
+
+    if (c.req.method === "OPTIONS") {
+      return c.body(null, 204);
+    }
+
+    await next();
+  };
+}
+
+function isAdmittedCorsPreflight(c: Context): boolean {
+  if (c.req.method !== "OPTIONS") {
+    return true;
+  }
+
+  const requestedMethod = c.req.header("access-control-request-method")?.toUpperCase();
+  if (!requestedMethod || !GUI_CORS_ALLOWED_METHODS.has(requestedMethod)) {
+    return false;
+  }
+
+  const requestedHeaders = c.req.header("access-control-request-headers");
+  if (!requestedHeaders) {
+    return true;
+  }
+
+  return requestedHeaders
+    .split(",")
+    .map((header) => header.trim().toLowerCase())
+    .every((header) => header.length > 0 && GUI_CORS_ALLOWED_HEADERS.has(header));
 }
 
 export function buildGuiTurnPerCallConfig(

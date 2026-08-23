@@ -21,7 +21,7 @@ release.
 ## Development
 
 ```bash
-bun run dev          # Vite dev server on http://localhost:5183
+bun run dev          # Vite dev server on http://127.0.0.1:5183
 bun run build        # Production bundle → dist/
 bun run typecheck    # TypeScript check
 bun run lint         # Biome
@@ -140,10 +140,10 @@ Or from the repo root:
 bun run test:e2e
 ```
 
-The e2e suite starts a Vite dev server automatically (reuses an existing one if
-already running outside CI). A lightweight mock gateway boots on port 4810 for
-each test worker so the Vite proxy resolves `/gui-api/*`, `/gui/api/*`, and
-`/operator/api/*` correctly.
+The e2e suite starts a loopback-only Vite dev server automatically (reuses an
+existing one if already running outside CI). A lightweight mock gateway binds
+to `127.0.0.1` on a reserved port for each test worker and admits that exact
+Vite origin for `/health`, `/gui/api/*`, `/operator/api/*`, and `/gui/ws`.
 
 To run with the Playwright UI:
 

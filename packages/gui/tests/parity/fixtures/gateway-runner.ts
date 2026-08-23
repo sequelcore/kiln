@@ -1167,11 +1167,17 @@ seedMemoryRepository(memoryRepository);
 
 async function main(): Promise<void> {
   const port = parseGatewayPort();
+  const guiPort = process.env.GUI_DEV_PORT;
+  if (!guiPort || !/^\d+$/.test(guiPort)) {
+    throw new Error("GUI_DEV_PORT is required for the exact external GUI origin.");
+  }
   const operatorRouting = createDeterministicOperatorRouting();
   const canonicalSessionEvents: unknown[] = [];
 
   const gateway = await startGuiGateway({
     port,
+    guiAssetMode: "external",
+    externalGuiOrigin: `http://127.0.0.1:${guiPort}`,
     workingDirectory: process.cwd(),
     getSnapshot: async () => ({
       providers: [

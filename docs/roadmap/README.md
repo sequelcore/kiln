@@ -29,9 +29,9 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [00 - Source Stability](00-source-stability.md) | Ready | Urgent | Complete [#101](https://github.com/sequelcore/kiln/issues/101): bind normal GUI startup to loopback, replace wildcard CORS, and inventory HTTP/WebSocket scopes. |
+| 1 | [00 - Source Stability](00-source-stability.md) | Ready | Urgent | Complete [#102](https://github.com/sequelcore/kiln/issues/102): preserve approval identity during GUI Session replay and remove the Session-wide fallback. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Queued | Normal | Reassess pairing only after Roadmap 00 names a supported source baseline. |
-| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 executes through Roadmap 00; later connectivity slices wait on Roadmap 00 and Roadmap 08 identity. |
+| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 00 and Roadmap 08 identity. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |
 | 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
 | 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
@@ -46,15 +46,15 @@ roadmap reorganization.
 - `08` owns `Kiln Connect` pairing, device identity, authenticated operator
   sessions, scopes, expiry, and revocation.
 - `08.5` owns loopback exposure, operator-owned transport adapters, endpoint
-  evidence, connector lifecycle, and reconnection. Its Slice 0 is independently
-  admissible safety work; later slices consume `08` session identity, and
+  evidence, connector lifecycle, and reconnection. Its Slice 0 completed the
+  independently admissible safety work; later slices consume `08` session identity, and
   configuration-bearing slices consume the canonical effective-state and
   governed-mutation contracts.
 - The 2026-08-14 operator decision removed `07` as a prerequisite for `08`.
   Roadmap 12 then completed the first safe-turn-without-YAML vertical proof.
   The 2026-08-23 source-stability decision now supersedes the former Connect
-  priority: Roadmap `00` is the default track, and Roadmap `08.5` Slice 0 is
-  its first bounded task. Roadmap `08` pairing and later connectivity slices
+  priority: Roadmap `00` is the default track, and Roadmap `08.5` Slice 0 was
+  its first completed bounded task. Roadmap `08` pairing and later connectivity slices
   are queued until Roadmap `00` names a supported source baseline. This is
   sequencing, not a transfer of bounded-context ownership. Neither Connect
   track admits a Kiln-hosted cloud; a managed relay requires a separate future

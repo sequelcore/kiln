@@ -1123,6 +1123,115 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("binds to loopback and admits only startup-bound exact browser origins", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const externalGuiOrigin = "http://127.0.0.1:5183";
+    let appFetch: ((request: Request) => Promise<Response>) | undefined;
+    let serveOptions: { hostname?: string; port?: number } | undefined;
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation((options: {
+        hostname?: string;
+        port?: number;
+        fetch: typeof appFetch;
+      }) => {
+        serveOptions = options;
+        appFetch = options.fetch;
+        return { port: 4917, stop };
+      }),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        port: 0,
+        guiDistPath: distDir,
+        guiAssetMode: "external",
+        externalGuiOrigin,
+        getSnapshot: async () => ({}) as never,
+      });
+
+      expect(serveOptions).toMatchObject({ hostname: "127.0.0.1", port: 0 });
+      expect(gateway.url).toBe("http://127.0.0.1:4917/gui/");
+      expect(gateway.apiUrl).toBe("http://127.0.0.1:4917/gui/api/dashboard");
+
+      const canonicalOrigin = "http://127.0.0.1:4917";
+      const canonicalResponse = await appFetch!(new Request(`${canonicalOrigin}/health`, {
+        headers: { origin: canonicalOrigin },
+      }));
+      expect(canonicalResponse.status).toBe(200);
+      expect(canonicalResponse.headers.get("access-control-allow-origin")).toBe(canonicalOrigin);
+      expect(canonicalResponse.headers.get("vary")).toContain("Origin");
+
+      const externalResponse = await appFetch!(new Request(`${canonicalOrigin}/health`, {
+        headers: { origin: externalGuiOrigin },
+      }));
+      expect(externalResponse.status).toBe(200);
+      expect(externalResponse.headers.get("access-control-allow-origin")).toBe(externalGuiOrigin);
+
+      const admittedPreflight = await appFetch!(new Request(`${canonicalOrigin}/gui/api/dashboard`, {
+        method: "OPTIONS",
+        headers: {
+          origin: externalGuiOrigin,
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "Content-Type, X-Kiln-Operator-Token",
+        },
+      }));
+      expect(admittedPreflight.status).toBe(204);
+      expect(admittedPreflight.headers.get("access-control-allow-origin")).toBe(externalGuiOrigin);
+
+      const deniedPreflight = await appFetch!(new Request(`${canonicalOrigin}/gui/api/dashboard`, {
+        method: "OPTIONS",
+        headers: {
+          origin: externalGuiOrigin,
+          "access-control-request-method": "DELETE",
+        },
+      }));
+      expect(deniedPreflight.status).toBe(403);
+      expect(deniedPreflight.headers.has("access-control-allow-origin")).toBe(false);
+
+      for (const deniedOrigin of ["https://attacker.invalid", "http://localhost:4917", "null"]) {
+        const denied = await appFetch!(new Request(`${canonicalOrigin}/health`, {
+          headers: { origin: deniedOrigin },
+        }));
+        expect(denied.status).toBe(403);
+        expect(denied.headers.has("access-control-allow-origin")).toBe(false);
+      }
+
+      const localProcessResponse = await appFetch!(new Request(`${canonicalOrigin}/health`));
+      expect(localProcessResponse.status).toBe(200);
+      expect(localProcessResponse.headers.has("access-control-allow-origin")).toBe(false);
+
+      const deniedWebSocket = await appFetch!(new Request(`${canonicalOrigin}/gui/ws`, {
+        headers: { origin: "https://attacker.invalid" },
+      }));
+      expect(deniedWebSocket.status).toBe(403);
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a non-loopback external GUI origin before starting a listener", async () => {
+    const serve = vi.fn();
+    vi.stubGlobal("Bun", { serve });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    await expect(startGuiGateway({
+      guiAssetMode: "external",
+      externalGuiOrigin: "https://gui.example.com",
+      getSnapshot: async () => ({}) as never,
+    })).rejects.toThrow("External GUI origin must be an exact loopback HTTP origin.");
+    await expect(startGuiGateway({
+      guiAssetMode: "external",
+      externalGuiOrigin: "http://127.0.0.1",
+      getSnapshot: async () => ({}) as never,
+    })).rejects.toThrow("External GUI origin must be an exact loopback HTTP origin.");
+    expect(serve).not.toHaveBeenCalled();
+  });
+
   it("builds structured provider discovery results with unavailable reasons", () => {
     const checkedAt = "2026-04-28T12:00:00.000Z";
     const discovery = buildGuiOperatorDiscoveryResults({
@@ -1886,7 +1995,7 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("exposes health with CORS for direct dev GUI polling", async () => {
+  it("exposes health to the exact bundled GUI origin", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     let appFetch: ((request: Request) => Promise<Response>) | undefined;
@@ -1909,12 +2018,12 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
       });
 
-      const response = await appFetch!(new Request("http://localhost/health", {
-        headers: { origin: "http://localhost:5183" },
+      const response = await appFetch!(new Request("http://127.0.0.1:4810/health", {
+        headers: { origin: "http://127.0.0.1:4810" },
       }));
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(response.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:4810");
       expect(await response.json()).toMatchObject({
         status: "ok",
         channel: "gui",

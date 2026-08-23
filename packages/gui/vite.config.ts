@@ -108,33 +108,29 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    host: "127.0.0.1",
     port: resolvedGuiPort,
     proxy: {
       "/health": {
-        target: `http://localhost:${resolvedGatewayPort}`,
+        target: `http://127.0.0.1:${resolvedGatewayPort}`,
         changeOrigin: true,
       },
       "/gui/api": {
-        target: `http://localhost:${resolvedGatewayPort}`,
+        target: `http://127.0.0.1:${resolvedGatewayPort}`,
         changeOrigin: true,
       },
       "/operator/api": {
-        target: `http://localhost:${resolvedGatewayPort}`,
+        target: `http://127.0.0.1:${resolvedGatewayPort}`,
         changeOrigin: true,
-      },
-      "/gui-api": {
-        target: `http://localhost:${resolvedGatewayPort}`,
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/gui-api/, ""),
       },
       "/gui-ws": {
-        target: `ws://localhost:${resolvedGatewayPort}`,
+        target: `ws://127.0.0.1:${resolvedGatewayPort}`,
         ws: true,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/gui-ws/, ""),
       },
       "/gui/ws": {
-        target: `ws://localhost:${resolvedGatewayPort}`,
+        target: `ws://127.0.0.1:${resolvedGatewayPort}`,
         ws: true,
         changeOrigin: true,
       },

@@ -869,8 +869,8 @@ describe("managed-agent command", () => {
       .toBe("ws://127.0.0.1:4810/gui/ws?userId=cli-operator");
     expect(resolveManagedAgentGatewayWebSocketUrl("https://kiln.example.test/base?ignored=true", "cli-operator"))
       .toBe("wss://kiln.example.test/gui/ws?userId=cli-operator");
-    expect(resolveManagedAgentGatewayWebSocketUrl("ws://localhost:4810/socket", "cli-operator"))
-      .toBe("ws://localhost:4810/gui/ws?userId=cli-operator");
+    expect(resolveManagedAgentGatewayWebSocketUrl("ws://127.0.0.1:4810/socket", "cli-operator"))
+      .toBe("ws://127.0.0.1:4810/gui/ws?userId=cli-operator");
     expect(() => resolveManagedAgentGatewayWebSocketUrl("not a url", "cli-operator"))
       .toThrow("Managed-agent gateway URL must be absolute.");
   });

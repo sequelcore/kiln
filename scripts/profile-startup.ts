@@ -86,11 +86,11 @@ const stderrReader = readStream(child.stderr, (chunk) => {
 try {
   try {
     if (options.surface === "gui") {
-      await waitForHttpOk(`http://localhost:${options.port}/health`, "gateway-health-ready");
-      await waitForHttpOk(`http://localhost:${options.port}/gui/api/dashboard`, "gateway-dashboard-ready");
+      await waitForHttpOk(`http://127.0.0.1:${options.port}/health`, "gateway-health-ready");
+      await waitForHttpOk(`http://127.0.0.1:${options.port}/gui/api/dashboard`, "gateway-dashboard-ready");
       const guiUrl = options.mode === "dev"
-        ? `http://localhost:${options.guiPort}/gui/`
-        : `http://localhost:${options.port}/gui/`;
+        ? `http://127.0.0.1:${options.guiPort}/gui/`
+        : `http://127.0.0.1:${options.port}/gui/`;
       await waitForHttpOk(guiUrl, "gui-url-ready");
       if (options.measureFirstPaint) {
         const browserProbeStartedAt = performance.now();

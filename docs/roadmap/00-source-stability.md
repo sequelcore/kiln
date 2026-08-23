@@ -56,10 +56,10 @@ listed below:
 
 ### Slice 0 - Existing Security And Correctness Defects
 
-Status: Ready; next admissible work.
+Status: Ready; issue #101 is complete and issue #102 is the next admissible work.
 
-Complete [issue #101](https://github.com/sequelcore/kiln/issues/101), then
-[issue #102](https://github.com/sequelcore/kiln/issues/102). Normal GUI startup
+Completed [issue #101](https://github.com/sequelcore/kiln/issues/101). Complete
+[issue #102](https://github.com/sequelcore/kiln/issues/102) next. Normal GUI startup
 must be loopback-only with exact origin policy, and replaying one approval
 resolution must never resolve another pending approval.
 

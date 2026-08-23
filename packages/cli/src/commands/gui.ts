@@ -385,6 +385,9 @@ export async function guiCommand(
   gateway = await startGuiGateway({
     port,
     guiAssetMode: mode === "dev" ? "external" : "bundled",
+    ...(mode === "dev"
+      ? { externalGuiOrigin: `http://127.0.0.1:${guiPort}` }
+      : {}),
     runtimeConfigurationRevisionProvider: () => readRuntimeConfigurationRevision(cwd),
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
     getSnapshot: async (context) => ({
@@ -566,8 +569,8 @@ export async function guiCommand(
       viteDevServer = spawnGuiDevServer(cwd, guiPort, gateway.port, output);
     }
 
-    const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
-    const devGuiUrl = `http://localhost:${guiPort}/gui/`;
+    const gatewayUrl = gateway.url;
+    const devGuiUrl = `http://127.0.0.1:${guiPort}/gui/`;
     const guiUrl = buildGuiUrl(
       mode === "dev" ? devGuiUrl : gatewayUrl,
       themePreference,
@@ -868,7 +871,17 @@ function spawnGuiDevServer(
     throw new Error(`GUI workspace not found at ${guiWorkspacePath}`);
   }
 
-  const child = spawn("bun", ["run", "--cwd", "packages/gui", "dev", "--", "--port", String(guiPort)], {
+  const child = spawn("bun", [
+    "run",
+    "--cwd",
+    "packages/gui",
+    "dev",
+    "--",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(guiPort),
+  ], {
     cwd,
     env: {
       ...process.env,

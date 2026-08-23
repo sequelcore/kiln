@@ -259,13 +259,15 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
-function stubBunServe(): void {
+function stubBunServe(): ReturnType<typeof vi.fn> {
+  const serve = vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+    port: port ?? 4801,
+    stop: vi.fn(),
+  }));
   vi.stubGlobal("Bun", {
-    serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-      port: port ?? 4801,
-      stop: vi.fn(),
-    })),
+    serve,
   });
+  return serve;
 }
 
 function makeSessionManager() {
@@ -615,7 +617,7 @@ describe("TUI gateway clear frame handling", () => {
 describe("TUI gateway startup discovery", () => {
   it("starts listening before provider discovery resolves", async () => {
     vi.resetModules();
-    stubBunServe();
+    const serve = stubBunServe();
     let resolveDiscovery: ((discovery: GuiProviderDiscoveryResult[]) => void) | undefined;
     const pendingDiscovery = new Promise<GuiProviderDiscoveryResult[]>((resolve) => {
       resolveDiscovery = resolve;
@@ -628,9 +630,18 @@ describe("TUI gateway startup discovery", () => {
 
     const gateway = await startTuiGateway({ sessionManager, ...makeTuiTestRouting(sessionManager) });
     try {
+      expect(serve).toHaveBeenCalledWith(expect.objectContaining({ hostname: "127.0.0.1" }));
+      expect(gateway.url).toBe("ws://127.0.0.1:4801/tui/ws");
       expect(gateway.models).toEqual({});
       expect(gateway.providerDiscovery).toEqual([]);
       expect(discoverySpy).toHaveBeenCalledTimes(1);
+
+      const fetch = serve.mock.calls[0]?.[0]?.fetch as ((request: Request) => Promise<Response>) | undefined;
+      expect(fetch).toBeTypeOf("function");
+      const browserHandshake = await fetch!(new Request("http://127.0.0.1:4801/tui/ws", {
+        headers: { origin: "https://attacker.invalid" },
+      }));
+      expect(browserHandshake.status).toBe(403);
     } finally {
       resolveDiscovery?.([]);
       await flushAsyncWork();

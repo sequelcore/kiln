@@ -5,7 +5,7 @@ interface GatewayHealthResponse {
 }
 
 async function fetchGatewayHealth(): Promise<GatewayHealthResponse> {
-  const response = await fetch("/gui-api/health", {
+  const response = await fetch("/health", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) {

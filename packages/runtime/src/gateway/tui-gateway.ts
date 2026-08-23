@@ -74,6 +74,10 @@ import {
   type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool/index.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
+import {
+  LOCAL_OPERATOR_GATEWAY_HOST,
+  localOperatorGatewayWebSocketUrl,
+} from "./operator-gateway-network.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import {
@@ -192,7 +196,7 @@ export interface TuiGatewayOptions {
 }
 
 export interface TuiGateway {
-  /** WebSocket URL to connect to. e.g. "ws://localhost:4801/tui/ws" */
+  /** WebSocket URL to connect to. e.g. "ws://127.0.0.1:4801/tui/ws" */
   readonly url: string;
   readonly port: number;
   readonly models: Record<string, string[]>;
@@ -779,6 +783,15 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   // Health check — polled by the CLI to confirm gateway is ready
   app.get("/health", (c) => c.json({ status: "ok", channel: "tui" }));
 
+  // TUI is a native terminal client. Browser-originated WebSocket handshakes
+  // have no admitted caller and must not cross the local operator boundary.
+  app.use("/tui/ws", async (c, next) => {
+    if (c.req.header("origin")) {
+      return c.body(null, 403);
+    }
+    await next();
+  });
+
   // TUI WebSocket endpoint — no widgetId, no tenant, just userId
   app.get(
     "/tui/ws",
@@ -1223,15 +1236,17 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   );
 
   const server = Bun.serve({
+    hostname: LOCAL_OPERATOR_GATEWAY_HOST,
     port,
     fetch: app.fetch,
     websocket,
   });
   providerCatalog.startBackgroundRefresh({ force: true });
+  const boundPort = server.port ?? port;
 
   return {
-    url: `ws://localhost:${port}/tui/ws`,
-    port,
+    url: localOperatorGatewayWebSocketUrl(boundPort, "/tui/ws"),
+    port: boundPort,
     get models() {
       readDiscovery();
       return models;
