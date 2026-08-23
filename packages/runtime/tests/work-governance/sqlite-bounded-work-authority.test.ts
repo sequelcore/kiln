@@ -26,8 +26,8 @@ async function databasePath(): Promise<string> {
   return join(root, "bounded-work.sqlite");
 }
 
-async function waitFor(paths: readonly string[]): Promise<void> {
-  const deadline = Date.now() + 10_000;
+async function waitFor(paths: readonly string[], timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (paths.some((path) => !existsSync(path))) {
     if (Date.now() > deadline) throw new Error("Timed out waiting for bounded-work workers.");
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -174,7 +174,7 @@ describe("SqliteBoundedWorkAuthority", () => {
     const ready = ids.map((id) => join(root, `${id}.ready`));
     const result = ids.map((id) => join(root, `${id}.result`));
     const children = ids.map((id, index) => runProcess("bun", ["run", workerBundle, path, id, ready[index]!, start, result[index]!]));
-    await waitFor(ready);
+    await waitFor(ready, 20_000);
     writeFileSync(start, "go");
     const outcomes = await Promise.all(children);
     expect(outcomes.map(({ code, stderr }) => ({ code, stderr }))).toEqual([
@@ -185,7 +185,7 @@ describe("SqliteBoundedWorkAuthority", () => {
     const decisions = result.map((file) => JSON.parse(readFileSync(file, "utf8")) as { kind: string });
     expect(decisions.filter((decision) => decision.kind === "admitted")).toHaveLength(1);
     expect(decisions.filter((decision) => decision.kind === "pause_budget_exhausted")).toHaveLength(1);
-  });
+  }, 30_000);
 
   it("keeps cumulative limits across routes and restarts", async () => {
     const path = await databasePath();

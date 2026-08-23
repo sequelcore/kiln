@@ -45,12 +45,14 @@ describe("startup profile global configuration fixture", () => {
     expect(() => validateGlobalConfig(readFixture())).not.toThrow();
   });
 
-  it("differs from the canonical defaults only by the execution target it must name", () => {
+  it("differs from canonical defaults only by its target and project-owned permissions", () => {
     const { targetCatalog, targetRouting, ...rest } = readFixture();
+    const { permissions: _projectOwnedPermissions, ...defaultsWithoutPermissions } = defaultGlobalConfig();
 
     expect(targetCatalog, "the fixture exists to supply a direct target").toBeDefined();
     expect(targetRouting).toBeDefined();
-    expect(rest).toEqual(defaultGlobalConfig());
+    expect(readFixture()).not.toHaveProperty("permissions");
+    expect(rest).toEqual(defaultsWithoutPermissions);
   });
 
   it("routes to a direct target that the catalog actually declares", () => {
