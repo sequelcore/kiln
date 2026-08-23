@@ -39,7 +39,10 @@ kiln config settings permissions
 kiln config settings --modified
 ```
 
-TUI `/settings [query]` renders the same snapshot. GUI Settings organizes it as
+TUI `/settings [query]` renders the same snapshot. It also accepts
+`/settings set [--global] [--approve] <key> <value>` and
+`/settings reset [--global] [--approve] <key>` through the same proposal and
+apply contracts. GUI Settings organizes the snapshot as
 General, Providers, Models, Permissions, Tools, Usage and Limits, Agents,
 Health, and Advanced. Every setting row identifies inheritance or override,
 write scope, authority impact, activation, and health. Provider allowance and
@@ -60,6 +63,13 @@ same typed proposal before apply and refreshes the shared read model after the
 commit. Advanced mode may open canonical project YAML and export or validate a
 secret-free settings snapshot, but importing a snapshot never bypasses the
 mutation authority or revision fence.
+
+The typed SDK exposes `loadSettings`, `proposeSettingsMutation`, and
+`applySettingsMutation` over the operator gateway. Trusted Codex, Claude Code,
+and OpenCode native sessions expose `kiln_settings_read`,
+`kiln_settings_propose`, and `kiln_settings_apply`. Native apply always
+requires an externally issued approval id. These adapters exchange shared wire
+contracts and do not derive governance policy locally.
 
 ## Global schema
 

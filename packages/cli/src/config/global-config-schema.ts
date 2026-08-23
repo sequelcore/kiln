@@ -15,9 +15,9 @@ import type {
   KilnModelTaskSuitabilityOverride,
   KilnTargetCatalogIntentConfig,
   KilnWorkGovernanceConfig,
+  KilnExternalCatalogPolicy,
   KilnYamlMcp,
   KilnYamlPermissions,
-  KilnYamlSkillsConfig,
   KilnYamlWebExtractProvider,
   KilnYamlWebSearchProvider,
 } from "../kiln-yaml-types.js";
@@ -60,6 +60,9 @@ const nonEmptyString = Type.String({ minLength: 1 });
 const identity = strictObject({
   name: Type.ReadonlyOptional(nonEmptyString),
   timezone: Type.ReadonlyOptional(nonEmptyString),
+}, {
+  "x-kiln-semantic-owner": "operator-preferences",
+  "x-kiln-activation": "hot",
 });
 const engineBilling = Type.Union([
   Type.Literal("subscription"),
@@ -111,14 +114,63 @@ const uiTargetSelection = strictObject({
 const ui = strictObject({
   theme: Type.ReadonlyOptional(nonEmptyString),
   targetSelection: Type.ReadonlyOptional(uiTargetSelection),
+}, {
+  "x-kiln-semantic-owner": "operator-preferences",
+  "x-kiln-activation": "hot",
 });
 const components = strictObject({ include: Type.ReadonlyOptional(Type.Array(nonEmptyString)) });
+const skillVisibility = Type.Union([
+  Type.Literal("implicit"),
+  Type.Literal("explicit-only"),
+  Type.Literal("disabled"),
+]);
+const builtinSkills = strictObject({
+  enabled: Type.ReadonlyOptional(Type.Boolean()),
+  include: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
+  exclude: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
+}, {
+  "x-kiln-semantic-owner": "skill-catalog",
+  "x-kiln-authority-impact": "authority-bearing",
+  "x-kiln-activation": "reconcile",
+});
+const skillSelection = strictObject({
+  mode: Type.ReadonlyOptional(Type.Union([Type.Literal("advisory"), Type.Literal("auto")])),
+}, {
+  "x-kiln-semantic-owner": "skill-catalog",
+  "x-kiln-authority-impact": "authority-bearing",
+  "x-kiln-activation": "next-session",
+});
+const skillVisibilityConfig = strictObject({
+  default: Type.ReadonlyOptional(skillVisibility),
+  overrides: Type.ReadonlyOptional(Type.Record(Type.String(), skillVisibility)),
+}, {
+  "x-kiln-semantic-owner": "skill-catalog",
+  "x-kiln-authority-impact": "authority-bearing",
+  "x-kiln-activation": "reconcile",
+});
+const skills = strictObject({
+  builtin: Type.ReadonlyOptional(builtinSkills),
+  selection: Type.ReadonlyOptional(skillSelection),
+  visibility: Type.ReadonlyOptional(skillVisibilityConfig),
+  externalCatalog: Type.ReadonlyOptional(governedExternal<KilnExternalCatalogPolicy>("skill-catalog", {
+    "x-kiln-activation": "reconcile",
+  })),
+}, {
+  "x-kiln-semantic-owner": "skill-catalog",
+  "x-kiln-authority-impact": "authority-bearing",
+  "x-kiln-activation": "reconcile",
+});
 
 export const GLOBAL_CONFIG_SCHEMA = strictObject({
   version: Type.Readonly(Type.Literal(CANONICAL_GLOBAL_CONFIG_VERSION)),
   identity: Type.ReadonlyOptional(identity),
-  activeInstructionProfiles: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
-  workGovernance: Type.ReadonlyOptional(governedExternal<KilnWorkGovernanceConfig>("work-governance")),
+  activeInstructionProfiles: Type.ReadonlyOptional(Type.Array(nonEmptyString, {
+    "x-kiln-semantic-owner": "instruction-profiles",
+    "x-kiln-activation": "reconcile",
+  })),
+  workGovernance: Type.ReadonlyOptional(governedExternal<KilnWorkGovernanceConfig>("work-governance", {
+    "x-kiln-activation": "next-turn",
+  })),
   engines: Type.ReadonlyOptional(Type.Record(Type.String(), engine)),
   targetCatalog: Type.ReadonlyOptional(governedExternal<KilnTargetCatalogIntentConfig>("execution-routing")),
   targetRouting: Type.ReadonlyOptional(targetRouting),
@@ -135,7 +187,7 @@ export const GLOBAL_CONFIG_SCHEMA = strictObject({
   web: Type.ReadonlyOptional(web),
   verification: Type.ReadonlyOptional(verification),
   ui: Type.ReadonlyOptional(ui),
-  skills: Type.ReadonlyOptional(governedExternal<KilnYamlSkillsConfig>("skills-configuration")),
+  skills: Type.ReadonlyOptional(skills),
   components: Type.ReadonlyOptional(components),
   operatorVoice: Type.ReadonlyOptional(governedExternal<VoiceConfig>("voice", { "x-kiln-sensitivity": "secret-reference" })),
   modelGateway: Type.ReadonlyOptional(governedExternal<ModelGatewayConfig>("model-gateway", { "x-kiln-activation": "restart-required", "x-kiln-sensitivity": "secret-reference" })),

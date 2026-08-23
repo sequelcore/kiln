@@ -12,11 +12,13 @@ import {
 import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
 import {
   configSettingDescriptor,
+  configSettingDescriptors,
   configSettingGovernance,
   parseConfigSettingValue,
 } from "../../src/application/config-setting-descriptors.js";
 import { readConfigStatusSnapshot, readConfigStatusView } from "../../src/application/config-status.js";
 import { defaultGlobalConfig } from "../../src/config/global-config.js";
+import { GLOBAL_CONFIG_FIELD_DESCRIPTORS } from "../../src/config/global-config-schema.js";
 import { admitSettingsProposalRecord } from "../../src/application/config-settings.js";
 
 let tempDir: string;
@@ -265,6 +267,22 @@ describe("governed configuration settings", () => {
     }
     for (const key of ["ui.theme", "identity.name", "identity.timezone"]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "global").authorityBearing).toBe(false);
+    }
+  });
+
+  it("derives every global settings governance fact from the canonical global schema", () => {
+    for (const descriptor of configSettingDescriptors().filter((entry) => entry.scopes.includes("global"))) {
+      const field = [...descriptor.path.keys()]
+        .map((index) => `/${descriptor.path.slice(0, descriptor.path.length - index).join("/")}`)
+        .map((identity) => GLOBAL_CONFIG_FIELD_DESCRIPTORS.find((entry) => entry.identity === identity))
+        .find((entry) => entry !== undefined);
+
+      expect(field, descriptor.key).toBeDefined();
+      expect(configSettingGovernance(descriptor, "global"), descriptor.key).toEqual({
+        authorityBearing: field?.authorityImpact === "authority-bearing",
+        activation: field?.activation,
+        owners: [field?.semanticOwner],
+      });
     }
   });
 

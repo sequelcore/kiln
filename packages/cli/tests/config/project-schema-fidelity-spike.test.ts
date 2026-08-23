@@ -109,7 +109,7 @@ function descriptor(schema: TSchema): readonly Record<string, unknown>[] {
   }));
 }
 
-describe("Roadmap 12 project schema fidelity spike", () => {
+describe("project schema fidelity spike", () => {
   it("uses one schema for runtime admission, inferred types, editor schema, and descriptors", () => {
     const parsed = parseDocument(fixture).toJS() as unknown;
     const structural = [...Value.Errors(projectSchema, parsed)];

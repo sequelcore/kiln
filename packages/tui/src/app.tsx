@@ -19,6 +19,10 @@ import {
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
   type KilnConfigSetupSnapshot,
+  type KilnSettingsApplyRequest,
+  type KilnSettingsMutationResult,
+  type KilnSettingsProposalProjection,
+  type KilnSettingsProposalRequest,
   type KilnSettingsSnapshot,
   type OperatorCommandDefinition,
   type OperatorSessionSummary,
@@ -31,6 +35,7 @@ import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themeNames as listThemeNames, themes } from "./theme.js";
 import { formatSetupSnapshot } from "./setup-format.js";
 import { formatSettingsSnapshot } from "./settings-format.js";
+import { buildSettingsProposalRequest, parseSettingsCommand } from "./settings-command.js";
 import {
   initUI,
   createThemePicker,
@@ -107,6 +112,9 @@ export async function startTui(
   providerModelDiscoveryRef?: { current: GuiProviderModelDiscoveryProjection | null },
   executionRouteCatalogRef?: { current: ExecutionRouteCatalog | null },
   loadSettingsSnapshot?: () => Promise<KilnSettingsSnapshot>,
+  proposeSettingsMutation?: (request: KilnSettingsProposalRequest) => Promise<KilnSettingsProposalProjection>,
+  applySettingsMutation?: (request: KilnSettingsApplyRequest) => Promise<KilnSettingsMutationResult>,
+  approveSettingsProposal?: (proposalId: string) => Promise<string>,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -359,7 +367,7 @@ export async function startTui(
       }
 
       if (text === "/settings" || text.startsWith("/settings ")) {
-        void showSettings(text.slice("/settings".length).trim());
+        void handleSettingsCommand(text.slice("/settings".length).trim());
         return;
       }
 
@@ -1294,7 +1302,7 @@ export async function startTui(
 
     renderInput();
     renderCommandBarStatus();
-    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/settings [query] /setup /target  ctrl+shift+P commands")}`;
+    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/settings [query|set|reset] /setup /target  ctrl+shift+P commands")}`;
 
     for (const { msg, node } of messageNodes) {
       const parent = node.parent;
@@ -1437,6 +1445,55 @@ export async function startTui(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Settings failed: ${message}`)}`;
+    }
+  }
+
+  async function handleSettingsCommand(raw: string): Promise<void> {
+    const command = parseSettingsCommand(raw);
+    if (command.kind === "search") {
+      await showSettings(command.query);
+      return;
+    }
+    if (command.kind === "invalid") {
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(command.message)}`;
+      return;
+    }
+    if (!loadSettingsSnapshot || !proposeSettingsMutation || !applySettingsMutation) {
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)("Settings mutation is unavailable in this TUI session")}`;
+      return;
+    }
+    try {
+      const snapshot = await loadSettingsSnapshot();
+      const proposal = await proposeSettingsMutation(buildSettingsProposalRequest(command, snapshot.revisions));
+      if (proposal.status === "invalid") {
+        ui.commandBarStatus.content = t`${fg(currentTheme.error)(proposal.diagnostics.map((entry) => entry.message).join("; ") || "Settings proposal is invalid")}`;
+        return;
+      }
+      if (proposal.approvalRequired && !command.approve) {
+        ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Authority approval required (${proposal.authorityImpact}); re-run with --approve`)}`;
+        return;
+      }
+      const approvalId = proposal.approvalRequired
+        ? await approveSettingsProposal?.(proposal.proposalId)
+        : undefined;
+      if (proposal.approvalRequired && !approvalId) {
+        ui.commandBarStatus.content = t`${fg(currentTheme.error)("TUI approval authority is unavailable")}`;
+        return;
+      }
+      const result = await applySettingsMutation({
+        proposalId: proposal.proposalId,
+        ...(approvalId ? { approvalId } : {}),
+      });
+      const detail = `${result.outcome} · ${result.activation} · ${result.activationObservation.state}`;
+      const node = new TextRenderable(renderer, {
+        content: t`${fg(result.outcome === "rejected" ? currentTheme.error : currentTheme.accent)(`${command.kind} ${command.key}`)}\n${fg(currentTheme.text)(detail)}`,
+        width: "100%",
+      });
+      ui.chatScrollBox.content.add(node);
+      ui.commandBarStatus.content = t`${fg(result.outcome === "rejected" ? currentTheme.error : currentTheme.accent)(detail)}`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Settings mutation failed: ${message}`)}`;
     }
   }
 
@@ -1860,7 +1917,7 @@ export async function startTui(
           }
 
           if (inputText === "/settings" || inputText.startsWith("/settings ")) {
-            void showSettings(inputText.slice("/settings".length).trim());
+            void handleSettingsCommand(inputText.slice("/settings".length).trim());
             return;
           }
         }
@@ -1996,7 +2053,7 @@ export async function startTui(
             return;
           }
           if (cmd.id === "settings") {
-            void showSettings();
+            void handleSettingsCommand("");
             return;
           }
           if (cmd.id === "goal") {

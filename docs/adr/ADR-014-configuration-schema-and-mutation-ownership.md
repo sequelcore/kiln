@@ -10,7 +10,7 @@ Kiln configuration is currently represented by handwritten interfaces,
 partial validators, merge functions, direct writers, generated native files,
 and status projections. The same YAML bytes can therefore be accepted by one
 surface, rejected by another, or reported as effective without passing runtime
-admission. Roadmap 12 requires one structural owner and an explicit mutation
+admission. Kiln requires one structural owner and an explicit mutation
 lifecycle before adding more configuration surfaces.
 
 Configuration families are separate bounded contexts. Global and project Kiln

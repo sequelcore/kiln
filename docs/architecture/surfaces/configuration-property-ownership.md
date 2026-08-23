@@ -1,6 +1,6 @@
 # Configuration Property Ownership
 
-This is the Roadmap 12 property-level ledger for the four canonical YAML
+This is the property-level ownership ledger for the four canonical YAML
 families. It records current ownership and reachability; it is not an editor
 schema and does not grant runtime authority. ADR-014 owns schema and mutation
 design. ADR-015 owns model-facing execution authority.

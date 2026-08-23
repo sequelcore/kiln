@@ -88,6 +88,26 @@ const api = new ApiClient("http://localhost:3000");
 const health = await api.get<{ status: string }>("/health");
 ```
 
+Operator settings use the shared gateway contracts:
+
+```typescript
+const operator = new ApiClient("http://localhost:3000", {
+  operatorToken: process.env.KILN_OPERATOR_TOKEN,
+});
+const settings = await operator.loadSettings();
+const proposal = await operator.proposeSettingsMutation({
+  operation: "setting.set",
+  scope: "project",
+  key: "domain",
+  value: "backend",
+  expectedRevision: settings.revisions.project ?? "absent",
+});
+await operator.applySettingsMutation({ proposalId: proposal.proposalId });
+```
+
+Authority-bearing changes still require an approval issued outside the SDK.
+The client transports typed requests; it does not reproduce settings policy.
+
 ## Documentation
 
 - [React SDK guide](../../docs/guides/gui/react-sdk.md)

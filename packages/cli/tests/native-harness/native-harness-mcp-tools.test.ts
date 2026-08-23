@@ -350,18 +350,56 @@ describe("NativeHarnessMcpTools", () => {
   afterEach(() => {
     rmSync(TEMPORARY_CWD, { recursive: true, force: true });
   });
-  it("discovers four inspection tools and exactly five agent-task tools", () => {
+  it("discovers inspection, settings, and agent-task tools", () => {
     expect(createServer().listTools().map((tool) => tool.name)).toEqual([
       "kiln_status_inspect",
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
       "kiln_account_usage_inspect",
+      "kiln_settings_read",
+      "kiln_settings_propose",
+      "kiln_settings_apply",
       "kiln_agent_task_submit",
       "kiln_agent_task_status",
       "kiln_agent_task_result",
       "kiln_agent_task_cancel",
       "kiln_agent_task_replay",
     ]);
+  });
+
+  it.each(["codex", "claude", "opencode"] as const)("forwards one typed settings operation unchanged for %s", async (harness) => {
+    const request = {
+      operation: "setting.set" as const,
+      scope: "project" as const,
+      key: "domain",
+      expectedRevision: "absent" as const,
+      value: "backend",
+    };
+    const propose = vi.fn(() => ({ proposalId: "cfg_settings" }) as never);
+    const apply = vi.fn(async () => ({ outcome: "committed" }) as never);
+    const server = new NativeHarnessMcpTools({
+      harness,
+      requestIdentity: () => ({ callerId: `test-${harness}-settings` }),
+      settings: { read: async () => ({ entries: [] }) as never, propose, apply },
+    });
+
+    await expect(server.callTool("kiln_settings_propose", request)).resolves.toMatchObject({
+      structuredContent: {
+        operation: "settings-propose",
+        result: { proposalId: "cfg_settings" },
+        evidence: { harness, callerId: `test-${harness}-settings` },
+      },
+    });
+    expect(propose).toHaveBeenCalledWith(request);
+
+    await expect(server.callTool("kiln_settings_apply", { proposalId: "cfg_settings" })).resolves.toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "KILN_SETTINGS_APPROVAL_REQUIRED" } },
+    });
+    expect(apply).not.toHaveBeenCalled();
+
+    await server.callTool("kiln_settings_apply", { proposalId: "cfg_settings", approvalId: "approval-1" });
+    expect(apply).toHaveBeenCalledWith({ proposalId: "cfg_settings", approvalId: "approval-1" }, "model");
   });
 
   it("returns sanitized account usage without accepting account selection arguments", async () => {

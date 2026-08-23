@@ -6,6 +6,7 @@ export { useKilnChat } from "./use-kiln-chat.js";
 export { useKilnWsChat } from "./use-kiln-ws-chat.js";
 
 export { ApiClient } from "./api-client.js";
+export type { ApiClientOptions } from "./api-client.js";
 
 export type {
   KilnConfig,
@@ -54,6 +55,11 @@ export type {
   OperatorCockpitReadOnlyViewState,
   OperatorGovernedWorkItemProjection,
   OperatorWorkspaceHomeProjection,
+  KilnSettingsApplyRequest,
+  KilnSettingsMutationResult,
+  KilnSettingsProposalProjection,
+  KilnSettingsProposalRequest,
+  KilnSettingsSnapshot,
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
   OperatorResourceReadContent,

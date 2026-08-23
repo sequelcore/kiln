@@ -12,10 +12,6 @@ Every note must name or link:
 
 ## Investigations
 
-- [Configuration Surface Inventory](configuration-surface-inventory.md)
-  supports [Roadmap 12](../../roadmap/12-configuration-experience.md) with the
-  current reader, writer, field, evidence, projection, mutation, and
-  verification map required before the schema and mutation ADR.
 - [Adaptive Work Governance](adaptive-work-governance.md) supports
   [issue #94](https://github.com/sequelcore/kiln/issues/94) with the evidence,
   hypotheses, and benchmark required before changing scouting, decomposition,

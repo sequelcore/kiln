@@ -24,6 +24,9 @@ What this package does:
 - manage picker state for providers, themes, and explicit session continuation
 - adapt gateway WebSocket frames into TUI session events
 - preserve a stable TUI WebSocket user ID across reconnects
+- inspect settings with `/settings [query]`
+- propose and apply admitted changes with
+  `/settings set|reset [--global] [--approve] ...`
 
 What this package does not own:
 
@@ -32,6 +35,7 @@ What this package does not own:
 - runtime orchestration
 - session persistence policy
 - prompt construction
+- settings governance, mutation settlement, or reconciliation policy
 
 Those responsibilities stay in `@kilnai/core`, `@kilnai/runtime`, and
 `@kilnai/cli`.

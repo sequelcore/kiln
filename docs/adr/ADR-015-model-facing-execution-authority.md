@@ -108,7 +108,7 @@ unsupported dimension and route rather than claim uniform enforcement.
 
 The full typed configured/execution snapshots, field provenance, replacement
 permission vocabulary, typed global authority bounds, and grant lifecycle are
-schema/read-model work for Roadmap 12 Slices 1 and 2. Immediate containment
+owned schema/read-model work. Immediate containment
 must not wait for those projections.
 
 This decision is invalidated only by new preventive route evidence or a change

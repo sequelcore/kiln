@@ -241,11 +241,11 @@ Promotion requires a policy based on observable task properties, not a global
 `orchestrate` label or a benchmark-wide average that hides a material stratum
 regression.
 
-## Relationship to Configuration Experience
+## Relationship to Configuration Ownership
 
-Roadmap 12 owns the schema, descriptors, scopes, precedence, activation,
+The canonical configuration boundary owns the schema, descriptors, scopes, precedence, activation,
 effective-state projection, and governed mutation of `workGovernance`. It does
-not own the coordination algorithm or ratify policy defaults. Roadmap 12 may
+not own the coordination algorithm or ratify policy defaults. Configuration may
 represent the current contract, but a schema migration must not fossilize the
 current default or add compatibility aliases around a policy superseded by this
 evaluation.

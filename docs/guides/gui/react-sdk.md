@@ -142,7 +142,10 @@ where low latency matters, and `useKilnChat` when HTTP is preferable.
 
 The low-level `ApiClient` is a fetch wrapper initialized with a `baseUrl`. It
 provides `get<T>(path)`, `post<T>(path, body)`, and `delete<T>(path)`, parses
-JSON responses, and throws on non-success status codes.
+JSON responses, and throws on non-success status codes. Operator clients may
+also use `loadSettings`, `proposeSettingsMutation`, and
+`applySettingsMutation`; those methods validate the shared gateway contracts
+and never recompute settings governance.
 
 ```typescript
 import { ApiClient } from "@kilnai/react";
@@ -150,6 +153,10 @@ import { ApiClient } from "@kilnai/react";
 const client = new ApiClient("http://localhost:4800");
 const health = await client.get<{ status: string }>("/health");
 ```
+
+Pass `{ operatorToken }` as the second constructor argument when using the
+protected settings proposal and apply routes. Authority-bearing changes need a
+separately issued approval id; the SDK cannot approve its own proposal.
 
 Access it directly only when the hooks do not cover a documented gateway use
 case.

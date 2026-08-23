@@ -13,7 +13,7 @@ import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import {
   configSettingDescriptors,
   configSettingGovernance,
-  projectConfigFieldForSetting,
+  configFieldForSetting,
   type ConfigSettingDescriptor,
 } from "./config-setting-descriptors.js";
 import { readConfigSourceDetail, readResolvedConfigDetail } from "./config-status.js";
@@ -102,9 +102,6 @@ export function readSettingsSnapshot(
   });
 }
 
-/** Alias kept as an explicit application-port name for runtime and GUI callers. */
-export const readKilnSettingsSnapshot = readSettingsSnapshot;
-
 function projectSettingEntry(input: {
   readonly descriptor: ConfigSettingDescriptor;
   readonly effective: Record<string, unknown> | undefined;
@@ -114,13 +111,13 @@ function projectSettingEntry(input: {
   readonly revisions: KilnSettingsSnapshot["revisions"];
 }): KilnSettingsEntry {
   const { descriptor } = input;
-  const field = projectConfigFieldForSetting(descriptor);
   const globalPresent = hasPath(input.global.value, descriptor.path);
   const projectPresent = hasPath(input.project.value, descriptor.path);
   const source = sourceFor(globalPresent, projectPresent);
   const writeTargets = descriptor.scopes.map((scope) => {
     const modified = scope === "project" ? projectPresent : globalPresent;
     const governance = configSettingGovernance(descriptor, scope);
+    const field = configFieldForSetting(descriptor, scope);
     const rawValue = scope === "project"
       ? getPath(input.project.value ?? undefined, descriptor.path)
       : getPath(input.global.value ?? undefined, descriptor.path);
@@ -137,6 +134,9 @@ function projectSettingEntry(input: {
     };
   });
   const preferredTarget = writeTargets.find((target) => target.scope === "project") ?? writeTargets[0];
+  const preferredField = preferredTarget
+    ? configFieldForSetting(descriptor, preferredTarget.scope)
+    : undefined;
   const inherited = preferredTarget?.override !== "overridden";
   const modified = writeTargets.some((target) => target.modified);
   const resolvedValue = getPath(input.effective, descriptor.path);
@@ -152,7 +152,7 @@ function projectSettingEntry(input: {
   const revisions = {
     ...(input.revisions.global === undefined ? {} : { global: input.revisions.global }),
     ...(input.revisions.project === undefined ? {} : { project: input.revisions.project }),
-    effective: field?.schemaRevision ?? input.revisions.effective,
+    effective: preferredField?.schemaRevision ?? input.revisions.effective,
   };
 
   return {
@@ -160,7 +160,9 @@ function projectSettingEntry(input: {
     identity,
     section,
     label: descriptor.label ?? labelForKey(descriptor.key),
-    description: descriptor.description ?? field?.description ?? `Configure ${labelForKey(descriptor.key).toLowerCase()}.`,
+    description: descriptor.description
+      ?? (preferredField && "description" in preferredField ? preferredField.description : undefined)
+      ?? `Configure ${labelForKey(descriptor.key).toLowerCase()}.`,
     searchTerms: [...uniqueStrings([
       descriptor.key,
       ...descriptor.key.split(/[./]/u),
@@ -169,7 +171,8 @@ function projectSettingEntry(input: {
     ])],
     control: descriptor.control ?? controlForValue(descriptor),
     supportedScopes: [...descriptor.scopes],
-    effective: projectPublicValue(effectiveValue, field?.sensitivity === "secret-reference"),
+    effective: projectPublicValue(effectiveValue, descriptor.scopes.some((scope) =>
+      configFieldForSetting(descriptor, scope)?.sensitivity === "secret-reference")),
     source,
     override: inherited ? "inherited" : "overridden",
     inherited,

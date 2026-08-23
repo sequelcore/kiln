@@ -160,7 +160,7 @@ describe("createOperatorRuntimeService", () => {
     await service.close();
   });
 
-  it("lists the stable nine-tool catalog before any project runtime exists", async () => {
+  it("lists the stable twelve-tool catalog before any project runtime exists", async () => {
     const project = adoptedProject("tools");
     const createComposition = vi.fn(async () => composition());
     const { service, claims } = await openedService(project, "codex", "tools-session", { createComposition });
@@ -174,6 +174,9 @@ describe("createOperatorRuntimeService", () => {
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
       "kiln_account_usage_inspect",
+      "kiln_settings_read",
+      "kiln_settings_propose",
+      "kiln_settings_apply",
       "kiln_agent_task_submit",
       "kiln_agent_task_status",
       "kiln_agent_task_result",

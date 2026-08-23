@@ -1,6 +1,6 @@
 # Domains
 
-This guide is now a transitional note on the current domain system.
+This guide describes the current, deliberately narrow domain system.
 
 Domains remain an implementation mechanism for stack-aware defaults, tooling,
 and quality gates. They are not part of Kiln's architectural identity.
@@ -37,12 +37,8 @@ Relevant docs:
 - [Context Governance](../../architecture/context/context-governance.md)
 - [Safety](../../architecture/safety/safety.md)
 
-## Transitional Status
+## Scope
 
-Older versions of this guide described a large package/distribution model for
-domains in a way that implied they were central to the system design. That
-framing is being retired.
-
-If detailed install and packaging mechanics are still required during refactor,
-they should be restored later as narrow operational docs, not as conceptual
-centerpieces.
+Package installation and distribution are outside this contract. If those
+mechanics gain a demonstrated consumer, document them as narrow operational
+behavior rather than expanding domains into an architectural centerpiece.

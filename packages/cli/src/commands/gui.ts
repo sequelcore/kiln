@@ -18,13 +18,7 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
-import {
-  applyConfigMutation,
-  approveConfigMutation,
-  proposeConfigMutation,
-} from "../application/config-mutation-authority.js";
-import { ConfigMutationStore } from "../application/config-mutation-store.js";
-import { admitSettingsProposalRecord, readSettingsSnapshot } from "../application/config-settings.js";
+import { createConfigSettingsApplication } from "../application/config-settings-application.js";
 import {
   applyConfigurationOnboarding,
   readConfigurationOnboarding,
@@ -124,8 +118,6 @@ import {
   getGuiProviderMetadata,
   isGuiProviderModeless,
   projectOperatorCockpitReadOnlyView,
-  projectKilnSettingsMutationResult,
-  projectKilnSettingsProposal,
   type GuiProviderDiscoveryResult,
   type OperatorSessionEvent,
   type OperatorSessionSummary,
@@ -389,6 +381,7 @@ export async function guiCommand(
   };
 
   startupProfiler.mark("gateway-start-requested");
+  const settingsApplication = createConfigSettingsApplication({ projectPath: cwd });
   gateway = await startGuiGateway({
     port,
     guiAssetMode: mode === "dev" ? "external" : "bundled",
@@ -421,39 +414,18 @@ export async function guiCommand(
       approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
       approvalSurface: "gui",
     }),
-    getSettingsSnapshot: async () => readSettingsSnapshot(
-      await readConfigStatusSnapshot({ projectPath: cwd, view: "settings" }),
-    ),
-    proposeSettingsMutation: async (request) => {
-      const record = proposeConfigMutation({
-        projectPath: cwd,
-        operation: request.operation,
-        payload: request,
-      });
-      new ConfigMutationStore(cwd).saveProposal(record);
-      return projectKilnSettingsProposal(record.proposal);
-    },
+    getSettingsSnapshot: () => settingsApplication.read(),
+    proposeSettingsMutation: async (request) => settingsApplication.propose(request),
     applySettingsMutation: async (request) => {
-      const store = new ConfigMutationStore(cwd);
-      const record = admitSettingsProposalRecord(store.readProposal(request.proposalId), request.proposalId);
-      let approvalId = request.approvalId;
-      if (!approvalId && record?.proposal.approvalRequired) {
-        approvalId = approveConfigMutation({
-          projectPath: cwd,
-          proposalId: request.proposalId,
-          approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
-          surface: "gui",
-        }).approvalId;
-      }
-      return projectKilnSettingsMutationResult(await applyConfigMutation({
-        projectPath: cwd,
+      const approvalId = request.approvalId ?? settingsApplication.approve({
+        proposalId: request.proposalId,
+        approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+        surface: "gui",
+      })?.approvalId;
+      return settingsApplication.apply({
         proposalId: request.proposalId,
         ...(approvalId ? { approvalId } : {}),
-        requester: "operator",
-        readEffectiveState: async (projectPath) => (
-          await readConfigStatusSnapshot({ projectPath, view: "effective" })
-        ).effectiveConfig,
-      }));
+      }, "operator");
     },
     loadOperatorSessionHistory: () => loadOperatorSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),

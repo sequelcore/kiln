@@ -33,7 +33,7 @@ import {
   createTranscriptRuntimeSessionHydrator,
 } from "../application/runtime-session-rehydration.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
-import { readSettingsSnapshot } from "../application/config-settings.js";
+import { createConfigSettingsApplication } from "../application/config-settings-application.js";
 import {
   createCliTranscriptSessionTokenUsageReader,
   createRuntimeSessionTurnBudgetFromGlobalConfig,
@@ -1811,6 +1811,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     sessionManager.setModel(startupProvider.models[0]);
   }
 
+  const settingsApplication = createConfigSettingsApplication({ projectPath: cwd });
   await startTui(
     bootstrap.createSession,
     startupProviderDisplayInfo,
@@ -1832,9 +1833,18 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     () => startupProfiler.mark("tui-first-frame-rendered"),
     bootstrap.providerModelDiscoveryRef,
     bootstrap.executionRouteCatalogRef,
-    async () => readSettingsSnapshot(
-      await readConfigStatusSnapshot({ projectPath: cwd, view: "settings" }),
-    ),
+    () => settingsApplication.read(),
+    async (request) => settingsApplication.propose(request),
+    (request) => settingsApplication.apply(request, "operator"),
+    async (proposalId) => {
+      const approval = settingsApplication.approve({
+        proposalId,
+        approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+        surface: "tui",
+      });
+      if (!approval) throw new Error("Settings proposal does not require approval.");
+      return approval.approvalId;
+    },
   );
 
   bootstrap.shutdown();

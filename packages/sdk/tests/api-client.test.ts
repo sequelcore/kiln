@@ -95,6 +95,62 @@ describe("ApiClient", () => {
     });
   });
 
+  it("uses the shared settings contracts for proposal and apply", async () => {
+    const proposal = {
+      proposalId: "cfg_settings",
+      createdAt: "2026-08-23T00:00:00.000Z",
+      scope: "project",
+      operation: "setting.set",
+      key: "domain",
+      status: "valid",
+      baseRevision: "absent",
+      affectedOwners: ["project-configuration"],
+      reconciliation: [],
+      authorityImpact: "none",
+      approvalRequired: false,
+      activation: "next-session",
+      diagnostics: [],
+      rollback: { restorable: true, summary: "Restore the previous value." },
+    };
+    const result = {
+      proposalId: "cfg_settings",
+      scope: "project",
+      operation: "setting.set",
+      outcome: "committed",
+      rejectionCode: null,
+      committedRevision: `sha256:${"b".repeat(64)}`,
+      activation: "next-session",
+      activationObservation: {
+        state: "scheduled",
+        boundary: "next-session",
+        committedRevision: `sha256:${"b".repeat(64)}`,
+        activeRevision: null,
+        summary: "Activates next session.",
+      },
+      reconciliation: [],
+      diagnostics: [],
+      replayed: false,
+      readBack: { schemaRevision: 1, verified: true },
+    };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(result), { status: 200 })));
+    const settingsClient = new ApiClient("http://localhost:4000", { operatorToken: "operator-capability" });
+
+    await expect(settingsClient.proposeSettingsMutation({
+      operation: "setting.set",
+      scope: "project",
+      key: "domain",
+      expectedRevision: "absent",
+      value: "backend",
+    })).resolves.toEqual(proposal);
+    await expect(settingsClient.applySettingsMutation({ proposalId: "cfg_settings" })).resolves.toEqual(result);
+    expect(fetch).toHaveBeenNthCalledWith(1, "http://localhost:4000/gui/api/config/settings/proposals", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "x-kiln-operator-token": "operator-capability" }),
+    }));
+  });
+
   it("delete sends DELETE request", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 

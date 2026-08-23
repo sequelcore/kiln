@@ -29,6 +29,13 @@ The config projection boundary is owned by the CLI config layer.
   structural schema, inferred admitted type, diagnostics, editor schema, and
   descriptors. `global-config.ts` retains named semantic and cross-resource
   validation plus the single reader/writer lifecycle.
+- `packages/cli/src/application/config-setting-descriptors.ts` owns admitted
+  settings operations, scope eligibility, value parsing, and reconciliation
+  targets. It resolves ownership, sensitivity, and activation from the
+  canonical global or project schema instead of duplicating those facts.
+- `packages/cli/src/application/config-settings-application.ts` owns the typed
+  read, propose, approve, and apply port used by transported operator surfaces.
+  It delegates writes and settlement to the existing mutation authority.
 - `packages/cli/src/config/project-config-schema.ts` owns the strict runtime
   schema, inferred admitted type, stable structural diagnostics, editor schema,
   and field descriptors for project `.kiln/kiln.yaml`. The committed JSON
@@ -632,7 +639,8 @@ changes by editing config files.
 the complete secret-free projection. Provider, route, permission, skill, and
 memory views select field records from that projection instead of rebuilding
 raw values. The `settings` view projects the same descriptor-backed snapshot
-consumed by `kiln config settings`, TUI `/settings [query]`, and GUI Settings.
+consumed by `kiln config settings`, TUI `/settings`, GUI Settings, the typed SDK
+client, and trusted native-harness settings tools.
 It has one schema revision and nine stable sections: General, Providers, Models,
 Permissions, Tools, Usage and Limits, Agents, Health, and Advanced. Entries
 carry effective value or redacted presence, source, override state, allowed
@@ -644,8 +652,8 @@ never carry absolute operator paths or credential-like material. The settings
 snapshot also requires the canonical aggregate activation status: desired
 revision, observed state, boundary, active revision, settlement lineage, and
 qualifying read-back, reconciliation, turn, or session evidence. CLI, GUI, TUI,
-and model-callable settings readers consume that value without recomputing
-activation policy.
+SDK, native-harness, and model-callable settings readers consume that value
+without recomputing activation policy.
 `kiln config explain <identity>` returns the same field record used by the
 bounded effective-config views. The tool may report provider health, projection
 status, and setup recommendations, but it does not grant mutation authority.
@@ -710,10 +718,10 @@ not been adopted yet, the proposal fails closed and directs the operator to setu
 or `kiln init` instead of writing a default file as a side effect.
 
 `setting.set` and `setting.reset` are the only paths that change an admitted
-configuration key. Each key has one descriptor, projected from the canonical
-ownership ledger, that supplies its scope eligibility, value admission,
-activation class, owning bounded contexts, reconciliation targets, and ledger
-sensitivity. A key classified high or critical is treated as authority-affecting
+configuration key. The settings operation catalog supplies scope eligibility,
+value admission, and reconciliation targets. It resolves activation, owning
+bounded contexts, and sensitivity from the nearest canonical schema field
+descriptor for the selected scope. A key classified high or critical is treated as authority-affecting
 and requires an explicit approval; the authority does not guess whether a
 specific value widens or narrows. A reset removes only the descriptor's exact
 canonical YAML path, rejects aliases, prunes newly empty parent mappings, and

@@ -29,15 +29,14 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Start Slice 10 cross-surface promotion and cleanup from the completed project, global, App, and Gateway schema/read contracts; the independently owned #97 live-validation matrix remains out of scope. |
-| 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
-| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
-| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
-| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
-| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
-| 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
-| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
+| 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
+| 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
+| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
+| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
+| 5 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
+| 7 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
+| 8 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
 ## Dependency Rules
 
@@ -48,8 +47,8 @@ roadmap reorganization.
 - `08.5` owns loopback exposure, operator-owned transport adapters, endpoint
   evidence, connector lifecycle, and reconnection. Its Slice 0 is independently
   admissible safety work; later slices consume `08` session identity, and
-  configuration-bearing slices consume `12` effective-state and governed-
-  mutation contracts.
+  configuration-bearing slices consume the canonical effective-state and
+  governed-mutation contracts.
 - The 2026-08-14 operator decision removed `07` as a prerequisite for `08`. The
   2026-08-20 operator priority decision supersedes its queue priority: execute
   `12` through the first safe-turn-without-YAML vertical proof, then reassess
@@ -75,20 +74,10 @@ roadmap reorganization.
   managed-invocation authority instead of duplicating them. Interaction promotion is GUI-first,
   then behaviorally equivalent in TUI and native harnesses; GUI components are
   never shared execution authority.
-- `12` owns configuration discoverability, desired intent, effective-value
-  explanation, governed mutation, activation planning, and cross-surface
-  settings parity. It consumes `11` capability identities but never owns
-  capability eligibility or execution.
-- The 2026-08-22 operator dependency decision paused `12` at its committed
-  Slice 8 checkpoint. The active-`dev` CI gate in
-  [#96](https://github.com/sequelcore/kiln/issues/96), the Execution Kernel
-  ownership decision and convergence in
-  [#98](https://github.com/sequelcore/kiln/issues/98), and the bounded synthetic
-  oracle subset of [#97](https://github.com/sequelcore/kiln/issues/97) are
-  complete. Slices 8 and 9 are complete, and Slice 10 is Ready. The remaining
-  #97 live matrix is independently owned and does not block it. This decision does not duplicate Slice 8 residuals outside
-  [#72](https://github.com/sequelcore/kiln/issues/72), and does not reprioritize
-  Kiln Connect without a separate operator decision.
+- Configuration discoverability, desired intent, effective-value explanation,
+  governed mutation, activation planning, and cross-surface settings parity
+  are stable architecture. The independently owned credential-bearing live
+  matrix remains tracked by [#97](https://github.com/sequelcore/kiln/issues/97).
 
 GUI execution presentation is canonical in
 [`docs/architecture/gui-execution-presentation.md`](../architecture/surfaces/gui-execution-presentation.md).

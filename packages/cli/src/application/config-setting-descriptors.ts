@@ -10,6 +10,10 @@ import {
   PROJECT_CONFIG_FIELD_DESCRIPTORS,
   type ProjectConfigFieldDescriptor,
 } from "../config/project-config-schema.js";
+import {
+  GLOBAL_CONFIG_FIELD_DESCRIPTORS,
+  type GlobalConfigFieldDescriptor,
+} from "../config/global-config-schema.js";
 
 /**
  * The settable surface of one configuration key.
@@ -17,7 +21,7 @@ import {
  * This table owns only what a command surface needs: which keys can be set,
  * where they live in the document, which scopes admit them, and how an operator
  * string becomes a value. It deliberately does not own authority, activation, or
- * ownership. For the project scope those are read from the canonical schema
+ * ownership. Those facts are read from the canonical family-schema
  * descriptors, so this file cannot drift into a second policy engine.
  */
 export interface ConfigSettingDescriptor {
@@ -33,16 +37,6 @@ export interface ConfigSettingDescriptor {
   readonly description?: string;
   readonly searchTerms?: readonly string[];
   readonly control?: KilnSettingsControl;
-  /**
-   * Authority, activation, and owner for the global scope only. The global
-   * configuration family has no runtime schema until Roadmap 12 Slice 9, so
-   * these remain explicit and are sourced from the ownership ledger.
-   */
-  readonly global?: {
-    readonly activation: KilnConfigActivationClass;
-    readonly authorityBearing: boolean;
-    readonly owner: string;
-  };
 }
 
 /** Resolved governance facts for one key in one scope. */
@@ -55,7 +49,7 @@ export interface ConfigSettingGovernance {
 /**
  * Resolves governance for a key in a scope.
  *
- * Project keys defer to the canonical project schema descriptors, which carry
+ * Keys defer to their canonical family schema descriptors, which carry
  * `x-kiln-authority-impact` and activation as schema metadata. A key with no
  * descriptor fails closed as authority-bearing rather than being assumed safe.
  */
@@ -63,15 +57,7 @@ export function configSettingGovernance(
   descriptor: ConfigSettingDescriptor,
   scope: KilnConfigMutationScope,
 ): ConfigSettingGovernance {
-  if (scope === "global") {
-    const global = descriptor.global;
-    return {
-      authorityBearing: global?.authorityBearing ?? true,
-      activation: global?.activation ?? "next-session",
-      owners: global ? [global.owner] : [],
-    };
-  }
-  const field = projectFieldDescriptor(descriptor.path);
+  const field = configFieldForSetting(descriptor, scope);
   if (!field) {
     return { authorityBearing: true, activation: "next-session", owners: [] };
   }
@@ -82,14 +68,20 @@ export function configSettingGovernance(
   };
 }
 
-/** Nearest schema descriptor for a document path, walking up to an owning parent. */
-function projectFieldDescriptor(path: readonly string[]): ProjectConfigFieldDescriptor | undefined {
-  for (let depth = path.length; depth > 0; depth -= 1) {
-    const identity = `/${path.slice(0, depth).join("/")}`;
-    const found = PROJECT_CONFIG_FIELD_DESCRIPTORS.find((entry) => entry.identity === identity);
-    if (found) {
-      return found;
-    }
+export type ConfigSettingFieldDescriptor = ProjectConfigFieldDescriptor | GlobalConfigFieldDescriptor;
+
+/** Nearest canonical family-schema descriptor for one settable key and scope. */
+export function configFieldForSetting(
+  descriptor: ConfigSettingDescriptor,
+  scope: KilnConfigMutationScope,
+): ConfigSettingFieldDescriptor | undefined {
+  const descriptors = scope === "global"
+    ? GLOBAL_CONFIG_FIELD_DESCRIPTORS
+    : PROJECT_CONFIG_FIELD_DESCRIPTORS;
+  for (let depth = descriptor.path.length; depth > 0; depth -= 1) {
+    const identity = `/${descriptor.path.slice(0, depth).join("/")}`;
+    const found = descriptors.find((entry) => entry.identity === identity);
+    if (found) return found;
   }
   return undefined;
 }
@@ -116,13 +108,6 @@ export function configSettingDescriptor(key: string): ConfigSettingDescriptor | 
 /** Stable read-only enumeration used by the cross-surface settings projection. */
 export function configSettingDescriptors(): readonly ConfigSettingDescriptor[] {
   return [...CONFIG_SETTING_DESCRIPTORS.values()];
-}
-
-/** Schema-owned facts for a settable project field, when one exists. */
-export function projectConfigFieldForSetting(
-  descriptor: ConfigSettingDescriptor,
-): ProjectConfigFieldDescriptor | undefined {
-  return projectFieldDescriptor(descriptor.path);
 }
 
 export function configSettingKeys(): readonly string[] {
@@ -230,7 +215,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: GLOBAL,
     value: { kind: "operator-theme" },
     reconciliationTargets: [],
-    global: { activation: "hot", authorityBearing: false, owner: "operator-preferences" },
   }),
   descriptor({
     key: "identity.name",
@@ -238,7 +222,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: GLOBAL,
     value: { kind: "text" },
     reconciliationTargets: [],
-    global: { activation: "hot", authorityBearing: false, owner: "operator-preferences" },
   }),
   descriptor({
     key: "identity.timezone",
@@ -246,7 +229,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: GLOBAL,
     value: { kind: "timezone" },
     reconciliationTargets: [],
-    global: { activation: "hot", authorityBearing: false, owner: "operator-preferences" },
   }),
 
   // Instruction and skill material reaches harnesses through projections.
@@ -256,7 +238,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: BOTH,
     value: { kind: "string-list" },
     reconciliationTargets: ["repo-shims"],
-    global: { activation: "reconcile", authorityBearing: false, owner: "instruction-profiles" },
   }),
   descriptor({
     key: "skills.selection.mode",
@@ -264,7 +245,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: BOTH,
     value: { kind: "enum", allowed: ["advisory", "auto"] },
     reconciliationTargets: ["native-skills"],
-    global: { activation: "next-session", authorityBearing: true, owner: "skill-catalog" },
   }),
   descriptor({
     key: "skills.builtin",
@@ -273,7 +253,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     value: { kind: "json" },
     section: "advanced",
     reconciliationTargets: ["native-skills"],
-    global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
   descriptor({
     key: "skills.visibility.default",
@@ -281,7 +260,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: GLOBAL,
     value: { kind: "enum", allowed: ["implicit", "explicit-only", "disabled"] },
     reconciliationTargets: ["native-skills"],
-    global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
   descriptor({
     key: "skills.visibility.overrides",
@@ -290,7 +268,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     value: { kind: "json" },
     section: "advanced",
     reconciliationTargets: ["native-skills"],
-    global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
   descriptor({
     key: "skills.externalCatalog",
@@ -299,7 +276,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     value: { kind: "json" },
     section: "advanced",
     reconciliationTargets: ["native-skills"],
-    global: { activation: "reconcile", authorityBearing: true, owner: "skill-catalog" },
   }),
 
   // Work governance binds at the next turn boundary.
@@ -309,7 +285,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: BOTH,
     value: { kind: "enum", allowed: ["orchestrate", "direct"] },
     reconciliationTargets: [],
-    global: { activation: "next-turn", authorityBearing: true, owner: "work-governance" },
   }),
   descriptor({
     key: "workGovernance.requireDelegationFor",
@@ -317,7 +292,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: BOTH,
     value: { kind: "string-list" },
     reconciliationTargets: [],
-    global: { activation: "next-turn", authorityBearing: true, owner: "work-governance" },
   }),
   descriptor({
     key: "workGovernance.requiredEvidence",
@@ -325,7 +299,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: BOTH,
     value: { kind: "string-list" },
     reconciliationTargets: [],
-    global: { activation: "next-turn", authorityBearing: true, owner: "work-governance" },
   }),
 
   // Project scalars.

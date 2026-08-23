@@ -9,7 +9,9 @@
         "minLength": 1,
         "type": "string"
       },
-      "type": "array"
+      "type": "array",
+      "x-kiln-activation": "reconcile",
+      "x-kiln-semantic-owner": "instruction-profiles"
     },
     "authorityProfiles": {
       "x-kiln-authority-impact": "authority-bearing",
@@ -90,7 +92,9 @@
           "type": "string"
         }
       },
-      "type": "object"
+      "type": "object",
+      "x-kiln-activation": "hot",
+      "x-kiln-semantic-owner": "operator-preferences"
     },
     "managedAgents": {
       "x-kiln-authority-impact": "authority-bearing",
@@ -147,8 +151,111 @@
       "type": "object"
     },
     "skills": {
+      "additionalProperties": false,
+      "properties": {
+        "builtin": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "exclude": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "include": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object",
+          "x-kiln-activation": "reconcile",
+          "x-kiln-authority-impact": "authority-bearing",
+          "x-kiln-semantic-owner": "skill-catalog"
+        },
+        "externalCatalog": {
+          "x-kiln-activation": "reconcile",
+          "x-kiln-authority-impact": "authority-bearing",
+          "x-kiln-semantic-owner": "skill-catalog"
+        },
+        "selection": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "anyOf": [
+                {
+                  "const": "advisory",
+                  "type": "string"
+                },
+                {
+                  "const": "auto",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "type": "object",
+          "x-kiln-activation": "next-session",
+          "x-kiln-authority-impact": "authority-bearing",
+          "x-kiln-semantic-owner": "skill-catalog"
+        },
+        "visibility": {
+          "additionalProperties": false,
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "const": "implicit",
+                  "type": "string"
+                },
+                {
+                  "const": "explicit-only",
+                  "type": "string"
+                },
+                {
+                  "const": "disabled",
+                  "type": "string"
+                }
+              ]
+            },
+            "overrides": {
+              "patternProperties": {
+                "^(.*)$": {
+                  "anyOf": [
+                    {
+                      "const": "implicit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "explicit-only",
+                      "type": "string"
+                    },
+                    {
+                      "const": "disabled",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object",
+          "x-kiln-activation": "reconcile",
+          "x-kiln-authority-impact": "authority-bearing",
+          "x-kiln-semantic-owner": "skill-catalog"
+        }
+      },
+      "type": "object",
+      "x-kiln-activation": "reconcile",
       "x-kiln-authority-impact": "authority-bearing",
-      "x-kiln-semantic-owner": "skills-configuration"
+      "x-kiln-semantic-owner": "skill-catalog"
     },
     "targetCatalog": {
       "x-kiln-authority-impact": "authority-bearing",
@@ -192,7 +299,9 @@
           "type": "string"
         }
       },
-      "type": "object"
+      "type": "object",
+      "x-kiln-activation": "hot",
+      "x-kiln-semantic-owner": "operator-preferences"
     },
     "verification": {
       "additionalProperties": false,
@@ -284,6 +393,7 @@
       "type": "object"
     },
     "workGovernance": {
+      "x-kiln-activation": "next-turn",
       "x-kiln-authority-impact": "authority-bearing",
       "x-kiln-semantic-owner": "work-governance"
     }

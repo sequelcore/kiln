@@ -21,6 +21,7 @@ import {
 import { NativeHarnessMcpTools, type AgentTaskApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
+import { createConfigSettingsApplication } from "./config-settings-application.js";
 import {
   createOperatorProjectAgentTaskApplicationComposition,
   createOperatorGlobalManagedAccountComposition,
@@ -560,6 +561,7 @@ async function handleMcpRequest(input: {
       })).configuredAgents,
     }),
     agentTasks,
+    settings: createConfigSettingsApplication({ projectPath: input.session.canonicalRoot }),
     requestIdentity: () => ({
       callerId: deriveOperatorRuntimeCallerId({
         projectRuntimeId: input.session.binding.projectRuntimeId,

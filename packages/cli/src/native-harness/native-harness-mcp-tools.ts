@@ -1,12 +1,18 @@
 import type { AgentTaskRecord, AgentTaskReplayQuery, AgentTaskResultQuery } from "@kilnai/runtime";
+import {
+  KilnSettingsApplyRequestSchema,
+  KilnSettingsProposalRequestSchema,
+} from "@kilnai/gateway-contracts";
 import { type AccountUsageInspectionService, createAccountUsageInspectionService } from "../application/account-usage-inspection.js";
+import type { ConfigSettingsApplicationPort } from "../application/config-settings-application.js";
 import type { OperatorProjectAgentTaskApplicationPort } from "../application/operator-project-agent-tasks.js";
 import type { HarnessIntegrationId } from "../config/harness-integration-capabilities.js";
 import { createNativeHarnessInspectionService, type NativeHarnessInspectionService } from "../application/native-harness-inspection.js";
 
 const INSPECTION_TOOL_NAMES = ["kiln_status_inspect", "kiln_work_governance_inspect", "kiln_capability_inspect", "kiln_account_usage_inspect"] as const;
+const SETTINGS_TOOL_NAMES = ["kiln_settings_read", "kiln_settings_propose", "kiln_settings_apply"] as const;
 const AGENT_TASK_TOOL_NAMES = ["kiln_agent_task_submit", "kiln_agent_task_status", "kiln_agent_task_result", "kiln_agent_task_cancel", "kiln_agent_task_replay"] as const;
-const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...AGENT_TASK_TOOL_NAMES] as const;
+const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...SETTINGS_TOOL_NAMES, ...AGENT_TASK_TOOL_NAMES] as const;
 
 export type NativeHarnessMcpToolName = (typeof TOOL_NAMES)[number];
 
@@ -52,6 +58,7 @@ export interface NativeHarnessMcpToolsOptions {
   readonly agentTasks?: AgentTaskApplicationPort;
   readonly requestIdentity?: () => NativeHarnessMcpRequestIdentity;
   readonly accountUsage?: AccountUsageInspectionService;
+  readonly settings?: Pick<ConfigSettingsApplicationPort, "read" | "propose" | "apply">;
 }
 
 export class NativeHarnessMcpTools {
@@ -61,6 +68,7 @@ export class NativeHarnessMcpTools {
   private readonly requestIdentity: (() => NativeHarnessMcpRequestIdentity) | undefined;
   private requestSequence = 0;
   private readonly accountUsage: AccountUsageInspectionService;
+  private readonly settings: Pick<ConfigSettingsApplicationPort, "read" | "propose" | "apply"> | undefined;
 
   constructor(options: NativeHarnessMcpToolsOptions) {
     this.harness = options.harness;
@@ -68,6 +76,7 @@ export class NativeHarnessMcpTools {
     this.agentTasks = options.agentTasks;
     this.requestIdentity = options.requestIdentity;
     this.accountUsage = options.accountUsage ?? createAccountUsageInspectionService();
+    this.settings = options.settings;
   }
 
   listTools(): readonly NativeHarnessMcpToolDefinition[] {
@@ -82,6 +91,12 @@ export class NativeHarnessMcpTools {
         return this.error("KILN_AGENT_TASK_IDENTITY_UNAVAILABLE", "The trusted native-harness session identity is unavailable.", "Reopen the authenticated native-harness session before using AgentTask operations.", requestId);
       }
       return this.callAgentTaskTool(name as (typeof AGENT_TASK_TOOL_NAMES)[number], args, identity, requestId);
+    }
+    if (SETTINGS_TOOL_NAMES.includes(name as (typeof SETTINGS_TOOL_NAMES)[number])) {
+      if (!identity) {
+        return this.error("KILN_SETTINGS_IDENTITY_UNAVAILABLE", "The trusted native-harness session identity is unavailable.", "Reopen the authenticated native-harness session before using settings operations.", requestId);
+      }
+      return this.callSettingsTool(name as (typeof SETTINGS_TOOL_NAMES)[number], args, identity, requestId);
     }
     if (!isEmptyObject(args)) {
       return this.error("KILN_TOOL_INVALID_REQUEST", "This read-only Kiln inspection tool does not accept arguments.", "Remove request arguments and retry.", requestId);
@@ -116,6 +131,61 @@ export class NativeHarnessMcpTools {
     } catch {
       return undefined;
     }
+  }
+
+  private async callSettingsTool(
+    name: (typeof SETTINGS_TOOL_NAMES)[number],
+    args: unknown,
+    identity: NativeHarnessMcpRequestIdentity,
+    requestId: string,
+  ): Promise<NativeHarnessMcpCallResult> {
+    if (!this.settings) {
+      return this.error("KILN_SETTINGS_UNAVAILABLE", "The canonical settings application boundary is unavailable.", "Restart the native harness after the Kiln operator Runtime is ready.", requestId);
+    }
+    try {
+      if (name === "kiln_settings_read") {
+        if (!isRecord(args) || !hasOnly(args, ["query", "modified"])
+          || (args.query !== undefined && typeof args.query !== "string")
+          || (args.modified !== undefined && typeof args.modified !== "boolean")) {
+          return this.error("KILN_SETTINGS_INVALID_REQUEST", "The settings read request is invalid.", "Provide only an optional query and modified flag.", requestId);
+        }
+        const result = await this.settings.read({
+          ...(typeof args.query === "string" ? { query: args.query } : {}),
+          ...(typeof args.modified === "boolean" ? { modified: args.modified } : {}),
+        });
+        return this.settingsSuccess("settings-read", result, identity, requestId);
+      }
+      if (name === "kiln_settings_propose") {
+        const request = KilnSettingsProposalRequestSchema.parse(args);
+        return this.settingsSuccess("settings-propose", this.settings.propose(request), identity, requestId);
+      }
+      const request = KilnSettingsApplyRequestSchema.parse(args);
+      if (!request.approvalId) {
+        return this.error("KILN_SETTINGS_APPROVAL_REQUIRED", "Native-harness settings apply requires an exact operator approval.", "Approve the proposal from a trusted operator surface and retry with its approvalId.", requestId);
+      }
+      return this.settingsSuccess("settings-apply", await this.settings.apply(request, "model"), identity, requestId);
+    } catch {
+      return this.error("KILN_SETTINGS_INVALID_REQUEST", "The settings request was not admitted.", "Refresh canonical settings and retry with the exact typed request.", requestId);
+    }
+  }
+
+  private settingsSuccess(
+    operation: "settings-read" | "settings-propose" | "settings-apply",
+    result: unknown,
+    identity: NativeHarnessMcpRequestIdentity,
+    requestId: string,
+  ): NativeHarnessMcpCallResult {
+    const structuredContent = {
+      operation,
+      result,
+      evidence: {
+        harness: this.harness,
+        adapter: "global-operator-runtime-mcp",
+        callerId: identity.callerId,
+        requestId,
+      },
+    };
+    return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
 
   private async callAgentTaskTool(name: (typeof AGENT_TASK_TOOL_NAMES)[number], args: unknown, identity: NativeHarnessMcpRequestIdentity, requestId: string): Promise<NativeHarnessMcpCallResult> {
@@ -284,6 +354,9 @@ function descriptionFor(name: NativeHarnessMcpToolName): string {
   if (name === "kiln_work_governance_inspect") return "Read the resolved Kiln work-governance policy. Read-only; cannot start or update work.";
   if (name === "kiln_capability_inspect") return "Read native harness capability availability from canonical Kiln status. Read-only; cannot invoke managed agents.";
   if (name === "kiln_account_usage_inspect") return "Read sanitized account usage and eligible virtual routes. Read-only; cannot select credentials or mutate routing policy.";
+  if (name === "kiln_settings_read") return "Read the canonical secret-free Kiln settings snapshot with scope, source, activation, and revision evidence.";
+  if (name === "kiln_settings_propose") return "Propose one typed canonical Kiln setting change without applying it.";
+  if (name === "kiln_settings_apply") return "Apply one settings proposal using an exact operator approval id; model authority alone can never commit it.";
   if (name === "kiln_agent_task_submit") return "Submit bounded managed work through the canonical Kiln agent-task application boundary.";
   if (name === "kiln_agent_task_status") return "Read canonical lifecycle status for one agent-task identifier.";
   if (name === "kiln_agent_task_result") return "Read the bounded canonical Runtime result handoff for one authorized agent-task identifier.";
@@ -293,6 +366,38 @@ function descriptionFor(name: NativeHarnessMcpToolName): string {
 
 function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown> {
   if (INSPECTION_TOOL_NAMES.includes(name as (typeof INSPECTION_TOOL_NAMES)[number])) return emptyObjectSchema();
+  if (name === "kiln_settings_read") {
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: { query: { type: "string" }, modified: { type: "boolean" } },
+    };
+  }
+  if (name === "kiln_settings_propose") {
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["operation", "scope", "key", "expectedRevision"],
+      properties: {
+        operation: { enum: ["setting.set", "setting.reset"] },
+        scope: { enum: ["project", "global"] },
+        key: { type: "string", minLength: 1 },
+        expectedRevision: { type: "string", minLength: 1 },
+        value: {},
+      },
+    };
+  }
+  if (name === "kiln_settings_apply") {
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["proposalId", "approvalId"],
+      properties: {
+        proposalId: { type: "string", minLength: 1 },
+        approvalId: { type: "string", minLength: 1 },
+      },
+    };
+  }
   if (name === "kiln_agent_task_submit") {
     return {
       type: "object",
@@ -314,7 +419,7 @@ function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown>
 }
 
 function annotationsFor(name: NativeHarnessMcpToolName): Record<string, boolean> {
-  if (name === "kiln_agent_task_submit" || name === "kiln_agent_task_cancel") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  if (name === "kiln_agent_task_submit" || name === "kiln_agent_task_cancel" || name === "kiln_settings_propose" || name === "kiln_settings_apply") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   return { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 }
 
