@@ -23,7 +23,9 @@ export interface ManagedAgentRouteAdmissionResolver {
 export interface CreateManagedAgentRouteAdmissionResolverOptions {
   readonly loadConfig?: typeof loadKilnConfig;
   readonly createRegistry?: () => { readonly registry: SessionRegistry };
-  readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
+  readonly discoverProviderModels?: (
+    selectedProviderIds: ReadonlySet<string>,
+  ) => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
   readonly resolveRoutes?: typeof resolveManagedInvocationToolOptions;
 }
 
@@ -41,7 +43,8 @@ export async function createManagedAgentRouteAdmissionResolver(
   const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
   const resolveRoutes = options.resolveRoutes ?? resolveManagedInvocationToolOptions;
   try {
-    const [config, providerModelEligibility] = await Promise.all([loadConfig(projectPath), discoverProviderModels()]);
+    const config = await loadConfig(projectPath);
+    const providerModelEligibility = await discoverProviderModels(selectConfiguredProviderIds(config));
     const resolution = await resolveRoutes(config, {
       cwd: projectPath,
       registry: createRegistry().registry,
@@ -60,6 +63,12 @@ export async function createManagedAgentRouteAdmissionResolver(
   } catch {
     return { resolve: (agent) => unresolved(agent) };
   }
+}
+
+function selectConfiguredProviderIds(
+  config: Awaited<ReturnType<typeof loadKilnConfig>>,
+): ReadonlySet<string> {
+  return new Set((config?.targetCatalog?.targets ?? []).map((target) => target.providerId));
 }
 
 function resolveManagedAgentRouteAdmission(

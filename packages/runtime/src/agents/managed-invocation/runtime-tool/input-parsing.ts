@@ -1,12 +1,8 @@
 // Extracted from the managed-invocation runtime tool; behavior is intentionally unchanged.
 // All parse*/read* primitives, work-classification/authority parsing, id/handoff builders.
-import {
-  defineDeliberationLevelId,
-  defineWorkClassification,
-  resolveCommunicationIntent,
-  validateResolvedCommunicationIntent,
-} from "@kilnai/core";
+
 import type {
+  BoundedWorkEffect,
   CommunicationIntent,
   DeliberationIntent,
   ManagedAgentAdmissionProfile,
@@ -18,10 +14,16 @@ import type {
   ManagedAgentResultField,
   WorkClassification,
   WorkClassificationInput,
-  BoundedWorkEffect,
+} from "@kilnai/core";
+import {
+  defineDeliberationLevelId,
+  defineWorkClassification,
+  resolveCommunicationIntent,
+  validateResolvedCommunicationIntent,
 } from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
 import { MANAGED_AGENT_INVOKE_TOOL_NAME } from "../tool-names.js";
+import { unique } from "./catalog-descriptions.js";
 import type {
   ManagedInvocationContextResolution,
   ManagedInvocationToolInput,
@@ -29,7 +31,6 @@ import type {
   ManagedInvocationToolResult,
   ManagedInvocationToolRoute,
 } from "./types.js";
-import { unique } from "./catalog-descriptions.js";
 
 function parseManagedDeliberationIntent(value: unknown, toolName: string): DeliberationIntent {
   const input = readRecord(value);
@@ -97,10 +98,12 @@ function parseManagedCommunicationIntent(value: unknown, toolName: string) {
         input as unknown as import("@kilnai/core").ResolvedCommunicationIntent,
       );
     }
-    return resolveCommunicationIntent([{
-      source: "invocation",
-      intent: input as CommunicationIntent,
-    }]);
+    return resolveCommunicationIntent([
+      {
+        source: "invocation",
+        intent: input as CommunicationIntent,
+      },
+    ]);
   } catch (error) {
     throw new Error(
       `${toolName} providerRoute.communicationIntent is invalid: ${error instanceof Error ? error.message : String(error)}`,
@@ -114,10 +117,10 @@ export function parseInput(
 ): { readonly ok: true; readonly input: ManagedInvocationToolInput } | { readonly ok: false; readonly error: string } {
   const profile = input.profile === undefined ? "foundation-readonly-plan" : input.profile;
   if (
-    profile !== "foundation-readonly-plan"
-    && profile !== "foundation-propose-writes"
-    && profile !== "foundation-apply-approved-writes"
-    && profile !== "foundation-memory-write-proposals"
+    profile !== "foundation-readonly-plan" &&
+    profile !== "foundation-propose-writes" &&
+    profile !== "foundation-apply-approved-writes" &&
+    profile !== "foundation-memory-write-proposals"
   ) {
     return { ok: false, error: `${toolName} profile is not supported.` };
   }
@@ -159,7 +162,10 @@ export function parseInput(
     return { ok: false, error: `${toolName} contextMode is not supported.` };
   }
   if (contextMode === "resources" && (!resourceUris || resourceUris.length === 0)) {
-    return { ok: false, error: `${toolName} contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied.` };
+    return {
+      ok: false,
+      error: `${toolName} contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied.`,
+    };
   }
   const goalRunId = readText(input.goalRunId);
   const workItemId = readText(input.workItemId);
@@ -224,13 +230,19 @@ export function parseInput(
 }
 
 const BOUNDED_WORK_EFFECTS = new Set<BoundedWorkEffect>([
-  "inspect", "modify_source", "modify_tests", "modify_documentation", "modify_configuration",
-  "run_verification", "invoke_managed_agent", "external_write",
+  "inspect",
+  "modify_source",
+  "modify_tests",
+  "modify_documentation",
+  "modify_configuration",
+  "run_verification",
+  "invoke_managed_agent",
+  "external_write",
 ]);
 
-function parseBoundedWorkEffects(value: unknown):
-  | { readonly ok: true; readonly value: readonly BoundedWorkEffect[] }
-  | { readonly ok: false } {
+function parseBoundedWorkEffects(
+  value: unknown,
+): { readonly ok: true; readonly value: readonly BoundedWorkEffect[] } | { readonly ok: false } {
   if (value === undefined) return { ok: true, value: [] };
   if (!Array.isArray(value)) return { ok: false };
   const effects = [...new Set(value)];
@@ -247,20 +259,27 @@ export async function resolveInvocationContext(
 ): Promise<
   | { readonly ok: true; readonly resolution: ManagedInvocationContextResolution }
   | {
-    readonly ok: false;
-    readonly error: string;
-    readonly status: "denied" | "failed";
-    readonly resolution?: ManagedInvocationContextResolution;
-  }
+      readonly ok: false;
+      readonly error: string;
+      readonly status: "denied" | "failed";
+      readonly resolution?: ManagedInvocationContextResolution;
+    }
 > {
-  const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.workClassification || input.contextMode === "fork");
+  const needsResolver = Boolean(
+    options.contextResolver ||
+      input.agentProfile ||
+      input.skills?.length ||
+      input.workClassification ||
+      input.contextMode === "fork",
+  );
   if (!needsResolver) {
     return { ok: true, resolution: {} };
   }
   if (!options.contextResolver) {
     return {
       ok: false,
-      error: "Managed invocation context resolver is not configured for requested agentProfile, skills, workClassification, or fork context.",
+      error:
+        "Managed invocation context resolver is not configured for requested agentProfile, skills, workClassification, or fork context.",
       status: "failed",
     };
   }
@@ -272,7 +291,7 @@ export async function resolveInvocationContext(
       task: input.task,
       providerRoute: {
         providerId: route?.providerId ?? input.providerRoute.providerId,
-        ...(input.providerRoute.model ?? route?.model ? { model: input.providerRoute.model ?? route?.model } : {}),
+        ...((input.providerRoute.model ?? route?.model) ? { model: input.providerRoute.model ?? route?.model } : {}),
       },
       ...(route?.taskSuitability ? { taskSuitability: route.taskSuitability } : {}),
       ...(input.workClassification ? { workClassification: input.workClassification } : {}),
@@ -306,11 +325,15 @@ export function buildManagedInvocationContextMetadata(
     ...(input.workClassification ? { workClassification: input.workClassification } : {}),
     ...(resolution?.admittedAgentProfile ? { admittedAgentProfile: resolution.admittedAgentProfile } : {}),
     ...(resolution?.admittedSkills ? { admittedSkills: resolution.admittedSkills } : {}),
-    ...(resolution?.admittedInstructionProfiles ? { admittedInstructionProfiles: resolution.admittedInstructionProfiles } : {}),
+    ...(resolution?.admittedInstructionProfiles
+      ? { admittedInstructionProfiles: resolution.admittedInstructionProfiles }
+      : {}),
     ...(resolution?.deniedSkills ? { deniedSkills: resolution.deniedSkills } : {}),
     ...(resolution?.workClassification ? { resolvedWorkClassification: resolution.workClassification } : {}),
     ...(resolution?.workRecommendedSkills ? { workRecommendedSkills: resolution.workRecommendedSkills } : {}),
-    ...(resolution?.workRecommendedSkillDiagnostics ? { workRecommendedSkillDiagnostics: resolution.workRecommendedSkillDiagnostics } : {}),
+    ...(resolution?.workRecommendedSkillDiagnostics
+      ? { workRecommendedSkillDiagnostics: resolution.workRecommendedSkillDiagnostics }
+      : {}),
   };
 }
 
@@ -407,9 +430,7 @@ export function resolveManagedInvocationRequestedAuthority(
   if (requested === "auto") {
     return inherited;
   }
-  return managedAuthorityRank(requested) <= managedAuthorityRank(inherited)
-    ? requested
-    : inherited;
+  return managedAuthorityRank(requested) <= managedAuthorityRank(inherited) ? requested : inherited;
 }
 
 function normalizeParentRequestedAuthority(
@@ -446,8 +467,8 @@ export function validateManagedInvocationRequestedAuthority(
     };
   }
   if (
-    profile === "foundation-readonly-plan"
-    && (requestedAuthority === "audited" || requestedAuthority === "destructive")
+    profile === "foundation-readonly-plan" &&
+    (requestedAuthority === "audited" || requestedAuthority === "destructive")
   ) {
     return {
       ok: false,
@@ -473,39 +494,33 @@ export async function requestManagedInvocationAuthorityApproval(input: {
   if (input.requestedAuthority !== "destructive") {
     return { ok: true };
   }
-  if (!input.context.requestApproval) {
-    return {
-      ok: false,
-      error: `${toolName} destructive requested authority requires an approval flow before child invocation.`,
-    };
-  }
-
-  const authorityTarget = input.target.kind === "route"
-    ? `route '${input.target.routeId}'`
-    : `economic policy '${input.target.economicPolicyId}'`;
-  const description = `${toolName} requests destructive authority for ${authorityTarget} and profile '${input.profile}'.`;
-  const approval = await input.context.requestApproval(description);
-  if (!approval.approved) {
-    return {
-      ok: false,
-      error: `${toolName} destructive requested authority denied: ${approval.reason ?? "approval denied"}`,
-    };
+  // The attended Runtime path asks once at the exact, fully prepared
+  // invocation-tree boundary. This earlier generic prompt cannot mint a lease.
+  if (
+    input.context.attendedTrustedExecutionSessionAuthority !== undefined &&
+    toolName === MANAGED_AGENT_INVOKE_TOOL_NAME &&
+    input.target.kind === "route"
+  ) {
+    return { ok: true };
   }
   return {
-    ok: true,
-    authorityApproval: {
-      approved: true,
-      ...(approval.reason ? { reason: approval.reason } : {}),
-    },
+    ok: false,
+    error: `${toolName} destructive requested authority requires the exact attended trusted-execution lease flow.`,
   };
 }
 
-export function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentInvocationHandoffContract | undefined {
+export function buildHandoffContract(
+  input: ManagedInvocationToolInput,
+): ManagedAgentInvocationHandoffContract | undefined {
   const contract: ManagedAgentInvocationHandoffContract = {
     ...(input.workItemId ? { workItemId: input.workItemId } : {}),
     ...(input.roleIntent ? { roleIntent: input.roleIntent } : {}),
-    ...(input.expectedEvidence && input.expectedEvidence.length > 0 ? { expectedEvidence: input.expectedEvidence } : {}),
-    ...(input.requiredResultFields && input.requiredResultFields.length > 0 ? { requiredResultFields: input.requiredResultFields } : {}),
+    ...(input.expectedEvidence && input.expectedEvidence.length > 0
+      ? { expectedEvidence: input.expectedEvidence }
+      : {}),
+    ...(input.requiredResultFields && input.requiredResultFields.length > 0
+      ? { requiredResultFields: input.requiredResultFields }
+      : {}),
     ...(input.doneCriteria && input.doneCriteria.length > 0 ? { doneCriteria: input.doneCriteria } : {}),
     ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired } : {}),
     ...(input.outputVerbosity !== undefined ? { outputVerbosity: input.outputVerbosity } : {}),
@@ -540,17 +555,25 @@ const EXTERNAL_RUNTIME_ATTACHMENT_FIELDS = new Set(["runtimeId", "attachmentId"]
 export function parseExternalRuntimeAttachment(
   value: unknown,
   toolName: string,
-): { readonly ok: true; readonly value?: { readonly runtimeId: string; readonly attachmentId: string } } | { readonly ok: false; readonly error: string } {
+):
+  | { readonly ok: true; readonly value?: { readonly runtimeId: string; readonly attachmentId: string } }
+  | { readonly ok: false; readonly error: string } {
   if (value === undefined) {
     return { ok: true };
   }
   const record = readRecord(value);
   if (!record) {
-    return { ok: false, error: `${toolName} externalRuntimeAttachment must be an object with runtimeId and attachmentId.` };
+    return {
+      ok: false,
+      error: `${toolName} externalRuntimeAttachment must be an object with runtimeId and attachmentId.`,
+    };
   }
   const unknownKeys = Object.keys(record).filter((key) => !EXTERNAL_RUNTIME_ATTACHMENT_FIELDS.has(key));
   if (unknownKeys.length > 0) {
-    return { ok: false, error: `${toolName} externalRuntimeAttachment has unsupported field(s): ${unknownKeys.join(", ")}.` };
+    return {
+      ok: false,
+      error: `${toolName} externalRuntimeAttachment has unsupported field(s): ${unknownKeys.join(", ")}.`,
+    };
   }
   const runtimeId = readOpaqueAttachmentIdentity(record.runtimeId);
   if (!runtimeId) {
@@ -558,7 +581,10 @@ export function parseExternalRuntimeAttachment(
   }
   const attachmentId = readOpaqueAttachmentIdentity(record.attachmentId);
   if (!attachmentId) {
-    return { ok: false, error: `${toolName} externalRuntimeAttachment.attachmentId is required and must be non-empty.` };
+    return {
+      ok: false,
+      error: `${toolName} externalRuntimeAttachment.attachmentId is required and must be non-empty.`,
+    };
   }
   return { ok: true, value: { runtimeId, attachmentId } };
 }
@@ -571,9 +597,7 @@ function readOpaqueAttachmentIdentity(value: unknown): string | undefined {
 }
 
 export function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 export function readText(value: unknown): string | undefined {
@@ -608,7 +632,9 @@ const MANAGED_RESULT_FIELDS = new Set<ManagedAgentResultField>([
   "residualRisks",
 ]);
 
-export function parseManagedResultFields(value: unknown):
+export function parseManagedResultFields(
+  value: unknown,
+):
   | { readonly ok: true; readonly value?: readonly ManagedAgentResultField[] }
   | { readonly ok: false; readonly error: string } {
   const fields = readTextArray(value);
@@ -636,9 +662,7 @@ export function resolveManagedInvocationParentTurnOrdinal(parentTurnId: string, 
     return Math.max(fallbackTurnCount, 1);
   }
   const parsed = Number.parseInt(match[1] ?? "", 10);
-  return Number.isSafeInteger(parsed) && parsed > 0
-    ? parsed
-    : Math.max(fallbackTurnCount, 1);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : Math.max(fallbackTurnCount, 1);
 }
 
 export function buildInvocationId(sessionId: string, turnCount: number, toolCallId: string): string {
@@ -646,6 +670,9 @@ export function buildInvocationId(sessionId: string, turnCount: number, toolCall
 }
 
 export function sanitizeId(value: string): string {
-  const sanitized = value.replace(/[^A-Za-z0-9._-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const sanitized = value
+    .replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
   return sanitized.length > 0 ? sanitized.slice(0, 96) : "invocation";
 }

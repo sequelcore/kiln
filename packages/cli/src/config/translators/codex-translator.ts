@@ -1,4 +1,4 @@
-import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import { describeTrustedExecutionEnforcement } from "@kilnai/core";
 import type { ResolvedKilnConfig } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import { translatePermission } from "../../wrapper/session-registry.js";
@@ -17,7 +17,6 @@ export function translateCodexPermissionProjection(input: {
   readonly ownsManagedDefault?: boolean;
   readonly suppressManagedDefault?: boolean;
   readonly previousManagedFields?: readonly string[];
-  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "codex");
   const cfg = translated.config as { approvalMode: string; sandboxMode: string };
@@ -66,7 +65,6 @@ export function translateCodexPermissionProjection(input: {
       policy: input.policy,
       translated,
       enforcement: describeTrustedExecutionEnforcement({ harness: "codex" }),
-      storedAuthorization: input.storedAuthorization,
     },
   });
 }

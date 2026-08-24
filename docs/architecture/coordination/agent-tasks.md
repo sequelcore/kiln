@@ -55,6 +55,12 @@ traces, hidden reasoning, or unbounded child output. Result handoffs are
 explicitly untrusted child output and are bounded before persistence and again
 before projection.
 
+An attended trusted-execution lease is not Agent Task authority and is never
+stored in an Agent Task, Agent Run, admission bundle, or recovery checkpoint.
+It applies only to its exact foreground operator-session invocation tree and
+does not transfer to a native harness, managed child, background task, or
+recovered run.
+
 ## Admission and dispatch
 
 Before an external effect, Runtime requires fresh authoritative governance,
@@ -138,6 +144,10 @@ projection becomes `interrupted` with `result_pending` evidence and cannot be
 redispatched. Every native-harness run likewise becomes `interrupted` after
 restart: Runtime never silently resumes an external harness process.
 
+Process restart also ends every attended trusted-execution lease. Recovery may
+project retained admission and terminal evidence, but it cannot recreate the
+process-local principal or authorize a new effect from the former lease.
+
 Only the current Agent Task schema is admitted. Obsolete or malformed local
 state is rejected without mutation; Runtime has no legacy reader, writer,
 migration, archive, or compatibility alias.
@@ -148,6 +158,8 @@ migration, archive, or compatibility alias.
 - one deterministic run per v14 task;
 - one explicit route and policy decision before dispatch;
 - native harnesses retain native loops, tools, and subagents;
+- attended trusted-execution leases are process-local, non-persistent, and
+  never inherited by Agent Tasks or recovered runs;
 - available models never imply an executable route;
 - data-policy and session-turn-budget denials occur before their protected
   external effect;

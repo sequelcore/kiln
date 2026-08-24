@@ -11,12 +11,24 @@ export const KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV = "KILN_LIVE_OPENCODE_WRIT
 export const KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_TESTS_ENV = "KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_TESTS";
 export const KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV = "KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE";
 export const KILN_LIVE_OPENAI_DIRECT_TESTS_ENV = "KILN_LIVE_OPENAI_DIRECT_TESTS";
+export const KILN_LIVE_OPENAI_DIRECT_MODEL = "KILN_LIVE_OPENAI_DIRECT_MODEL";
 export const KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS";
+export const KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL = "KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL";
 export const KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS";
 export const KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV =
   "KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS";
 export const KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV =
   "KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE";
+
+export const MANAGED_AGENT_LIVE_CONFIGURATION_FLAGS = [
+  KILN_LIVE_CODEX_MODEL,
+  KILN_LIVE_CLAUDE_MODEL,
+  KILN_LIVE_OPENCODE_MODEL,
+  KILN_LIVE_OPENAI_DIRECT_MODEL,
+  KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL,
+  KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
+] as const;
 
 const CLAUDE_NON_ENTITLEMENT_ENVIRONMENT = [
   "ANTHROPIC_API_KEY",
@@ -40,10 +52,6 @@ const PROVIDER_FLAGS = [
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
 ] as const;
 
-const AUTO_DETECTABLE_PROVIDER_FLAGS = new Set<string>(
-  PROVIDER_FLAGS.filter((flag) => flag !== KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV),
-);
-
 type Environment = Readonly<Record<string, string | undefined>>;
 
 export interface ManagedAgentLivePreflightResult {
@@ -64,51 +72,43 @@ export function projectClaudeNativeEntitlementEnvironment(
 
 export function evaluateManagedAgentLivePreflight(
   env: Environment = process.env,
-  detectedProviderFlags: readonly string[] = [],
 ): ManagedAgentLivePreflightResult {
-  if (env[KILN_LIVE_MANAGED_AGENT_TESTS_ENV] === "0") {
+  for (const flag of [KILN_LIVE_MANAGED_AGENT_TESTS_ENV, ...PROVIDER_FLAGS]) {
+    if (Object.hasOwn(env, flag) && env[flag] !== "0" && env[flag] !== "1") {
+      return {
+        ok: false,
+        enabledProviders: [],
+        environment: {},
+        message: `Managed-agent live preflight flag ${flag} must be exactly 0 or 1.`,
+      };
+    }
+  }
+  if (env[KILN_LIVE_MANAGED_AGENT_TESTS_ENV] !== "1") {
     return {
       ok: false,
       enabledProviders: [],
       environment: {},
       message: [
-        "Managed-agent live proof is explicitly disabled.",
-        `${KILN_LIVE_MANAGED_AGENT_TESTS_ENV}=0 prevents auto-detected live providers from running.`,
+        "Managed-agent live proof requires explicit authority.",
+        `Set ${KILN_LIVE_MANAGED_AGENT_TESTS_ENV}=1 and at least one provider flag to 1; executable or credential discovery never authorizes live proof.`,
       ].join(" "),
     };
   }
 
   const explicitProviders = PROVIDER_FLAGS.filter((flag) => env[flag] === "1");
-  const autoDetectedProviders = uniqueProviderFlags(
-    detectedProviderFlags.filter((flag) => AUTO_DETECTABLE_PROVIDER_FLAGS.has(flag)),
-  );
-  const enabledProviders = explicitProviders.length > 0 ? explicitProviders : autoDetectedProviders;
-  if (env[KILN_LIVE_MANAGED_AGENT_TESTS_ENV] !== "1" && enabledProviders.length === 0) {
+  if (explicitProviders.length === 0) {
     return {
       ok: false,
       enabledProviders: [],
       environment: {},
       message: [
-        "Managed-agent live proof has no enabled or auto-detected provider route.",
-        `Set ${KILN_LIVE_MANAGED_AGENT_TESTS_ENV}=1 and at least one provider flag to run live proof,`,
-        "or install and authenticate a supported local harness.",
-        `Provider flags: ${PROVIDER_FLAGS.join(", ")}.`,
-        "Use bun run test:harness for deterministic non-live harness coverage.",
-      ].join(" "),
-    };
-  }
-
-  if (enabledProviders.length === 0) {
-    return {
-      ok: false,
-      enabledProviders,
-      environment: {},
-      message: [
-        "Managed-agent live proof has no enabled provider route.",
+        "Managed-agent live proof has no explicitly enabled provider authority.",
         `Set at least one provider flag to 1: ${PROVIDER_FLAGS.join(", ")}.`,
       ].join(" "),
     };
   }
+
+  const enabledProviders = explicitProviders;
 
   if (enabledProviders.includes(KILN_LIVE_CLAUDE_TESTS_ENV)) {
     const model = env[KILN_LIVE_CLAUDE_MODEL]?.trim();
@@ -125,6 +125,9 @@ export function evaluateManagedAgentLivePreflight(
   for (const [providerFlag, modelVariable] of [
     [KILN_LIVE_CODEX_TESTS_ENV, KILN_LIVE_CODEX_MODEL],
     [KILN_LIVE_OPENCODE_TESTS_ENV, KILN_LIVE_OPENCODE_MODEL],
+    [KILN_LIVE_OPENAI_DIRECT_TESTS_ENV, KILN_LIVE_OPENAI_DIRECT_MODEL],
+    [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV, KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL],
+    [KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV, KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL],
   ] as const) {
     if (enabledProviders.includes(providerFlag) && !env[modelVariable]?.trim()) {
       return {
@@ -132,6 +135,39 @@ export function evaluateManagedAgentLivePreflight(
         enabledProviders,
         environment: {},
         message: `${modelVariable} must name an explicit exact model for the authorized live proof.`,
+      };
+    }
+  }
+
+  if (enabledProviders.includes(KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV)) {
+    if (!enabledProviders.includes(KILN_LIVE_OPENCODE_TESTS_ENV)) {
+      return {
+        ok: false,
+        enabledProviders,
+        environment: {},
+        message: `${KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV} requires ${KILN_LIVE_OPENCODE_TESTS_ENV}=1; the write subproof cannot authorize the base route itself.`,
+      };
+    }
+    if (!env[KILN_LIVE_OPENCODE_MODEL]?.trim()) {
+      return {
+        ok: false,
+        enabledProviders,
+        environment: {},
+        message: `${KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV} requires ${KILN_LIVE_OPENCODE_MODEL} to name an explicit exact model.`,
+      };
+    }
+  }
+
+  for (const [providerFlag, routeVariable] of [
+    [KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_TESTS_ENV, KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV],
+    [KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV, KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV],
+  ] as const) {
+    if (enabledProviders.includes(providerFlag) && !env[routeVariable]?.trim()) {
+      return {
+        ok: false,
+        enabledProviders,
+        environment: {},
+        message: `${providerFlag} requires ${routeVariable} to name an explicit authorized route.`,
       };
     }
   }
@@ -145,11 +181,6 @@ export function evaluateManagedAgentLivePreflight(
     },
     message: `Managed-agent live proof enabled for: ${enabledProviders.join(", ")}.`,
   };
-}
-
-function uniqueProviderFlags(flags: readonly string[]): readonly string[] {
-  const allowed = new Set(PROVIDER_FLAGS);
-  return Array.from(new Set(flags.filter((flag) => allowed.has(flag as (typeof PROVIDER_FLAGS)[number]))));
 }
 
 function isMainModule(): boolean {

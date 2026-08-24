@@ -30,7 +30,9 @@ export {
   KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV,
   KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_TESTS_ENV,
   KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV,
+  KILN_LIVE_OPENAI_DIRECT_MODEL,
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL,
 } from "../../../../scripts/managed-agent-live-preflight.js";
 
 export interface ManagedAgentLiveFixtureWorkspace {
@@ -45,6 +47,12 @@ export interface ManagedAgentLiveFixtureWorkspaceOptions {
   readonly files: Readonly<Record<string, string>>;
   readonly onWorkspaceCreated?: (workspace: ManagedAgentLiveFixtureWorkspace) => void | Promise<void>;
   readonly onWorkspaceCleanup?: (workspace: ManagedAgentLiveFixtureWorkspace) => void | Promise<void>;
+}
+
+export interface ManagedAgentLiveFixtureCleanupOptions {
+  readonly attempts?: number;
+  readonly remove?: (workspaceRoot: string) => Promise<void>;
+  readonly wait?: (delayMs: number) => Promise<void>;
 }
 
 export interface ManagedAgentLiveHarnessWriteRequestOptions {
@@ -83,6 +91,25 @@ export interface ManagedAgentLiveDurableEvidenceExpectation {
 }
 
 type Environment = Readonly<Record<string, string | undefined>>;
+
+const MANAGED_AGENT_LIVE_FIXTURE_CLEANUP_ERROR = "Managed live fixture cleanup failed.";
+
+const KILN_LIVE_ENVIRONMENT_NAME_PATTERN = /^KILN_[A-Z][A-Z0-9_]*$/u;
+
+export function requireManagedAgentLiveEnvironment(
+  name: string,
+  env: Environment = process.env,
+): string {
+  if (!KILN_LIVE_ENVIRONMENT_NAME_PATTERN.test(name)) {
+    throw new Error("Managed-agent live environment variable name must be a KILN_* identifier.");
+  }
+
+  const value = env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} must be set to a non-empty value.`);
+  }
+  return value;
+}
 
 const SENSITIVE_EVIDENCE_KEYS = new Set([
   "accesstoken",
@@ -127,6 +154,7 @@ export function describeManagedAgentProviderLive(
 export async function withManagedAgentLiveFixtureWorkspace<T>(
   options: ManagedAgentLiveFixtureWorkspaceOptions,
   run: (workspace: ManagedAgentLiveFixtureWorkspace) => Promise<T>,
+  cleanupOptions: ManagedAgentLiveFixtureCleanupOptions = {},
 ): Promise<T> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), requireRelativeSafeSegment(options.prefix)));
   const workspace = createWorkspace(workspaceRoot);
@@ -141,7 +169,7 @@ export async function withManagedAgentLiveFixtureWorkspace<T>(
     try {
       await options.onWorkspaceCleanup?.(workspace);
     } finally {
-      await removeWorkspaceWithRetry(workspaceRoot);
+      await removeManagedAgentLiveFixtureWorkspaceWithRetry(workspaceRoot, cleanupOptions);
     }
   }
 }
@@ -381,23 +409,42 @@ function requireRelativeSafeSegment(value: string): string {
   return value;
 }
 
-async function removeWorkspaceWithRetry(workspaceRoot: string): Promise<void> {
-  const attempts = 30;
+export async function removeManagedAgentLiveFixtureWorkspaceWithRetry(
+  workspaceRoot: string,
+  options: ManagedAgentLiveFixtureCleanupOptions = {},
+): Promise<void> {
+  const attempts = options.attempts ?? 30;
+  if (!Number.isSafeInteger(attempts) || attempts < 1) {
+    throw new Error(MANAGED_AGENT_LIVE_FIXTURE_CLEANUP_ERROR);
+  }
+  const remove = options.remove ?? removeWorkspace;
+  const wait = options.wait ?? waitBeforeCleanupRetry;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await remove(workspaceRoot);
       return;
     } catch (error) {
       if (attempt === attempts) {
-        if (isTransientWindowsRemoveError(error)) {
-          console.warn(`Live fixture cleanup left locked workspace for OS cleanup: ${workspaceRoot}`);
-          return;
-        }
-        throw error;
+        throw new Error(MANAGED_AGENT_LIVE_FIXTURE_CLEANUP_ERROR);
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (!isTransientWindowsRemoveError(error)) {
+        throw new Error(MANAGED_AGENT_LIVE_FIXTURE_CLEANUP_ERROR);
+      }
+      try {
+        await wait(500);
+      } catch {
+        throw new Error(MANAGED_AGENT_LIVE_FIXTURE_CLEANUP_ERROR);
+      }
     }
   }
+}
+
+async function removeWorkspace(workspaceRoot: string): Promise<void> {
+  await rm(workspaceRoot, { recursive: true, force: true });
+}
+
+async function waitBeforeCleanupRetry(delayMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function isTransientWindowsRemoveError(error: unknown): boolean {

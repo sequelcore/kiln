@@ -1,41 +1,55 @@
-import { createHash } from "node:crypto";
-import { defineExecutionCatalog } from "@kilnai/core";
+import { createHash, randomUUID } from "node:crypto";
+import type { ActionEffectEnvelope, Capability, KilnMcpClient, ToolDefinition } from "@kilnai/core";
+import { type defineExecutionCatalog, normalizeActionEffectEnvelope } from "@kilnai/core";
 import {
-  OperatorAuthorityAdmissionCoordinator,
-  defineOperatorAuthorityAdmissionFacets,
-  hasGovernedGoalTools,
-  prepareOperatorAdoptionTurn,
-  requireOperatorAdoptionDecisionPersistence,
-  RuntimeSession,
-  readRuntimeModelRoundAdmission,
-  fingerprintOperatorTurnIntent,
-  type AuthorityAdmissionEvidenceStore,
   type AttachedRuntimeBuiltinToolSurface,
+  type AttendedTrustedExecutionLeaseApprovalPort,
+  AttendedTrustedExecutionLeaseSessionAuthority,
+  type AuthorityAdmissionEvidenceStore,
+  defineOperatorAuthorityAdmissionFacets,
+  fingerprintOperatorTurnIntent,
+  hasGovernedGoalTools,
+  OperatorAuthorityAdmissionCoordinator,
   type OperatorSessionExecutionCatalogSnapshot,
-  type RuntimeConfigurationRevisionSnapshot,
+  prepareOperatorAdoptionTurn,
   type RuntimeAuthorityAdmissionCandidateConfig,
+  type RuntimeConfigurationRevisionSnapshot,
+  RuntimeSession,
   type RuntimeSessionTurnBudgetAuthority,
+  readRuntimeModelRoundAdmission,
+  requireOperatorAdoptionDecisionPersistence,
 } from "@kilnai/runtime";
 import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
-import { isDirectApiProvider, type ProviderId } from "../wrapper/session-registry.js";
-import { ProviderSession } from "../wrapper/provider-session.js";
-import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
-import type { ActionEffectEnvelope, Capability, ToolDefinition, KilnMcpClient } from "@kilnai/core";
-import { normalizeActionEffectEnvelope } from "@kilnai/core";
+import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
+import { ProviderSession } from "../wrapper/provider-session.js";
+import { isDirectApiProvider, type ProviderId } from "../wrapper/session-registry.js";
 import { createOperatorTurnDispatchComposition } from "./operator-turn-dispatch-composition.js";
+import type { RunSessionOptions, RunSessionResult, RunSessionRouteCandidate } from "./run-session.js";
 import { runSession } from "./run-session.js";
-import type {
-  RunSessionOptions,
-  RunSessionResult,
-  RunSessionRouteCandidate,
-} from "./run-session.js";
 
 type CanonicalRunSessionPayload = Omit<RunSessionOptions, "routeCandidates">;
 
 export interface CanonicalRunSessionDispatcher {
   readonly dispatch: (payload: CanonicalRunSessionPayload) => Promise<RunSessionResult>;
   readonly close: () => void;
+}
+
+export function createCanonicalRunAttendedTrustedExecutionSessionAuthority(input: {
+  readonly operatorSessionId: string;
+  readonly projectRuntimeId: `krp_${string}`;
+  readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
+  readonly approvalPort: AttendedTrustedExecutionLeaseApprovalPort;
+}): AttendedTrustedExecutionLeaseSessionAuthority {
+  return new AttendedTrustedExecutionLeaseSessionAuthority({
+    binding: {
+      localPrincipalId: `local-operator-session:${randomUUID()}`,
+      operatorSessionId: input.operatorSessionId,
+      projectRuntimeId: input.projectRuntimeId,
+      compositionRevision: input.configurationRevision.revisionSetId as `sha256:${string}`,
+    },
+    approvalPort: input.approvalPort,
+  });
 }
 
 /**
@@ -57,7 +71,14 @@ export function createCanonicalRunSessionDispatcher(input: {
   /** Canonical Runtime owner for the one pre-fence session budget admission. */
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   /** Mandatory atomic catalog/revision source for canonical admission. */
-  readonly captureCatalogSnapshot: () => OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
+  readonly captureCatalogSnapshot: () =>
+    | OperatorSessionExecutionCatalogSnapshot
+    | Promise<OperatorSessionExecutionCatalogSnapshot>;
+  /** Interactive process-local authority; omitted by non-interactive surfaces. */
+  readonly attendedTrustedExecution?: {
+    readonly projectRuntimeId: `krp_${string}`;
+    readonly approvalPort: AttendedTrustedExecutionLeaseApprovalPort;
+  };
 }): CanonicalRunSessionDispatcher {
   const canonicalIntent = {
     routeId: input.routeId,
@@ -71,7 +92,7 @@ export function createCanonicalRunSessionDispatcher(input: {
     initialCatalog: input.catalog,
     captureCatalogSnapshot: input.captureCatalogSnapshot,
     cwd: input.authorityStateRoot ?? input.cwd,
-    readDispatchOutcome: (result) => result.runtimeModelRoundOutcome === "unknown" ? "unknown" : "completed",
+    readDispatchOutcome: (result) => (result.runtimeModelRoundOutcome === "unknown" ? "unknown" : "completed"),
   });
   type Prepared = {
     readonly runtimeSession: RuntimeSession;
@@ -79,6 +100,7 @@ export function createCanonicalRunSessionDispatcher(input: {
     readonly mcpClients: readonly KilnMcpClient[];
     readonly mcpCapabilities: readonly Capability[];
     readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig;
+    readonly attendedTrustedExecutionSessionAuthority?: AttendedTrustedExecutionLeaseSessionAuthority;
   };
   const authorityCoordinator = new OperatorAuthorityAdmissionCoordinator<CanonicalRunSessionPayload, Prepared>({
     resolveSession: async (request) => {
@@ -94,7 +116,9 @@ export function createCanonicalRunSessionDispatcher(input: {
       const replay = payload.operatorAdoption?.replayCanonicalSessionEvents;
       if (replay) {
         const events = await replay(sessionId);
-        for (const event of events.filter((entry) => entry.kilnSessionId === sessionId).sort((left, right) => left.sequence - right.sequence)) {
+        for (const event of events
+          .filter((entry) => entry.kilnSessionId === sessionId)
+          .sort((left, right) => left.sequence - right.sequence)) {
           session.appendSessionEvents([event]);
         }
       }
@@ -103,14 +127,21 @@ export function createCanonicalRunSessionDispatcher(input: {
     prepare: async ({ request, session, admission, snapshot, binding }) => {
       const payload = request.payload;
       const provider = admission.providerId as ProviderId;
-      if (!isDirectApiProvider(provider)) throw new Error(`Canonical direct run resolved unsupported provider '${admission.providerId}'.`);
-      const mcpClients = (payload.sessionConfig.canonicalMcpServers ?? [])
-        .map((server) => createCanonicalMcpClient(server, payload.sessionConfig.kilnHome));
-      const discoveredMcpCapabilities = (await Promise.all(mcpClients.map((client) => client.discoverProviderCapabilities()))).flat();
-      const permissionEvaluator = createPermissionEvaluator(payload.permissionPolicy, { agent: payload.permissionAgent });
-      const scopedMcpToolAllowlist = permissionEvaluator.scope.matchedScope && permissionEvaluator.scope.mcpTools
-        ? new Set(permissionEvaluator.scope.mcpTools.map(normalizeMcpSelector))
-        : undefined;
+      if (!isDirectApiProvider(provider))
+        throw new Error(`Canonical direct run resolved unsupported provider '${admission.providerId}'.`);
+      const mcpClients = (payload.sessionConfig.canonicalMcpServers ?? []).map((server) =>
+        createCanonicalMcpClient(server, payload.sessionConfig.kilnHome),
+      );
+      const discoveredMcpCapabilities = (
+        await Promise.all(mcpClients.map((client) => client.discoverProviderCapabilities()))
+      ).flat();
+      const permissionEvaluator = createPermissionEvaluator(payload.permissionPolicy, {
+        agent: payload.permissionAgent,
+      });
+      const scopedMcpToolAllowlist =
+        permissionEvaluator.scope.matchedScope && permissionEvaluator.scope.mcpTools
+          ? new Set(permissionEvaluator.scope.mcpTools.map(normalizeMcpSelector))
+          : undefined;
       const mcpPartition = intersectCanonicalMcpCapabilities(
         discoveredMcpCapabilities,
         payload.sessionConfig.mcpToolAllowlist,
@@ -118,7 +149,9 @@ export function createCanonicalRunSessionDispatcher(input: {
       );
       if (mcpPartition.explicitlyDenied.length > 0) {
         const denied = mcpPartition.explicitlyDenied[0]!;
-        throw new Error(`Canonical direct run denied an explicitly requested MCP ${denied.kind} '${denied.name}' because its effect envelope is unknown or not admitted.`);
+        throw new Error(
+          `Canonical direct run denied an explicitly requested MCP ${denied.kind} '${denied.name}' because its effect envelope is unknown or not admitted.`,
+        );
       }
       const mcpCapabilities = mcpPartition.admitted;
       const externalTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
@@ -138,6 +171,15 @@ export function createCanonicalRunSessionDispatcher(input: {
         correlationId: request.executionId,
         persist: requireOperatorAdoptionDecisionPersistence(operatorAdoption.persist),
       });
+      const attendedTrustedExecutionSessionAuthority =
+        input.attendedTrustedExecution === undefined
+          ? undefined
+          : createCanonicalRunAttendedTrustedExecutionSessionAuthority({
+              operatorSessionId: session.id,
+              projectRuntimeId: input.attendedTrustedExecution.projectRuntimeId,
+              configurationRevision: snapshot.configurationRevision,
+              approvalPort: input.attendedTrustedExecution.approvalPort,
+            });
       const builder = new ProviderSession({
         ...payload.sessionConfig,
         provider,
@@ -157,6 +199,7 @@ export function createCanonicalRunSessionDispatcher(input: {
           externalTools,
           externalCapabilities,
         }),
+        ...(attendedTrustedExecutionSessionAuthority === undefined ? {} : { attendedTrustedExecutionSessionAuthority }),
         executionBinding: binding,
         runtimeConfigurationRevision: snapshot.configurationRevision,
         turnId: adoption.turnId,
@@ -164,12 +207,13 @@ export function createCanonicalRunSessionDispatcher(input: {
         operatorAdoptionDecision: adoption.operatorAdoptionDecision,
       } satisfies RuntimeAuthorityAdmissionCandidateConfig;
       const projectedAuthority = perCallConfig.effectiveTurnAuthority;
-      const authority = projectedAuthority && isCanonicalAuthorityAdmissible(projectedAuthority)
-        ? projectedAuthority
-        : canonicalizeOmittedAuthority(
-          payload.sessionConfig.requestedAuthority,
-          perCallConfig.toolAuthority?.size ?? 0,
-        );
+      const authority =
+        projectedAuthority && isCanonicalAuthorityAdmissible(projectedAuthority)
+          ? projectedAuthority
+          : canonicalizeOmittedAuthority(
+              payload.sessionConfig.requestedAuthority,
+              perCallConfig.toolAuthority?.size ?? 0,
+            );
       if (authority && authority !== projectedAuthority) {
         perCallConfig = {
           ...perCallConfig,
@@ -181,7 +225,9 @@ export function createCanonicalRunSessionDispatcher(input: {
         };
       }
       if (!authority || !isCanonicalAuthorityAdmissible(authority)) {
-        throw new Error("Canonical direct run requires a complete non-partial authority decision; auto/unknown authority is denied.");
+        throw new Error(
+          "Canonical direct run requires a complete non-partial authority decision; auto/unknown authority is denied.",
+        );
       }
       const workGovernance = hasGovernedGoalTools({
         toolAllowlist: perCallConfig.toolAllowlist,
@@ -220,6 +266,9 @@ export function createCanonicalRunSessionDispatcher(input: {
           mcpClients,
           mcpCapabilities,
           perCallConfig,
+          ...(attendedTrustedExecutionSessionAuthority === undefined
+            ? {}
+            : { attendedTrustedExecutionSessionAuthority }),
         },
       };
     },
@@ -237,7 +286,8 @@ export function createCanonicalRunSessionDispatcher(input: {
     const prepared = authorityCoordinator.consume(executionId, authorityAdmission);
     try {
       const readAdmission = input.authorityAdmissionEvidenceStore.readAdmission;
-      if (!readAdmission) throw new Error("Canonical direct run has no durable admission readback for model-round claiming.");
+      if (!readAdmission)
+        throw new Error("Canonical direct run has no durable admission readback for model-round claiming.");
       const persistedRuntimeAdmission = await readRuntimeModelRoundAdmission({
         readAdmission: (request) => readAdmission.call(input.authorityAdmissionEvidenceStore, request),
         admissionId: authorityAdmission.admissionId,
@@ -257,17 +307,18 @@ export function createCanonicalRunSessionDispatcher(input: {
         accountId: binding.accountId,
         credentialRevision: binding.credentialRevision,
         state: { claimed: false },
-        readAdmission: () => readRuntimeModelRoundAdmission({
-          readAdmission: (request) => readAdmission.call(input.authorityAdmissionEvidenceStore, request),
-          admissionId: authorityAdmission.admissionId,
-          sessionId: authorityAdmission.sessionId,
-          turnId: authorityAdmission.turnId,
-          expected: {
-            routeId: binding.routeId,
-            accountId: binding.accountId,
-            credentialRevision: binding.credentialRevision,
-          },
-        }),
+        readAdmission: () =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: (request) => readAdmission.call(input.authorityAdmissionEvidenceStore, request),
+            admissionId: authorityAdmission.admissionId,
+            sessionId: authorityAdmission.sessionId,
+            turnId: authorityAdmission.turnId,
+            expected: {
+              routeId: binding.routeId,
+              accountId: binding.accountId,
+              credentialRevision: binding.credentialRevision,
+            },
+          }),
         store: composition.modelRoundActionClaims,
       } satisfies NonNullable<import("@kilnai/runtime").PerCallToolConfig["runtimeModelRoundDispatch"]>;
       const runtimeToolActionClaims = {
@@ -275,17 +326,22 @@ export function createCanonicalRunSessionDispatcher(input: {
         attemptId: executionId,
         adapterIdentity: `operator:${binding.routeId}:${binding.accountId}:${binding.credentialRevision}`,
         state: { claimed: false },
-        readAdmission: (request: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string }) => readRuntimeModelRoundAdmission({
-          readAdmission: (readRequest) => readAdmission.call(input.authorityAdmissionEvidenceStore, readRequest),
-          admissionId: request.admissionId,
-          sessionId: request.sessionId,
-          turnId: request.turnId,
-          expected: {
-            routeId: binding.routeId,
-            accountId: binding.accountId,
-            credentialRevision: binding.credentialRevision,
-          },
-        }),
+        readAdmission: (request: {
+          readonly admissionId: string;
+          readonly sessionId: string;
+          readonly turnId: string;
+        }) =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: (readRequest) => readAdmission.call(input.authorityAdmissionEvidenceStore, readRequest),
+            admissionId: request.admissionId,
+            sessionId: request.sessionId,
+            turnId: request.turnId,
+            expected: {
+              routeId: binding.routeId,
+              accountId: binding.accountId,
+              credentialRevision: binding.credentialRevision,
+            },
+          }),
         store: composition.toolActionClaims,
       } satisfies NonNullable<import("@kilnai/runtime").PerCallToolConfig["runtimeToolActionClaims"]>;
       const {
@@ -301,6 +357,10 @@ export function createCanonicalRunSessionDispatcher(input: {
         toolAuthority: _candidateToolAuthority,
         ...admittedExecutionConfig
       } = prepared.perCallConfig;
+      const {
+        attendedTrustedExecutionSessionAuthority: _attendedTrustedExecutionSessionAuthority,
+        ...authorityAdmissionContext
+      } = prepared;
       return await runSession({
         ...payload,
         sessionConfig: {
@@ -316,8 +376,8 @@ export function createCanonicalRunSessionDispatcher(input: {
           },
           executionCredential: credential,
           authorityAdmissionContext: {
-            ...prepared,
-              bundle: persistedRuntimeAdmission,
+            ...authorityAdmissionContext,
+            bundle: persistedRuntimeAdmission,
             perCallConfig: {
               ...admittedExecutionConfig,
               authorityAdmission: persistedRuntimeAdmission,
@@ -326,33 +386,39 @@ export function createCanonicalRunSessionDispatcher(input: {
             },
           },
         },
-        routeCandidates: [{
-          provider,
-          model: admission.providerModelId,
-          credentialBinding: {
-            routeId: binding.routeId,
-            accountId: binding.accountId,
-            credentialId: binding.credentialId,
-            credentialRevision: binding.credentialRevision,
+        routeCandidates: [
+          {
+            provider,
+            model: admission.providerModelId,
+            credentialBinding: {
+              routeId: binding.routeId,
+              accountId: binding.accountId,
+              credentialId: binding.credentialId,
+              credentialRevision: binding.credentialRevision,
+            },
+            executionCredential: credential,
+            ...(input.routeEvidence ?? {}),
           },
-          executionCredential: credential,
-          ...(input.routeEvidence ?? {}),
-        }],
+        ],
       });
     } catch (error) {
       await disposePrepared(prepared);
       throw error;
+    } finally {
+      prepared.attendedTrustedExecutionSessionAuthority?.closeSession();
     }
   });
 
   return {
     dispatch: (payload) => {
-      return composition.dispatcher.dispatchTurn({
-        executionId: input.executionId,
-        intentFingerprint: canonicalIntentFingerprint,
-        intent: canonicalIntent,
-        payload,
-      }).then(({ result }) => result);
+      return composition.dispatcher
+        .dispatchTurn({
+          executionId: input.executionId,
+          intentFingerprint: canonicalIntentFingerprint,
+          intent: canonicalIntent,
+          payload,
+        })
+        .then(({ result }) => result);
     },
     close: () => {
       composition.close();
@@ -399,13 +465,16 @@ export function intersectCanonicalMcpCapabilities(
   const scoped = scopedAllowlist ? new Set([...scopedAllowlist].map(normalizeMcpSelector)) : undefined;
   const admitted: Capability[] = [];
   const denied: DeniedCanonicalMcpCapability[] = [...partition.denied];
-  const explicitlyDenied: DeniedCanonicalMcpCapability[] = partition.denied.filter((capability) => explicit?.has(normalizeMcpSelector(capability.name)) === true);
+  const explicitlyDenied: DeniedCanonicalMcpCapability[] = partition.denied.filter(
+    (capability) => explicit?.has(normalizeMcpSelector(capability.name)) === true,
+  );
   for (const capability of partition.admitted) {
     const normalizedName = normalizeMcpSelector(capability.name);
     if (explicit && !explicit.has(normalizedName)) continue;
     if (scoped && !scoped.has(normalizedName)) {
       denied.push({ ...capability, kind: canonicalMcpCapabilityKind(capability) });
-      if (explicit?.has(normalizedName)) explicitlyDenied.push({ ...capability, kind: canonicalMcpCapabilityKind(capability) });
+      if (explicit?.has(normalizedName))
+        explicitlyDenied.push({ ...capability, kind: canonicalMcpCapabilityKind(capability) });
       continue;
     }
     admitted.push(capability);
@@ -416,18 +485,21 @@ export function intersectCanonicalMcpCapabilities(
 export function canonicalizeOmittedAuthority(
   requestedAuthority: string | undefined,
   admittedToolCount: number,
-): {
-  readonly executionMode: "execute";
-  readonly requestedAuthority: "read_only";
-  readonly admittedAuthority: "fail_closed";
-  readonly sourcePolicy: "runtime_surface_projection";
-  readonly reason: string;
-  readonly completeness: "authoritative";
-  readonly toolCount: 0;
-  readonly deniedToolCount: number;
-} | undefined {
+):
+  | {
+      readonly executionMode: "execute";
+      readonly requestedAuthority: "read_only";
+      readonly admittedAuthority: "fail_closed";
+      readonly sourcePolicy: "runtime_surface_projection";
+      readonly reason: string;
+      readonly completeness: "authoritative";
+      readonly toolCount: 0;
+      readonly deniedToolCount: number;
+    }
+  | undefined {
   if (requestedAuthority !== undefined && requestedAuthority !== "auto") return undefined;
-  if (admittedToolCount > 0) throw new Error("Canonical direct run requires a concrete authority decision when tools are admitted.");
+  if (admittedToolCount > 0)
+    throw new Error("Canonical direct run requires a concrete authority decision when tools are admitted.");
   return {
     executionMode: "execute",
     requestedAuthority: "read_only",
@@ -449,17 +521,21 @@ function canonicalMcpCapabilityKind(capability: Capability): CanonicalMcpCapabil
 function isKnownCanonicalMcpEffect(effect: unknown): effect is ActionEffectEnvelope {
   const normalized = normalizeActionEffectEnvelope(effect);
   if (!normalized) return false;
-  return normalized.reversibility !== "unknown"
-    && normalized.dataEgress !== "unknown"
-    && normalized.identityUse !== "unknown"
-    && normalized.idempotency !== "unknown"
-    && !normalized.consequences.includes("unknown");
+  return (
+    normalized.reversibility !== "unknown" &&
+    normalized.dataEgress !== "unknown" &&
+    normalized.identityUse !== "unknown" &&
+    normalized.idempotency !== "unknown" &&
+    !normalized.consequences.includes("unknown")
+  );
 }
 
 async function disposePrepared(prepared: {
   readonly builtinToolSurface: AttachedRuntimeBuiltinToolSurface;
   readonly mcpClients: readonly KilnMcpClient[];
+  readonly attendedTrustedExecutionSessionAuthority?: AttendedTrustedExecutionLeaseSessionAuthority;
 }): Promise<void> {
+  prepared.attendedTrustedExecutionSessionAuthority?.closeSession();
   const outcomes = await Promise.allSettled([
     prepared.builtinToolSurface.dispose(),
     ...prepared.mcpClients.map((client) => client.disconnect()),
@@ -473,9 +549,11 @@ export function isCanonicalAuthorityAdmissible(authority: {
   readonly admittedAuthority: string;
   readonly toolCount?: number;
 }): boolean {
-  return authority.completeness === "authoritative"
-    && authority.admittedAuthority !== "unknown"
-    && (authority.admittedAuthority !== "fail_closed" || authority.toolCount === undefined || authority.toolCount === 0);
+  return (
+    authority.completeness === "authoritative" &&
+    authority.admittedAuthority !== "unknown" &&
+    (authority.admittedAuthority !== "fail_closed" || authority.toolCount === undefined || authority.toolCount === 0)
+  );
 }
 
 function canonicalAuthorityCeiling(

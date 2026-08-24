@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import type { TrustedExecutionHarness } from "./trusted-execution-authorization-store.js";
+import type { TrustedExecutionHarness } from "./trusted-execution-lease.js";
 import { resolveCoreKilnHome } from "../kiln-home.js";
 
 export interface TrustedExecutionSemanticLimitation {

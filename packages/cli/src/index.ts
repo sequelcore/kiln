@@ -90,7 +90,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "external-engagement": "Inspect and report governed external evidence sources",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
-    trust: "Grant/revoke trusted execution or explicitly accept/revoke a native limitation",
+    trust: "Explicitly accept or revoke a documented native-harness limitation",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Preview or sync explicit native projection targets (--target, --all, --dry-run)",
     target: "List, select, create, or inspect execution targets",
@@ -548,7 +548,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
       if (!Number.isNaN(n) && n > 0) flags.workers = n;
       i += 2;
     } else if (arg.startsWith("-")) {
-      throw new Error(`Unknown run option '${arg}'. Operator execution accepts target identity, not provider, model, or credential overrides.`);
+      throw new Error(
+        `Unknown run option '${arg}'. Operator execution accepts target identity, not provider, model, or credential overrides.`,
+      );
     } else {
       taskParts.push(arg);
       i += 1;

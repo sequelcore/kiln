@@ -2,141 +2,54 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import readline from "node:readline";
-import { SessionManager } from "../wrapper/session-manager.js";
+import type { ContextArtifactCache, ExecutionCatalog } from "@kilnai/core";
 import {
-  createDefaultRegistry,
-  getRuntimeProviderAvailability,
-  isDirectApiProvider,
-} from "../wrapper/session-registry.js";
-import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
+  admitManagedAgentOrchestrationRequest,
+  buildManagedAgentFanOutOrchestrationRequest,
+  createSessionBuiltinToolOptions,
+  defineDeliberationLevelId,
+  formatProviderModelRouteCooldown,
+  GoalRunStore,
+  type ManagedAgentOrchestrationAdmissionLimits,
+  type ModelDeliberationCapabilities,
+  mapProviderModelRouteErrorToOutcome,
+  scoreComplexity,
+  type VerificationResult,
+  WorkItemStore,
+} from "@kilnai/core";
+import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
-  ProviderId,
-  SessionRequirements,
-  SessionMode,
-  WrapperConfig,
-  KilnPermissionPolicy,
-} from "../wrapper/index.js";
-import type { KilnAppConfig } from "../config.js";
-import { defaultBuildSystemPrompt } from "../config.js";
+  AttendedTrustedExecutionLeaseApprovalPort,
+  EffectiveTurnAuthoritySnapshot,
+  ManagedInvocationToolOptions,
+  RuntimeSessionTokenUsageReader,
+} from "@kilnai/runtime";
 import {
-  resolveModelFacingPermissionPolicy,
-} from "../config/model-facing-permission-policy.js";
-import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
-import {
-  findAgent,
-  loadAgentDefinitions,
-  type KilnAgentDefinition,
-} from "../application/agent-loader.js";
-import {
-  resolveAgentSkillContextCandidates,
-  withContextCandidates,
-} from "../application/agent-skill-context.js";
-import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
-import { withWorkGovernanceContext } from "../application/work-governance-context.js";
-import { resolveProjectRoot } from "../application/project-root-resolver.js";
-import { resolveProjectStateBinding } from "../application/project-state-root.js";
-import {
-  assertPrivateStateFileTargetSync,
-  ensurePrivateStateDirectorySync,
-} from "../application/private-project-state-filesystem.js";
-import { readKilnYamlFile } from "../kiln-yaml.js";
-import type { KilnDeliberationPolicyConfig, KilnModelTaskSuitabilityTask } from "../kiln-yaml-types.js";
-import {
-  computeEvalScore,
-  printContextGovernancePreview,
-  printReport,
-  summarizeContextGovernance,
-} from "../application/session-report.js";
-import { buildModuleSummaryArtifact, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
-import { buildCliCompletionContextArtifacts } from "../application/session-context-artifacts.js";
-import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
-import { resolveContinuationSessionId } from "../application/session-continuation.js";
-import { deriveSessionMetadata } from "../application/session-metadata.js";
-import { SessionHooks } from "../application/session-hooks.js";
-import { runSession } from "../application/run-session.js";
-import type {
-  RunSessionAttemptResult,
-  RunSessionRouteCandidate,
-} from "../application/run-session.js";
-import { createCanonicalRunSessionDispatcher } from "../application/canonical-run-session-dispatcher.js";
-import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
-import { captureOperatorExecutionCatalogSnapshot } from "../application/operator-turn-dispatch-composition.js";
-import {
-  buildRunJsonOutputEnvelope,
-  computeDelegationCapabilityGap,
-  createRunOutputController,
-  extractModelClassifiedTriggers,
-  computeManagedInvocationAuthorityNotes,
-  type CapabilityGapRecord,
-  type ManagedInvocationAuthorityNote,
-  type RunOutputController,
-  type RunOutputMode,
-} from "../application/run-output.js";
-import { buildCliVerifiedEfficiencyEvidence } from "../application/verified-efficiency-evidence.js";
-import {
-  TranscriptStore,
-} from "../wrapper/session-store.js";
+  attachManagedInvocationSessionEventSink,
+  discoverGuiCliOperatorModels,
+  discoverGuiDirectProviderModelDiscovery,
+  getProjectContextArtifactCache,
+  normalizeContextUsageProjection,
+  ProviderModelRouteHealthStore,
+  resolveAdHocManagedInvocationRouteProfile,
+  resolveManagedInvocationCallerIdentity,
+  runManagedAgentOrchestrationLifecycle,
+  withManagedAgentInvocationResourceProvider,
+  withManagedInvocationService,
+} from "@kilnai/runtime";
+import { findAgent, type KilnAgentDefinition, loadAgentDefinitions } from "../application/agent-loader.js";
+import { resolveAgentSkillContextCandidates, withContextCandidates } from "../application/agent-skill-context.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
-import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
-import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
-import type { PersistedSessionMeta } from "../wrapper/session-store.js";
-import type { ResumeOutcome } from "../wrapper/index.js";
-import { readGlobalConfig, readGlobalConfigSnapshot, readGlobalExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
-import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
-import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
-import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
-import { admittedCommunicationEvidence, resolveConfiguredCommunication } from "../config/communication-policy.js";
-import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
-import { createKilnConfigTools } from "../application/config-tools.js";
-import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { createProjectBoundedWorkAuthority } from "../application/bounded-work-authority-composition.js";
-import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
-import {
-  resolveManagedInvocationToolOptions,
-} from "../config/managed-agent-routes.js";
-import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
-import {
-  loadConfiguredBuiltinToolSurfaceOptions,
-  observeFormalVerificationCapability,
-  withProgressiveRuntimeToolProjection,
-} from "../config/builtin-tool-surface-config.js";
-import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
-import {
-  createCliTranscriptSessionTokenUsageReader,
-  createRuntimeSessionTurnBudgetFromGlobalConfig,
-} from "../application/session-turn-budget.js";
+import { createCanonicalRunSessionDispatcher } from "../application/canonical-run-session-dispatcher.js";
+import { createKilnConfigTools } from "../application/config-tools.js";
+import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import {
   createKilnRuntimeCallerIdentity,
   createKilnRuntimeManagedInvocationAttachment,
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
-import {
-  GoalRunStore,
-  WorkItemStore,
-  admitManagedAgentOrchestrationRequest,
-  buildManagedAgentFanOutOrchestrationRequest,
-  createSessionBuiltinToolOptions,
-  defineDeliberationLevelId,
-  type ManagedAgentOrchestrationAdmissionLimits,
-  type ModelDeliberationCapabilities,
-  VerificationResult,
-  formatProviderModelRouteCooldown,
-  mapProviderModelRouteErrorToOutcome,
-  scoreComplexity,
-} from "@kilnai/core";
-import {
-  attachManagedInvocationSessionEventSink,
-  ProviderModelRouteHealthStore,
-  discoverGuiCliOperatorModels,
-  discoverGuiDirectProviderModelDiscovery,
-  getProjectContextArtifactCache,
-  resolveAdHocManagedInvocationRouteProfile,
-  runManagedAgentOrchestrationLifecycle,
-  resolveManagedInvocationCallerIdentity,
-  withManagedAgentInvocationResourceProvider,
-  withManagedInvocationService,
-  normalizeContextUsageProjection,
-} from "@kilnai/runtime";
+import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
 import {
   managedInvocationPersistedTranscriptEventDrafts,
   operatorTranscriptSourceForEntry,
@@ -144,15 +57,91 @@ import {
   projectOperatorTranscriptEntryToDraft,
   toCanonicalSessionEventPersistedTranscriptEventDraft,
 } from "../application/operator-transcript-projection.js";
+import { captureOperatorExecutionCatalogSnapshot } from "../application/operator-turn-dispatch-composition.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import { buildModuleSummaryArtifact, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
+import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
+import {
+  buildRunJsonOutputEnvelope,
+  type CapabilityGapRecord,
+  computeDelegationCapabilityGap,
+  computeManagedInvocationAuthorityNotes,
+  createRunOutputController,
+  extractModelClassifiedTriggers,
+  type ManagedInvocationAuthorityNote,
+  type RunOutputController,
+  type RunOutputMode,
+} from "../application/run-output.js";
+import type { RunSessionAttemptResult, RunSessionRouteCandidate, runSession } from "../application/run-session.js";
+import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
+import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
 import { canonicalSessionEventsFromTranscript } from "../application/runtime-session-rehydration.js";
-import type { ContextArtifactCache } from "@kilnai/core";
-import type { ExecutionCatalog } from "@kilnai/core";
+import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
+import { buildCliCompletionContextArtifacts } from "../application/session-context-artifacts.js";
+import { resolveContinuationSessionId } from "../application/session-continuation.js";
+import { SessionHooks } from "../application/session-hooks.js";
+import { deriveSessionMetadata } from "../application/session-metadata.js";
+import {
+  computeEvalScore,
+  printContextGovernancePreview,
+  printReport,
+  summarizeContextGovernance,
+} from "../application/session-report.js";
+import {
+  createCliTranscriptSessionTokenUsageReader,
+  createRuntimeSessionTurnBudgetFromGlobalConfig,
+} from "../application/session-turn-budget.js";
+import { buildCliVerifiedEfficiencyEvidence } from "../application/verified-efficiency-evidence.js";
+import { withWorkGovernanceContext } from "../application/work-governance-context.js";
+import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
+import { admittedCommunicationEvidence, resolveConfiguredCommunication } from "../config/communication-policy.js";
+import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
+import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
+import {
+  type KilnGlobalConfig,
+  readGlobalConfig,
+  readGlobalConfigSnapshot,
+  readGlobalExecutionCatalog,
+} from "../config/global-config.js";
+import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
+import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
+import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import { resolveModelFacingPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
+import type { KilnAppConfig } from "../config.js";
+import { defaultBuildSystemPrompt } from "../config.js";
+import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
+import type { KilnDeliberationPolicyConfig, KilnModelTaskSuitabilityTask } from "../kiln-yaml-types.js";
+import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
-  ManagedInvocationToolOptions,
-  EffectiveTurnAuthoritySnapshot,
-  RuntimeSessionTokenUsageReader,
-} from "@kilnai/runtime";
-import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+  KilnPermissionPolicy,
+  ProviderId,
+  ResumeOutcome,
+  SessionContext,
+  SessionMode,
+  SessionRequirements,
+  WrapperConfig,
+} from "../wrapper/index.js";
+import { SessionManager } from "../wrapper/session-manager.js";
+import {
+  createDefaultRegistry,
+  getRuntimeProviderAvailability,
+  isDirectApiProvider,
+} from "../wrapper/session-registry.js";
+import type { PersistedSessionMeta } from "../wrapper/session-store.js";
+import { TranscriptStore } from "../wrapper/session-store.js";
 
 export interface RunFlags {
   readonly target?: string;
@@ -200,17 +189,8 @@ export const PLAN_POLICY: KilnPermissionPolicy = {
   approval: "untrusted",
   sandbox: "read-only",
   fileGovernance: {
-    denyGlobs: [
-      ".git/**",
-      "**/.git/**",
-      "node_modules/**",
-      "**/node_modules/**",
-    ],
-    allowGlobs: [
-      ".",
-      "./**",
-      "**",
-    ],
+    denyGlobs: [".git/**", "**/.git/**", "node_modules/**", "**/node_modules/**"],
+    allowGlobs: [".", "./**", "**"],
   },
   tools: [
     {
@@ -286,7 +266,8 @@ export const PLAN_POLICY: KilnPermissionPolicy = {
     {
       tool: "bash",
       action: "allow",
-      reason: "Native harnesses without dedicated read/grep/glob tools (e.g. Codex) have no other path to repository inspection. The command-pattern layer below restricts invocations to a read-only allowlist, matching how Claude Code, Codex, and opencode gate shell access by command shape rather than by tool identity.",
+      reason:
+        "Native harnesses without dedicated read/grep/glob tools (e.g. Codex) have no other path to repository inspection. The command-pattern layer below restricts invocations to a read-only allowlist, matching how Claude Code, Codex, and opencode gate shell access by command shape rather than by tool identity.",
     },
   ],
   commands: [
@@ -332,9 +313,7 @@ interface RunProviderModelDiscovery {
   readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
 }
 
-export type RunProviderModelAdmission =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly error: string };
+export type RunProviderModelAdmission = { readonly ok: true } | { readonly ok: false; readonly error: string };
 
 export function resolveRunProviderModelAdmission(input: {
   readonly provider: ProviderId | undefined;
@@ -393,8 +372,8 @@ function modelDiscoveryCanValidateProvider(provider: ProviderId | undefined): pr
 
 function requiresCliWrapperModelDiscovery(candidate: RunSessionRouteCandidate): boolean {
   return (
-    (candidate.provider === "claude" || candidate.provider === "codex" || candidate.provider === "opencode")
-    && (candidate.model?.trim().length ?? 0) > 0
+    (candidate.provider === "claude" || candidate.provider === "codex" || candidate.provider === "opencode") &&
+    (candidate.model?.trim().length ?? 0) > 0
   );
 }
 
@@ -415,9 +394,7 @@ export function resolveRunPermissionPolicy(
  * projection, not a second general-purpose policy engine. The evaluator keeps
  * its existing ordered last-match semantics within the resulting policy.
  */
-function composePlanPermissionCeiling(
-  configuredPermissions: KilnPermissionPolicy | undefined,
-): KilnPermissionPolicy {
+function composePlanPermissionCeiling(configuredPermissions: KilnPermissionPolicy | undefined): KilnPermissionPolicy {
   const configured = configuredPermissions ?? {};
   // PLAN_POLICY is the only source of plan grants. Configured rules can only
   // add prohibitions; conditional rules become prohibitions because this
@@ -450,16 +427,12 @@ function composePlanPermissionCeiling(
         ...(configuredFileGovernance?.denyGlobs ?? []),
         ...(configuredFileGovernance?.askGlobs ?? []),
       ],
-      askGlobs: [
-        ...(PLAN_POLICY.fileGovernance?.askGlobs ?? []),
-      ],
+      askGlobs: [...(PLAN_POLICY.fileGovernance?.askGlobs ?? [])],
       allowGlobs: [...(PLAN_POLICY.fileGovernance?.allowGlobs ?? [])],
     },
     // Plan is read-only for memory. Existing configured read grants remain
     // available; configured writes are attenuated away.
-    memory: configured.memory
-      ? { read: configured.memory.read, write: [] }
-      : undefined,
+    memory: configured.memory ? { read: configured.memory.read, write: [] } : undefined,
     // No configured allow/redact rule may turn plan into an egress grant.
     dataFirewall: denyDataFirewall,
     // Agent scopes are retained only as additional restrictions. In
@@ -476,10 +449,7 @@ function composePlanPermissionCeiling(
       fileGovernance: scope.fileGovernance
         ? {
             ...scope.fileGovernance,
-            denyGlobs: [
-              ...(scope.fileGovernance.denyGlobs ?? []),
-              ...(scope.fileGovernance.askGlobs ?? []),
-            ],
+            denyGlobs: [...(scope.fileGovernance.denyGlobs ?? []), ...(scope.fileGovernance.askGlobs ?? [])],
             askGlobs: [],
             allowGlobs: [],
           }
@@ -528,24 +498,29 @@ async function resolveAdmittedRunRouteCandidates(input: {
   }
   const rejectedReasons: string[] = [];
   const directCandidates = input.candidates.filter((candidate) => isDirectApiProvider(candidate.provider));
-  const directDiscovery = directCandidates.length > 0
-    ? await discoverGuiDirectProviderModelDiscovery({
-        ...getRuntimeProviderAvailability(input.registry),
-        ...Object.fromEntries(directCandidates.map((candidate) => [candidate.provider, true])),
-      }, {
-        ...process.env,
-        ...input.env,
-      })
-    : {};
+  const directDiscovery =
+    directCandidates.length > 0
+      ? await discoverGuiDirectProviderModelDiscovery(
+          {
+            ...getRuntimeProviderAvailability(input.registry),
+            ...Object.fromEntries(directCandidates.map((candidate) => [candidate.provider, true])),
+          },
+          {
+            ...process.env,
+            ...input.env,
+          },
+        )
+      : {};
   const wrapperCandidates = input.candidates.filter(requiresCliWrapperModelDiscovery);
-  const cliDiscovery = wrapperCandidates.length > 0
-    ? await discoverGuiCliOperatorModels({
-        ...getRuntimeProviderAvailability(input.registry),
-        claude: wrapperCandidates.some((candidate) => candidate.provider === "claude"),
-        codex: wrapperCandidates.some((candidate) => candidate.provider === "codex"),
-        opencode: wrapperCandidates.some((candidate) => candidate.provider === "opencode"),
-      })
-    : undefined;
+  const cliDiscovery =
+    wrapperCandidates.length > 0
+      ? await discoverGuiCliOperatorModels({
+          ...getRuntimeProviderAvailability(input.registry),
+          claude: wrapperCandidates.some((candidate) => candidate.provider === "claude"),
+          codex: wrapperCandidates.some((candidate) => candidate.provider === "codex"),
+          opencode: wrapperCandidates.some((candidate) => candidate.provider === "opencode"),
+        })
+      : undefined;
   const codexDiscovery = cliDiscovery?.codexDiscovery;
   const providerDiscovery: Record<string, RunProviderModelDiscovery | undefined> = {
     ...directDiscovery,
@@ -651,10 +626,7 @@ function formatRouteCandidate(candidate: RunSessionRouteCandidate): string {
   return candidate.model ? `${candidate.provider}/${candidate.model}` : candidate.provider;
 }
 
-function appendAgentInstructionsToSystemPrompt(
-  appConfig: KilnAppConfig,
-  agent?: KilnAgentDefinition,
-): KilnAppConfig {
+function appendAgentInstructionsToSystemPrompt(appConfig: KilnAppConfig, agent?: KilnAgentDefinition): KilnAppConfig {
   const instructions = renderAgentProfilePromptContext(agent);
   if (!instructions) {
     return appConfig;
@@ -693,16 +665,19 @@ function renderAgentProfilePromptContext(agent?: KilnAgentDefinition): string | 
     agent.instructionProfiles?.length ? `instructionProfiles: ${agent.instructionProfiles.join(", ")}` : undefined,
     agent.instructions ? "instructions:" : undefined,
     agent.instructions,
-  ].filter((line): line is string => Boolean(line)).join("\n");
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
 function parseSubmittedPlan(line: string): string | undefined {
   try {
     const parsed = JSON.parse(line) as Record<string, unknown>;
     if (parsed.kind === "tool_call_started") {
-      const payload = typeof parsed.payload === "object" && parsed.payload !== null
-        ? parsed.payload as Record<string, unknown>
-        : undefined;
+      const payload =
+        typeof parsed.payload === "object" && parsed.payload !== null
+          ? (parsed.payload as Record<string, unknown>)
+          : undefined;
       return payload ? extractSubmitPlan(payload) : undefined;
     }
     if (parsed.kind === "plan_submitted") {
@@ -717,15 +692,13 @@ function parseSubmittedPlan(line: string): string | undefined {
 function extractSubmitPlan(event: Record<string, unknown>): string | undefined {
   if (event.type !== "tool_use") return undefined;
 
-  const toolName = typeof event.name === "string"
-    ? event.name
-    : (typeof event.toolName === "string" ? event.toolName : undefined);
+  const toolName =
+    typeof event.name === "string" ? event.name : typeof event.toolName === "string" ? event.toolName : undefined;
 
   if (toolName !== "submit_plan") return undefined;
 
-  const input = typeof event.input === "object" && event.input !== null
-    ? event.input as Record<string, unknown>
-    : undefined;
+  const input =
+    typeof event.input === "object" && event.input !== null ? (event.input as Record<string, unknown>) : undefined;
   const plan = input?.plan;
   if (typeof plan === "string") {
     return plan;
@@ -742,16 +715,21 @@ function renderStructuredPlanSummary(input: unknown): string | undefined {
   if (!objective) {
     return undefined;
   }
-  const list = (value: unknown) => Array.isArray(value)
-    ? value.flatMap((entry) => typeof entry === "string" ? [entry.trim()] : []).filter((entry) => entry.length > 0)
-    : [];
-  const recommendation = plan.workGovernanceRecommendation
-    && typeof plan.workGovernanceRecommendation === "object"
-    && !Array.isArray(plan.workGovernanceRecommendation)
-    ? plan.workGovernanceRecommendation as Record<string, unknown>
-    : undefined;
+  const list = (value: unknown) =>
+    Array.isArray(value)
+      ? value.flatMap((entry) => (typeof entry === "string" ? [entry.trim()] : [])).filter((entry) => entry.length > 0)
+      : [];
+  const recommendation =
+    plan.workGovernanceRecommendation &&
+    typeof plan.workGovernanceRecommendation === "object" &&
+    !Array.isArray(plan.workGovernanceRecommendation)
+      ? (plan.workGovernanceRecommendation as Record<string, unknown>)
+      : undefined;
   const proposedWorkItems = Array.isArray(plan.proposedWorkItems)
-    ? plan.proposedWorkItems.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) as Record<string, unknown>[]
+    ? (plan.proposedWorkItems.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) as Record<
+        string,
+        unknown
+      >[])
     : [];
   const lines = [
     objective,
@@ -759,7 +737,9 @@ function renderStructuredPlanSummary(input: unknown): string | undefined {
     typeof recommendation?.posture === "string" ? `- posture: ${recommendation.posture}` : undefined,
     typeof recommendation?.workflowProfile === "string" ? `- workflow: ${recommendation.workflowProfile}` : undefined,
     typeof recommendation?.rationale === "string" ? `- governance rationale: ${recommendation.rationale}` : undefined,
-    typeof plan.sourceSpecificationId === "string" ? `- source specification: ${plan.sourceSpecificationId}` : undefined,
+    typeof plan.sourceSpecificationId === "string"
+      ? `- source specification: ${plan.sourceSpecificationId}`
+      : undefined,
     ...list(plan.clarificationRecordIds).map((clarification) => `- clarification: ${clarification}`),
     ...list(plan.affectedSurfaces).map((surface) => `- affected surface: ${surface}`),
     ...list(plan.nonGoals).map((goal) => `- non-goal: ${goal}`),
@@ -898,18 +878,56 @@ export function createCliRuntimeApprovalHandler(input: {
   if (input.outputMode !== "human" || !input.inputInteractive || !input.outputInteractive) {
     return undefined;
   }
-  const prompt = input.prompt ?? (async (description: string) => {
-    process.stdout.write(`\nApproval required: ${description}\n`);
-    return promptForConfirmation("Approve this action? [y/N]: ");
-  });
+  const prompt =
+    input.prompt ??
+    (async (description: string) => {
+      process.stdout.write(`\nApproval required: ${description}\n`);
+      return promptForConfirmation("Approve this action? [y/N]: ");
+    });
   return async (description) => {
     const approved = await prompt(description);
     return {
       approved,
-      reason: approved
-        ? "Approved by the interactive CLI operator."
-        : "Denied by the interactive CLI operator.",
+      reason: approved ? "Approved by the interactive CLI operator." : "Denied by the interactive CLI operator.",
     };
+  };
+}
+
+export function createCliAttendedTrustedExecutionLeaseApprovalPort(input: {
+  readonly outputMode: RunOutputMode;
+  readonly inputInteractive: boolean;
+  readonly outputInteractive: boolean;
+  readonly prompt?: (description: string) => Promise<boolean>;
+}): AttendedTrustedExecutionLeaseApprovalPort | undefined {
+  if (input.outputMode !== "human" || !input.inputInteractive || !input.outputInteractive) {
+    return undefined;
+  }
+  const prompt =
+    input.prompt ??
+    (async (description: string) => {
+      process.stdout.write(`\nTrusted execution approval required:\n${description}\n`);
+      return promptForConfirmation("Approve this exact invocation tree? [y/N]: ");
+    });
+  return {
+    approve: async (binding) => {
+      const approved = await prompt(
+        [
+          `Opaque local session capability: ${binding.localPrincipalId}`,
+          `Operator session: ${binding.operatorSessionId}`,
+          `Invocation tree: ${binding.invocationTreeId}`,
+          `Project: ${binding.projectRuntimeId}`,
+          `Composition revision: ${binding.compositionRevision}`,
+          `Harness and route: ${binding.harness} / ${binding.routeId}`,
+          `Profile ceiling: ${binding.profileCeiling}`,
+          `Allowed tools: ${binding.allowedToolNames.join(", ") || "none"}`,
+          `Effect ceiling: ${binding.effectCeiling.operation}; boundaries=${binding.effectCeiling.boundaries.join(",") || "none"}; consequences=${binding.effectCeiling.consequences.join(",") || "none"}; egress=${binding.effectCeiling.dataEgress}; identity=${binding.effectCeiling.identityUse}; reversibility=${binding.effectCeiling.reversibility}; idempotency=${binding.effectCeiling.idempotency}`,
+          `Policy digest: ${binding.policyDigest}`,
+          `Enforcement revision: ${binding.enforcementRevision}`,
+          `Expires at: ${binding.expiresAt}`,
+        ].join("\n"),
+      );
+      return approved ? { status: "approved", authorizedBy: "Interactive CLI operator" } : { status: "denied" };
+    },
   };
 }
 
@@ -985,10 +1003,13 @@ export async function runCommand(
   const resolvedKilnConfig = await loadKilnConfig(cwd, { projectStateBinding });
   const mcpResolution = loadResolvedKilnMcpConfiguration(cwd, { projectStateBinding });
   if (mcpResolution.diagnostics.length > 0) {
-    throw new Error(`Canonical MCP configuration is invalid: ${mcpResolution.diagnostics.map((item) => item.code).join(", ")}`);
+    throw new Error(
+      `Canonical MCP configuration is invalid: ${mcpResolution.diagnostics.map((item) => item.code).join(", ")}`,
+    );
   }
-  const admittedMcpServers = Object.values(mcpResolution.servers).filter((server) =>
-    server.enabled && server.admission?.state === "admitted");
+  const admittedMcpServers = Object.values(mcpResolution.servers).filter(
+    (server) => server.enabled && server.admission?.state === "admitted",
+  );
   const resolvedAppConfig: KilnAppConfig = resolvedKilnConfig
     ? { ...appConfig, kilnYaml: resolvedKilnConfig }
     : appConfig;
@@ -1027,7 +1048,8 @@ export async function runCommand(
     throw error;
   }
   if (configuredRouteCandidates.length === 0) {
-    const errorMessage = "No execution targets are configured. Configure targetCatalog and targetRouting before running a session.";
+    const errorMessage =
+      "No execution targets are configured. Configure targetCatalog and targetRouting before running a session.";
     runOutput.writeErrorLine(`Error: ${errorMessage}`);
     emitRunFailureOutput(runOutput, {
       answer: "",
@@ -1050,17 +1072,16 @@ export async function runCommand(
   if (!executionCatalog) {
     throw new Error("A canonical execution catalog is required for CLI run.");
   }
-  const managedRouteConfig = globalConfig
-    ? { ...globalConfig, executionCatalog }
-    : undefined;
+  const managedRouteConfig = globalConfig ? { ...globalConfig, executionCatalog } : undefined;
   const preferredProvider = selectedExecutionRoute.provider;
   const mode = resolveMode();
   if (
-    flags.requestedAuthority
-    && flags.requestedAuthority !== "auto"
-    && (!preferredProvider || !isDirectApiProvider(preferredProvider))
+    flags.requestedAuthority &&
+    flags.requestedAuthority !== "auto" &&
+    (!preferredProvider || !isDirectApiProvider(preferredProvider))
   ) {
-    const errorMessage = "--authority is only supported for direct API providers in CLI run. Use --plan for harness read-only planning.";
+    const errorMessage =
+      "--authority is only supported for direct API providers in CLI run. Use --plan for harness read-only planning.";
     runOutput.writeErrorLine(errorMessage);
     emitRunFailureOutput(runOutput, {
       answer: "",
@@ -1133,7 +1154,10 @@ export async function runCommand(
     "managed-direct-tool-action-claims.sqlite",
     "managed-direct-model-round-action-claims.sqlite",
   ]) {
-    assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, join(projectStateBinding.runtimePath, fileName));
+    assertPrivateStateFileTargetSync(
+      projectStateBinding.projectStateRoot,
+      join(projectStateBinding.runtimePath, fileName),
+    );
   }
   const contextArtifactCachePath = join(projectStateBinding.cachePath, "context-artifacts.json");
   ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.cachePath);
@@ -1177,16 +1201,15 @@ export async function runCommand(
   const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
   cleanupRegistry.register(async () => managedDirectToolActionClaims.close());
   cleanupRegistry.register(async () => managedDirectModelRoundActionClaims.close());
-  const continuedMeta = continuationSessionId
-    ? await transcriptStore.readMeta(continuationSessionId)
-    : null;
-  const sessionTokenUsageReader = executionOptions.sessionTokenUsageReader ?? createCliTranscriptSessionTokenUsageReader(transcriptStore);
+  const continuedMeta = continuationSessionId ? await transcriptStore.readMeta(continuationSessionId) : null;
+  const sessionTokenUsageReader =
+    executionOptions.sessionTokenUsageReader ?? createCliTranscriptSessionTokenUsageReader(transcriptStore);
   const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(globalConfig, sessionTokenUsageReader);
   const resumeStrategyFeedback = continuationSessionId
     ? await inferResumeStrategyFeedback(transcriptStore, preferredProvider)
     : undefined;
 
-  let context;
+  let context: SessionContext;
   try {
     context = await manager.prepare(
       task,
@@ -1246,16 +1269,18 @@ export async function runCommand(
   const directRouteHealthStore = selectedRouteCandidates.some((candidate) => isDirectApiProvider(candidate.provider))
     ? new ProviderModelRouteHealthStore({ kilnHome: projectStateBinding.kilnHome })
     : undefined;
-  const admittedRoutes = selectedRouteCandidates.length > 0
-    ? await resolveAdmittedRunRouteCandidates({
-        candidates: selectedRouteCandidates,
-        registry,
-        cwd,
-        env,
-        routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore({ kilnHome: projectStateBinding.kilnHome }),
-        canonicalExecution: true,
-      })
-    : { candidates: [], rejectedReasons: [], routeCapabilities: new Map() };
+  const admittedRoutes =
+    selectedRouteCandidates.length > 0
+      ? await resolveAdmittedRunRouteCandidates({
+          candidates: selectedRouteCandidates,
+          registry,
+          cwd,
+          env,
+          routeHealthStore:
+            directRouteHealthStore ?? new ProviderModelRouteHealthStore({ kilnHome: projectStateBinding.kilnHome }),
+          canonicalExecution: true,
+        })
+      : { candidates: [], rejectedReasons: [], routeCapabilities: new Map() };
   if (configuredRouteCandidates.length > 0 && admittedRoutes.candidates.length === 0) {
     const errorMessage = "No configured provider routes are currently available.";
     runOutput.writeErrorLine(`Error: ${errorMessage}`);
@@ -1333,24 +1358,30 @@ export async function runCommand(
   cleanupRegistry.register(async () => boundedWork.close());
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const runToolProjection = resolveRunBuiltinToolProjection(flags.plan === true);
-  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
-    ...configuredBuiltinToolOptions,
-    workItemStore,
-    goalRunStore,
-    additionalTools: [
-      ...(configuredBuiltinToolOptions.additionalTools ?? []),
-      ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+  let builtinToolOptions = createSessionBuiltinToolOptions(
+    withProgressiveRuntimeToolProjection(
+      {
+        ...configuredBuiltinToolOptions,
         workItemStore,
         goalRunStore,
-        ownerSessionId: effectiveSessionId,
-        managedInvocationProofResolver: managedInvocationProofs.resolve,
-        boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
-        boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
-        boundedWorkGoalCloseout: boundedWork.closeoutGoal,
-      }),
-    ],
-  }, runToolProjection.profile, runToolProjection.alwaysOnTools));
+        additionalTools: [
+          ...(configuredBuiltinToolOptions.additionalTools ?? []),
+          ...createKilnConfigTools(cwd),
+          ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+            workItemStore,
+            goalRunStore,
+            ownerSessionId: effectiveSessionId,
+            managedInvocationProofResolver: managedInvocationProofs.resolve,
+            boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
+            boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
+            boundedWorkGoalCloseout: boundedWork.closeoutGoal,
+          }),
+        ],
+      },
+      runToolProjection.profile,
+      runToolProjection.alwaysOnTools,
+    ),
+  );
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const operatorEconomicAuthority = runtimeAppConfig.managedInvocation
@@ -1380,9 +1411,7 @@ export async function runCommand(
   });
   cleanupRegistry.register(async () => operatorEconomicAuthority?.close());
   const managedInvocation = runtimeAppConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
-  const managedInvocationWithService = managedInvocation
-    ? withManagedInvocationService(managedInvocation)
-    : undefined;
+  const managedInvocationWithService = managedInvocation ? withManagedInvocationService(managedInvocation) : undefined;
   managedInvocationProofs.bind(managedInvocationWithService);
   const managedInvocationAttachment = managedInvocationWithService
     ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService)
@@ -1394,10 +1423,12 @@ export async function runCommand(
   });
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
-    managedInvocationWithService ? {
-      service: managedInvocationWithService.invocationService,
-      parentSessionId: sessionId,
-    } : undefined,
+    managedInvocationWithService
+      ? {
+          service: managedInvocationWithService.invocationService,
+          parentSessionId: sessionId,
+        }
+      : undefined,
   );
 
   // Compute once: is the parent session missing a delegation surface that
@@ -1471,9 +1502,11 @@ export async function runCommand(
             unregisterWorkerSignalHandlers();
           }
           if (cleanupErrors.length > 0) {
-            runOutput.writeErrorLine(`Error: Parallel worker cleanup failed: ${cleanupErrors
-              .map((error) => error instanceof Error ? error.message : String(error))
-              .join("; ")}`);
+            runOutput.writeErrorLine(
+              `Error: Parallel worker cleanup failed: ${cleanupErrors
+                .map((error) => (error instanceof Error ? error.message : String(error)))
+                .join("; ")}`,
+            );
           }
         })();
       }
@@ -1503,28 +1536,30 @@ export async function runCommand(
     process.on("SIGTERM", workerSigtermShutdown);
     workerSignalHandlersRegistered = true;
     try {
-      workerTranscriptInit = transcriptStore.init(sessionId, {
-        kilnSessionId: sessionId,
-        provider: preferredProvider ?? "managed-fan-out",
-        title: initialMetadata.title,
-        summary: initialMetadata.summary,
-        tags: initialMetadata.tags,
-        task,
-        startedAt,
-        resumeStrategy: context.resumeStrategy,
-        resumeFeedback: context.resumeFeedback,
-        sessionLedger: {
-          currentPhase: "parallel-workers",
-          resumedFrom: continuationSessionId,
-          workingDirectory: context.workingDirectory,
-          worktreePath: context.worktreePath,
-        },
-        exactArtifacts: context.projectedContext.blocks
-          .filter((block) => block.kind === "artifact")
-          .map((block) => block.content),
-      }).then(() => {
-        workerTranscriptInitialized = true;
-      });
+      workerTranscriptInit = transcriptStore
+        .init(sessionId, {
+          kilnSessionId: sessionId,
+          provider: preferredProvider ?? "managed-fan-out",
+          title: initialMetadata.title,
+          summary: initialMetadata.summary,
+          tags: initialMetadata.tags,
+          task,
+          startedAt,
+          resumeStrategy: context.resumeStrategy,
+          resumeFeedback: context.resumeFeedback,
+          sessionLedger: {
+            currentPhase: "parallel-workers",
+            resumedFrom: continuationSessionId,
+            workingDirectory: context.workingDirectory,
+            worktreePath: context.worktreePath,
+          },
+          exactArtifacts: context.projectedContext.blocks
+            .filter((block) => block.kind === "artifact")
+            .map((block) => block.content),
+        })
+        .then(() => {
+          workerTranscriptInitialized = true;
+        });
       await workerTranscriptInit;
       await runParallelWorkers(appConfig, task, flags, workerCount, managedInvocationWithService, {
         ...executionOptions,
@@ -1596,7 +1631,7 @@ export async function runCommand(
     builtinToolOptions,
     managedInvocation: managedInvocationWithTranscriptSink,
     boundedWork: boundedWork.surface,
-    runtimeExecutionMode: flags.plan ? "plan" as const : "execute" as const,
+    runtimeExecutionMode: flags.plan ? ("plan" as const) : ("execute" as const),
     ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
     model: effectiveModel,
     requestedAuthority: flags.requestedAuthority,
@@ -1618,21 +1653,36 @@ export async function runCommand(
     inputInteractive: process.stdin.isTTY === true,
     outputInteractive: process.stdout.isTTY === true,
   });
+  const attendedTrustedExecutionApprovalPort = createCliAttendedTrustedExecutionLeaseApprovalPort({
+    outputMode: runOutput.mode,
+    inputInteractive: process.stdin.isTTY === true,
+    outputInteractive: process.stdout.isTTY === true,
+  });
   const runAbortController = new AbortController();
+  const configurationRevision = readRuntimeConfigurationRevision(cwd);
   const canonicalRunDispatcher = createCanonicalRunSessionDispatcher({
     catalog: executionCatalog,
     cwd,
     executionId: sessionId,
     routeId: selectedExecutionRoute.routeId,
-    configurationRevision: readRuntimeConfigurationRevision(cwd),
+    configurationRevision,
     authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
     sessionTurnBudget,
-    captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
-      projectPath: cwd,
-      readConfigSnapshot: readGlobalConfigSnapshot,
-      readConfigurationRevision: readRuntimeConfigurationRevision,
-      readExecutionCatalog: readGlobalExecutionCatalog,
-    }),
+    captureCatalogSnapshot: () =>
+      captureOperatorExecutionCatalogSnapshot({
+        projectPath: cwd,
+        readConfigSnapshot: readGlobalConfigSnapshot,
+        readConfigurationRevision: readRuntimeConfigurationRevision,
+        readExecutionCatalog: readGlobalExecutionCatalog,
+      }),
+    ...(attendedTrustedExecutionApprovalPort === undefined
+      ? {}
+      : {
+          attendedTrustedExecution: {
+            projectRuntimeId: projectStateBinding.projectRuntimeId,
+            approvalPort: attendedTrustedExecutionApprovalPort,
+          },
+        }),
   });
   cleanupRegistry.register(async () => canonicalRunDispatcher.close());
   let runtimeCleanup: Promise<void> | undefined;
@@ -1685,15 +1735,15 @@ export async function runCommand(
       output: runOutput,
       operatorAdoption: {
         persist: async (event) => {
-          await transcriptStore.appendManyNext(
-            event.kilnSessionId,
-            [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
-          );
+          await transcriptStore.appendManyNext(event.kilnSessionId, [
+            toCanonicalSessionEventPersistedTranscriptEventDraft(event),
+          ]);
         },
-        replayCanonicalSessionEvents: async (canonicalSessionId) => canonicalSessionEventsFromTranscript(
-          await transcriptStore.readTranscript(canonicalSessionId),
-          canonicalSessionId,
-        ),
+        replayCanonicalSessionEvents: async (canonicalSessionId) =>
+          canonicalSessionEventsFromTranscript(
+            await transcriptStore.readTranscript(canonicalSessionId),
+            canonicalSessionId,
+          ),
       },
       ...(requestApproval ? { requestApproval } : {}),
     });
@@ -1751,13 +1801,15 @@ export async function runCommand(
   // (line ~1225) handles the surface-absent case. Post-session, we can also
   // detect the present-but-unused case using the model's task classification
   // from the transcript and the child-dispatched flag from the event loop.
-  const postSessionCapabilityGap: CapabilityGapRecord | undefined = capabilityGap ?? computeDelegationCapabilityGap({
-    defaultPosture: resolvedKilnConfig?.workGovernance?.defaultPosture,
-    requireDelegationFor: resolvedKilnConfig?.workGovernance?.requireDelegationFor,
-    managedInvocationAvailable: managedInvocation !== undefined,
-    classifiedTriggers: extractModelClassifiedTriggers(transcript),
-    childDispatched: managedChildDispatched,
-  });
+  const postSessionCapabilityGap: CapabilityGapRecord | undefined =
+    capabilityGap ??
+    computeDelegationCapabilityGap({
+      defaultPosture: resolvedKilnConfig?.workGovernance?.defaultPosture,
+      requireDelegationFor: resolvedKilnConfig?.workGovernance?.requireDelegationFor,
+      managedInvocationAvailable: managedInvocation !== undefined,
+      classifiedTriggers: extractModelClassifiedTriggers(transcript),
+      childDispatched: managedChildDispatched,
+    });
 
   // Risk C: emit operator diagnostic when read_only run has managed invocation
   // surface attached (managed_agent.cancel is denied by read_only authority).
@@ -1784,16 +1836,16 @@ export async function runCommand(
   });
   if (communicationResolution && runOutput.mode === "human") {
     runOutput.writeTelemetryLine(
-      `[kiln] Communication: detail=${communicationResolution.responseDetail.status}/${communicationResolution.responseDetail.mechanism}`
-      + ` profile=${communicationResolution.interactionProfile.status}/${communicationResolution.interactionProfile.mechanism}`
-      + ` locale=${communicationResolution.locale.status}/${communicationResolution.locale.mechanism}`
-      + ` required=${communicationResolution.requiredContent.status}/${communicationResolution.requiredContent.mechanism}`
-      + ` artifact=${communicationResolution.artifactContract.status}/${communicationResolution.artifactContract.mechanism}`
-      + ` skills=${communicationResolution.responseSkills.status}/${communicationResolution.responseSkills.mechanism}`
-      + ` evidence=${communicationResolution.capabilityEvidence?.sourceRevision ?? "none"}`
-      + (communicationResolution.semanticLoss.length > 0
-        ? ` semantic-loss=${communicationResolution.semanticLoss.join("; ")}`
-        : ""),
+      `[kiln] Communication: detail=${communicationResolution.responseDetail.status}/${communicationResolution.responseDetail.mechanism}` +
+        ` profile=${communicationResolution.interactionProfile.status}/${communicationResolution.interactionProfile.mechanism}` +
+        ` locale=${communicationResolution.locale.status}/${communicationResolution.locale.mechanism}` +
+        ` required=${communicationResolution.requiredContent.status}/${communicationResolution.requiredContent.mechanism}` +
+        ` artifact=${communicationResolution.artifactContract.status}/${communicationResolution.artifactContract.mechanism}` +
+        ` skills=${communicationResolution.responseSkills.status}/${communicationResolution.responseSkills.mechanism}` +
+        ` evidence=${communicationResolution.capabilityEvidence?.sourceRevision ?? "none"}` +
+        (communicationResolution.semanticLoss.length > 0
+          ? ` semantic-loss=${communicationResolution.semanticLoss.join("; ")}`
+          : ""),
     );
   }
 
@@ -1807,9 +1859,7 @@ export async function runCommand(
         await directRouteHealthStore.recordOutcome({
           providerId: attempt.providerId,
           modelId: attempt.model,
-          outcome: attempt.succeeded
-            ? { type: "ok" }
-            : mapProviderModelRouteErrorToOutcome(errorMessage),
+          outcome: attempt.succeeded ? { type: "ok" } : mapProviderModelRouteErrorToOutcome(errorMessage),
           ...(attempt.succeeded ? {} : { errorMessage }),
         });
       } catch (error) {
@@ -1820,9 +1870,7 @@ export async function runCommand(
 
   try {
     for (const entry of transcript) {
-      const timestamp = "ts" in entry && typeof entry.ts === "string"
-        ? entry.ts
-        : new Date().toISOString();
+      const timestamp = "ts" in entry && typeof entry.ts === "string" ? entry.ts : new Date().toISOString();
       const eventId = randomUUID();
       const draft = projectOperatorTranscriptEntryToDraft({
         eventId,
@@ -1831,10 +1879,7 @@ export async function runCommand(
         event: entry.event,
         source: operatorTranscriptSourceForEntry(entry.event, "cli", "run-command"),
       });
-      await transcriptStore.appendManyNext(
-        sessionId,
-        [draft, ...projectGovernanceTranscriptEventDrafts(draft)],
-      );
+      await transcriptStore.appendManyNext(sessionId, [draft, ...projectGovernanceTranscriptEventDrafts(draft)]);
     }
   } catch {
     // fail-open
@@ -1859,9 +1904,7 @@ export async function runCommand(
     }
   }
 
-  const submittedPlan = flags.plan
-    ? await readSubmittedPlanFromTranscript(cwd, sessionId)
-    : undefined;
+  const submittedPlan = flags.plan ? await readSubmittedPlanFromTranscript(cwd, sessionId) : undefined;
 
   if (sessionSucceeded) {
     const completedAt = new Date().toISOString();
@@ -1928,7 +1971,6 @@ export async function runCommand(
     } catch {
       // fail-open
     }
-
   }
 
   try {
@@ -2072,8 +2114,8 @@ export async function runCommand(
     sessionId,
     turnId: sessionId,
     observedAt: new Date().toISOString(),
-    providerId: routeIsAggregate ? "multi-route" : successfulProviderId ?? preferredProvider ?? "unknown",
-    modelId: routeIsAggregate ? "multiple" : successfulModelId ?? effectiveModel ?? "unknown",
+    providerId: routeIsAggregate ? "multi-route" : (successfulProviderId ?? preferredProvider ?? "unknown"),
+    modelId: routeIsAggregate ? "multiple" : (successfulModelId ?? effectiveModel ?? "unknown"),
     inputTokens,
     outputTokens,
     cacheReadTokens,
@@ -2093,11 +2135,9 @@ export async function runCommand(
       ? {
           verificationResults: verificationResult.checks.map((check, index) => ({
             verificationResultId: `cli-verification-${index + 1}`,
-            status: check.passed ? "passed" as const : "failed" as const,
+            status: check.passed ? ("passed" as const) : ("failed" as const),
             method: "deterministic",
-            evidenceUris: [
-              `kiln://sessions/${encodeURIComponent(sessionId)}/verification/${index + 1}`,
-            ],
+            evidenceUris: [`kiln://sessions/${encodeURIComponent(sessionId)}/verification/${index + 1}`],
           })),
         }
       : {}),
@@ -2111,7 +2151,8 @@ export async function runCommand(
     durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
     verificationPassed: verificationResult?.passed,
   };
-  const terminalPhase = verificationResult?.passed === false ? "verification_failed" as const : "completed" as const;
+  const terminalPhase =
+    verificationResult?.passed === false ? ("verification_failed" as const) : ("completed" as const);
 
   try {
     await transcriptStore.finalize(sessionId, {
@@ -2395,11 +2436,13 @@ function resolveParallelWorkerAdmissionLimits(
 ): ManagedAgentOrchestrationAdmissionLimits {
   const lifecycleRoutes = managedInvocation.routes.filter((route) => {
     const profile = resolveAdHocManagedInvocationRouteProfile(route, "foundation-apply-approved-writes");
-    return profile !== undefined
-      && route.createAdapter !== undefined
-      && profile.workingDirectory.mode === "isolated-worktree"
-      && profile.workingDirectoryLease !== undefined
-      && route.capability.adapter.kind !== "direct-provider";
+    return (
+      profile !== undefined &&
+      route.createAdapter !== undefined &&
+      profile.workingDirectory.mode === "isolated-worktree" &&
+      profile.workingDirectoryLease !== undefined &&
+      route.capability.adapter.kind !== "direct-provider"
+    );
   });
   const hasSingleLifecycleRoute = lifecycleRoutes.length === 1;
   const complexity = scoreComplexity({ messageText: task, toolCount: 0, turnDepth: 1 }).class;
@@ -2407,11 +2450,8 @@ function resolveParallelWorkerAdmissionLimits(
     maxChildren: appConfig.kilnYaml?.parallelWorkers ?? workerCount,
     routeHealth: hasSingleLifecycleRoute ? "available" : "unavailable",
     workspace: hasSingleLifecycleRoute ? "available" : "unavailable",
-    taskRisk: complexity === "complex" || complexity === "expert"
-      ? "high"
-      : complexity === "moderate"
-        ? "medium"
-        : "low",
+    taskRisk:
+      complexity === "complex" || complexity === "expert" ? "high" : complexity === "moderate" ? "medium" : "low",
   };
 }
 
@@ -2432,9 +2472,13 @@ export async function runParallelWorkers(
     executionOptions.effectiveTurnAuthority,
   );
   if (!parentAuthorityResolution.ok || !parentAuthorityResolution.callerIdentity) {
-    console.error(`Error: ${parentAuthorityResolution.ok
-      ? "Parallel worker fan-out requires an admitted parent authority."
-      : parentAuthorityResolution.reason}.`);
+    console.error(
+      `Error: ${
+        parentAuthorityResolution.ok
+          ? "Parallel worker fan-out requires an admitted parent authority."
+          : parentAuthorityResolution.reason
+      }.`,
+    );
     exitRunCommand(1, executionOptions);
   }
   const managedInvocationWithService = withManagedInvocationService(managedInvocation);

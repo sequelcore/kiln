@@ -21,11 +21,13 @@ import type {
 } from "@kilnai/runtime";
 import type { DirectProviderCredentialBinding } from "../../../cli/src/wrapper/direct-provider-adapter-factory.js";
 import {
+  KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   describeManagedAgentProviderLive,
   expectManagedAgentLiveFilesystemAndEvidence,
   makeManagedAgentLiveCapabilitySnapshotInput,
+  requireManagedAgentLiveEnvironment,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 
@@ -45,7 +47,7 @@ describeManagedAgentProviderLive(
           ].join("\n"),
         },
       }, async (workspace) => {
-        const model = process.env.KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL ?? "gpt-5.5";
+        const model = requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL);
         const adapter = await createManagedDirectProviderAdapterFactory({
           builtinToolOptions: createSessionBuiltinToolOptions(),
           runtimeToolActionClaims: createLiveToolActionStore(),
@@ -136,7 +138,7 @@ describeManagedAgentProviderLive(
           "proof.txt": "before\n",
         },
       }, async (workspace) => {
-        const model = process.env.KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL ?? "gpt-5.5";
+        const model = requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL);
         const adapter = await createManagedDirectProviderAdapterFactory({
           builtinToolOptions: createSessionBuiltinToolOptions(),
           runtimeToolActionClaims: createLiveToolActionStore(),

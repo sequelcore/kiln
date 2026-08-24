@@ -1,66 +1,61 @@
 import type {
-  ExecutionBillingMode,
+  AdmittedExecutionRoute,
   ArtifactResourceStore,
+  AuditLog,
+  AuthorityDescriptor,
   AuxiliaryModalityRoute,
-  MultimodalArtifact,
-  MultimodalCapability,
-  MultimodalTransportModality,
-  MultimodalTransformCandidate,
-  ModelRoutingRationale,
-  ModelRoutingRankingEvidence,
-  ProviderAdapter,
+  Capability,
+  CommunicationResolution,
   ContentPart,
-  ToolDefinition,
-  ToolChoiceOption,
+  ContextAuditEntry,
+  ConversationToolResultProjectionPolicy,
   DeliberationIntent,
   DeliberationResolution,
   DeliberationSource,
-  ModelDeliberationCapabilities,
-  ToolCall,
+  EffectiveTurnAuthoritySnapshot,
+  EventBus,
+  ExecutionBillingMode,
+  ExecutionSessionBindingEvidence,
+  KilnMcpClient,
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityProfile,
   ManagedAgentInvocationContextMode,
   ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
-  SessionExecutionScope,
-  SessionTurnOutcome,
-  ConversationToolResultProjectionPolicy,
+  ModelCapabilityRegistry,
+  ModelCommunicationCapabilities,
+  ModelDeliberationCapabilities,
+  ModelRouter,
+  ModelRoutingRankingEvidence,
+  ModelRoutingRationale,
+  MultimodalArtifact,
+  MultimodalCapability,
+  MultimodalTransformCandidate,
+  MultimodalTransportModality,
   OperatorAdoptionDecisionAuthority,
-  TurnTemporalContext,
+  ProviderAdapter,
+  ProviderRequestEvidence,
   ProviderTransportObserver,
   ProviderTransportWatchdog,
-  ExecutionSessionBindingEvidence,
-  CommunicationResolution,
+  RateLimiter,
   ResolvedCommunicationIntent,
-  ModelCommunicationCapabilities,
-  EffectiveTurnAuthoritySnapshot,
-  AdmittedExecutionRoute,
-} from "@kilnai/core";
-import type { ProviderRequestEvidence } from "@kilnai/core";
-import type { KilnMcpClient } from "@kilnai/core";
-import type { EventBus } from "@kilnai/core";
-import type { ContextAuditEntry } from "@kilnai/core";
-import type {
-  Capability,
-  ToolAuthorizer,
-  AuthorityDescriptor,
   ResolvedInvocationEffect,
+  SessionExecutionScope,
+  SessionTurnOutcome,
+  ToolAuthorizer,
+  ToolCache,
+  ToolCall,
+  ToolChoiceOption,
+  ToolDefinition,
+  ToolResultSanitizer,
+  TurnTemporalContext,
 } from "@kilnai/core";
-import type { AuditLog } from "@kilnai/core";
-import type { ToolResultSanitizer } from "@kilnai/core";
-import type { RateLimiter } from "@kilnai/core";
-import type { ToolCache } from "@kilnai/core";
-import type { ModelRouter } from "@kilnai/core";
-import type { ModelCapabilityRegistry } from "@kilnai/core";
-import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
+import type { ManagedAttendedTrustedExecutionContext } from "../agents/managed-invocation/attended-trusted-execution.js";
 import type { ManagedExternalInvocationActionClaimContext } from "../agents/managed-invocation/external-invocation-action-claim.js";
-import type { EffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
-import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-authority.js";
-import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
-import type { RuntimeSession } from "./runtime-session.js";
-import type { RuntimeFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
-import type { RuntimeConfigurationRevisionSnapshot } from "./runtime-configuration-revision-pin.js";
+import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
+import type { AttendedTrustedExecutionLeaseSessionAuthority } from "../execution-kernel/attended-trusted-execution-lease-session-authority.js";
+import type { RuntimeMediaActionClaimContext } from "../execution-kernel/runtime-media-action-claim.js";
 import type {
   RuntimeModelRoundActionClaimStore,
   RuntimeModelRoundAdmissionReceipt,
@@ -68,7 +63,12 @@ import type {
   RuntimeModelRoundDispatchState,
 } from "../execution-kernel/runtime-model-round-action-claim.js";
 import type { RuntimeToolActionClaimsContext } from "../execution-kernel/runtime-tool-action-claim.js";
-import type { RuntimeMediaActionClaimContext } from "../execution-kernel/runtime-media-action-claim.js";
+import type { RuntimeFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
+import type { EffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
+import type { RuntimeConfigurationRevisionSnapshot } from "./runtime-configuration-revision-pin.js";
+import type { RuntimeSession } from "./runtime-session.js";
+import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-authority.js";
+import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 
 export type {
   EffectiveTurnAuthorityCompleteness,
@@ -110,19 +110,18 @@ export interface RuntimeBuiltinToolExecutionContext {
   /** Formal-verification facts for this exact work-item execution scope only. */
   readonly formalVerificationObservations?: readonly RuntimeFormalVerificationObservation[];
   readonly abortSignal?: AbortSignal;
-  readonly emitOutput?: (output: {
-    readonly stream: "stdout" | "stderr";
-    readonly delta: string;
-  }) => void;
+  readonly emitOutput?: (output: { readonly stream: "stdout" | "stderr"; readonly delta: string }) => void;
   readonly sandbox?: unknown;
   readonly allowedToolNames?: readonly string[];
   readonly authority?: AuthorityDescriptor;
+  /** Process-local attended authority evidence; never persisted or cloned. */
+  readonly attendedTrustedExecution?: ManagedAttendedTrustedExecutionContext;
+  /** Process-local attended session owner; forwarded without consumption. */
+  readonly attendedTrustedExecutionSessionAuthority?: AttendedTrustedExecutionLeaseSessionAuthority;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   /** Runtime-owned A1 adoption authority; never derived from tool input. */
   readonly operatorAdoptionDecision?: OperatorAdoptionDecisionAuthority;
-  readonly requestApproval?: (
-    description: string,
-  ) => Promise<{ approved: boolean; reason?: string }>;
+  readonly requestApproval?: (description: string) => Promise<{ approved: boolean; reason?: string }>;
 }
 
 export type RuntimeBuiltinToolExecutor = (
@@ -345,6 +344,10 @@ export interface PerCallToolConfig {
   readonly executionScope?: SessionExecutionScope;
   /** Credential material resolved after the dispatch fence. */
   readonly executionCredential?: unknown;
+  /** Process-local attended authority evidence; never persisted or cloned. */
+  readonly attendedTrustedExecution?: ManagedAttendedTrustedExecutionContext;
+  /** Process-local attended session owner; forwarded without consumption. */
+  readonly attendedTrustedExecutionSessionAuthority?: AttendedTrustedExecutionLeaseSessionAuthority;
   readonly workingDirectory?: string;
   /** Sandbox policy and validators applied to builtin tool execution for this call. */
   readonly sandbox?: unknown;
@@ -423,9 +426,7 @@ export interface RuntimeProviderTransportConfig {
   readonly observer?: ProviderTransportObserver;
 }
 
-export type RuntimeToolCallMetadataResolver = (
-  input: Record<string, unknown>,
-) => Record<string, unknown> | undefined;
+export type RuntimeToolCallMetadataResolver = (input: Record<string, unknown>) => Record<string, unknown> | undefined;
 
 export type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";
 export type DangerousCommandAction = "allow" | "ask" | "deny";

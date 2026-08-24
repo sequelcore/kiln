@@ -14,14 +14,6 @@ export type {
   SelfAuditOptions,
 } from "./self-audit.js";
 export { SelfAudit } from "./self-audit.js";
-export type {
-  TrustedExecutionAuthorizationRecord,
-  TrustedExecutionHarness,
-} from "./trusted-execution-authorization-store.js";
-export {
-  readTrustedExecutionAuthorization,
-  writeTrustedExecutionAuthorization,
-} from "./trusted-execution-authorization-store.js";
 export type { TrustedExecutionEnforcementInput } from "./trusted-execution-enforcement.js";
 export { describeTrustedExecutionEnforcement } from "./trusted-execution-enforcement.js";
 export type { TrustedExecutionLimitationAcceptance, TrustedExecutionSemanticLimitation } from "./trusted-execution-semantic-limitation.js";
@@ -34,12 +26,6 @@ export {
   validateTrustedExecutionLimitationAcceptance,
   validateTrustedExecutionSemanticLimitation,
 } from "./trusted-execution-semantic-limitation.js";
-export type { TrustedExecutionGrantPlan } from "./trusted-execution-grant.js";
-export {
-  finalizeTrustedExecutionGrant,
-  planTrustedExecutionGrant,
-  revokeTrustedExecutionGrant,
-} from "./trusted-execution-grant.js";
 export type {
   TrustedExecutionAuthorization,
   TrustedExecutionClassification,
@@ -62,6 +48,23 @@ export {
   TRUSTED_EXECUTION_PROFILES,
   TRUSTED_EXECUTION_PROOF_STATUSES,
 } from "./trusted-execution-integrity.js";
+export type {
+  TrustedExecutionHarness,
+  TrustedExecutionLease,
+  TrustedExecutionLeaseMismatchReason,
+  TrustedExecutionLeaseStatus,
+  TrustedExecutionLeaseStatusActive,
+  TrustedExecutionLeaseStatusCompleted,
+  TrustedExecutionLeaseStatusRevoked,
+  TrustedExecutionLeaseStatusSessionClosed,
+  TrustedExecutionLeaseUseContext,
+  TrustedExecutionLeaseUseEvaluation,
+} from "./trusted-execution-lease.js";
+export {
+  evaluateTrustedExecutionLeaseUse,
+  TRUSTED_EXECUTION_LEASE_MAX_DURATION_MS,
+  validateTrustedExecutionLeaseEvidence,
+} from "./trusted-execution-lease.js";
 export type {
   AuditAction,
   AuditChainResult,

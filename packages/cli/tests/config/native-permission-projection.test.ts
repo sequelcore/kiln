@@ -15,9 +15,6 @@ import {
   type ModelGatewayConfig,
   parseGatewayYaml,
 } from "@kilnai/core/engine";
-import {
-  writeTrustedExecutionAuthorization,
-} from "@kilnai/core/security";
 
 const syncMocks = vi.hoisted(() => ({
   mockedHomedir: "",
@@ -179,7 +176,7 @@ describe("syncNativePermissionProjections", () => {
     expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
   });
 
-  it("reads trusted authorization from the established binding home instead of ambient XDG state", async () => {
+  it("leaves legacy trust files untouched while ignoring them as execution authority", async () => {
     const ambientXdgConfigHome = join(paths.rootPath, "ambient-xdg-config");
     const ambientTrustDir = join(ambientXdgConfigHome, "kiln", "trust");
     const bindingTrustDir = join(paths.projectStateBinding.kilnHome, "trust");
@@ -201,34 +198,34 @@ describe("syncNativePermissionProjections", () => {
       ...ambientRecord,
       authorization: { ...ambientRecord.authorization, authorizedBy: "binding-home" },
     };
+    const writeLegacyGrant = (directory: string, record: typeof ambientRecord): { path: string; content: string } => {
+      mkdirSync(directory, { recursive: true });
+      const path = join(directory, "codex.json");
+      const content = JSON.stringify({ [paths.projectPath]: record });
+      writeFileSync(path, content, "utf8");
+      return { path, content };
+    };
 
     process.env.XDG_CONFIG_HOME = ambientXdgConfigHome;
-    writeTrustedExecutionAuthorization("codex", paths.projectPath, ambientRecord, ambientTrustDir);
+    const ambientLegacy = writeLegacyGrant(ambientTrustDir, ambientRecord);
+    const bindingLegacy = writeLegacyGrant(bindingTrustDir, bindingRecord);
 
-    const ambientOnly = await syncNativePermissionProjections(trustedYaml, paths.projectPath, {
+    const result = await syncNativePermissionProjections(trustedYaml, paths.projectPath, {
       userHome: paths.homePath,
       disabledHarnesses: ["claude", "opencode"],
     });
-    expect(ambientOnly.errors).toEqual([]);
-    const ambientOnlyState = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
-    const ambientOnlyIntegrity = asRecord(asRecord(asRecord(ambientOnlyState.targets)["codex-config"]).permissionIntegrity);
-    expect(ambientOnlyIntegrity.authorization).toMatchObject({
+    expect(result.errors).toEqual([]);
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
+    const integrity = asRecord(asRecord(asRecord(state.targets)["codex-config"]).permissionIntegrity);
+    expect(integrity.authorization).toEqual({
       status: "unavailable",
-      reason: "operator-local-trusted-authorization-not-attached-to-native-projection",
+      revocable: true,
+      reason: "attended-session-lease-not-attached-to-native-projection",
     });
-
-    writeTrustedExecutionAuthorization("codex", paths.projectPath, bindingRecord, bindingTrustDir);
-    const bound = await syncNativePermissionProjections(trustedYaml, paths.projectPath, {
-      userHome: paths.homePath,
-      disabledHarnesses: ["claude", "opencode"],
-    });
-    expect(bound.errors).toEqual([]);
-    const boundState = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
-    const boundIntegrity = asRecord(asRecord(asRecord(boundState.targets)["codex-config"]).permissionIntegrity);
-    expect(boundIntegrity.authorization).toMatchObject({
-      status: "authorized",
-      authorizedBy: "binding-home",
-    });
+    expect(integrity.classification).not.toBe("current-verified");
+    expect(integrity.classification).not.toBe("intentional-operator-override");
+    expect(readFileSync(ambientLegacy.path, "utf8")).toBe(ambientLegacy.content);
+    expect(readFileSync(bindingLegacy.path, "utf8")).toBe(bindingLegacy.content);
   });
 
   it("denies canonical explicit-only skills rediscovered from Claude without rewriting unrelated OpenCode permissions", async () => {

@@ -27,6 +27,12 @@ future work.
   status, result, replay, CLI, GUI, TUI, SDK, and MCP surfaces.
 - Added provider-neutral route eligibility, trusted-execution evidence, and
   action-effect governance across direct-provider and native-harness paths.
+- Replaced legacy durable trusted-execution grants with a process-local,
+  session-owned attended lease for interactive CLI `run` and foreground
+  `managed_agent.invoke` on the Codex OAuth direct route. Runtime binds the
+  exact invocation tree and rechecks Kiln-owned child effects before execution;
+  genuine provider and operating-system attestation remains open, so this path
+  does not yet make `current-verified` reachable.
 - Added an operator workspace projection, target-aware resource inspection, and
   shared managed-execution evidence for CLI, GUI, and TUI surfaces.
 - Improved GUI execution continuity with canonical activity ownership,

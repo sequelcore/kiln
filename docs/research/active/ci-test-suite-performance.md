@@ -2,7 +2,7 @@
 
 Status: incomplete
 Owner: Kiln engineering
-Evidence cutoff: 2026-08-23
+Evidence cutoff: 2026-08-24
 Promotion targets: CI workflow and testing guidance
 Exit condition: ten post-change CI runs provide p50/p95 timings for compile,
 validation, each test lane, startup profile, build, and the overall critical
@@ -134,6 +134,77 @@ bodies, and 11–12s to transforms. Imports are therefore the largest remaining
 measured cost. Issue
 [#107](https://github.com/sequelcore/kiln/issues/107) owns current attribution
 and improvement; the old 1244s profile is retained only as defect history.
+
+### CLI diagnostic profile (2026-08-24)
+
+A detached clean-head worktree at `5a502dbf` used Bun 1.4.0, a forced frozen
+install, the canonical compile command, and the package-owned
+`bun run test:profile` command. This is one diagnostic sample, not a p50/p95
+claim. Its recoverable Vitest report covered 243 files, 558 suites, and 2,588
+tests: 2,587 passed and one live test remained pending. The interval from the
+report start to the last completed file was 349.47s. Summed file test-body time
+was 69.73s; the five largest files contributed 47.3% of that total:
+
+| File | Test-body time |
+| --- | ---: |
+| `tests/application/config-status.test.ts` | 14.36s |
+| `tests/application/operator-project-agent-tasks-runtime-config.test.ts` | 9.30s |
+| `tests/application/private-project-state-cutover.test.ts` | 4.04s |
+| `tests/commands/tui-session-persistence.test.ts` | 3.00s |
+| `tests/config/managed-agent-routes.test.ts` | 2.31s |
+
+The JSON reporter does not attribute transform and import time per file.
+Controlled cold-file runs supplied that missing diagnostic split:
+
+| File shape | Wall | Transform | Import | Tests |
+| --- | ---: | ---: | ---: | ---: |
+| One assertion over a narrow CLI module | 3.00s | 1.79s | 2.78s | 4ms |
+| Config/status integration, 44 tests | 20.91s | 4.59s | 6.27s | 14.42s |
+| Managed-task runtime composition, 13 tests | 15.86s | 4.55s | 6.22s | 9.43s |
+| Private-state cutover, 6 tests | 10.04s | 4.51s | 6.17s | 3.65s |
+
+This separates two measured candidates: repeated module-graph cost across the
+lane and concentrated test-body cost in the first two files. A disposable
+test-only substitution from the Runtime root to an existing narrower module
+did not improve a representative file (5.61–5.64s versus a 5.64s baseline),
+because its production owner still imports the Runtime root. It was reverted
+byte-for-byte. Test-only import rewriting is therefore not an admitted fix;
+any Runtime subpath must own a real production boundary and win under the full
+dependency path.
+
+The first retained body-time change targets production candidate admission,
+not the tests. The route-admission owner now loads canonical config first and
+discovers only the deduplicated providers present in
+`targetCatalog.targets`. It still obtains fresh evidence for every configured
+provider and fails closed for missing, unknown, unavailable, or ineligible
+targets; it adds no cache, timeout, state, lifecycle, or alias. Unfiltered
+callers retain the complete discovery fan-out.
+
+Under the same cold-file command, `config-status.test.ts` remained 44/44 green
+and fell from 20.91s wall / 14.42s tests to 11.45s wall / 4.76s tests. Transform
+and import time remained approximately flat, so the 9.46s wall and 9.66s
+test-body reductions match the removed unrelated provider probes. This is a
+focused-file result. A comparable full CLI lane and repeated samples remain
+required before claiming a suite-level improvement.
+
+The canonical non-live CLI gate on the integrated worktree then passed 243/243
+files, with 2,595 tests passed and one skipped, in 356.82s (11.27s transform,
+3.34s setup, 249.86s import, and 60.47s tests). The lower test-body bucket is
+directionally consistent with the focused result. This remains a single dirty-
+worktree sample containing other Roadmap 00 changes, so it is behavioral gate
+evidence, not a comparable full-lane benchmark or p50/p95 result.
+
+The first CLI profile also exposed a profiler defect: passing tests wrote
+2,922 characters directly to stdout before the JSON reporter object, so the
+stored artifact was not parseable JSON even though the lane passed. The
+profiling wrapper now suppresses ordinary passing-test logs, extracts and
+validates the reporter object before writing, preserves the previous artifact
+when a successful child returns malformed output, and retains raw failure
+diagnostics. This repairs evidence integrity; it is not a suite-speed claim.
+The direct final write remains non-atomic on an I/O failure, and an unmatched
+quote in arbitrary prefix output can make framing fail closed. Neither residual
+can commit a malformed report; a neutral shared atomic private-artifact writer
+is preferable to coupling this profiler to the live-runner owner.
 
 ### Clean-checkout gate (2026-08-23)
 

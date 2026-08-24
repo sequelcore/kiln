@@ -50,7 +50,10 @@ export async function createStagedManagedInvocationRouteCatalog(
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
   const ownsInvocationService = context.invocationService === undefined;
+  let recoverPersistedInvocationsOnConstruct = context.invocationService === undefined;
   const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => {
+    const recoverOnConstruct = recoverPersistedInvocationsOnConstruct;
+    recoverPersistedInvocationsOnConstruct = false;
     const nextConfig = currentConfig();
     // A changed lease/sandbox/action-claim key requires a replacement service.
     // Release the current process-owned fixed-path owner before resolution
@@ -83,6 +86,7 @@ export async function createStagedManagedInvocationRouteCatalog(
       ...(invocationServiceKey ? { invocationServiceKey } : {}),
       providerModelEligibility: providerModelCatalogDiagnostics,
       includeUnavailableRoutes: true,
+      recoverPersistedInvocationsOnConstruct: recoverOnConstruct,
     });
   };
   mark("route-catalog-initial-resolve-started");

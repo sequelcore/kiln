@@ -7,6 +7,7 @@ import {
   KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV,
   KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_TESTS_ENV,
   describeManagedAgentProviderLive,
+  requireManagedAgentLiveEnvironment,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import { createTestFetch } from "../fetch-fixture.js";
@@ -72,8 +73,7 @@ describeManagedAgentProviderLive(
           return observeOpenCodeResponse(response, trace);
         };
         globalThis.fetch = createTestFetch(fetchImplementation);
-        const routeId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
-          || "opencode-go-critical-approved-write";
+        const routeId = requireManagedAgentLiveEnvironment(KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV);
         const liveRoute = assertLiveTarget(routeId);
         const composition = await createOperatorProjectAgentTaskApplicationComposition({
           projectPath: workspace.workspaceRoot,
@@ -276,8 +276,7 @@ function observeOpenCodeResponse(response: Response, trace: Record<string, unkno
 }
 
 function liveAgentDefinition(): string {
-  const targetId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
-    || "opencode-go-critical-approved-write";
+  const targetId = requireManagedAgentLiveEnvironment(KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV);
   const target = assertLiveTarget(targetId);
   return [
     "---",

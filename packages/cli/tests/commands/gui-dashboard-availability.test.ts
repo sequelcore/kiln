@@ -246,6 +246,10 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
   RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {
     close = vi.fn();
+
+    async recoverPersistedInvocations() {
+      return { recovered: [], accountLeases: [] };
+    }
   },
   ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
     descriptor = {

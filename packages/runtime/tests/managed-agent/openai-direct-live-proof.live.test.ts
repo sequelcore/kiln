@@ -9,9 +9,11 @@ import {
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 import {
+  KILN_LIVE_OPENAI_DIRECT_MODEL,
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   describeManagedAgentProviderLive,
   makeManagedAgentLiveCapabilitySnapshotInput,
+  requireManagedAgentLiveEnvironment,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 
@@ -28,7 +30,7 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
         ].join("\n"),
       },
       }, async (workspace) => {
-      const model = process.env.KILN_LIVE_OPENAI_DIRECT_MODEL ?? "gpt-4o-mini";
+      const model = requireManagedAgentLiveEnvironment(KILN_LIVE_OPENAI_DIRECT_MODEL);
       const service = new DirectProviderCredentialPoolService();
       const selected = (await service.listExecutionAccounts("openai"))[0];
       if (!selected) throw new Error("Live OpenAI proof requires one admitted exact credential.");

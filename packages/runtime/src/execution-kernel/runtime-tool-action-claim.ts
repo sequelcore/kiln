@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ResolvedInvocationEffect } from "@kilnai/core";
-import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 import { assertPersistableAuthorityAdmissionBundle } from "../session/authority-admission-evidence.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 
 export type RuntimeToolActionClaimId = `sha256:${string}`;
 export type RuntimeToolActionDigest = `sha256:${string}`;
@@ -68,9 +68,11 @@ export interface RuntimeToolActionClaimsContext {
   readonly admissionReadbackSessionId?: string;
   readonly admissionReadbackTurnId?: string;
   /** Must read back the full immutable bundle before every claim. */
-  readonly readAdmission: (
-    input: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string },
-  ) => RuntimeToolActionAdmissionReceipt | undefined | Promise<RuntimeToolActionAdmissionReceipt | undefined>;
+  readonly readAdmission: (input: {
+    readonly admissionId: string;
+    readonly sessionId: string;
+    readonly turnId: string;
+  }) => RuntimeToolActionAdmissionReceipt | undefined | Promise<RuntimeToolActionAdmissionReceipt | undefined>;
   readonly store: RuntimeToolActionClaimStore;
   readonly state?: RuntimeToolActionDispatchState;
 }
@@ -90,6 +92,8 @@ export interface RuntimeToolActionDispatchInput {
   readonly admissionReadbackTurnId?: string;
   readonly readAdmission: RuntimeToolActionClaimsContext["readAdmission"];
   readonly store: RuntimeToolActionClaimStore;
+  /** Synchronous final authority guard after readback and before claim. */
+  readonly beforeClaim?: () => void;
   /** Prepared adapter invocation. It must be the next effect after permit.consume(). */
   readonly invoke: () => Promise<unknown>;
   readonly abortSignal?: AbortSignal;
@@ -132,6 +136,10 @@ export class RuntimeToolActionDispatchService {
     const persistedAdmission = assertPersistableAuthorityAdmissionBundle(persisted);
     assertAdmissionMatches(input, expectedAdmission, persistedAdmission);
     assertCanonicalSha256Id(expectedAdmission.admissionId, "admission.admissionId");
+    const guardResult = input.beforeClaim?.() as unknown;
+    if (guardResult !== undefined) {
+      throw new TypeError("Runtime tool-action beforeClaim guard must complete synchronously.");
+    }
 
     const claim = defineRuntimeToolActionClaim(input, this.now());
     assertRuntimeToolActionClaim(claim);
@@ -192,7 +200,19 @@ export class RuntimeToolActionDispatchService {
 }
 
 export function defineRuntimeToolActionClaim(
-  input: Pick<RuntimeToolActionDispatchInput, "admission" | "sessionId" | "turnId" | "attemptId" | "toolCallScopeId" | "toolCallId" | "selector" | "normalizedInput" | "resolvedEffect" | "adapterIdentity">,
+  input: Pick<
+    RuntimeToolActionDispatchInput,
+    | "admission"
+    | "sessionId"
+    | "turnId"
+    | "attemptId"
+    | "toolCallScopeId"
+    | "toolCallId"
+    | "selector"
+    | "normalizedInput"
+    | "resolvedEffect"
+    | "adapterIdentity"
+  >,
   claimedAt: string,
 ): RuntimeToolActionClaim {
   const identity = {
@@ -212,7 +232,19 @@ export function defineRuntimeToolActionClaim(
 }
 
 export function runtimeToolActionClaimIdFor(
-  input: Pick<RuntimeToolActionClaim, "admissionId" | "sessionId" | "turnId" | "attemptId" | "toolCallScopeId" | "toolCallId" | "selector" | "normalizedInput" | "resolvedEffect" | "adapterIdentity">,
+  input: Pick<
+    RuntimeToolActionClaim,
+    | "admissionId"
+    | "sessionId"
+    | "turnId"
+    | "attemptId"
+    | "toolCallScopeId"
+    | "toolCallId"
+    | "selector"
+    | "normalizedInput"
+    | "resolvedEffect"
+    | "adapterIdentity"
+  >,
 ): RuntimeToolActionClaimId {
   return digest({
     admissionId: input.admissionId,
@@ -233,11 +265,13 @@ function assertAdmissionMatches(
   expected: RuntimeToolActionAdmissionReceipt,
   persisted: RuntimeToolActionAdmissionReceipt,
 ): void {
-  if (persisted.admissionId !== expected.admissionId
-    || persisted.sessionId !== expected.sessionId
-    || persisted.turnId !== expected.turnId
-    || (!input.admissionReadbackSessionId && expected.sessionId !== input.sessionId)
-    || (!input.admissionReadbackTurnId && expected.turnId !== input.turnId)) {
+  if (
+    persisted.admissionId !== expected.admissionId ||
+    persisted.sessionId !== expected.sessionId ||
+    persisted.turnId !== expected.turnId ||
+    (!input.admissionReadbackSessionId && expected.sessionId !== input.sessionId) ||
+    (!input.admissionReadbackTurnId && expected.turnId !== input.turnId)
+  ) {
     throw new Error("The Runtime tool action does not match the persisted admission identity.");
   }
   // Revalidation above proves the complete immutable bundle digest, not merely
@@ -278,7 +312,8 @@ export function assertRuntimeToolActionClaim(input: RuntimeToolActionClaim): voi
     ["selector", input.selector],
     ["normalizedInput", input.normalizedInput],
     ["adapterIdentity", input.adapterIdentity],
-  ] as const) assertClaimText(value, label);
+  ] as const)
+    assertClaimText(value, label);
   if (!input.resolvedEffect || typeof input.resolvedEffect !== "object") {
     throw new TypeError("resolvedEffect is required.");
   }
@@ -293,5 +328,8 @@ function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
 }

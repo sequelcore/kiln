@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildVitestProfileArgs,
+  extractVitestProfileJson,
   prepareVitestProfileOutput,
   resolveVitestProfileOutput,
+  settleVitestProfileOutput,
   type VitestProfileOutput,
   writeVitestProfileOutput,
 } from "./run-vitest-profile.js";
@@ -19,6 +22,78 @@ afterEach(() => {
 });
 
 describe("run-vitest-profile private output", () => {
+  it("silences logs from passing tests while retaining the JSON reporter", () => {
+    expect(buildVitestProfileArgs()).toEqual(["vitest", "run", "--reporter=json", "--silent=passed-only"]);
+  });
+
+  it("extracts the final Vitest report when passing tests write to stdout", () => {
+    const report = JSON.stringify(createVitestProfileReport());
+    const output = `Only one sentence.\n[tool] status {not-json\n${report}\ntrailing output`;
+
+    expect(extractVitestProfileJson(output)).toBe(report);
+    expect(JSON.parse(extractVitestProfileJson(output))).toMatchObject({
+      success: true,
+      testResults: [],
+    });
+  });
+
+  it("ignores an incomplete lookalike but rejects multiple complete Vitest envelopes", () => {
+    const report = createVitestProfileReport();
+    const serialized = JSON.stringify(report);
+    const incompleteLookalike = JSON.stringify({ success: false, testResults: [] });
+
+    expect(extractVitestProfileJson(`${serialized}\n${incompleteLookalike}`)).toBe(serialized);
+    expect(() =>
+      extractVitestProfileJson(`${serialized}\n${JSON.stringify({ ...report, startTime: report.startTime + 1 })}`),
+    ).toThrow(/ambiguous|exactly one/iu);
+  });
+
+  it("settles malformed successful output without changing the prior artifact", () => {
+    const { output } = createFixture("malformed-settlement");
+    prepareVitestProfileOutput(output);
+    writeVitestProfileOutput(output, '{"previous":true}\n');
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    expect(
+      settleVitestProfileOutput(output, 0, "RAW_STDOUT_SECRET\n", {
+        writeStdout: (value) => stdout.push(value),
+        writeStderr: (value) => stderr.push(value),
+      }),
+    ).toBe(1);
+    expect(readFileSync(output.outputFile, "utf8")).toBe('{"previous":true}\n');
+    expect(stdout).toEqual(["RAW_STDOUT_SECRET\n"]);
+    expect(stderr.join(" ")).toMatch(/valid JSON/iu);
+  });
+
+  it("settles a failed child with its exact exit code and raw diagnostics", () => {
+    const { output } = createFixture("failed-settlement");
+    prepareVitestProfileOutput(output);
+    writeVitestProfileOutput(output, '{"previous":true}\n');
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    expect(
+      settleVitestProfileOutput(output, 17, "RAW_FAILED_STDOUT_SECRET\n", {
+        writeStdout: (value) => stdout.push(value),
+        writeStderr: (value) => stderr.push(value),
+      }),
+    ).toBe(17);
+    expect(readFileSync(output.outputFile, "utf8")).toBe('{"previous":true}\n');
+    expect(stdout).toEqual(["RAW_FAILED_STDOUT_SECRET\n"]);
+    expect(stderr).toEqual([]);
+  });
+
+  it("rejects malformed profile JSON before committing the artifact", () => {
+    const { output } = createFixture("invalid-json");
+
+    prepareVitestProfileOutput(output);
+    writeVitestProfileOutput(output, '{"success":true}\n');
+
+    expect(() => writeVitestProfileOutput(output, "Only one sentence.\n")).toThrow(/valid JSON/iu);
+    expect(readFileSync(output.outputFile, "utf8")).toBe('{"success":true}\n');
+  });
+
   it("creates and writes the profile beneath the bound private state root", () => {
     const { output } = createFixture("normal");
 
@@ -73,6 +148,24 @@ function createFixture(label: string): { readonly output: VitestProfileOutput; r
   return {
     output: resolveVitestProfileOutput(projectRoot, "cli"),
     outside: join(root, "outside"),
+  };
+}
+
+function createVitestProfileReport(): Record<string, unknown> & { readonly startTime: number } {
+  return {
+    numTotalTestSuites: 1,
+    numPassedTestSuites: 1,
+    numFailedTestSuites: 0,
+    numPendingTestSuites: 0,
+    numTotalTests: 1,
+    numPassedTests: 1,
+    numFailedTests: 0,
+    numPendingTests: 0,
+    numTodoTests: 0,
+    snapshot: {},
+    startTime: 1,
+    success: true,
+    testResults: [],
   };
 }
 

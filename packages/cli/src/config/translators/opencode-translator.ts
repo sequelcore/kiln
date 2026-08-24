@@ -1,4 +1,4 @@
-import { describeTrustedExecutionEnforcement, OPENCODE_NO_FILESYSTEM_SANDBOX, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import { describeTrustedExecutionEnforcement, OPENCODE_NO_FILESYSTEM_SANDBOX } from "@kilnai/core";
 import type { ResolvedKilnConfig } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import { type OpenCodeNativeRules, translatePermission } from "../../wrapper/session-registry.js";
@@ -70,7 +70,6 @@ export function translateOpenCodePermissionProjection(input: {
   readonly ownsManagedDefault?: boolean;
   readonly gatewayProjection?: OpenCodeResponsesProjection;
   readonly previousManagedFields?: readonly string[];
-  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "opencode");
   const cfg = translated.config as { permissionDefault: string };
@@ -124,7 +123,6 @@ export function translateOpenCodePermissionProjection(input: {
           harness: "opencode",
           permissionDefault: cfg.permissionDefault,
         }),
-        storedAuthorization: input.storedAuthorization,
       },
     });
   }
@@ -154,7 +152,6 @@ export function translateOpenCodePermissionProjection(input: {
         harness: "opencode",
         permissionDefault: cfg.permissionDefault,
       }),
-      storedAuthorization: input.storedAuthorization,
     },
   });
 }

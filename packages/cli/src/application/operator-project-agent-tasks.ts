@@ -479,14 +479,19 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         options.onRefreshError?.(error);
       },
     });
-    await catalog.refreshNow();
-    const current = catalog.managedInvocation;
-    if (refreshFailure !== undefined || !current) throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
-    if (current.invocationService && current.invocationServiceKey) {
-      managedInvocationService = current.invocationService;
-      managedInvocationServiceKey = current.invocationServiceKey;
+    try {
+      await catalog.refreshNow();
+      const current = catalog.managedInvocation;
+      if (refreshFailure !== undefined || !current) throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
+      if (current.invocationService && current.invocationServiceKey) {
+        managedInvocationService = current.invocationService;
+        managedInvocationServiceKey = current.invocationServiceKey;
+      }
+      return current;
+    } catch (error) {
+      await catalog.dispose();
+      throw error;
     }
-    return current;
   };
   const managedInvocation = await freshManagedInvocation();
   // The acknowledgement is durable evidence for this composition's exact
@@ -504,6 +509,20 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       databasePath: managedAccountDatabasePath,
     });
   const ownsManagedAccountComposition = options.managedAccountComposition === undefined;
+  try {
+    await freshManagedInvocation("execution", managedAccountComposition);
+  } catch (error) {
+    try {
+      managedDirectToolActionClaims.close();
+    } finally {
+      try {
+        managedDirectModelRoundActionClaims.close();
+      } finally {
+        if (ownsManagedAccountComposition) closeManagedAccountRuntimeComposition(root.rootPath);
+      }
+    }
+    throw error;
+  }
   const economicDispatch = managedAccountComposition
     ? createManagedEconomicDispatchComposition(
         initialConfig,

@@ -59,7 +59,6 @@ import {
   resolveConfiguredManagedInvocationRouteProfile,
   resolveManagedInvocationRouteProfile,
   type ManagedAgentRuntimeAdapter,
-  type ManagedAgentRuntimeAuthorityObserver,
   type ManagedInvocationAgentCatalogEntry,
   type ManagedCommittedInvocationRequest,
   type ManagedInvocationRouteProfile,
@@ -255,6 +254,8 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly managedAccountRouting?: ConfiguredExecutionAccountRuntime;
   /** Candidate admission projects static route evidence without constructing execution owners. */
   readonly compositionMode?: "execution" | "candidate-admission";
+  /** Internal staged-catalog signal: recover only when constructing its cold-start owner. */
+  readonly recoverPersistedInvocationsOnConstruct?: boolean;
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
@@ -770,7 +771,7 @@ export async function resolveManagedInvocationToolOptions(
   // it may construct the service while provider evidence is still pending.
   const invocationService = executionComposition
     && (routes.length > 0 || context.includeUnavailableRoutes === true)
-    ? createManagedInvocationService(
+    ? await createManagedInvocationService(
         config,
         context.cwd,
         context.invocationService,
@@ -779,6 +780,7 @@ export async function resolveManagedInvocationToolOptions(
         context.runtimeStateRoot,
         projectStateBinding,
         context.managedEconomicAuthority !== undefined,
+        context.recoverPersistedInvocationsOnConstruct !== false,
       )
     : undefined;
   const invocationServiceKey = executionComposition
@@ -2376,7 +2378,7 @@ function createHarnessSessionFactory(
   };
 }
 
-function createManagedInvocationService(
+async function createManagedInvocationService(
   config: ManagedAgentRouteConfigSource,
   cwd: string,
   existingService: RuntimeManagedAgentInvocationService | undefined,
@@ -2385,7 +2387,8 @@ function createManagedInvocationService(
   runtimeStateRoot: string | undefined,
   projectStateBinding: ProjectStateBinding | undefined,
   managedEconomicAuthorityAvailable = false,
-): RuntimeManagedAgentInvocationService | undefined {
+  recoverPersistedInvocationsOnConstruct = true,
+): Promise<RuntimeManagedAgentInvocationService | undefined> {
   const stateRoot = runtimeStateRoot ?? projectStateBinding?.runtimePath ?? resolveProjectStateBinding(cwd).runtimePath;
   const serviceKey = managedInvocationServiceKey(config, cwd) ?? `managed-invocation:${resolve(cwd)}`;
   const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
@@ -2408,8 +2411,7 @@ function createManagedInvocationService(
   if (credentialRouteIds.length > 0 && managedAccountComposition === undefined && !managedEconomicAuthorityAvailable) {
     throw new Error("Runtime-selected managed routes require a configured execution account policy.");
   }
-  return new RuntimeManagedAgentInvocationService({
-    authorityObserver: createCliManagedRuntimeAuthorityObserver(),
+  const service = new RuntimeManagedAgentInvocationService({
     ...(needsWorktreeLease && leaseConfig ? {
       worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
         repositoryPath: cwd,
@@ -2431,6 +2433,15 @@ function createManagedInvocationService(
     } : {}),
     ...(externalActionClaim !== undefined ? { externalActionClaim } : {}),
   });
+  if (credentialRouteIds.length > 0 && recoverPersistedInvocationsOnConstruct) {
+    try {
+      await service.recoverPersistedInvocations();
+    } catch (error) {
+      service.close();
+      throw new Error("Managed invocation startup recovery failed.", { cause: error });
+    }
+  }
+  return service;
 }
 
 function createManagedExternalActionClaimContext(
@@ -2516,43 +2527,6 @@ export function closeManagedAccountRuntimeComposition(cwd: string): void {
   if (!composition) return;
   MANAGED_ACCOUNT_COMPOSITIONS.delete(compositionKey);
   composition.close();
-}
-
-function createCliManagedRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
-  return {
-    observe: async ({ request }) => {
-      const observedAt = new Date();
-      const validUntil = new Date(observedAt.getTime() + 60000);
-      return {
-        approval: observedApprovalForManagedAuthority(request.authority),
-        sandbox: observedSandboxForManagedAuthority(request.authority),
-        source: "runtime-observation",
-        proof: "proven",
-        observedAt: observedAt.toISOString(),
-        validUntil: validUntil.toISOString(),
-        reason: "CLI managed route was admitted by Kiln route resolution with live-proven managed invocation capability.",
-      };
-    },
-  };
-}
-
-function observedApprovalForManagedAuthority(
-  authority: ManagedAgentAuthorityProfile,
-): "never" | "on-request" {
-  const profile = authority.permissionProfile.toLowerCase();
-  return profile.includes("trusted")
-    || profile.includes("full-access")
-    || profile.includes("danger-full-access")
-    ? "never"
-    : "on-request";
-}
-
-function observedSandboxForManagedAuthority(
-  authority: ManagedAgentAuthorityProfile,
-): "read-only" | "workspace-write" {
-  return authority.toolAuthority.writeAllowed === true && authority.workingDirectory.mode !== "read-only"
-    ? "workspace-write"
-    : "read-only";
 }
 
 export function managedInvocationServiceKey(

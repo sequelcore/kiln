@@ -254,7 +254,7 @@ function makeManagedWriteConflictFixture(): {
       readonly providerId: "opencode";
       readonly model: "opencode-default-model";
     };
-    readonly requestedAuthority: "destructive";
+    readonly requestedAuthority: "audited";
     readonly task: "Apply the approved runtime edit.";
   };
 } {
@@ -415,7 +415,7 @@ function makeManagedWriteConflictFixture(): {
       providerId: "opencode",
       model: "opencode-default-model",
     },
-    requestedAuthority: "destructive",
+    requestedAuthority: "audited",
     task: "Apply the approved runtime edit.",
   } as const;
 
@@ -438,7 +438,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
       readonly providerId: "opencode";
       readonly model: "opencode-default-model";
     };
-    readonly requestedAuthority: "destructive";
+    readonly requestedAuthority: "audited";
     readonly task: "Apply the approved runtime edit in an isolated worktree.";
   };
 } {
@@ -625,7 +625,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
       providerId: "opencode",
       model: "opencode-default-model",
     },
-    requestedAuthority: "destructive",
+    requestedAuthority: "audited",
     task: "Apply the approved runtime edit in an isolated worktree.",
   } as const;
 

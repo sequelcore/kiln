@@ -166,8 +166,10 @@ participant's live reservation.
 
 ## Recovery
 
-Startup first recovers the SQLite authority and then recovers Agent Tasks.
-Economic recovery queries the exact `(jobId, economicAttemptId)`:
+Startup first recovers the SQLite authority, then each newly constructed
+credential-backed Runtime invocation owner recovers its persisted checkpoints,
+and only afterward recovers Agent Tasks. Economic recovery queries the exact
+`(jobId, economicAttemptId)`:
 
 - `absent` may be committed from the persisted v14 economic intent;
 - a dispatch-fenced, settlement-pending, release-failed, or leaked commitment

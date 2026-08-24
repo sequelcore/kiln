@@ -34,6 +34,7 @@ import {
   type ResolveManagedInvocationToolOptionsContext,
 } from "../../src/config/managed-agent-routes.js";
 import { deriveManagedAgentEconomicPolicies } from "../../src/config/managed-agent-intent.js";
+import { createStagedManagedInvocationRouteCatalog } from "../../src/config/managed-agent-route-catalog.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import {
   normalizeRuntimeProviderDiscoveryCatalog,
@@ -862,6 +863,63 @@ describe("resolveManagedInvocationToolOptions", () => {
         access: "read-only",
       },
     });
+
+    const route = result.managedInvocation?.routes[0];
+    const profile = profileByAdmission(route, "foundation-readonly-plan");
+    const service = result.managedInvocation?.invocationService;
+    const createAdapter = route?.createAdapter;
+    if (!route || !profile || !service || !createAdapter) {
+      throw new Error("expected the resolved Codex route to expose its managed invocation owner");
+    }
+    const adapter = await createAdapter();
+    if (!adapter) throw new Error("expected the resolved Codex route to construct an adapter");
+    const invoke = vi.spyOn(adapter, "invoke");
+    const request = defineManagedAgentInvocationRequest({
+      invocationId: "codex-background-unproven",
+      agentId: "codex-readonly:foundation-readonly-plan",
+      parentSessionId: "codex-parent-session",
+      parentTurnId: "codex-parent-session:turn:1",
+      profile: "foundation-readonly-plan",
+      requestedBy: "assistant",
+      requestSource: "background-job",
+      requestedAuthority: "audited",
+      executionIntent: { attendance: "unattended", lifecycle: "background" },
+      providerRoute: {
+        providerId: "codex",
+        surface: "cli-harness",
+        model: "gpt-5.3-codex-spark",
+      },
+      adapterKind: "harness",
+      executionMode: "cli-harness",
+      authority: {
+        authorityProfileId: profile.authorityProfileId,
+        permissionProfile: profile.permissionProfile,
+        toolAuthority: {
+          allowedToolNames: profile.allowedToolNames,
+          writeAllowed: profile.writeAllowed === true,
+          networkAllowed: profile.networkAllowed === true,
+        },
+        workingDirectory: profile.workingDirectory,
+        timeoutMs: profile.timeoutMs,
+        credentialRoute: profile.credentialRoute,
+        memoryScope: profile.memoryScope,
+        ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
+      },
+      input: { summary: "Background route must remain unavailable without runtime proof." },
+    });
+    const invocation = await service.invoke(request, adapter, {
+      routeId: route.routeId,
+      routeSource: route.routeSource,
+    });
+
+    expect(invocation).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("binds the native route revision to its configured authority", async () => {
@@ -920,6 +978,159 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "policy-bound",
       accountPolicyId: "policy:openai-readonly",
     });
+  });
+
+  it("recovers a new credential-backed service before exposure and reuses the recovered owner", async () => {
+    let releaseRecovery!: () => void;
+    const recoveryGate = new Promise<void>((resolve) => {
+      releaseRecovery = resolve;
+    });
+    const recoverPersistedInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockImplementation(async () => {
+        await recoveryGate;
+        return { recovered: [], accountLeases: [] };
+      });
+    const context = {
+      cwd: TEST_PROJECT_ROOT,
+      registry: createRegistry("openai"),
+      surface: "gui" as const,
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: () => makeDirectAdapter("openai"),
+      managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
+    };
+
+    try {
+      const pending = resolveManagedInvocationToolOptions(baseConfig({
+        intents: managedAgentIntentCovering(["openai-readonly"]),
+        targetFixtures: [{
+          id: "openai-readonly",
+          kind: "direct",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }), context);
+      await vi.waitFor(() => expect(recoverPersistedInvocations).toHaveBeenCalledOnce());
+
+      const exposedBeforeRecovery = await Promise.race([
+        pending.then(() => true),
+        Promise.resolve(false),
+      ]);
+      expect(exposedBeforeRecovery).toBe(false);
+
+      releaseRecovery();
+      const first = await pending;
+      const firstService = first.managedInvocation?.invocationService;
+      const firstServiceKey = first.managedInvocation?.invocationServiceKey;
+      expect(firstService).toBeDefined();
+      expect(firstServiceKey).toBeDefined();
+
+      const second = await resolveManagedInvocationToolOptions(baseConfig({
+        intents: managedAgentIntentCovering(["openai-readonly"]),
+        targetFixtures: [{
+          id: "openai-readonly",
+          kind: "direct",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }), {
+        ...context,
+        invocationService: firstService,
+        invocationServiceKey: firstServiceKey,
+      });
+
+      expect(second.managedInvocation?.invocationService).toBe(firstService);
+      expect(recoverPersistedInvocations).toHaveBeenCalledOnce();
+    } finally {
+      releaseRecovery();
+      recoverPersistedInvocations.mockRestore();
+    }
+  });
+
+  it("closes a newly constructed service and fails with a sanitized startup error when recovery fails", async () => {
+    const recoveryFailure = new Error("private recovery path");
+    const recoverPersistedInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockRejectedValue(recoveryFailure);
+    const close = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "close");
+
+    try {
+      await expect(resolveManagedInvocationToolOptions(baseConfig({
+        intents: managedAgentIntentCovering(["openai-readonly"]),
+        targetFixtures: [{
+          id: "openai-readonly",
+          kind: "direct",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }), {
+        cwd: TEST_PROJECT_ROOT,
+        registry: createRegistry("openai"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+        directAdapterFactory: () => makeDirectAdapter("openai"),
+        managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
+      })).rejects.toMatchObject({
+        message: "Managed invocation startup recovery failed.",
+        cause: recoveryFailure,
+      });
+
+      expect(recoverPersistedInvocations).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      recoverPersistedInvocations.mockRestore();
+      close.mockRestore();
+    }
+  });
+
+  it("does not recover a replacement service during a hot route-catalog refresh", async () => {
+    let currentConfig = baseConfig({
+      intents: managedAgentIntentCovering(["openai-readonly"]),
+      targetFixtures: [{
+        id: "openai-readonly",
+        kind: "direct",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    });
+    const recoverPersistedInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockResolvedValue({ recovered: [], accountLeases: [] });
+    const context = {
+      cwd: TEST_PROJECT_ROOT,
+      registry: createRegistry("openai"),
+      surface: "gui" as const,
+      compositionMode: "execution" as const,
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: () => makeDirectAdapter("openai"),
+      managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
+    };
+    const catalog = await createStagedManagedInvocationRouteCatalog(currentConfig, context, {
+      reloadConfig: () => currentConfig,
+      discoverProviderModels: async () => COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    try {
+      expect(recoverPersistedInvocations).toHaveBeenCalledOnce();
+      const firstService = catalog.managedInvocation?.invocationService;
+      const firstServiceKey = catalog.managedInvocation?.invocationServiceKey;
+      expect(firstService).toBeDefined();
+      expect(firstServiceKey).toBeDefined();
+
+      currentConfig = baseConfig({
+        intents: managedAgentIntentCovering(["openai-replacement"]),
+        targetFixtures: [{
+          id: "openai-replacement",
+          kind: "direct",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      });
+      await catalog.refreshNow();
+
+      expect(catalog.managedInvocation?.invocationService).toBeDefined();
+      expect(catalog.managedInvocation?.invocationService).not.toBe(firstService);
+      expect(catalog.managedInvocation?.invocationServiceKey).not.toBe(firstServiceKey);
+      expect(recoverPersistedInvocations).toHaveBeenCalledOnce();
+    } finally {
+      await catalog.dispose();
+      recoverPersistedInvocations.mockRestore();
+    }
   });
 
   // Roadmap 01 Slice 3.1 (F6) - the route's declared external-runtime

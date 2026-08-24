@@ -1,5 +1,10 @@
+import {
+  discoverClaudeCliModelDiscovery,
+  discoverCodexCliModelDiscovery,
+  discoverGuiDirectProviderModelDiscovery,
+  discoverOpencodeCliModelDiscovery,
+} from "@kilnai/runtime";
 import { describe, expect, it, vi } from "vitest";
-import { discoverClaudeCliModelDiscovery, discoverOpencodeCliModelDiscovery } from "@kilnai/runtime";
 import { discoverManagedAgentProviderModels } from "./managed-agent-provider-models.js";
 
 vi.mock("@kilnai/runtime", async (importOriginal) => {
@@ -73,6 +78,36 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
 });
 
 describe("discoverManagedAgentProviderModels", () => {
+  it("targets selected harnesses and direct providers without probing unrelated providers", async () => {
+    vi.clearAllMocks();
+    let directAvailability: Readonly<Record<string, boolean>> | undefined;
+    vi.mocked(discoverGuiDirectProviderModelDiscovery).mockImplementationOnce(async (availability) => {
+      directAvailability = availability;
+      return {};
+    });
+
+    const discovered = await discoverManagedAgentProviderModels(
+      new Set(["codex", "opencode-go", "codex", "unknown-provider"]),
+    );
+
+    expect(discoverClaudeCliModelDiscovery).not.toHaveBeenCalled();
+    expect(discoverCodexCliModelDiscovery).toHaveBeenCalledTimes(1);
+    expect(discoverOpencodeCliModelDiscovery).not.toHaveBeenCalled();
+    expect(directAvailability).toEqual({
+      anthropic: false,
+      "codex-oauth": false,
+      deepseek: false,
+      lmstudio: false,
+      ollama: false,
+      openai: false,
+      "opencode-go": true,
+      "opencode-zen": false,
+      openrouter: false,
+    });
+    expect(Object.keys(discovered)).toEqual(["codex"]);
+    expect(discovered.codex).toHaveProperty("gpt-5.3-codex");
+  });
+
   it("keeps discovered managed-agent catalog models diagnostic until admitted by eligibility", async () => {
     const discovered = await discoverManagedAgentProviderModels();
 

@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { ManagedRuntimeCredentialRouteLeaseManager, type ManagedAgentRuntimeInvocationInput } from "../../src/agents/managed-invocation/index.js";
+import {
+  type ManagedAgentRuntimeInvocationInput,
+  ManagedRuntimeCredentialRouteLeaseManager,
+} from "../../src/agents/managed-invocation/index.js";
 import { MANAGED_AGENT_INVOKE_TOOL } from "../../src/agents/managed-invocation/runtime-tool/index.js";
-import { TEST_REQUESTED_DESTRUCTIVE_READ_ONLY_PARENT_AUTHORITY, createAttachedRuntimeBuiltinToolSurface, makeSession, makeAdapter, makeObservedRuntimeInvocationService, makeSurface, makeRouteCapability, makeManagedRoute } from "./managed-invocation-tool-test-fixture.js";
+import {
+  createAttachedRuntimeBuiltinToolSurface,
+  makeAdapter,
+  makeManagedRoute,
+  makeObservedRuntimeInvocationService,
+  makeRouteCapability,
+  makeSession,
+  makeSurface,
+  TEST_REQUESTED_DESTRUCTIVE_READ_ONLY_PARENT_AUTHORITY,
+} from "./managed-invocation-tool-test-fixture.js";
 
 describe("managed invocation runtime tool — external runtime and materialization", () => {
   // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
@@ -26,11 +38,13 @@ describe("managed invocation runtime tool — external runtime and materializati
       "mcp:external-runtime:tool:navigate_actor",
     ] as const;
 
-    function makeExternalRuntimeSurface(adapter = makeAdapter({
-      adapterDescriptorId: "adapter:mcp-external-runtime:harness",
-      providerId: "mcp-external-runtime",
-      supportedProfiles: ["foundation-readonly-plan"],
-    })) {
+    function makeExternalRuntimeSurface(
+      adapter = makeAdapter({
+        adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+        providerId: "mcp-external-runtime",
+        supportedProfiles: ["foundation-readonly-plan"],
+      }),
+    ) {
       return createAttachedRuntimeBuiltinToolSurface({
         managedInvocation: {
           invocationService: makeObservedRuntimeInvocationService({
@@ -38,53 +52,62 @@ describe("managed invocation runtime tool — external runtime and materializati
               allowedRouteIds: ["credential-route:external-runtime:primary"],
             }),
           }),
-          routes: [{
-            routeId: "external-runtime-mcp-only",
-            routeSource: "explicit-managed-route",
-            providerId: "mcp-external-runtime",
-            model: "external-runtime-fixture",
-            capability: makeRouteCapability({ routeId: "external-runtime-mcp-only", providerId: "mcp-external-runtime", model: "external-runtime-fixture", profiles: ["foundation-readonly-plan"], toolNames: externalRuntimeToolNames }),
-            createAdapter: async () => adapter,
-            profiles: [{
-                authorityProfileId: "authority:external-runtime-mcp-only:foundation-readonly-plan",
-                admissionProfile: "foundation-readonly-plan",
-                permissionProfile: "read-only",
-                allowedToolNames: [...externalRuntimeToolNames],
-                // Roadmap 01 Slice 1 - this route's own capability-aware
-                // realization: its qualified MCP tools satisfy tests/typecheck
-                // evidence without needing bash at all.
-                evidenceRealizations: {
-                  tests: ["mcp:external-runtime:tool:start_stop_test", "mcp:external-runtime:tool:observe_runtime"],
-                  typecheck: ["mcp:external-runtime:tool:observe_runtime", "mcp:external-runtime:tool:read_console"],
+          routes: [
+            {
+              routeId: "external-runtime-mcp-only",
+              routeSource: "explicit-managed-route",
+              providerId: "mcp-external-runtime",
+              model: "external-runtime-fixture",
+              capability: makeRouteCapability({
+                routeId: "external-runtime-mcp-only",
+                providerId: "mcp-external-runtime",
+                model: "external-runtime-fixture",
+                profiles: ["foundation-readonly-plan"],
+                toolNames: externalRuntimeToolNames,
+              }),
+              createAdapter: async () => adapter,
+              profiles: [
+                {
+                  authorityProfileId: "authority:external-runtime-mcp-only:foundation-readonly-plan",
+                  admissionProfile: "foundation-readonly-plan",
+                  permissionProfile: "read-only",
+                  allowedToolNames: [...externalRuntimeToolNames],
+                  // Roadmap 01 Slice 1 - this route's own capability-aware
+                  // realization: its qualified MCP tools satisfy tests/typecheck
+                  // evidence without needing bash at all.
+                  evidenceRealizations: {
+                    tests: ["mcp:external-runtime:tool:start_stop_test", "mcp:external-runtime:tool:observe_runtime"],
+                    typecheck: ["mcp:external-runtime:tool:observe_runtime", "mcp:external-runtime:tool:read_console"],
+                  },
+                  networkAllowed: false,
+                  workingDirectory: {
+                    path: "C:/workspace/kiln",
+                    mode: "read-only",
+                  },
+                  timeoutMs: 120000,
+                  timeoutSource: "explicit-route",
+                  credentialRoute: {
+                    mode: "runtime-selected",
+                    routeId: "credential-route:external-runtime:primary",
+                  },
+                  memoryScope: {
+                    scope: { kind: "project", id: "kiln" },
+                    access: "read-only",
+                  },
                 },
-                networkAllowed: false,
-                workingDirectory: {
-                  path: "C:/workspace/kiln",
-                  mode: "read-only",
-                },
-                timeoutMs: 120000,
-                timeoutSource: "explicit-route",
-                credentialRoute: {
-                  mode: "runtime-selected",
-                  routeId: "credential-route:external-runtime:primary",
-                },
-                memoryScope: {
-                  scope: { kind: "project", id: "kiln" },
-                  access: "read-only",
-                },
-            }],
-          }],
+              ],
+            },
+          ],
         },
       });
     }
 
-    it(
-      "admits an MCP-only route for tests/typecheck evidence instead of hard-requiring bash",
-      async () => {
-        const surface = makeExternalRuntimeSurface();
-        const session = makeSession();
+    it("admits an MCP-only route for tests/typecheck evidence instead of hard-requiring bash", async () => {
+      const surface = makeExternalRuntimeSurface();
+      const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
           routeId: "external-runtime-mcp-only",
           profile: "foundation-readonly-plan",
           providerRoute: { providerId: "mcp-external-runtime", model: "external-runtime-fixture" },
@@ -99,14 +122,15 @@ describe("managed invocation runtime tool — external runtime and materializati
           requiredToolNames: ["bash"],
           expectedEvidence: ["tests", "typecheck"],
           requestedAuthority: "read_only",
-        }, {
+        },
+        {
           session,
           toolCall: { id: "tool-call-external-runtime-verification", name: "managed_agent.invoke", input: {} },
-        }) as { readonly isError: boolean };
+        },
+      )) as { readonly isError: boolean };
 
-        expect(result?.isError).toBe(false);
-      },
-    );
+      expect(result?.isError).toBe(false);
+    });
 
     // Fifth Roadmap 01 Slice 0 regression proof: attachment drift. Production
     // external-runtime MCP integrations already solve multi-instance routing
@@ -118,17 +142,13 @@ describe("managed invocation runtime tool — external runtime and materializati
     // externalRuntimeAttachment, and the core admission gate
     // (evaluateManagedAgentAdmission) enforces it. This structural check is
     // kept as a cheap guard; the behavioral suite below is the real proof.
-    it(
-      "lets managed_agent.invoke express which external-runtime instance a dispatch must target",
-      () => {
-        const properties = (MANAGED_AGENT_INVOKE_TOOL.inputSchema as { properties?: Record<string, unknown> })
-          .properties ?? {};
-        const attachmentFieldNames = Object.keys(properties).filter((name) =>
-          /attachment|instance|target/i.test(name));
+    it("lets managed_agent.invoke express which external-runtime instance a dispatch must target", () => {
+      const properties =
+        (MANAGED_AGENT_INVOKE_TOOL.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+      const attachmentFieldNames = Object.keys(properties).filter((name) => /attachment|instance|target/i.test(name));
 
-        expect(attachmentFieldNames.length).toBeGreaterThan(0);
-      },
-    );
+      expect(attachmentFieldNames.length).toBeGreaterThan(0);
+    });
   });
 
   // Roadmap 01 Slice 3.1 - External Runtime Attachment Identity (issue #6,
@@ -138,7 +158,11 @@ describe("managed invocation runtime tool — external runtime and materializati
   // (evaluateManagedAgentAdmission), and that a route's declared attachment
   // is enforced - matched, mismatched, missing, or unsupported-route.
   describe("external runtime attachment identity (Roadmap 01 Slice 3.1)", () => {
-    const ATTACHED_ROUTE_ATTACHMENT = { kind: "external-runtime" as const, runtimeId: "mcp-external-runtime", attachmentId: "instance-a" };
+    const ATTACHED_ROUTE_ATTACHMENT = {
+      kind: "external-runtime" as const,
+      runtimeId: "mcp-external-runtime",
+      attachmentId: "instance-a",
+    };
 
     function makeAttachedRuntimeSurface(
       adapter = makeAdapter({
@@ -146,7 +170,9 @@ describe("managed invocation runtime tool — external runtime and materializati
         providerId: "mcp-external-runtime",
         supportedProfiles: ["foundation-readonly-plan"],
       }),
-      routeAttachment: { readonly kind: "external-runtime"; readonly runtimeId: string; readonly attachmentId: string } | undefined,
+      routeAttachment:
+        | { readonly kind: "external-runtime"; readonly runtimeId: string; readonly attachmentId: string }
+        | undefined,
     ) {
       return createAttachedRuntimeBuiltinToolSurface({
         managedInvocation: {
@@ -155,36 +181,46 @@ describe("managed invocation runtime tool — external runtime and materializati
               allowedRouteIds: ["credential-route:external-runtime:primary"],
             }),
           }),
-          routes: [{
-            routeId: "external-runtime-attached",
-            routeSource: "explicit-managed-route",
-            providerId: "mcp-external-runtime",
-            model: "external-runtime-fixture",
-            capability: makeRouteCapability({ routeId: "external-runtime-attached", providerId: "mcp-external-runtime", model: "external-runtime-fixture", profiles: ["foundation-readonly-plan"], externalRuntimeAttachment: routeAttachment }),
-            createAdapter: async () => adapter,
-            ...(routeAttachment ? { externalRuntimeAttachment: routeAttachment } : {}),
-            profiles: [{
-                authorityProfileId: "authority:external-runtime-attached:foundation-readonly-plan",
-                admissionProfile: "foundation-readonly-plan",
-                permissionProfile: "read-only",
-                allowedToolNames: ["read", "grep", "glob"],
-                networkAllowed: false,
-                workingDirectory: {
-                  path: "C:/workspace/kiln",
-                  mode: "read-only",
+          routes: [
+            {
+              routeId: "external-runtime-attached",
+              routeSource: "explicit-managed-route",
+              providerId: "mcp-external-runtime",
+              model: "external-runtime-fixture",
+              capability: makeRouteCapability({
+                routeId: "external-runtime-attached",
+                providerId: "mcp-external-runtime",
+                model: "external-runtime-fixture",
+                profiles: ["foundation-readonly-plan"],
+                externalRuntimeAttachment: routeAttachment,
+              }),
+              createAdapter: async () => adapter,
+              ...(routeAttachment ? { externalRuntimeAttachment: routeAttachment } : {}),
+              profiles: [
+                {
+                  authorityProfileId: "authority:external-runtime-attached:foundation-readonly-plan",
+                  admissionProfile: "foundation-readonly-plan",
+                  permissionProfile: "read-only",
+                  allowedToolNames: ["read", "grep", "glob"],
+                  networkAllowed: false,
+                  workingDirectory: {
+                    path: "C:/workspace/kiln",
+                    mode: "read-only",
+                  },
+                  timeoutMs: 120000,
+                  timeoutSource: "explicit-route",
+                  credentialRoute: {
+                    mode: "runtime-selected",
+                    routeId: "credential-route:external-runtime:primary",
+                  },
+                  memoryScope: {
+                    scope: { kind: "project", id: "kiln" },
+                    access: "read-only",
+                  },
                 },
-                timeoutMs: 120000,
-                timeoutSource: "explicit-route",
-                credentialRoute: {
-                  mode: "runtime-selected",
-                  routeId: "credential-route:external-runtime:primary",
-                },
-                memoryScope: {
-                  scope: { kind: "project", id: "kiln" },
-                  access: "read-only",
-                },
-            }],
-          }],
+              ],
+            },
+          ],
         },
       });
     }
@@ -206,13 +242,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
-        }, {
-          session,
-          toolCall: { id: `tool-call-${toolName}-match`, name: toolName, input: {} },
-        }) as {
+        const result = (await surface.callBuiltinTools.get(toolName)?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+          },
+          {
+            session,
+            toolCall: { id: `tool-call-${toolName}-match`, name: toolName, input: {} },
+          },
+        )) as {
           readonly isError: boolean;
           readonly metadata: {
             readonly capabilitySnapshot?: { readonly externalRuntimeAttachment?: unknown };
@@ -237,13 +276,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-b" },
-        }, {
-          session,
-          toolCall: { id: `tool-call-${toolName}-mismatch`, name: toolName, input: {} },
-        }) as {
+        const result = (await surface.callBuiltinTools.get(toolName)?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-b" },
+          },
+          {
+            session,
+            toolCall: { id: `tool-call-${toolName}-mismatch`, name: toolName, input: {} },
+          },
+        )) as {
           readonly isError: boolean;
           readonly output: string;
           readonly metadata: {
@@ -269,10 +311,10 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.(baseInvokeInput, {
+        const result = (await surface.callBuiltinTools.get(toolName)?.(baseInvokeInput, {
           session,
           toolCall: { id: `tool-call-${toolName}-missing`, name: toolName, input: {} },
-        }) as {
+        })) as {
           readonly isError: boolean;
           readonly metadata: {
             readonly errorCode?: string;
@@ -283,7 +325,10 @@ describe("managed invocation runtime tool — external runtime and materializati
         expect(result.isError).toBe(true);
         expect(result.metadata.errorCode).toBe("external_runtime_attachment_missing");
         expect(adapter.invoke).not.toHaveBeenCalled();
-        expect(session.sessionEvents.map((event) => event.kind)).toEqual(["agent_invocation_requested", "agent_invocation_failed"]);
+        expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+          "agent_invocation_requested",
+          "agent_invocation_failed",
+        ]);
       });
 
       it(`${toolName} denies with external_runtime_attachment_unsupported_route when the route declares no attachment but the dispatch requests one`, async () => {
@@ -295,13 +340,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, undefined);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
-        }, {
-          session,
-          toolCall: { id: `tool-call-${toolName}-unsupported-route`, name: toolName, input: {} },
-        }) as {
+        const result = (await surface.callBuiltinTools.get(toolName)?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+          },
+          {
+            session,
+            toolCall: { id: `tool-call-${toolName}-unsupported-route`, name: toolName, input: {} },
+          },
+        )) as {
           readonly isError: boolean;
           readonly metadata: {
             readonly errorCode?: string;
@@ -326,10 +374,10 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, undefined);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.(baseInvokeInput, {
+        const result = (await surface.callBuiltinTools.get(toolName)?.(baseInvokeInput, {
           session,
           toolCall: { id: `tool-call-${toolName}-no-attachment`, name: toolName, input: {} },
-        }) as { readonly isError: boolean };
+        })) as { readonly isError: boolean };
 
         expect(result.isError).toBe(false);
         expect(adapter.invoke).toHaveBeenCalledTimes(1);
@@ -344,13 +392,20 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a", robloxPlaceId: 123 },
-        }, {
-          session,
-          toolCall: { id: `tool-call-${toolName}-unknown-field`, name: toolName, input: {} },
-        }) as { readonly isError: boolean; readonly output: string };
+        const result = (await surface.callBuiltinTools.get(toolName)?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: {
+              runtimeId: "mcp-external-runtime",
+              attachmentId: "instance-a",
+              robloxPlaceId: 123,
+            },
+          },
+          {
+            session,
+            toolCall: { id: `tool-call-${toolName}-unknown-field`, name: toolName, input: {} },
+          },
+        )) as { readonly isError: boolean; readonly output: string };
 
         expect(result.isError).toBe(true);
         expect(result.output).toContain("robloxPlaceId");
@@ -366,13 +421,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: {},
-        }, {
-          session,
-          toolCall: { id: `tool-call-${toolName}-empty`, name: toolName, input: {} },
-        }) as { readonly isError: boolean; readonly output: string };
+        const result = (await surface.callBuiltinTools.get(toolName)?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: {},
+          },
+          {
+            session,
+            toolCall: { id: `tool-call-${toolName}-empty`, name: toolName, input: {} },
+          },
+        )) as { readonly isError: boolean; readonly output: string };
 
         expect(result.isError).toBe(true);
         expect(adapter.invoke).not.toHaveBeenCalled();
@@ -387,13 +445,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get(toolName)?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "   " },
-        }, {
-          session,
-          toolCall: { id: `tool-call-${toolName}-blank`, name: toolName, input: {} },
-        }) as { readonly isError: boolean; readonly output: string };
+        const result = (await surface.callBuiltinTools.get(toolName)?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "   " },
+          },
+          {
+            session,
+            toolCall: { id: `tool-call-${toolName}-blank`, name: toolName, input: {} },
+          },
+        )) as { readonly isError: boolean; readonly output: string };
 
         expect(result.isError).toBe(true);
         expect(adapter.invoke).not.toHaveBeenCalled();
@@ -409,18 +470,27 @@ describe("managed invocation runtime tool — external runtime and materializati
       const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
       const session = makeSession();
 
-      await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-        ...baseInvokeInput,
-        externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
-      }, {
-        session,
-        toolCall: { id: "tool-call-terminal-evidence", name: "managed_agent.invoke", input: {} },
-      });
+      await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+        },
+        {
+          session,
+          toolCall: { id: "tool-call-terminal-evidence", name: "managed_agent.invoke", input: {} },
+        },
+      );
 
       const completedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_completed") as
-        | { readonly managedInvocationEvidence?: { readonly lifecycle?: { readonly externalRuntimeAttachment?: unknown } } }
+        | {
+            readonly managedInvocationEvidence?: {
+              readonly lifecycle?: { readonly externalRuntimeAttachment?: unknown };
+            };
+          }
         | undefined;
-      expect(completedEvent?.managedInvocationEvidence?.lifecycle?.externalRuntimeAttachment).toEqual(ATTACHED_ROUTE_ATTACHMENT);
+      expect(completedEvent?.managedInvocationEvidence?.lifecycle?.externalRuntimeAttachment).toEqual(
+        ATTACHED_ROUTE_ATTACHMENT,
+      );
     });
 
     it("denies a mismatch before the adapter is ever invoked, proving admission runs upstream of dispatch", async () => {
@@ -432,13 +502,16 @@ describe("managed invocation runtime tool — external runtime and materializati
       const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
       const session = makeSession();
 
-      await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-        ...baseInvokeInput,
-        externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "wrong-instance" },
-      }, {
-        session,
-        toolCall: { id: "tool-call-mismatch-preflight", name: "managed_agent.invoke", input: {} },
-      });
+      await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "wrong-instance" },
+        },
+        {
+          session,
+          toolCall: { id: "tool-call-mismatch-preflight", name: "managed_agent.invoke", input: {} },
+        },
+      );
 
       expect(adapter.invoke).not.toHaveBeenCalled();
     });
@@ -472,13 +545,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: " instance-a" },
-        }, {
-          session,
-          toolCall: { id: "tool-call-attachment-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
-        }) as {
+        const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: " instance-a" },
+          },
+          {
+            session,
+            toolCall: { id: "tool-call-attachment-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
+          },
+        )) as {
           readonly isError: boolean;
           readonly metadata: {
             readonly errorCode?: string;
@@ -497,13 +573,16 @@ describe("managed invocation runtime tool — external runtime and materializati
         const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
         const session = makeSession();
 
-        const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-          ...baseInvokeInput,
-          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime ", attachmentId: "instance-a" },
-        }, {
-          session,
-          toolCall: { id: "tool-call-runtime-id-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
-        }) as {
+        const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+          {
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime ", attachmentId: "instance-a" },
+          },
+          {
+            session,
+            toolCall: { id: "tool-call-runtime-id-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
+          },
+        )) as {
           readonly isError: boolean;
           readonly metadata: {
             readonly errorCode?: string;
@@ -523,16 +602,23 @@ describe("managed invocation runtime tool — external runtime and materializati
           const surface = makeAttachedRuntimeSurface(adapter, routeAttachment);
           const session = makeSession();
 
-          const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-            ...baseInvokeInput,
-            externalRuntimeAttachment: {
-              runtimeId: routeAttachment.runtimeId,
-              attachmentId: routeAttachment.attachmentId,
+          const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+            {
+              ...baseInvokeInput,
+              externalRuntimeAttachment: {
+                runtimeId: routeAttachment.runtimeId,
+                attachmentId: routeAttachment.attachmentId,
+              },
             },
-          }, {
-            session,
-            toolCall: { id: `tool-call-preserve-${routeAttachment.attachmentId.trim()}-${routeAttachment.runtimeId.trim()}`, name: "managed_agent.invoke", input: {} },
-          }) as {
+            {
+              session,
+              toolCall: {
+                id: `tool-call-preserve-${routeAttachment.attachmentId.trim()}-${routeAttachment.runtimeId.trim()}`,
+                name: "managed_agent.invoke",
+                input: {},
+              },
+            },
+          )) as {
             readonly isError: boolean;
             readonly metadata: { readonly capabilitySnapshot?: { readonly externalRuntimeAttachment?: unknown } };
           };
@@ -540,9 +626,11 @@ describe("managed invocation runtime tool — external runtime and materializati
           expect(result.isError).toBe(false);
           expect(result.metadata.capabilitySnapshot?.externalRuntimeAttachment).toEqual(routeAttachment);
           expect(adapter.invoke).toHaveBeenCalledTimes(1);
-          const invokedRequest = (adapter.invoke as unknown as {
-            readonly mock: { readonly calls: readonly (readonly [ManagedAgentRuntimeInvocationInput])[] };
-          }).mock.calls[0]?.[0].request;
+          const invokedRequest = (
+            adapter.invoke as unknown as {
+              readonly mock: { readonly calls: readonly (readonly [ManagedAgentRuntimeInvocationInput])[] };
+            }
+          ).mock.calls[0]?.[0].request;
           expect(invokedRequest?.externalRuntimeAttachment).toEqual(routeAttachment);
 
           const startedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_started") as
@@ -551,9 +639,15 @@ describe("managed invocation runtime tool — external runtime and materializati
           expect(startedEvent?.capabilitySnapshot?.externalRuntimeAttachment).toEqual(routeAttachment);
 
           const completedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_completed") as
-            | { readonly managedInvocationEvidence?: { readonly lifecycle?: { readonly externalRuntimeAttachment?: unknown } } }
+            | {
+                readonly managedInvocationEvidence?: {
+                  readonly lifecycle?: { readonly externalRuntimeAttachment?: unknown };
+                };
+              }
             | undefined;
-          expect(completedEvent?.managedInvocationEvidence?.lifecycle?.externalRuntimeAttachment).toEqual(routeAttachment);
+          expect(completedEvent?.managedInvocationEvidence?.lifecycle?.externalRuntimeAttachment).toEqual(
+            routeAttachment,
+          );
         });
       }
 
@@ -563,13 +657,16 @@ describe("managed invocation runtime tool — external runtime and materializati
           const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
           const session = makeSession();
 
-          const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-            ...baseInvokeInput,
-            externalRuntimeAttachment: { runtimeId: blank, attachmentId: "instance-a" },
-          }, {
-            session,
-            toolCall: { id: `tool-call-blank-runtime-id-${blank.length}`, name: "managed_agent.invoke", input: {} },
-          }) as { readonly isError: boolean };
+          const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+            {
+              ...baseInvokeInput,
+              externalRuntimeAttachment: { runtimeId: blank, attachmentId: "instance-a" },
+            },
+            {
+              session,
+              toolCall: { id: `tool-call-blank-runtime-id-${blank.length}`, name: "managed_agent.invoke", input: {} },
+            },
+          )) as { readonly isError: boolean };
 
           expect(result.isError).toBe(true);
           expect(adapter.invoke).not.toHaveBeenCalled();
@@ -580,13 +677,20 @@ describe("managed invocation runtime tool — external runtime and materializati
           const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
           const session = makeSession();
 
-          const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-            ...baseInvokeInput,
-            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: blank },
-          }, {
-            session,
-            toolCall: { id: `tool-call-blank-attachment-id-${blank.length}`, name: "managed_agent.invoke", input: {} },
-          }) as { readonly isError: boolean };
+          const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+            {
+              ...baseInvokeInput,
+              externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: blank },
+            },
+            {
+              session,
+              toolCall: {
+                id: `tool-call-blank-attachment-id-${blank.length}`,
+                name: "managed_agent.invoke",
+                input: {},
+              },
+            },
+          )) as { readonly isError: boolean };
 
           expect(result.isError).toBe(true);
           expect(adapter.invoke).not.toHaveBeenCalled();
@@ -595,8 +699,9 @@ describe("managed invocation runtime tool — external runtime and materializati
     });
 
     it("exposes an identical externalRuntimeAttachment schema on managed_agent.invoke and managed_agent.start", () => {
-      const invokeAttachmentSchema = (MANAGED_AGENT_INVOKE_TOOL.inputSchema as { readonly properties?: Record<string, unknown> })
-        .properties?.externalRuntimeAttachment;
+      const invokeAttachmentSchema = (
+        MANAGED_AGENT_INVOKE_TOOL.inputSchema as { readonly properties?: Record<string, unknown> }
+      ).properties?.externalRuntimeAttachment;
       expect(invokeAttachmentSchema).toBeDefined();
     });
   });
@@ -624,9 +729,27 @@ describe("managed invocation runtime tool — external runtime and materializati
 
   describe("route capability materialization invariants", () => {
     it.each([
-      ["route id", (route: ReturnType<typeof makeManagedRoute>) => ({ ...route.capability, identity: { ...route.capability.identity, routeId: "different-route" } })],
-      ["provider", (route: ReturnType<typeof makeManagedRoute>) => ({ ...route.capability, target: { ...route.capability.target, providerId: "different-provider" } })],
-      ["model", (route: ReturnType<typeof makeManagedRoute>) => ({ ...route.capability, target: { ...route.capability.target, modelId: "different-model" } })],
+      [
+        "route id",
+        (route: ReturnType<typeof makeManagedRoute>) => ({
+          ...route.capability,
+          identity: { ...route.capability.identity, routeId: "different-route" },
+        }),
+      ],
+      [
+        "provider",
+        (route: ReturnType<typeof makeManagedRoute>) => ({
+          ...route.capability,
+          target: { ...route.capability.target, providerId: "different-provider" },
+        }),
+      ],
+      [
+        "model",
+        (route: ReturnType<typeof makeManagedRoute>) => ({
+          ...route.capability,
+          target: { ...route.capability.target, modelId: "different-model" },
+        }),
+      ],
     ] as const)("rejects a capability %s mismatch before creating an adapter", async (_kind, mutateCapability) => {
       const adapter = makeAdapter();
       const createAdapter = vi.fn(async () => adapter);
@@ -637,15 +760,18 @@ describe("managed invocation runtime tool — external runtime and materializati
         },
       });
 
-      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-        routeId: "opencode-readonly",
-        profile: "foundation-readonly-plan",
-        providerRoute: { providerId: "opencode", model: "opencode-default-model" },
-        task: "Inspect capability binding.",
-      }, {
-        session: makeSession(),
-        toolCall: { id: "tool-call-route-capability-mismatch", name: "managed_agent.invoke", input: {} },
-      }) as { readonly isError: boolean; readonly metadata: { readonly errorCode?: string } };
+      const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
+          routeId: "opencode-readonly",
+          profile: "foundation-readonly-plan",
+          providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+          task: "Inspect capability binding.",
+        },
+        {
+          session: makeSession(),
+          toolCall: { id: "tool-call-route-capability-mismatch", name: "managed_agent.invoke", input: {} },
+        },
+      )) as { readonly isError: boolean; readonly metadata: { readonly errorCode?: string } };
 
       expect(result.isError).toBe(true);
       expect(result.metadata.errorCode).toBe("route_capability_identity_mismatch");
@@ -661,15 +787,18 @@ describe("managed invocation runtime tool — external runtime and materializati
         managedInvocation: { routes: [{ ...baseRoute, createAdapter }] },
       });
 
-      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-        routeId: "opencode-readonly",
-        profile: "foundation-readonly-plan",
-        providerRoute: { providerId: "opencode", model: "opencode-default-model" },
-        task: "Inspect adapter binding.",
-      }, {
-        session: makeSession(),
-        toolCall: { id: "tool-call-adapter-capability-mismatch", name: "managed_agent.invoke", input: {} },
-      }) as { readonly isError: boolean; readonly metadata: { readonly errorCode?: string } };
+      const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
+          routeId: "opencode-readonly",
+          profile: "foundation-readonly-plan",
+          providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+          task: "Inspect adapter binding.",
+        },
+        {
+          session: makeSession(),
+          toolCall: { id: "tool-call-adapter-capability-mismatch", name: "managed_agent.invoke", input: {} },
+        },
+      )) as { readonly isError: boolean; readonly metadata: { readonly errorCode?: string } };
 
       expect(result.isError).toBe(true);
       expect(result.metadata.errorCode).toBe("route_capability_adapter_mismatch");
@@ -687,29 +816,34 @@ describe("managed invocation runtime tool — external runtime and materializati
       const baseRoute = makeManagedRoute("codex-cloud-remote-readonly", "gpt-5.5", async () => adapter, "codex-cloud");
       const surface = createAttachedRuntimeBuiltinToolSurface({
         managedInvocation: {
-          routes: [{
-            ...baseRoute,
-            capability: makeRouteCapability({
-              routeId: "codex-cloud-remote-readonly",
-              providerId: "codex-cloud",
-              model: "gpt-5.5",
-              profiles: ["foundation-readonly-plan"],
-              adapterKind: "governed-external-runtime",
-            }),
-            createAdapter,
-          }],
+          routes: [
+            {
+              ...baseRoute,
+              capability: makeRouteCapability({
+                routeId: "codex-cloud-remote-readonly",
+                providerId: "codex-cloud",
+                model: "gpt-5.5",
+                profiles: ["foundation-readonly-plan"],
+                adapterKind: "governed-external-runtime",
+              }),
+              createAdapter,
+            },
+          ],
         },
       });
 
-      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-        routeId: "codex-cloud-remote-readonly",
-        profile: "foundation-readonly-plan",
-        providerRoute: { providerId: "codex-cloud", model: "gpt-5.5" },
-        task: "Inspect remote adapter binding.",
-      }, {
-        session: makeSession(),
-        toolCall: { id: "tool-call-remote-capability-match", name: "managed_agent.invoke", input: {} },
-      }) as { readonly isError: boolean };
+      const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
+          routeId: "codex-cloud-remote-readonly",
+          profile: "foundation-readonly-plan",
+          providerRoute: { providerId: "codex-cloud", model: "gpt-5.5" },
+          task: "Inspect remote adapter binding.",
+        },
+        {
+          session: makeSession(),
+          toolCall: { id: "tool-call-remote-capability-match", name: "managed_agent.invoke", input: {} },
+        },
+      )) as { readonly isError: boolean };
 
       expect(result.isError).toBe(false);
       expect(createAdapter).toHaveBeenCalledTimes(1);
@@ -738,16 +872,20 @@ describe("managed invocation runtime tool — external runtime and materializati
       });
       const session = makeSession();
 
-      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
-        routeId: "opencode-readonly",
-        profile: "foundation-readonly-plan",
-        providerRoute: { providerId: "opencode", model: "opencode-default-model" },
-        task: "Delete production data.",
-        requestedAuthority: "destructive",
-      }, {
-        session,
-        toolCall: { id: "tool-call-caller-bounding", name: "managed_agent.invoke", input: {} },
-      }) as {
+      const result = (await surface.callBuiltinTools.get("managed_agent.invoke")?.(
+        {
+          routeId: "opencode-readonly",
+          profile: "foundation-readonly-plan",
+          providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+          task: "Delete production data.",
+          requestedAuthority: "destructive",
+        },
+        {
+          session,
+          toolCall: { id: "tool-call-caller-bounding", name: "managed_agent.invoke", input: {} },
+          attendedTrustedExecutionSessionAuthority: {} as never,
+        },
+      )) as {
         readonly output: string;
         readonly isError: boolean;
         readonly metadata: Record<string, unknown>;
@@ -768,6 +906,5 @@ describe("managed invocation runtime tool — external runtime and materializati
       });
       expect(adapter.invoke).not.toHaveBeenCalled();
     });
-
   });
 });

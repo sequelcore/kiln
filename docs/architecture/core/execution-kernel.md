@@ -36,6 +36,10 @@ own workload state and lifecycle owners.
 - A **dispatch permit** is the opaque, process-local result returned only to the
   winner of the fence transition. It cannot be reconstructed from DTOs,
   projections, resource records, or persisted prose.
+- An **attended trusted-execution lease** is separate process-local authority
+  for one exact operator session and invocation tree. It can authorize only the
+  bound profile, tools, and effect ceiling; it is never a dispatch permit,
+  persisted admission, recovery record, or provider-attestation claim.
 - An **observation** records only what Runtime can prove about the dispatch:
   `known-not-dispatched`, `terminally-observed`, or `outcome-unknown`.
 - **Settlement** and **reconciliation** translate an observation into the
@@ -67,6 +71,26 @@ that a provider, process, tool, remote service, or native harness received,
 executed, internally retried, or completed the action exactly once. No local
 transaction can be atomic with an external effect; a crash after fencing and
 before terminal observation necessarily preserves uncertainty.
+
+## Attended Trusted-Execution Boundary
+
+The first attended trusted-execution path is limited to interactive CLI `run`
+and foreground `managed_agent.invoke` on the Runtime-controlled Codex OAuth
+direct route. Runtime validates the process-local lease before authority
+observation or resource acquisition. It then checks the lease against every
+resolved child tool and concrete effect before cache lookup or execution.
+Consequential effects are checked again after asynchronous admission readback
+and immediately before the durable action claim; every retry repeats the
+check.
+
+Observed expiry latches the lease terminal so clock rollback cannot reactivate
+it. Completion, session close, revocation, composition revision change, or the
+one-hour cap ends it. The lease travels beside canonical request and admission
+values and is not serialized into either one, a recovery checkpoint, a native
+projection, or legacy grant storage. Restart therefore cannot reconstruct or
+resume attended authority. This proves Kiln-owned issuance and effect checks
+only; it does not prove provider, sandbox, filesystem, network, or operating-
+system enforcement and cannot by itself produce `current-verified`.
 
 ## Canonical Flow
 

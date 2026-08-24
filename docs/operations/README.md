@@ -5,6 +5,8 @@ prerequisites and mutation boundary before executing a command.
 
 - [Operate the Model Gateway](model-gateway.md) covers setup, verification,
   recovery, retained incidents, and exact uninstall.
+- [Validate source-stability recovery](source-stability-recovery.md) separates
+  the portable recovery gate from explicitly authorized live provider proofs.
 - [Release runbook](release.md) defines the publication process. No release
   candidate is currently authorized.
 

@@ -9,6 +9,7 @@ import {
   SqliteManagedAccountLeaseAuthority,
   type AgentTaskRecord,
 } from "@kilnai/runtime";
+import { syntheticExecutionTargetAuthority } from "../config/execution-target-evidence-fixture.js";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
@@ -172,6 +173,10 @@ import {
   summarizeOperatorProjectManagedAgents,
 } from "../../src/application/operator-project-agent-tasks.js";
 import { readConfigStatusSnapshot } from "../../src/application/config-status.js";
+import {
+  readGlobalConfig,
+  readGlobalExecutionTargetAuthority,
+} from "../../src/config/global-config.js";
 
 describe("operator project agent-task production composition", () => {
   afterEach(() => {
@@ -253,14 +258,17 @@ describe("operator project agent-task production composition", () => {
     }
   });
 
-  it("recovers persisted jobs without constructing an execution owner", async () => {
+  it("recovers the execution owner before persisted jobs", async () => {
     const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-agent-task-recovery-"));
     mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
     writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
+    const recoveryOrder: string[] = [];
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
-      .mockResolvedValue({ recovered: [], accountLeases: [] });
-    const recoveryOrder: string[] = [];
+      .mockImplementation(async () => {
+        recoveryOrder.push("invocation");
+        return { recovered: [], accountLeases: [] };
+      });
     const recoverCommitments = vi
       .spyOn(SqliteManagedAccountLeaseAuthority.prototype, "recoverCommitments")
       .mockImplementation(() => {
@@ -281,13 +289,111 @@ describe("operator project agent-task production composition", () => {
       });
       await composition.close();
 
-      expect(recoverInvocations).not.toHaveBeenCalled();
+      expect(recoverInvocations).toHaveBeenCalledOnce();
       expect(recoverInterrupted).toHaveBeenCalledOnce();
-      expect(recoveryOrder).toEqual(["authority", "jobs"]);
+      expect(recoveryOrder).toEqual(["authority", "invocation", "jobs"]);
     } finally {
       recoverInvocations.mockRestore();
       recoverInterrupted.mockRestore();
       recoverCommitments.mockRestore();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("unwinds an owned account authority when startup recovery fails so retry can succeed", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-agent-task-recovery-retry-"));
+    mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
+    writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
+    const recoverInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockRejectedValueOnce(new Error("synthetic startup recovery failure"))
+      .mockResolvedValue({ recovered: [], accountLeases: [] });
+    const closeAuthority = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "close");
+
+    try {
+      await expect(createOperatorProjectAgentTaskApplicationComposition({
+        discoverProviderModels: async () => ({}),
+        projectPath: projectRoot,
+      })).rejects.toMatchObject({ message: "Managed invocation startup recovery failed." });
+
+      const retry = await createOperatorProjectAgentTaskApplicationComposition({
+        discoverProviderModels: async () => ({}),
+        projectPath: projectRoot,
+      });
+      await retry.close();
+
+      expect(recoverInvocations).toHaveBeenCalledTimes(2);
+      expect(closeAuthority).toHaveBeenCalledTimes(2);
+    } finally {
+      recoverInvocations.mockRestore();
+      closeAuthority.mockRestore();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("disposes a recovered staged owner when its provider refresh fails before adoption", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-agent-task-refresh-retry-"));
+    mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
+    writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
+    const mixedGlobalConfig = {
+      version: "4",
+      managedAgents: TEST_MANAGED_AGENTS_CONFIG,
+      authorityProfiles: TEST_AUTHORITY_PROFILES,
+      targetCatalog: {
+        ...TEST_TARGET_CATALOG,
+        targets: [
+          ...TEST_TARGET_CATALOG.targets,
+          {
+            id: "synthetic-harness",
+            kind: "harness",
+            label: "Synthetic harness",
+            providerId: "claude",
+            providerModelId: "claude-sonnet-4-5-20250929",
+            dataClassification: "internal",
+          },
+        ],
+      },
+    } satisfies import("../../src/config/global-config.js").KilnGlobalConfig;
+    const mixedTargetAuthority = syntheticExecutionTargetAuthority(mixedGlobalConfig);
+    if (!mixedTargetAuthority) throw new Error("Synthetic target authority fixture was not created.");
+    const mockedReadGlobalConfig = vi.mocked(readGlobalConfig);
+    const mockedReadGlobalExecutionTargetAuthority = vi.mocked(readGlobalExecutionTargetAuthority);
+    const defaultGlobalConfig = mockedReadGlobalConfig.getMockImplementation();
+    const defaultTargetAuthority = mockedReadGlobalExecutionTargetAuthority.getMockImplementation();
+    mockedReadGlobalConfig.mockImplementation(() => mixedGlobalConfig);
+    mockedReadGlobalExecutionTargetAuthority.mockImplementation(() => mixedTargetAuthority);
+    let discoveryCount = 0;
+    const discoverProviderModels = vi.fn(async () => {
+      discoveryCount += 1;
+      if (discoveryCount === 2) throw new Error("synthetic provider refresh failure");
+      return {};
+    });
+    const recoverInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockResolvedValue({ recovered: [], accountLeases: [] });
+    const closeInvocationService = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "close");
+
+    try {
+      await expect(createOperatorProjectAgentTaskApplicationComposition({
+        discoverProviderModels,
+        projectPath: projectRoot,
+      })).rejects.toMatchObject({ code: "route_unavailable" });
+      expect(recoverInvocations).toHaveBeenCalledOnce();
+      expect(closeInvocationService).toHaveBeenCalledOnce();
+
+      const retry = await createOperatorProjectAgentTaskApplicationComposition({
+        discoverProviderModels: async () => ({}),
+        projectPath: projectRoot,
+      });
+      await retry.close();
+
+      expect(recoverInvocations).toHaveBeenCalledTimes(2);
+      expect(closeInvocationService).toHaveBeenCalledTimes(2);
+    } finally {
+      if (defaultGlobalConfig) mockedReadGlobalConfig.mockImplementation(defaultGlobalConfig);
+      if (defaultTargetAuthority) mockedReadGlobalExecutionTargetAuthority.mockImplementation(defaultTargetAuthority);
+      recoverInvocations.mockRestore();
+      closeInvocationService.mockRestore();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });

@@ -40,6 +40,100 @@ describe("RuntimeManagedAgentInvocationService admission", () => {
     });
   });
 
+  const adapterCases = [
+    {
+      label: "direct-provider",
+      providerId: "openai",
+      surface: "direct-provider" as const,
+      adapterKind: "direct" as const,
+      executionMode: "direct-provider" as const,
+      supportedExecutionModes: ["direct-provider"] as const,
+    },
+    {
+      label: "cli-harness",
+      providerId: "opencode",
+      surface: "cli-harness" as const,
+      adapterKind: "harness" as const,
+      executionMode: "cli-harness" as const,
+      supportedExecutionModes: ["cli-harness"] as const,
+    },
+    {
+      label: "remote-harness",
+      providerId: "codex-cloud",
+      surface: "remote-harness" as const,
+      adapterKind: "harness" as const,
+      executionMode: "remote-harness" as const,
+      supportedExecutionModes: ["remote-harness"] as const,
+    },
+  ] as const;
+  const proofRequiredExecutionCases = [
+    {
+      executionLabel: "unattended-foreground",
+      attendance: "unattended" as const,
+      lifecycle: "foreground" as const,
+    },
+    {
+      executionLabel: "attended-background",
+      attendance: "attended" as const,
+      lifecycle: "background" as const,
+    },
+  ] as const;
+
+  it.each(
+    adapterCases.flatMap((adapter) => proofRequiredExecutionCases.map((execution) => ({ ...adapter, ...execution }))),
+  )("does not invoke an $label adapter for $executionLabel work without runtime observation", async ({
+    label,
+    providerId,
+    surface,
+    adapterKind,
+    executionMode,
+    supportedExecutionModes,
+    executionLabel,
+    attendance,
+    lifecycle,
+  }) => {
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      invocationId: `${executionLabel}-${label}`,
+      requestSource: "background-job",
+      executionIntent: { attendance, lifecycle },
+      requestedAuthority: "audited",
+      providerRoute: {
+        ...baseRequest.providerRoute,
+        providerId,
+        surface,
+      },
+      adapterKind,
+      executionMode,
+    });
+    const invoke = vi.fn(async () => makeRecord());
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor({
+        adapterDescriptorId: `adapter:${label}`,
+        providerId,
+        adapterKind,
+        supportedExecutionModes,
+      }),
+      invoke,
+    };
+
+    const result = await new RuntimeManagedAgentInvocationService().invoke(
+      request,
+      adapter,
+      makeSnapshotInput({ routeId: `route:${label}` }),
+    );
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("enforces required handoff fields on the adapter-owned structured result", async () => {
     const request = defineManagedAgentInvocationRequest({
       ...makeRequest(),

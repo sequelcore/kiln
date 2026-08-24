@@ -1,16 +1,15 @@
 import type {
   ManagedAgentAdmissionProfile,
   ModelDeliberationCapabilities,
-  ProviderModelEvidence,
   ProviderModelEligibilityDecision,
   ProviderModelEligibilityRequirements,
+  ProviderModelEvidence,
 } from "@kilnai/core";
-import { deriveProviderModelEligibility } from "@kilnai/core";
-import { defineDeliberationLevelId } from "@kilnai/core";
+import { defineDeliberationLevelId, deriveProviderModelEligibility } from "@kilnai/core";
 import type { GuiModelDeliberationCapabilities } from "@kilnai/gateway-contracts";
 import {
-  discoverCodexCliModelDiscovery,
   discoverClaudeCliModelDiscovery,
+  discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
   normalizeRuntimeProviderDiscoveryCatalog,
@@ -43,23 +42,50 @@ const MANAGED_DIRECT_PROVIDER_DISCOVERY_AVAILABILITY: Readonly<Record<string, bo
   openrouter: true,
 };
 
-export async function discoverManagedAgentProviderModels(): Promise<ManagedAgentProviderModelCatalogDiagnostics> {
+export async function discoverManagedAgentProviderModels(
+  selectedProviderIds?: ReadonlySet<string>,
+): Promise<ManagedAgentProviderModelCatalogDiagnostics> {
+  const isSelected = (providerId: string): boolean =>
+    selectedProviderIds === undefined || selectedProviderIds.has(providerId);
   const [claude, codex, opencode, directProviders] = await Promise.all([
-    discoverClaudeCliModelDiscovery(),
-    discoverCodexCliModelDiscovery(),
-    discoverOpencodeCliModelDiscovery(),
-    discoverGuiDirectProviderModelDiscovery(MANAGED_DIRECT_PROVIDER_DISCOVERY_AVAILABILITY),
+    isSelected("claude") ? discoverClaudeCliModelDiscovery() : undefined,
+    isSelected("codex") ? discoverCodexCliModelDiscovery() : undefined,
+    isSelected("opencode") ? discoverOpencodeCliModelDiscovery() : undefined,
+    discoverGuiDirectProviderModelDiscovery(
+      Object.fromEntries(
+        Object.keys(MANAGED_DIRECT_PROVIDER_DISCOVERY_AVAILABILITY).map((providerId) => [
+          providerId,
+          isSelected(providerId),
+        ]),
+      ),
+    ),
   ]);
   const observedAt = new Date().toISOString();
-  return Object.fromEntries([
-    ["claude", catalogDiagnostics("claude", "claude-harness", claude, observedAt, "claude", "claude")],
-    ["codex", catalogDiagnostics("codex", "codex-harness", codex, observedAt, "codex", "codex")],
-    ["opencode", catalogDiagnostics("opencode", "opencode-harness", opencode, observedAt, "opencode", "opencode")],
-    ...Object.entries(directProviders).map(([provider, discovery]) => [
-      provider,
-      catalogDiagnostics(provider, providerAdapterFamily(provider), discovery, observedAt),
-    ] as const),
-  ]);
+  const diagnostics: (readonly [string, Readonly<Record<string, ManagedAgentProviderModelCatalogDiagnostic>>])[] = [];
+  if (claude) {
+    diagnostics.push([
+      "claude",
+      catalogDiagnostics("claude", "claude-harness", claude, observedAt, "claude", "claude"),
+    ]);
+  }
+  if (codex) {
+    diagnostics.push(["codex", catalogDiagnostics("codex", "codex-harness", codex, observedAt, "codex", "codex")]);
+  }
+  if (opencode) {
+    diagnostics.push([
+      "opencode",
+      catalogDiagnostics("opencode", "opencode-harness", opencode, observedAt, "opencode", "opencode"),
+    ]);
+  }
+  diagnostics.push(
+    ...Object.entries(directProviders)
+      .filter(([provider]) => isSelected(provider))
+      .map(
+        ([provider, discovery]) =>
+          [provider, catalogDiagnostics(provider, providerAdapterFamily(provider), discovery, observedAt)] as const,
+      ),
+  );
+  return Object.fromEntries(diagnostics);
 }
 
 function catalogDiagnostics(

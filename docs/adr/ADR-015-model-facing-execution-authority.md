@@ -38,17 +38,21 @@ Sandbox takes the most restrictive value. Unmatched or unknown egress denies.
 
 The current storage vocabulary is interpreted as follows during containment:
 `allow` is admitted, `ask` requires consent, and `deny` is a hard prohibition.
-An `ask` without a preventive live approval channel or an exact admitted grant
-blocks before effect. A grant is evidence, never policy, and cannot satisfy a
-hard denial. Slice 1 replaces this overloaded storage vocabulary with
-`allow`, `require-approval`, and `forbid`, plus non-serializable internal
-`neutral`; the old names are not retained as aliases.
+An `ask` without a preventive live approval channel blocks before effect.
+Approval is evidence, never policy, and cannot satisfy a hard denial. Generic
+tool approval also cannot mint trusted-execution authority.
 
 Durable approval records from the old JSONL contract are not authority. They
 lack policy fingerprint, project, caller, agent, expiry, and revocation
-bindings and are ignored by execution. A future grant contract must bind all of
-those values and defaults to session scope. Existing records may be archived or
-discarded explicitly; Kiln does not silently delete operator state.
+bindings and are ignored by execution. Active attended trusted-execution
+authority is instead a non-serializable, process-local, session-owned lease for
+one exact invocation tree. It binds the principal, operator session, project,
+composition revision, route, tools, effect ceiling, policy digest, enforcement
+revision, and expiry. It ends at tree completion, session close, explicit
+revocation, composition revision change, or the one-hour cap, whichever occurs
+first. It never auto-renews or transfers implicitly to a child. Existing grant
+bytes may remain as inactive history, but no reader may convert them into
+execution or status authority.
 
 Plan mode is a ceiling, not a replacement policy. It may expose only its named
 non-mutating tool set and cannot grant a tool denied by configured policy.
@@ -106,10 +110,11 @@ not preventively representable. This is intentional; a warning cannot preserve
 the invariant. Status and the later effective-config read model must name the
 unsupported dimension and route rather than claim uniform enforcement.
 
-The full typed configured/execution snapshots, field provenance, replacement
-permission vocabulary, typed global authority bounds, and grant lifecycle are
-owned schema/read-model work. Immediate containment
-must not wait for those projections.
+The full typed configured/execution snapshots, field provenance, typed global
+authority bounds, component-scoped runtime attestation, and shared integrity
+projection remain owned schema/read-model work. The attended lease preserves
+the immediate authority boundary without claiming that provider or operating-
+system enforcement has been observed.
 
 This decision is invalidated only by new preventive route evidence or a change
 to the product security boundary. New evidence may make a route admissible; it

@@ -1,8 +1,11 @@
 import { existsSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { rm } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
   KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
@@ -13,6 +16,8 @@ import {
   isManagedAgentLiveTestsEnabled,
   isManagedAgentProviderLiveTestsEnabled,
   makeManagedAgentLiveHarnessReadOnlyRequest,
+  removeManagedAgentLiveFixtureWorkspaceWithRetry,
+  requireManagedAgentLiveEnvironment,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import { defineDeliberationLevelId, defineManagedAgentWriteEvidence } from "@kilnai/core/agents";
@@ -27,6 +32,24 @@ describe("managed agent live test harness", () => {
     expect(isManagedAgentLiveTestsEnabled({ [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "0" })).toBe(false);
     expect(isManagedAgentLiveTestsEnabled({ [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "true" })).toBe(false);
     expect(isManagedAgentLiveTestsEnabled({ [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1" })).toBe(true);
+  });
+
+  it("requires a valid KILN environment name and returns only a trimmed value", () => {
+    const missing = () => requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL, {});
+    expect(missing).toThrow(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL);
+    expect(() => requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL, {
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL]: " \t",
+    })).toThrow(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL);
+    expect(requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL, {
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL]: "  explicit-live-model  ",
+    })).toBe("explicit-live-model");
+
+    expect(() => requireManagedAgentLiveEnvironment("OPENAI_API_KEY", {
+      OPENAI_API_KEY: "secret-value",
+    })).toThrow(/KILN_\* identifier/u);
+    expect(() => requireManagedAgentLiveEnvironment("OPENAI_API_KEY", {
+      OPENAI_API_KEY: "secret-value",
+    })).not.toThrow("secret-value");
   });
 
   it("requires both the global and provider-specific live test flags", () => {
@@ -59,10 +82,12 @@ describe("managed agent live test harness", () => {
     expect(evaluateManagedAgentLivePreflight({}).message).toContain(KILN_LIVE_MANAGED_AGENT_TESTS_ENV);
   });
 
-  it("keeps explicit global disable stronger than auto-detected live providers", () => {
+  it("requires explicit global authority", () => {
     const result = evaluateManagedAgentLivePreflight({
       [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "0",
-    }, [KILN_LIVE_CODEX_TESTS_ENV]);
+      [KILN_LIVE_CODEX_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_MODEL]: "gpt-5.6-sol",
+    });
 
     expect(result.ok).toBe(false);
     expect(result.enabledProviders).toEqual([]);
@@ -79,30 +104,30 @@ describe("managed agent live test harness", () => {
     expect(result.message).toContain(KILN_LIVE_OPENCODE_TESTS_ENV);
   });
 
-  it("passes live preflight from auto-detected provider flags", () => {
+  it("does not infer provider authority", () => {
     const result = evaluateManagedAgentLivePreflight({
       [KILN_LIVE_CODEX_MODEL]: "gpt-5.6-sol",
-    }, [
-      KILN_LIVE_CODEX_TESTS_ENV,
-      KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
-    ]);
-
-    expect(result.ok).toBe(true);
-    expect(result.enabledProviders).toEqual([
-      KILN_LIVE_CODEX_TESTS_ENV,
-      KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
-    ]);
-    expect(result.environment).toMatchObject({
-      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
-      [KILN_LIVE_CODEX_TESTS_ENV]: "1",
-      [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
     });
+
+    expect(result.ok).toBe(false);
+    expect(result.enabledProviders).toEqual([]);
+  });
+
+  it("requires explicit OAuth direct authority", () => {
+    const result = evaluateManagedAgentLivePreflight({
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL]: "gpt-5.5",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.enabledProviders).toEqual([]);
   });
 
   it("passes live preflight with explicit global and provider flags", () => {
     const result = evaluateManagedAgentLivePreflight({
       [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
       [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL]: "gpt-5.5",
     });
 
     expect(result.ok).toBe(true);
@@ -110,16 +135,14 @@ describe("managed agent live test harness", () => {
   });
 
   it("requires explicit authorization for the managed-account live probe", () => {
-    const autoDetected = evaluateManagedAgentLivePreflight(
-      {},
-      [KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV],
-    );
+    const autoDetected = evaluateManagedAgentLivePreflight({});
     expect(autoDetected.ok).toBe(false);
     expect(autoDetected.enabledProviders).toEqual([]);
 
     const explicit = evaluateManagedAgentLivePreflight({
       [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
       [KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV]: "codex-oauth-managed-account",
     });
     expect(explicit.ok).toBe(true);
     expect(explicit.enabledProviders).toEqual([
@@ -173,6 +196,158 @@ describe("managed agent live test harness", () => {
 
     expect(workspaceRoot).toBeDefined();
     expect(cleanupObservedWorkspace).toBe(true);
+    expect(existsSync(workspaceRoot as string)).toBe(false);
+  });
+
+  it("retries transient fixture cleanup through an injectable bounded seam", async () => {
+    let workspaceRoot: string | undefined;
+    let removeAttempts = 0;
+    let waits = 0;
+
+    await withManagedAgentLiveFixtureWorkspace({
+      prefix: "kiln-managed-agent-live-cleanup-retry-",
+      files: {},
+      onWorkspaceCreated: (workspace) => {
+        workspaceRoot = workspace.workspaceRoot;
+      },
+    }, async () => undefined, {
+      attempts: 3,
+      remove: async (root) => {
+        removeAttempts += 1;
+        if (removeAttempts < 3) {
+          throw Object.assign(new Error("raw transient cleanup detail"), { code: "EBUSY" });
+        }
+        await rm(root, { recursive: true, force: true });
+      },
+      wait: async () => {
+        waits += 1;
+      },
+    });
+
+    expect(removeAttempts).toBe(3);
+    expect(waits).toBe(2);
+    expect(existsSync(workspaceRoot as string)).toBe(false);
+  });
+
+  it("fails closed with a sanitized error after transient cleanup retries are exhausted", async () => {
+    let workspaceRoot: string | undefined;
+    let removeAttempts = 0;
+    const rawErrorMessage = "raw cleanup detail C:\\Users\\operator\\fixture-secret";
+    const consoleWarning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const failure = await withManagedAgentLiveFixtureWorkspace({
+        prefix: "kiln-managed-agent-live-cleanup-final-failure-",
+        files: {},
+        onWorkspaceCreated: (workspace) => {
+          workspaceRoot = workspace.workspaceRoot;
+        },
+      }, async () => undefined, {
+        attempts: 2,
+        remove: async () => {
+          removeAttempts += 1;
+          throw Object.assign(new Error(rawErrorMessage), { code: "EBUSY" });
+        },
+        wait: async () => undefined,
+      }).then(() => undefined, (error) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      const message = failure instanceof Error ? failure.message : String(failure);
+      expect(message).toBe("Managed live fixture cleanup failed.");
+      expect(message).not.toContain(workspaceRoot as string);
+      expect(message).not.toContain(rawErrorMessage);
+    } finally {
+      expect(existsSync(workspaceRoot as string)).toBe(true);
+      await rm(workspaceRoot as string, { recursive: true, force: true });
+      consoleWarning.mockRestore();
+    }
+
+    expect(removeAttempts).toBe(2);
+    expect(consoleWarning).not.toHaveBeenCalled();
+    expect(existsSync(workspaceRoot as string)).toBe(false);
+  });
+
+  it("rejects invalid cleanup retry bounds before attempting removal", async () => {
+    const workspaceRoot = "C:\\portable\\managed-agent-live-cleanup";
+
+    for (const attempts of [0, Number.NaN]) {
+      const failure = await removeManagedAgentLiveFixtureWorkspaceWithRetry(workspaceRoot, {
+        attempts,
+        remove: async () => {
+          throw new Error("raw cleanup detail");
+        },
+        wait: async () => undefined,
+      }).then(() => undefined, (error) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      const message = failure instanceof Error ? failure.message : String(failure);
+      expect(message).toBe("Managed live fixture cleanup failed.");
+      expect(message).not.toContain(workspaceRoot);
+      expect(message).not.toContain("raw cleanup detail");
+    }
+  });
+
+  it("sanitizes nontransient cleanup failures without retrying", async () => {
+    let workspaceRoot: string | undefined;
+    let removeAttempts = 0;
+    let waits = 0;
+    const rawErrorMessage = "raw nontransient cleanup detail C:\\fixture\\secret";
+
+    const failure = await withManagedAgentLiveFixtureWorkspace({
+      prefix: "kiln-managed-agent-live-cleanup-nontransient-",
+      files: {},
+      onWorkspaceCreated: (workspace) => {
+        workspaceRoot = workspace.workspaceRoot;
+      },
+    }, async () => undefined, {
+      remove: async (root) => {
+        removeAttempts += 1;
+        await rm(root, { recursive: true, force: true });
+        throw Object.assign(new Error(rawErrorMessage), { code: "EACCES" });
+      },
+      wait: async () => {
+        waits += 1;
+      },
+    }).then(() => undefined, (error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = failure instanceof Error ? failure.message : String(failure);
+    expect(message).toBe("Managed live fixture cleanup failed.");
+    expect(message).not.toContain(workspaceRoot as string);
+    expect(message).not.toContain(rawErrorMessage);
+    expect(removeAttempts).toBe(1);
+    expect(waits).toBe(0);
+    expect(existsSync(workspaceRoot as string)).toBe(false);
+  });
+
+  it("keeps cleanup failure observable when the fixture callback also fails", async () => {
+    let workspaceRoot: string | undefined;
+    const callbackErrorMessage = "raw callback failure C:\\fixture\\secret";
+    const cleanupErrorMessage = "raw cleanup failure C:\\fixture\\secret";
+
+    const failure = await withManagedAgentLiveFixtureWorkspace({
+      prefix: "kiln-managed-agent-live-cleanup-callback-failure-",
+      files: {},
+      onWorkspaceCreated: (workspace) => {
+        workspaceRoot = workspace.workspaceRoot;
+      },
+    }, async () => {
+      throw new Error(callbackErrorMessage);
+    }, {
+      attempts: 1,
+      remove: async (root) => {
+        await rm(root, { recursive: true, force: true });
+        throw Object.assign(new Error(cleanupErrorMessage), { code: "EBUSY" });
+      },
+      wait: async () => undefined,
+    }).then(() => undefined, (error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = failure instanceof Error ? failure.message : String(failure);
+    expect(message).toBe("Managed live fixture cleanup failed.");
+    expect(message).not.toContain(workspaceRoot as string);
+    expect(message).not.toContain(callbackErrorMessage);
+    expect(message).not.toContain(cleanupErrorMessage);
     expect(existsSync(workspaceRoot as string)).toBe(false);
   });
 

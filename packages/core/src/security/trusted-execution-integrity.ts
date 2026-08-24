@@ -33,6 +33,20 @@ export type TrustedExecutionEvidenceSource = typeof TRUSTED_EXECUTION_EVIDENCE_S
 export type TrustedExecutionClassification =
   typeof TRUSTED_EXECUTION_CLASSIFICATIONS[number];
 
+const TRUSTED_EXECUTION_PROFILE_AUTHORITY: Readonly<Record<TrustedExecutionProfile, number>> = {
+  restricted: 0,
+  "workspace-write": 1,
+  "trusted-full-access": 2,
+};
+
+/** Compare trusted-execution profiles by their canonical authority ordering. */
+export function compareTrustedExecutionProfileAuthority(
+  left: TrustedExecutionProfile,
+  right: TrustedExecutionProfile,
+): number {
+  return TRUSTED_EXECUTION_PROFILE_AUTHORITY[left] - TRUSTED_EXECUTION_PROFILE_AUTHORITY[right];
+}
+
 export interface TrustedExecutionEvidence {
   readonly profile: TrustedExecutionProfile;
   readonly source: TrustedExecutionEvidenceSource;
@@ -90,13 +104,8 @@ export function classifyTrustedExecutionIntegrity(
     && ["runtime-observation", "managed-child-observation"].includes(input.effectiveRuntime.source);
   const anyEvidenceFreshnessUnknown = evidence.some((item) => item.freshness === "unknown");
   const uiEvidencePresentedAsProof = evidence.some((item) => item.source === "desktop-ui-selection" && item.proof === "proven");
-  const profileAuthority: Readonly<Record<TrustedExecutionProfile, number>> = {
-    restricted: 0,
-    "workspace-write": 1,
-    "trusted-full-access": 2,
-  };
   const persistedBroadening = input.persistedNative !== undefined
-    && profileAuthority[input.persistedNative.profile] > profileAuthority[input.desired.profile];
+    && compareTrustedExecutionProfileAuthority(input.persistedNative.profile, input.desired.profile) > 0;
   const trustedAuthorization = input.authorization.status === "authorized"
     && input.authorization.scope === "operator-local"
     && input.authorization.authorizedBy !== undefined
@@ -147,18 +156,12 @@ export interface TrustedExecutionIntentRequest {
   readonly authorizedAt?: string;
 }
 
-const PROFILE_AUTHORITY: Readonly<Record<TrustedExecutionProfile, number>> = {
-  restricted: 0,
-  "workspace-write": 1,
-  "trusted-full-access": 2,
-};
-
 export function authorizeTrustedExecutionIntent(
   request: TrustedExecutionIntentRequest,
 ): TrustedExecutionAuthorization {
   if (request.source === "repository") {
     const broadens = request.currentProfile === undefined
-      || PROFILE_AUTHORITY[request.requestedProfile] > PROFILE_AUTHORITY[request.currentProfile];
+      || compareTrustedExecutionProfileAuthority(request.requestedProfile, request.currentProfile) > 0;
     if (broadens) {
       return {
         status: "rejected",
@@ -170,8 +173,9 @@ export function authorizeTrustedExecutionIntent(
     return { status: "narrowed", scope: "repository", revocable: request.revocable };
   }
 
-  const currentAuthority = request.currentProfile === undefined ? 0 : PROFILE_AUTHORITY[request.currentProfile];
-  const broadens = PROFILE_AUTHORITY[request.requestedProfile] > currentAuthority;
+  const broadens = request.currentProfile === undefined
+    ? request.requestedProfile !== "restricted"
+    : compareTrustedExecutionProfileAuthority(request.requestedProfile, request.currentProfile) > 0;
   if (!broadens) {
     return { status: "narrowed", scope: "operator-local", revocable: request.revocable };
   }

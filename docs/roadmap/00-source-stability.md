@@ -2,8 +2,11 @@
 
 Status: Ready
 Priority: Urgent
-Execution: Ready - advance Slice 3 / issue #97 against the final project-state
-owner completed by Slice 2.
+Execution: implementation has reached Slice 4's first attended
+issuance/enforcement path. Slice 4 / issue #52 still needs genuine runtime
+attestation. Slice 3 / issue #97 still needs an operator-authorized live run on
+an intended clean candidate, and Slice 2 / issue #100 still needs operator-owned
+quarantine deletion. Slices 5 and 6 remain queued in order.
 Created: 2026-08-23
 
 ## Objective
@@ -126,9 +129,9 @@ remaining operator deletion is the final adoption condition.
 
 ### Slice 3 - Recovery And Live Validation
 
-Status: Ready; Slice 2 completed the final project-state owner consumed by this
-work. Live entrypoints remain separately authorized from portable deterministic
-fixtures.
+Status: Code and integration complete; operator-authorized live validation is
+pending on an intended clean candidate. Live entrypoints remain separately
+authorized from portable deterministic fixtures.
 
 Complete [issue #97](https://github.com/sequelcore/kiln/issues/97): deterministic
 crash, restart, replay, cancellation, settlement, stale-evidence, and corrupt-
@@ -139,16 +142,82 @@ Exit gate: post-fence uncertainty never silently redispatches or releases
 capacity, duplicate ingress cannot duplicate a consequential effect, and
 restart preserves attributable terminal or recovery evidence.
 
+The canonical manifest now owns 12 portable recovery cases, 13 exact
+deterministic locators, 12 implemented live proofs, and three planned live
+omissions. The root test gate runs every deterministic locator without
+credentials and rejects missing, duplicate, failed, or skipped evidence.
+Credential-free evidence covers committed-revision retention, pre- and
+post-fence crash behavior, duplicate ingress, disconnect uncertainty, child
+cleanup, cancellation settlement, startup recovery, stale/conflicting/corrupt
+checkpoints, and retained capacity under unknown settlement.
+
+Production startup recovers managed invocation checkpoints before exposing the
+execution owner, only on cold start, and unwinds staged owners on failure. The
+live runner requires explicit master and provider authority plus exact model or
+route configuration; discovery never authorizes execution. It records a
+sanitized candidate and executor provenance in one atomically replaced private
+report, bounds output and process-tree settlement, fails closed on unauthorized
+or uncataloged assertions, and never claims release readiness.
+
+At the Slice 3 implementation checkpoint, the full credential-free root test,
+typecheck, build, startup-profile, documentation, and diff gates passed.
+Independent Sol-high review reported no HIGH or MEDIUM findings. No live
+provider run was authorized or executed, so issue #97 remains lifecycle-open.
+Transport disconnect, credential expiry, and capacity exhaustion remain
+explicit manifest-v1 planned omissions; they block full or exact live-coverage
+claims but do not replace the required authorized run of the implemented proof
+set.
+
 ### Slice 4 - Trusted Runtime Evidence
 
-Status: Blocked on the independent audit and operator ratification required by
-[issue #52](https://github.com/sequelcore/kiln/issues/52). Audit work may begin
-before Slice 3; new durable authorization must use the final state owner.
+Status: Operator policy ratified; passive lease evidence, the legacy
+durable-authority cutoff, and the first attended issuance/enforcement path are
+complete. Genuine runtime attestation remains in progress under
+[issue #52](https://github.com/sequelcore/kiln/issues/52).
+
+The audit rejected route-derived authority as effective-runtime proof and
+found that full-access consent currently overstates applied enforcement. The
+shared CLI observer that echoed requested authority as `proof: proven` has
+been removed. Credential-free tests now prove that unattended or background
+direct-provider, CLI-harness, and remote-harness work cannot reach the adapter
+without genuine runtime observation; attended foreground work remains
+available with projection-only evidence.
+
+Trusted execution now uses a process-local, session-owned lease for one exact
+invocation tree. It ends at the earliest of completion, session close,
+revocation, composition revision change, or a one-hour cap; it never
+auto-renews or implicitly transfers to a child. `authorizedBy` is display
+attribution only. Legacy private grant files are retained as inactive history,
+and native projection snapshots cannot carry executable authorization.
+
+The first issuance path is implemented only for interactive CLI `run` and
+foreground `managed_agent.invoke` work on the Runtime-controlled Codex OAuth
+direct-provider route. A dedicated structured prompt binds the process-local
+principal, operator session, project, composition revision, route, invocation
+tree, profile, tools, effect ceiling, policy digest, enforcement revision, and
+expiry. Runtime validates that binding before authority observation or resource
+acquisition, then checks every resolved child tool effect before cache lookup or
+execution. Consequential effects are checked again after asynchronous admission
+readback and before the durable action claim; retries recheck before every
+attempt. Observed expiry latches terminal so clock rollback cannot reactivate a
+lease. The lease is completed when the foreground invocation settles.
+
+Generic tool approval cannot mint this lease. GUI, TUI, background, nested,
+economic-routed, non-Codex direct-provider, and native CLI-harness paths remain
+fail-closed until they gain an equivalent operator-owned issuance and
+enforcement boundary.
+
+Checkpoint verification on 2026-08-24 passed the full Runtime lane (3,331
+passed, five skipped), full CLI lane (2,589 passed, one skipped), root
+typecheck, documentation validation, and diff checks. Independent Sol-high
+review reported no remaining findings after focused reruns of the attended
+Runtime boundary (30/30) and CLI approval boundary (41/41). No live provider
+call was authorized or executed.
 
 Produce effective-runtime permission observation and make the admitted
-integrity states reachable without weakening fail-closed behavior. Durable
-full-access authorization remains per harness, explicit, revocable, and
-operator-ratified.
+integrity states reachable without weakening fail-closed behavior. Lease
+possession is authorization evidence only and never counts as runtime
+attestation or makes `current-verified` reachable by itself.
 
 Exit gate: `kiln doctor` has no permanently unresolvable permission action on a
 clean supported machine, and CLI, TUI, GUI, and doctor project the same
@@ -191,8 +260,9 @@ without registry evidence.
   typecheck are not a trustworthy change oracle.
 - Issue #97 may define its portable scenario matrix before Slice 2, but its
   storage-bound implementation must consume the final owner from issue #100.
-- Issue #52 audit may run early; any durable authorization writes after issue
-  #100 and still requires explicit operator ratification.
+- Issue #52 keeps active trusted-execution authority process-local. Existing
+  private grant bytes may be retained as inactive history but cannot authorize
+  execution or status.
 - Independently useful work does not become the default task unless this file
   records a priority change.
 

@@ -1,4 +1,4 @@
-import { classifyTrustedExecutionIntegrity, type TrustedExecutionAuthorizationRecord, type TrustedExecutionSemanticLimitation } from "@kilnai/core";
+import { classifyTrustedExecutionIntegrity, type TrustedExecutionSemanticLimitation } from "@kilnai/core";
 import { type TrustedExecutionIntegrity, TrustedExecutionIntegritySchema } from "@kilnai/gateway-contracts";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import type { BackendConfig } from "../../wrapper/session-registry.js";
@@ -25,7 +25,6 @@ export interface PermissionProjectionIntegrityInput {
   readonly enforcement: TrustedExecutionIntegrity["enforcement"];
   readonly recommendation?: string;
   readonly now?: Date;
-  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }
 
 export interface PermissionSyncMetadata {
@@ -81,17 +80,14 @@ export function createPermissionProjectionIntegrity(
     ),
     ...(input.semanticLoss ?? []),
   ];
-  const authorization =
-    profile === "trusted-full-access" && input.storedAuthorization?.profile === "trusted-full-access"
-      ? input.storedAuthorization.authorization
-      : {
-          status: "unavailable" as const,
-          revocable: true,
-          reason:
-            profile === "trusted-full-access"
-              ? "operator-local-trusted-authorization-not-attached-to-native-projection"
-              : "authorization-not-required-for-narrower-policy",
-        };
+  const authorization = {
+    status: "unavailable" as const,
+    revocable: true,
+    reason:
+      profile === "trusted-full-access"
+        ? "attended-session-lease-not-attached-to-native-projection"
+        : "authorization-not-required-for-narrower-policy",
+  };
   const desired = {
     profile,
     source: "operator-local-config" as const,

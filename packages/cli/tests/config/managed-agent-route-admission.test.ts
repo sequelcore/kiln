@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createManagedAgentRouteAdmissionResolver } from "../../src/config/managed-agent-route-admission.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 
 const capability = {
   identity: { routeId: "route-alpha", revision: "v1" },
@@ -23,6 +24,98 @@ const authorityProfiles = [{
 }] as const;
 
 describe("managed agent route admission", () => {
+  it("loads canonical config before discovering only its deduplicated route providers", async () => {
+    const events: string[] = [];
+    let selectedProviders: ReadonlySet<string> | undefined;
+    const discoverProviderModels = vi.fn(async (providers: ReadonlySet<string>) => {
+      events.push("discover");
+      selectedProviders = providers;
+      return {};
+    });
+    const config = {
+      version: "1",
+      authorityProfiles,
+      targetCatalog: {
+        evidenceRevision: `sha256:${"a".repeat(64)}`,
+        accounts: [{
+          id: "openai-account",
+          providerId: "openai",
+          credentialId: "openai-credential",
+          maxConcurrency: 1,
+          reservedAffinitySlots: 0,
+          economics: { creditPosture: "disabled", overagePosture: "disabled" },
+        }],
+        accountPolicies: [{
+          id: "openai-policy",
+          accountIds: ["openai-account"],
+          strategy: "economic-least-pressure",
+        }],
+        targets: [
+          {
+            id: "codex-route",
+            kind: "harness",
+            label: "Codex route",
+            providerId: "codex",
+            providerModelId: "gpt-5.3-codex",
+            dataClassification: "internal",
+          },
+          {
+            id: "openai-route",
+            kind: "direct",
+            label: "OpenAI route",
+            providerId: "openai",
+            providerModelId: "gpt-5.3",
+            dataClassification: "internal",
+            accountSelection: { mode: "automatic", accountPolicyId: "openai-policy" },
+            economics: {
+              authBillingChannel: "api-key",
+              executionMode: "direct",
+              serviceTier: "default",
+              fallbackPosture: "disabled",
+              overagePosture: "disabled",
+              executionEnvelope: { limits: [] },
+            },
+          },
+          {
+            id: "codex-route-duplicate",
+            kind: "harness",
+            label: "Codex duplicate route",
+            providerId: "codex",
+            providerModelId: "gpt-5.3-codex",
+            dataClassification: "internal",
+          },
+        ],
+      },
+    } satisfies ResolvedKilnConfig;
+    const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => {
+        events.push("config");
+        return config;
+      },
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: discoverProviderModels as never,
+      resolveRoutes: async () => ({ managedInvocation: { routes: [] } }) as never,
+    });
+
+    expect(resolver.resolve(agent as never)).toMatchObject({ status: "unresolved" });
+    expect(events).toEqual(["config", "discover"]);
+    expect(selectedProviders).toEqual(new Set(["codex", "openai"]));
+  });
+
+  it("does not discover providers when canonical config loading fails", async () => {
+    const discoverProviderModels = vi.fn(async () => ({}));
+    const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => {
+        throw new Error("malformed config");
+      },
+      discoverProviderModels,
+      resolveRoutes: async () => ({ managedInvocation: { routes: [] } }) as never,
+    });
+
+    expect(resolver.resolve(agent as never)).toMatchObject({ status: "unresolved" });
+    expect(discoverProviderModels).not.toHaveBeenCalled();
+  });
+
   it("projects from canonical candidate-admission routes without execution composition", async () => {
     const createRegistry = vi.fn(() => ({ registry: {} as never }));
     const discoverProviderModels = vi.fn(async () => ({}));

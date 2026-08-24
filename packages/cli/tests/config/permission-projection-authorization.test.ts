@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPermissionProjectionIntegrity } from "../../src/config/translators/permission-projection.js";
 
 describe("permission projection authorization", () => {
-  it("attaches a matching stored full-access authorization", () => {
+  it("requires an attended lease for full access instead of attaching durable authorization", () => {
     const integrity = createPermissionProjectionIntegrity({
       harness: "codex",
       policy: { approval: "never", sandbox: "danger-full-access" },
@@ -22,21 +22,16 @@ describe("permission projection authorization", () => {
         strength: "strong",
       },
       now: new Date("2026-08-06T00:00:00.000Z"),
-      storedAuthorization: {
-        profile: "trusted-full-access",
-        authorization: {
-          status: "authorized",
-          scope: "operator-local",
-          revocable: true,
-          authorizedBy: "operator:test",
-          authorizedAt: "2026-08-06T00:00:00.000Z",
-        },
-      },
     });
-    expect(integrity.authorization).toMatchObject({ status: "authorized", authorizedBy: "operator:test" });
+    expect(integrity.authorization).toEqual({
+      status: "unavailable",
+      revocable: true,
+      reason: "attended-session-lease-not-attached-to-native-projection",
+    });
+    expect(integrity.classification).toBe("effective-policy-unproven");
   });
 
-  it("falls back to unavailable when the stored authorization profile does not match", () => {
+  it("does not require authorization for a narrower policy", () => {
     const integrity = createPermissionProjectionIntegrity({
       harness: "codex",
       policy: { approval: "never", sandbox: "workspace-write" },
@@ -56,17 +51,11 @@ describe("permission projection authorization", () => {
         strength: "strong",
       },
       now: new Date("2026-08-06T00:00:00.000Z"),
-      storedAuthorization: {
-        profile: "trusted-full-access",
-        authorization: {
-          status: "authorized",
-          scope: "operator-local",
-          revocable: true,
-          authorizedBy: "operator:test",
-          authorizedAt: "2026-08-06T00:00:00.000Z",
-        },
-      },
     });
-    expect(integrity.authorization).toMatchObject({ status: "unavailable" });
+    expect(integrity.authorization).toEqual({
+      status: "unavailable",
+      revocable: true,
+      reason: "authorization-not-required-for-narrower-policy",
+    });
   });
 });

@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import { resolveCommunicationIntent, resolveCommunicationProfile } from "@kilnai/core/agents";
+import { describe, expect, it } from "vitest";
 import {
   createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
@@ -18,8 +18,83 @@ import {
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
+import { createPermissionProjectionIntegrity } from "../../src/config/translators/permission-projection.js";
 
 describe("native projection install state", () => {
+  it("retains legacy snapshot bytes but removes their executable authorization on read", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-state-"));
+    try {
+      const projected = createPermissionProjectionIntegrity({
+        harness: "codex",
+        policy: { approval: "never", sandbox: "danger-full-access" },
+        translated: {
+          backend: "codex",
+          config: { approvalMode: "never", sandboxMode: "danger-full-access" },
+          nativeRules: { coarseOnly: true },
+          representableRules: [],
+          unsupportedRules: [],
+          constraintInstructions: [],
+          warnings: [],
+        },
+        enforcement: {
+          approvalControl: "enforced",
+          filesystemSandbox: "enforced",
+          networkBoundary: "enforced",
+          strength: "strong",
+        },
+        now: new Date("2026-08-13T18:00:00.000Z"),
+      });
+      const legacyIntegrity = {
+        ...projected,
+        effectiveRuntime: {
+          ...projected.desired,
+          source: "runtime-observation" as const,
+        },
+        authorization: {
+          status: "authorized" as const,
+          scope: "operator-local" as const,
+          authorizedBy: "legacy-operator",
+          authorizedAt: "2026-08-13T18:00:00.000Z",
+          revocable: true,
+        },
+        classification: "current-verified" as const,
+      };
+      const statePath = join(root, "install-state.json");
+      writeFileSync(
+        statePath,
+        JSON.stringify({
+          version: 1,
+          targets: {
+            "codex-config": {
+              targetId: "codex-config",
+              filePath: "C:/Users/test/.codex/config.toml",
+              contentHash: "a".repeat(64),
+              managedFields: ["approval_policy", "sandbox_mode"],
+              managedFieldHashes: {},
+              updatedAt: "2026-08-13T18:00:00.000Z",
+              permissionIntegrity: legacyIntegrity,
+            },
+          },
+        }),
+        "utf8",
+      );
+
+      const read = readNativeProjectionInstallState(root).targets["codex-config"]!.permissionIntegrity!;
+
+      expect(read.authorization).toEqual({
+        status: "unavailable",
+        revocable: true,
+        reason: "persisted-authorization-is-not-executable",
+      });
+      expect(read.classification).toBe("effective-policy-unproven");
+      expect(
+        JSON.parse(readFileSync(statePath, "utf8")).targets["codex-config"].permissionIntegrity.authorization.status,
+      ).toBe("authorized");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects tampered persisted communication evidence before status can expose it", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-state-"));
     try {
@@ -27,12 +102,15 @@ describe("native projection install state", () => {
         intent: resolveCommunicationIntent([{ source: "project", intent: { locale: "es-MX" } }]),
         execution: { provider: "openai", model: "gpt-5.6-sol", surface: "standalone-harness", harness: "codex" },
       });
-      const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), createNativeProjectionFileSnapshot({
-        targetId: "codex-agent:reviewer",
-        filePath: "C:/Users/test/.codex/agents/reviewer.toml",
-        content: "model = 'gpt-5.6-sol'\n",
-        communicationResolution: resolution,
-      }));
+      const state = upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionFileSnapshot({
+          targetId: "codex-agent:reviewer",
+          filePath: "C:/Users/test/.codex/agents/reviewer.toml",
+          content: "model = 'gpt-5.6-sol'\n",
+          communicationResolution: resolution,
+        }),
+      );
       writeNativeProjectionInstallState(root, state);
       const statePath = join(root, "install-state.json");
       const tampered = JSON.parse(readFileSync(statePath, "utf8")) as {
@@ -49,10 +127,13 @@ describe("native projection install state", () => {
 
   it("strips only the owned multiplicity from the end of managed arrays", () => {
     const item = { path: "C:/same/SKILL.md", enabled: false };
-    expect(stripManagedFields({
-      currentDocument: { skills: { config: [item, { path: "C:/other", enabled: true }, item] } },
-      managedFields: ["skills.config"], managedArrayItems: { "skills.config": [item] },
-    })).toEqual({ skills: { config: [item, { path: "C:/other", enabled: true }] } });
+    expect(
+      stripManagedFields({
+        currentDocument: { skills: { config: [item, { path: "C:/other", enabled: true }, item] } },
+        managedFields: ["skills.config"],
+        managedArrayItems: { "skills.config": [item] },
+      }),
+    ).toEqual({ skills: { config: [item, { path: "C:/other", enabled: true }] } });
   });
   it("detects drift only when managed fields change", () => {
     const target = createNativeProjectionSnapshot({
@@ -68,25 +149,29 @@ describe("native projection install state", () => {
     });
     const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
 
-    expect(detectNativeProjectionDrift({
-      targetId: "codex",
-      state,
-      currentDocument: {
-        model: "gpt-5.4",
-        approval_policy: "on-request",
-        userSetting: false,
-      },
-    })).toBeUndefined();
+    expect(
+      detectNativeProjectionDrift({
+        targetId: "codex",
+        state,
+        currentDocument: {
+          model: "gpt-5.4",
+          approval_policy: "on-request",
+          userSetting: false,
+        },
+      }),
+    ).toBeUndefined();
 
-    expect(detectNativeProjectionDrift({
-      targetId: "codex",
-      state,
-      currentDocument: {
-        model: "gpt-5.4",
-        approval_policy: "never",
-        userSetting: true,
-      },
-    })).toEqual({
+    expect(
+      detectNativeProjectionDrift({
+        targetId: "codex",
+        state,
+        currentDocument: {
+          model: "gpt-5.4",
+          approval_policy: "never",
+          userSetting: true,
+        },
+      }),
+    ).toEqual({
       targetId: "codex",
       driftedFields: ["approval_policy"],
     });
@@ -101,17 +186,21 @@ describe("native projection install state", () => {
     });
     const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
 
-    expect(detectNativeProjectionFileDrift({
-      targetId: "claude-autoformat-hook",
-      state,
-      currentContent: "#!/bin/sh\nexit 0\n",
-    })).toBeUndefined();
+    expect(
+      detectNativeProjectionFileDrift({
+        targetId: "claude-autoformat-hook",
+        state,
+        currentContent: "#!/bin/sh\nexit 0\n",
+      }),
+    ).toBeUndefined();
 
-    expect(detectNativeProjectionFileDrift({
-      targetId: "claude-autoformat-hook",
-      state,
-      currentContent: "#!/bin/sh\necho drift\n",
-    })).toEqual({
+    expect(
+      detectNativeProjectionFileDrift({
+        targetId: "claude-autoformat-hook",
+        state,
+        currentContent: "#!/bin/sh\necho drift\n",
+      }),
+    ).toEqual({
       targetId: "claude-autoformat-hook",
       driftedFields: ["$file"],
     });
@@ -126,16 +215,20 @@ describe("native projection install state", () => {
     });
     const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
 
-    expect(detectNativeProjectionFileDrift({
-      targetId: target.targetId,
-      state,
-      currentContent: Uint8Array.from(content),
-    })).toBeUndefined();
-    expect(detectNativeProjectionFileDrift({
-      targetId: target.targetId,
-      state,
-      currentContent: Uint8Array.from([0, 255, 17, 35]),
-    })).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
+    expect(
+      detectNativeProjectionFileDrift({
+        targetId: target.targetId,
+        state,
+        currentContent: Uint8Array.from(content),
+      }),
+    ).toBeUndefined();
+    expect(
+      detectNativeProjectionFileDrift({
+        targetId: target.targetId,
+        state,
+        currentContent: Uint8Array.from([0, 255, 17, 35]),
+      }),
+    ).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
   });
 
   it("does not collapse distinct invalid UTF-8 bytes into one projection hash", () => {
@@ -146,11 +239,13 @@ describe("native projection install state", () => {
     });
     const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
 
-    expect(detectNativeProjectionFileDrift({
-      targetId: target.targetId,
-      state,
-      currentContent: Uint8Array.from([0x81]),
-    })).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
+    expect(
+      detectNativeProjectionFileDrift({
+        targetId: target.targetId,
+        state,
+        currentContent: Uint8Array.from([0x81]),
+      }),
+    ).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
   });
 
   it("recognizes canonical bytes for a fully-owned file despite a stale snapshot", () => {
@@ -163,62 +258,72 @@ describe("native projection install state", () => {
     });
 
     expect(isFullyOwnedNativeProjectionFile(target)).toBe(true);
-    expect(nativeProjectionFileMatchesDesired({
-      target,
-      currentContent: Buffer.from("canonical\n", "utf8"),
-      desiredContent: "canonical\n",
-      expected: {
-        targetId: target.targetId,
-        filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
-        harness: "codex",
-        sourceIdentity: "skill:planner/SKILL.md",
-      },
-    })).toBe(true);
-    expect(nativeProjectionFileMatchesDesired({
-      target,
-      currentContent: "operator drift\n",
-      desiredContent: "canonical\n",
-      expected: {
-        targetId: target.targetId,
-        filePath: target.filePath,
-        harness: "codex",
-        sourceIdentity: "skill:planner/SKILL.md",
-      },
-    })).toBe(false);
+    expect(
+      nativeProjectionFileMatchesDesired({
+        target,
+        currentContent: Buffer.from("canonical\n", "utf8"),
+        desiredContent: "canonical\n",
+        expected: {
+          targetId: target.targetId,
+          filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
+          harness: "codex",
+          sourceIdentity: "skill:planner/SKILL.md",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      nativeProjectionFileMatchesDesired({
+        target,
+        currentContent: "operator drift\n",
+        desiredContent: "canonical\n",
+        expected: {
+          targetId: target.targetId,
+          filePath: target.filePath,
+          harness: "codex",
+          sourceIdentity: "skill:planner/SKILL.md",
+        },
+      }),
+    ).toBe(false);
 
-    expect(nativeProjectionFileMatchesDesired({
-      target,
-      currentContent: "canonical\n",
-      desiredContent: "canonical\n",
-      expected: {
-        targetId: target.targetId,
-        filePath: target.filePath,
-        harness: "claude",
-        sourceIdentity: "skill:planner/SKILL.md",
-      },
-    })).toBe(false);
-    expect(nativeProjectionFileMatchesDesired({
-      target,
-      currentContent: "canonical\n",
-      desiredContent: "canonical\n",
-      expected: {
-        targetId: target.targetId,
-        filePath: target.filePath.replace("planner", "other"),
-        harness: "codex",
-        sourceIdentity: "skill:planner/SKILL.md",
-      },
-    })).toBe(false);
-    expect(nativeProjectionFileMatchesDesired({
-      target,
-      currentContent: "canonical\n",
-      desiredContent: "canonical\n",
-      expected: {
-        targetId: "codex-skill:other/SKILL.md",
-        filePath: target.filePath,
-        harness: "codex",
-        sourceIdentity: "skill:planner/SKILL.md",
-      },
-    })).toBe(false);
+    expect(
+      nativeProjectionFileMatchesDesired({
+        target,
+        currentContent: "canonical\n",
+        desiredContent: "canonical\n",
+        expected: {
+          targetId: target.targetId,
+          filePath: target.filePath,
+          harness: "claude",
+          sourceIdentity: "skill:planner/SKILL.md",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      nativeProjectionFileMatchesDesired({
+        target,
+        currentContent: "canonical\n",
+        desiredContent: "canonical\n",
+        expected: {
+          targetId: target.targetId,
+          filePath: target.filePath.replace("planner", "other"),
+          harness: "codex",
+          sourceIdentity: "skill:planner/SKILL.md",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      nativeProjectionFileMatchesDesired({
+        target,
+        currentContent: "canonical\n",
+        desiredContent: "canonical\n",
+        expected: {
+          targetId: "codex-skill:other/SKILL.md",
+          filePath: target.filePath,
+          harness: "codex",
+          sourceIdentity: "skill:planner/SKILL.md",
+        },
+      }),
+    ).toBe(false);
 
     const documentTarget = createNativeProjectionSnapshot({
       targetId: "codex-config",
@@ -303,11 +408,13 @@ describe("native projection install state", () => {
     });
     const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
 
-    expect(detectNativeProjectionDrift({
-      targetId: "codex-mcp",
-      state,
-      currentDocument: document,
-    })).toBeUndefined();
+    expect(
+      detectNativeProjectionDrift({
+        targetId: "codex-mcp",
+        state,
+        currentDocument: document,
+      }),
+    ).toBeUndefined();
     expect(stripManagedFields({ currentDocument: document, managedFields: [field] })).toEqual({
       mcp_servers: { unmanaged: { command: "keep" } },
     });

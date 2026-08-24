@@ -140,7 +140,9 @@ vi.mock("../../src/config/managed-agent-route-catalog.js", async (importOriginal
                 adapterCapabilityVersion: "execution-mismatch",
               });
             }
-            if (routeCatalogTrace.mutateExecutionProfileAuthority && routeCatalogTrace.executionRefreshCount >= 3) {
+            // Startup now performs one execution resolve before dispatch; keep
+            // this mutation after the post-claim refreshes under test.
+            if (routeCatalogTrace.mutateExecutionProfileAuthority && routeCatalogTrace.executionRefreshCount >= 4) {
               const profile = route?.profiles.find(
                 (candidate) => candidate.admissionProfile === "foundation-readonly-plan",
               );

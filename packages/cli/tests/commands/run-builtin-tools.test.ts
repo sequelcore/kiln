@@ -1,21 +1,26 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineEffectiveAuthorityAdmissionBundle, type ManagedAgentOrchestrationLifecycleInput, type EffectiveAuthorityAdmissionBundle } from "@kilnai/runtime";
-import type { KilnAppConfig } from "../../src/config.js";
-import type { ResolvedKilnConfig } from "../../src/kiln-yaml.js";
-import type { PersistedAuthorityAdmissionRecord } from "../../src/wrapper/session-store.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+  type ManagedAgentOrchestrationLifecycleInput,
+} from "@kilnai/runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   buildRunSessionRequirements,
+  createCliAttendedTrustedExecutionLeaseApprovalPort,
   createCliRuntimeApprovalHandler,
   resolveRunProviderModelAdmission,
   runCommand,
 } from "../../src/commands/run.js";
-import { readGlobalConfig } from "../../src/config/global-config.js";
 import { loadKilnConfig } from "../../src/config/config-merger.js";
+import { readGlobalConfig } from "../../src/config/global-config.js";
+import type { KilnAppConfig } from "../../src/config.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml.js";
+import type { PersistedAuthorityAdmissionRecord } from "../../src/wrapper/session-store.js";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
-import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
-import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -48,7 +53,11 @@ function defineTestRoutedAdmission(input: {
     },
     session: {
       skillCatalog: { catalogId: "test", revision: "test", skillIds: [] },
-      authorityCeiling: { maximumAuthority: "destructive", reason: "test admission", subjectId: "test-runtime-session" },
+      authorityCeiling: {
+        maximumAuthority: "destructive",
+        reason: "test admission",
+        subjectId: "test-runtime-session",
+      },
     },
     turn: {
       authority: {
@@ -130,13 +139,17 @@ const runWiringMocks = vi.hoisted(() => {
     drainCleanupHandlers,
     cleanupRegistryRunAll: vi.fn(drainCleanupHandlers),
     cleanupRegistryRegister: vi.fn((handler: () => Promise<void>) => cleanupHandlers.push(handler)),
-    createManagedAgentInvocationResourceProvider: vi.fn((_options?: unknown) => ({ id: "managed-agent-resource-provider" })),
+    createManagedAgentInvocationResourceProvider: vi.fn((_options?: unknown) => ({
+      id: "managed-agent-resource-provider",
+    })),
     runManagedAgentOrchestrationLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
     transcriptInit: vi.fn().mockResolvedValue(undefined),
     transcriptFinalize: vi.fn().mockResolvedValue(undefined),
     authorityAdmissions: new Map<string, PersistedAuthorityAdmissionRecord[]>(),
-    authorityAdmissionEvidenceStore: undefined as { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> } | undefined,
+    authorityAdmissionEvidenceStore: undefined as
+      | { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> }
+      | undefined,
     preparedWorkingDirectory: undefined as string | undefined,
     qualityGates: [] as Array<{ name: string; command: string; required: boolean }>,
     capturedSessionConfigs: [] as unknown[],
@@ -164,250 +177,264 @@ const runWiringMocks = vi.hoisted(() => {
 
 const operatorCompositionMocks = vi.hoisted(() => {
   const state: { dispatchError?: Error } = {};
-  const create = vi.fn((input: {
-    readonly initialCatalog: {
-      readonly accounts: readonly {
-        readonly id: string;
-        readonly credentialId: string;
-      }[];
-      readonly accountPolicies: readonly {
-        readonly id: string;
-        readonly accountIds: readonly string[];
-      }[];
-      readonly routes: readonly {
-        readonly id: string;
-        readonly providerId: string;
-        readonly providerModelId: string;
-        readonly accountSelection:
-          | { readonly mode: "automatic"; readonly accountPolicyId: string }
-          | { readonly mode: "exact"; readonly accountId: string };
-      }[];
-    };
-  }) => {
-    let handler: ((input: unknown) => Promise<unknown>) | undefined;
-    const bridge = {
-      bind(nextHandler: (input: unknown) => Promise<unknown>) {
-        if (handler) throw new Error("Test execution bridge is already bound.");
-        handler = nextHandler;
-      },
-      dispatchCommittedTurn(committedTurn: unknown) {
-        if (!handler) throw new Error("Test execution bridge is not bound.");
-        return handler(committedTurn);
-      },
-    };
-    return {
-      accountRuntime: {},
-      bridge,
-      authorityAdmissionBridge: { bind: vi.fn() },
-      dispatcher: {
-        dispatchTurn: vi.fn(async (request: {
-          readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
-          readonly payload: unknown;
-        }) => {
-          if (state.dispatchError) throw state.dispatchError;
-          const route = input.initialCatalog.routes.find((candidate) => candidate.id === request.intent.routeId);
-          if (!route) throw new Error("Unknown test execution target '" + request.intent.routeId + "'.");
-          const accountSelection = route.accountSelection;
-          const accountId = request.intent.accountOverrideId
-            ?? (accountSelection.mode === "exact"
-              ? accountSelection.accountId
-              : input.initialCatalog.accountPolicies.find((policy) => policy.id === accountSelection.accountPolicyId)
-                ?.accountIds[0]);
-          if (!accountId) throw new Error("No test account is available for route '" + route.id + "'.");
-          const account = input.initialCatalog.accounts.find((candidate) => candidate.id === accountId);
-          if (!account) throw new Error("Unknown test account '" + accountId + "'.");
-          const admission = {
-            routeId: route.id,
-            providerId: route.providerId,
-            providerModelId: route.providerModelId,
-            accountSelection: route.accountSelection.mode === "exact"
-              ? { mode: "exact" as const, accountId, source: "route" as const }
-              : {
-                  mode: "automatic" as const,
-                  accountPolicyId: route.accountSelection.accountPolicyId,
-                  eligibleAccountIds: [accountId],
+  const create = vi.fn(
+    (input: {
+      readonly initialCatalog: {
+        readonly accounts: readonly {
+          readonly id: string;
+          readonly credentialId: string;
+        }[];
+        readonly accountPolicies: readonly {
+          readonly id: string;
+          readonly accountIds: readonly string[];
+        }[];
+        readonly routes: readonly {
+          readonly id: string;
+          readonly providerId: string;
+          readonly providerModelId: string;
+          readonly accountSelection:
+            | { readonly mode: "automatic"; readonly accountPolicyId: string }
+            | { readonly mode: "exact"; readonly accountId: string };
+        }[];
+      };
+    }) => {
+      let handler: ((input: unknown) => Promise<unknown>) | undefined;
+      const bridge = {
+        bind(nextHandler: (input: unknown) => Promise<unknown>) {
+          if (handler) throw new Error("Test execution bridge is already bound.");
+          handler = nextHandler;
+        },
+        dispatchCommittedTurn(committedTurn: unknown) {
+          if (!handler) throw new Error("Test execution bridge is not bound.");
+          return handler(committedTurn);
+        },
+      };
+      return {
+        accountRuntime: {},
+        bridge,
+        authorityAdmissionBridge: { bind: vi.fn() },
+        dispatcher: {
+          dispatchTurn: vi.fn(
+            async (request: {
+              readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
+              readonly payload: unknown;
+            }) => {
+              if (state.dispatchError) throw state.dispatchError;
+              const route = input.initialCatalog.routes.find((candidate) => candidate.id === request.intent.routeId);
+              if (!route) throw new Error("Unknown test execution target '" + request.intent.routeId + "'.");
+              const accountSelection = route.accountSelection;
+              const accountId =
+                request.intent.accountOverrideId ??
+                (accountSelection.mode === "exact"
+                  ? accountSelection.accountId
+                  : input.initialCatalog.accountPolicies.find(
+                      (policy) => policy.id === accountSelection.accountPolicyId,
+                    )?.accountIds[0]);
+              if (!accountId) throw new Error("No test account is available for route '" + route.id + "'.");
+              const account = input.initialCatalog.accounts.find((candidate) => candidate.id === accountId);
+              if (!account) throw new Error("Unknown test account '" + accountId + "'.");
+              const admission = {
+                routeId: route.id,
+                providerId: route.providerId,
+                providerModelId: route.providerModelId,
+                accountSelection:
+                  route.accountSelection.mode === "exact"
+                    ? { mode: "exact" as const, accountId, source: "route" as const }
+                    : {
+                        mode: "automatic" as const,
+                        accountPolicyId: route.accountSelection.accountPolicyId,
+                        eligibleAccountIds: [accountId],
+                      },
+              };
+              const authorityAdmission = defineTestRoutedAdmission({
+                routeId: route.id,
+                providerId: route.providerId,
+                providerModelId: route.providerModelId,
+                accountId,
+                credentialId: account.credentialId,
+                credentialRevision: "sha256:test-revision",
+              });
+              await runWiringMocks.authorityAdmissionEvidenceStore?.persist(authorityAdmission);
+              const result = await bridge.dispatchCommittedTurn({
+                admission,
+                binding: {
+                  status: "bound",
+                  routeId: route.id,
+                  accountId,
+                  credentialId: account.credentialId,
+                  credentialRevision: "sha256:test-revision",
                 },
-          };
-          const authorityAdmission = defineTestRoutedAdmission({
-            routeId: route.id,
-            providerId: route.providerId,
-            providerModelId: route.providerModelId,
-            accountId,
-            credentialId: account.credentialId,
-            credentialRevision: "sha256:test-revision",
-          });
-          await runWiringMocks.authorityAdmissionEvidenceStore?.persist(authorityAdmission);
-          const result = await bridge.dispatchCommittedTurn({
-            admission,
-            binding: {
-              status: "bound",
-              routeId: route.id,
-              accountId,
-              credentialId: account.credentialId,
-              credentialRevision: "sha256:test-revision",
+                credential: { kind: "test" },
+                configurationRevision: {
+                  revisionSetId: "fixture",
+                  revisions: { "execution-catalog": "fixture" },
+                },
+                authorityAdmission,
+                payload: request.payload,
+              });
+              return {
+                admission,
+                accountId,
+                leaseId: "test-lease",
+                evidence: {
+                  routeId: route.id,
+                  accountId,
+                  credentialId: account.credentialId,
+                  credentialRevision: "sha256:test-revision",
+                  capacityIdentity: "test-capacity",
+                  leaseId: "test-lease",
+                  dispatchFenceId: "test-dispatch",
+                  status: "completed",
+                },
+                result,
+              };
             },
-            credential: { kind: "test" },
-            configurationRevision: {
-              revisionSetId: "fixture",
-              revisions: { "execution-catalog": "fixture" },
-            },
-            authorityAdmission,
-            payload: request.payload,
-          });
-          return {
-            admission,
-            accountId,
-            leaseId: "test-lease",
-            evidence: {
-              routeId: route.id,
-              accountId,
-              credentialId: account.credentialId,
-              credentialRevision: "sha256:test-revision",
-              capacityIdentity: "test-capacity",
-              leaseId: "test-lease",
-              dispatchFenceId: "test-dispatch",
-              status: "completed",
-            },
-            result,
-          };
-        }),
-      },
-      close: vi.fn(),
-    };
-  });
+          ),
+        },
+        close: vi.fn(),
+      };
+    },
+  );
   return { create, state };
 });
 
 vi.mock("@kilnai/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/runtime")>();
   return {
-  ...actual,
-  attachManagedInvocationSessionEventSink: vi.fn((attachment: Record<string, unknown> | undefined, sessionEventSink: unknown) => {
-    if (!attachment) {
-      return undefined;
-    }
-    return {
-      ...attachment,
-      sessionEventSink,
-    };
-  }),
-  getProjectContextArtifactCache: vi.fn().mockResolvedValue({
-    set: vi.fn(),
-  }),
-  createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
-    toolDefinitions: [],
-    callBuiltinTools: new Map(),
-    capabilities: new Map(),
-    toolAuthority: new Map(),
-  })),
-  OperatorAuthorityAdmissionCoordinator: class MockOperatorAuthorityAdmissionCoordinator {
-    constructor(options: unknown) {
-      runWiringMocks.authorityAdmissionEvidenceStore = (options as {
-        readonly evidenceStore?: { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> };
-      }).evidenceStore;
-    }
+    ...actual,
+    attachManagedInvocationSessionEventSink: vi.fn(
+      (attachment: Record<string, unknown> | undefined, sessionEventSink: unknown) => {
+        if (!attachment) {
+          return undefined;
+        }
+        return {
+          ...attachment,
+          sessionEventSink,
+        };
+      },
+    ),
+    getProjectContextArtifactCache: vi.fn().mockResolvedValue({
+      set: vi.fn(),
+    }),
+    createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
+      toolDefinitions: [],
+      callBuiltinTools: new Map(),
+      capabilities: new Map(),
+      toolAuthority: new Map(),
+    })),
+    OperatorAuthorityAdmissionCoordinator: class MockOperatorAuthorityAdmissionCoordinator {
+      constructor(options: unknown) {
+        runWiringMocks.authorityAdmissionEvidenceStore = (
+          options as {
+            readonly evidenceStore?: { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> };
+          }
+        ).evidenceStore;
+      }
 
-    consume(_executionId: string, _bundle: unknown) {
-      return {
-        runtimeSession: { id: "test-runtime-session" },
-        builtinToolSurface: { dispose: vi.fn() },
-        mcpClients: [],
-        mcpCapabilities: [],
-        perCallConfig: {},
-      };
-    }
-  },
-  RuntimeSessionTurnBudgetService: class MockRuntimeSessionTurnBudgetService {
-    constructor(_policy: { readonly tokenLimit: number }, private readonly usageReader: (sessionId: string) => Promise<unknown>) {}
+      consume(_executionId: string, _bundle: unknown) {
+        return {
+          runtimeSession: { id: "test-runtime-session" },
+          builtinToolSurface: { dispose: vi.fn() },
+          mcpClients: [],
+          mcpCapabilities: [],
+          perCallConfig: {},
+        };
+      }
+    },
+    RuntimeSessionTurnBudgetService: class MockRuntimeSessionTurnBudgetService {
+      constructor(
+        _policy: { readonly tokenLimit: number },
+        private readonly usageReader: (sessionId: string) => Promise<unknown>,
+      ) {}
 
-    async admit(sessionId: string) {
-      return {
-        status: "admitted",
-        reason: "observed-below-limit",
-        observation: await this.usageReader(sessionId),
-      };
-    }
-  },
-  discoverGuiDirectProviderModelDiscovery: vi.fn().mockResolvedValue({
-    openai: {
-      models: ["gpt-4o"],
-      status: "available",
-      reason: "OpenAI models discovered.",
-      authState: "authenticated",
+      async admit(sessionId: string) {
+        return {
+          status: "admitted",
+          reason: "observed-below-limit",
+          observation: await this.usageReader(sessionId),
+        };
+      }
     },
-    openrouter: {
-      models: ["openrouter/free", "qwen/qwen3-coder:free"],
+    discoverGuiDirectProviderModelDiscovery: vi.fn().mockResolvedValue({
+      openai: {
+        models: ["gpt-4o"],
+        status: "available",
+        reason: "OpenAI models discovered.",
+        authState: "authenticated",
+      },
+      openrouter: {
+        models: ["openrouter/free", "qwen/qwen3-coder:free"],
+        status: "available",
+        reason: "OpenRouter models discovered.",
+        authState: "authenticated",
+      },
+    }),
+    discoverGuiCliOperatorModels: runWiringMocks.discoverGuiCliOperatorModels,
+    discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
+      models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
       status: "available",
-      reason: "OpenRouter models discovered.",
+      reason: "Codex models discovered.",
       authState: "authenticated",
+    }),
+    discoverOpencodeCliModelDiscovery: vi.fn().mockResolvedValue({
+      models: ["opencode/minimax-m2.5-free"],
+      status: "available",
+      reason: "OpenCode models discovered.",
+      authState: "authenticated",
+    }),
+    ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
+    ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
+    RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
+    createManagedAgentInvocationResourceProvider: runWiringMocks.createManagedAgentInvocationResourceProvider,
+    withManagedAgentInvocationResourceProvider: (
+      options: Record<string, unknown> | undefined,
+      input: Record<string, unknown> | undefined,
+    ) => {
+      if (!input) {
+        return options;
+      }
+      const provider = runWiringMocks.createManagedAgentInvocationResourceProvider({
+        ...input,
+        artifactStore: (options?.artifactResources as { store?: unknown } | undefined)?.store,
+      });
+      return runWiringMocks.createSessionBuiltinToolOptions({
+        ...options,
+        resourceProviders: [...((options?.resourceProviders as readonly unknown[] | undefined) ?? []), provider],
+      });
     },
-  }),
-  discoverGuiCliOperatorModels: runWiringMocks.discoverGuiCliOperatorModels,
-  discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
-    models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
-    status: "available",
-    reason: "Codex models discovered.",
-    authState: "authenticated",
-  }),
-  discoverOpencodeCliModelDiscovery: vi.fn().mockResolvedValue({
-    models: ["opencode/minimax-m2.5-free"],
-    status: "available",
-    reason: "OpenCode models discovered.",
-    authState: "authenticated",
-  }),
-  ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
-  ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
-  RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
-  createManagedAgentInvocationResourceProvider: runWiringMocks.createManagedAgentInvocationResourceProvider,
-  withManagedAgentInvocationResourceProvider: (options: Record<string, unknown> | undefined, input: Record<string, unknown> | undefined) => {
-    if (!input) {
-      return options;
-    }
-    const provider = runWiringMocks.createManagedAgentInvocationResourceProvider({
-      ...input,
-      artifactStore: (options?.artifactResources as { store?: unknown } | undefined)?.store,
-    });
-    return runWiringMocks.createSessionBuiltinToolOptions({
+    withManagedInvocationService: (options: Record<string, unknown>) => ({
       ...options,
-      resourceProviders: [
-        ...((options?.resourceProviders as readonly unknown[] | undefined) ?? []),
-        provider,
-      ],
-    });
-  },
-  withManagedInvocationService: (options: Record<string, unknown>) => ({
-    ...options,
-    invocationService: options.invocationService ?? {},
-  }),
-  runManagedAgentOrchestrationLifecycle: runWiringMocks.runManagedAgentOrchestrationLifecycle,
-  ProviderModelRouteHealthStore: class {
-    evaluateRouteHealth(providerId: string, modelId: string) {
-      return runWiringMocks.evaluateRouteHealth(providerId, modelId);
-    }
+      invocationService: options.invocationService ?? {},
+    }),
+    runManagedAgentOrchestrationLifecycle: runWiringMocks.runManagedAgentOrchestrationLifecycle,
+    ProviderModelRouteHealthStore: class {
+      evaluateRouteHealth(providerId: string, modelId: string) {
+        return runWiringMocks.evaluateRouteHealth(providerId, modelId);
+      }
 
-    recordOutcome(input: unknown) {
-      return runWiringMocks.recordRouteOutcome(input);
-    }
-  },
-  ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
-    readonly descriptor = {
-      adapterKind: "harness",
-      supportedExecutionModes: ["cli-harness"],
-    };
-  },
-  ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
-  PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
-    constructor(readonly options: unknown) {}
-  },
-  PlaywrightBrowserUseProvider: class MockPlaywrightBrowserUseProvider {
-    constructor(readonly options: unknown) {}
-  },
-  WindowsComputerUseProvider: class MockWindowsComputerUseProvider {
-    constructor(readonly options: unknown) {}
-  },
-  WindowsUiaComputerUseProvider: class MockWindowsUiaComputerUseProvider {
-    constructor(readonly options: unknown) {}
-  },
+      recordOutcome(input: unknown) {
+        return runWiringMocks.recordRouteOutcome(input);
+      }
+    },
+    ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
+      readonly descriptor = {
+        adapterKind: "harness",
+        supportedExecutionModes: ["cli-harness"],
+      };
+    },
+    ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
+    PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
+      constructor(readonly options: unknown) {}
+    },
+    PlaywrightBrowserUseProvider: class MockPlaywrightBrowserUseProvider {
+      constructor(readonly options: unknown) {}
+    },
+    WindowsComputerUseProvider: class MockWindowsComputerUseProvider {
+      constructor(readonly options: unknown) {}
+    },
+    WindowsUiaComputerUseProvider: class MockWindowsUiaComputerUseProvider {
+      constructor(readonly options: unknown) {}
+    },
   };
 });
 
@@ -431,31 +458,32 @@ vi.mock("../../src/config/web-tools-config.js", () => ({
 }));
 
 vi.mock("../../src/application/run-session.js", () => ({
-  runSession: vi.fn(async (input: {
-    sessionConfig: unknown;
-    routeCandidates?: readonly { provider: string; model?: string }[];
-  }) => {
-    runWiringMocks.capturedSessionConfigs.push(input.sessionConfig);
-    runWiringMocks.capturedRunSessionInputs.push(input);
-    const result = await runWiringMocks.runSession();
-    if (result.attempts) {
-      return result;
-    }
-    const firstCandidate = input.routeCandidates?.[0];
-    return {
-      ...result,
-      successfulProviderId: result.successfulProviderId ?? firstCandidate?.provider,
-      successfulModelId: result.successfulModelId ?? firstCandidate?.model,
-      attempts: firstCandidate
-        ? [{
-            providerId: firstCandidate.provider,
-            ...(firstCandidate.model ? { model: firstCandidate.model } : {}),
-            succeeded: result.sessionSucceeded,
-            error: result.lastError,
-          }]
-        : [],
-    };
-  }),
+  runSession: vi.fn(
+    async (input: { sessionConfig: unknown; routeCandidates?: readonly { provider: string; model?: string }[] }) => {
+      runWiringMocks.capturedSessionConfigs.push(input.sessionConfig);
+      runWiringMocks.capturedRunSessionInputs.push(input);
+      const result = await runWiringMocks.runSession();
+      if (result.attempts) {
+        return result;
+      }
+      const firstCandidate = input.routeCandidates?.[0];
+      return {
+        ...result,
+        successfulProviderId: result.successfulProviderId ?? firstCandidate?.provider,
+        successfulModelId: result.successfulModelId ?? firstCandidate?.model,
+        attempts: firstCandidate
+          ? [
+              {
+                providerId: firstCandidate.provider,
+                ...(firstCandidate.model ? { model: firstCandidate.model } : {}),
+                succeeded: result.sessionSucceeded,
+                error: result.lastError,
+              },
+            ]
+          : [],
+      };
+    },
+  ),
 }));
 
 vi.mock("../../src/application/session-report.js", () => ({
@@ -488,24 +516,28 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
-  readGlobalExecutionCatalog: vi.fn((config) => config?.targetCatalog
-    ? {
-        accounts: config.targetCatalog.accounts,
-        accountPolicies: config.targetCatalog.accountPolicies,
-        routes: config.targetCatalog.targets
-          .filter((target: { kind: string }) => target.kind === "direct")
-          .map(({ kind: _kind, ...target }: { kind: string }) => target),
-      }
-    : undefined),
-  projectDirectExecutionCatalog: vi.fn((config) => config?.targetCatalog
-    ? {
-        accounts: config.targetCatalog.accounts,
-        accountPolicies: config.targetCatalog.accountPolicies,
-        routes: config.targetCatalog.targets
-          .filter((target: { kind: string }) => target.kind === "direct")
-          .map(({ kind: _kind, ...target }: { kind: string }) => target),
-      }
-    : undefined),
+  readGlobalExecutionCatalog: vi.fn((config) =>
+    config?.targetCatalog
+      ? {
+          accounts: config.targetCatalog.accounts,
+          accountPolicies: config.targetCatalog.accountPolicies,
+          routes: config.targetCatalog.targets
+            .filter((target: { kind: string }) => target.kind === "direct")
+            .map(({ kind: _kind, ...target }: { kind: string }) => target),
+        }
+      : undefined,
+  ),
+  projectDirectExecutionCatalog: vi.fn((config) =>
+    config?.targetCatalog
+      ? {
+          accounts: config.targetCatalog.accounts,
+          accountPolicies: config.targetCatalog.accountPolicies,
+          routes: config.targetCatalog.targets
+            .filter((target: { kind: string }) => target.kind === "direct")
+            .map(({ kind: _kind, ...target }: { kind: string }) => target),
+        }
+      : undefined,
+  ),
   resolveGlobalConfigPath: vi.fn(() => "C:\\Users\\operator\\.kiln\\config.yaml"),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
   resolveGlobalDefaultProvider: vi.fn(() => undefined),
@@ -561,10 +593,7 @@ vi.mock("../../src/config/managed-agent-routes.js", () => ({
 vi.mock("../../src/wrapper/session-store.js", () => ({
   TranscriptStore: class {
     authorityAdmissionLockPath(_sessionId: string) {
-      return resolve(
-        resolveProjectStateBinding(REPO_ROOT).sessionsPath,
-        "test-authority-admission.lock",
-      );
+      return resolve(resolveProjectStateBinding(REPO_ROOT).sessionsPath, "test-authority-admission.lock");
     }
     async init(...args: unknown[]) {
       await runWiringMocks.transcriptInit(...args);
@@ -611,7 +640,13 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
     }
 
     cleanup() {
-      return { task: "test", domain: "Kiln", phaseReached: "implement", cost: { total: 0, byRoleModel: {} }, duration: 1 };
+      return {
+        task: "test",
+        domain: "Kiln",
+        phaseReached: "implement",
+        cost: { total: 0, byRoleModel: {} },
+        duration: 1,
+      };
     }
 
     async cleanupWorktree(context: unknown) {
@@ -644,16 +679,17 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
     openai: true,
     openrouter: true,
   })),
-  isDirectApiProvider: vi.fn((provider?: string) =>
-    provider === "anthropic"
-    || provider === "openai"
-    || provider === "deepseek"
-    || provider === "openrouter"
-    || provider === "ollama"
-    || provider === "lmstudio"
-    || provider === "codex-oauth"
-    || provider === "opencode-go"
-    || provider === "opencode-zen"
+  isDirectApiProvider: vi.fn(
+    (provider?: string) =>
+      provider === "anthropic" ||
+      provider === "openai" ||
+      provider === "deepseek" ||
+      provider === "openrouter" ||
+      provider === "ollama" ||
+      provider === "lmstudio" ||
+      provider === "codex-oauth" ||
+      provider === "opencode-go" ||
+      provider === "opencode-zen",
   ),
 }));
 
@@ -688,17 +724,87 @@ const APP_CONFIG: KilnAppConfig = {
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 const loadKilnConfigMock = loadKilnConfig as unknown as ReturnType<typeof vi.fn>;
 
-function configureExecutionRoute(
-  providerId = "codex-oauth",
-  providerModelId = "gpt-5.5",
-  routeId = "codex-route",
-) {
+function configureExecutionRoute(providerId = "codex-oauth", providerModelId = "gpt-5.5", routeId = "codex-route") {
   const config = makeOperatorSurfaceGlobalConfig(providerId, providerModelId, routeId);
   readGlobalConfigMock.mockReturnValue(config);
   return config;
 }
 
 describe("run command builtin tool wiring", () => {
+  it("exposes exact attended trusted-execution approval only on an interactive human CLI surface", async () => {
+    const prompt = vi.fn().mockResolvedValue(true);
+    const port = createCliAttendedTrustedExecutionLeaseApprovalPort({
+      outputMode: "human",
+      inputInteractive: true,
+      outputInteractive: true,
+      prompt,
+    });
+    const binding = {
+      kind: "trusted-execution-lease",
+      scope: "session",
+      localPrincipalId: "local-operator-session:test",
+      operatorSessionId: "operator-session-test",
+      invocationTreeId: "managed-invocation-test",
+      projectRuntimeId: `krp_${"1".repeat(64)}`,
+      compositionRevision: `sha256:${"2".repeat(64)}`,
+      harness: "codex",
+      routeId: "codex-direct",
+      profileCeiling: "trusted-full-access",
+      allowedToolNames: ["workspace.read", "workspace.write"],
+      effectCeiling: {
+        operation: "mutate",
+        boundaries: ["workspace"],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: ["local-state"],
+        idempotency: "idempotent",
+      },
+      policyDigest: `sha256:${"3".repeat(64)}`,
+      enforcementRevision: "runtime-attended-trusted-execution-v1",
+      issuedAt: "2026-08-24T00:00:00.000Z",
+      expiresAt: "2026-08-24T01:00:00.000Z",
+    } as const;
+
+    await expect(port?.approve(binding)).resolves.toEqual({
+      status: "approved",
+      authorizedBy: "Interactive CLI operator",
+    });
+    expect(prompt).toHaveBeenCalledOnce();
+    expect(prompt.mock.calls[0]?.[0]).toContain("Opaque local session capability: local-operator-session:test");
+    expect(prompt.mock.calls[0]?.[0]).toContain("Operator session: operator-session-test");
+    expect(prompt.mock.calls[0]?.[0]).toContain("Invocation tree: managed-invocation-test");
+    expect(prompt.mock.calls[0]?.[0]).toContain(`Project: ${binding.projectRuntimeId}`);
+    expect(prompt.mock.calls[0]?.[0]).toContain(`Composition revision: ${binding.compositionRevision}`);
+    expect(prompt.mock.calls[0]?.[0]).toContain("Harness and route: codex / codex-direct");
+    expect(prompt.mock.calls[0]?.[0]).toContain("Profile ceiling: trusted-full-access");
+    expect(prompt.mock.calls[0]?.[0]).toContain("Allowed tools: workspace.read, workspace.write");
+    expect(prompt.mock.calls[0]?.[0]).toContain("Effect ceiling: mutate");
+    expect(prompt.mock.calls[0]?.[0]).toContain("consequences=local-state");
+    expect(prompt.mock.calls[0]?.[0]).toContain("idempotency=idempotent");
+    expect(prompt.mock.calls[0]?.[0]).toContain(`Policy digest: ${binding.policyDigest}`);
+    expect(prompt.mock.calls[0]?.[0]).toContain(`Enforcement revision: ${binding.enforcementRevision}`);
+    expect(prompt.mock.calls[0]?.[0]).toContain(`Expires at: ${binding.expiresAt}`);
+
+    const denyPrompt = vi.fn().mockResolvedValue(false);
+    const denyingPort = createCliAttendedTrustedExecutionLeaseApprovalPort({
+      outputMode: "human",
+      inputInteractive: true,
+      outputInteractive: true,
+      prompt: denyPrompt,
+    });
+    await expect(denyingPort?.approve(binding)).resolves.toEqual({ status: "denied" });
+
+    for (const unavailable of [
+      { outputMode: "json" as const, inputInteractive: true, outputInteractive: true },
+      { outputMode: "answer" as const, inputInteractive: true, outputInteractive: true },
+      { outputMode: "human" as const, inputInteractive: false, outputInteractive: true },
+      { outputMode: "human" as const, inputInteractive: true, outputInteractive: false },
+    ]) {
+      expect(createCliAttendedTrustedExecutionLeaseApprovalPort({ ...unavailable, prompt })).toBeUndefined();
+    }
+  });
+
   it("exposes runtime approval only on an interactive human CLI surface", async () => {
     const prompt = vi.fn().mockResolvedValue(true);
     const handler = createCliRuntimeApprovalHandler({
@@ -713,18 +819,22 @@ describe("run command builtin tool wiring", () => {
       reason: "Approved by the interactive CLI operator.",
     });
     expect(prompt).toHaveBeenCalledWith("Allow managed orchestration");
-    expect(createCliRuntimeApprovalHandler({
-      outputMode: "json",
-      inputInteractive: true,
-      outputInteractive: true,
-      prompt,
-    })).toBeUndefined();
-    expect(createCliRuntimeApprovalHandler({
-      outputMode: "human",
-      inputInteractive: false,
-      outputInteractive: true,
-      prompt,
-    })).toBeUndefined();
+    expect(
+      createCliRuntimeApprovalHandler({
+        outputMode: "json",
+        inputInteractive: true,
+        outputInteractive: true,
+        prompt,
+      }),
+    ).toBeUndefined();
+    expect(
+      createCliRuntimeApprovalHandler({
+        outputMode: "human",
+        inputInteractive: false,
+        outputInteractive: true,
+        prompt,
+      }),
+    ).toBeUndefined();
   });
 
   beforeEach(() => {
@@ -754,7 +864,9 @@ describe("run command builtin tool wiring", () => {
     });
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
     runWiringMocks.cleanupRegistryRunAll.mockImplementation(runWiringMocks.drainCleanupHandlers);
-    runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
+    runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({
+      id: "managed-agent-resource-provider",
+    });
     runWiringMocks.runManagedAgentOrchestrationLifecycle.mockImplementation(
       async (input: ManagedAgentOrchestrationLifecycleInput) => {
         const orchestrationId = input.orchestrationRequest.orchestrationId;
@@ -763,34 +875,40 @@ describe("run command builtin tool wiring", () => {
             orchestrationId,
             mode: "fan-out",
             status: "completed",
-            childResults: [{
-              childId: `${orchestrationId}:child:1`,
-              ordinal: 1,
-              lifecycleState: "completed",
-              success: true,
-              resourceUris: [],
-              diagnosticUris: [],
-            }, {
-              childId: `${orchestrationId}:child:2`,
-              ordinal: 2,
-              lifecycleState: "completed",
-              success: true,
-              resourceUris: [],
-              diagnosticUris: [],
-            }],
+            childResults: [
+              {
+                childId: `${orchestrationId}:child:1`,
+                ordinal: 1,
+                lifecycleState: "completed",
+                success: true,
+                resourceUris: [],
+                diagnosticUris: [],
+              },
+              {
+                childId: `${orchestrationId}:child:2`,
+                ordinal: 2,
+                lifecycleState: "completed",
+                success: true,
+                resourceUris: [],
+                diagnosticUris: [],
+              },
+            ],
             completedAt: "2026-05-22T00:00:00.000Z",
           },
-          childRecords: [{
-            childId: `${orchestrationId}:child:1`,
-            ordinal: 1,
-            invocationId: `${orchestrationId}:child:1`,
-            record: { lifecycleState: "completed" },
-          }, {
-            childId: `${orchestrationId}:child:2`,
-            ordinal: 2,
-            invocationId: `${orchestrationId}:child:2`,
-            record: { lifecycleState: "completed" },
-          }],
+          childRecords: [
+            {
+              childId: `${orchestrationId}:child:1`,
+              ordinal: 1,
+              invocationId: `${orchestrationId}:child:1`,
+              record: { lifecycleState: "completed" },
+            },
+            {
+              childId: `${orchestrationId}:child:2`,
+              ordinal: 2,
+              invocationId: `${orchestrationId}:child:2`,
+              record: { lifecycleState: "completed" },
+            },
+          ],
         };
       },
     );
@@ -833,25 +951,27 @@ describe("run command builtin tool wiring", () => {
         },
       },
     );
-    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
-      id: "surface-options",
-      toolProjection: expect.objectContaining({
-        mode: "deferred",
-        alwaysOnTools: expect.arrayContaining([
-          "read",
-          "write",
-          "work_item.update",
-          "goal.evidence.record",
-          "goal.complete",
+    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "surface-options",
+        toolProjection: expect.objectContaining({
+          mode: "deferred",
+          alwaysOnTools: expect.arrayContaining([
+            "read",
+            "write",
+            "work_item.update",
+            "goal.evidence.record",
+            "goal.complete",
+          ]),
+        }),
+        workItemStore: expect.any(Object),
+        additionalTools: expect.arrayContaining([
+          expect.objectContaining({ name: "kiln_config.read" }),
+          expect.objectContaining({ name: "kiln_config.propose_change" }),
+          expect.objectContaining({ name: "kiln_config.apply_change" }),
         ]),
       }),
-      workItemStore: expect.any(Object),
-      additionalTools: expect.arrayContaining([
-        expect.objectContaining({ name: "kiln_config.read" }),
-        expect.objectContaining({ name: "kiln_config.propose_change" }),
-        expect.objectContaining({ name: "kiln_config.apply_change" }),
-      ]),
-    }));
+    );
     expect(runWiringMocks.capturedSessionConfigs).toHaveLength(1);
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
@@ -880,18 +1000,28 @@ describe("run command builtin tool wiring", () => {
   it("wires managed invocation resources into model-facing builtin tool options", async () => {
     const managedInvocation = parallelManagedInvocation();
 
-    await runCommand({
-      ...APP_CONFIG,
-      managedInvocation: managedInvocation as never,
-    }, "ship it", {});
+    await runCommand(
+      {
+        ...APP_CONFIG,
+        managedInvocation: managedInvocation as never,
+      },
+      "ship it",
+      {},
+    );
 
-    expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith(expect.objectContaining({
-      service: managedInvocation.invocationService,
-    }));
-    expect(runWiringMocks.createManagedAgentInvocationResourceProvider.mock.calls[0]?.[0]).toHaveProperty("artifactStore");
-    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
-      resourceProviders: expect.arrayContaining([{ id: "managed-agent-resource-provider" }]),
-    }));
+    expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: managedInvocation.invocationService,
+      }),
+    );
+    expect(runWiringMocks.createManagedAgentInvocationResourceProvider.mock.calls[0]?.[0]).toHaveProperty(
+      "artifactStore",
+    );
+    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceProviders: expect.arrayContaining([{ id: "managed-agent-resource-provider" }]),
+      }),
+    );
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
       managedInvocation: {
@@ -914,10 +1044,15 @@ describe("run command builtin tool wiring", () => {
       sessionTurnBudget: { tokenLimit: 100, action: "stop" },
     });
 
-    await runCommand({
-      ...APP_CONFIG,
-      managedInvocation: parallelManagedInvocation() as never,
-    }, "parallel budget", { workers: 2 }, { effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY });
+    await runCommand(
+      {
+        ...APP_CONFIG,
+        managedInvocation: parallelManagedInvocation() as never,
+      },
+      "parallel budget",
+      { workers: 2 },
+      { effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY },
+    );
 
     const input = runWiringMocks.runManagedAgentOrchestrationLifecycle.mock.calls[0]?.[0] as
       | ManagedAgentOrchestrationLifecycleInput
@@ -991,12 +1126,14 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
@@ -1027,12 +1164,14 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: ["File path touched: README.md"],
       submittedPlan: undefined,
@@ -1057,12 +1196,14 @@ describe("run command builtin tool wiring", () => {
       },
       diagnostics: {
         lastError: null,
-        attempts: [{
-          providerId: "codex",
-          model: "gpt-5.5",
-          succeeded: true,
-          error: null,
-        }],
+        attempts: [
+          {
+            providerId: "codex",
+            model: "gpt-5.5",
+            succeeded: true,
+            error: null,
+          },
+        ],
       },
       resources: {
         exactArtifacts: ["File path touched: README.md"],
@@ -1087,22 +1228,21 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: undefined,
       successfulModelId: undefined,
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        succeeded: false,
-        error: "Provider failed",
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          succeeded: false,
+          error: "Provider failed",
+        },
+      ],
       transcript: [],
       exactArtifacts: ["Provider error: Provider failed"],
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "structured failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "structured failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1113,11 +1253,13 @@ describe("run command builtin tool wiring", () => {
       },
       diagnostics: {
         lastError: "Provider failed",
-        attempts: [{
-          providerId: "codex",
-          succeeded: false,
-          error: "Provider failed",
-        }],
+        attempts: [
+          {
+            providerId: "codex",
+            succeeded: false,
+            error: "Provider failed",
+          },
+        ],
       },
     });
   });
@@ -1128,12 +1270,9 @@ describe("run command builtin tool wiring", () => {
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
     operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "early route failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "early route failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1165,12 +1304,9 @@ describe("run command builtin tool wiring", () => {
     operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
     runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "early route cleanup failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "early route cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1189,12 +1325,9 @@ describe("run command builtin tool wiring", () => {
     vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     runWiringMocks.runSession.mockRejectedValueOnce(new Error("session exploded"));
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "thrown session failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "thrown session failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1219,12 +1352,9 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.runSession.mockRejectedValueOnce(new Error("session exploded"));
     runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "thrown cleanup failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "thrown cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1252,23 +1382,21 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "openrouter",
       successfulModelId: "qwen/qwen3-coder:free",
       providersUsed: ["openrouter"],
-      attempts: [{
-        providerId: "openrouter",
-        model: "qwen/qwen3-coder:free",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "openrouter",
+          model: "qwen/qwen3-coder:free",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
 
-    await runCommand(
-      APP_CONFIG,
-      "route health persistence",
-      { output: "json" },
-    );
+    await runCommand(APP_CONFIG, "route health persistence", { output: "json" });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1299,23 +1427,22 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: undefined,
       successfulModelId: undefined,
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: false,
-        error: "Provider failed",
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: false,
+          error: "Provider failed",
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "provider cleanup failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "provider cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1344,23 +1471,22 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "cleanup failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1392,20 +1518,23 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
     runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
-    await expect(runCommand(APP_CONFIG, "verification throw cleanup failure", { output: "json" }, { exitOnFailure: false }))
-      .rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "verification throw cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1437,20 +1566,23 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
     runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
-    await expect(runCommand(APP_CONFIG, "verification failure", { output: "json" }, { exitOnFailure: false }))
-      .rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "verification failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1488,23 +1620,22 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(
-      APP_CONFIG,
-      "report cleanup failure",
-      { output: "json" },
-      { exitOnFailure: false },
-    )).rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "report cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1537,20 +1668,23 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        model: "gpt-5.5",
-        succeeded: true,
-        error: null,
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
     runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
-    await expect(runCommand(APP_CONFIG, "verification cleanup failure", { output: "json" }, { exitOnFailure: false }))
-      .rejects.toMatchObject({ code: 1 });
+    await expect(
+      runCommand(APP_CONFIG, "verification cleanup failure", { output: "json" }, { exitOnFailure: false }),
+    ).rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -1583,73 +1717,83 @@ describe("run command builtin tool wiring", () => {
   });
 
   it("fails direct-provider admission when discovery does not advertise the selected model", () => {
-    expect(resolveRunProviderModelAdmission({
-      provider: "openrouter",
-      model: "qwen/qwen3-coder-480b-a35b-instruct:free",
-      discovery: {
-        openrouter: {
-          models: ["qwen/qwen3-coder:free"],
-          status: "available",
-          reason: "OpenRouter models discovered.",
+    expect(
+      resolveRunProviderModelAdmission({
+        provider: "openrouter",
+        model: "qwen/qwen3-coder-480b-a35b-instruct:free",
+        discovery: {
+          openrouter: {
+            models: ["qwen/qwen3-coder:free"],
+            status: "available",
+            reason: "OpenRouter models discovered.",
+          },
         },
-      },
-    })).toEqual({
+      }),
+    ).toEqual({
       ok: false,
       error: "Provider 'openrouter' does not advertise model 'qwen/qwen3-coder-480b-a35b-instruct:free'",
     });
   });
 
   it("admits direct provider execution only for discovered model ids", () => {
-    expect(resolveRunProviderModelAdmission({
-      provider: "openrouter",
-      model: "qwen/qwen3-coder:free",
-      discovery: {
-        openrouter: {
-          models: ["qwen/qwen3-coder:free"],
-          status: "available",
-          reason: "OpenRouter models discovered.",
+    expect(
+      resolveRunProviderModelAdmission({
+        provider: "openrouter",
+        model: "qwen/qwen3-coder:free",
+        discovery: {
+          openrouter: {
+            models: ["qwen/qwen3-coder:free"],
+            status: "available",
+            reason: "OpenRouter models discovered.",
+          },
         },
-      },
-    })).toEqual({ ok: true });
+      }),
+    ).toEqual({ ok: true });
   });
 
   it("fails wrapper admission when discovery does not advertise an explicit model", () => {
-    expect(resolveRunProviderModelAdmission({
-      provider: "codex",
-      model: "gpt-5.5",
-      discovery: {
-        codex: {
-          models: ["gpt-5.4-mini"],
-          status: "available",
-          reason: "Codex models discovered.",
+    expect(
+      resolveRunProviderModelAdmission({
+        provider: "codex",
+        model: "gpt-5.5",
+        discovery: {
+          codex: {
+            models: ["gpt-5.4-mini"],
+            status: "available",
+            reason: "Codex models discovered.",
+          },
         },
-      },
-    })).toEqual({
+      }),
+    ).toEqual({
       ok: false,
       error: "Provider 'codex' does not advertise model 'gpt-5.5'",
     });
   });
 
   it("allows wrapper admission without an explicit model so the native harness default can run", () => {
-    expect(resolveRunProviderModelAdmission({
-      provider: "codex",
-      model: undefined,
-      discovery: {},
-    })).toEqual({ ok: true });
+    expect(
+      resolveRunProviderModelAdmission({
+        provider: "codex",
+        model: undefined,
+        discovery: {},
+      }),
+    ).toEqual({ ok: true });
   });
 
   it("admits wrapper execution for discovered explicit model ids", () => {
-    expect(resolveRunProviderModelAdmission({
-      provider: "codex",
-      model: "gpt-5.4-mini",
-      discovery: {
-        codex: {
-          models: ["gpt-5.4-mini"],
-          status: "available",
-          reason: "Codex models discovered.",
+    expect(
+      resolveRunProviderModelAdmission({
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        discovery: {
+          codex: {
+            models: ["gpt-5.4-mini"],
+            status: "available",
+            reason: "Codex models discovered.",
+          },
         },
-      },
-    })).toEqual({ ok: true });
+      }),
+    ).toEqual({ ok: true });
   });
 
   it("rejects an unknown explicit execution target before running a session", async () => {
@@ -1673,9 +1817,11 @@ describe("run command builtin tool wiring", () => {
     }) as never);
 
     try {
-      await expect(runCommand(APP_CONFIG, "ship it", {
-        target: "missing-route",
-      })).rejects.toThrow("process.exit");
+      await expect(
+        runCommand(APP_CONFIG, "ship it", {
+          target: "missing-route",
+        }),
+      ).rejects.toThrow("process.exit");
 
       expect(exit).toHaveBeenCalledWith(1);
       expect(written.join("")).toContain("Execution target 'missing-route' is not configured.");
@@ -1696,11 +1842,13 @@ describe("run command builtin tool wiring", () => {
     });
 
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
-      routeCandidates: [expect.objectContaining({
-        provider: "openrouter",
-        model: "qwen/qwen3-coder:free",
-        credentialBinding: expect.objectContaining({ routeId: "openrouter-qwen" }),
-      })],
+      routeCandidates: [
+        expect.objectContaining({
+          provider: "openrouter",
+          model: "qwen/qwen3-coder:free",
+          credentialBinding: expect.objectContaining({ routeId: "openrouter-qwen" }),
+        }),
+      ],
     });
   });
 
@@ -1721,11 +1869,13 @@ describe("run command builtin tool wiring", () => {
     await runCommand(APP_CONFIG, "ship it", { target: "openrouter-free" });
 
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
-      routeCandidates: [expect.objectContaining({
-        provider: "openrouter",
-        model: "openrouter/free",
-        credentialBinding: expect.objectContaining({ routeId: "openrouter-free" }),
-      })],
+      routeCandidates: [
+        expect.objectContaining({
+          provider: "openrouter",
+          model: "openrouter/free",
+          credentialBinding: expect.objectContaining({ routeId: "openrouter-free" }),
+        }),
+      ],
     });
   });
 
@@ -1737,14 +1887,18 @@ describe("run command builtin tool wiring", () => {
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
     operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
 
-    await expect(runCommand(APP_CONFIG, "ship it", {
-      isolate: true,
-    })).rejects.toThrow("process.exit");
+    await expect(
+      runCommand(APP_CONFIG, "ship it", {
+        isolate: true,
+      }),
+    ).rejects.toThrow("process.exit");
 
     expect(runWiringMocks.runSession).not.toHaveBeenCalled();
-    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(expect.objectContaining({
-      worktreePath: "C:/private/kiln/worktrees/session-unavailable",
-    }));
+    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreePath: "C:/private/kiln/worktrees/session-unavailable",
+      }),
+    );
     exit.mockRestore();
   });
 
@@ -1755,19 +1909,23 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.runSession.mockResolvedValueOnce({
       finalCostUsd: 0,
       sessionSucceeded: false,
-      lastError: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
+      lastError:
+        "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
       accumulatedText: "",
       toolCallCount: 0,
       turnDepth: 0,
       successfulProviderId: undefined,
       successfulModelId: undefined,
       providersUsed: ["openrouter"],
-      attempts: [{
-        providerId: "openrouter",
-        model: "qwen/qwen3-coder:free",
-        succeeded: false,
-        error: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
-      }],
+      attempts: [
+        {
+          providerId: "openrouter",
+          model: "qwen/qwen3-coder:free",
+          succeeded: false,
+          error:
+            "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
@@ -1780,7 +1938,8 @@ describe("run command builtin tool wiring", () => {
       providerId: "openrouter",
       modelId: "qwen/qwen3-coder:free",
       outcome: { type: "rate-limited" },
-      errorMessage: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
+      errorMessage:
+        "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
     });
     exit.mockRestore();
   });
@@ -1819,11 +1978,13 @@ describe("run command builtin tool wiring", () => {
         successfulProviderId: undefined,
         successfulModelId: undefined,
         providersUsed: ["codex"],
-        attempts: [{
-          providerId: "codex",
-          succeeded: false,
-          error: "Aborted during execution",
-        }],
+        attempts: [
+          {
+            providerId: "codex",
+            succeeded: false,
+            error: "Aborted during execution",
+          },
+        ],
         transcript: [],
         exactArtifacts: [],
         submittedPlan: undefined,
@@ -1883,13 +2044,18 @@ describe("run command builtin tool wiring", () => {
       events.push("worktree-cleanup");
     });
 
-    const run = runCommand({
-      ...APP_CONFIG,
-      managedInvocation: parallelManagedInvocation() as never,
-    }, "parallel cleanup", { workers: 2 }, {
-      exitOnFailure: false,
-      effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY,
-    });
+    const run = runCommand(
+      {
+        ...APP_CONFIG,
+        managedInvocation: parallelManagedInvocation() as never,
+      },
+      "parallel cleanup",
+      { workers: 2 },
+      {
+        exitOnFailure: false,
+        effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY,
+      },
+    );
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     process.emit("SIGINT", "SIGINT");
@@ -1940,13 +2106,18 @@ describe("run command builtin tool wiring", () => {
       events.push("worktree-cleanup");
     });
 
-    const run = runCommand({
-      ...APP_CONFIG,
-      managedInvocation: parallelManagedInvocation() as never,
-    }, "parallel cleanup", { workers: 2 }, {
-      exitOnFailure: false,
-      effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY,
-    });
+    const run = runCommand(
+      {
+        ...APP_CONFIG,
+        managedInvocation: parallelManagedInvocation() as never,
+      },
+      "parallel cleanup",
+      { workers: 2 },
+      {
+        exitOnFailure: false,
+        effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY,
+      },
+    );
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     process.emit("SIGINT", "SIGINT");
@@ -1989,23 +2160,25 @@ describe("run command builtin tool wiring", () => {
       successfulProviderId: undefined,
       successfulModelId: undefined,
       providersUsed: ["codex"],
-      attempts: [{
-        providerId: "codex",
-        succeeded: false,
-        error: "Provider failed",
-      }],
+      attempts: [
+        {
+          providerId: "codex",
+          succeeded: false,
+          error: "Provider failed",
+        },
+      ],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(APP_CONFIG, "ship it", { isolate: true })).rejects.toThrow(
-      "process.exit",
-    );
+    await expect(runCommand(APP_CONFIG, "ship it", { isolate: true })).rejects.toThrow("process.exit");
 
-    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(expect.objectContaining({
-      worktreePath: REPO_ROOT,
-    }));
+    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreePath: REPO_ROOT,
+      }),
+    );
     exit.mockRestore();
   });
 });
@@ -2048,45 +2221,49 @@ function parallelManagedInvocation() {
     requestedBy: "operator",
     requestSource: "cli:run-workers",
     invocationService: {},
-    routes: [{
-      routeId: "codex-isolated",
-      providerId: "codex",
-      model: "gpt-5.5",
-      capability: {
-        identity: { routeId: "codex-isolated", revision: "test-v1" },
-        target: { providerId: "codex", modelId: "gpt-5.5" },
-        adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
-        authorityCeiling: "destructive",
-        toolNames: ["read", "grep", "apply-patch"],
-        supportsRecursion: true,
-        supportsAttachments: false,
-        supportsWrite: true,
-        proof: {
-          status: "configured",
-          source: "run-builtin-tools-test",
-          provenProfiles: ["foundation-apply-approved-writes"],
+    routes: [
+      {
+        routeId: "codex-isolated",
+        providerId: "codex",
+        model: "gpt-5.5",
+        capability: {
+          identity: { routeId: "codex-isolated", revision: "test-v1" },
+          target: { providerId: "codex", modelId: "gpt-5.5" },
+          adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
+          authorityCeiling: "destructive",
+          toolNames: ["read", "grep", "apply-patch"],
+          supportsRecursion: true,
+          supportsAttachments: false,
+          supportsWrite: true,
+          proof: {
+            status: "configured",
+            source: "run-builtin-tools-test",
+            provenProfiles: ["foundation-apply-approved-writes"],
+          },
+          capacity: { kind: "accountless" },
+          settlement: { kind: "not-required" },
         },
-        capacity: { kind: "accountless" },
-        settlement: { kind: "not-required" },
+        createAdapter: async () => ({
+          descriptor: {
+            lifecycle: {
+              exposesStart: true,
+              exposesTerminal: true,
+            },
+          },
+        }),
+        profiles: [
+          {
+            authorityProfileId: "authority:codex-isolated:foundation-apply-approved-writes",
+            admissionProfile: "foundation-apply-approved-writes",
+            workingDirectory: {
+              mode: "isolated-worktree",
+            },
+            workingDirectoryLease: {
+              mode: "git-worktree",
+            },
+          },
+        ],
       },
-      createAdapter: async () => ({
-        descriptor: {
-          lifecycle: {
-            exposesStart: true,
-            exposesTerminal: true,
-          },
-        },
-      }),
-      profiles: [{
-          authorityProfileId: "authority:codex-isolated:foundation-apply-approved-writes",
-          admissionProfile: "foundation-apply-approved-writes",
-          workingDirectory: {
-            mode: "isolated-worktree",
-          },
-          workingDirectoryLease: {
-            mode: "git-worktree",
-          },
-      }],
-    }],
+    ],
   };
 }

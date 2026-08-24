@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { type CommunicationResolution, validateResolvedCommunicationIntent } from "@kilnai/core";
 import { CommunicationResolutionSchema, type TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
-import { validateResolvedCommunicationIntent, type CommunicationResolution } from "@kilnai/core";
-import { normalizeProjectionPath } from "./native-projection-paths.js";
-import { resolveGlobalConfigPath } from "./global-config.js";
 import {
   assertPrivateStateFileTargetSync,
   ensurePrivateStateDirectorySync,
 } from "../application/private-project-state-filesystem.js";
+import { resolveGlobalConfigPath } from "./global-config.js";
+import { normalizeProjectionPath } from "./native-projection-paths.js";
+import { withoutPersistedTrustedExecutionAuthority } from "./persisted-permission-integrity.js";
 
 export type NativeProjectionFileHarness = "claude" | "codex" | "opencode";
 
@@ -91,16 +92,27 @@ export function readNativeProjectionInstallState(kilnDir: string): NativeProject
   if (parsed.version !== 1 || typeof parsed.targets !== "object" || parsed.targets === null) {
     throw new Error(`Invalid native projection install state at ${path}`);
   }
-  const targets = Object.fromEntries(Object.entries(parsed.targets).map(([targetId, target]) => {
-    if (!isRecord(target)) throw new Error(`Invalid native projection target '${targetId}' at ${path}`);
-    const communicationResolution = target.communicationResolution === undefined
-      ? undefined
-      : validatePersistedCommunicationResolution(target.communicationResolution, targetId, path);
-    return [targetId, {
-      ...target,
-      ...(communicationResolution ? { communicationResolution } : {}),
-    } as unknown as NativeProjectionTargetState];
-  }));
+  const targets = Object.fromEntries(
+    Object.entries(parsed.targets).map(([targetId, target]) => {
+      if (!isRecord(target)) throw new Error(`Invalid native projection target '${targetId}' at ${path}`);
+      const communicationResolution =
+        target.communicationResolution === undefined
+          ? undefined
+          : validatePersistedCommunicationResolution(target.communicationResolution, targetId, path);
+      const permissionIntegrity =
+        target.permissionIntegrity === undefined
+          ? undefined
+          : withoutPersistedTrustedExecutionAuthority(target.permissionIntegrity, targetId, path);
+      return [
+        targetId,
+        {
+          ...target,
+          ...(communicationResolution ? { communicationResolution } : {}),
+          ...(permissionIntegrity ? { permissionIntegrity } : {}),
+        } as unknown as NativeProjectionTargetState,
+      ];
+    }),
+  );
   return { version: 1, targets };
 }
 
@@ -115,19 +127,23 @@ function validatePersistedCommunicationResolution(
   }
   const requested = validateResolvedCommunicationIntent(parsed.data.requested);
   const value = { ...parsed.data, requested } as CommunicationResolution;
-  const expectedIdentity = `sha256:${createHash("sha256").update(stableStringify({
-    version: value.version,
-    requested: value.requested,
-    execution: value.execution,
-    responseDetail: value.responseDetail,
-    interactionProfile: value.interactionProfile,
-    locale: value.locale,
-    requiredContent: value.requiredContent,
-    artifactContract: value.artifactContract,
-    responseSkills: value.responseSkills,
-    ...(value.capabilityEvidence ? { capabilityEvidence: value.capabilityEvidence } : {}),
-    semanticLoss: value.semanticLoss,
-  })).digest("hex")}`;
+  const expectedIdentity = `sha256:${createHash("sha256")
+    .update(
+      stableStringify({
+        version: value.version,
+        requested: value.requested,
+        execution: value.execution,
+        responseDetail: value.responseDetail,
+        interactionProfile: value.interactionProfile,
+        locale: value.locale,
+        requiredContent: value.requiredContent,
+        artifactContract: value.artifactContract,
+        responseSkills: value.responseSkills,
+        ...(value.capabilityEvidence ? { capabilityEvidence: value.capabilityEvidence } : {}),
+        semanticLoss: value.semanticLoss,
+      }),
+    )
+    .digest("hex")}`;
   if (value.identity !== expectedIdentity) {
     throw new Error(`Invalid communication resolution identity for '${targetId}' at ${path}`);
   }
@@ -158,9 +174,7 @@ export function writeNativeProjectionInstallState(
   }
 }
 
-export function createNativeProjectionSnapshot(
-  input: NativeProjectionSnapshotInput,
-): NativeProjectionTargetState {
+export function createNativeProjectionSnapshot(input: NativeProjectionSnapshotInput): NativeProjectionTargetState {
   const managedFieldHashes: Record<string, string> = {};
   for (const fieldPath of input.managedFields) {
     managedFieldHashes[fieldPath] = hashManagedValue(input.document, fieldPath, input.managedArrayItems?.[fieldPath]);
@@ -175,7 +189,15 @@ export function createNativeProjectionSnapshot(
     ...(input.managedArrayItems ? { managedArrayItems: input.managedArrayItems } : {}),
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
-    ...(input.permissionIntegrity ? { permissionIntegrity: input.permissionIntegrity } : {}),
+    ...(input.permissionIntegrity
+      ? {
+          permissionIntegrity: withoutPersistedTrustedExecutionAuthority(
+            input.permissionIntegrity,
+            input.targetId,
+            "native projection snapshot",
+          ),
+        }
+      : {}),
   };
 }
 
@@ -192,7 +214,7 @@ export function createNativeProjectionFileSnapshot(
     contentHash,
     managedFields: ["$file"],
     managedFieldHashes: {
-      "$file": contentHash,
+      $file: contentHash,
     },
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
@@ -203,19 +225,24 @@ export function isFullyOwnedNativeProjectionFile(
   target: NativeProjectionTargetState | undefined,
   expected?: NativeProjectionFileIdentity,
 ): boolean {
-  if (!target || target.projectionKind !== "file"
-    || !Array.isArray(target.managedFields)
-    || target.managedFields.length !== 1
-    || target.managedFields[0] !== "$file"
-    || typeof target.managedFieldHashes?.["$file"] !== "string") {
+  if (
+    !target ||
+    target.projectionKind !== "file" ||
+    !Array.isArray(target.managedFields) ||
+    target.managedFields.length !== 1 ||
+    target.managedFields[0] !== "$file" ||
+    typeof target.managedFieldHashes?.["$file"] !== "string"
+  ) {
     return false;
   }
   if (!expected) return true;
-  return target.targetId === expected.targetId
-    && normalizeProjectionPath(target.filePath) === normalizeProjectionPath(expected.filePath)
-    && target.harness === expected.harness
-    && target.projectionKind === "file"
-    && target.sourceIdentity === expected.sourceIdentity;
+  return (
+    target.targetId === expected.targetId &&
+    normalizeProjectionPath(target.filePath) === normalizeProjectionPath(expected.filePath) &&
+    target.harness === expected.harness &&
+    target.projectionKind === "file" &&
+    target.sourceIdentity === expected.sourceIdentity
+  );
 }
 
 export function nativeProjectionFileMatchesDesired(input: {
@@ -228,8 +255,7 @@ export function nativeProjectionFileMatchesDesired(input: {
     return false;
   }
   const desiredHashes = fileContentHashes(input.desiredContent);
-  return fileContentHashes(input.currentContent)
-    .some((hash) => desiredHashes.includes(hash));
+  return fileContentHashes(input.currentContent).some((hash) => desiredHashes.includes(hash));
 }
 
 export function upsertNativeProjectionTargetState(
@@ -272,9 +298,7 @@ export function detectNativeProjectionDrift(input: {
     return currentHash !== target.managedFieldHashes[fieldPath];
   });
 
-  return driftedFields.length > 0
-    ? { targetId: input.targetId, driftedFields }
-    : undefined;
+  return driftedFields.length > 0 ? { targetId: input.targetId, driftedFields } : undefined;
 }
 
 export function detectNativeProjectionFileDrift(input: {
@@ -360,11 +384,17 @@ export function stripManagedFields(input: {
   return stripped;
 }
 
-function hashManagedValue(document: Record<string, unknown>, fieldPath: string, ownedItems: readonly unknown[] | undefined): string {
+function hashManagedValue(
+  document: Record<string, unknown>,
+  fieldPath: string,
+  ownedItems: readonly unknown[] | undefined,
+): string {
   const value = getPathValue(document, fieldPath);
   if (!ownedItems) return hashStableValue(value);
   const current = Array.isArray(value) ? value : [];
-  return hashStableValue(ownedItems.map((owned) => current.filter((item) => stableStringify(item) === stableStringify(owned)).length));
+  return hashStableValue(
+    ownedItems.map((owned) => current.filter((item) => stableStringify(item) === stableStringify(owned)).length),
+  );
 }
 
 function getPathValue(source: Record<string, unknown>, fieldPath: string): unknown {
@@ -413,15 +443,19 @@ function deletePathSegments(target: Record<string, unknown>, segments: readonly 
 
 function parseFieldPath(fieldPath: string): readonly string[] {
   if (fieldPath.startsWith("/")) {
-    const segments = fieldPath.slice(1).split("/").map((segment) => segment
-      .replace(/~1/g, "/")
-      .replace(/~0/g, "~"));
+    const segments = fieldPath
+      .slice(1)
+      .split("/")
+      .map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
     if (segments.length === 0 || segments.some((segment) => segment.length === 0)) {
       throw new Error(`Invalid managed JSON Pointer path: ${fieldPath}`);
     }
     return segments;
   }
-  const segments = fieldPath.split(".").map((segment) => segment.trim()).filter(Boolean);
+  const segments = fieldPath
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
   if (segments.length === 0) {
     throw new Error("Managed field path must not be empty");
   }
@@ -440,9 +474,11 @@ function stableStringify(value: unknown): string {
     return `[${value.map(stableStringify).join(",")}]`;
   }
   if (isRecord(value)) {
-    return `{${Object.keys(value).filter((key) => value[key] !== undefined).sort().map((key) =>
-      `${JSON.stringify(key)}:${stableStringify(value[key])}`
-    ).join(",")}}`;
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }

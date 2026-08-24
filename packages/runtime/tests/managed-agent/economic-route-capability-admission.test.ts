@@ -3,14 +3,16 @@ import {
   collectManagedEconomicCandidates,
   createManagedInvocationLifecycleToolExecutors,
   MANAGED_AGENT_INVOKE_TOOL,
-  RuntimeManagedAgentInvocationService,
   type ManagedInvocationToolAttachment,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
+  RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
-import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
-import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type {
+  EffectiveTurnAuthoritySnapshot,
+  RuntimeBuiltinToolExecutionContext,
+} from "../../src/session/runtime-session-orchestrator.types.js";
 import { managedEconomicAdmissionContract } from "./managed-economic-admission-fixture.js";
 
 const TEST_PARENT_AUTHORITY = {
@@ -63,9 +65,21 @@ function route(input: {
       identity: { routeId: input.routeId, revision: "test-v1" },
       target: { providerId: input.providerId, modelId: input.model ?? "default" },
       adapter: { kind: "direct-provider", capabilityId: `${input.providerId}-direct`, capabilityVersion: "1" },
-      authorityCeiling: "read_only", toolNames: ["read"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
-      proof: { status: "live-proven", source: "test", freshness: "fresh", observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", provenProfiles: ["foundation-readonly-plan"] },
-      capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+      authorityCeiling: "read_only",
+      toolNames: ["read"],
+      supportsRecursion: true,
+      supportsAttachments: false,
+      supportsWrite: false,
+      proof: {
+        status: "live-proven",
+        source: "test",
+        freshness: "fresh",
+        observedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        provenProfiles: ["foundation-readonly-plan"],
+      },
+      capacity: { kind: "accountless" },
+      settlement: { kind: "not-required" },
     },
     ...(input.capability === "verified"
       ? {
@@ -96,43 +110,47 @@ function paidApprovalCommitment(): never {
       selectedIdentity: {
         route: { routeId: "codex-primary", providerId: "codex-oauth", modelId: "gpt-test" },
       },
-      amounts: [{
-        atoms: "25",
-        scale: 2,
-        unit: "request",
-        scheme: { kind: "currency", currency: "USD" },
-      }],
+      amounts: [
+        {
+          atoms: "25",
+          scale: 2,
+          unit: "request",
+          scheme: { kind: "currency", currency: "USD" },
+        },
+      ],
     },
   } as never;
 }
 
 type EconomicDispatchPrepare = NonNullable<ManagedInvocationToolOptions["economicDispatch"]>["prepare"];
 
-function approvalProducerAttachment(
-  prepare: EconomicDispatchPrepare,
-): ManagedInvocationToolAttachment {
+function approvalProducerAttachment(prepare: EconomicDispatchPrepare): ManagedInvocationToolAttachment {
   const service = new RuntimeManagedAgentInvocationService();
   return {
     options: {
-      routes: [route({
-        routeId: "codex-primary",
-        providerId: "codex-oauth",
-        model: "gpt-test",
-        policy: true,
-        capability: "verified",
-      })],
-      agentCatalog: [{
-        name: "scout",
-        role: "Scout",
-        goal: "Inspect bounded work.",
-        tier: "reasoning",
-        authorityProfileId: "readonly",
-        admissionProfile: "foundation-readonly-plan",
-        economicPolicyId: "economy-policy",
-        economicPolicyRevision: "revision-001",
-        economicPolicyCandidateRouteIds: ["codex-primary"],
-        economicSpendApproval: "required",
-      }],
+      routes: [
+        route({
+          routeId: "codex-primary",
+          providerId: "codex-oauth",
+          model: "gpt-test",
+          policy: true,
+          capability: "verified",
+        }),
+      ],
+      agentCatalog: [
+        {
+          name: "scout",
+          role: "Scout",
+          goal: "Inspect bounded work.",
+          tier: "reasoning",
+          authorityProfileId: "readonly",
+          admissionProfile: "foundation-readonly-plan",
+          economicPolicyId: "economy-policy",
+          economicPolicyRevision: "revision-001",
+          economicPolicyCandidateRouteIds: ["codex-primary"],
+          economicSpendApproval: "required",
+        },
+      ],
       contextResolver: async () => ({ admittedAgentProfile: "scout" }),
       invocationService: service,
       economicDispatch: { prepare },
@@ -155,28 +173,28 @@ async function runApprovalProducer(
 ): Promise<{ readonly isError: boolean; readonly output?: string; readonly metadata: Record<string, unknown> }> {
   const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
   if (!executor) throw new Error("managed_agent.invoke was not registered");
-  return await executor({
-    profile: "foundation-readonly-plan",
-    agentProfile: "scout",
-    task: "Inspect the paid-usage approval boundary.",
-  }, {
-    session: {
-      id: "session-approval-producer",
-      createdAt: new Date("2026-08-01T00:00:00.000Z"),
-    } as RuntimeBuiltinToolExecutionContext["session"],
-    turnId: "turn-approval-producer",
-    effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
-    toolCall: { id: "tool-call-approval-producer", name: "managed_agent.invoke", input: {} },
-    ...(requestApproval ? { requestApproval } : {}),
-  }) as never;
+  return (await executor(
+    {
+      profile: "foundation-readonly-plan",
+      agentProfile: "scout",
+      task: "Inspect the paid-usage approval boundary.",
+    },
+    {
+      session: {
+        id: "session-approval-producer",
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      } as RuntimeBuiltinToolExecutionContext["session"],
+      turnId: "turn-approval-producer",
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
+      toolCall: { id: "tool-call-approval-producer", name: "managed_agent.invoke", input: {} },
+      ...(requestApproval ? { requestApproval } : {}),
+    },
+  )) as never;
 }
 
 describe("managed economic candidate admission", () => {
   it("makes providerRoute optional at the public policy-owned command boundary", () => {
-    expect(MANAGED_AGENT_INVOKE_TOOL.inputSchema.required).toEqual([
-      "profile",
-      "task",
-    ]);
+    expect(MANAGED_AGENT_INVOKE_TOOL.inputSchema.required).toEqual(["profile", "task"]);
   });
 
   it("collects every admitted cross-provider candidate without selecting one", () => {
@@ -210,33 +228,34 @@ describe("managed economic candidate admission", () => {
   });
 
   it("uses caller route/provider/model fields only to remove candidates", () => {
-    const candidates = collectManagedEconomicCandidates({
-      ...command,
-      providerRoute: {
-        providerId: "opencode-go",
-        model: "go-test",
-        surface: "configured",
+    const candidates = collectManagedEconomicCandidates(
+      {
+        ...command,
+        providerRoute: {
+          providerId: "opencode-go",
+          model: "go-test",
+          surface: "configured",
+        },
       },
-    }, [
-      route({
-        routeId: "codex-primary",
-        providerId: "codex-oauth",
-        model: "gpt-test",
-        policy: true,
-        capability: "verified",
-      }),
-      route({
-        routeId: "opencode-secondary",
-        providerId: "opencode-go",
-        model: "go-test",
-        policy: true,
-        capability: "verified",
-      }),
-    ]);
+      [
+        route({
+          routeId: "codex-primary",
+          providerId: "codex-oauth",
+          model: "gpt-test",
+          policy: true,
+          capability: "verified",
+        }),
+        route({
+          routeId: "opencode-secondary",
+          providerId: "opencode-go",
+          model: "go-test",
+          policy: true,
+          capability: "verified",
+        }),
+      ],
+    );
 
-    expect(candidates.candidates).toEqual([
-      expect.objectContaining({ routeId: "opencode-secondary" }),
-    ]);
+    expect(candidates.candidates).toEqual([expect.objectContaining({ routeId: "opencode-secondary" })]);
     expect(candidates.rejections).toContainEqual({
       stage: "managed-candidate-admission",
       routeId: "codex-primary",
@@ -252,28 +271,34 @@ describe("managed economic candidate admission", () => {
         capability: "verified",
       }),
     ]);
-    const constrained = collectManagedEconomicCandidates({
-      ...command,
-      routeId: "selected-route",
-    }, [
-      route({
-        routeId: "constraint-excluded",
-        providerId: "opencode-go",
-        policy: true,
-        capability: "verified",
-      }),
-    ]);
-    const admissionFailed = collectManagedEconomicCandidates({
-      ...command,
-      requiredToolNames: ["shell"],
-    }, [
-      route({
-        routeId: "admission-failed",
-        providerId: "codex-oauth",
-        policy: true,
-        capability: "verified",
-      }),
-    ]);
+    const constrained = collectManagedEconomicCandidates(
+      {
+        ...command,
+        routeId: "selected-route",
+      },
+      [
+        route({
+          routeId: "constraint-excluded",
+          providerId: "opencode-go",
+          policy: true,
+          capability: "verified",
+        }),
+      ],
+    );
+    const admissionFailed = collectManagedEconomicCandidates(
+      {
+        ...command,
+        requiredToolNames: ["shell"],
+      },
+      [
+        route({
+          routeId: "admission-failed",
+          providerId: "codex-oauth",
+          policy: true,
+          capability: "verified",
+        }),
+      ],
+    );
     const capabilityUnverified = collectManagedEconomicCandidates(command, [
       route({
         routeId: "capability-unverified",
@@ -289,9 +314,7 @@ describe("managed economic candidate admission", () => {
       ...admissionFailed.rejections,
       ...capabilityUnverified.rejections,
     ];
-    expect(rejections.every(
-      (rejection) => rejection.stage === "managed-candidate-admission",
-    )).toBe(true);
+    expect(rejections.every((rejection) => rejection.stage === "managed-candidate-admission")).toBe(true);
     expect(rejections.map((rejection) => rejection.reason)).toEqual([
       "not-in-policy",
       "caller-constraint-excluded",
@@ -301,21 +324,29 @@ describe("managed economic candidate admission", () => {
   });
 
   it("rejects unhealthy policy routes before economic capability evaluation", () => {
-    const result = collectManagedEconomicCandidates(command, [], [{
-      routeId: "unhealthy-route",
-      economicPolicyIds: ["economy-policy"],
-      economicCapability: { status: "unverified" },
-      routeSource: "explicit-managed-route",
-      providerId: "codex-oauth",
-      profiles: ["foundation-readonly-plan"],
-      reason: "Route health proof is stale.",
-    }]);
+    const result = collectManagedEconomicCandidates(
+      command,
+      [],
+      [
+        {
+          routeId: "unhealthy-route",
+          economicPolicyIds: ["economy-policy"],
+          economicCapability: { status: "unverified" },
+          routeSource: "explicit-managed-route",
+          providerId: "codex-oauth",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Route health proof is stale.",
+        },
+      ],
+    );
 
-    expect(result.rejections).toEqual([{
-      stage: "managed-candidate-admission",
-      routeId: "unhealthy-route",
-      reason: "non-economic-admission-failed",
-    }]);
+    expect(result.rejections).toEqual([
+      {
+        stage: "managed-candidate-admission",
+        routeId: "unhealthy-route",
+        reason: "non-economic-admission-failed",
+      },
+    ]);
   });
 
   it("performs no construction or execution side effects during admission", () => {
@@ -348,33 +379,37 @@ describe("managed economic candidate admission", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const attachment: ManagedInvocationToolAttachment = {
       options: {
-        routes: [route({
-          routeId: "codex-primary",
-          providerId: "codex-oauth",
-          model: "gpt-test",
-          policy: true,
-          capability: "verified",
-        })],
-        agentCatalog: [{
-          name: "scout",
-          role: "Scout",
-          goal: "Inspect bounded work.",
-          tier: "reasoning",
-          authorityProfileId: "readonly",
-          admissionProfile: "foundation-readonly-plan",
-          economicPolicyId: "economy-policy",
-          economicPolicyRevision: "revision-001",
-          economicPolicyCandidateRouteIds: ["codex-primary"],
-          providerRoute: {
+        routes: [
+          route({
+            routeId: "codex-primary",
             providerId: "codex-oauth",
             model: "gpt-test",
-            deliberationIntent: {
-              mode: "fixed",
-              preferredLevel: "high" as never,
-              onUnsupported: "deny",
+            policy: true,
+            capability: "verified",
+          }),
+        ],
+        agentCatalog: [
+          {
+            name: "scout",
+            role: "Scout",
+            goal: "Inspect bounded work.",
+            tier: "reasoning",
+            authorityProfileId: "readonly",
+            admissionProfile: "foundation-readonly-plan",
+            economicPolicyId: "economy-policy",
+            economicPolicyRevision: "revision-001",
+            economicPolicyCandidateRouteIds: ["codex-primary"],
+            providerRoute: {
+              providerId: "codex-oauth",
+              model: "gpt-test",
+              deliberationIntent: {
+                mode: "fixed",
+                preferredLevel: "high" as never,
+                onUnsupported: "deny",
+              },
             },
           },
-        }],
+        ],
         contextResolver: async () => ({ admittedAgentProfile: "scout" }),
         invocationService: service,
         economicDispatch: { prepare },
@@ -388,16 +423,19 @@ describe("managed economic candidate admission", () => {
     const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
-    const result = await executor({
-      profile: "foundation-readonly-plan",
-      agentProfile: "scout",
-      task: "Inspect the deliberation boundary.",
-    }, {
-      session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
-      turnId: "turn-test",
-      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
-      toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
-    }) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+    const result = (await executor(
+      {
+        profile: "foundation-readonly-plan",
+        agentProfile: "scout",
+        task: "Inspect the deliberation boundary.",
+      },
+      {
+        session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
+        turnId: "turn-test",
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
+        toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
+      },
+    )) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
 
     expect(result).toMatchObject({
       isError: true,
@@ -417,23 +455,27 @@ describe("managed economic candidate admission", () => {
     const start = vi.spyOn(service, "start");
     const attachment: ManagedInvocationToolAttachment = {
       options: {
-        routes: [route({
-          routeId: "codex-primary",
-          providerId: "codex-oauth",
-          policy: true,
-          capability: "verified",
-        })],
-        agentCatalog: [{
-          name: "scout",
-          role: "Scout",
-          goal: "Inspect bounded work.",
-          tier: "reasoning",
-          authorityProfileId: "readonly",
-          admissionProfile: "foundation-readonly-plan",
-          economicPolicyId: "economy-policy",
-          economicPolicyRevision: "revision-001",
-          economicPolicyCandidateRouteIds: ["codex-primary"],
-        }],
+        routes: [
+          route({
+            routeId: "codex-primary",
+            providerId: "codex-oauth",
+            policy: true,
+            capability: "verified",
+          }),
+        ],
+        agentCatalog: [
+          {
+            name: "scout",
+            role: "Scout",
+            goal: "Inspect bounded work.",
+            tier: "reasoning",
+            authorityProfileId: "readonly",
+            admissionProfile: "foundation-readonly-plan",
+            economicPolicyId: "economy-policy",
+            economicPolicyRevision: "revision-001",
+            economicPolicyCandidateRouteIds: ["codex-primary"],
+          },
+        ],
         contextResolver: async () => ({ admittedAgentProfile: "scout" }),
         invocationService: service,
       },
@@ -443,24 +485,26 @@ describe("managed economic candidate admission", () => {
         attachmentId: "attachment:test",
       },
     };
-    const executor = createManagedInvocationLifecycleToolExecutors(attachment)
-      .get("managed_agent.invoke");
+    const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
-    const result = await executor({
-      profile: "foundation-readonly-plan",
-      agentProfile: "scout",
-      task: "Inspect the policy boundary.",
-    }, {
-      session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
-      turnId: "turn-test",
-      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
-      toolCall: {
-        id: "tool-call-test",
-        name: "managed_agent.invoke",
-        input: {},
+    const result = (await executor(
+      {
+        profile: "foundation-readonly-plan",
+        agentProfile: "scout",
+        task: "Inspect the policy boundary.",
       },
-    }) as {
+      {
+        session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
+        turnId: "turn-test",
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
+        toolCall: {
+          id: "tool-call-test",
+          name: "managed_agent.invoke",
+          input: {},
+        },
+      },
+    )) as {
       readonly isError: boolean;
       readonly metadata: Record<string, unknown>;
     };
@@ -478,13 +522,16 @@ describe("managed economic candidate admission", () => {
   });
 
   it("asks before fencing comparable paid usage through the producer callback", async () => {
-    const requestApproval = vi.fn<NonNullable<RuntimeBuiltinToolExecutionContext["requestApproval"]>>(async () => ({ approved: true as const }));
+    const requestApproval = vi.fn<NonNullable<RuntimeBuiltinToolExecutionContext["requestApproval"]>>(async () => ({
+      approved: true as const,
+    }));
     const prepare: EconomicDispatchPrepare = async (input) => {
       await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
       throw new Error("stop after approval callback");
     };
-    await expect(runApprovalProducer(approvalProducerAttachment(prepare), requestApproval))
-      .rejects.toThrow("stop after approval callback");
+    await expect(runApprovalProducer(approvalProducerAttachment(prepare), requestApproval)).rejects.toThrow(
+      "stop after approval callback",
+    );
     expect(requestApproval).toHaveBeenCalledOnce();
     expect(requestApproval.mock.calls[0]?.[0]).toMatch(/before reserving comparable paid usage/);
   });
@@ -494,18 +541,23 @@ describe("managed economic candidate admission", () => {
       await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
       throw new Error("approval callback unexpectedly returned");
     };
-    await expect(runApprovalProducer(approvalProducerAttachment(prepare)))
-      .rejects.toThrow("requires approval before fencing");
+    await expect(runApprovalProducer(approvalProducerAttachment(prepare))).rejects.toThrow(
+      "requires approval before fencing",
+    );
   });
 
   it("denies ask-before-spend when the operator rejects the producer approval", async () => {
-    const requestApproval = vi.fn<NonNullable<RuntimeBuiltinToolExecutionContext["requestApproval"]>>(async () => ({ approved: false as const, reason: "operator declined" }));
+    const requestApproval = vi.fn<NonNullable<RuntimeBuiltinToolExecutionContext["requestApproval"]>>(async () => ({
+      approved: false as const,
+      reason: "operator declined",
+    }));
     const prepare: EconomicDispatchPrepare = async (input) => {
       await input.validateAndConsumeApprovalBeforeFence?.({ commitment: paidApprovalCommitment() });
       throw new Error("approval callback unexpectedly returned");
     };
-    await expect(runApprovalProducer(approvalProducerAttachment(prepare), requestApproval))
-      .rejects.toThrow("approval denied");
+    await expect(runApprovalProducer(approvalProducerAttachment(prepare), requestApproval)).rejects.toThrow(
+      "approval denied",
+    );
     expect(requestApproval).toHaveBeenCalledOnce();
   });
 
@@ -513,7 +565,8 @@ describe("managed economic candidate admission", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const start = vi.spyOn(service, "start");
     const recordExecutionSettlementPending = vi.fn();
-    const contextResolver = vi.fn()
+    const contextResolver = vi
+      .fn()
       .mockResolvedValueOnce({ admittedAgentProfile: "scout" })
       .mockRejectedValueOnce(new Error("synthetic postcommit context failure"));
     const committedRoute = route({
@@ -526,17 +579,19 @@ describe("managed economic candidate admission", () => {
     const attachment: ManagedInvocationToolAttachment = {
       options: {
         routes: [committedRoute],
-        agentCatalog: [{
-          name: "scout",
-          role: "Scout",
-          goal: "Inspect bounded work.",
-          tier: "reasoning",
-          authorityProfileId: "readonly",
-          admissionProfile: "foundation-readonly-plan",
-          economicPolicyId: "economy-policy",
-          economicPolicyRevision: "revision-001",
-          economicPolicyCandidateRouteIds: ["codex-primary"],
-        }],
+        agentCatalog: [
+          {
+            name: "scout",
+            role: "Scout",
+            goal: "Inspect bounded work.",
+            tier: "reasoning",
+            authorityProfileId: "readonly",
+            admissionProfile: "foundation-readonly-plan",
+            economicPolicyId: "economy-policy",
+            economicPolicyRevision: "revision-001",
+            economicPolicyCandidateRouteIds: ["codex-primary"],
+          },
+        ],
         contextResolver,
         invocationService: service,
         workspaceRoot: "C:/workspace",
@@ -571,7 +626,13 @@ describe("managed economic candidate admission", () => {
                   },
                 },
               } as never,
-              adapter: { descriptor: { providerId: "codex-oauth", adapterKind: "direct", supportedExecutionModes: ["direct-provider"] } } as never,
+              adapter: {
+                descriptor: {
+                  providerId: "codex-oauth",
+                  adapterKind: "direct",
+                  supportedExecutionModes: ["direct-provider"],
+                },
+              } as never,
               dispatchFenceId: "dispatch-fence:test",
               actionClaim: {
                 version: 1,
@@ -584,7 +645,7 @@ describe("managed economic candidate admission", () => {
               },
               abortSignal: new AbortController().signal,
               recordExecutionSettlementPending,
-              createExecutionSettlement: () => ({} as never),
+              createExecutionSettlement: () => ({}) as never,
               registerEconomicSettlement: () => undefined,
             };
           },
@@ -600,8 +661,7 @@ describe("managed economic candidate admission", () => {
         attachmentId: "attachment:test",
       },
     };
-    const executor = createManagedInvocationLifecycleToolExecutors(attachment)
-      .get("managed_agent.invoke");
+    const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
     const session = new RuntimeSession({
@@ -612,16 +672,19 @@ describe("managed economic candidate admission", () => {
       sessionId: "session-test",
     });
     session.addUserMessage([{ type: "text", text: "synthetic test turn" }]);
-    const result = await executor({
-      profile: "foundation-readonly-plan",
-      agentProfile: "scout",
-      task: "Inspect the policy boundary.",
-    }, {
-      session,
-      turnId: "turn-test",
-      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
-      toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
-    }) as { readonly isError: boolean; readonly output: string };
+    const result = (await executor(
+      {
+        profile: "foundation-readonly-plan",
+        agentProfile: "scout",
+        task: "Inspect the policy boundary.",
+      },
+      {
+        session,
+        turnId: "turn-test",
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
+        toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
+      },
+    )) as { readonly isError: boolean; readonly output: string };
 
     expect(result).toMatchObject({ isError: true, output: "synthetic postcommit context failure" });
     expect(recordExecutionSettlementPending).toHaveBeenCalledOnce();
@@ -644,23 +707,27 @@ describe("managed economic candidate admission", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const attachment: ManagedInvocationToolAttachment = {
       options: {
-        routes: [route({
-          routeId: "codex-primary",
-          providerId: "codex-oauth",
-          policy: true,
-          capability: "verified",
-        })],
-        agentCatalog: [{
-          name: "scout",
-          role: "Scout",
-          goal: "Inspect bounded work.",
-          tier: "reasoning",
-          authorityProfileId: "readonly",
-          admissionProfile: "foundation-readonly-plan",
-          economicPolicyId: "economy-policy",
-          economicPolicyRevision: "revision-001",
-          economicPolicyCandidateRouteIds: ["codex-primary"],
-        }],
+        routes: [
+          route({
+            routeId: "codex-primary",
+            providerId: "codex-oauth",
+            policy: true,
+            capability: "verified",
+          }),
+        ],
+        agentCatalog: [
+          {
+            name: "scout",
+            role: "Scout",
+            goal: "Inspect bounded work.",
+            tier: "reasoning",
+            authorityProfileId: "readonly",
+            admissionProfile: "foundation-readonly-plan",
+            economicPolicyId: "economy-policy",
+            economicPolicyRevision: "revision-001",
+            economicPolicyCandidateRouteIds: ["codex-primary"],
+          },
+        ],
         contextResolver: async () => ({ deniedSkills: ["forbidden-skill"] }),
         invocationService: service,
       },
@@ -670,21 +737,23 @@ describe("managed economic candidate admission", () => {
         attachmentId: "attachment:test",
       },
     };
-    const executor = createManagedInvocationLifecycleToolExecutors(attachment)
-      .get("managed_agent.invoke");
+    const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
-    const result = await executor({
-      profile: "foundation-readonly-plan",
-      agentProfile: "scout",
-      skills: ["forbidden-skill"],
-      task: "Inspect the policy boundary.",
-    }, {
-      session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
-      turnId: "turn-test",
-      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
-      toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
-    }) as { readonly output: string; readonly metadata: Record<string, unknown> };
+    const result = (await executor(
+      {
+        profile: "foundation-readonly-plan",
+        agentProfile: "scout",
+        skills: ["forbidden-skill"],
+        task: "Inspect the policy boundary.",
+      },
+      {
+        session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
+        turnId: "turn-test",
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
+        toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
+      },
+    )) as { readonly output: string; readonly metadata: Record<string, unknown> };
 
     expect(result.output).toContain("Managed invocation denied skill(s): forbidden-skill");
     expect(result.metadata).not.toHaveProperty("candidateSet");
@@ -693,22 +762,26 @@ describe("managed economic candidate admission", () => {
   it("denies destructive authority before exposing economic candidates", async () => {
     const service = new RuntimeManagedAgentInvocationService();
     const requestApproval = vi.fn(async () => ({ approved: false as const, reason: "operator denied" }));
+    const prepareEconomicDispatch = vi.fn();
     const attachment: ManagedInvocationToolAttachment = {
       options: {
         routes: [],
-        agentCatalog: [{
-          name: "writer",
-          role: "Writer",
-          goal: "Apply bounded work.",
-          tier: "reasoning",
-          authorityProfileId: "approved-write",
-          admissionProfile: "foundation-apply-approved-writes",
-          economicPolicyId: "economy-policy",
-          economicPolicyRevision: "revision-001",
-          economicPolicyCandidateRouteIds: [],
-        }],
+        agentCatalog: [
+          {
+            name: "writer",
+            role: "Writer",
+            goal: "Apply bounded work.",
+            tier: "reasoning",
+            authorityProfileId: "approved-write",
+            admissionProfile: "foundation-apply-approved-writes",
+            economicPolicyId: "economy-policy",
+            economicPolicyRevision: "revision-001",
+            economicPolicyCandidateRouteIds: [],
+          },
+        ],
         contextResolver: async () => ({ admittedAgentProfile: "writer" }),
         invocationService: service,
+        economicDispatch: { prepare: prepareEconomicDispatch } as never,
       },
       callerIdentity: {
         kind: "kiln-runtime",
@@ -716,25 +789,32 @@ describe("managed economic candidate admission", () => {
         attachmentId: "attachment:test",
       },
     };
-    const executor = createManagedInvocationLifecycleToolExecutors(attachment)
-      .get("managed_agent.invoke");
+    const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
-    const result = await executor({
-      profile: "foundation-apply-approved-writes",
-      agentProfile: "writer",
-      requestedAuthority: "destructive",
-      task: "Apply the policy boundary.",
-    }, {
-      session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
-      turnId: "turn-test",
-      effectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
-      toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
-      requestApproval,
-    }) as { readonly output: string; readonly metadata: Record<string, unknown> };
+    const result = (await executor(
+      {
+        profile: "foundation-apply-approved-writes",
+        agentProfile: "writer",
+        requestedAuthority: "destructive",
+        task: "Apply the policy boundary.",
+      },
+      {
+        session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
+        turnId: "turn-test",
+        effectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
+        toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
+        requestApproval,
+      },
+    )) as { readonly output: string; readonly metadata: Record<string, unknown> };
 
-    expect(requestApproval).toHaveBeenCalledOnce();
-    expect(result.output).toContain("destructive requested authority denied: operator denied");
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(prepareEconomicDispatch).not.toHaveBeenCalled();
+    expect(result.output).toContain("cannot request destructive authority");
+    expect(result.metadata).toMatchObject({
+      errorCode: "attended_trusted_execution_economic_route_unsupported",
+      status: "denied",
+    });
     expect(result.metadata).not.toHaveProperty("candidateSet");
   });
 });

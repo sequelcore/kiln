@@ -9,17 +9,17 @@ import type {
   ManagedAgentReplayResource,
   ManagedAgentUsageReport,
   ManagedAgentWriteEvidence,
-  ProviderAdapter,
-  ProviderTransportEvent,
   ManagedEconomicExecutionIdentity,
   ManagedEconomicExecutionReport,
   ModelDeliberationCapabilities,
+  ProviderAdapter,
+  ProviderTransportEvent,
   SandboxConfig,
   StructuredExecutionResult,
-  ToolDefinition,
   ToolAuthorizedEvent,
   ToolCacheHitEvent,
   ToolCalledEvent,
+  ToolDefinition,
   ToolResultEvent,
 } from "@kilnai/core";
 import {
@@ -27,24 +27,35 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
+  defineStructuredExecutionResult,
+  digestManagedEconomicValue,
   EventBus,
   extractText,
   isManagedAgentProviderQuotaFailure,
+  knownModelCommunicationCapabilities,
   SandboxPolicy,
   STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
-  defineStructuredExecutionResult,
   textParts,
-  digestManagedEconomicValue,
-  knownModelCommunicationCapabilities,
 } from "@kilnai/core";
+import {
+  type RuntimeModelRoundActionClaimStore,
+  type RuntimeModelRoundDispatchContext,
+  readRuntimeModelRoundAdmission,
+  runtimeModelRoundEffectIdentity,
+} from "../../execution-kernel/runtime-model-round-action-claim.js";
+import type {
+  RuntimeToolActionClaimStore,
+  RuntimeToolActionClaimsContext,
+} from "../../execution-kernel/runtime-tool-action-claim.js";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 import { RuntimeSession } from "../../session/runtime-session.js";
 import { RuntimeSessionOrchestrator } from "../../session/runtime-session-orchestrator.js";
 import type {
+  OrchestrateResult,
   OrchestratorDeps,
   PerCallToolConfig,
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
-  OrchestrateResult,
   RuntimeExecutionEnvelope,
   ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
@@ -53,6 +64,9 @@ import {
   RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
   RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
 } from "../../session/runtime-session-orchestrator.types.js";
+import { admitManagedChildAuthority } from "./child-authority-admission.js";
+import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
+import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
@@ -66,20 +80,6 @@ import {
   buildManagedInvocationResourceContext,
   createManagedInvocationRuntimeResourceReader,
 } from "./resource-context.js";
-import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
-import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
-import { admitManagedChildAuthority } from "./child-authority-admission.js";
-import type {
-  RuntimeToolActionClaimStore,
-  RuntimeToolActionClaimsContext,
-} from "../../execution-kernel/runtime-tool-action-claim.js";
-import {
-  readRuntimeModelRoundAdmission,
-  runtimeModelRoundEffectIdentity,
-  type RuntimeModelRoundActionClaimStore,
-  type RuntimeModelRoundDispatchContext,
-} from "../../execution-kernel/runtime-model-round-action-claim.js";
-import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -97,9 +97,11 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   /** Workload-local durable owner for consequential child tool/MCP effects. */
   readonly runtimeToolActionClaims: RuntimeToolActionClaimStore;
   /** Full persisted parent/child admission readback supplied by the workload owner. */
-  readonly readAuthorityAdmission: (
-    input: { readonly admissionId: string; readonly sessionId: string; readonly turnId: string },
-  ) => EffectiveAuthorityAdmissionBundle | undefined | Promise<EffectiveAuthorityAdmissionBundle | undefined>;
+  readonly readAuthorityAdmission: (input: {
+    readonly admissionId: string;
+    readonly sessionId: string;
+    readonly turnId: string;
+  }) => EffectiveAuthorityAdmissionBundle | undefined | Promise<EffectiveAuthorityAdmissionBundle | undefined>;
   /** Workload-local durable owner for every direct-provider model round. */
   readonly runtimeModelRoundActionClaims: RuntimeModelRoundActionClaimStore;
   /** Stable identity for the prepared managed direct adapter binding. */
@@ -134,14 +136,16 @@ const MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY: AuthorityDescriptor = {
   reason: "Runtime-internal structured handoff submission is an audited process-local mutation",
 };
 
-function managedEconomicUsageUnit(
-  name: ManagedAgentUsageReport["tokenClasses"][number]["name"],
-): string {
+function managedEconomicUsageUnit(name: ManagedAgentUsageReport["tokenClasses"][number]["name"]): string {
   switch (name) {
-    case "input": return "input-token";
-    case "output": return "output-token";
-    case "cache_read": return "cache-read-token";
-    case "cache_write": return "cache-write-token";
+    case "input":
+      return "input-token";
+    case "output":
+      return "output-token";
+    case "cache_read":
+      return "cache-read-token";
+    case "cache_write":
+      return "cache-write-token";
   }
 }
 
@@ -177,25 +181,32 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.economicIdentity = config.economicIdentity;
     this.runtimeModelRoundActionClaims = config.runtimeModelRoundActionClaims;
     this.readAuthorityAdmission = config.readAuthorityAdmission;
-    this.modelRoundAdapterIdentity = config.modelRoundAdapterIdentity
-      ?? `managed-direct:${this.providerId}:${this.model ?? ""}`;
+    this.modelRoundAdapterIdentity =
+      config.modelRoundAdapterIdentity ?? `managed-direct:${this.providerId}:${this.model ?? ""}`;
     this.now = config.now ?? (() => new Date());
-    if (this.economicIdentity !== undefined && (
-      this.economicIdentity.route.providerId !== this.providerId
-      || this.economicIdentity.route.modelId !== this.model
-    )) {
+    if (
+      this.economicIdentity !== undefined &&
+      (this.economicIdentity.route.providerId !== this.providerId || this.economicIdentity.route.modelId !== this.model)
+    ) {
       throw new Error("Managed direct adapter economic identity does not match its provider route.");
     }
-    const writeAuthority = config.writeAuthority !== undefined
-      ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
-      : undefined;
+    const writeAuthority =
+      config.writeAuthority !== undefined
+        ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
+        : undefined;
     this.descriptor = defineManagedAgentAdapterDescriptor({
       adapterDescriptorId: `adapter:${this.providerId}:direct-provider`,
       providerId: this.providerId,
       adapterKind: "direct",
-      supportedProfiles: writeAuthority !== undefined
-        ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
-        : ["foundation-readonly-plan"],
+      supportedProfiles:
+        writeAuthority !== undefined
+          ? [
+              "foundation-readonly-plan",
+              "foundation-propose-writes",
+              "foundation-apply-approved-writes",
+              "foundation-memory-write-proposals",
+            ]
+          : ["foundation-readonly-plan"],
       supportedExecutionModes: ["direct-provider"],
       lifecycle: {
         exposesStart: true,
@@ -243,14 +254,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
 
   async invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord> {
     if (
-      this.economicIdentity !== undefined
-      && (input.registerEconomicSettlement === undefined || input.createEconomicSettlement === undefined)
+      this.economicIdentity !== undefined &&
+      (input.registerEconomicSettlement === undefined || input.createEconomicSettlement === undefined)
     ) {
       throw new Error("Managed economic direct adapter requires typed economic settlement ownership.");
     }
     if (
-      this.economicIdentity === undefined
-      && (input.registerEconomicSettlement !== undefined || input.createEconomicSettlement !== undefined)
+      this.economicIdentity === undefined &&
+      (input.registerEconomicSettlement !== undefined || input.createEconomicSettlement !== undefined)
     ) {
       throw new Error("Managed direct adapter received economic settlement ownership without a committed identity.");
     }
@@ -275,13 +286,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     const execution = this.runChildRuntime(input, childSession, abortController.signal, progressEvents);
     input.registerAdapterCompletion(execution);
     if (
-      this.economicIdentity !== undefined
-      && input.registerEconomicSettlement !== undefined
-      && input.createEconomicSettlement !== undefined
+      this.economicIdentity !== undefined &&
+      input.registerEconomicSettlement !== undefined &&
+      input.createEconomicSettlement !== undefined
     ) {
-      input.registerEconomicSettlement(execution.then((record) => input.createEconomicSettlement!(
-        this.createEconomicExecutionReport(record),
-      )));
+      input.registerEconomicSettlement(
+        execution.then((record) => input.createEconomicSettlement!(this.createEconomicExecutionReport(record))),
+      );
     }
     const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
     let raced: ManagedAgentInvocationRecord | typeof TIMEOUT;
@@ -305,17 +316,18 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       throw new Error("Managed direct adapter cannot report economics without a committed identity.");
     }
     const tokenClasses = record.usage?.tokenClasses ?? [];
-    const providerRejectedBeforeResponse = record.diagnostics?.some(
-      (diagnostic) => diagnostic.classification === "provider_quota_exhausted",
-    ) ?? false;
+    const providerRejectedBeforeResponse =
+      record.diagnostics?.some((diagnostic) => diagnostic.classification === "provider_quota_exhausted") ?? false;
     const units = tokenClasses.flatMap((usage) => {
       if (usage.value === "unknown") return [];
-      return [{
-        atoms: String(usage.value),
-        scale: 0,
-        unit: managedEconomicUsageUnit(usage.name),
-        scheme: { kind: "unit" as const },
-      }];
+      return [
+        {
+          atoms: String(usage.value),
+          scale: 0,
+          unit: managedEconomicUsageUnit(usage.name),
+          scheme: { kind: "unit" as const },
+        },
+      ];
     });
     const unknownTokenClasses = tokenClasses
       .filter((usage) => usage.value === "unknown")
@@ -332,23 +344,21 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           })),
         }
       : tokenClasses.length === 0
-      ? {
-          kind: "incomplete",
-          knownUnits: units,
-          reason: "provider-usage-missing",
-        }
-      : unknownTokenClasses.length > 0
         ? {
             kind: "incomplete",
             knownUnits: units,
-            reason: `provider-usage-unknown:${unknownTokenClasses.join(",")}`,
+            reason: "provider-usage-missing",
           }
-        : { kind: "complete", units };
+        : unknownTokenClasses.length > 0
+          ? {
+              kind: "incomplete",
+              knownUnits: units,
+              reason: `provider-usage-unknown:${unknownTokenClasses.join(",")}`,
+            }
+          : { kind: "complete", units };
     const observedAtDate = this.now();
     const observedAt = observedAtDate.toISOString();
-    const validUntil = new Date(
-      observedAtDate.getTime() + ECONOMIC_EXECUTION_EVIDENCE_VALIDITY_MS,
-    ).toISOString();
+    const validUntil = new Date(observedAtDate.getTime() + ECONOMIC_EXECUTION_EVIDENCE_VALIDITY_MS).toISOString();
     const sourceDigest = digestManagedEconomicValue({
       invocationId: record.invocationId,
       actualIdentity: this.economicIdentity,
@@ -409,10 +419,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           tags: ["managed-invocation", "handoff", "runtime-internal"],
           effectEnvelope: MANAGED_AGENT_SUBMIT_HANDOFF_EFFECT,
         });
-        toolAuthority.set(
-          MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME,
-          MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY,
-        );
+        toolAuthority.set(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME, MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY);
       }
       const effectiveToolAuthority = input.consumedWriteApproval
         ? applyConsumedWriteApproval(toolAuthority, request)
@@ -433,16 +440,16 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         ? new Map(childAuthority.allowedToolPermissions.map(({ toolName, authority }) => [toolName, authority]))
         : effectiveToolAuthority;
       const executionCapabilities = childAuthority
-        ? new Map(childAuthority.allowedToolPermissions.map(({ toolName, effectEnvelope }) => {
-            const capability = capabilityMap.get(toolName);
-            if (!capability) throw new Error(`Managed child authority admission is missing capability for tool "${toolName}".`);
-            return [toolName, { ...capability, effectEnvelope }];
-          }))
+        ? new Map(
+            childAuthority.allowedToolPermissions.map(({ toolName, effectEnvelope }) => {
+              const capability = capabilityMap.get(toolName);
+              if (!capability)
+                throw new Error(`Managed child authority admission is missing capability for tool "${toolName}".`);
+              return [toolName, { ...capability, effectEnvelope }];
+            }),
+          )
         : capabilityMap;
-      const builtinTools = withManagedToolSandbox(
-        runtimeBuiltinTools,
-        createManagedToolSandbox(request),
-      );
+      const builtinTools = withManagedToolSandbox(runtimeBuiltinTools, createManagedToolSandbox(request));
       const eventBus = new EventBus();
       const unsubscribeProgress = attachManagedChildProgressObserver(
         eventBus,
@@ -464,20 +471,26 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const communicationCapabilities = request.providerRoute.communicationIntent
         ? knownModelCommunicationCapabilities(request.providerRoute.providerId, routeModel)
         : undefined;
-      const routeCapabilities = this.config.deliberationCapabilities || communicationCapabilities
-        ? new Map([[
-            `${request.providerRoute.providerId}/${routeModel}`,
-            {
-              ...(this.config.deliberationCapabilities
-                ? { deliberation: this.config.deliberationCapabilities }
-                : {}),
-              ...(communicationCapabilities ? { communication: communicationCapabilities } : {}),
-            },
-          ]])
-        : undefined;
+      const routeCapabilities =
+        this.config.deliberationCapabilities || communicationCapabilities
+          ? new Map([
+              [
+                `${request.providerRoute.providerId}/${routeModel}`,
+                {
+                  ...(this.config.deliberationCapabilities
+                    ? { deliberation: this.config.deliberationCapabilities }
+                    : {}),
+                  ...(communicationCapabilities ? { communication: communicationCapabilities } : {}),
+                },
+              ],
+            ])
+          : undefined;
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
         ...(childAuthority ? { authorityAdmission: childAuthority.bundle } : {}),
+        ...(input.attendedTrustedExecution !== undefined
+          ? { attendedTrustedExecution: input.attendedTrustedExecution }
+          : {}),
         ...(request.executionScope ? { executionScope: request.executionScope } : {}),
         abortSignal,
         toolAllowlist: executionToolAllowlist,
@@ -506,11 +519,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
               if (event.type === "response_chunk") return;
               if (providerTransportOrdinal >= MAX_PROVIDER_TRANSPORT_PROGRESS_EVENTS_PER_CHILD) return;
               providerTransportOrdinal += 1;
-              recordProgress(managedProviderTransportProgressEvent(
-                request.invocationId,
-                providerTransportOrdinal,
-                event,
-              ));
+              recordProgress(
+                managedProviderTransportProgressEvent(request.invocationId, providerTransportOrdinal, event),
+              );
             },
           },
         },
@@ -541,21 +552,23 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         credentialRevision: execution.binding.credentialRevision,
         admissionReadbackSessionId: childAuthority.bundle.sessionId,
         admissionReadbackTurnId: childAuthority.bundle.turnId,
-        readAdmission: () => readRuntimeModelRoundAdmission({
-          readAdmission: this.readAuthorityAdmission,
-          admissionId: childAuthority.bundle.admissionId,
-          sessionId: childAuthority.bundle.sessionId,
-          turnId: childAuthority.bundle.turnId,
-          expected: {
-            routeId: execution.binding.routeId,
-            accountId: execution.binding.accountId,
-            credentialRevision: execution.binding.credentialRevision,
-          },
-        }),
+        readAdmission: () =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: this.readAuthorityAdmission,
+            admissionId: childAuthority.bundle.admissionId,
+            sessionId: childAuthority.bundle.sessionId,
+            turnId: childAuthority.bundle.turnId,
+            expected: {
+              routeId: execution.binding.routeId,
+              accountId: execution.binding.accountId,
+              credentialRevision: execution.binding.credentialRevision,
+            },
+          }),
         store: this.runtimeModelRoundActionClaims,
         state: { claimed: false },
       };
-      (perCallConfig as { runtimeModelRoundDispatch?: RuntimeModelRoundDispatchContext }).runtimeModelRoundDispatch = modelRoundDispatch;
+      (perCallConfig as { runtimeModelRoundDispatch?: RuntimeModelRoundDispatchContext }).runtimeModelRoundDispatch =
+        modelRoundDispatch;
       const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
         admission: childAuthority.bundle,
         attemptId: request.invocationId,
@@ -566,7 +579,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         store: this.config.runtimeToolActionClaims,
         state: { claimed: false },
       };
-      (perCallConfig as { runtimeToolActionClaims?: RuntimeToolActionClaimsContext }).runtimeToolActionClaims = runtimeToolActionClaims;
+      (perCallConfig as { runtimeToolActionClaims?: RuntimeToolActionClaimsContext }).runtimeToolActionClaims =
+        runtimeToolActionClaims;
       const governedResourceContext = await buildManagedInvocationResourceContext({
         resourceUris: request.input.resourceUris,
         invocationId: request.invocationId,
@@ -580,11 +594,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       try {
         const executionResult = await orchestrator.processMessage(
           childSession,
-          textParts(appendManagedResultHandoffContract(
-            request.input.prompt ?? request.input.summary,
-            request,
-            "submission-tool",
-          )),
+          textParts(
+            appendManagedResultHandoffContract(
+              request.input.prompt ?? request.input.summary,
+              request,
+              "submission-tool",
+            ),
+          ),
           governedResourceContext,
           builtinTools,
           perCallConfig,
@@ -599,11 +615,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
             tools: [handoffSubmission.tool],
           }).processMessage(
             childSession,
-            textParts([
-              "Finalize this managed invocation now.",
-              `Call ${MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME} exactly once with the completed structured result.`,
-              "Do not perform more repository work and do not answer with prose instead of the tool call.",
-            ].join("\n")),
+            textParts(
+              [
+                "Finalize this managed invocation now.",
+                `Call ${MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME} exactly once with the completed structured result.`,
+                "Do not perform more repository work and do not answer with prose instead of the tool call.",
+              ].join("\n"),
+            ),
             undefined,
             builtinTools,
             {
@@ -653,27 +671,29 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         ...(childExecutionResource ? [childExecutionResource.uri] : []),
         ...writeEvidence.resultResourceUris,
       ];
-      const replayResources = [replayResource, childExecutionResource]
-        .filter((resource): resource is ManagedAgentReplayResource => resource !== undefined);
+      const replayResources = [replayResource, childExecutionResource].filter(
+        (resource): resource is ManagedAgentReplayResource => resource !== undefined,
+      );
 
-      const missingRequiredHandoff = handoffSubmission !== undefined
-        && structuredResult === undefined
-        && result.stopReason !== RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
+      const missingRequiredHandoff =
+        handoffSubmission !== undefined &&
+        structuredResult === undefined &&
+        result.stopReason !== RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
-        lifecycleState: missingRequiredHandoff
-          ? "failed"
-          : lifecycleStateForDirectChildStopReason(result.stopReason),
+        lifecycleState: missingRequiredHandoff ? "failed" : lifecycleStateForDirectChildStopReason(result.stopReason),
         ...(result.stopReason ? { stopReason: result.stopReason } : {}),
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),
         ...(missingRequiredHandoff
           ? {
-              diagnostics: [{
-                uri: childExecutionResource?.uri ?? managedInvocationUri(request.invocationId, "transcript"),
-                kind: "failure" as const,
-              }],
+              diagnostics: [
+                {
+                  uri: childExecutionResource?.uri ?? managedInvocationUri(request.invocationId, "transcript"),
+                  kind: "failure" as const,
+                },
+              ],
             }
           : {}),
         usage: {
@@ -734,13 +754,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),
-        diagnostics: [{
-          uri: managedInvocationUri(request.invocationId, "failure"),
-          kind: "failure",
-          ...(providerQuotaExhausted
-            ? { classification: "provider_quota_exhausted" as const }
-            : {}),
-        }],
+        diagnostics: [
+          {
+            uri: managedInvocationUri(request.invocationId, "failure"),
+            kind: "failure",
+            ...(providerQuotaExhausted ? { classification: "provider_quota_exhausted" as const } : {}),
+          },
+        ],
         usage: unknownRuntimeUsage(),
         resultHandoff: {
           provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
@@ -752,9 +772,18 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     }
   }
 
-  private baseRecord(input: ManagedAgentRuntimeInvocationInput): Omit<
+  private baseRecord(
+    input: ManagedAgentRuntimeInvocationInput,
+  ): Omit<
     ManagedAgentInvocationRecord,
-    "lifecycleState" | "childSessionId" | "childTurnId" | "transcript" | "diagnostics" | "usage" | "resultHandoff" | "writeEvidence"
+    | "lifecycleState"
+    | "childSessionId"
+    | "childTurnId"
+    | "transcript"
+    | "diagnostics"
+    | "usage"
+    | "resultHandoff"
+    | "writeEvidence"
   > {
     const request = input.request;
     return {
@@ -778,9 +807,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
   ): ManagedAgentInvocationRecord {
     const request = input.request;
-    const timeoutMs = input.abortSignal.reason instanceof ManagedEconomicLifecycleTimeoutError
-      ? input.abortSignal.reason.timeoutMs
-      : request.authority.timeoutMs;
+    const timeoutMs =
+      input.abortSignal.reason instanceof ManagedEconomicLifecycleTimeoutError
+        ? input.abortSignal.reason.timeoutMs
+        : request.authority.timeoutMs;
     const timeoutSummary = formatTimeoutSummary({
       timeoutMs,
       childSessionId,
@@ -794,10 +824,12 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       childSessionId,
       childTurnId,
       transcript: transcriptPointer(request.invocationId),
-      diagnostics: [{
-        uri: managedInvocationUri(request.invocationId, "timeout"),
-        kind: "timeout",
-      }],
+      diagnostics: [
+        {
+          uri: managedInvocationUri(request.invocationId, "timeout"),
+          kind: "timeout",
+        },
+      ],
       usage: unknownRuntimeUsage(),
       resultHandoff: {
         provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
@@ -812,11 +844,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     });
   }
 
-  private providerRoute(route: ManagedAgentInvocationRequest["providerRoute"]): ManagedAgentInvocationRequest["providerRoute"] {
+  private providerRoute(
+    route: ManagedAgentInvocationRequest["providerRoute"],
+  ): ManagedAgentInvocationRequest["providerRoute"] {
     return {
       providerId: this.providerId,
       surface: "direct-provider",
-      ...(route.model ?? this.model ? { model: route.model ?? this.model } : {}),
+      ...((route.model ?? this.model) ? { model: route.model ?? this.model } : {}),
       ...(route.deliberationIntent !== undefined ? { deliberationIntent: route.deliberationIntent } : {}),
       ...(route.communicationIntent !== undefined ? { communicationIntent: route.communicationIntent } : {}),
     };
@@ -846,9 +880,11 @@ export interface ManagedDirectProviderBindingAdapter extends ManagedAgentRuntime
 export function isManagedDirectProviderBindingAdapter(
   adapter: ManagedAgentRuntimeAdapter,
 ): adapter is ManagedDirectProviderBindingAdapter {
-  return adapter.descriptor.adapterKind === "direct"
-    && adapter.descriptor.supportedExecutionModes.includes("direct-provider")
-    && typeof Reflect.get(adapter, "bindProvider") === "function";
+  return (
+    adapter.descriptor.adapterKind === "direct" &&
+    adapter.descriptor.supportedExecutionModes.includes("direct-provider") &&
+    typeof Reflect.get(adapter, "bindProvider") === "function"
+  );
 }
 
 function createManagedHandoffSubmission(): {
@@ -859,7 +895,8 @@ function createManagedHandoffSubmission(): {
   let submitted: StructuredExecutionResult | undefined;
   const tool: ToolDefinition = {
     name: MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME,
-    description: "Submit the single canonical structured result for this managed child invocation. Call exactly once after the work and its verification are complete.",
+    description:
+      "Submit the single canonical structured result for this managed child invocation. Call exactly once after the work and its verification are complete.",
     inputSchema: STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
     strict: true,
     tags: new Set(["managed-agent", "handoff", "runtime-control"]),
@@ -1023,8 +1060,7 @@ function withManagedToolSandbox(
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
   const wrapped = new Map<string, RuntimeBuiltinToolExecutor>();
   for (const [name, executor] of source) {
-    wrapped.set(name, async (input, context) =>
-      executor(input, withSandboxContext(context, sandbox)));
+    wrapped.set(name, async (input, context) => executor(input, withSandboxContext(context, sandbox)));
   }
   return wrapped;
 }
@@ -1048,10 +1084,10 @@ function createManagedToolSandbox(request: ManagedAgentInvocationRequest): {
 } {
   const workingDirectory = request.authority.workingDirectory.path;
   const config: SandboxConfig = {
-    fsPolicy: request.authority.toolAuthority.writeAllowed === true
-      && request.authority.workingDirectory.mode !== "read-only"
-      ? "read-write"
-      : "read-only",
+    fsPolicy:
+      request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
+        ? "read-write"
+        : "read-only",
     netPolicy: request.authority.toolAuthority.networkAllowed === true ? "full" : "none",
     allowedPaths: resolveAllowedPaths(request),
     deniedPaths: resolveDeniedPaths(request),
@@ -1068,8 +1104,8 @@ function createManagedToolSandbox(request: ManagedAgentInvocationRequest): {
 
 function resolveAllowedPaths(request: ManagedAgentInvocationRequest): readonly string[] {
   if (
-    request.authority.toolAuthority.writeAllowed !== true
-    || request.authority.workingDirectory.mode === "read-only"
+    request.authority.toolAuthority.writeAllowed !== true ||
+    request.authority.workingDirectory.mode === "read-only"
   ) {
     return uniquePaths([
       request.authority.workingDirectory.path,
@@ -1103,17 +1139,19 @@ function applyConsumedWriteApproval(
   request: ManagedAgentInvocationRequest,
 ): ReadonlyMap<string, AuthorityDescriptor> {
   const approvedTools = new Set(request.authority.writeAuthority?.scope.tools.allowedToolNames ?? []);
-  return new Map([...source].map(([toolName, authority]) => [
-    toolName,
-    approvedTools.has(toolName) && authority.requiresApproval
-      ? {
-          ...authority,
-          allowed: true,
-          requiresApproval: false,
-          reason: "Exact durable managed write approval was consumed before the dispatch fence",
-        }
-      : authority,
-  ]));
+  return new Map(
+    [...source].map(([toolName, authority]) => [
+      toolName,
+      approvedTools.has(toolName) && authority.requiresApproval
+        ? {
+            ...authority,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Exact durable managed write approval was consumed before the dispatch fence",
+          }
+        : authority,
+    ]),
+  );
 }
 
 function managedProviderTransportProjectId(request: ManagedAgentInvocationRequest): string {
@@ -1136,11 +1174,12 @@ function managedProviderTransportProgressEvent(
   event: ProviderTransportEvent,
 ): ManagedAgentRuntimeInvocationProgressEvent {
   const recordedAt = new Date().toISOString();
-  const metadata = event.type === "response_headers"
-    ? { eventType: event.type, phase: "headers", status: event.status }
-    : event.type === "request_failed"
-      ? { eventType: event.type, phase: event.phase }
-      : { eventType: event.type };
+  const metadata =
+    event.type === "response_headers"
+      ? { eventType: event.type, phase: "headers", status: event.status }
+      : event.type === "request_failed"
+        ? { eventType: event.type, phase: event.phase }
+        : { eventType: event.type };
   return {
     eventId: `${invocationId}:provider-transport:${ordinal}`,
     kind: "provider_transport",
@@ -1166,7 +1205,7 @@ function collectDirectRuntimeWriteEvidence(
       ...(change.linesRemoved !== undefined ? { linesRemoved: change.linesRemoved } : {}),
       ...(change.diffPreview !== undefined ? { diffPreview: change.diffPreview } : {}),
       ...(change.diffTruncated !== undefined ? { diffTruncated: change.diffTruncated } : {}),
-    }))
+    })),
   );
   if (fileChanges.length === 0) {
     return {
@@ -1232,38 +1271,33 @@ function clipSummary(summary: string, resultResourceUri?: string, stopReason?: s
 }
 
 function isNoHandoffStopReason(stopReason: string | undefined): boolean {
-  return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
-    || stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
+  return (
+    stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON ||
+    stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON
+  );
 }
 
 function lifecycleStateForDirectChildStopReason(stopReason: string | undefined): "completed" | "failed" {
   return isFailedDirectChildStopReason(stopReason) ? "failed" : "completed";
 }
 
-function mergeManagedChildResults(
-  execution: OrchestrateResult,
-  finalization: OrchestrateResult,
-): OrchestrateResult {
+function mergeManagedChildResults(execution: OrchestrateResult, finalization: OrchestrateResult): OrchestrateResult {
   return {
     ...finalization,
     inputTokens: execution.inputTokens + finalization.inputTokens,
     outputTokens: execution.outputTokens + finalization.outputTokens,
     cacheReadTokens: execution.cacheReadTokens + finalization.cacheReadTokens,
     cacheWriteTokens: execution.cacheWriteTokens + finalization.cacheWriteTokens,
-    providerRequests: [
-      ...(execution.providerRequests ?? []),
-      ...(finalization.providerRequests ?? []),
-    ],
-    toolExecutions: [
-      ...(execution.toolExecutions ?? []),
-      ...(finalization.toolExecutions ?? []),
-    ],
+    providerRequests: [...(execution.providerRequests ?? []), ...(finalization.providerRequests ?? [])],
+    toolExecutions: [...(execution.toolExecutions ?? []), ...(finalization.toolExecutions ?? [])],
   };
 }
 
 function isFailedDirectChildStopReason(stopReason: string | undefined): boolean {
-  return isNoHandoffStopReason(stopReason)
-    || stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
+  return (
+    isNoHandoffStopReason(stopReason) ||
+    stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON
+  );
 }
 
 function resultReplayResource(invocationId: string, text: string): ManagedAgentReplayResource | undefined {
@@ -1285,9 +1319,9 @@ function childExecutionReplayResource(
 ): ManagedAgentReplayResource | undefined {
   const toolExecutions = result.toolExecutions ?? [];
   if (
-    resultText.trim().length > 0
-    && toolExecutions.length === 0
-    && !isFailedDirectChildStopReason(result.stopReason)
+    resultText.trim().length > 0 &&
+    toolExecutions.length === 0 &&
+    !isFailedDirectChildStopReason(result.stopReason)
   ) {
     return undefined;
   }
@@ -1319,14 +1353,16 @@ function childTimeoutReplayResource(
 function sanitizeTimeoutProgressEvidence(
   progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
 ): readonly ManagedAgentRuntimeInvocationProgressEvent[] {
-  return progressEvents.map((event) => event.kind === "provider_transport"
-    ? event
-    : {
-        eventId: event.eventId,
-        kind: event.kind,
-        recordedAt: event.recordedAt,
-        summary: "Tool progress observed before timeout.",
-      });
+  return progressEvents.map((event) =>
+    event.kind === "provider_transport"
+      ? event
+      : {
+          eventId: event.eventId,
+          kind: event.kind,
+          recordedAt: event.recordedAt,
+          summary: "Tool progress observed before timeout.",
+        },
+  );
 }
 
 function formatChildExecutionEvidence(result: OrchestrateResult, resultText: string): string {
@@ -1344,7 +1380,9 @@ function formatChildExecutionEvidence(result: OrchestrateResult, resultText: str
     `Tool executions: ${result.toolExecutions?.length ?? 0}`,
     "",
     ...formatToolExecutionEvidence(result.toolExecutions ?? []),
-  ].filter((line): line is string => line !== undefined).join("\n");
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
 }
 
 function formatChildTimeoutEvidence(
@@ -1359,37 +1397,43 @@ function formatChildTimeoutEvidence(
     `Progress events: ${progressEvents.length}`,
     progressEvents.length === 0 ? "No child runtime progress events were observed before timeout." : undefined,
     "",
-    ...progressEvents.flatMap((event, index) => [
-      `## Progress ${index + 1}: ${event.kind}`,
-      "",
-      `Recorded at: ${event.recordedAt}`,
-      `Summary: ${event.summary}`,
-      event.toolName ? `Tool: ${event.toolName}` : undefined,
-      event.success !== undefined ? `Success: ${event.success}` : undefined,
-      event.isError !== undefined ? `Error: ${event.isError}` : undefined,
-      event.durationMs !== undefined ? `Duration ms: ${event.durationMs}` : undefined,
-      event.resultSummary ? `Result summary: ${event.resultSummary}` : undefined,
-      event.metadata ? `Metadata: ${clipResourceText(JSON.stringify(event.metadata), TOOL_OUTPUT_LIMIT)}` : undefined,
-      "",
-    ].filter((line): line is string => line !== undefined)),
-  ].filter((line): line is string => line !== undefined).join("\n");
+    ...progressEvents.flatMap((event, index) =>
+      [
+        `## Progress ${index + 1}: ${event.kind}`,
+        "",
+        `Recorded at: ${event.recordedAt}`,
+        `Summary: ${event.summary}`,
+        event.toolName ? `Tool: ${event.toolName}` : undefined,
+        event.success !== undefined ? `Success: ${event.success}` : undefined,
+        event.isError !== undefined ? `Error: ${event.isError}` : undefined,
+        event.durationMs !== undefined ? `Duration ms: ${event.durationMs}` : undefined,
+        event.resultSummary ? `Result summary: ${event.resultSummary}` : undefined,
+        event.metadata ? `Metadata: ${clipResourceText(JSON.stringify(event.metadata), TOOL_OUTPUT_LIMIT)}` : undefined,
+        "",
+      ].filter((line): line is string => line !== undefined),
+    ),
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
 }
 
 function formatToolExecutionEvidence(toolExecutions: readonly ToolExecutionSummary[]): readonly string[] {
   if (toolExecutions.length === 0) {
     return [];
   }
-  return toolExecutions.flatMap((execution, index) => [
-    `## Tool ${index + 1}: ${execution.toolName}`,
-    "",
-    execution.toolCallId ? `Tool call: ${execution.toolCallId}` : undefined,
-    `Success: ${execution.success ? "true" : "false"}`,
-    `Duration ms: ${execution.durationMs}`,
-    execution.input ? `Input: ${clipResourceText(JSON.stringify(execution.input), TOOL_OUTPUT_LIMIT)}` : undefined,
-    `Result summary: ${execution.resultSummary}`,
-    execution.output ? `Output: ${clipResourceText(execution.output, TOOL_OUTPUT_LIMIT)}` : undefined,
-    "",
-  ].filter((line): line is string => line !== undefined));
+  return toolExecutions.flatMap((execution, index) =>
+    [
+      `## Tool ${index + 1}: ${execution.toolName}`,
+      "",
+      execution.toolCallId ? `Tool call: ${execution.toolCallId}` : undefined,
+      `Success: ${execution.success ? "true" : "false"}`,
+      `Duration ms: ${execution.durationMs}`,
+      execution.input ? `Input: ${clipResourceText(JSON.stringify(execution.input), TOOL_OUTPUT_LIMIT)}` : undefined,
+      `Result summary: ${execution.resultSummary}`,
+      execution.output ? `Output: ${clipResourceText(execution.output, TOOL_OUTPUT_LIMIT)}` : undefined,
+      "",
+    ].filter((line): line is string => line !== undefined),
+  );
 }
 
 function clipResourceText(text: string, limit: number): string {
@@ -1421,32 +1465,33 @@ function formatDirectProviderFailure(
     `provider ${providerRoute.providerId}`,
     providerRoute.model ? `model ${providerRoute.model}` : undefined,
     providerRoute.deliberationIntent ? `deliberation ${providerRoute.deliberationIntent.mode}` : undefined,
-  ].filter((part): part is string => part !== undefined).join(", ");
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(", ");
   return `Direct provider managed invocation failed for ${route}. ${formatManagedProviderError(error)}`;
 }
 
 function isDirectProviderQuotaFailure(error: unknown, failureSummary: string): boolean {
-  const errorSignal = error instanceof AllCredentialsExhaustedError
-    ? {
-        code: error.lastOutcome?.type.replaceAll("-", "_"),
-        message: error.message,
-      }
-    : error instanceof Error
-      ? error
-      : undefined;
-  return isManagedAgentProviderQuotaFailure(errorSignal)
-    || isManagedAgentProviderQuotaFailure({ message: failureSummary });
+  const errorSignal =
+    error instanceof AllCredentialsExhaustedError
+      ? {
+          code: error.lastOutcome?.type.replaceAll("-", "_"),
+          message: error.message,
+        }
+      : error instanceof Error
+        ? error
+        : undefined;
+  return (
+    isManagedAgentProviderQuotaFailure(errorSignal) || isManagedAgentProviderQuotaFailure({ message: failureSummary })
+  );
 }
 
 function formatManagedProviderError(error: unknown): string {
   if (error instanceof AllCredentialsExhaustedError) {
-    const details = [
-      formatCredentialOutcome(error.lastOutcome),
-      formatCredentialCause(error.cause),
-    ].filter((detail): detail is string => detail !== undefined);
-    return details.length > 0
-      ? `${error.message}: ${details.join("; ")}`
-      : error.message;
+    const details = [formatCredentialOutcome(error.lastOutcome), formatCredentialCause(error.cause)].filter(
+      (detail): detail is string => detail !== undefined,
+    );
+    return details.length > 0 ? `${error.message}: ${details.join("; ")}` : error.message;
   }
   return error instanceof Error ? error.message : String(error);
 }
@@ -1489,10 +1534,13 @@ function createManagedInvocationTimeout(
 ): { readonly promise: Promise<typeof TIMEOUT>; readonly cancel: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const promise = new Promise<typeof TIMEOUT>((resolve) => {
-    timer = setTimeout(() => {
-      abortController.abort();
-      resolve(TIMEOUT);
-    }, Math.max(timeoutMs, 0));
+    timer = setTimeout(
+      () => {
+        abortController.abort();
+        resolve(TIMEOUT);
+      },
+      Math.max(timeoutMs, 0),
+    );
   });
   return {
     promise,

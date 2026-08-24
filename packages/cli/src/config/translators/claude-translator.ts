@@ -1,4 +1,4 @@
-import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import { describeTrustedExecutionEnforcement } from "@kilnai/core";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import { type ClaudeNativeRules, translatePermission } from "../../wrapper/session-registry.js";
 import type { ClaudeMessagesProjection } from "../model-gateway-native-projection.js";
@@ -16,7 +16,6 @@ export function translateClaudePermissionProjection(input: {
   readonly existingDocument: Record<string, unknown>;
   readonly gatewayProjection?: ClaudeMessagesProjection;
   readonly previousManagedFields?: readonly string[];
-  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "claude");
   const cfg = translated.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
@@ -79,7 +78,6 @@ export function translateClaudePermissionProjection(input: {
         harness: "claude-code",
         allowDangerouslySkipPermissions: cfg.allowDangerouslySkipPermissions,
       }),
-      storedAuthorization: input.storedAuthorization,
     },
   });
 }

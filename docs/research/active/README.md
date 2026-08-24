@@ -24,6 +24,10 @@ Every note must name or link:
 - [Provider-Neutral Communication Governance](provider-neutral-communication.md)
   records the current provider/harness evidence and the evaluation work that
   remains before any communication default or prompt fallback can be promoted.
+- [Trusted-Execution Runtime Attestation](trusted-execution-runtime-attestation.md)
+  supports [issue #52](https://github.com/sequelcore/kiln/issues/52) with the
+  pinned adapter evidence required before any runtime observation can be
+  promoted from inferred to proven.
 - [Remote Operator Connection](remote-operator-connection.md) supports
   [Roadmap 08](../../roadmap/08-remote-operator-pairing.md) and
   [Roadmap 08.5](../../roadmap/08.5-remote-operator-connectivity.md) with the

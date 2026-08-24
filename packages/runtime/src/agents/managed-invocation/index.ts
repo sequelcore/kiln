@@ -303,3 +303,8 @@ export type {
   RuntimeManagedAgentInvocationServiceOptions,
 } from "./invocation-service.js";
 export type { ManagedAgentRuntimeConsumedWriteApproval } from "./internal-consumed-write-approval.js";
+export {
+  MANAGED_ATTENDED_TRUSTED_EXECUTION_ENFORCEMENT_REVISION,
+  requireManagedAttendedTrustedExecution,
+} from "./attended-trusted-execution.js";
+export type { ManagedAttendedTrustedExecutionContext } from "./attended-trusted-execution.js";
