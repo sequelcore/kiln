@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContextArtifact } from "@kilnai/core";
+import type { ContextArtifact } from "@kilnai/core/memory";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   getProjectContextArtifactCache,
