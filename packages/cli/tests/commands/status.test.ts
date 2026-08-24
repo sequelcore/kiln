@@ -11,7 +11,7 @@ import type { KilnProjectConfig } from "../../src/kiln-yaml.js";
 import { resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
@@ -274,7 +274,7 @@ describe("statusCommand", () => {
       },
     });
     persistGlobalConfig({
-      version: "4",
+      version: "5",
       web: {
         enabled: true,
         netPolicy: "full",
@@ -312,7 +312,7 @@ describe("statusCommand", () => {
     process.env.TAVILY_API_KEY = "tv-test";
     process.env.FIRECRAWL_API_KEY = "fc-test";
     persistGlobalConfig({
-      version: "4",
+      version: "5",
       web: {
         enabled: true,
         netPolicy: "full",
@@ -389,7 +389,7 @@ describe("statusCommand", () => {
       },
     });
     persistGlobalConfig({
-      version: "4",
+      version: "5",
       web: {
         enabled: true,
         netPolicy: "documentation",

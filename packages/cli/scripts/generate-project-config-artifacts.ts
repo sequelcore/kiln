@@ -20,9 +20,9 @@ writeFileSync(
   serializeProjectConfigDescriptors(),
   "utf8",
 );
-writeFileSync(join(outputDirectory, "global-config-v1.json"), serializeGlobalConfigEditorSchema(), "utf8");
+writeFileSync(join(outputDirectory, "global-config-v2.json"), serializeGlobalConfigEditorSchema(), "utf8");
 writeFileSync(
-  join(outputDirectory, "global-config-descriptors-v1.json"),
+  join(outputDirectory, "global-config-descriptors-v2.json"),
   serializeGlobalConfigDescriptors(),
   "utf8",
 );

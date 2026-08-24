@@ -1,62 +1,130 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
+  DEFAULT_OPERATOR_APPEARANCE_PREFERENCE,
+  isOperatorAppearancePreference,
   isOperatorThemeName,
+  type OperatorAppearancePreference,
   type OperatorThemeName,
-} from "@kilnai/gateway-contracts";
-import { applyOperatorTheme } from "./operator-theme-projection.js";
-import { KILN_GUI_UI_STORAGE_KEY, KILN_GUI_UI_STORAGE_VERSION } from "./ui-preferences.js";
+} from "@kilnai/operator-appearance";
+import { create } from "zustand";
+import { applyOperatorAppearance, applyOperatorTheme } from "./operator-theme-projection.js";
+import { KILN_GUI_UI_STORAGE_KEY, KILN_GUI_UI_STORAGE_VERSION, readGuiLaunchTheme } from "./ui-preferences.js";
 
 export type KilnTheme = OperatorThemeName;
 
 interface UiState {
+  readonly preference: OperatorAppearancePreference;
   readonly theme: KilnTheme;
+  readonly sessionTheme: KilnTheme | null;
+  syncAppearancePreference: (preference: OperatorAppearancePreference) => void;
+  setAppearancePreference: (preference: OperatorAppearancePreference) => void;
+  previewAppearance: (preference: OperatorAppearancePreference) => void;
   setTheme: (theme: KilnTheme) => void;
+  clearSessionTheme: () => void;
 }
 
-function applyTheme(theme: KilnTheme): void {
-  const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  applyOperatorTheme(theme, systemPrefersDark);
+let systemSchemeCleanup: (() => void) | null = null;
+
+function observedScheme(): "light" | "dark" {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-// System-follow media query listener — set once, kept for the lifetime of the app.
-let systemFollowCleanup: (() => void) | null = null;
-
-function setupSystemFollow(active: boolean): void {
-  if (systemFollowCleanup) {
-    systemFollowCleanup();
-    systemFollowCleanup = null;
-  }
-  if (!active) return;
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  const handler = () => {
-    applyTheme("system-follow");
-  };
-  mq.addEventListener("change", handler);
-  systemFollowCleanup = () => mq.removeEventListener("change", handler);
-}
-
-export const useUiStore = create<UiState>()(
-  persist(
-    (set) => ({
-      theme: DEFAULT_OPERATOR_THEME_NAME,
-      setTheme: (theme: KilnTheme) => {
-        if (!isOperatorThemeName(theme)) return;
-        set({ theme });
-        setupSystemFollow(theme === "system-follow");
-        applyTheme(theme);
-      },
-    }),
-    {
-      name: KILN_GUI_UI_STORAGE_KEY,
+function cacheCanonicalPreference(preference: OperatorAppearancePreference): void {
+  localStorage.setItem(
+    KILN_GUI_UI_STORAGE_KEY,
+    JSON.stringify({
       version: KILN_GUI_UI_STORAGE_VERSION,
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-        const theme = isOperatorThemeName(state.theme) ? state.theme : DEFAULT_OPERATOR_THEME_NAME;
-        setupSystemFollow(theme === "system-follow");
-        applyTheme(theme);
-      },
+      preference,
+    }),
+  );
+}
+
+function applyCanonicalPreference(preference: OperatorAppearancePreference): KilnTheme {
+  const resolution = applyOperatorAppearance(preference, observedScheme());
+  if (!isOperatorThemeName(resolution.themeId)) {
+    throw new Error(`Resolved theme '${resolution.themeId}' is not available in the GUI catalog.`);
+  }
+  return resolution.themeId;
+}
+
+function setupSystemObservation(preference: OperatorAppearancePreference, apply: (theme: KilnTheme) => void): void {
+  systemSchemeCleanup?.();
+  systemSchemeCleanup = null;
+  if (preference.mode !== "system") return;
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const handleChange = () => apply(applyCanonicalPreference(preference));
+  media.addEventListener("change", handleChange);
+  systemSchemeCleanup = () => media.removeEventListener("change", handleChange);
+}
+
+function readCachedPreference(): OperatorAppearancePreference {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(KILN_GUI_UI_STORAGE_KEY) ?? "null");
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "version" in parsed &&
+      parsed.version === KILN_GUI_UI_STORAGE_VERSION &&
+      "preference" in parsed &&
+      isOperatorAppearancePreference(parsed.preference)
+    )
+      return parsed.preference;
+  } catch {
+    // A malformed projection is discarded in favor of the built-in bootstrap.
+  }
+  return DEFAULT_OPERATOR_APPEARANCE_PREFERENCE;
+}
+
+const bootstrapPreference = readCachedPreference();
+const bootstrapSessionTheme = readGuiLaunchTheme(window.location.search);
+const bootstrapTheme = bootstrapSessionTheme ?? applyCanonicalPreference(bootstrapPreference);
+if (bootstrapSessionTheme) applyOperatorTheme(bootstrapSessionTheme);
+
+export const useUiStore = create<UiState>((set, get) => {
+  const applyObserved = (theme: KilnTheme) => set({ theme });
+  if (!bootstrapSessionTheme) setupSystemObservation(bootstrapPreference, applyObserved);
+  return {
+    preference: bootstrapPreference,
+    theme: bootstrapTheme,
+    sessionTheme: bootstrapSessionTheme,
+    syncAppearancePreference: (preference) => {
+      if (!isOperatorAppearancePreference(preference)) return;
+      cacheCanonicalPreference(preference);
+      const sessionTheme = get().sessionTheme;
+      if (sessionTheme) {
+        systemSchemeCleanup?.();
+        systemSchemeCleanup = null;
+        applyOperatorTheme(sessionTheme);
+        set({ preference, theme: sessionTheme });
+        return;
+      }
+      const theme = applyCanonicalPreference(preference);
+      set({ preference, theme });
+      setupSystemObservation(preference, applyObserved);
     },
-  ),
-);
+    setAppearancePreference: (preference) => {
+      if (!isOperatorAppearancePreference(preference)) return;
+      cacheCanonicalPreference(preference);
+      const theme = applyCanonicalPreference(preference);
+      set({ preference, theme, sessionTheme: null });
+      setupSystemObservation(preference, applyObserved);
+    },
+    previewAppearance: (preference) => {
+      if (!isOperatorAppearancePreference(preference)) return;
+      systemSchemeCleanup?.();
+      systemSchemeCleanup = null;
+      set({ theme: applyCanonicalPreference(preference) });
+    },
+    setTheme: (theme) => {
+      systemSchemeCleanup?.();
+      systemSchemeCleanup = null;
+      applyOperatorTheme(theme);
+      set({ theme, sessionTheme: theme });
+    },
+    clearSessionTheme: () => {
+      const preference = get().preference;
+      const theme = applyCanonicalPreference(preference);
+      set({ theme, sessionTheme: null });
+      setupSystemObservation(preference, applyObserved);
+    },
+  };
+});

@@ -18,7 +18,7 @@ import {
   type ExecutionTargetCatalogIntent,
 } from "../../src/config/execution-target-evidence-store.js";
 import { syntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
-import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-config-fixture.js";
 import { type ProjectStateBinding, resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 let tempDir: string;
@@ -671,7 +671,11 @@ describe("config mutation authority", () => {
 
   it("writes a global preference through the authority rather than the surface", async () => {
     seedGlobalConfig();
-    const record = propose("setting.set", { scope: "global", key: "ui.theme", value: "vesper" });
+    const appearance = {
+      mode: "dark",
+      themeByScheme: { light: "automata", dark: "vesper" },
+    };
+    const record = propose("setting.set", { scope: "global", key: "ui.appearance", value: appearance });
 
     expect(record.proposal.scope).toBe("global");
     expect(record.proposal.activation).toBe("hot");
@@ -693,23 +697,31 @@ describe("config mutation authority", () => {
       activeRevision: null,
       summary: "Canonical configuration committed, but owner read-back did not prove hot activation.",
     });
-    expect(parse(readFileSync(globalConfigPath(), "utf-8")).ui.theme).toBe("vesper");
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).ui.appearance).toEqual(appearance);
   });
 
   it("preserves operator comments and ordering when editing global configuration", async () => {
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     const authored = [
       "# Operator-authored global configuration",
-      "version: '4'",
+      "version: '5'",
       "",
       "ui:",
       "  # keep this note",
-      "  theme: kiln-dark",
+      "  appearance:",
+      "    mode: light",
+      "    themeByScheme:",
+      "      light: automata",
+      "      dark: phosphor",
       "",
     ].join("\n");
     writeFileSync(globalConfigPath(), authored, "utf-8");
 
-    const record = propose("setting.set", { scope: "global", key: "ui.theme", value: "vesper" });
+    const record = propose("setting.set", {
+      scope: "global",
+      key: "ui.appearance",
+      value: { mode: "dark", themeByScheme: { light: "automata", dark: "vesper" } },
+    });
     const result = await applyConfigMutation({
       projectPath: tempDir,
       proposalId: record.proposal.proposalId,
@@ -722,7 +734,8 @@ describe("config mutation authority", () => {
     const committed = readFileSync(globalConfigPath(), "utf-8");
     expect(committed).toContain("# Operator-authored global configuration");
     expect(committed).toContain("# keep this note");
-    expect(committed).toContain("theme: vesper");
+    expect(committed).toContain("mode: dark");
+    expect(committed).toContain("dark: vesper");
   });
 
   it("never lets a model-called apply commit without an operator approval", async () => {
@@ -1084,7 +1097,7 @@ describe("config mutation authority", () => {
   it("derives native import approval from the permission delta and preserves YAML comments", async () => {
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     const before = [
-      "version: '4'",
+      "version: '5'",
       "engines:",
       "  codex:",
       "    enabled: false",
@@ -1253,7 +1266,11 @@ describe("config mutation authority", () => {
     const unknownValue = proposeConfigMutation({
       projectPath: tempDir,
       operation: "setting.set",
-      payload: { scope: "global", key: "ui.theme", value: "not-a-theme" },
+      payload: {
+        scope: "global",
+        key: "ui.appearance",
+        value: { mode: "sepia", themeByScheme: { light: "automata", dark: "not-a-theme" } },
+      },
     });
 
     expect(unsupportedKey.proposal.status).toBe("invalid");

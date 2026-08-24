@@ -7,6 +7,7 @@ import {
   RadioTower,
   ShieldCheck,
   SlidersHorizontal,
+  SwatchBook,
   Wrench,
 } from "lucide-react";
 
@@ -15,9 +16,17 @@ export const SETTINGS_SECTIONS = [
     id: "general",
     path: "/settings/general",
     label: "General",
-    description: "Theme, updates, and workspace behavior",
-    aliases: ["theme", "interface", "preferences"],
+    description: "Updates and workspace behavior",
+    aliases: ["workspace", "preferences", "updates"],
     icon: SlidersHorizontal,
+  },
+  {
+    id: "appearance",
+    path: "/settings/appearance",
+    label: "Appearance",
+    description: "Color scheme and operator themes",
+    aliases: ["theme", "interface", "light", "dark", "system"],
+    icon: SwatchBook,
   },
   {
     id: "providers",

@@ -1,5 +1,5 @@
 {
-  "$id": "https://kiln.dev/schemas/global-config-v1.json",
+  "$id": "https://kiln.dev/schemas/global-config-v2.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Canonical structural schema for ~/.kiln/config.yaml.",
@@ -282,6 +282,50 @@
     "ui": {
       "additionalProperties": false,
       "properties": {
+        "appearance": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "anyOf": [
+                {
+                  "const": "system",
+                  "type": "string"
+                },
+                {
+                  "const": "light",
+                  "type": "string"
+                },
+                {
+                  "const": "dark",
+                  "type": "string"
+                }
+              ]
+            },
+            "themeByScheme": {
+              "additionalProperties": false,
+              "properties": {
+                "dark": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "light": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "light",
+                "dark"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "mode",
+            "themeByScheme"
+          ],
+          "type": "object"
+        },
         "targetSelection": {
           "additionalProperties": false,
           "properties": {
@@ -298,10 +342,6 @@
             "targetId"
           ],
           "type": "object"
-        },
-        "theme": {
-          "minLength": 1,
-          "type": "string"
         }
       },
       "type": "object",
@@ -382,7 +422,7 @@
       "type": "object"
     },
     "version": {
-      "const": "4",
+      "const": "5",
       "type": "string"
     },
     "web": {
@@ -441,7 +481,7 @@
   "x-kiln-activation": "next-session",
   "x-kiln-authority-impact": "none",
   "x-kiln-default-posture": "omitted",
-  "x-kiln-schema-revision": 1,
+  "x-kiln-schema-revision": 2,
   "x-kiln-scope": "global",
   "x-kiln-semantic-owner": "global-configuration",
   "x-kiln-sensitivity": "public",

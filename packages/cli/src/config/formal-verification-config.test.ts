@@ -7,7 +7,7 @@ import {
 
 function globalConfig(executable = "dafny", expectedVersion = "4.11.0"): KilnGlobalConfig {
   return {
-    version: "4",
+    version: "5",
     verification: {
       formal: {
         dafny: { executable, expectedVersion },

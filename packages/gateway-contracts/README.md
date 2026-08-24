@@ -141,31 +141,6 @@ VCS status is the current working tree. It is deliberately separate from
 session-scoped `Changed files`, which is durable runtime evidence emitted by
 tools and session events.
 
-## Operator Themes
-
-The shared operator theme catalog lives in `src/operator-themes.ts`.
-`OPERATOR_THEME_NAMES`, labels, palettes, and validation helpers are consumed by
-the GUI, TUI, CLI config parsing, and runtime operator-surface tools. Add or
-remove operator themes here first, then update each renderer to consume the
-same contract instead of maintaining a private list.
-
-Palette values are authored once as in-gamut OKLCH coordinates and organized
-by stable surface responsibility: foundations, text, controls, conversation,
-code, sidebar, toolbar, terminal, and semantic status sets. The contract owns
-perceptual color; renderers own only representation. Browser surfaces project
-the values to CSS `oklch()`, while terminal, canvas, and WebGL adapters project
-the same values to sRGB hex. Contract tests enforce completeness, gamut, and
-WCAG contrast invariants so a theme cannot be added as an unchecked collection
-of literals or silently inherit another theme's missing roles.
-
-The catalog is intentionally curated as Kiln identity, not a generic collection
-of popular editor themes:
-
-- `phosphor`: the default green-phosphor-on-black-glass control surface.
-- `vesper`: a crisp black alternate with peppermint and apricot signals.
-- `automata`: the parchment-and-ink light operating surface.
-- `system-follow`: a polarity resolver for surfaces that can observe OS theme.
-
-`system-follow` is part of the contract for config parity. GUI resolves it
-against the browser/OS color preference; TUI accepts it but maps it to
-Phosphor because terminal processes do not expose a dependable OS color signal.
+Operator appearance policy deliberately lives in `@kilnai/operator-appearance`.
+This package transports operator-surface frames and snapshots only; it does not
+own palettes, environmental resolution, or rendering policy.

@@ -423,7 +423,7 @@ describe("AppShell sidebar modes", () => {
         const revision = `sha256:${"a".repeat(64)}`;
         return {
           data: {
-            schemaRevision: 2 as const,
+            schemaRevision: 3 as const,
             generatedAt: "2026-08-22T00:00:00.000Z",
             health: "current" as const,
             activationStatus: {
@@ -436,6 +436,7 @@ describe("AppShell sidebar modes", () => {
             },
             sections: [
               { id: "general" as const, label: "General", description: "General preferences.", entryKeys: [] },
+              { id: "appearance" as const, label: "Appearance", description: "Operator appearance.", entryKeys: [] },
               { id: "providers" as const, label: "Providers", description: "Provider readiness.", entryKeys: [] },
               { id: "models" as const, label: "Models", description: "Models.", entryKeys: [] },
               { id: "permissions" as const, label: "Permissions", description: "Authority policy.", entryKeys: [] },

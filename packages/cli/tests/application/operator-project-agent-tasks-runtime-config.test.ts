@@ -367,7 +367,7 @@ const NATIVE_CODEX_DELIBERATION_AGENT = [
 
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
   return {
-    version: "4",
+    version: "5",
     workGovernance: {
       defaultPosture: "direct",
       requireDelegationFor: ["managed-agents"],
@@ -1287,7 +1287,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("rejects a project-declared managed target instead of treating it as global authority", async () => {
     useIsolatedGlobalConfigHome();
-    persistGlobalConfig({ version: "4" });
+    persistGlobalConfig({ version: "5" });
     const projectRoot = createProjectRoot([
       'version: "1"',
       "managedAgents:",

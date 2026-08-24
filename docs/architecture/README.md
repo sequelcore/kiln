@@ -159,6 +159,9 @@ Runtime, operator, and harness-facing surface contracts.
   Canonical human operator surface model: GUI, native, CLI, TUI, IDE, remote,
   supervision evidence, embedded browser host boundaries, and surface ownership
   rules.
+- [`surfaces/operator-appearance.md`](surfaces/operator-appearance.md)
+  Canonical cross-surface appearance policy, durable preference authority,
+  palette ownership, session overrides, renderer adapters, and fallbacks.
 - [`surfaces/app-gateway-runtime.md`](surfaces/app-gateway-runtime.md)
   Canonical App Gateway runtime contract for app/tenant/session/tool/MCP
   ownership and operator attachment.

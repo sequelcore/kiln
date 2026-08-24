@@ -224,7 +224,7 @@ describe("configCommand", () => {
     const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     const value = JSON.parse(output) as { sections: readonly { id: string }[]; entries: readonly { key: string; modified: boolean }[] };
     expect(value.sections.map((section) => section.id)).toEqual([
-      "general", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
+      "general", "appearance", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
     ]);
     expect(value.entries.length).toBeGreaterThan(0);
     expect(value.entries.every((entry) => entry.modified)).toBe(true);

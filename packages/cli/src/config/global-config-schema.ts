@@ -24,9 +24,9 @@ import type {
   KilnYamlWebSearchProvider,
 } from "../kiln-yaml-types.js";
 
-export const GLOBAL_CONFIG_SCHEMA_REVISION = 1;
-export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v1.json";
-export const CANONICAL_GLOBAL_CONFIG_VERSION = "4" as const;
+export const GLOBAL_CONFIG_SCHEMA_REVISION = 2;
+export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v2.json";
+export const CANONICAL_GLOBAL_CONFIG_VERSION = "5" as const;
 
 export type GlobalConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
 export type GlobalConfigSensitivity = "public" | "secret-reference";
@@ -121,8 +121,20 @@ const uiTargetSelection = strictObject({
   targetId: Type.Readonly(nonEmptyString),
   accountOverrideId: Type.ReadonlyOptional(nonEmptyString),
 });
+const appearanceThemeByScheme = strictObject({
+  light: Type.Readonly(nonEmptyString),
+  dark: Type.Readonly(nonEmptyString),
+});
+const appearance = strictObject({
+  mode: Type.Readonly(Type.Union([
+    Type.Literal("system"),
+    Type.Literal("light"),
+    Type.Literal("dark"),
+  ])),
+  themeByScheme: Type.Readonly(appearanceThemeByScheme),
+});
 const ui = strictObject({
-  theme: Type.ReadonlyOptional(nonEmptyString),
+  appearance: Type.ReadonlyOptional(appearance),
   targetSelection: Type.ReadonlyOptional(uiTargetSelection),
 }, {
   "x-kiln-semantic-owner": "operator-preferences",
@@ -235,6 +247,7 @@ export type KilnGlobalPermissionCeilingConfig = DeepReadonly<Static<typeof permi
 export type KilnGlobalWebConfig = DeepReadonly<Static<typeof web>>;
 export type KilnGlobalVerificationConfig = DeepReadonly<Static<typeof verification>>;
 export type KilnGlobalUiConfig = DeepReadonly<Static<typeof ui>>;
+export type KilnGlobalUiAppearance = DeepReadonly<Static<typeof appearance>>;
 export type KilnGlobalUiTargetSelectionConfig = DeepReadonly<Static<typeof uiTargetSelection>>;
 export type KilnGlobalComponentsConfig = DeepReadonly<Static<typeof components>>;
 

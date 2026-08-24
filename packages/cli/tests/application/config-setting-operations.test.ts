@@ -306,7 +306,7 @@ describe("governed configuration settings", () => {
     for (const key of ["maxDepth", "parallelWorkers"]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "project").authorityBearing).toBe(true);
     }
-    for (const key of ["ui.theme", "identity.name", "identity.timezone"]) {
+    for (const key of ["ui.appearance", "identity.name", "identity.timezone"]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "global").authorityBearing).toBe(false);
     }
   });

@@ -4,14 +4,13 @@
  */
 
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
+  OPERATOR_THEME_DEFINITIONS_BY_ID,
   OPERATOR_THEME_NAMES,
   isOperatorThemeName,
   operatorColorToHex,
-  resolveOperatorThemePalette,
   type OperatorThemeName,
   type OperatorThemePalette,
-} from "@kilnai/gateway-contracts";
+} from "@kilnai/operator-appearance";
 
 export interface KilnTheme {
   background: string;
@@ -61,20 +60,23 @@ function createTheme(palette: OperatorThemePalette): KilnTheme {
   };
 }
 
-export const phosphorTheme: KilnTheme = createTheme(resolveOperatorThemePalette("phosphor"));
-export const vesperTheme: KilnTheme = createTheme(resolveOperatorThemePalette("vesper"));
-export const automataTheme: KilnTheme = createTheme(resolveOperatorThemePalette("automata"));
+const phosphorPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
+const vesperPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.vesper.variants.dark;
+const automataPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.automata.variants.light;
+if (!phosphorPalette || !vesperPalette || !automataPalette) throw new Error("Built-in TUI theme variants are unavailable.");
+export const phosphorTheme: KilnTheme = createTheme(phosphorPalette);
+export const vesperTheme: KilnTheme = createTheme(vesperPalette);
+export const automataTheme: KilnTheme = createTheme(automataPalette);
 export const defaultTheme = phosphorTheme;
 
 export const themes: Record<OperatorThemeName, KilnTheme> = {
   phosphor: phosphorTheme,
   vesper: vesperTheme,
   automata: automataTheme,
-  "system-follow": phosphorTheme,
 };
 
 export function getTheme(name?: string): KilnTheme {
-  if (!name || !isOperatorThemeName(name)) return themes[DEFAULT_OPERATOR_THEME_NAME];
+  if (!name || !isOperatorThemeName(name)) return themes.phosphor;
   return themes[name];
 }
 

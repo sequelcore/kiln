@@ -18,6 +18,7 @@ import { Route as SettingsPermissionsRouteImport } from './routes/settings.permi
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsHealthRouteImport } from './routes/settings.health'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
+import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
 import { Route as SettingsAdvancedRouteImport } from './routes/settings.advanced'
 
@@ -66,6 +67,11 @@ const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   path: '/general',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/advanced': typeof SettingsAdvancedRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/health': typeof SettingsHealthRoute
   '/settings/models': typeof SettingsModelsRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/advanced': typeof SettingsAdvancedRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/health': typeof SettingsHealthRoute
   '/settings/models': typeof SettingsModelsRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/advanced': typeof SettingsAdvancedRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/health': typeof SettingsHealthRoute
   '/settings/models': typeof SettingsModelsRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/advanced'
     | '/settings/agents'
+    | '/settings/appearance'
     | '/settings/general'
     | '/settings/health'
     | '/settings/models'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/advanced'
     | '/settings/agents'
+    | '/settings/appearance'
     | '/settings/general'
     | '/settings/health'
     | '/settings/models'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/advanced'
     | '/settings/agents'
+    | '/settings/appearance'
     | '/settings/general'
     | '/settings/health'
     | '/settings/models'
@@ -229,6 +241,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsGeneralRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/appearance': {
+      id: '/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/agents': {
       id: '/settings/agents'
       path: '/agents'
@@ -249,6 +268,7 @@ declare module '@tanstack/react-router' {
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsHealthRoute: typeof SettingsHealthRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
@@ -261,6 +281,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
   SettingsAgentsRoute: SettingsAgentsRoute,
+  SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsHealthRoute: SettingsHealthRoute,
   SettingsModelsRoute: SettingsModelsRoute,

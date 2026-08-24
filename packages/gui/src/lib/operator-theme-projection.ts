@@ -1,13 +1,16 @@
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
+  OPERATOR_THEME_DEFINITIONS,
+  OPERATOR_THEME_DEFINITIONS_BY_ID,
   isOperatorThemeName,
   operatorColorToCss,
   operatorColorToHex,
-  resolveOperatorThemePalette,
+  resolveOperatorAppearance,
   type OperatorColor,
+  type OperatorAppearancePreference,
+  type OperatorAppearanceResolution,
   type OperatorThemeName,
   type OperatorThemePalette,
-} from "@kilnai/gateway-contracts";
+} from "@kilnai/operator-appearance";
 
 export const OPERATOR_THEME_APPLIED_EVENT = "kiln:operator-theme-applied";
 
@@ -94,20 +97,45 @@ export function projectOperatorThemeHexVariables(palette: OperatorThemePalette):
 
 export function resolveAppliedOperatorThemePalette(
   root: HTMLElement,
-  systemPrefersDark: boolean,
 ): OperatorThemePalette {
   const theme = isOperatorThemeName(root.dataset.kilnTheme)
     ? root.dataset.kilnTheme
-    : DEFAULT_OPERATOR_THEME_NAME;
-  return resolveOperatorThemePalette(theme, systemPrefersDark);
+    : "phosphor" as const;
+  const definition = OPERATOR_THEME_DEFINITIONS_BY_ID[theme];
+  const palette = definition.variants[root.dataset.theme === "light" ? "light" : "dark"]
+    ?? OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
+  if (!palette) throw new Error("Built-in dark fallback is unavailable.");
+  return palette;
 }
 
 export function applyOperatorTheme(
   theme: OperatorThemeName,
-  systemPrefersDark: boolean,
   root: HTMLElement = document.documentElement,
 ): void {
-  const palette = resolveOperatorThemePalette(theme, systemPrefersDark);
+  const definition = OPERATOR_THEME_DEFINITIONS_BY_ID[theme];
+  const palette = definition.variants.light ?? definition.variants.dark;
+  if (!palette) throw new Error(`Theme '${theme}' has no applicable variant.`);
+  applyResolvedPalette(theme, palette, root);
+}
+
+export function applyOperatorAppearance(
+  preference: OperatorAppearancePreference,
+  observedScheme: "light" | "dark" | null,
+  root: HTMLElement = document.documentElement,
+): OperatorAppearanceResolution {
+  const resolution = resolveOperatorAppearance(preference, OPERATOR_THEME_DEFINITIONS, observedScheme);
+  if (!isOperatorThemeName(resolution.themeId)) {
+    throw new Error(`Resolved theme '${resolution.themeId}' is not available in the GUI catalog.`);
+  }
+  applyResolvedPalette(resolution.themeId, resolution.palette, root);
+  return resolution;
+}
+
+function applyResolvedPalette(
+  theme: OperatorThemeName,
+  palette: OperatorThemePalette,
+  root: HTMLElement,
+): void {
   root.dataset.theme = palette.appearance;
   root.dataset.kilnTheme = theme;
   root.style.colorScheme = palette.appearance;

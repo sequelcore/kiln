@@ -404,7 +404,6 @@ describe("TUI execution-route picker", () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       onFirstFrame,
     );
 

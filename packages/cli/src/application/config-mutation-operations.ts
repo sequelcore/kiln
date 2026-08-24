@@ -16,6 +16,7 @@ import type {
   KilnConfigReconciliationTarget,
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
+import { isOperatorAppearancePreference } from "@kilnai/operator-appearance";
 import { parse, parseDocument, stringify, type Document } from "yaml";
 import { validateGlobalConfig } from "../config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
@@ -396,10 +397,13 @@ function parseSettingInput(
       return value !== undefined
         ? { ok: true, value }
         : { ok: false, message: `Invalid value for ${descriptor.key}: expected JSON-compatible data.` };
+    case "operator-appearance":
+      return isOperatorAppearancePreference(value)
+        ? { ok: true, value }
+        : { ok: false, message: `Invalid ${descriptor.key}: expected a complete appearance preference.` };
     case "text":
     case "enum":
     case "timezone":
-    case "operator-theme":
       return { ok: false, message: `Invalid text value for ${descriptor.key}.` };
   }
 }

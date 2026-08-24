@@ -154,7 +154,9 @@ owner. Generated editor-schema and descriptor projections are committed under
 | `permissionCeiling.sandbox` | GP | I | C | intersects global permissions | session | supported until typed bounds replace it in Slice 1 |
 | `verification.formal.dafny.executable` | G | I | H ref | exact operator selection | session | supported |
 | `verification.formal.dafny.expectedVersion` | G | I | H | exact match | session | supported |
-| `ui.theme` | G | I | L | absent | hot | supported |
+| `ui.appearance.mode` | G | I | L | `system` | hot | supported |
+| `ui.appearance.themeByScheme.light` | G | I | L | `automata` | hot | supported |
+| `ui.appearance.themeByScheme.dark` | G | I | L | `phosphor` | hot | supported |
 | `ui.targetSelection.targetId` | GR | I | H | admitted direct target | session | supported |
 | `ui.targetSelection.accountOverrideId` | GR | I | H | eligible automatic target account | session | supported |
 | `components.include[]` | G | I | M | central default baseline | reconcile | supported |

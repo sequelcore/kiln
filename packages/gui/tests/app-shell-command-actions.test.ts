@@ -96,10 +96,10 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute(command("theme:system-follow", "System"));
+    execute(command("theme:phosphor", "Phosphor"));
     execute(command("theme:unknown", "Unknown"));
 
-    expect(input.persistThemePreference).toHaveBeenCalledWith("system-follow");
+    expect(input.persistThemePreference).toHaveBeenCalledWith("phosphor");
     expect(input.closePalette).toHaveBeenCalledTimes(2);
   });
 });

@@ -14,7 +14,7 @@ import { resolveProjectStateBinding } from "../../src/application/project-state-
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
-import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-config-fixture.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),

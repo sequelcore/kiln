@@ -7,10 +7,11 @@ import { KilnConfigActivationStatusSchema } from "./config-status.js";
 import { SafePublicDisplayTextSchema } from "./public-projection-safety.js";
 
 /** Breaking revision for the cross-surface, secret-free settings information architecture. */
-export const KILN_SETTINGS_SCHEMA_REVISION = 2 as const;
+export const KILN_SETTINGS_SCHEMA_REVISION = 3 as const;
 
 export const KILN_SETTINGS_SECTION_IDS = [
   "general",
+  "appearance",
   "providers",
   "models",
   "permissions",
@@ -103,7 +104,9 @@ function validateSecretFreeValue(value: unknown, context: z.RefinementCtx, path:
   }
   if (value === null || typeof value === "number" || typeof value === "boolean") return;
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => validateSecretFreeValue(entry, context, [...path, index]));
+    value.forEach((entry, index) => {
+      validateSecretFreeValue(entry, context, [...path, index]);
+    });
     return;
   }
   if (typeof value === "object") {

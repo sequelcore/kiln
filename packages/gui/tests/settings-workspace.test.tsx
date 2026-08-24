@@ -38,7 +38,7 @@ describe("SettingsWorkspace", () => {
 
     const navigation = screen.getByRole("navigation", { name: "Settings sections" });
     expect(within(navigation).getByRole("button", { name: /Permissions/ })).toHaveAttribute("aria-current", "page");
-    expect(within(navigation).getAllByRole("button")).toHaveLength(9);
+    expect(within(navigation).getAllByRole("button")).toHaveLength(10);
     expect(screen.getByText("Permission settings content")).toBeVisible();
 
     fireEvent.click(within(navigation).getByRole("button", { name: /Tools/ }));
@@ -72,10 +72,8 @@ describe("SettingsWorkspace", () => {
     fireEvent.keyDown(document, { key: "/" });
     expect(search).toHaveFocus();
 
-    fireEvent.change(search, { target: { value: "and" } });
+    fireEvent.change(search, { target: { value: "model catalog" } });
     expect(screen.getByRole("listbox", { name: "Settings search results" })).toBeVisible();
-    fireEvent.keyDown(search, { key: "ArrowDown" });
-    fireEvent.keyDown(search, { key: "ArrowDown" });
     fireEvent.keyDown(search, { key: "Enter" });
 
     expect(onSelectSection).toHaveBeenCalledWith("models");

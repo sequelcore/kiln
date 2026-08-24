@@ -515,7 +515,7 @@ describe("GUI gateway HTTP and static assets", () => {
     const stop = vi.fn();
     let appFetch: ((request: Request) => Promise<Response>) | undefined;
     const settings = {
-      schemaRevision: 2,
+      schemaRevision: 3,
       generatedAt: "2026-08-21T00:00:00.000Z",
       health: "current",
       activationStatus: {

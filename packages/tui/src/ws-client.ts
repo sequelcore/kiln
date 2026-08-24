@@ -15,7 +15,6 @@ import type {
   OperatorActivityPhaseFrame,
   OperatorExecutionMode,
   OperatorSessionEvent,
-  OperatorThemeScope,
   OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 
@@ -120,7 +119,6 @@ export type TuiInboundFrame =
       type: "operator_theme_set";
       requestId: string;
       theme: string;
-      scope: OperatorThemeScope;
       reason?: string;
     }
   | { type: "approval_requested"; approvalId: string; description: string; sessionId: string }

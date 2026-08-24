@@ -1,8 +1,5 @@
-import {
-  OPERATOR_THEME_NAMES,
-  type GuiDeliberationLevelId,
-  type OperatorThemeName,
-} from "@kilnai/gateway-contracts";
+import type { GuiDeliberationLevelId } from "@kilnai/gateway-contracts";
+import { OPERATOR_THEME_NAMES, type OperatorThemeName } from "@kilnai/operator-appearance";
 import type { CommandPaletteItem } from "./command-palette.js";
 import type { RequestableTurnAuthority } from "./app-shell-controls.js";
 import { TURN_AUTHORITY_OPTIONS } from "./app-shell-controls.js";

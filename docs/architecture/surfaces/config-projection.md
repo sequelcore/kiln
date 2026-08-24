@@ -121,12 +121,16 @@ Global config is the active user-level contract. It includes:
 - `permissions`, `permissionCeiling`, `mcp`, and `hooks`
 - `managedAgents` defaults and bounded managed-agent intent; Runtime-owned
   economic evidence is projected read-only
-- `identity`, `ui.theme`, and bundled `components`
+- `identity`, atomic `ui.appearance`, and bundled `components`
 
-The current canonical global schema version is `"4"`. Kiln does not support
+The current canonical global schema version is `"5"`. Kiln does not support
 compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.
+
+Obsolete global config shapes have no reader, migration command, or
+compatibility branch. With no external consumers, the canonical document is
+replaced in place when the contract changes.
 
 All global-config writers use one mutation owner in the CLI config layer. The
 owner validates the current and proposed documents, serializes writers with an

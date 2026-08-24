@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@kilnai/gateway-contracts": "3.0.0-beta.1",
+    "@kilnai/operator-appearance": "3.0.0-beta.1",
     "@opentui/core": "0.1.92",
     "@opentui/react": "0.1.92",
     "@kilnai/core": "3.0.0-beta.1",

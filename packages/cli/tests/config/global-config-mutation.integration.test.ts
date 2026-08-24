@@ -27,32 +27,36 @@ describe.sequential("global config mutation integration", () => {
 
   it("creates and replaces the real canonical file without torn or residual lock state", () => {
     persistGlobalConfigFixture({
-      version: "4",
+      version: "5",
       identity: { name: "operator" },
     });
     const first = readGlobalConfig();
 
     persistGlobalConfigFixture((current) => ({
       ...current!,
-      ui: { theme: "vesper" },
+      ui: {
+        appearance: { mode: "dark", themeByScheme: { light: "automata", dark: "vesper" } },
+      },
     }));
 
-    expect(first).toEqual({ version: "4", identity: { name: "operator" } });
+    expect(first).toEqual({ version: "5", identity: { name: "operator" } });
     expect(readGlobalConfig()).toEqual({
-      version: "4",
+      version: "5",
       identity: { name: "operator" },
-      ui: { theme: "vesper" },
+      ui: {
+        appearance: { mode: "dark", themeByScheme: { light: "automata", dark: "vesper" } },
+      },
     });
     expect(readdirSync(join(root, "kiln"))).toEqual(["config.yaml"]);
   });
 
   it("fails closed on an unparseable lock instead of overwriting concurrent state", () => {
-    persistGlobalConfigFixture({ version: "4" });
+    persistGlobalConfigFixture({ version: "5" });
     const configPath = resolveGlobalConfigPath();
     const before = readFileSync(configPath, "utf8");
     writeFileSync(`${configPath}.lock`, "incomplete-owner", "utf8");
 
-    expect(() => persistGlobalConfigFixture({ version: "4", identity: { name: "changed" } }))
+    expect(() => persistGlobalConfigFixture({ version: "5", identity: { name: "changed" } }))
       .toThrow(expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
       }));

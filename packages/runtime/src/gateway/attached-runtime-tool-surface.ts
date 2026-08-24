@@ -37,13 +37,11 @@ import {
   getBuiltinEffectEnvelope,
   knownModelCommunicationCapabilities,
 } from "@kilnai/core";
-import {
-  OPERATOR_THEME_NAMES,
-  isOperatorThemeName,
-  type OperatorExecutionMode,
-  type OperatorTurnRequestedAuthority,
-  type OperatorThemeScope,
+import type {
+  OperatorExecutionMode,
+  OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
+import { OPERATOR_THEME_NAMES, isOperatorThemeName } from "@kilnai/operator-appearance";
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
   OPERATOR_ADOPTION_DECISION_TRANSPORT,
@@ -168,7 +166,7 @@ const WORK_ITEM_EXECUTION_START_TOOL_NAME = "work_item.execution.start";
 
 const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
   name: "operator_set_theme",
-  description: "Change the operator surface theme when the connected CLI/GUI/TUI surface supports it. Use scope='session' for the live surface and scope='persisted' only when the operator explicitly asks to save the preference.",
+  description: "Change the theme of the connected live operator surface for this session.",
   inputSchema: {
     type: "object",
     properties: {
@@ -176,12 +174,6 @@ const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
         type: "string",
         enum: OPERATOR_THEME_NAMES,
         description: "Theme name to apply.",
-      },
-      scope: {
-        type: "string",
-        enum: ["session", "persisted"],
-        description: "session applies only to the live surface; persisted also asks the surface to save the preference.",
-        default: "session",
       },
       reason: {
         type: "string",
@@ -2292,23 +2284,21 @@ async function executeOperatorSetTheme(
       metadata: { reason: "invalid_theme" },
     };
   }
-  const rawScope = typeof input.scope === "string" ? input.scope.trim() : "session";
-  const scope: OperatorThemeScope = rawScope === "persisted" ? "persisted" : "session";
   const reason = typeof input.reason === "string" && input.reason.trim().length > 0
     ? input.reason.trim()
     : undefined;
-  const result = await controller.setTheme({ theme, scope, ...(reason ? { reason } : {}) });
+  const result = await controller.setTheme({ theme, ...(reason ? { reason } : {}) });
   if (!result.ok) {
     return {
       output: result.error ?? `Theme '${theme}' was not applied.`,
       isError: true,
-      metadata: { theme, scope, applied: false, error: result.error },
+      metadata: { theme, scope: "session", applied: false, error: result.error },
     };
   }
   return {
-    output: `Applied operator theme '${result.appliedTheme ?? theme}' (${scope}).`,
+    output: `Applied operator theme '${result.appliedTheme ?? theme}' (session).`,
     isError: false,
-    metadata: { theme, scope, appliedTheme: result.appliedTheme ?? theme },
+    metadata: { theme, scope: "session", appliedTheme: result.appliedTheme ?? theme },
   };
 }
 

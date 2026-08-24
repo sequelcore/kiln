@@ -62,7 +62,7 @@ describe("initCommand", () => {
     globalHome = mkdtempSync(join(tmpdir(), "kiln-init-v5-global-"));
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     writeFileSync(join(globalHome, "kiln", "config.yaml"), [
-      "version: '4'",
+      "version: '5'",
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",
@@ -187,7 +187,7 @@ describe("initCommand", () => {
     const result = await initCommand(appConfig, projectPath, {
       interactive: false,
       dependencies: {
-        readGlobalConfig: () => ({ version: "4" }),
+        readGlobalConfig: () => ({ version: "5" }),
         readTargetAuthority: () => undefined,
       },
     });

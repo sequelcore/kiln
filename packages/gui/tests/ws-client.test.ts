@@ -464,6 +464,25 @@ describe("GuiWsClient", () => {
   });
 
   describe("inbound message handling", () => {
+    it("accepts the session-only operator theme frame without a legacy scope", () => {
+      client = createClient();
+      client.connect();
+
+      lastWebSocket().simulateMessage(JSON.stringify({
+        type: "operator_theme_set",
+        requestId: "theme-1",
+        theme: "vesper",
+        reason: "Reduce glare",
+      }));
+
+      expect(onFrame).toHaveBeenCalledWith({
+        type: "operator_theme_set",
+        requestId: "theme-1",
+        theme: "vesper",
+        reason: "Reduce glare",
+      });
+    });
+
     it("Malformed inbound frame logs warn + does not crash; valid adjacent frame still delivered", () => {
       const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       

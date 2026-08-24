@@ -39,7 +39,7 @@ import {
   deriveCodexRuntimePermissionRequest,
 } from "../../src/wrapper/runtime-permission-observation.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
-import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-config-fixture.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 let tempDir: string;
@@ -350,7 +350,7 @@ describe("config-status", () => {
     };
     expect(settings.activationStatus).toEqual(snapshot.activationStatus);
     expect(settings.sections.map((section) => section.id)).toEqual([
-      "general", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
+      "general", "appearance", "providers", "models", "permissions", "tools", "usage-and-limits", "agents", "health", "advanced",
     ]);
     expect(settings.entries.find((entry) => entry.key === "domain")).toMatchObject({
       modified: true,
@@ -493,10 +493,10 @@ describe("config-status", () => {
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
     expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Global config version must be "4"/),
+      expect.stringMatching(/Global config version must be "5"/),
     ]));
     expect(health.value).toMatchObject({
-      global: { error: expect.stringContaining('Global config version must be "4"') },
+      global: { error: expect.stringContaining('Global config version must be "5"') },
     });
   });
 
@@ -1309,7 +1309,7 @@ describe("config-status", () => {
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [
-      'version: "4"',
+      'version: "5"',
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",

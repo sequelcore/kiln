@@ -52,6 +52,7 @@ describe("routed application shell", () => {
     expect(routeChildren(settingsRoute).map(routePath)).toEqual([
       "/advanced",
       "/agents",
+      "/appearance",
       "/general",
       "/health",
       "/models",

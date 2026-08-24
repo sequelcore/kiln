@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
+import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import type { ProviderDisplayInfo } from "../../src/wrapper/session-registry.js";
 import type { TuiGateway, TuiGatewayOptions } from "@kilnai/runtime";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 
 type TuiGatewayMockResult = Omit<TuiGateway, "providerDiscovery" | "providerModelDiscovery">
   & Partial<Pick<TuiGateway, "providerDiscovery" | "providerModelDiscovery">>;
@@ -179,18 +180,7 @@ function gatewayProjection(provider: string, model: string, eligible: boolean): 
 }
 
 const configMocks = vi.hoisted(() => ({
-  globalConfig: null as {
-    targetRouting?: { defaultTargetId?: string };
-    targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
-    engines?: Record<string, { enabled?: boolean }>;
-    managedAgents?: {
-      enabled?: boolean;
-      defaultProvider?: string;
-      defaultProfile?: "foundation-readonly-plan";
-      requireApproval?: boolean;
-    };
-    ui?: { theme?: string };
-  } | null,
+  globalConfig: null as KilnGlobalConfig | null,
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
 }));
 
@@ -395,7 +385,6 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
         ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
     },
     resolveGlobalDefaultModel: () => undefined,
-    resolveGlobalUiTheme: (config: typeof configMocks.globalConfig) => config?.ui?.theme,
   };
 });
 
@@ -787,8 +776,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       ...makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex-spark"),
       managedAgents: {
         enabled: true,
-        defaultProvider: "codex",
-        defaultProfile: "foundation-readonly-plan",
+        defaultAuthorityProfileId: "foundation-readonly-plan",
         requireApproval: true,
       },
     };
@@ -828,7 +816,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       return true;
     });
     tuiMocks.startTui.mockImplementationOnce(async (...args: unknown[]) => {
-      const onFirstFrame = args[14] as (() => void) | undefined;
+      const onFirstFrame = args[13] as (() => void) | undefined;
       onFirstFrame?.();
     });
     runtimeMocks.startTuiGateway.mockResolvedValue({

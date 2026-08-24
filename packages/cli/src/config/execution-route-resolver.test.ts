@@ -40,7 +40,7 @@ describe("resolveExecutionRouteCandidates", () => {
   });
 
   it("does not infer execution candidates from legacy direct models or gateway virtual models", () => {
-    expect(resolveExecutionRouteCandidates({ globalConfig: { version: "4" }, executionCatalog: undefined })).toEqual([]);
+    expect(resolveExecutionRouteCandidates({ globalConfig: { version: "5" }, executionCatalog: undefined })).toEqual([]);
   });
 
   it("rejects native harness routes instead of treating them as direct execution targets", () => {

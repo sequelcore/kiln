@@ -614,17 +614,15 @@ Operator-attached CLI, GUI, and TUI turns may also expose
 registry; it is added by the runtime projection when the active consumer
 provides an operator theme controller. GUI and TUI change the connected live
 surface through the shared WebSocket frame contract and return an ordinary tool
-result. CLI has no live visual surface, so it rejects `scope: "session"` with an
-explicit tool error and accepts `scope: "persisted"` to save GUI/TUI defaults.
+result. CLI has no live visual surface, so it returns an explicit capability
+error. The tool is session-only and cannot save GUI/TUI defaults.
 
 `operator_set_theme` parameters:
 
 - `theme`: shared operator theme name
-- `scope`: `session` for the live surface, or `persisted` to save the
-  preference when the operator requested persistence
 - `reason`: optional short explanation
 
-The supported theme names are defined once in `@kilnai/gateway-contracts`.
+The supported theme names are defined once in `@kilnai/operator-appearance`.
 
 ### Built-in tool schemas
 

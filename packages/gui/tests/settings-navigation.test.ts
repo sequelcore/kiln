@@ -5,6 +5,7 @@ describe("settings navigation", () => {
   it("owns the exact admitted settings presentation catalog and routes", () => {
     expect(SETTINGS_SECTIONS.map(({ id, path, label }) => ({ id, path, label }))).toEqual([
       { id: "general", path: "/settings/general", label: "General" },
+      { id: "appearance", path: "/settings/appearance", label: "Appearance" },
       { id: "providers", path: "/settings/providers", label: "Providers" },
       { id: "models", path: "/settings/models", label: "Models" },
       { id: "permissions", path: "/settings/permissions", label: "Permissions" },
@@ -16,6 +17,7 @@ describe("settings navigation", () => {
     ]);
     expect(SETTINGS_PATHS).toEqual({
       general: "/settings/general",
+      appearance: "/settings/appearance",
       providers: "/settings/providers",
       models: "/settings/models",
       permissions: "/settings/permissions",
@@ -35,7 +37,7 @@ describe("settings navigation", () => {
   });
 
   it("rejects legacy and unknown settings routes without aliases", () => {
-    expect(resolveSettingsSection("/settings/appearance")).toBeNull();
+    expect(resolveSettingsSection("/settings/appearance")).toBe("appearance");
     expect(resolveSettingsSection("/settings/configuration")).toBeNull();
     expect(resolveSettingsSection("/settings/available-models")).toBeNull();
     expect(resolveSettingsSection("/settings/general/extra")).toBeNull();

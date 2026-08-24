@@ -1,104 +1,9 @@
-export interface OperatorColor {
-  readonly lightness: number;
-  readonly chroma: number;
-  readonly hue: number;
-}
-
-export interface OperatorStatusColors {
-  readonly color: OperatorColor;
-  readonly foreground: OperatorColor;
-  readonly surface: OperatorColor;
-}
-
-export interface OperatorThemePalette {
-  readonly appearance: "dark" | "light";
-  readonly surface: {
-    readonly canvas: OperatorColor;
-    readonly chrome: OperatorColor;
-    readonly default: OperatorColor;
-    readonly raised: OperatorColor;
-    readonly overlay: OperatorColor;
-    readonly border: OperatorColor;
-    readonly input: OperatorColor;
-  };
-  readonly text: {
-    readonly default: OperatorColor;
-    readonly muted: OperatorColor;
-    readonly placeholder: OperatorColor;
-    readonly secondaryLabel: OperatorColor;
-    readonly iconMuted: OperatorColor;
-  };
-  readonly control: {
-    readonly focus: OperatorColor;
-    readonly accent: OperatorColor;
-    readonly accentForeground: OperatorColor;
-    readonly secondary: OperatorColor;
-    readonly secondaryForeground: OperatorColor;
-    readonly muted: OperatorColor;
-    readonly mutedForeground: OperatorColor;
-    readonly accentSurface: OperatorColor;
-    readonly accentSurfaceForeground: OperatorColor;
-  };
-  readonly conversation: {
-    readonly message: {
-      readonly surface: OperatorColor;
-      readonly foreground: OperatorColor;
-      readonly action: OperatorColor;
-      readonly actionForeground: OperatorColor;
-      readonly actionHover: OperatorColor;
-    };
-    readonly code: {
-      readonly background: OperatorColor;
-      readonly foreground: OperatorColor;
-    };
-  };
-  readonly sidebar: {
-    readonly background: OperatorColor;
-    readonly foreground: OperatorColor;
-    readonly mutedForeground: OperatorColor;
-    readonly control: OperatorColor;
-    readonly hover: OperatorColor;
-    readonly active: OperatorColor;
-    readonly selected: OperatorColor;
-    readonly border: OperatorColor;
-  };
-  readonly toolbar: {
-    readonly background: OperatorColor;
-    readonly foreground: OperatorColor;
-    readonly border: OperatorColor;
-    readonly control: OperatorColor;
-    readonly controlForeground: OperatorColor;
-    readonly hover: OperatorColor;
-  };
-  readonly terminal: {
-    readonly background: OperatorColor;
-    readonly foreground: OperatorColor;
-    readonly cursor: OperatorColor;
-    readonly selection: OperatorColor;
-    readonly scrollbar: OperatorColor;
-    readonly scrollbarHover: OperatorColor;
-  };
-  readonly status: {
-    readonly error: OperatorStatusColors;
-    readonly warning: OperatorStatusColors;
-    readonly update: OperatorStatusColors;
-    readonly success: OperatorStatusColors;
-    readonly info: OperatorStatusColors;
-  };
-}
-
-export const OPERATOR_THEME_NAMES = ["phosphor", "vesper", "automata", "system-follow"] as const;
-export const DEFAULT_OPERATOR_THEME_NAME = "phosphor" as const;
-
-export type OperatorThemeName = (typeof OPERATOR_THEME_NAMES)[number];
-export type ConcreteOperatorThemeName = Exclude<OperatorThemeName, "system-follow">;
-
-export const OPERATOR_THEME_LABELS: Record<OperatorThemeName, string> = {
-  phosphor: "Phosphor",
-  vesper: "Vesper",
-  automata: "Automata",
-  "system-follow": "System",
-};
+import type {
+  ConcreteOperatorThemeName,
+  OperatorColor,
+  OperatorThemeDefinition,
+  OperatorThemePalette,
+} from "./types.js";
 
 function color(lightness: number, chroma: number, hue: number): OperatorColor {
   return { lightness, chroma, hue };
@@ -106,7 +11,7 @@ function color(lightness: number, chroma: number, hue: number): OperatorColor {
 
 // The three curated palettes are adapted from the operator-selected themes at
 // https://github.com/SunkenInTime/t3-themes and are stored canonically in OKLCH.
-export const OPERATOR_THEME_PALETTES: Record<ConcreteOperatorThemeName, OperatorThemePalette> = {
+export const OPERATOR_THEME_PALETTES: Readonly<Record<ConcreteOperatorThemeName, OperatorThemePalette>> = {
   phosphor: {
     appearance: "dark",
     surface: {
@@ -394,74 +299,29 @@ export const OPERATOR_THEME_PALETTES: Record<ConcreteOperatorThemeName, Operator
   },
 };
 
-function assertOperatorColor(colorValue: OperatorColor): void {
-  if (
-    !Number.isFinite(colorValue.lightness)
-    || colorValue.lightness < 0
-    || colorValue.lightness > 1
-    || !Number.isFinite(colorValue.chroma)
-    || colorValue.chroma < 0
-    || !Number.isFinite(colorValue.hue)
-    || colorValue.hue < 0
-    || colorValue.hue >= 360
-  ) {
-    throw new RangeError("Operator color must be a finite OKLCH value within its canonical ranges.");
-  }
-}
+export const AUTOMATA_OPERATOR_THEME: OperatorThemeDefinition = {
+  schemaVersion: 1,
+  id: "automata",
+  label: "Automata",
+  variants: { light: OPERATOR_THEME_PALETTES.automata },
+};
 
-export function operatorColorToCss(colorValue: OperatorColor): string {
-  assertOperatorColor(colorValue);
-  return `oklch(${colorValue.lightness} ${colorValue.chroma} ${colorValue.hue})`;
-}
+export const PHOSPHOR_OPERATOR_THEME: OperatorThemeDefinition = {
+  schemaVersion: 1,
+  id: "phosphor",
+  label: "Phosphor",
+  variants: { dark: OPERATOR_THEME_PALETTES.phosphor },
+};
 
-function linearSrgbChannel(channel: number): number {
-  return channel <= 0.0031308
-    ? 12.92 * channel
-    : (1.055 * (channel ** (1 / 2.4))) - 0.055;
-}
+export const VESPER_OPERATOR_THEME: OperatorThemeDefinition = {
+  schemaVersion: 1,
+  id: "vesper",
+  label: "Vesper",
+  variants: { dark: OPERATOR_THEME_PALETTES.vesper },
+};
 
-export function operatorColorToHex(colorValue: OperatorColor): string {
-  assertOperatorColor(colorValue);
-  const hueRadians = colorValue.hue * (Math.PI / 180);
-  const a = colorValue.chroma * Math.cos(hueRadians);
-  const b = colorValue.chroma * Math.sin(hueRadians);
-  const l = (colorValue.lightness + (0.3963377774 * a) + (0.2158037573 * b)) ** 3;
-  const m = (colorValue.lightness - (0.1055613458 * a) - (0.0638541728 * b)) ** 3;
-  const s = (colorValue.lightness - (0.0894841775 * a) - (1.291485548 * b)) ** 3;
-  const linearChannels = [
-    (4.0767416621 * l) - (3.3077115913 * m) + (0.2309699292 * s),
-    (-1.2684380046 * l) + (2.6097574011 * m) - (0.3413193965 * s),
-    (-0.0041960863 * l) - (0.7034186147 * m) + (1.707614701 * s),
-  ];
-
-  if (linearChannels.some((channel) => channel < -0.000001 || channel > 1.000001)) {
-    throw new RangeError(`Operator color ${operatorColorToCss(colorValue)} is outside the sRGB gamut.`);
-  }
-
-  return `#${linearChannels
-    .map((channel) => Math.round(
-      linearSrgbChannel(Math.max(0, Math.min(1, channel))) * 255,
-    ).toString(16).padStart(2, "0"))
-    .join("")}`;
-}
-
-export function isOperatorThemeName(value: unknown): value is OperatorThemeName {
-  return typeof value === "string" && (OPERATOR_THEME_NAMES as readonly string[]).includes(value);
-}
-
-export function isDarkOperatorTheme(theme: OperatorThemeName, systemPrefersDark = true): boolean {
-  if (theme === "system-follow") {
-    return systemPrefersDark;
-  }
-  return OPERATOR_THEME_PALETTES[theme].appearance === "dark";
-}
-
-export function resolveOperatorThemePalette(
-  theme: OperatorThemeName,
-  systemPrefersDark = true,
-): OperatorThemePalette {
-  if (theme === "system-follow") {
-    return systemPrefersDark ? OPERATOR_THEME_PALETTES.phosphor : OPERATOR_THEME_PALETTES.automata;
-  }
-  return OPERATOR_THEME_PALETTES[theme];
-}
+export const OPERATOR_THEME_DEFINITIONS: readonly [
+  OperatorThemeDefinition,
+  OperatorThemeDefinition,
+  OperatorThemeDefinition,
+] = [AUTOMATA_OPERATOR_THEME, PHOSPHOR_OPERATOR_THEME, VESPER_OPERATOR_THEME];

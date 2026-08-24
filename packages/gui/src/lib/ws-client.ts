@@ -541,7 +541,6 @@ const GuiInboundFrameSchema = z.union([
     type: z.literal("operator_theme_set"),
     requestId: z.string().trim().min(1),
     theme: z.string().trim().min(1),
-    scope: z.enum(["session", "persisted"]),
     reason: z.string().optional(),
   }),
   z.object({ type: z.literal("session_event"), event: GuiSessionEventSchema }),

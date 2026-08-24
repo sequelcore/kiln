@@ -1,116 +1,44 @@
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
   isOperatorThemeName,
+  OPERATOR_THEME_DEFINITIONS,
   type OperatorThemeName,
-  type OperatorThemeScope,
-} from "@kilnai/gateway-contracts";
-import { resolveGlobalUiTheme, type KilnGlobalConfig } from "../config/global-config.js";
+  resolveOperatorAppearance,
+} from "@kilnai/operator-appearance";
 import type { OperatorSurfaceThemeController } from "@kilnai/runtime";
-import { applyConfigMutation, proposeConfigMutation } from "./config-mutation-authority.js";
-import { ConfigMutationStore } from "./config-mutation-store.js";
-import { resolveProjectStateBinding } from "./project-state-root.js";
+import type { KilnGlobalUiAppearance } from "../config/global-config.js";
 
 export type OperatorThemePreference = OperatorThemeName;
-
-export interface PersistOperatorThemeOptions {
-  /** Project root that owns the governance records for this mutation. */
-  readonly projectPath?: string;
-}
 
 export function parseOperatorThemePreference(theme: string | undefined): OperatorThemePreference | undefined {
   return isOperatorThemeName(theme) ? theme : undefined;
 }
 
-export function resolveGuiThemePreference(
+export function resolveTuiThemePreference(
   requestedTheme: string | undefined,
-  globalConfig: KilnGlobalConfig | null,
+  appearance: KilnGlobalUiAppearance | null,
 ): OperatorThemePreference {
-  return (
-    parseOperatorThemePreference(requestedTheme)
-    ?? parseOperatorThemePreference(resolveGlobalUiTheme(globalConfig))
-    ?? DEFAULT_OPERATOR_THEME_NAME
-  );
+  const override = parseOperatorThemePreference(requestedTheme);
+  if (override) return override;
+  if (!appearance) return "phosphor";
+  const resolved = resolveOperatorAppearance(appearance, OPERATOR_THEME_DEFINITIONS, null).themeId;
+  return isOperatorThemeName(resolved) ? resolved : "phosphor";
 }
 
-export async function persistGuiThemePreference(
-  theme: string,
-  options?: PersistOperatorThemeOptions,
-): Promise<void> {
-  await persistOperatorThemePreference(theme, options);
-}
-
-export async function persistTuiThemePreference(
-  theme: string,
-  options?: PersistOperatorThemeOptions,
-): Promise<void> {
-  await persistOperatorThemePreference(theme, options);
-}
-
-/**
- * Persists the operator theme through the configuration mutation authority.
- *
- * The surface supplies intent only. Revision fencing, atomic replacement,
- * validation, and settlement belong to the authority, so no operator surface
- * writes the global configuration file itself.
- */
-export async function persistOperatorThemePreference(
-  theme: string,
-  options?: PersistOperatorThemeOptions,
-): Promise<void> {
-  const resolvedTheme = parseOperatorThemePreference(theme);
-  if (!resolvedTheme) {
-    return;
-  }
-  const projectPath = options?.projectPath ?? process.cwd();
-  const projectStateBinding = resolveProjectStateBinding(projectPath);
-  const record = proposeConfigMutation({
-    projectPath,
-    operation: "setting.set",
-    payload: { scope: "global", key: "ui.theme", value: resolvedTheme },
-    projectStateBinding,
-  });
-  if (record.proposal.status !== "valid") {
-    throw new Error(
-      `Theme preference rejected: ${record.proposal.diagnostics.map((entry) => entry.message).join("; ")}`,
-    );
-  }
-  new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath }).saveProposal(record);
-  const result = await applyConfigMutation({
-    projectPath,
-    proposalId: record.proposal.proposalId,
-    requester: "operator",
-    projectStateBinding,
-  });
-  if (result.settlement.outcome === "rejected") {
-    throw new Error(
-      `Theme preference rejected: ${result.settlement.diagnostics.map((entry) => entry.message).join("; ")}`,
-    );
-  }
-}
-
-export function createCliOperatorThemeController(projectPath: string = process.cwd()): OperatorSurfaceThemeController {
+export function createCliOperatorThemeController(_projectPath: string = process.cwd()): OperatorSurfaceThemeController {
   return {
     async setTheme(input: {
       readonly theme: string;
-      readonly scope: OperatorThemeScope;
       readonly reason?: string;
     }): Promise<{ readonly ok: boolean; readonly appliedTheme?: string; readonly error?: string }> {
       const resolvedTheme = parseOperatorThemePreference(input.theme);
       if (!resolvedTheme) {
         return { ok: false, error: `Unknown operator theme '${input.theme}'.` };
       }
-      if (input.scope !== "persisted") {
-        return {
-          ok: false,
-          error: "The CLI has no live visual theme surface. Use scope='persisted' to update GUI and TUI defaults.",
-        };
-      }
-      try {
-        await persistOperatorThemePreference(resolvedTheme, { projectPath });
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-      return { ok: true, appliedTheme: resolvedTheme };
+      return {
+        ok: false,
+        error:
+          "The CLI has no live visual theme surface. Change the durable preference through Settings or kiln config.",
+      };
     },
   };
 }

@@ -1,7 +1,7 @@
 import type {
   OperatorCommandDefinition,
-  OperatorThemeName,
 } from "@kilnai/gateway-contracts";
+import type { OperatorThemeName } from "@kilnai/operator-appearance";
 import type { CommandPaletteItem } from "./command-palette.js";
 import type { MobileDrawerMode, WorkbenchSurface } from "./workbench-navigation.js";
 import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";

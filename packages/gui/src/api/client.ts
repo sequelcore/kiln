@@ -28,8 +28,13 @@ import type {
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
   OperatorCockpitActionTarget,
-  OperatorThemeName,
 } from "@kilnai/gateway-contracts";
+import {
+  DEFAULT_OPERATOR_APPEARANCE_PREFERENCE,
+  isOperatorAppearancePreference,
+  type OperatorAppearancePreference,
+  type OperatorThemeName,
+} from "@kilnai/operator-appearance";
 import {
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
@@ -427,14 +432,16 @@ export class GuiGatewayClient {
     return resolveCandidateBaseUrls(this.baseUrl, this.resolvedBaseUrl);
   }
 
-  async saveThemePreference(theme: OperatorThemeName): Promise<void> {
-    const snapshot = await this.loadSettings();
+  async saveAppearancePreference(
+    preference: OperatorAppearancePreference,
+    expectedRevision: string,
+  ): Promise<void> {
     const proposal = await this.proposeSettingsMutation({
       operation: "setting.set",
       scope: "global",
-      key: "ui.theme",
-      expectedRevision: snapshot.revisions.global ?? "absent",
-      value: theme,
+      key: "ui.appearance",
+      expectedRevision,
+      value: preference,
     });
     if (proposal.status !== "valid") {
       throw new Error(proposal.diagnostics.map((diagnostic) => diagnostic.message).join(" ") || "Theme proposal is invalid.");
@@ -444,6 +451,19 @@ export class GuiGatewayClient {
       throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join(" ")
         || (result.outcome === "rejected" ? "Theme change was rejected." : "Theme change committed but reconciliation failed."));
     }
+  }
+
+  async saveThemePreference(theme: OperatorThemeName): Promise<OperatorAppearancePreference> {
+    const snapshot = await this.loadSettings();
+    const value = snapshot.entries.find((entry) => entry.key === "ui.appearance")?.effective.value;
+    const current = isOperatorAppearancePreference(value)
+      ? value
+      : DEFAULT_OPERATOR_APPEARANCE_PREFERENCE;
+    const preference: OperatorAppearancePreference = theme === "automata"
+      ? { mode: "light", themeByScheme: { ...current.themeByScheme, light: theme } }
+      : { mode: "dark", themeByScheme: { ...current.themeByScheme, dark: theme } };
+    await this.saveAppearancePreference(preference, snapshot.revisions.global ?? "absent");
+    return preference;
   }
 
   async loadWorkspaceDirectory(path?: string): Promise<OperatorWorkspaceDirectorySnapshot> {

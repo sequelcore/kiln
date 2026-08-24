@@ -7,8 +7,9 @@ import { resolveCommunicationIntent } from "@kilnai/core/agents";
 import { createSessionEvent } from "@kilnai/core/events";
 import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../../src/config/model-facing-permission-policy.js";
+import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
 
@@ -114,7 +115,7 @@ const {
     };
   }),
   mockGlobalConfig: {
-    value: null as { ui?: { theme?: string } } | null,
+    value: null as KilnGlobalConfig | null,
   },
 }));
 
@@ -298,7 +299,6 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
     resolveGlobalDefaultProvider: () => undefined,
     resolveGlobalDefaultModel: () => undefined,
-    resolveGlobalUiTheme: () => undefined,
   };
 });
 

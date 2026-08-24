@@ -20,6 +20,7 @@
     "@fontsource-variable/geist": "^5.2.8",
     "@kilnai/core": "3.0.0-beta.1",
     "@kilnai/gateway-contracts": "3.0.0-beta.1",
+    "@kilnai/operator-appearance": "3.0.0-beta.1",
     "@lobehub/icons-static-svg": "1.94.0",
     "@playwright/test": "^1.52.0",
     "@shadcn/react": "^0.1.0",

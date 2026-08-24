@@ -5,7 +5,7 @@
 `~/.kiln/config.yaml` is the global source of truth for operator intent. It
 owns target and account choices, reusable authority, model policy, native
 projections, and operator preferences. Managed target facts live in immutable
-snapshots beside it. The canonical global schema version is `"4"`.
+snapshots beside it. The canonical global schema version is `"5"`.
 
 Project configuration has a narrower job. The private project
 `~/.kiln/projects/<krp_sha256>/config.yaml` may define project context and
@@ -80,15 +80,16 @@ descriptors, and generated editor schema. Named validators in
 cross-resource admission for imported Core and CLI contracts. The document
 store performs one YAML parse and returns only the schema-admitted value;
 `global-config.ts` remains their public boundary. The committed projections are
-`packages/cli/schemas/global-config-v1.json` and
-`packages/cli/schemas/global-config-descriptors-v1.json`. Regenerate them with
+`packages/cli/schemas/global-config-v2.json` and
+`packages/cli/schemas/global-config-descriptors-v2.json`. Regenerate them with
 `bun run --cwd packages/cli config:schema:generate` after changing the owner.
 
-The main V4 fields are:
+The main V5 fields are:
 
 | Field | Purpose |
 | --- | --- |
-| `version` | Must be `"4"`. Older or partial global documents are rejected. |
+| `version` | Must be `"5"`. Older or partial global documents are rejected. |
+| `ui.appearance` | Atomic color-scheme mode and light/dark theme selections for operator surfaces. |
 | `targetCatalog` | Minimal account and target intent plus the exact admitted `evidenceRevision`. |
 | `targetRouting.defaultTargetId` | Default target for operator sessions. |
 | `authorityProfiles` | Reusable tool, workspace, memory, timeout, approval, and optional voice authority. |
@@ -107,8 +108,8 @@ The main V4 fields are:
 Use the parser-validated examples instead of assembling a partial operational
 catalog:
 
-- [V4 target catalog](../../examples/configs/managed-targets-v4-subscription.yaml)
-- [V4 task-aware model team](../../examples/configs/task-aware-model-team.yaml)
+- [V5 target catalog](../../examples/configs/managed-targets-v5-subscription.yaml)
+- [V5 task-aware model team](../../examples/configs/task-aware-model-team.yaml)
 
 The examples contain synthetic identities. Replace them with current provider
 and account intent before use. Managed discovery, data-policy, capacity, and
@@ -173,7 +174,7 @@ harness target declares its native boundary. Both bind managed facts through
 `targetCatalog.evidenceRevision`.
 
 ```yaml
-version: "4"
+version: "5"
 
 targetCatalog:
   evidenceRevision: sha256:<exact-admitted-snapshot>

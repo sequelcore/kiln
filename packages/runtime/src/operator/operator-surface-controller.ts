@@ -1,9 +1,6 @@
-import type { OperatorThemeScope } from "@kilnai/gateway-contracts";
-
 export interface OperatorSurfaceThemeController {
   readonly setTheme: (input: {
     readonly theme: string;
-    readonly scope: OperatorThemeScope;
     readonly reason?: string;
   }) => Promise<{ readonly ok: boolean; readonly appliedTheme?: string; readonly error?: string }>;
 }

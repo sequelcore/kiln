@@ -26,7 +26,7 @@ describe("resolveFormalScreeningConfig", () => {
   });
 
   it("fails closed when screening is not configured", () => {
-    expect(() => resolveFormalScreeningConfig({ version: "4" })).toThrow(
+    expect(() => resolveFormalScreeningConfig({ version: "5" })).toThrow(
       "Formal screening requires global verification.formal.screening configuration.",
     );
   });
@@ -74,7 +74,7 @@ function createFixture(): {
 
 function configFor(fixture: ReturnType<typeof createFixture>): KilnGlobalConfig {
   return {
-    version: "4",
+    version: "5",
     verification: {
       formal: {
         dafny: { executable: fixture.dafny, expectedVersion: "4.11.0" },

@@ -125,23 +125,22 @@ CLI, GUI, and TUI sessions may add operator-surface tools to the same builtin
 projection used for developer tools. These tools are runtime-owned projections,
 not private consumer loops.
 
-`operator_set_theme` is the canonical operator UI actuator for changing the
+`operator_set_theme` is the session-only operator UI actuator for changing the
 connected surface theme. GUI and TUI attach a live theme controller for each
 turn; the runtime sends an `operator_theme_set` frame over the surface
 WebSocket, waits for `operator_theme_set_result`, and returns that
 acknowledgement as the tool result. CLI attaches the same tool contract but has
-no live visual surface, so `scope: "session"` returns an explicit tool error and
-`scope: "persisted"` updates GUI and TUI defaults in global config.
+no live visual surface, so it returns an explicit capability error. The tool
+cannot mutate durable configuration.
 
 The tool accepts:
 
 - `theme`: one of the shared `OPERATOR_THEME_NAMES`
-- `scope`: `session` for the live surface or `persisted` when the operator has
-  explicitly asked to save the preference
 - `reason`: optional short operator-facing context
 
-The shared theme catalog and frame contracts live in
-`@kilnai/gateway-contracts` so GUI and TUI cannot drift.
+The palette policy and built-in catalog live in the pure
+`@kilnai/operator-appearance` package. Gateway contracts own only the transport
+frames, so visual policy does not acquire a transport dependency.
 
 Operator-surface tools depend on two separate gates:
 

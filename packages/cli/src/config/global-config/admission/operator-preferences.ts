@@ -1,14 +1,12 @@
 import {
-  resolveCommunicationIntent,
-  validateVoiceConfig,
   type CommunicationIntent,
+  resolveCommunicationIntent,
   type VoiceConfig,
+  validateVoiceConfig,
 } from "@kilnai/core";
+import { isOperatorThemeName, OPERATOR_THEME_DEFINITIONS_BY_ID } from "@kilnai/operator-appearance";
 import { KilnYamlError } from "../../../kiln-yaml.js";
-import {
-  type KilnGlobalIdentity,
-  type KilnGlobalUiConfig,
-} from "../../global-config-schema.js";
+import type { KilnGlobalIdentity, KilnGlobalUiConfig } from "../../global-config-schema.js";
 import {
   fieldNamesOf,
   isRecord,
@@ -56,7 +54,7 @@ export function validateOperatorVoice(value: unknown): void {
 }
 
 const GLOBAL_UI_FIELDS = fieldNamesOf<KilnGlobalUiConfig>({
-  theme: true,
+  appearance: true,
   targetSelection: true,
 });
 
@@ -68,8 +66,18 @@ export function validateGlobalUi(value: unknown, targetCatalog: unknown): void {
     throw new KilnYamlError("ui must be an object");
   }
   rejectUnknownFields(value, GLOBAL_UI_FIELDS, "ui");
-  if (value.theme !== undefined && typeof value.theme !== "string") {
-    throw new KilnYamlError("ui.theme must be a string");
+  if (value.appearance !== undefined) {
+    if (!isRecord(value.appearance)) throw new KilnYamlError("ui.appearance must be an object");
+    rejectUnknownFields(value.appearance, ["mode", "themeByScheme"], "ui.appearance");
+    if (value.appearance.mode !== "system" && value.appearance.mode !== "light" && value.appearance.mode !== "dark") {
+      throw new KilnYamlError("ui.appearance.mode must be system, light, or dark");
+    }
+    if (!isRecord(value.appearance.themeByScheme)) {
+      throw new KilnYamlError("ui.appearance.themeByScheme must be an object");
+    }
+    rejectUnknownFields(value.appearance.themeByScheme, ["light", "dark"], "ui.appearance.themeByScheme");
+    validateBuiltInThemeForScheme(value.appearance.themeByScheme.light, "light");
+    validateBuiltInThemeForScheme(value.appearance.themeByScheme.dark, "dark");
   }
   if (value.targetSelection === undefined) {
     return;
@@ -104,20 +112,38 @@ export function validateGlobalUi(value: unknown, targetCatalog: unknown): void {
     if (!Array.isArray(targetCatalog.accountPolicies)) {
       throw new KilnYamlError("ui.targetSelection.accountOverrideId requires targetCatalog.accountPolicies");
     }
-    const policy = targetCatalog.accountPolicies.find((entry) => isRecord(entry) && entry.id === routeSelection.accountPolicyId);
-    if (!isRecord(policy) || !Array.isArray(policy.accountIds) || !policy.accountIds.includes(selection.accountOverrideId)) {
+    const policy = targetCatalog.accountPolicies.find(
+      (entry) => isRecord(entry) && entry.id === routeSelection.accountPolicyId,
+    );
+    if (
+      !isRecord(policy) ||
+      !Array.isArray(policy.accountIds) ||
+      !policy.accountIds.includes(selection.accountOverrideId)
+    ) {
       throw new KilnYamlError("ui.targetSelection.accountOverrideId is not eligible for the selected target");
     }
+  }
+}
+
+function validateBuiltInThemeForScheme(value: unknown, scheme: "light" | "dark"): void {
+  const path = `ui.appearance.themeByScheme.${scheme}`;
+  if (!isOperatorThemeName(value)) {
+    throw new KilnYamlError(`${path} must reference a built-in operator theme`);
+  }
+  if (!OPERATOR_THEME_DEFINITIONS_BY_ID[value].variants[scheme]) {
+    throw new KilnYamlError(`${path} theme '${value}' has no ${scheme} variant`);
   }
 }
 
 export function validateCommunication(value: unknown, path: string, source: "global" | "project"): void {
   if (value === undefined) return;
   try {
-    resolveCommunicationIntent([{
-      source,
-      intent: value as CommunicationIntent,
-    }]);
+    resolveCommunicationIntent([
+      {
+        source,
+        intent: value as CommunicationIntent,
+      },
+    ]);
   } catch (error) {
     throw new KilnYamlError(`${path} is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }

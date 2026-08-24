@@ -12,7 +12,7 @@ import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution
 import { readKilnYamlFile } from "../../src/kiln-yaml.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
-import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-config-fixture.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
 import {
   applyConfigurationOnboarding,
@@ -37,7 +37,7 @@ const target = {
 
 function globalConfig(defaultTargetId?: string): KilnGlobalConfig {
   return {
-    version: "4",
+    version: "5",
     targetCatalog: {
       evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
@@ -54,7 +54,7 @@ function globalConfigWithTargets(
   defaultTargetId?: string,
 ): KilnGlobalConfig {
   return {
-    version: "4",
+    version: "5",
     targetCatalog: {
       evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
@@ -138,7 +138,7 @@ describe("configuration onboarding application", () => {
     const snapshot = readOnboarding({
       projectPath,
       dependencies: {
-        readGlobalConfig: () => ({ version: "4" }),
+        readGlobalConfig: () => ({ version: "5" }),
         readTargetAuthority: vi.fn(() => undefined),
       },
     });
@@ -625,7 +625,7 @@ describe("configuration onboarding application", () => {
       projectPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: null },
       dependencies: {
-        readGlobalConfig: () => ({ version: "4" }),
+        readGlobalConfig: () => ({ version: "5" }),
         readTargetAuthority: () => undefined,
       },
     });

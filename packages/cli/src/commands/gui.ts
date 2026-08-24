@@ -99,7 +99,7 @@ import {
 } from "../application/operator-turn-dispatch-composition.js";
 import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
 import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
-import { resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
+import { parseOperatorThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
@@ -171,7 +171,7 @@ export async function guiCommand(
       projectConfig,
     }),
   );
-  const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
+  const themePreference = parseOperatorThemePreference(flags.theme);
   if (flags.connect) {
     await guiAttachCommand(flags.connect, themePreference, flags, output);
     return;
@@ -634,7 +634,7 @@ export async function guiCommand(
 
 async function guiAttachCommand(
   connectUrl: string,
-  themePreference: ReturnType<typeof resolveGuiThemePreference>,
+  themePreference: ReturnType<typeof parseOperatorThemePreference>,
   flags: GuiFlags,
   output: GuiCommandOutput,
 ): Promise<void> {

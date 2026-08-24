@@ -174,10 +174,29 @@ export function commitGlobalConfigBytes(input: {
       rmSync(temporaryPath, { force: true });
     }
 
+    let readBackRaw: string;
+    let readBackConfig: KilnGlobalConfig;
+    try {
+      readBackRaw = readFileSync(configPath, "utf-8");
+      const parsed = parseGlobalConfigRaw(readBackRaw);
+      if (parsed === null) throw new Error("read-back returned no configuration");
+      validateGlobalConfig(parsed);
+      readBackConfig = parsed;
+    } catch (error) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", { configPath }, error);
+    }
+    if (readBackRaw !== input.content) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", {
+        configPath,
+        expectedRevision: globalConfigRevision(input.content),
+        actualRevision: globalConfigRevision(readBackRaw),
+      });
+    }
+
     return {
-      config: next,
+      config: readBackConfig,
       previousRevision,
-      revision: globalConfigRevision(input.content),
+      revision: globalConfigRevision(readBackRaw),
       ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
     };
   } finally {

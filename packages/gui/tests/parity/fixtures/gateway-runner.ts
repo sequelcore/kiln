@@ -47,20 +47,22 @@ import {
   createFixtureToolActionStore,
 } from "../../../../runtime/tests/session/runtime-claim-fixture.js";
 import { createMediaActionTestContext } from "../../../../runtime/tests/gateway/media-action-test-fixture.js";
-import {
-  OPERATOR_THEME_LABELS,
-  OPERATOR_THEME_NAMES,
-  type OperatorThemeName,
-  type GuiProviderDiscoveryResult,
-  type GuiSessionDetail,
-  type OperatorSessionSummary,
-  type KilnConfigSetupSnapshot,
-  type ExecutionRouteCatalog,
-  type KilnSettingsMutationResult,
-  type KilnSettingsProposalProjection,
-  type KilnSettingsProposalRequest,
-  type KilnSettingsSnapshot,
+import type {
+  GuiProviderDiscoveryResult,
+  GuiSessionDetail,
+  OperatorSessionSummary,
+  KilnConfigSetupSnapshot,
+  ExecutionRouteCatalog,
+  KilnSettingsMutationResult,
+  KilnSettingsProposalProjection,
+  KilnSettingsProposalRequest,
+  KilnSettingsSnapshot,
 } from "@kilnai/gateway-contracts";
+import {
+  DEFAULT_OPERATOR_APPEARANCE_PREFERENCE,
+  isOperatorAppearancePreference,
+  type OperatorAppearancePreference,
+} from "@kilnai/operator-appearance";
 
 function parseGatewayPort(): number {
   const raw = process.env.GUI_GATEWAY_PORT ?? "0";
@@ -1145,7 +1147,7 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
 
 const settingsRevision = `sha256:${"a".repeat(64)}` as const;
 let domainOverridden = true;
-let configuredTheme: OperatorThemeName = "system-follow";
+let configuredAppearance: OperatorAppearancePreference = DEFAULT_OPERATOR_APPEARANCE_PREFERENCE;
 const settingsProposals = new Map<string, KilnSettingsProposalRequest>();
 let settingsActivationStatus: KilnSettingsSnapshot["activationStatus"] = {
   desiredRevisionSetId: settingsRevision,
@@ -1169,7 +1171,8 @@ let settingsActivationStatus: KilnSettingsSnapshot["activationStatus"] = {
 
 function settingsSnapshot(): KilnSettingsSnapshot {
   const sections: KilnSettingsSnapshot["sections"] = [
-    { id: "general", label: "General", description: "Identity, presentation, and project defaults.", entryKeys: ["ui.theme", "domain"] },
+    { id: "general", label: "General", description: "Identity and project defaults.", entryKeys: ["domain"] },
+    { id: "appearance", label: "Appearance", description: "Color scheme and operator themes.", entryKeys: ["ui.appearance"] },
     { id: "providers", label: "Providers", description: "Provider connections and routing intent.", entryKeys: [] },
     { id: "models", label: "Models", description: "Model selection and behavior.", entryKeys: [] },
     { id: "permissions", label: "Permissions", description: "Authority, approval, and sandbox policy.", entryKeys: [] },
@@ -1180,24 +1183,21 @@ function settingsSnapshot(): KilnSettingsSnapshot {
     { id: "advanced", label: "Advanced", description: "Descriptor-backed inspection and validation.", entryKeys: [] },
   ];
   return {
-    schemaRevision: 2,
+    schemaRevision: 3,
     generatedAt: new Date().toISOString(),
     health: "current",
     activationStatus: settingsActivationStatus,
     sections,
     entries: [{
-      key: "ui.theme",
-      identity: "/ui/theme",
-      section: "general",
-      label: "Theme",
-      description: "Operator interface theme.",
+      key: "ui.appearance",
+      identity: "/ui/appearance",
+      section: "appearance",
+      label: "Operator appearance",
+      description: "Color scheme and operator themes.",
       searchTerms: ["appearance", "color"],
-      control: {
-        kind: "theme",
-        options: OPERATOR_THEME_NAMES.map((value) => ({ value, label: OPERATOR_THEME_LABELS[value] })),
-      },
+      control: { kind: "json" },
       supportedScopes: ["global"],
-      effective: { value: configuredTheme },
+      effective: { value: configuredAppearance },
       source: "global",
       override: "overridden",
       inherited: false,
@@ -1207,7 +1207,7 @@ function settingsSnapshot(): KilnSettingsSnapshot {
         document: "global-config",
         override: "overridden",
         modified: true,
-        current: { value: configuredTheme },
+        current: { value: configuredAppearance },
         owners: ["operator-preferences"],
         authorityImpact: "none",
         approvalRequired: false,
@@ -1306,11 +1306,11 @@ async function main(): Promise<void> {
         key: request.key,
         status: "valid",
         baseRevision: settingsRevision,
-        affectedOwners: request.key === "ui.theme" ? ["operator-preferences"] : ["project-configuration"],
+        affectedOwners: request.key === "ui.appearance" ? ["operator-preferences"] : ["project-configuration"],
         reconciliation: [],
         authorityImpact: "none",
         approvalRequired: false,
-        activation: request.key === "ui.theme" ? "hot" : "next-session",
+        activation: request.key === "ui.appearance" ? "hot" : "next-session",
         diagnostics: [],
         rollback: { restorable: true, summary: "Restore the prior value." },
       };
@@ -1320,12 +1320,11 @@ async function main(): Promise<void> {
       const request = settingsProposals.get(proposalId);
       if (request?.operation === "setting.reset" && request.key === "domain") domainOverridden = false;
       if (request?.operation === "setting.set"
-        && request.key === "ui.theme"
-        && typeof request.value === "string"
-        && (OPERATOR_THEME_NAMES as readonly string[]).includes(request.value)) {
-        configuredTheme = request.value as OperatorThemeName;
+        && request.key === "ui.appearance"
+        && isOperatorAppearancePreference(request.value)) {
+        configuredAppearance = request.value;
       }
-      const activation = request?.key === "ui.theme" ? "hot" as const : "next-session" as const;
+      const activation = request?.key === "ui.appearance" ? "hot" as const : "next-session" as const;
       const activationObservation = activation === "hot"
         ? {
             state: "active" as const,

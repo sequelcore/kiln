@@ -17,13 +17,12 @@ describe("operator theme bridge", () => {
       sentFrames.push(frame);
     });
 
-    const result = bridge.request({ theme: "vesper", scope: "session", reason: "operator asked" });
+    const result = bridge.request({ theme: "vesper", reason: "operator asked" });
 
     expect(sentFrames).toHaveLength(1);
     expect(sentFrames[0]).toMatchObject({
       type: "operator_theme_set",
       theme: "vesper",
-      scope: "session",
       reason: "operator asked",
     });
 
@@ -39,7 +38,7 @@ describe("operator theme bridge", () => {
 
   it("times out unresolved requests", async () => {
     const bridge = createOperatorThemeBridge(() => {}, 25);
-    const result = bridge.request({ theme: "automata", scope: "session" });
+    const result = bridge.request({ theme: "automata" });
 
     await vi.advanceTimersByTimeAsync(25);
 
@@ -51,7 +50,7 @@ describe("operator theme bridge", () => {
 
   it("rejects all pending requests when the surface disconnects", async () => {
     const bridge = createOperatorThemeBridge(() => {});
-    const result = bridge.request({ theme: "phosphor", scope: "persisted" });
+    const result = bridge.request({ theme: "phosphor" });
 
     bridge.rejectAll("Operator surface disconnected.");
 

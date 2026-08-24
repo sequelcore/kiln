@@ -2,6 +2,7 @@ import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../../kiln-yaml-types.js";
 import {
   CANONICAL_GLOBAL_CONFIG_VERSION,
   type KilnGlobalConfig,
+  type KilnGlobalUiAppearance,
 } from "../global-config-schema.js";
 
 export function defaultGlobalConfig(): KilnGlobalConfig {
@@ -19,6 +20,15 @@ export function defaultGlobalConfig(): KilnGlobalConfig {
     permissionCeiling: {
       approval: "on-request",
       sandbox: "workspace-write",
+    },
+    ui: {
+      appearance: {
+        mode: "system",
+        themeByScheme: {
+          light: "automata",
+          dark: "phosphor",
+        },
+      },
     },
     skills: {
       builtin: {
@@ -48,6 +58,6 @@ export function resolveGlobalDefaultModel(config: KilnGlobalConfig | null | unde
   return config.targetCatalog?.targets.find((target) => target.id === targetId)?.providerModelId;
 }
 
-export function resolveGlobalUiTheme(config: KilnGlobalConfig | null | undefined): string | undefined {
-  return config?.ui?.theme;
+export function resolveGlobalUiAppearance(config: KilnGlobalConfig | null | undefined): KilnGlobalUiAppearance | undefined {
+  return config?.ui?.appearance;
 }

@@ -5,7 +5,7 @@ import type {
   KilnSettingsControl,
   KilnSettingsSectionId,
 } from "@kilnai/gateway-contracts";
-import { isOperatorThemeName } from "@kilnai/gateway-contracts";
+import { isOperatorAppearancePreference } from "@kilnai/operator-appearance";
 import {
   PROJECT_CONFIG_FIELD_DESCRIPTORS,
   type ProjectConfigAdmission,
@@ -104,7 +104,7 @@ export type ConfigSettingValueKind =
   | { readonly kind: "string-list-record" }
   | { readonly kind: "json" }
   | { readonly kind: "timezone" }
-  | { readonly kind: "operator-theme" };
+  | { readonly kind: "operator-appearance" };
 
 export type ConfigSettingParse =
   | { readonly ok: true; readonly value: unknown }
@@ -159,10 +159,13 @@ export function parseConfigSettingValue(
       return isSupportedTimeZone(raw)
         ? { ok: true, value: raw }
         : { ok: false, message: `Unknown IANA time zone '${raw}'.` };
-    case "operator-theme":
-      return isOperatorThemeName(raw)
-        ? { ok: true, value: raw }
-        : { ok: false, message: `Unknown operator theme '${raw}'.` };
+    case "operator-appearance": {
+      const parsed = parseJsonValue(raw, descriptor.key);
+      if (!parsed.ok) return parsed;
+      return isOperatorAppearancePreference(parsed.value)
+        ? parsed
+        : { ok: false, message: `Invalid ${descriptor.key}: expected a complete appearance preference.` };
+    }
   }
 }
 
@@ -219,10 +222,14 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
   // Operator identity and presentation. Read fresh at each use, never cached
   // into a session or projection, so they govern immediately.
   descriptor({
-    key: "ui.theme",
-    path: ["ui", "theme"],
+    key: "ui.appearance",
+    path: ["ui", "appearance"],
     scopes: GLOBAL,
-    value: { kind: "operator-theme" },
+    value: { kind: "operator-appearance" },
+    section: "appearance",
+    label: "Operator appearance",
+    description: "Color scheme and the light and dark themes used by operator surfaces.",
+    searchTerms: ["theme", "appearance", "system", "light", "dark", "palette"],
     reconciliationTargets: [],
   }),
   descriptor({

@@ -7,10 +7,7 @@ import { execSync } from "node:child_process";
 import { createCliRenderer, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
-  OPERATOR_THEME_LABELS,
   getGuiProviderMetadata,
-  isOperatorThemeName,
   listOperatorCommands,
   type ExecutionRouteCatalog,
   type ExecutionRouteCatalogEntry,
@@ -28,6 +25,10 @@ import {
   type OperatorSessionSummary,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
+import {
+  OPERATOR_THEME_LABELS,
+  isOperatorThemeName,
+} from "@kilnai/operator-appearance";
 import type { SessionLike } from "./types.js";
 import type { Message, DeliberationLevelId, ContinuationSidebarInfo, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
@@ -106,7 +107,6 @@ export async function startTui(
   loadOperatorSessionHistory?: () => Promise<readonly OperatorSessionSummary[]>,
   onContinueSession?: (session: OperatorSessionSummary) => boolean,
   refreshProviderDiscovery?: () => Promise<void> | void,
-  persistThemePreference?: (themeName: string) => Promise<void> | void,
   loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
   onFirstFrame?: () => void,
   providerModelDiscoveryRef?: { current: GuiProviderModelDiscoveryProjection | null },
@@ -418,12 +418,6 @@ export async function startTui(
     const requestedTheme = themes[themeName];
     if (!requestedTheme) {
       return { ok: false, error: `Unknown theme '${request.theme}'.` };
-    }
-    if (request.scope === "persisted") {
-      if (!persistThemePreference) {
-        return { ok: false, error: "Persisted TUI theme changes are unavailable in this session." };
-      }
-      await persistThemePreference(themeName);
     }
     applyTheme(requestedTheme);
     ui.commandBarStatus.content = t`${fg(currentTheme.accent)(
@@ -1219,7 +1213,7 @@ export async function startTui(
     themePickerOpen = true;
     const currentName =
       themeNames.find((name) => themes[name] === currentTheme) ??
-      DEFAULT_OPERATOR_THEME_NAME;
+      "phosphor";
     localThemeIndex = Math.max(0, themeNames.indexOf(currentName));
 
     themePicker = createThemePicker(

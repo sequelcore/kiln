@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
+import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 
 const gatewayHarness = vi.hoisted(() => ({
   snapshot: null as {
@@ -138,25 +139,8 @@ const registryMocks = vi.hoisted(() => {
 });
 
 const configMocks = vi.hoisted(() => ({
-  globalConfig: null as {
-    version?: "4";
-    targetRouting?: { defaultTargetId?: string };
-    targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
-    managedAgents?: {
-      enabled?: boolean;
-      defaultProvider?: string;
-      defaultProfile?: "foundation-readonly-plan";
-      requireApproval?: boolean;
-    };
-    ui?: {
-      theme?: string;
-      providerSelection?: {
-        provider: string;
-        model?: string;
-      };
-    };
-  } | null,
-  defaultGlobalConfig: vi.fn(() => ({ version: "4" })),
+  globalConfig: null as KilnGlobalConfig | null,
+  defaultGlobalConfig: vi.fn(() => ({ version: "5" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
   resolveGlobalDefaultProvider: vi.fn((config: { targetRouting?: { defaultTargetId?: string }; targetCatalog?: { targets?: readonly { id: string; providerId: string }[] } } | null) => {
     const provider = config?.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerId ?? "";
@@ -164,7 +148,6 @@ const configMocks = vi.hoisted(() => ({
   }),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
   resolveGlobalConfigPath: vi.fn(() => "C:/Users/ExampleUser/.kiln/config.yaml"),
-  resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
 }));
 
 const managedProviderModelMocks = vi.hoisted(() => ({
@@ -308,7 +291,6 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,
     resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
     resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
-    resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
   };
 });
 
@@ -375,8 +357,7 @@ vi.mock("../../src/commands/tui.js", () => ({
 vi.mock("../../src/commands/gui-options.js", () => ({
   buildGuiAttachUrl: vi.fn((url: string) => `${url.replace(/\/$/, "")}/gui/`),
   buildGuiUrl: vi.fn((url: string) => url),
-  persistGuiThemePreference: vi.fn(),
-  resolveGuiThemePreference: vi.fn(() => "phosphor"),
+  parseOperatorThemePreference: vi.fn(() => undefined),
 }));
 
 vi.mock("../../src/commands/gui-window.js", () => ({
@@ -772,8 +753,7 @@ describe("GUI dashboard provider availability", () => {
       ...makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex-spark"),
       managedAgents: {
         enabled: true,
-        defaultProvider: "codex",
-        defaultProfile: "foundation-readonly-plan",
+        defaultAuthorityProfileId: "foundation-readonly-plan",
         requireApproval: true,
       },
     };

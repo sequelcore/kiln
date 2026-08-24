@@ -23,6 +23,7 @@ describe("configuration settings contracts", () => {
   it("defines the one cross-surface section vocabulary", () => {
     expect(KILN_SETTINGS_SECTION_IDS).toEqual([
       "general",
+      "appearance",
       "providers",
       "models",
       "permissions",

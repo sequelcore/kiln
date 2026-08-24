@@ -280,7 +280,6 @@ describe("GUI authority forwarding", () => {
       type: "object",
       properties: {
         theme: { type: "string" },
-        scope: { type: "string" },
       },
       required: ["theme"],
       additionalProperties: false,
@@ -288,11 +287,10 @@ describe("GUI authority forwarding", () => {
 
     const result = await surface.callBuiltinTools.get("operator_set_theme")?.({
       theme: "vesper",
-      scope: "session",
       reason: "test",
     });
 
-    expect(setTheme).toHaveBeenCalledWith({ theme: "vesper", scope: "session", reason: "test" });
+    expect(setTheme).toHaveBeenCalledWith({ theme: "vesper", reason: "test" });
     expect(result).toMatchObject({
       isError: false,
       metadata: { appliedTheme: "vesper" },

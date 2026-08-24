@@ -1335,7 +1335,6 @@ describe("GatewaySession operator theme frames", () => {
       type: "operator_theme_set",
       requestId: "theme-1",
       theme: "vesper",
-      scope: "session",
       reason: "test",
     }));
     await Promise.resolve();
@@ -1343,7 +1342,6 @@ describe("GatewaySession operator theme frames", () => {
 
     expect(applyTheme).toHaveBeenCalledWith({
       theme: "vesper",
-      scope: "session",
       reason: "test",
     });
     await waitForAssertion(() => {

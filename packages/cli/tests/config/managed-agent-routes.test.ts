@@ -480,7 +480,7 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
     .filter((profile, index, profiles) => profiles.findIndex((candidate) => candidate.id === profile.id) === index);
 
   return {
-    version: "4",
+    version: "5",
     executionCatalog,
     targetCatalog: {
       evidenceRevision: `sha256:${"f".repeat(64)}`,

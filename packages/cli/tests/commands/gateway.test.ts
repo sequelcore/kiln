@@ -11,7 +11,7 @@ import {
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 
 const revision = `sha256:${"a".repeat(64)}` as const;
 const projectPath = resolveProjectRoot({ cwd: process.cwd() }).rootPath;

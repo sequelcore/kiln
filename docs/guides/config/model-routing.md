@@ -84,7 +84,7 @@ YAML retains billing channel, execution mode, service tier, envelope, fallback,
 and overage choices.
 
 Do not copy partial YAML fragments from prose. Use the complete
-[V4 target example](../../examples/configs/managed-targets-v4-subscription.yaml).
+[V5 target example](../../examples/configs/managed-targets-v5-subscription.yaml).
 Its adjacent JSON demonstrates the managed store; operational snapshots are
 published by Kiln and must not be hand-edited.
 

@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH, KILN_SETTINGS_SECTION_IDS } from "@kilnai/gateway-contracts";
+import {
+  GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH,
+  KILN_SETTINGS_SECTION_IDS,
+  type KilnSettingsMutationResult,
+  type KilnSettingsProposalProjection,
+  type KilnSettingsSnapshot,
+} from "@kilnai/gateway-contracts";
 import { GuiGatewayClient, resolveCandidateBaseUrls } from "../src/api/client.js";
 
 describe("GuiGatewayClient", () => {
@@ -134,6 +140,101 @@ describe("GuiGatewayClient", () => {
         cursor: "line:100",
         limit: 25,
       }),
+    });
+  });
+
+  it("derives a palette action from a fresh canonical snapshot and fences that revision", async () => {
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const revision = `sha256:${"a".repeat(64)}`;
+    const snapshot = {
+      schemaRevision: 3,
+      generatedAt: "2026-08-24T00:00:00.000Z",
+      health: "current",
+      activationStatus: {
+        desiredRevisionSetId: revision,
+        state: "not-started",
+        boundary: null,
+        activeRevision: null,
+        entries: [],
+        summary: "No pending activation.",
+      },
+      sections: [],
+      entries: [{
+        key: "ui.appearance",
+        identity: "/ui/appearance",
+        section: "appearance",
+        label: "Operator appearance",
+        description: "Color scheme and themes.",
+        searchTerms: ["theme"],
+        control: { kind: "json" },
+        supportedScopes: ["global"],
+        effective: { value: { mode: "system", themeByScheme: { light: "automata", dark: "phosphor" } } },
+        source: "global",
+        override: "overridden",
+        inherited: false,
+        modified: true,
+        writeTargets: [],
+        owners: ["operator-preferences"],
+        authorityImpact: "none",
+        approvalRequired: false,
+        activation: "hot",
+        health: "current",
+        capabilities: { read: true, set: true, reset: true },
+        revisions: {},
+      }],
+      revisions: { global: revision },
+      modifiedCount: 1,
+    } satisfies KilnSettingsSnapshot;
+    const proposal = {
+      proposalId: "appearance-proposal",
+      createdAt: "2026-08-24T00:00:01.000Z",
+      scope: "global",
+      operation: "setting.set",
+      key: "ui.appearance",
+      status: "valid",
+      baseRevision: revision,
+      affectedOwners: ["operator-preferences"],
+      reconciliation: [],
+      authorityImpact: "none",
+      approvalRequired: false,
+      activation: "hot",
+      diagnostics: [],
+      rollback: { restorable: true, summary: "Restore the prior value." },
+    } satisfies KilnSettingsProposalProjection;
+    const result = {
+      proposalId: proposal.proposalId,
+      scope: "global",
+      operation: "setting.set",
+      outcome: "committed",
+      rejectionCode: null,
+      committedRevision: revision,
+      activation: "hot",
+      activationObservation: {
+        state: "active",
+        boundary: "hot",
+        committedRevision: revision,
+        activeRevision: revision,
+        summary: "Active.",
+      },
+      reconciliation: [],
+      diagnostics: [],
+      replayed: false,
+      readBack: { schemaRevision: 1, verified: true },
+    } satisfies KilnSettingsMutationResult;
+    vi.spyOn(client, "loadSettings").mockResolvedValue(snapshot);
+    const propose = vi.spyOn(client, "proposeSettingsMutation").mockResolvedValue(proposal);
+    vi.spyOn(client, "applySettingsMutation").mockResolvedValue(result);
+
+    await expect(client.saveThemePreference("vesper")).resolves.toEqual({
+      mode: "dark",
+      themeByScheme: { light: "automata", dark: "vesper" },
+    });
+    expect(propose).toHaveBeenCalledWith({
+      operation: "setting.set",
+      scope: "global",
+      key: "ui.appearance",
+      expectedRevision: revision,
+      value: { mode: "dark", themeByScheme: { light: "automata", dark: "vesper" } },
     });
   });
 
@@ -612,7 +713,7 @@ describe("GuiGatewayClient", () => {
 
   it("reads and mutates settings through validated capability-bearing requests", async () => {
     const snapshot = {
-      schemaRevision: 2,
+      schemaRevision: 3,
       generatedAt: "2026-08-21T00:00:00.000Z",
       health: "current",
       activationStatus: {

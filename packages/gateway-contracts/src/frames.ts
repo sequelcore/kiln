@@ -922,13 +922,10 @@ export interface GuiSessionDetail {
 
 // --- WebSocket frame shapes ---
 
-export type OperatorThemeScope = "session" | "persisted";
-
 export interface OperatorThemeSetFrame {
   readonly type: "operator_theme_set";
   readonly requestId: string;
   readonly theme: string;
-  readonly scope: OperatorThemeScope;
   readonly reason?: string;
 }
 

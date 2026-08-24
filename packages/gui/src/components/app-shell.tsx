@@ -10,9 +10,6 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  OPERATOR_THEME_LABELS,
-  OPERATOR_THEME_NAMES,
-  isOperatorThemeName,
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceHomeProjection,
   listOperatorCommands,
@@ -27,8 +24,13 @@ import {
   type KilnConfigSetupAction,
   type KilnConfigurationOnboardingApplyRequest,
   type OperatorWorkspaceTreeEntry,
-  type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
+import {
+  OPERATOR_THEME_LABELS,
+  OPERATOR_THEME_NAMES,
+  isOperatorAppearancePreference,
+  type OperatorThemeName,
+} from "@kilnai/operator-appearance";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { useSessionStore } from "../lib/session-store/index.js";
@@ -98,6 +100,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SettingsWorkspace } from "./settings-workspace.js";
 import { SettingsPage } from "./settings-page.js";
+import { AppearanceSettingsPage } from "./appearance-settings-page.js";
 import type { SettingsSection } from "./settings-navigation.js";
 import { SetupPanel } from "./setup-panel.js";
 import { AvailableModelsPanel } from "./available-models-panel.js";
@@ -358,6 +361,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
+  const syncAppearancePreference = useUiStore((state) => state.syncAppearancePreference);
+  const setAppearancePreference = useUiStore((state) => state.setAppearancePreference);
   const gatewayClient = useMemo(
     () => new GuiGatewayClient(resolveGatewayHttpBaseUrl(), readOperatorToken()),
     [],
@@ -599,11 +604,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
   const persistThemePreference = async (theme: OperatorThemeName): Promise<void> => {
-    await gatewayClient.saveThemePreference(theme);
-    setTheme(theme);
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.set("theme", theme);
-    window.history.replaceState({}, "", nextUrl.toString());
+    const preference = await gatewayClient.saveThemePreference(theme);
+    setAppearancePreference(preference);
   };
 
   const { state: wsState, send } = useGuiWs(wsUrl, {
@@ -632,7 +634,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
       onBrowserLiveViewportFrame,
       setConnectionStatus,
       setTheme,
-      persistThemePreference,
       sendThemeResult: (result) => sendRef.current?.(result),
       onManagedAgentControlResult: (frame) => {
         if (frame.status === "failed") {
@@ -734,16 +735,13 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const settingsQuery = useQuery({
     queryKey: ["gui", "settings", gatewayReady ? "ready" : "waiting"],
     queryFn: async () => gatewayClient.loadSettings(),
-    enabled: gatewayReady && settingsSection !== null,
+    enabled: gatewayReady,
   });
-  const settingsTheme = settingsQuery.data?.entries?.find((entry) => entry.key === "ui.theme")?.effective.value;
+  const settingsAppearance = settingsQuery.data?.entries?.find((entry) => entry.key === "ui.appearance")?.effective.value;
   useEffect(() => {
-    if (!isOperatorThemeName(settingsTheme)) return;
-    setTheme(settingsTheme);
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.set("theme", settingsTheme);
-    window.history.replaceState({}, "", nextUrl.toString());
-  }, [setTheme, settingsTheme]);
+    if (!isOperatorAppearancePreference(settingsAppearance)) return;
+    syncAppearancePreference(settingsAppearance);
+  }, [settingsAppearance, syncAppearancePreference]);
 
   const applyOnboarding = async (
     request: KilnConfigurationOnboardingApplyRequest,
@@ -1091,7 +1089,17 @@ function useAppShellRuntimeView(props: AppShellProps) {
             }}
             onBack={() => props.onCloseSettings?.()}
           >
-            <SettingsPage
+            {settingsSection === "appearance" ? (
+              <AppearanceSettingsPage
+                snapshot={settingsQuery.data ?? null}
+                loading={Boolean(settingsQuery.isLoading || settingsQuery.isFetching)}
+                error={settingsQuery.error instanceof Error ? settingsQuery.error : null}
+                onRefresh={() => settingsQuery.refetch()}
+                onSave={(preference, expectedRevision) => (
+                  gatewayClient.saveAppearancePreference(preference, expectedRevision)
+                )}
+              />
+            ) : <SettingsPage
               section={settingsSection}
               snapshot={settingsQuery.data ?? null}
               economicAttempts={settingsSection === "usage-and-limits" ? managedAgentEconomicAttempts : undefined}
@@ -1141,7 +1149,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   </section>
                 )
               ) : undefined}
-            />
+            />}
           </SettingsWorkspace>
         ) : (
           <>

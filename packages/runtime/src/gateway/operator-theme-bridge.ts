@@ -1,12 +1,10 @@
 import type {
-  OperatorThemeScope,
   OperatorThemeSetFrame,
   OperatorThemeSetResultFrame,
 } from "@kilnai/gateway-contracts";
 
 export interface OperatorThemeRequest {
   readonly theme: string;
-  readonly scope: OperatorThemeScope;
   readonly reason?: string;
 }
 
@@ -61,7 +59,6 @@ export function createOperatorThemeBridge(
         type: "operator_theme_set",
         requestId,
         theme: input.theme,
-        scope: input.scope,
         ...(input.reason ? { reason: input.reason } : {}),
       });
     }),

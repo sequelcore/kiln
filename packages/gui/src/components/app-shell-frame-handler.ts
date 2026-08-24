@@ -1,9 +1,8 @@
-import {
-  isOperatorThemeName,
-  type GuiInboundFrame,
-  type GuiOutboundFrame,
-  type OperatorThemeName,
+import type {
+  GuiInboundFrame,
+  GuiOutboundFrame,
 } from "@kilnai/gateway-contracts";
+import { isOperatorThemeName, type OperatorThemeName } from "@kilnai/operator-appearance";
 
 type ThemeResultFrame = Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>;
 
@@ -32,7 +31,6 @@ interface AppShellFrameHandlerInput {
   readonly onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
   readonly setConnectionStatus: (status: "connecting" | "running" | "idle" | "error") => void;
   readonly setTheme: (theme: OperatorThemeName) => void;
-  readonly persistThemePreference: (theme: OperatorThemeName) => Promise<void>;
   readonly sendThemeResult: (frame: ThemeResultFrame) => void;
   readonly onManagedAgentControlResult: (frame: Extract<GuiInboundFrame, { type: "managed_agent_control_result" }>) => void;
   readonly invalidateMemoryLattice: () => void;
@@ -51,21 +49,7 @@ async function handleOperatorThemeSet(
     });
     return;
   }
-  try {
-    if (frame.scope === "persisted") {
-      await input.persistThemePreference(frame.theme);
-    } else {
-      input.setTheme(frame.theme);
-    }
-  } catch (error) {
-    input.sendThemeResult({
-      type: "operator_theme_set_result",
-      requestId: frame.requestId,
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
+  input.setTheme(frame.theme);
   input.sendThemeResult({
     type: "operator_theme_set_result",
     requestId: frame.requestId,

@@ -7,6 +7,7 @@ export type {
   KilnGlobalIdentity,
   KilnGlobalPermissionCeilingConfig,
   KilnGlobalUiConfig,
+  KilnGlobalUiAppearance,
   KilnGlobalUiTargetSelectionConfig,
   KilnGlobalVerificationConfig,
   KilnGlobalWebConfig,
@@ -28,7 +29,7 @@ export {
   defaultGlobalConfig,
   resolveGlobalDefaultModel,
   resolveGlobalDefaultProvider,
-  resolveGlobalUiTheme,
+  resolveGlobalUiAppearance,
 } from "./defaults.js";
 export {
   projectDirectExecutionCatalog,

@@ -9,6 +9,7 @@ const revision = `sha256:${"a".repeat(64)}`;
 function snapshot(): KilnSettingsSnapshot {
   const sections: KilnSettingsSnapshot["sections"] = [
     { id: "general", label: "General", description: "General preferences.", entryKeys: ["domain"] },
+    { id: "appearance", label: "Appearance", description: "Operator appearance.", entryKeys: [] },
     { id: "providers", label: "Providers", description: "Provider readiness.", entryKeys: [] },
     { id: "models", label: "Models", description: "Models.", entryKeys: [] },
     { id: "permissions", label: "Permissions", description: "Authority policy.", entryKeys: ["permissions.allowShell"] },
@@ -19,7 +20,7 @@ function snapshot(): KilnSettingsSnapshot {
     { id: "advanced", label: "Advanced", description: "Advanced.", entryKeys: [] },
   ];
   return {
-    schemaRevision: 2,
+    schemaRevision: 3,
     generatedAt: "2026-08-21T00:00:00.000Z",
     health: "current",
     activationStatus: {

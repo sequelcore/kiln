@@ -1,8 +1,5 @@
-import type { OperatorThemeScope } from "@kilnai/gateway-contracts";
-
 export interface TuiOperatorThemeRequest {
   readonly theme: string;
-  readonly scope: OperatorThemeScope;
   readonly reason?: string;
 }
 

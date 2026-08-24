@@ -3,43 +3,44 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
-  isOperatorThemeName,
-  type OperatorThemeName,
-} from "@kilnai/gateway-contracts";
+  DEFAULT_OPERATOR_APPEARANCE_PREFERENCE,
+  isOperatorAppearancePreference,
+  type OperatorAppearancePreference,
+} from "@kilnai/operator-appearance";
 import { routeTree } from "./routeTree.gen.js";
 import { GuiErrorBoundary } from "./components/gui-error-boundary.js";
-import { applyOperatorTheme } from "./lib/operator-theme-projection.js";
-import { KILN_GUI_UI_STORAGE_KEY, KILN_GUI_UI_STORAGE_VERSION } from "./lib/ui-preferences.js";
+import { applyOperatorAppearance, applyOperatorTheme } from "./lib/operator-theme-projection.js";
+import {
+  KILN_GUI_UI_STORAGE_KEY,
+  KILN_GUI_UI_STORAGE_VERSION,
+  readGuiLaunchTheme,
+} from "./lib/ui-preferences.js";
 import "./styles.css";
 
 const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).href;
 
 // ── Pre-render theme guard (prevents flash of wrong theme) ──────────
-// Reads persisted store synchronously before first paint so the correct
-// data-theme attribute is set on <html> before CSS is applied.
-(function applyPersistedTheme() {
-  const urlTheme = new URLSearchParams(window.location.search).get("theme");
+// Reads the revisioned projection synchronously before first paint. Settings
+// and the durable catalog never read from this cache.
+(function applyBootstrapAppearance() {
   try {
-    let theme: OperatorThemeName = DEFAULT_OPERATOR_THEME_NAME;
-    if (isOperatorThemeName(urlTheme)) {
-      theme = urlTheme;
-      localStorage.setItem(KILN_GUI_UI_STORAGE_KEY, JSON.stringify({
-        state: { theme },
-        version: KILN_GUI_UI_STORAGE_VERSION,
-      }));
-    } else {
-      const raw = localStorage.getItem(KILN_GUI_UI_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { state?: { theme?: unknown } };
-        if (isOperatorThemeName(parsed.state?.theme)) {
-          theme = parsed.state.theme;
-        }
+    const launchTheme = readGuiLaunchTheme(window.location.search);
+    if (launchTheme) {
+      applyOperatorTheme(launchTheme);
+      return;
+    }
+    let preference: OperatorAppearancePreference = DEFAULT_OPERATOR_APPEARANCE_PREFERENCE;
+    const raw = localStorage.getItem(KILN_GUI_UI_STORAGE_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && "version" in parsed && "preference" in parsed
+        && parsed.version === KILN_GUI_UI_STORAGE_VERSION && isOperatorAppearancePreference(parsed.preference)) {
+        preference = parsed.preference;
       }
     }
-    applyOperatorTheme(theme, window.matchMedia("(prefers-color-scheme: dark)").matches);
+    applyOperatorAppearance(preference, window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   } catch {
-    applyOperatorTheme(DEFAULT_OPERATOR_THEME_NAME, true);
+    applyOperatorAppearance(DEFAULT_OPERATOR_APPEARANCE_PREFERENCE, "dark");
   }
 })();
 

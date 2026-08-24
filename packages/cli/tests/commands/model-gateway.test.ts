@@ -110,7 +110,7 @@ const executionCatalog = defineExecutionCatalog({
   }],
 });
 const globalConfig = {
-  version: "4" as const,
+  version: "5" as const,
   targetCatalog: {
     evidenceRevision: `sha256:${"f".repeat(64)}` as const,
     accounts: executionCatalog.accounts.map((account) => ({
@@ -325,7 +325,7 @@ describe("modelGatewayCommand", () => {
 
     await expect(modelGatewayCommand(["serve", "--config", configPath], {
       startModelGatewayListener: start,
-      readGlobalConfig: () => ({ version: "4", modelGateway }),
+      readGlobalConfig: () => ({ version: "5", modelGateway }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       log: vi.fn(),
     })).rejects.toThrow("targetCatalog and targetRouting");

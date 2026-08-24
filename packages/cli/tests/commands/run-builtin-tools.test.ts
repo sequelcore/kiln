@@ -20,7 +20,7 @@ import { readGlobalConfig } from "../../src/config/global-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml.js";
 import type { PersistedAuthorityAdmissionRecord } from "../../src/wrapper/session-store.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 

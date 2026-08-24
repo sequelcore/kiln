@@ -279,7 +279,7 @@ vi.mock("@kilnai/runtime", () => {
       executionMode?: "execute" | "plan";
       operatorSurface?: {
         theme?: {
-          setTheme(input: { theme: string; scope: "session" | "persisted"; reason?: string }): Promise<{
+          setTheme(input: { theme: string; reason?: string }): Promise<{
             ok: boolean;
             appliedTheme?: string;
             error?: string;
@@ -322,7 +322,6 @@ vi.mock("@kilnai/runtime", () => {
         callBuiltinTools.set("operator_set_theme", async (input: Record<string, unknown>) => (
           themeController.setTheme({
             theme: typeof input.theme === "string" ? input.theme : "",
-            scope: input.scope === "persisted" ? "persisted" : "session",
             ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
           })
         ));

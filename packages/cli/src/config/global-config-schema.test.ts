@@ -15,11 +15,11 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 describe("global configuration schema", () => {
   it("owns one strict versioned global document boundary", () => {
-    expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v1.json");
+    expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v2.json");
     expect(GLOBAL_CONFIG_SCHEMA.additionalProperties).toBe(false);
-    expect(parseGlobalConfigStructure({ version: "4" }, "fixtures/config.yaml")).toEqual({ version: "4" });
+    expect(parseGlobalConfigStructure({ version: "5" }, "fixtures/config.yaml")).toEqual({ version: "5" });
     expect(() => parseGlobalConfigStructure(
-      { version: "4", unexpected: true },
+      { version: "5", unexpected: true },
       "fixtures/config.yaml",
     )).toThrow(KilnYamlError);
   });
@@ -31,7 +31,7 @@ describe("global configuration schema", () => {
       semanticOwner: "global-configuration",
       scope: "global",
       activation: "next-session",
-      schemaRevision: 1,
+      schemaRevision: 2,
     }));
     expect(GLOBAL_CONFIG_FIELD_DESCRIPTORS).toContainEqual(expect.objectContaining({
       identity: "/modelGateway",
@@ -47,7 +47,7 @@ describe("global configuration schema", () => {
 
   it("owns physical interactive-use providers globally", () => {
     expect(parseGlobalConfigStructure({
-      version: "4",
+      version: "5",
       interactiveUse: {
         enabled: true,
         browserProvider: "playwright",
@@ -59,9 +59,9 @@ describe("global configuration schema", () => {
   });
 
   it("keeps committed editor-schema and descriptor projections current", () => {
-    expect(readFileSync(join(packageRoot, "schemas", "global-config-v1.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "global-config-v2.json"), "utf8"))
       .toBe(serializeGlobalConfigEditorSchema());
-    expect(readFileSync(join(packageRoot, "schemas", "global-config-descriptors-v1.json"), "utf8"))
+    expect(readFileSync(join(packageRoot, "schemas", "global-config-descriptors-v2.json"), "utf8"))
       .toBe(serializeGlobalConfigDescriptors());
   });
 });

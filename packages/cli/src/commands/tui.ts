@@ -21,7 +21,7 @@ import {
 import {
   readGlobalConfig,
   readGlobalConfigSnapshot,
-  resolveGlobalUiTheme,
+  resolveGlobalUiAppearance,
   readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -84,7 +84,6 @@ import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, defaultTheme, waitForGateway, themes } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import {
-  DEFAULT_OPERATOR_THEME_NAME,
   GUI_PROVIDER_DISPLAY_ORDER,
   buildOperatorToolResultPayload,
   formatPresentationIntentAsText,
@@ -93,12 +92,15 @@ import {
   type ExecutionRouteCatalog,
   type ExecutionRouteSelectionIntent,
   isGuiProviderModeless,
-  isOperatorThemeName,
   parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
+import {
+  isOperatorThemeName,
+} from "@kilnai/operator-appearance";
+import { resolveTuiThemePreference } from "../application/operator-theme-preferences.js";
 import {
   assertScopedExecutionSessionToolEvent,
   GoalRunStore,
@@ -151,7 +153,6 @@ import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/author
 import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
 import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
-import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import {
   assertPrivateStateFileTargetSync,
@@ -1787,7 +1788,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
-  const requestedTheme = flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? DEFAULT_OPERATOR_THEME_NAME;
+  const appearance = resolveGlobalUiAppearance(globalConfig);
+  const requestedTheme = resolveTuiThemePreference(flags.theme, appearance ?? null);
   const resolvedTheme = isOperatorThemeName(requestedTheme) ? themes[requestedTheme] : defaultTheme;
 
   // Session list loader for sidebar browser
@@ -1863,7 +1865,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     startupTransport === "direct" ? loadOperatorSessionHistory : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,
     bootstrap.refreshProviderDiscovery,
-    (themeName) => persistTuiThemePreference(themeName, { projectPath: cwd }),
     async () => {
       const snapshot = await readConfigStatusSnapshot({ projectPath: cwd, view: "setup" });
       return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };

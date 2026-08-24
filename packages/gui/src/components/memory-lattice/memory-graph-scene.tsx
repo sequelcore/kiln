@@ -516,8 +516,7 @@ function layerColor(layer: string, theme: GraphSceneTheme): Color {
 }
 
 function readGraphSceneTheme(root: HTMLElement): GraphSceneTheme {
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const rendererTokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root, prefersDark));
+  const rendererTokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root));
   const color = (name: string): Color => {
     const value = rendererTokens[name];
     if (!value) throw new Error(`Missing operator theme renderer token: ${name}`);

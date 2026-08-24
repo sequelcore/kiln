@@ -120,27 +120,22 @@ Kiln launches the window with a temporary browser profile and app-mode flags. Th
 
 If no supported browser host is available, `kiln gui` fails closed and tells you to either install one of the supported hosts or rerun with `--no-open`.
 
-## Theme Persistence
+## Appearance
 
-GUI theme preference is stored in `~/.kiln/config.yaml` under the shared
-`ui.theme` key. If `ui.theme` is absent, Kiln falls back to `phosphor`.
+The Appearance settings page controls the atomic `ui.appearance` preference in
+`~/.kiln/config.yaml`: `mode` is `system`, `light`, or `dark`, and
+`themeByScheme` retains one explicit selection for each scheme. The GUI follows
+OS changes while mode is `system`. Its versioned localStorage value is only a
+startup cache; the settings snapshot remains authoritative.
 
-GUI and TUI use the same operator theme catalog from
-`@kilnai/gateway-contracts`: `phosphor`, `vesper`, `automata`, and
-`system-follow`. `phosphor` is the green-on-black default, `vesper` is the
-high-clarity alternate dark surface, and `automata` is the parchment-and-ink
-light surface.
-`system-follow` follows the OS color preference in the GUI; in the TUI it
-resolves to the terminal-safe dark palette because there is no reliable
-cross-terminal OS theme bridge.
+GUI and TUI consume the pure `@kilnai/operator-appearance` catalog. The built-in
+themes are `phosphor`, `vesper`, and `automata`; system behavior is a mode, not a
+theme identity. Connected executable providers may call `operator_set_theme`
+for a live session override. That tool cannot persist configuration. Durable
+changes require the human Settings page or `kiln config set --global`.
 
-Connected executable providers can call the runtime `operator_set_theme` tool
-to request a live GUI theme change. The request is acknowledged over the same
-operator WebSocket as other GUI control frames. `scope: "session"` applies only
-to the live window; `scope: "persisted"` also saves `ui.theme`. The CLI exposes
-the same operator tool contract for parity, but because it has no live visual
-surface it only accepts persisted theme changes and writes the shared operator
-default.
+Obsolete appearance configuration has no compatibility or migration path; the
+single operator-owned canonical document is replaced in place.
 
 ## Command Palette
 
@@ -175,7 +170,7 @@ imports use the `@/` alias rooted at `packages/gui/src`.
 Kiln's visual tokens remain canonical. shadcn contract tokens such as
 `--background`, `--card`, `--secondary`, `--border`, `--ring`, and sidebar
 tokens are aliases over the semantic operator-theme projection. The canonical
-OKLCH palette lives in `@kilnai/gateway-contracts`; GUI startup and live theme
+OKLCH palette lives in `@kilnai/operator-appearance`; GUI startup and live theme
 changes project it through `packages/gui/src/lib/operator-theme-projection.ts`.
 `packages/gui/src/styles.css` owns stable component aliases and layout effects,
 not palette literals. Do not introduce a parallel palette or raw provider/state
@@ -186,8 +181,8 @@ surface roles for elevation and selection, border roles for separation and
 focus, action roles for controls, and the complete status triplet for success,
 warning, danger, or information surfaces. Terminal, canvas, and WebGL widgets
 must use the renderer-safe hex projection instead of parsing CSS `oklch()` or
-carrying fallback colors. This keeps Phosphor, Vesper, Automata, and
-`system-follow` coherent across native DOM and non-DOM renderers.
+carrying fallback colors. This keeps Phosphor, Vesper, Automata, and system-mode
+resolution coherent across native DOM and non-DOM renderers.
 
 AI Elements are source-owned composition primitives in this repository, not a
 second runtime authority. Kiln reconciles upstream component improvements

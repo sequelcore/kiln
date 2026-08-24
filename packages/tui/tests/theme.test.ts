@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPERATOR_THEME_NAMES, operatorColorToHex, resolveOperatorThemePalette } from "@kilnai/gateway-contracts";
+import { OPERATOR_THEME_DEFINITIONS_BY_ID, OPERATOR_THEME_NAMES, operatorColorToHex } from "@kilnai/operator-appearance";
 import { getTheme, themeNames, themes } from "../src/theme.js";
 
 describe("TUI themes", () => {
@@ -11,7 +11,8 @@ describe("TUI themes", () => {
   });
 
   it("adapts the shared operator theme palette without duplicating color values", () => {
-    const shared = resolveOperatorThemePalette("phosphor");
+    const shared = OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
+    if (!shared) throw new Error("Phosphor test palette unavailable.");
     const tui = getTheme("phosphor");
 
     expect(tui).toMatchObject({

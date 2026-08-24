@@ -438,7 +438,6 @@ export type {
   OperatorGoalMaterializationRequirement,
   GuiInboundFrame,
   GuiSessionConnectionState,
-  OperatorThemeScope,
   OperatorThemeSetFrame,
   OperatorThemeSetResultFrame,
 } from "./frames.js";
@@ -778,25 +777,6 @@ export type {
   TimelinePresentationIntent,
   TimelinePresentationItem,
 } from "./presentation-intent.js";
-
-export {
-  DEFAULT_OPERATOR_THEME_NAME,
-  OPERATOR_THEME_LABELS,
-  OPERATOR_THEME_NAMES,
-  OPERATOR_THEME_PALETTES,
-  isDarkOperatorTheme,
-  isOperatorThemeName,
-  operatorColorToCss,
-  operatorColorToHex,
-  resolveOperatorThemePalette,
-} from "./operator-themes.js";
-export type {
-  ConcreteOperatorThemeName,
-  OperatorColor,
-  OperatorStatusColors,
-  OperatorThemeName,
-  OperatorThemePalette,
-} from "./operator-themes.js";
 
 export {
   GUI_PROVIDER_DISPLAY_ORDER,

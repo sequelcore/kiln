@@ -29,7 +29,7 @@ import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/
 import { readRuntimeConfigurationRevision } from "../../src/application/runtime-configuration-revision.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
-import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-config-fixture.js";
 
 const READ_AUTHORITY: AuthorityDescriptor = {
   level: 1,

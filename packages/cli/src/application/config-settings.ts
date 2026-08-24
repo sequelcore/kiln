@@ -1,8 +1,6 @@
 import {
   KILN_SETTINGS_SCHEMA_REVISION,
   KILN_SETTINGS_SECTION_IDS,
-  OPERATOR_THEME_LABELS,
-  OPERATOR_THEME_NAMES,
   KilnSettingsSnapshotSchema,
   type KilnSettingsControl,
   type KilnSettingsEntry,
@@ -206,18 +204,16 @@ function controlForValue(descriptor: ConfigSettingDescriptor): KilnSettingsContr
     case "number": return { kind: "number" };
     case "string-list": return { kind: "list", itemKind: "text" };
     case "string-list-record":
-    case "json": return { kind: "json" };
+    case "json":
+    case "operator-appearance": return { kind: "json" };
     case "timezone": return { kind: "timezone" };
-    case "operator-theme": return {
-      kind: "theme",
-      options: OPERATOR_THEME_NAMES.map((value) => ({ value, label: OPERATOR_THEME_LABELS[value] })),
-    };
   }
   throw new Error(`Unsupported settings control for ${descriptor.key}.`);
 }
 
 function sectionForSetting(key: string, path: readonly string[]): KilnSettingsSectionId {
   const root = path[0] ?? key.split(".")[0] ?? "";
+  if (path[0] === "ui" && path[1] === "appearance") return "appearance";
   if (["permissions"].includes(root)) return "permissions";
   if (["interactiveUse"].includes(root)) return "tools";
   if (["workGovernance", "maxDepth", "parallelWorkers"].includes(root)) return "usage-and-limits";
@@ -234,6 +230,7 @@ function sectionLabel(id: KilnSettingsSectionId): string {
 function sectionDescription(id: KilnSettingsSectionId): string {
   switch (id) {
     case "general": return "Identity, presentation, and project defaults.";
+    case "appearance": return "Color scheme and semantic themes across operator surfaces.";
     case "providers": return "Provider connections and routing intent.";
     case "models": return "Model selection and model behavior.";
     case "permissions": return "Authority, approval, and sandbox policy.";

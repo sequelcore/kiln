@@ -778,7 +778,6 @@ export class GatewaySession implements SessionLike {
     try {
       const result = await applyTuiOperatorThemeRequest({
         theme: frame.theme,
-        scope: frame.scope,
         ...(frame.reason ? { reason: frame.reason } : {}),
       });
       this.client.send({

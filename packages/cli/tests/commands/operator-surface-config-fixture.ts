@@ -10,7 +10,7 @@ import {
   managedAgentTargetEvidence,
 } from "../config/managed-agent-intent-config-fixture.js";
 
-/** A V4 operator fixture with separate target intent and managed evidence. */
+/** An operator fixture with separate target intent and managed evidence. */
 export function makeOperatorSurfaceGlobalConfig(
   providerId = "codex-oauth",
   providerModelId = "gpt-5.6-codex",
@@ -25,7 +25,7 @@ export function makeOperatorSurfaceGlobalConfig(
   const evidence = makeOperatorSurfaceTargetEvidence(providerId, providerModelId, targetId);
   return {
     ...base,
-    version: "4",
+    version: "5",
     managedAgents: {
       ...base.managedAgents,
       intents: base.managedAgents?.intents?.map((intent) => ({

@@ -60,7 +60,7 @@ describe("runtime configuration revision", () => {
     roots.push(root, home);
     mkdirSync(join(home, "kiln"), { recursive: true });
     const evidenceRevision = `sha256:${"e".repeat(64)}`;
-    const globalBytes = `version: "4"\ntargetCatalog:\n  evidenceRevision: ${evidenceRevision}\n  accounts: []\n  accountPolicies: []\n  targets: []\n`;
+    const globalBytes = `version: "5"\ntargetCatalog:\n  evidenceRevision: ${evidenceRevision}\n  accounts: []\n  accountPolicies: []\n  targets: []\n`;
     const projectBytes = `version: "1"\nprojectName: fixture\n`;
     writeFileSync(join(home, "kiln", "config.yaml"), globalBytes, "utf8");
     const binding = setupPrivateProject(root, join(home, "project-state"), projectBytes);
@@ -87,7 +87,7 @@ describe("runtime configuration revision", () => {
     roots.push(root, home, mutationRoot);
     mkdirSync(join(home, "kiln"), { recursive: true });
     const globalPath = join(home, "kiln", "config.yaml");
-    const globalBytes = `version: "4"\ntargetCatalog:\n  evidenceRevision: sha256:${"e".repeat(64)}\n`;
+    const globalBytes = `version: "5"\ntargetCatalog:\n  evidenceRevision: sha256:${"e".repeat(64)}\n`;
     const projectBytes = 'version: "1"\nprojectName: fixture\n';
     writeFileSync(globalPath, globalBytes, "utf8");
     const binding = setupPrivateProject(root, join(home, "project-state"), projectBytes);
@@ -132,7 +132,7 @@ describe("runtime configuration revision", () => {
     roots.push(root, home, mutationRoot);
     mkdirSync(join(home, "kiln"), { recursive: true });
     const globalPath = join(home, "kiln", "config.yaml");
-    const globalBytes = 'version: "4"\n';
+    const globalBytes = 'version: "5"\n';
     const projectBytesA = 'version: "1"\nprojectName: a\n';
     writeFileSync(globalPath, globalBytes, "utf8");
     const binding = setupPrivateProject(root, join(home, "project-state"), projectBytesA);
@@ -175,7 +175,7 @@ describe("runtime configuration revision", () => {
     roots.push(root, home, mutationRoot);
     mkdirSync(join(home, "kiln"), { recursive: true });
     const globalPath = join(home, "kiln", "config.yaml");
-    const globalBytes = 'version: "4"\n';
+    const globalBytes = 'version: "5"\n';
     const projectBytes = 'version: "1"\n';
     writeFileSync(globalPath, globalBytes, "utf8");
     const binding = setupPrivateProject(root, join(home, "project-state"), projectBytes);
@@ -231,7 +231,7 @@ describe("runtime configuration revision", () => {
     roots.push(projectA, projectB, home, mutationRoot);
     mkdirSync(join(home, "kiln"), { recursive: true });
     const globalPath = join(home, "kiln", "config.yaml");
-    const globalBytes = 'version: "4"\n';
+    const globalBytes = 'version: "5"\n';
     writeFileSync(globalPath, globalBytes, "utf8");
     const bindingB = setupPrivateProject(projectB, join(home, "project-state-b"), 'version: "1"\n');
     const revision = `sha256:${createHash("sha256").update(globalBytes).digest("hex")}`;

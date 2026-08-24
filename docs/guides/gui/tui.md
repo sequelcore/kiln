@@ -68,15 +68,14 @@ The current build ships these built-in theme names:
 - `phosphor`
 - `vesper`
 - `automata`
-- `system-follow`
 
 Use any of them with `--theme <name>`.
 
 This list is not TUI-owned. GUI and TUI consume the shared operator theme
-catalog from `@kilnai/gateway-contracts`, so any theme added to the contract
-must be rendered by both surfaces. `system-follow` is accepted for config parity
-with the GUI; the terminal renderer maps it to `phosphor` because terminal
-processes do not expose a dependable OS color-scheme signal.
+catalog from `@kilnai/operator-appearance`, so any admitted built-in theme must
+be rendered by both surfaces. System behavior is an appearance mode, not a
+theme. Because terminal processes do not expose a dependable OS color-scheme
+signal, TUI startup resolves `system` through the documented dark fallback.
 
 The shared contract is authored as semantic OKLCH roles. `theme.ts` is a TUI
 renderer adapter: it converts those roles to terminal-safe sRGB hex and maps
@@ -86,12 +85,10 @@ palette or tune colors independently from the operator-theme contract.
 Executable providers connected through the TUI gateway can call
 `operator_set_theme` to request a live theme change. The gateway sends an
 `operator_theme_set` frame to the TUI, the TUI applies the theme, and it returns
-an `operator_theme_set_result` acknowledgement. `scope: "session"` changes only
-the current TUI process; `scope: "persisted"` also writes `ui.theme` in
-`~/.kiln/config.yaml` when the standard CLI wrapper owns the session. The plain
-CLI exposes the same tool contract for executable direct-provider sessions, but
-it has no live visual surface, so it rejects session-scoped changes and accepts
-persisted changes by writing the shared operator theme default.
+an `operator_theme_set_result` acknowledgement. The change is session-only.
+The tool cannot write `~/.kiln/config.yaml`; use the human settings/config path
+for a durable `ui.appearance` change. Plain CLI has no visual surface and
+returns an explicit capability error.
 
 `KilnTheme` exposes these semantic color tokens:
 
