@@ -41,18 +41,35 @@ describe("App shell controls", () => {
 
     render(
       <RuntimeBootstrapGate
-        title="Starting Kiln runtime"
-        detail="Connecting to the local gateway."
-        error="Gateway refused the connection."
+        state="error"
+        title="Kiln needs attention"
+        detail="Gateway refused the connection."
         onRetry={onRetry}
       />,
     );
 
-    expect(screen.getByRole("status", { name: "Runtime bootstrap" })).toHaveTextContent("Gateway refused the connection.");
+    expect(screen.getByRole("alert", { name: "Runtime bootstrap" })).toHaveTextContent("Gateway refused the connection.");
+    expect(screen.queryByRole("status", { name: "Runtime bootstrap" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
 
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces runtime bootstrap as busy without presenting fake progress", () => {
+    render(
+      <RuntimeBootstrapGate
+        state="loading"
+        title="Starting Kiln"
+        detail="Opening the realtime session channel."
+      />,
+    );
+
+    const status = screen.getByRole("status", { name: "Runtime bootstrap" });
+    expect(status).toHaveAttribute("aria-busy", "true");
+    expect(status).toHaveTextContent("Starting Kiln");
+    expect(status).toHaveTextContent("Opening the realtime session channel.");
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
   it("keeps the turn authority command order exported from the control module", () => {

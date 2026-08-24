@@ -5,8 +5,10 @@ import type {
   OperatorTurnRequestedAuthority,
   OperatorWorkspaceGatewayTargetSummary,
 } from "@kilnai/gateway-contracts";
-import { Hand, LockKeyhole, ShieldCheck, ShieldQuestion } from "lucide-react";
+import { CircleAlert, Hand, LockKeyhole, RotateCcw, ShieldCheck, ShieldQuestion } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { authorityStatusTitle } from "../lib/authority-status-view.js";
 import {
   Select,
@@ -57,45 +59,49 @@ const TURN_AUTHORITY_SELECT_ITEMS = TURN_AUTHORITY_OPTIONS.map((value) => ({
   value,
 }));
 
-export function RuntimeBootstrapGate(props: {
-  readonly title: string;
-  readonly detail: string;
-  readonly error?: string | null;
-  readonly onRetry?: () => void;
-}) {
+type RuntimeBootstrapGateProps =
+  | {
+      readonly state: "loading";
+      readonly title: string;
+      readonly detail: string;
+    }
+  | {
+      readonly state: "error";
+      readonly title: string;
+      readonly detail: string;
+      readonly onRetry: () => void;
+    };
+
+export function RuntimeBootstrapGate(props: RuntimeBootstrapGateProps) {
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[var(--color-background)] px-6">
-      <section
-        role="status"
-        aria-label="Runtime bootstrap"
-        aria-live="polite"
-        className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-background-panel)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]"
-      >
-        <div className="flex items-start gap-4">
-          <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background">
-            <span className="size-2 animate-pulse rounded-full bg-[var(--color-accent)]" />
+    <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-foreground">
+      {props.state === "error" ? (
+        <Alert aria-label="Runtime bootstrap" className="max-w-md" variant="destructive">
+          <CircleAlert aria-hidden="true" />
+          <AlertTitle><h1>{props.title}</h1></AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-4 break-words">
+            <p>{props.detail}</p>
+            <Button type="button" variant="outline" size="sm" onClick={props.onRetry}>
+              <RotateCcw aria-hidden="true" data-icon="inline-start" />
+              Retry connection
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <section
+          role="status"
+          aria-busy="true"
+          aria-label="Runtime bootstrap"
+          aria-live="polite"
+          className="flex w-full max-w-sm items-start gap-3"
+        >
+          <Spinner aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <h1 className="text-sm font-medium text-foreground">{props.title}</h1>
+            <p className="mt-1 break-words text-sm leading-6 text-muted-foreground">{props.detail}</p>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">{props.title}</p>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{props.error ?? props.detail}</p>
-            {props.error && props.onRetry ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={props.onRetry}
-              >
-                Retry
-              </Button>
-            ) : (
-              <div className="mt-4 h-2 w-full overflow-hidden rounded bg-[var(--color-background-element)]">
-                <div className="h-full w-1/3 animate-pulse rounded bg-[var(--color-accent)]" />
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
     </main>
   );
 }

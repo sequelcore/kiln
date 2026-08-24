@@ -521,6 +521,34 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(useSessionStore.getState().outboundSend).toBeNull();
   });
 
+  it("offers recovery when the realtime bootstrap channel never opens", async () => {
+    vi.useFakeTimers();
+    wsState = "connecting";
+
+    try {
+      const { rerender } = render(<AppShell />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByRole("status", { name: "Runtime bootstrap" })).toHaveTextContent("Opening the realtime session channel.");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      wsState = "reconnecting";
+      rerender(<AppShell />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(screen.getByRole("alert", { name: "Runtime bootstrap" })).toHaveTextContent("Realtime session channel did not open.");
+      expect(screen.getByRole("button", { name: "Retry connection" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not disconnect the session store during websocket state transitions", async () => {
     const originalDisconnect = useSessionStore.getState().disconnect;
     const disconnectMock = vi.fn();
@@ -890,7 +918,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     expect(await screen.findByRole("status", { name: "Runtime bootstrap" })).toBeInTheDocument();
-    expect(screen.getByText("Starting Kiln runtime")).toBeInTheDocument();
+    expect(screen.getByText("Starting Kiln…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New Session" })).not.toBeInTheDocument();
   });
 
@@ -912,12 +940,12 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     render(<AppShell />);
 
-    expect(await screen.findByText("Kiln runtime needs attention")).toBeInTheDocument();
+    expect(await screen.findByText("Kiln needs attention")).toBeInTheDocument();
     await waitFor(() => {
       expect(waitForHealthMock).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
 
     await waitFor(() => {
       expect(waitForHealthMock).toHaveBeenCalledTimes(2);

@@ -108,6 +108,7 @@ const CommandPalette = lazy(async () => {
 });
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
+const REALTIME_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const EMPTY_DELIBERATION_LEVELS: readonly GuiDeliberationLevelId[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
 const EMPTY_EXECUTION_ROUTE_CATALOG: ExecutionRouteCatalog = { routes: [] };
@@ -667,6 +668,17 @@ function useAppShellRuntimeView(props: AppShellProps) {
     setSender(wsState === "open" ? send : null);
   }, [send, setSender, wsState]);
 
+  const realtimeBootstrapPending = gatewayReady && wsState !== "open" && gatewayError === null;
+  useEffect(() => {
+    if (!realtimeBootstrapPending) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setGatewayError("Realtime session channel did not open.");
+    }, REALTIME_BOOTSTRAP_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [realtimeBootstrapPending]);
+
   useEffect(() => {
     return () => {
       setSender(null);
@@ -879,8 +891,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
   const runtimeBootstrapReady = gatewayReady && wsState === "open" && providerCatalogStatus === "ready";
   const bootstrapTitle = gatewayError || providerCatalogStatus === "error"
-    ? "Kiln runtime needs attention"
-    : "Starting Kiln runtime";
+    ? "Kiln needs attention"
+    : "Starting Kiln…";
   const bootstrapDetail = !gatewayReady
     ? "Connecting to the local gateway."
     : wsState !== "open"
@@ -936,12 +948,18 @@ function useAppShellRuntimeView(props: AppShellProps) {
   });
 
   if (!runtimeBootstrapReady) {
-    return (
+    return bootstrapError ? (
       <RuntimeBootstrapGate
+        state="error"
+        title={bootstrapTitle}
+        detail={bootstrapError}
+        onRetry={retryBootstrap}
+      />
+    ) : (
+      <RuntimeBootstrapGate
+        state="loading"
         title={bootstrapTitle}
         detail={bootstrapDetail}
-        error={bootstrapError}
-        onRetry={bootstrapError ? retryBootstrap : undefined}
       />
     );
   }
