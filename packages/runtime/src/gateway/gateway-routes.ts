@@ -221,8 +221,6 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     return c.json(detail);
   });
 
-  app.post("/gui/api/window-closed", (c) => c.json({ ok: true }));
-
   if (config.upgradeWebSocket) {
     app.get(
       "/gui/ws",

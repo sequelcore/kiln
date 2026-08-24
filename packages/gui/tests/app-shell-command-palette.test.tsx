@@ -160,7 +160,6 @@ vi.mock("../src/api/client.js", () => ({
     }
 
     async saveThemePreference() {}
-    async notifyWindowClosed() {}
   },
 }));
 

@@ -215,8 +215,6 @@ export interface StartGuiGatewayOptions {
   /** Route selection is the only operator execution-selection authority. */
   readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
   readonly runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
-  readonly onConnectionCountChange?: (count: number) => void;
-  readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorGuiSessionTransportOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
@@ -552,10 +550,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   let allowedBrowserOrigins: ReadonlySet<string> = externalGuiOrigin
     ? new Set([externalGuiOrigin])
     : new Set();
-  const updateConnectionCount = (count: number) => {
-    options.onConnectionCountChange?.(count);
-  };
-
   const guiCorsMiddleware = createGuiBrowserOriginMiddleware(() => allowedBrowserOrigins);
 
   app.use("/health", guiCorsMiddleware);
@@ -715,13 +709,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     }
   });
 
-  const handleManagedWindowClose = (c: { body: (data: null, status: 204) => Response }) => {
-    options.onManagedWindowClose?.();
-    return c.body(null, 204);
-  };
-
-  app.post("/gui/api/window-closed", handleManagedWindowClose);
-
   const loadOperatorSessionHistory = async (): Promise<readonly OperatorSessionSummary[]> => {
     if (!options.loadOperatorSessionHistory) {
       return [];
@@ -768,11 +755,9 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       kilnHome: options.kilnHome,
       onSocketOpen: () => {
         activeConnections += 1;
-        updateConnectionCount(activeConnections);
       },
       onSocketClose: () => {
         activeConnections = Math.max(0, activeConnections - 1);
-        updateConnectionCount(activeConnections);
       },
     });
   } else {
@@ -784,7 +769,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       upgradeWebSocket(() => ({
         async onOpen(_event: Event, ws: WSContext) {
           activeConnections += 1;
-          updateConnectionCount(activeConnections);
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
           ws.send(JSON.stringify({
@@ -801,7 +785,6 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
         },
         onClose() {
           activeConnections = Math.max(0, activeConnections - 1);
-          updateConnectionCount(activeConnections);
         },
       })),
     );

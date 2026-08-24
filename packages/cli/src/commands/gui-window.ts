@@ -40,7 +40,7 @@ interface ResolveGuiBrowserHostOptions {
 interface LaunchGuiWindowOptions extends ResolveGuiBrowserHostOptions {
   readonly spawnImpl?: typeof spawn;
   readonly createProfileDir?: () => string;
-  readonly closeBrowser?: (profileDir: string) => boolean | void | Promise<boolean | void>;
+  readonly closeBrowser?: (profileDir: string) => boolean | undefined | Promise<boolean | undefined>;
   readonly cleanupProfileDir?: (path: string) => void | Promise<void>;
   readonly createWebSocket?: (url: string) => WebSocket;
   readonly fetchImpl?: typeof fetch;
@@ -51,6 +51,7 @@ interface LaunchGuiWindowOptions extends ResolveGuiBrowserHostOptions {
   readonly readDevToolsPort?: (profileDir: string) => number | null;
   readonly pollMs?: number;
   readonly startupTimeoutMs?: number;
+  readonly closeConfirmationMs?: number;
 }
 
 interface DevToolsTargetSummary {
@@ -62,9 +63,15 @@ interface DevToolsBrowserVersionSummary {
   readonly webSocketDebuggerUrl?: string;
 }
 
+type RemoveProfileDirectory = (
+  path: string,
+  options: { readonly recursive: true; readonly force: true },
+) => Promise<void>;
+
 const GUI_PROFILE_CLEANUP_MAX_RETRIES = 10;
 const GUI_PROFILE_CLEANUP_RETRY_DELAY_MS = 100;
 const GUI_BROWSER_CLOSE_TIMEOUT_MS = 2_000;
+const GUI_WINDOW_CLOSE_CONFIRMATION_MS = 1_500;
 
 const WINDOWS_BROWSER_CANDIDATES: readonly GuiBrowserCandidate[] = [
   {
@@ -178,13 +185,40 @@ function defaultCreateProfileDir(): string {
   return mkdtempSync(join(tmpdir(), "kiln-gui-window-"));
 }
 
-async function defaultCleanupProfileDir(path: string): Promise<void> {
-  await rm(path, {
-    recursive: true,
-    force: true,
-    maxRetries: GUI_PROFILE_CLEANUP_MAX_RETRIES,
-    retryDelay: GUI_PROFILE_CLEANUP_RETRY_DELAY_MS,
-  });
+export async function removeGuiProfileDirectory(
+  path: string,
+  options: {
+    readonly remove?: RemoveProfileDirectory;
+    readonly wait?: (delayMs: number) => Promise<void>;
+    readonly maxRetries?: number;
+    readonly retryDelayMs?: number;
+  } = {},
+): Promise<void> {
+  const remove = options.remove ?? rm;
+  const wait = options.wait ?? ((delayMs: number) => new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  }));
+  const maxRetries = options.maxRetries ?? GUI_PROFILE_CLEANUP_MAX_RETRIES;
+  const retryDelayMs = options.retryDelayMs ?? GUI_PROFILE_CLEANUP_RETRY_DELAY_MS;
+
+  for (let retry = 0; ; retry += 1) {
+    try {
+      await remove(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isTransientProfileCleanupError(error) || retry >= maxRetries) {
+        throw error;
+      }
+      await wait(retryDelayMs * (retry + 1));
+    }
+  }
+}
+
+function isTransientProfileCleanupError(error: unknown): boolean {
+  if (!(error instanceof Error) || !("code" in error)) {
+    return false;
+  }
+  return ["EBUSY", "EMFILE", "ENFILE", "ENOTEMPTY", "EPERM"].includes(String(error.code));
 }
 
 async function closeGuiBrowserThroughDevTools(
@@ -242,9 +276,7 @@ async function closeGuiBrowserThroughDevTools(
         if (message.id !== 1) return;
         if (message.error) {
           finish(new Error(message.error.message ?? "Browser.close was rejected."));
-          return;
         }
-        finish();
       } catch {
         // Ignore unrelated non-JSON protocol traffic.
       }
@@ -291,6 +323,7 @@ export function waitForManagedGuiAppWindowClose(
     readonly readDevToolsPort?: (profileDir: string) => number | null;
     readonly pollMs?: number;
     readonly startupTimeoutMs?: number;
+    readonly closeConfirmationMs?: number;
   } = {},
 ): Promise<void> {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -301,6 +334,7 @@ export function waitForManagedGuiAppWindowClose(
   const readDevToolsPort = options.readDevToolsPort ?? tryReadDevToolsPort;
   const pollMs = options.pollMs ?? 500;
   const startupTimeoutMs = options.startupTimeoutMs ?? 15_000;
+  const closeConfirmationMs = options.closeConfirmationMs ?? GUI_WINDOW_CLOSE_CONFIRMATION_MS;
   const normalizedUrl = normalizeManagedGuiUrl(url);
 
   return new Promise<void>((resolve, reject) => {
@@ -308,6 +342,7 @@ export function waitForManagedGuiAppWindowClose(
     let sawManagedAppTarget = false;
     let intervalHandle: ReturnType<typeof setInterval> | null = null;
     let startupTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let closeConfirmationHandle: ReturnType<typeof setTimeout> | null = null;
 
     const clearTimers = () => {
       if (intervalHandle) {
@@ -317,6 +352,10 @@ export function waitForManagedGuiAppWindowClose(
       if (startupTimeoutHandle) {
         clearTimeoutImpl(startupTimeoutHandle);
         startupTimeoutHandle = null;
+      }
+      if (closeConfirmationHandle) {
+        clearTimeoutImpl(closeConfirmationHandle);
+        closeConfirmationHandle = null;
       }
     };
 
@@ -336,6 +375,16 @@ export function waitForManagedGuiAppWindowClose(
       settled = true;
       clearTimers();
       reject(error);
+    };
+
+    const confirmManagedWindowClosed = () => {
+      if (!sawManagedAppTarget || closeConfirmationHandle) {
+        return;
+      }
+      closeConfirmationHandle = setTimeoutImpl(() => {
+        closeConfirmationHandle = null;
+        finish();
+      }, closeConfirmationMs);
     };
 
     const inspectTargets = async () => {
@@ -368,6 +417,10 @@ export function waitForManagedGuiAppWindowClose(
 
         if (hasManagedAppTarget) {
           sawManagedAppTarget = true;
+          if (closeConfirmationHandle) {
+            clearTimeoutImpl(closeConfirmationHandle);
+            closeConfirmationHandle = null;
+          }
           if (startupTimeoutHandle) {
             clearTimeoutImpl(startupTimeoutHandle);
             startupTimeoutHandle = null;
@@ -376,11 +429,11 @@ export function waitForManagedGuiAppWindowClose(
         }
 
         if (sawManagedAppTarget) {
-          finish();
+          confirmManagedWindowClosed();
         }
       } catch {
         if (sawManagedAppTarget) {
-          finish();
+          confirmManagedWindowClosed();
         }
       }
     };
@@ -472,7 +525,7 @@ export function launchGuiWindow(
   const spawnImpl = options.spawnImpl ?? spawn;
   const createProfileDir = options.createProfileDir ?? defaultCreateProfileDir;
   const closeBrowser = options.closeBrowser ?? ((profileDir: string) => closeGuiBrowserThroughDevTools(profileDir, options));
-  const cleanupProfileDir = options.cleanupProfileDir ?? defaultCleanupProfileDir;
+  const cleanupProfileDir = options.cleanupProfileDir ?? removeGuiProfileDirectory;
   const profileDir = createProfileDir();
   const launchSpec = buildGuiWindowLaunchSpec(host, url, profileDir);
 
@@ -495,14 +548,8 @@ export function launchGuiWindow(
     return cleanupPromise;
   };
 
-  const managedWindowClosed = waitForManagedGuiAppWindowClose(url, profileDir, child, options);
-  const whenClosed = managedWindowClosed.then(
-    cleanup,
-    async (error) => {
-      await cleanup();
-      throw error;
-    },
-  );
+  const whenClosed = waitForManagedGuiAppWindowClose(url, profileDir, child, options);
+  void whenClosed.catch(() => undefined);
 
   return {
     browserLabel: host.label,

@@ -102,7 +102,6 @@ import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldS
 import { resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
-import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadOperatorSessionSummaries } from "../application/operator-session-history.js";
 import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
@@ -369,7 +368,6 @@ export async function guiCommand(
     permissionPolicy,
   );
   startupProfiler.mark("bootstrap-context-ready");
-  const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd, { projectStateBinding });
   const { startGuiGateway } = await import("@kilnai/runtime");
@@ -396,7 +394,6 @@ export async function guiCommand(
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = (): Promise<void> => {
     cleanupPromise ??= closeGuiRuntimeResources([
-      () => managedWindowShutdownMonitor.dispose(),
       () => guiWindow?.close(),
       async () => {
         if (viteDevServer) await stopChildProcess(viteDevServer.child, "gui-dev", output);
@@ -524,8 +521,6 @@ export async function guiCommand(
         revision: parseExecutionTargetWizardRevision(result.revision),
       };
     },
-    onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
-    onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     initialOperatorDiscovery,
     onOperatorDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery, { projectStateBinding }),
     builtinToolOptions,
@@ -630,12 +625,7 @@ export async function guiCommand(
     return rollbackGuiStartup(startupError, cleanup);
   }
 
-  await waitForShutdown(
-    cleanup,
-    output,
-    guiWindow,
-    guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined,
-  );
+  await waitForShutdown(cleanup, output, guiWindow);
 }
 
 async function guiAttachCommand(
@@ -1015,7 +1005,6 @@ async function waitForShutdown(
   onShutdown: () => Promise<void> | void,
   output: GuiCommandOutput,
   guiWindow?: GuiWindowSession,
-  managedWindowDisconnect?: Promise<void>,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     let shuttingDown = false;
@@ -1034,7 +1023,6 @@ async function waitForShutdown(
 
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
-    void managedWindowDisconnect?.then(shutdown);
     void guiWindow?.whenClosed.then(shutdown, (error) => {
       output.error(`Could not launch GUI window: ${error instanceof Error ? error.message : String(error)}`);
       shutdown();

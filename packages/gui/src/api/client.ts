@@ -556,18 +556,6 @@ export class GuiGatewayClient {
     return content ? resourceContentDataUrl(content) : null;
   }
 
-  notifyWindowClosed(): void {
-    for (const candidateBaseUrl of this.resolveCandidateBaseUrls()) {
-      const url = new URL("/gui/api/window-closed", candidateBaseUrl);
-      if (typeof navigator.sendBeacon === "function" && navigator.sendBeacon(url)) {
-        continue;
-      }
-      void fetch(url, {
-        method: "POST",
-        keepalive: true,
-      }).catch(() => undefined);
-    }
-  }
 }
 
 type DashboardWorkspaceTreeSnapshot = NonNullable<GuiDashboardSnapshot["workspaceTree"]>;

@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
-import { createManagedGuiWindowShutdownMonitor } from "../../src/commands/gui-shutdown-monitor.js";
 
 const mockGuiCommand = vi.hoisted(() => vi.fn());
 
@@ -65,56 +64,4 @@ describe("gui CLI command wiring", () => {
       plan: true,
     });
   }, 10_000);
-
-});
-
-describe("managed GUI shutdown monitor", () => {
-  it("resolves after the managed GUI disconnects following a live connection", async () => {
-    vi.useFakeTimers();
-    try {
-      const monitor = createManagedGuiWindowShutdownMonitor(100);
-      const disconnected = vi.fn();
-      void monitor.waitForDisconnect().then(disconnected);
-
-      monitor.onConnectionCountChange(1);
-      monitor.onConnectionCountChange(0);
-      await vi.advanceTimersByTimeAsync(99);
-      expect(disconnected).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(1);
-      expect(disconnected).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("resolves immediately when the managed GUI reports that the window is closing", async () => {
-    const monitor = createManagedGuiWindowShutdownMonitor(100);
-    const disconnected = vi.fn();
-    void monitor.waitForDisconnect().then(disconnected);
-
-    monitor.onManagedWindowClose();
-    await Promise.resolve();
-
-    expect(disconnected).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not resolve on a transient disconnect if the GUI reconnects before the grace period", async () => {
-    vi.useFakeTimers();
-    try {
-      const monitor = createManagedGuiWindowShutdownMonitor(100);
-      const disconnected = vi.fn();
-      void monitor.waitForDisconnect().then(disconnected);
-
-      monitor.onConnectionCountChange(1);
-      monitor.onConnectionCountChange(0);
-      await vi.advanceTimersByTimeAsync(50);
-      monitor.onConnectionCountChange(1);
-      await vi.advanceTimersByTimeAsync(100);
-
-      expect(disconnected).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

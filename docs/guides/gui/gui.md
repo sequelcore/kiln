@@ -52,8 +52,11 @@ owns GUI assets in this mode, while the local gateway exposes only the operator
 API and WebSocket contract; a prebuilt `packages/gui/dist` bundle is not a dev
 startup prerequisite. Kiln waits for Vite readiness before opening the managed
 browser window, tracks the actual DevTools page target rather than a short-lived
-Windows launcher process, and terminates the complete Vite child tree when the
-window closes.
+Windows launcher process, confirms target absence across a bounded grace period
+so development reloads are not mistaken for closure, and terminates the complete
+Vite child tree when the window closes. Shutdown asks the dedicated browser to
+close through DevTools, waits for that browser connection to close, and only then
+removes its temporary profile.
 
 ### App Gateway Attach Mode
 

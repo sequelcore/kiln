@@ -379,20 +379,11 @@ vi.mock("../../src/commands/gui-options.js", () => ({
   resolveGuiThemePreference: vi.fn(() => "phosphor"),
 }));
 
-vi.mock("../../src/commands/gui-shutdown-monitor.js", () => ({
-  createManagedGuiWindowShutdownMonitor: vi.fn(() => ({
-    onConnectionCountChange: vi.fn(),
-    onManagedWindowClose: vi.fn(),
-    waitForDisconnect: () => Promise.resolve(),
-    dispose: vi.fn(),
-  })),
-}));
-
 vi.mock("../../src/commands/gui-window.js", () => ({
   launchGuiWindow: vi.fn(() => ({
     browserLabel: "Mock Browser",
     close: gatewayHarness.closeWindow,
-    whenClosed: new Promise<void>(() => {}),
+    whenClosed: Promise.resolve(),
   })),
 }));
 

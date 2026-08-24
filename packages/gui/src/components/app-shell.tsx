@@ -596,18 +596,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
-  useEffect(() => {
-    const notifyWindowClosed = () => {
-      gatewayClient.notifyWindowClosed();
-    };
-    window.addEventListener("pagehide", notifyWindowClosed);
-    window.addEventListener("beforeunload", notifyWindowClosed);
-    return () => {
-      window.removeEventListener("pagehide", notifyWindowClosed);
-      window.removeEventListener("beforeunload", notifyWindowClosed);
-    };
-  }, [gatewayClient]);
-
   const persistThemePreference = async (theme: OperatorThemeName): Promise<void> => {
     await gatewayClient.saveThemePreference(theme);
     setTheme(theme);

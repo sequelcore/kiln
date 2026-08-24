@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildGuiWindowLaunchSpec,
   launchGuiWindow,
+  removeGuiProfileDirectory,
   resolveGuiBrowserHost,
   waitForManagedGuiAppWindowClose,
   type ResolvedGuiBrowserHost,
@@ -28,6 +29,40 @@ class FakeBrowserWebSocket extends EventTarget {
 }
 
 describe("gui window launcher", () => {
+  it("retries transient Windows profile locks until removal succeeds", async () => {
+    const busy = Object.assign(new Error("profile busy"), { code: "EBUSY" });
+    const remove = vi.fn()
+      .mockRejectedValueOnce(busy)
+      .mockRejectedValueOnce(busy)
+      .mockResolvedValue(undefined);
+    const wait = vi.fn(async () => undefined);
+
+    await removeGuiProfileDirectory("C:\\Temp\\kiln-profile", {
+      remove,
+      wait,
+      maxRetries: 2,
+      retryDelayMs: 100,
+    });
+
+    expect(remove).toHaveBeenCalledTimes(3);
+    expect(wait).toHaveBeenNthCalledWith(1, 100);
+    expect(wait).toHaveBeenNthCalledWith(2, 200);
+  });
+
+  it("does not retry a non-transient profile cleanup failure", async () => {
+    const denied = Object.assign(new Error("profile denied"), { code: "EACCES" });
+    const remove = vi.fn().mockRejectedValue(denied);
+    const wait = vi.fn(async () => undefined);
+
+    await expect(removeGuiProfileDirectory("C:\\Temp\\kiln-profile", {
+      remove,
+      wait,
+    })).rejects.toBe(denied);
+
+    expect(remove).toHaveBeenCalledOnce();
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it("prefers a resolved command on PATH for the managed app window host", () => {
     const resolved = resolveGuiBrowserHost({
       platform: "win32",
@@ -108,6 +143,7 @@ describe("gui window launcher", () => {
         fetchImpl,
         readDevToolsPort: () => 9222,
         pollMs: 100,
+        closeConfirmationMs: 200,
       });
 
       expect(spawnImpl).toHaveBeenCalledWith(
@@ -127,9 +163,12 @@ describe("gui window launcher", () => {
       await vi.advanceTimersByTimeAsync(100);
       expect(cleanupProfileDir).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(300);
       await session.whenClosed;
 
+      expect(cleanupProfileDir).not.toHaveBeenCalled();
+
+      await session.close();
       expect(cleanupProfileDir).toHaveBeenCalledWith("C:\\Temp\\kiln-profile");
     } finally {
       vi.useRealTimers();
@@ -176,19 +215,13 @@ describe("gui window launcher", () => {
     const spawnImpl = vi.fn(() => child) as unknown as typeof spawn;
     const socket = new FakeBrowserWebSocket();
     const cleanupProfileDir = vi.fn();
-    const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/test" }),
-      } as Response);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => ({
+      ok: true,
+      json: async () => String(input).endsWith("/json/version")
+        ? { webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/test" }
+        : [{ type: "page", url: "http://localhost:4810/gui/" }],
+    } as Response));
+    const fetchImpl = fetchMock as unknown as typeof fetch;
 
     try {
       const session = launchGuiWindow("http://localhost:4810/gui/", {
@@ -207,18 +240,22 @@ describe("gui window launcher", () => {
         pollMs: 100,
       });
 
-      await vi.advanceTimersByTimeAsync(200);
-      await session.whenClosed;
+      const closePromise = session.close();
+      await vi.advanceTimersByTimeAsync(10);
 
-      expect(fetchImpl).toHaveBeenLastCalledWith("http://127.0.0.1:9222/json/version");
+      expect(fetchMock).toHaveBeenLastCalledWith("http://127.0.0.1:9222/json/version");
       expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ id: 1, method: "Browser.close" }));
+      expect(cleanupProfileDir).not.toHaveBeenCalled();
+
+      socket.dispatchEvent(new Event("close"));
+      await closePromise;
       expect(socket.send.mock.invocationCallOrder[0]).toBeLessThan(cleanupProfileDir.mock.invocationCallOrder[0]!);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("does not settle the window session until asynchronous profile cleanup finishes", async () => {
+  it("does not make observed window closure wait on profile cleanup", async () => {
     vi.useFakeTimers();
     const child = new FakeChildProcess();
     // `spawn` carries a dozen stdio-shaped overloads; a single-signature mock can never
@@ -241,23 +278,18 @@ describe("gui window launcher", () => {
         readDevToolsPort: () => null,
         startupTimeoutMs: 100,
       });
-      const settled = vi.fn();
-      void session.whenClosed.then(settled, settled);
-
-      session.close();
+      const closePromise = session.close();
       await vi.advanceTimersByTimeAsync(100);
       expect(cleanupProfileDir).toHaveBeenCalledOnce();
-      expect(settled).not.toHaveBeenCalled();
 
       finishCleanup?.();
-      await session.whenClosed.catch(() => undefined);
-      expect(settled).toHaveBeenCalledOnce();
+      await closePromise;
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("treats the managed app window as closed once its DevTools page target disappears", async () => {
+  it("keeps the managed app window open through a transient DevTools target absence", async () => {
     vi.useFakeTimers();
     try {
       const child = new FakeChildProcess();
@@ -269,6 +301,10 @@ describe("gui window launcher", () => {
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [],
+        } as Response)
+        .mockResolvedValue({
+          ok: true,
+          json: async () => [{ type: "page", url: "http://localhost:4810/gui/?theme=phosphor" }],
         } as Response);
 
       const whenClosed = waitForManagedGuiAppWindowClose(
@@ -281,11 +317,56 @@ describe("gui window launcher", () => {
           clearIntervalImpl: clearInterval,
           readDevToolsPort: () => 9222,
           pollMs: 100,
+          closeConfirmationMs: 200,
+        },
+      );
+      const settled = vi.fn();
+      void whenClosed.then(settled, settled);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(settled).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats the managed app window as closed after its target stays absent for the confirmation grace", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new FakeChildProcess();
+      const fetchImpl = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+        } as Response)
+        .mockResolvedValue({
+          ok: true,
+          json: async () => [],
+        } as Response);
+
+      const whenClosed = waitForManagedGuiAppWindowClose(
+        "http://localhost:4810/gui/",
+        "C:\\Temp\\kiln-profile",
+        child as unknown as ReturnType<typeof launchGuiWindow>["child"],
+        {
+          fetchImpl,
+          readDevToolsPort: () => 9222,
+          pollMs: 100,
+          closeConfirmationMs: 200,
         },
       );
 
       await vi.advanceTimersByTimeAsync(100);
       await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(199);
+      const settled = vi.fn();
+      void whenClosed.then(settled);
+      expect(settled).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
       await expect(whenClosed).resolves.toBeUndefined();
     } finally {
       vi.useRealTimers();

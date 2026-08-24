@@ -63,7 +63,6 @@ marks everything else as denied pending a separate decision.
 | `POST /gui/api/config/settings/apply` | Apply an approved settings proposal. | Denied initially; configuration mutation and approval remain distinct authorities. |
 | `GET /gui/api/workspace/tree` | Read a bounded local workspace directory projection. | Denied initially as filesystem access. |
 | `GET /gui/api/workspace/file` | Read a bounded local workspace file preview. | Denied initially as filesystem access. |
-| `POST /gui/api/window-closed` | Signal local managed-window lifecycle shutdown. | Local-only lifecycle signal; no remote scope. |
 | `GET /gui/ws` | Upgrade to the GUI operator WebSocket. | Authenticated operator session plus exact origin before any operation scope is evaluated. |
 
 ## GUI WebSocket Operation Inventory
