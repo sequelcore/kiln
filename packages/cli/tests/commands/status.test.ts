@@ -7,12 +7,14 @@ import {
   statusCommand as statusCommandImplementation,
   type StatusCommandOptions,
 } from "../../src/commands/status.js";
-import { defaultKilnYaml, type KilnProjectConfig } from "../../src/kiln-yaml.js";
+import type { KilnProjectConfig } from "../../src/kiln-yaml.js";
 import { resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
 
 function persistGlobalConfig(config: KilnGlobalConfig): void {
   const admitted = withSyntheticExecutionTargetEvidence(config);
@@ -25,9 +27,14 @@ function persistGlobalConfig(config: KilnGlobalConfig): void {
   persistGlobalConfigFixture(admitted.config);
 }
 
-function writeProjectConfig(kilnDir: string, config: KilnProjectConfig): void {
-  mkdirSync(kilnDir, { recursive: true });
-  writeFileSync(join(kilnDir, "kiln.yaml"), stringify(config), "utf8");
+function writeProjectConfig(binding: ProjectStateBinding, config: KilnProjectConfig): void {
+  mkdirSync(binding.projectStateRoot, { recursive: true });
+  writeFileSync(binding.configPath, stringify(config), "utf8");
+  bootstrapProjectAdoption(binding);
+}
+
+function projectConfig(domain: string): KilnProjectConfig {
+  return { version: "1", domain };
 }
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ProviderModelEligibilityRequirements } from "@kilnai/core/agents";
@@ -105,6 +112,7 @@ describe("statusCommand", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-status-"));
+    mkdirSync(join(tempDir, ".git"));
     tempConfigHome = mkdtempSync(join(tmpdir(), "kiln-status-config-"));
     process.env.XDG_CONFIG_HOME = tempConfigHome;
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -127,9 +135,8 @@ describe("statusCommand", () => {
   });
 
   it("prints domain when initialized", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeProjectConfig(kilnDir, defaultKilnYaml("python"));
+    const binding = resolveProjectStateBinding(tempDir);
+    writeProjectConfig(binding, projectConfig("python"));
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
@@ -138,14 +145,11 @@ describe("statusCommand", () => {
   });
 
   it("shows all config values", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeProjectConfig(kilnDir, {
+    const binding = resolveProjectStateBinding(tempDir);
+    writeProjectConfig(binding, {
       version: "1",
       domain: "react-typescript",
       channels: ["cli", "web"],
-      teamMode: "sequential",
-      requireApproval: false,
       maxDepth: 5,
       parallelWorkers: 4,
     });
@@ -154,17 +158,16 @@ describe("statusCommand", () => {
 
     const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("react-typescript");
-    expect(output).toContain("false");
-    expect(output).toContain("5");
-    expect(output).toContain("4");
+    expect(output).toContain("Max Depth:         3 [unknown]");
+    expect(output).toContain("Parallel Workers:  2 [unknown]");
   });
 
   it("shows memory file count", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(join(kilnDir, "memory"), { recursive: true });
-    writeProjectConfig(kilnDir, { ...defaultKilnYaml("python") });
-    writeFileSync(join(kilnDir, "memory", "chunk1.jsonl"), "{}");
-    writeFileSync(join(kilnDir, "memory", "chunk2.jsonl"), "{}");
+    const binding = resolveProjectStateBinding(tempDir);
+    mkdirSync(binding.memoryPath, { recursive: true });
+    writeProjectConfig(binding, projectConfig("python"));
+    writeFileSync(join(binding.memoryPath, "chunk1.jsonl"), "{}");
+    writeFileSync(join(binding.memoryPath, "chunk2.jsonl"), "{}");
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
@@ -173,9 +176,8 @@ describe("statusCommand", () => {
   });
 
   it("shows managed-agent route health", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeProjectConfig(kilnDir, defaultKilnYaml("python"));
+    const binding = resolveProjectStateBinding(tempDir);
+    writeProjectConfig(binding, projectConfig("python"));
     const harnessBase = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
     const directTarget = harnessBase.targetCatalog!.targets[0]!;
     if (directTarget.kind !== "direct") throw new Error("fixture direct target is required");
@@ -209,9 +211,8 @@ describe("statusCommand", () => {
   // degrade to "admission-unavailable" with the named reason - never throw,
   // and never perform credential or MCP work to get there.
   it("shows a policy-uncovered direct route as unavailable without throwing or resolving credentials", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeProjectConfig(kilnDir, defaultKilnYaml("python"));
+    const binding = resolveProjectStateBinding(tempDir);
+    writeProjectConfig(binding, projectConfig("python"));
     const uncovered = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
     const coveredTarget = uncovered.targetCatalog!.targets[0]!;
     if (coveredTarget.kind !== "direct") throw new Error("fixture direct target is required");
@@ -231,9 +232,8 @@ describe("statusCommand", () => {
   });
 
   it("shows configured engine route health", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeProjectConfig(kilnDir, { ...defaultKilnYaml("python") });
+    const binding = resolveProjectStateBinding(tempDir);
+    writeProjectConfig(binding, projectConfig("python"));
     persistGlobalConfig({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-test", "codex-direct"),
       engines: {
@@ -262,28 +262,26 @@ describe("statusCommand", () => {
   });
 
   it("shows web configuration diagnostics", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
+    const binding = resolveProjectStateBinding(tempDir);
     const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
     process.env.FIRECRAWL_API_KEY = "fc-test";
-    writeProjectConfig(kilnDir, {
-      ...defaultKilnYaml("python"),
+    writeProjectConfig(binding, {
+      ...projectConfig("python"),
       web: {
         enabled: true,
         netPolicy: "documentation",
         allowedDomains: ["docs.example.com"],
-        searchProvider: {
-          type: "searxng",
-          url: "https://searx.example.com",
-        },
-        searchFallbackProviders: [{
-          type: "http",
-          url: "https://fallback.example.com/search",
-        }],
-        extractProvider: {
-          type: "firecrawl",
-          apiKeyEnv: "FIRECRAWL_API_KEY",
-        },
+      },
+    });
+    persistGlobalConfig({
+      version: "4",
+      web: {
+        enabled: true,
+        netPolicy: "full",
+        allowedDomains: ["*"],
+        searchProvider: { type: "searxng", url: "https://searx.example.com" },
+        searchFallbackProviders: [{ type: "http", url: "https://fallback.example.com/search" }],
+        extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
       },
     });
 
@@ -308,8 +306,7 @@ describe("statusCommand", () => {
   });
 
   it("shows global web provider defaults with project web authority", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
+    const binding = resolveProjectStateBinding(tempDir);
     const previousTavilyKey = process.env.TAVILY_API_KEY;
     const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
     process.env.TAVILY_API_KEY = "tv-test";
@@ -317,6 +314,9 @@ describe("statusCommand", () => {
     persistGlobalConfig({
       version: "4",
       web: {
+        enabled: true,
+        netPolicy: "full",
+        allowedDomains: ["*"],
         searchProvider: {
           type: "tavily",
           apiKeyEnv: "TAVILY_API_KEY",
@@ -327,8 +327,8 @@ describe("statusCommand", () => {
         },
       },
     });
-    writeProjectConfig(kilnDir, {
-      ...defaultKilnYaml("python"),
+    writeProjectConfig(binding, {
+      ...projectConfig("python"),
       web: {
         enabled: true,
         netPolicy: "documentation",
@@ -358,10 +358,9 @@ describe("statusCommand", () => {
   });
 
   it("shows skill catalog health from canonical Kiln status evidence", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeProjectConfig(kilnDir, { ...defaultKilnYaml("python") });
-    writeSkill(join(kilnDir, "skills"), "project-ui", "Project UI workflow.");
+    const binding = resolveProjectStateBinding(tempDir);
+    writeProjectConfig(binding, projectConfig("python"));
+    writeSkill(binding.skillsPath, "project-ui", "Project UI workflow.");
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
@@ -380,18 +379,21 @@ describe("statusCommand", () => {
   });
 
   it("shows missing web provider env diagnostics", async () => {
-    const kilnDir = join(tempDir, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
+    const binding = resolveProjectStateBinding(tempDir);
     delete process.env.KILN_TEST_MISSING_WEB_KEY;
-    writeProjectConfig(kilnDir, {
-      ...defaultKilnYaml("python"),
+    writeProjectConfig(binding, {
+      ...projectConfig("python"),
       web: {
         enabled: true,
         netPolicy: "documentation",
-        searchProvider: {
-          type: "tavily",
-          apiKeyEnv: "KILN_TEST_MISSING_WEB_KEY",
-        },
+      },
+    });
+    persistGlobalConfig({
+      version: "4",
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        searchProvider: { type: "tavily", apiKeyEnv: "KILN_TEST_MISSING_WEB_KEY" },
       },
     });
 

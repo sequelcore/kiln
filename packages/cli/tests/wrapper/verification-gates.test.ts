@@ -6,12 +6,16 @@ import { DomainRegistry, type QualityGate } from "@kilnai/core/domain";
 import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import type { VerificationResult } from "@kilnai/core/verification";
 
-vi.mock("node:fs", () => ({
-  existsSync: vi.fn(() => false),
-  writeFileSync: vi.fn(),
-  unlinkSync: vi.fn(),
-  readFileSync: vi.fn(() => ""),
-}));
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return {
+    ...actual,
+    existsSync: vi.fn(() => false),
+    writeFileSync: vi.fn(),
+    unlinkSync: vi.fn(),
+    readFileSync: vi.fn(() => ""),
+  };
+});
 
 vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: vi.fn().mockResolvedValue(new InMemoryContextArtifactCache()),
@@ -26,7 +30,7 @@ const MOCK_WRAPPER_CONFIG: WrapperConfig = {
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   createRegistry: () =>
-    new DomainRegistry({ builtinConfigs: [], domainsDir: ".kiln/domains" }),
+    new DomainRegistry({ builtinConfigs: [] }),
   buildSystemPrompt: () => "<kiln-session/>",
 };
 
@@ -42,7 +46,7 @@ describe("verification-gates", () => {
   describe("runVerification()", () => {
     it("returns passed:true when all gate commands succeed", async () => {
       const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
-      await manager.prepare("task", "/project");
+      await manager.prepare("task", process.cwd());
 
       const gates: readonly QualityGate[] = [
         { name: "lint", command: 'node -e "process.exit(0)"', description: "Lint", required: true },
@@ -58,7 +62,7 @@ describe("verification-gates", () => {
 
     it("returns passed:false when a required gate fails", async () => {
       const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
-      await manager.prepare("task", "/project");
+      await manager.prepare("task", process.cwd());
 
       const gates: readonly QualityGate[] = [
         { name: "lint", command: 'node -e "process.exit(1)"', description: "Lint", required: true },
@@ -73,7 +77,7 @@ describe("verification-gates", () => {
 
     it("returns empty checks when gates array is empty", async () => {
       const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
-      await manager.prepare("task", "/project");
+      await manager.prepare("task", process.cwd());
 
       const result = await manager.runVerification([], process.cwd());
 
@@ -84,7 +88,7 @@ describe("verification-gates", () => {
   describe("cleanup() with verification result", () => {
     it("includes verification result in report when provided", async () => {
       const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
-      await manager.prepare("task", "/project");
+      await manager.prepare("task", process.cwd());
 
       const verificationResult: VerificationResult = {
         passed: true,
@@ -105,7 +109,7 @@ describe("verification-gates", () => {
 
     it("omits verification result when not provided", async () => {
       const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
-      await manager.prepare("task", "/project");
+      await manager.prepare("task", process.cwd());
 
       const report = manager.cleanup({ sessionId: "session-1", terminalPhase: "completed", totalCostUsd: 0 });
 

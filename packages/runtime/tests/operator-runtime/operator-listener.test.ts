@@ -38,7 +38,7 @@ const claims: OperatorSessionClaims = {
   protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
   audience: OPERATOR_RUNTIME_AUDIENCE,
   projectRuntimeId: `krp_${"a".repeat(64)}`,
-  markerDigest: `sha256:${"b".repeat(64)}`,
+  compositionRevision: `sha256:${"b".repeat(64)}`,
   principal: { kind: "native-harness", harness: "codex" },
   sessionId: "session-1",
   issuedAt: now - 1,
@@ -96,11 +96,11 @@ async function startTestListener(): Promise<StartedTestListener> {
 }
 
 const sessionOpenInput = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   canonicalRoot: "C:\\Projects\\kiln",
   binding: {
     projectRuntimeId: claims.projectRuntimeId,
-    markerDigest: claims.markerDigest,
+    compositionRevision: claims.compositionRevision,
   },
   principal: claims.principal,
   sessionId: claims.sessionId,
@@ -140,7 +140,7 @@ function mcpRequest(overrides: {
       authorization: `Bearer ${credential}`,
       "content-type": "application/json",
       "x-kiln-project-runtime-id": claims.projectRuntimeId,
-      "x-kiln-marker-digest": claims.markerDigest,
+      "x-kiln-composition-revision": claims.compositionRevision,
       "x-kiln-principal-kind": claims.principal.kind,
       "x-kiln-principal-id": claims.principal.kind === "native-harness"
         ? claims.principal.harness
@@ -184,7 +184,7 @@ describe("startOperatorRuntimeListener", () => {
         authorization: `Bearer ${credential}`,
         "content-type": "application/json",
         "x-kiln-project-runtime-id": surfaceClaims.projectRuntimeId,
-        "x-kiln-marker-digest": surfaceClaims.markerDigest,
+        "x-kiln-composition-revision": surfaceClaims.compositionRevision,
         "x-kiln-principal-kind": surfaceClaims.principal.kind,
         "x-kiln-principal-id": surfacePrincipal.surface,
         "x-kiln-session-id": surfaceClaims.sessionId,
@@ -223,7 +223,11 @@ describe("startOperatorRuntimeListener", () => {
   it.each([
     ["missing bearer", { authorization: "" }],
     ["wrong bearer scheme", { authorization: "Basic abc" }],
-    ["tampered credential", { authorization: "Bearer v2.abc.def" }],
+    ["tampered credential", { authorization: "Bearer v3.abc.def" }],
+    ["retired marker binding header", {
+      "x-kiln-composition-revision": "",
+      "x-kiln-marker-digest": claims.compositionRevision,
+    }],
     ["mismatched project", { "x-kiln-project-runtime-id": `krp_${"c".repeat(64)}` }],
     ["malformed principal", { "x-kiln-principal-id": "Codex" }],
     ["missing session", { "x-kiln-session-id": "" }],

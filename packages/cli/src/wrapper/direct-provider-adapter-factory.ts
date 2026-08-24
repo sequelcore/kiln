@@ -70,6 +70,8 @@ export function directProviderExecutionBinding(
 export interface DirectProviderAdapterOptions {
   readonly provider: DirectProviderId;
   readonly model?: string;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly credentialBinding?: DirectProviderCredentialBinding;
   /** Credential material resolved after the operator dispatch fence. */
   readonly executionCredential?: ConfiguredExecutionCredential;
@@ -81,6 +83,7 @@ export interface DirectProviderAdapterOptions {
 interface DirectProviderAdapterContext {
   readonly provider: DirectProviderId;
   readonly model?: string;
+  readonly kilnHome?: string;
   readonly credentialBinding?: DirectProviderCredentialBinding;
   readonly executionCredential?: ConfiguredExecutionCredential;
   readonly resolveEnv: (name: string) => string | undefined;
@@ -150,6 +153,7 @@ export async function createDirectProviderAdapter(
   return await definition.create({
     provider: options.provider,
     model: options.model,
+    kilnHome: options.kilnHome,
     credentialBinding: options.credentialBinding,
     executionCredential: options.executionCredential,
     resolveEnv,
@@ -159,7 +163,7 @@ export async function createDirectProviderAdapter(
 async function createCodexOAuthAdapter(
   context: DirectProviderAdapterContext,
 ): Promise<ProviderAdapter> {
-  const service = new CodexOAuthCredentialPoolService();
+  const service = new CodexOAuthCredentialPoolService({ kilnHome: context.kilnHome });
   const defaultModel = requireSelectedModel(context);
   if (!context.credentialBinding) {
     if (context.executionCredential) {
@@ -208,6 +212,7 @@ async function createBoundDirectProviderAdapter(
     throw new Error(`Unsupported pooled direct provider: ${context.provider}`);
   }
   const service = new DirectProviderCredentialPoolService({
+    kilnHome: context.kilnHome,
     env: {
       ANTHROPIC_API_KEY: context.resolveEnv("ANTHROPIC_API_KEY"),
       OPENAI_API_KEY: context.resolveEnv("OPENAI_API_KEY"),
@@ -241,7 +246,7 @@ async function createOpenCodeAdapter(
   if (context.credentialBinding) {
     const defaultModel = requireSelectedModel(context);
     const committedRevision = requireCommittedRevision(context.credentialBinding);
-    const service = new OpenCodeCredentialPoolService();
+    const service = new OpenCodeCredentialPoolService({ kilnHome: context.kilnHome });
     if (context.executionCredential) {
       if (!isOpenCodeExecutionCredential(context.executionCredential, context.provider)) {
         throw new DirectProviderBindingError(context.credentialBinding);

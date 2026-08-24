@@ -488,9 +488,6 @@ function summaryForState(state: ActivationStatusState, representative: Activatio
 
 function logicalPath(path: string): string {
   const normalized = path.replaceAll("\\", "/");
-  if (normalized.endsWith("/.kiln/kiln.yaml")) return ".kiln/kiln.yaml";
   if (normalized.endsWith("/config.yaml")) return "config.yaml";
-  const kilnRoot = normalized.toLowerCase().indexOf("/.kiln/");
-  if (kilnRoot >= 0) return normalized.slice(kilnRoot + 1);
   return "canonical";
 }

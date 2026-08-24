@@ -1,8 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TrustedExecutionHarness } from "./trusted-execution-authorization-store.js";
+import { resolveCoreKilnHome } from "../kiln-home.js";
 
 export interface TrustedExecutionSemanticLimitation {
   readonly id: string;
@@ -77,10 +77,9 @@ export function validateTrustedExecutionLimitationAcceptance(
   return value;
 }
 
-const DEFAULT_TRUST_DIR = join(homedir(), ".kiln", "trust", "semantic-limitations");
 function receiptsPath(projectPath: string, baseDir?: string): string {
   const projectIdentity = createHash("sha256").update(projectPath).digest("hex");
-  return join(baseDir ?? DEFAULT_TRUST_DIR, `${projectIdentity}.jsonl`);
+  return join(baseDir ?? join(resolveCoreKilnHome(), "trust", "semantic-limitations"), `${projectIdentity}.jsonl`);
 }
 
 function readReceipts(projectPath: string, baseDir?: string): readonly Receipt[] {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -493,10 +493,7 @@ describe("managed-agent command", () => {
   it("resolves project state from the canonical root when invoked with a nested project path", async () => {
     const root = await tempRoot();
     const packageCliPath = join(root, "packages", "cli");
-    await mkdir(join(root, ".git"), { recursive: true });
-    await mkdir(join(root, ".kiln"), { recursive: true });
-    await mkdir(join(packageCliPath, ".kiln"), { recursive: true });
-    await writeFile(join(root, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    await mkdir(packageCliPath, { recursive: true });
 
     const rootSessionStore = new SessionStore(root);
     const nestedSessionStore = new SessionStore(packageCliPath);
@@ -1121,10 +1118,9 @@ class FakeManagedAgentGatewaySocket implements ManagedAgentGatewaySocket {
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "kiln-managed-agent-command-"));
   roots.push(root);
-  // Anchor the fixture as an adopted project so the command resolves it the
-  // way it resolves a real workspace rather than as a bare directory.
-  await mkdir(join(root, ".kiln"), { recursive: true });
-  await writeFile(join(root, ".kiln", "kiln.yaml"), "project:\n  name: managed-agent-command-fixture\n", "utf-8");
+  // The command must resolve the fixture from repository identity evidence;
+  // repository-local `.kiln` state is not a project marker anymore.
+  await mkdir(join(root, ".git"), { recursive: true });
   return root;
 }
 

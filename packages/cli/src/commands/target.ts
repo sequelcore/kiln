@@ -5,6 +5,7 @@ import {
   readGlobalConfigSnapshot,
   readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
+import { resolveKilnHomePath } from "../config/global-config/path.js";
 import {
   executionTargetWizardDiscoveryEvidence,
   projectGuiProviderModelDiscovery,
@@ -346,8 +347,12 @@ async function readCurrentTargetWizardContext(): Promise<TargetWizardReadContext
   const authority = readGlobalExecutionTargetAuthority(snapshot.config);
   const targetIntent = snapshot.config?.targetCatalog;
   if (!authority || !targetIntent) throw new Error("Direct target catalog is unavailable; configure an account before creating a target.");
-  const { registry } = createDefaultRegistry();
-  const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
+  const { registry } = createDefaultRegistry({ kilnHome: resolveKilnHomePath() });
+  const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(
+    getRuntimeProviderAvailability(registry),
+    undefined,
+    resolveKilnHomePath(),
+  ));
   const selection = createOperatorExecutionRouteSelectionPort({
     readConfigSnapshot: () => snapshot,
     resolveAccountAvailability: async () => [],
@@ -387,8 +392,12 @@ async function readCurrentAvailableModels() {
     readConfigSnapshot: () => ({ config, revision: `sha256:${"0".repeat(64)}` }),
     resolveAccountAvailability: async () => [],
   });
-  const { registry } = createDefaultRegistry();
-  const discovery = await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry));
+  const { registry } = createDefaultRegistry({ kilnHome: resolveKilnHomePath() });
+  const discovery = await resolveGuiOperatorDiscoveryResults(
+    getRuntimeProviderAvailability(registry),
+    undefined,
+    resolveKilnHomePath(),
+  );
   return projectAvailableModelDiagnostic({
     discovery: projectGuiProviderModelDiscovery(discovery),
     executionRouteCatalog: await executionRouteSelection.getCatalog(),

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
 
 const gatewayHarness = vi.hoisted(() => ({
@@ -572,7 +573,10 @@ describe("GUI dashboard provider availability", () => {
     expect(gatewayHarness.snapshot).toMatchObject({
       workingDirectory: tmpDir,
     });
-    expect(getProjectContextArtifactCache).toHaveBeenCalledWith(tmpDir);
+    expect(getProjectContextArtifactCache).toHaveBeenCalledWith(
+      join(resolveProjectStateBinding(tmpDir).cachePath, "context-artifacts.json"),
+      resolveProjectStateBinding(tmpDir).projectStateRoot,
+    );
     expect(existsSync(join(packageCliPath, ".kiln", "continuation-targets.json"))).toBe(true);
   });
 

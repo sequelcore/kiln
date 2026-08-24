@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import {
   KilnConfigurationOnboardingApplyRequestSchema,
   KilnConfigurationOnboardingResultSchema,
@@ -18,7 +17,7 @@ import {
   type KilnGlobalConfig,
 } from "../config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
-import { readKilnYaml, type KilnProjectConfig } from "../kiln-yaml.js";
+import { readKilnYamlFile, type KilnProjectConfig } from "../kiln-yaml.js";
 import {
   applyConfigMutation,
   approveConfigMutation,
@@ -32,6 +31,12 @@ import {
   type ConfigMutationProposalRecord,
   type StoredConfigMutationSettlement,
 } from "./config-mutation-store.js";
+import {
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
+import { bootstrapProjectAdoption, readProjectAdoption } from "./project-adoption-manifest.js";
 
 type OnboardingPosture = KilnConfigurationOnboardingApplyRequest["posture"];
 
@@ -47,22 +52,25 @@ export interface ConfigurationOnboardingDependencies {
   /** Verifies that the global catalog's referenced evidence is current and projectable. */
   readonly readTargetAuthority?: (config: KilnGlobalConfig, globalConfigPath: string) => unknown;
   /** Reads project state without exposing its path in the wire result. */
-  readonly readProjectConfig?: (projectPath: string) => ConfigurationOnboardingProjectState;
+  readonly readProjectConfig?: (projectPath: string, binding?: ProjectStateBinding) => ConfigurationOnboardingProjectState;
   readonly proposeMutation?: (input: ProposeConfigMutationInput) => ConfigMutationProposalRecord;
   readonly approveMutation?: typeof approveConfigMutation;
   readonly applyMutation?: (input: ApplyConfigMutationInput) => ReturnType<typeof applyConfigMutation>;
-  readonly saveProposal?: (projectPath: string, record: ConfigMutationProposalRecord) => void;
+  readonly saveProposal?: (projectPath: string, record: ConfigMutationProposalRecord, binding?: ProjectStateBinding) => void;
   readonly readLatestSettlement?: (
     projectPath: string,
     operation: ProposeConfigMutationInput["operation"],
+    binding?: ProjectStateBinding,
   ) => StoredConfigMutationSettlement | null;
   readonly hasActiveMutation?: (
     projectPath: string,
     operation: ProposeConfigMutationInput["operation"],
+    binding?: ProjectStateBinding,
   ) => boolean;
   readonly readInterruptedMutation?: (
     projectPath: string,
     operation: ProposeConfigMutationInput["operation"],
+    binding?: ProjectStateBinding,
   ) => InterruptedConfigMutation | null;
 }
 
@@ -70,6 +78,8 @@ export interface ReadConfigurationOnboardingInput {
   readonly projectPath: string;
   readonly posture?: OnboardingPosture;
   readonly globalConfigPath?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly kilnHome?: string;
   readonly dependencies?: ConfigurationOnboardingDependencies;
 }
 
@@ -77,6 +87,8 @@ export interface ApplyConfigurationOnboardingInput {
   readonly projectPath: string;
   readonly request: unknown;
   readonly globalConfigPath?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly kilnHome?: string;
   /** Approves each authority-expanding operation created by this call. */
   readonly approve?: boolean;
   readonly approvedBy?: string;
@@ -94,10 +106,10 @@ const defaultDependencies: Required<Pick<
   proposeMutation: proposeConfigMutation,
   approveMutation: approveConfigMutation,
   applyMutation: applyConfigMutation,
-  saveProposal: (projectPath, record) => new ConfigMutationStore(projectPath).saveProposal(record),
-  readLatestSettlement: (projectPath, operation) => new ConfigMutationStore(projectPath).readLatestSettlement(operation),
-  hasActiveMutation: (projectPath, operation) => new ConfigMutationStore(projectPath).hasActiveProgress(operation),
-  readInterruptedMutation: (projectPath, operation) => new ConfigMutationStore(projectPath).readInterruptedMutation(operation),
+  saveProposal: (projectPath, record, binding) => mutationStore(projectPath, binding).saveProposal(record),
+  readLatestSettlement: (projectPath, operation, binding) => mutationStore(projectPath, binding).readLatestSettlement(operation),
+  hasActiveMutation: (projectPath, operation, binding) => mutationStore(projectPath, binding).hasActiveProgress(operation),
+  readInterruptedMutation: (projectPath, operation, binding) => mutationStore(projectPath, binding).readInterruptedMutation(operation),
 };
 type ConfigurationOnboardingPorts = typeof defaultDependencies;
 
@@ -110,6 +122,7 @@ export function readConfigurationOnboarding(
   input: ReadConfigurationOnboardingInput,
 ): KilnConfigurationOnboardingSnapshot {
   const dependencies = mergeDependencies(input.dependencies);
+  const binding = resolveOnboardingBinding(input.projectPath, input);
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
   const blockers: KilnConfigurationOnboardingBlocker[] = [];
   let globalConfig: KilnGlobalConfig | null = null;
@@ -123,9 +136,13 @@ export function readConfigurationOnboarding(
     blockers.push({ code: "global-config-unavailable", message: "Adopt global configuration before onboarding a project." });
   }
 
-  const projectState = dependencies.readProjectConfig(input.projectPath);
+  const projectState = dependencies.readProjectConfig(input.projectPath, binding);
+  const projectAdoption = readProjectAdoption(binding);
   if (projectState.error !== undefined) {
     blockers.push({ code: "project-config-invalid", message: "Project configuration is not structurally admitted." });
+  }
+  if (projectAdoption.status === "unadopted" && projectAdoption.reason !== "missing") {
+    blockers.push({ code: "project-config-invalid", message: "Project adoption identity is not structurally admitted." });
   }
   if (globalConfig && projectState.config && projectState.error === undefined) {
     try {
@@ -138,8 +155,8 @@ export function readConfigurationOnboarding(
   let projectReconciliationPending = false;
   let targetReconciliationPending = false;
   try {
-    projectReconciliationPending = reconciliationPending(input.projectPath, "project.adopt", dependencies);
-    targetReconciliationPending = reconciliationPending(input.projectPath, "target.select", dependencies);
+    projectReconciliationPending = reconciliationPending(input.projectPath, "project.adopt", dependencies, binding);
+    targetReconciliationPending = reconciliationPending(input.projectPath, "target.select", dependencies, binding);
   } catch {
     blockers.push({ code: "project-config-invalid", message: "Configuration mutation evidence is not structurally admitted." });
   }
@@ -185,6 +202,7 @@ export function readConfigurationOnboarding(
       && projectState.config
       && projectPosture === "read-only"
       && isSafeApproval(projectApproval)
+      && projectAdoption.status === "adopted"
       && defaultTargetId !== null
       && !projectReconciliationPending
       && !targetReconciliationPending
@@ -226,11 +244,13 @@ export async function applyConfigurationOnboarding(
       message: "Onboarding request is not admitted by the shared contract.",
     }], "Correct the onboarding request and retry.");
   }
+  const binding = resolveOnboardingBinding(input.projectPath, input);
 
   const snapshot = readConfigurationOnboarding({
     projectPath: input.projectPath,
     posture: request.posture,
     globalConfigPath: input.globalConfigPath,
+    projectStateBinding: binding,
     dependencies,
   });
   if (snapshot.status === "blocked") {
@@ -255,9 +275,9 @@ export async function applyConfigurationOnboarding(
     );
   }
 
-  const projectState = dependencies.readProjectConfig(input.projectPath);
-  const projectReconciliationPending = reconciliationPending(input.projectPath, "project.adopt", dependencies);
-  const targetReconciliationPending = reconciliationPending(input.projectPath, "target.select", dependencies);
+  const projectState = dependencies.readProjectConfig(input.projectPath, binding);
+  const projectReconciliationPending = reconciliationPending(input.projectPath, "project.adopt", dependencies, binding);
+  const targetReconciliationPending = reconciliationPending(input.projectPath, "target.select", dependencies, binding);
   let projectSummary: KilnConfigurationOnboardingMutationSummary | null = null;
   const projectAlreadySafe = projectState.config?.permissions?.sandbox === "read-only"
     && isSafeApproval(projectState.config.permissions.approval)
@@ -266,6 +286,7 @@ export async function applyConfigurationOnboarding(
     projectSummary = await runMutation({
       input,
       dependencies,
+      binding,
       operation: "project.adopt",
       payload: { scope: "project", posture: request.posture },
     });
@@ -274,11 +295,33 @@ export async function applyConfigurationOnboarding(
     }
   }
 
+  const publishedProjectState = dependencies.readProjectConfig(input.projectPath, binding);
+  if (
+    !publishedProjectState.exists
+    || publishedProjectState.error !== undefined
+    || publishedProjectState.config?.permissions?.sandbox !== "read-only"
+    || !isSafeApproval(publishedProjectState.config.permissions.approval)
+  ) {
+    return onboardingResult("rejected", projectSummary, null, [{
+      code: "project-config-invalid",
+      message: "Project adoption did not publish the required private configuration.",
+    }], "Resolve the project adoption diagnostics and retry.");
+  }
+  try {
+    bootstrapProjectAdoption(binding);
+  } catch {
+    return onboardingResult("blocked", projectSummary, null, [{
+      code: "project-config-invalid",
+      message: "Project adoption identity could not be published safely.",
+    }], "Inspect the private project state and retry onboarding.");
+  }
+
   let targetSummary: KilnConfigurationOnboardingMutationSummary | null = null;
   if (snapshot.defaultTargetId !== selectedTargetId || targetReconciliationPending) {
     targetSummary = await runMutation({
       input,
       dependencies,
+      binding,
       operation: "target.select",
       payload: { targetId: selectedTargetId },
     });
@@ -302,11 +345,12 @@ export async function applyConfigurationOnboarding(
 async function runMutation(input: {
   readonly input: ApplyConfigurationOnboardingInput;
   readonly dependencies: ConfigurationOnboardingPorts;
+  readonly binding: ProjectStateBinding;
   readonly operation: ProposeConfigMutationInput["operation"];
   readonly payload: unknown;
 }): Promise<KilnConfigurationOnboardingMutationSummary> {
   const globalConfigPath = input.input.globalConfigPath ?? resolveGlobalConfigPath();
-  const interrupted = input.dependencies.readInterruptedMutation(input.input.projectPath, input.operation);
+  const interrupted = input.dependencies.readInterruptedMutation(input.input.projectPath, input.operation, input.binding);
   if (interrupted !== null) {
     const result = await input.dependencies.applyMutation({
       projectPath: input.input.projectPath,
@@ -314,6 +358,7 @@ async function runMutation(input: {
       ...(interrupted.approvalId === undefined ? {} : { approvalId: interrupted.approvalId }),
       requester: "operator",
       globalConfigPath,
+      projectStateBinding: input.binding,
       readEffectiveState: async () => undefined,
     });
     return mutationSummary(result.settlement.outcome, result.replayed, result.settlement.diagnostics);
@@ -323,11 +368,12 @@ async function runMutation(input: {
     operation: input.operation,
     payload: input.payload,
     globalConfigPath,
+    projectStateBinding: input.binding,
   });
   if (record.proposal.status !== "valid") {
     return mutationSummary("rejected", false, record.proposal.diagnostics);
   }
-  input.dependencies.saveProposal(input.input.projectPath, record);
+  input.dependencies.saveProposal(input.input.projectPath, record, input.binding);
 
   let approvalId: string | undefined;
   if (input.input.approve === true && record.proposal.approvalRequired) {
@@ -336,6 +382,7 @@ async function runMutation(input: {
       proposalId: record.proposal.proposalId,
       approvedBy: input.input.approvedBy,
       surface: input.input.approvalSurface ?? "cli",
+      projectStateBinding: input.binding,
     }).approvalId;
   }
   const result = await input.dependencies.applyMutation({
@@ -344,6 +391,7 @@ async function runMutation(input: {
     ...(approvalId === undefined ? {} : { approvalId }),
     requester: "operator",
     globalConfigPath,
+    projectStateBinding: input.binding,
     readEffectiveState: async () => undefined,
   });
   return mutationSummary(result.settlement.outcome, result.replayed, result.settlement.diagnostics);
@@ -357,21 +405,35 @@ function reconciliationPending(
   projectPath: string,
   operation: ProposeConfigMutationInput["operation"],
   dependencies: ConfigurationOnboardingPorts,
+  binding: ProjectStateBinding,
 ): boolean {
-  return dependencies.hasActiveMutation(projectPath, operation)
-    || dependencies.readLatestSettlement(projectPath, operation)?.outcome === "committed-reconciliation-failed";
+  return dependencies.hasActiveMutation(projectPath, operation, binding)
+    || dependencies.readLatestSettlement(projectPath, operation, binding)?.outcome === "committed-reconciliation-failed";
 }
 
-function readProjectConfigState(projectPath: string): ConfigurationOnboardingProjectState {
-  const kilnPath = join(projectPath, ".kiln", "kiln.yaml");
+function readProjectConfigState(projectPath: string, binding?: ProjectStateBinding): ConfigurationOnboardingProjectState {
+  const state = binding ?? resolveProjectStateBinding(projectPath);
+  const kilnPath = state.configPath;
   if (!existsSync(kilnPath)) return { exists: false };
   try {
-    return { exists: true, config: readKilnYaml(join(projectPath, ".kiln")) ?? undefined };
+    return { exists: true, config: readKilnYamlFile(state.configPath) ?? undefined };
   } catch (error) {
     // Do not return parser text: it can contain an operator path or another
     // value that is not part of the onboarding wire contract.
     return { exists: true, error };
   }
+}
+
+function resolveOnboardingBinding(
+  projectPath: string,
+  input: ProjectStateRootOptions & { readonly projectStateBinding?: ProjectStateBinding },
+): ProjectStateBinding {
+  return input.projectStateBinding ?? resolveProjectStateBinding(projectPath, input);
+}
+
+function mutationStore(projectPath: string, binding?: ProjectStateBinding): ConfigMutationStore {
+  const resolved = binding ?? resolveProjectStateBinding(projectPath);
+  return new ConfigMutationStore(projectPath, { root: resolved.mutationsPath });
 }
 
 function mutationSummary(

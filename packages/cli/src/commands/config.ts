@@ -12,6 +12,8 @@ import {
   proposeConfigMutation,
 } from "../application/config-mutation-authority.js";
 import { ConfigMutationStore } from "../application/config-mutation-store.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import { resolveGlobalConfigPath } from "../config/global-config.js";
 import { configSettingKeys } from "../application/config-setting-descriptors.js";
 import type { KilnConfigMutationOperation } from "@kilnai/gateway-contracts";
 import {
@@ -242,7 +244,11 @@ async function runGovernedConfigMutation(input: {
     return;
   }
 
-  new ConfigMutationStore(input.projectPath).saveProposal(record);
+  const binding = resolveProjectStateBinding(input.projectPath);
+  new ConfigMutationStore(input.projectPath, {
+    root: binding.mutationsPath,
+    globalConfigPath: resolveGlobalConfigPath(),
+  }).saveProposal(record);
 
   let approvalId: string | undefined;
   if (proposal.approvalRequired) {

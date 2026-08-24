@@ -15,6 +15,22 @@ const tuiMocks = vi.hoisted(() => ({
   waitForGateway: vi.fn().mockResolvedValue(undefined),
 }));
 
+const actionClaimMocks = vi.hoisted(() => {
+  const instances: Array<{ readonly close: () => void }> = [];
+  class MockActionClaimStore {
+    readonly close: () => void = vi.fn();
+
+    constructor() {
+      instances.push(this);
+    }
+  }
+  return {
+    modelRound: MockActionClaimStore,
+    tool: MockActionClaimStore,
+    instances,
+  };
+});
+
 const operatorCompositionMocks = vi.hoisted(() => ({
   create: vi.fn(() => ({
     accountRuntime: {
@@ -377,6 +393,16 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   };
 });
 
+// Startup-provider guard tests exercise catalog admission, not SQLite owner
+// lifecycles. Keep each invocation's private runtime resources synthetic so a
+// rejected bootstrap cannot leave a live action-claim owner for the next test.
+vi.mock("../../src/application/runtime-model-round-action-claim-store.js", () => ({
+  SqliteRuntimeModelRoundActionClaimStore: actionClaimMocks.modelRound,
+}));
+vi.mock("../../src/application/runtime-tool-action-claim-store.js", () => ({
+  SqliteRuntimeToolActionClaimStore: actionClaimMocks.tool,
+}));
+
 vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
   const core = await vi.importActual<typeof import("@kilnai/core")>("@kilnai/core");
   const runtime = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
@@ -469,12 +495,14 @@ const APP_CONFIG: KilnAppConfig = {
 describe("tuiCommand startup provider catalog guard", () => {
   const originalTransport = process.env.KILN_TUI_TRANSPORT;
   const originalStartupProfile = process.env.KILN_STARTUP_PROFILE;
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   let cwd: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex");
     cwd = mkdtempSync(join(tmpdir(), "kiln-tui-startup-guard-"));
+    process.env.XDG_CONFIG_HOME = join(cwd, "xdg-config");
     registryMocks.providerDisplayInfo = [
       { id: "codex", group: "harness", models: [], free: false },
       { id: "opencode", group: "subscription", models: [], free: true },
@@ -500,6 +528,10 @@ describe("tuiCommand startup provider catalog guard", () => {
     else process.env.KILN_TUI_TRANSPORT = originalTransport;
     if (originalStartupProfile === undefined) delete process.env.KILN_STARTUP_PROFILE;
     else process.env.KILN_STARTUP_PROFILE = originalStartupProfile;
+    if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    for (const instance of actionClaimMocks.instances) instance.close();
+    actionClaimMocks.instances.length = 0;
     if (cwd) {
       rmSync(cwd, { recursive: true, force: true });
       cwd = undefined;
@@ -533,7 +565,11 @@ describe("tuiCommand startup provider catalog guard", () => {
     ).resolves.toBeUndefined();
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
-    expect(runtimeMocks.resolveGuiOperatorDiscoveryResults).toHaveBeenCalledWith(expect.objectContaining({ openai: true }));
+    expect(runtimeMocks.resolveGuiOperatorDiscoveryResults).toHaveBeenCalledWith(
+      expect.objectContaining({ openai: true }),
+      undefined,
+      join(cwd!, "xdg-config", "kiln"),
+    );
     expect(runtimeMocks.projectGuiProviderModelDiscovery).toHaveBeenCalled();
     expect(tuiMocks.waitForGateway).not.toHaveBeenCalled();
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);

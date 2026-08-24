@@ -9,10 +9,13 @@ import {
   type RuntimeMediaActionClaimSettlement,
   type RuntimeMediaActionClaimStore,
 } from "@kilnai/runtime";
+import { assertPrivateStateFileTargetSync } from "./private-project-state-filesystem.js";
 import { SqliteActionClaimStoreOwner } from "./sqlite-action-claim-store-owner.js";
 
 export interface RuntimeMediaActionClaimStoreOptions {
   readonly path: string;
+  /** Canonical project-private root when this store is project-owned. */
+  readonly privateStateRoot?: string;
   readonly now?: () => string;
   readonly ownerId?: string;
   readonly ownerStaleMs?: number;
@@ -51,6 +54,10 @@ export class SqliteRuntimeMediaActionClaimStore implements RuntimeMediaActionCla
 
   constructor(options: RuntimeMediaActionClaimStoreOptions) {
     if (!options.path.trim()) throw new TypeError("Runtime media action claim database path is required.");
+    const assertWritablePath = options.privateStateRoot === undefined
+      ? undefined
+      : () => assertPrivateStateFileTargetSync(options.privateStateRoot!, options.path);
+    assertWritablePath?.();
     mkdirSync(dirname(options.path), { recursive: true, mode: 0o700 });
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#db = new Database(options.path, { create: true, strict: true });
@@ -58,10 +65,12 @@ export class SqliteRuntimeMediaActionClaimStore implements RuntimeMediaActionCla
       database: this.#db,
       storeName: "Runtime media",
       now: this.#now,
+      ...(assertWritablePath ? { assertWritablePath } : {}),
       ...(options.ownerId !== undefined ? { ownerId: options.ownerId } : {}),
       ...(options.ownerStaleMs !== undefined ? { ownerStaleMs: options.ownerStaleMs } : {}),
     });
     try {
+      assertWritablePath?.();
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
       this.#ensureSchema();
       this.#owner.claimAndRunStartupRecovery(() => {

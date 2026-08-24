@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { mergeKilnYaml, type ResolvedKilnConfig } from "../../src/kiln-yaml.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml.js";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import {
   createInteractiveUseToolSurfaceOptions,
   describeInteractiveUseConfiguration,
 } from "../../src/config/interactive-use-config.js";
+import { deriveEffectiveKilnYaml } from "../../src/config/config-merger.js";
 
 vi.mock("@kilnai/runtime", () => ({
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
@@ -56,7 +57,7 @@ describe("interactive use config", () => {
     });
   });
 
-  it("reports project-scoped browser and computer authority without executing automation", () => {
+  it("reports globally owned browser and computer authority without executing automation", () => {
     expect(describeInteractiveUseConfiguration(config({
       enabled: true,
       browserProvider: "playwright",
@@ -282,34 +283,26 @@ describe("interactive use config", () => {
     expect(options.browserUse).toBeUndefined();
   });
 
-  it("merges interactive use config without treating it as global web authority", () => {
-    const merged = mergeKilnYaml(
-      config({
-        enabled: false,
-        allowedDomains: ["base.example.com"],
+  it("projects interactive-use authority only from global configuration", () => {
+    const merged = deriveEffectiveKilnYaml({
+      version: "4",
+      interactiveUse: {
+        enabled: true,
+        browserProvider: "playwright",
+        allowedDomains: ["global.example.com"],
         allowedApplications: ["Calculator"],
-        applicationAliases: {
-          Calculator: ["Calculadora"],
-        },
+        applicationAliases: { Calculator: ["Calculadora"] },
         browserEnvironment: "isolated-headless",
         computerEnvironment: "local-active-desktop",
-      }),
-      {
-        version: "1",
-        interactiveUse: {
-          enabled: true,
-          browserProvider: "playwright",
-          allowedDomains: ["override.example.com"],
-        },
       },
-    );
+    }, { version: "1" });
 
-    expect(merged.interactiveUse).toEqual({
+    expect(merged?.interactiveUse).toEqual({
       enabled: true,
       browserProvider: "playwright",
       browserEnvironment: "isolated-headless",
       computerEnvironment: "local-active-desktop",
-      allowedDomains: ["override.example.com"],
+      allowedDomains: ["global.example.com"],
       allowedApplications: ["Calculator"],
       applicationAliases: {
         Calculator: ["Calculadora"],

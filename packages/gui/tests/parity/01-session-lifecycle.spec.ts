@@ -14,7 +14,7 @@ test.describe("parity category 1 - session lifecycle", () => {
             // ignore heartbeat frames
           }
         }
-        return originalSend.call(this, data);
+        return Reflect.apply(originalSend, this, [data]);
       };
     });
   });

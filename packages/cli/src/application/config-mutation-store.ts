@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
+import { resolveProjectStateBinding } from "./project-state-root.js";
 import type {
   KilnConfigMutationApproval,
   KilnConfigMutationOperation,
@@ -18,8 +23,7 @@ export interface ConfigMutationRestorePoint {
 }
 
 export interface ConfigMutationProposalRecord {
-  /** Missing only on pre-keyed-reset records retained for honest crash recovery. */
-  readonly recordVersion?: 2;
+  readonly recordVersion: 2;
   readonly proposal: KilnConfigMutationProposal;
   readonly proposalHash: string;
   readonly writes: readonly ConfigMutationWrite[];
@@ -97,23 +101,29 @@ export interface InterruptedConfigMutation {
  * what makes a retried apply safe.
  */
 export class ConfigMutationStore {
-  private readonly base: string;
+  /** Shared operator-private root for global-config locks and lineage. */
+  private readonly globalBase: string;
   private readonly root: string;
   private readonly globalConfigPath: string;
+  private readonly privateStateRoot: string;
   /** Stable non-path identity used to qualify project-specific global evidence. */
   readonly projectIdentity: string;
 
   constructor(projectPath: string, options?: { readonly root?: string; readonly globalConfigPath?: string }) {
-    const base = options?.root ?? join(dirname(resolveGlobalConfigPath()), "mutations", "config");
-    this.base = base;
-    this.root = join(base, projectNamespace(projectPath));
+    const binding = options?.root === undefined ? resolveProjectStateBinding(projectPath) : undefined;
+    const base = options?.root ?? binding!.mutationsPath;
+    this.root = join(base, projectNamespace(binding?.canonicalRoot ?? projectPath));
+    this.privateStateRoot = resolve(binding?.projectStateRoot ?? dirname(base));
     this.globalConfigPath = options?.globalConfigPath ?? resolveGlobalConfigPath();
+    this.globalBase = options?.root === undefined
+      ? base
+      : join(dirname(this.globalConfigPath), "mutations", "config");
     this.projectIdentity = projectNamespace(projectPath);
   }
 
   /** Lock file guarding the commit window for one canonical path. */
   lockPathFor(canonicalPath: string): string {
-    return join(this.isGlobalPath(canonicalPath) ? this.base : this.root, "locks", `${hashPath(canonicalPath)}.lock`);
+    return join(this.isGlobalPath(canonicalPath) ? this.globalBase : this.root, "locks", `${hashPath(canonicalPath)}.lock`);
   }
 
   /** Cross-process lock for one owned reconciliation target. */
@@ -123,7 +133,7 @@ export class ConfigMutationStore {
 
   /** Lock shared user-home projection outputs across every project namespace. */
   globalReconciliationLockPathFor(target: string): string {
-    return join(this.base, "reconciliation-locks-global", `${hashPath(target)}.lock`);
+    return join(this.globalBase, "reconciliation-locks-global", `${hashPath(target)}.lock`);
   }
 
   readProgressMarker(proposalId: string): ConfigMutationProgressMarker | null {
@@ -132,11 +142,13 @@ export class ConfigMutationStore {
   }
 
   writeProgressMarker(marker: ConfigMutationProgressMarker): void {
-    writeJson(this.markerPathFor(marker.path, marker.proposalId), marker);
+    writeJson(this.markerPathFor(marker.path, marker.proposalId), marker, this.privateStateRoot);
   }
 
   clearProgressMarker(proposalId: string): void {
-    rmSync(this.markerPath(proposalId), { force: true });
+    const markerPath = this.markerPath(proposalId);
+    assertPrivateStateFileTargetSync(this.privateStateRoot, markerPath);
+    rmSync(markerPath, { force: true });
     rmSync(this.globalMarkerPath(proposalId), { force: true });
   }
 
@@ -159,7 +171,7 @@ export class ConfigMutationStore {
     filter: { readonly operation?: KilnConfigMutationOperation; readonly canonicalPath?: string },
     description: string,
   ): InterruptedConfigMutation | null {
-    const candidates = [join(this.root, "in-progress"), join(this.base, "in-progress-global")]
+    const candidates = [join(this.root, "in-progress"), join(this.globalBase, "in-progress-global")]
       .flatMap((directory) => !existsSync(directory) ? [] : readdirSync(directory, { withFileTypes: true })
         .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
         .map((entry) => readJson<ConfigMutationProgressMarker>(join(directory, entry.name))))
@@ -186,22 +198,15 @@ export class ConfigMutationStore {
   }
 
   saveProposal(record: ConfigMutationProposalRecord): void {
-    writeJson(this.proposalPath(record.proposal.proposalId), record);
+    writeJson(this.proposalPath(record.proposal.proposalId), record, this.privateStateRoot);
   }
 
   readProposal(proposalId: string): ConfigMutationProposalRecord | null {
-    const candidate = readJson<unknown>(this.proposalPath(proposalId));
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
-    const record = candidate as Partial<ConfigMutationProposalRecord>;
-    if (!record.proposal
-      || typeof record.proposal !== "object"
-      || typeof record.proposalHash !== "string"
-      || !Array.isArray(record.writes)) return null;
-    return record as ConfigMutationProposalRecord;
+    return parseConfigMutationProposalRecord(readJson<unknown>(this.proposalPath(proposalId)));
   }
 
   saveApproval(approval: StoredConfigMutationApproval): void {
-    writeJson(this.approvalPath(approval.approvalId), approval);
+    writeJson(this.approvalPath(approval.approvalId), approval, this.privateStateRoot);
   }
 
   readApproval(approvalId: string): StoredConfigMutationApproval | null {
@@ -232,11 +237,8 @@ export class ConfigMutationStore {
   }
 
   readSettlement(proposalId: string): StoredConfigMutationSettlement | null {
-    return normalizeStoredConfigMutationSettlement(readJson<unknown>(this.projectSettlementPath(proposalId)))
-      ?? normalizeStoredConfigMutationSettlement(readJson<unknown>(this.globalSettlementPath(proposalId)))
-      // Read pre-qualification records only for replay; status projection uses
-      // the project-qualified directory and therefore fails closed for them.
-      ?? normalizeStoredConfigMutationSettlement(readJson<unknown>(this.legacyGlobalSettlementPath(proposalId)));
+    return parseStoredConfigMutationSettlement(readJson<unknown>(this.projectSettlementPath(proposalId)))
+      ?? parseStoredConfigMutationSettlement(readJson<unknown>(this.globalSettlementPath(proposalId)));
   }
 
   /** Latest durable outcome for one operation in this project namespace. */
@@ -245,7 +247,7 @@ export class ConfigMutationStore {
     if (!existsSync(directory)) return null;
     return readdirSync(directory, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map((entry) => normalizeStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name))))
+      .map((entry) => parseStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name))))
       .filter((settlement): settlement is StoredConfigMutationSettlement => settlement?.operation === operation)
       .sort((left, right) => left.settledAt.localeCompare(right.settledAt) || left.proposalId.localeCompare(right.proposalId))
       .at(-1) ?? null;
@@ -263,7 +265,7 @@ export class ConfigMutationStore {
     const directories = this.settlementDirectoriesForPath(canonicalPath);
     const latest = directories.flatMap((directory) => !existsSync(directory) ? [] : readdirSync(directory, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map((entry) => normalizeStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name)))))
+      .map((entry) => parseStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name)))))
       .filter((settlement): settlement is StoredConfigMutationSettlement => settlement !== null
         && settlement.appliedWrites.some((write) => samePath(write.path, canonicalPath)))
       .sort((left, right) => left.settledAt.localeCompare(right.settledAt) || left.proposalId.localeCompare(right.proposalId))
@@ -300,7 +302,7 @@ export class ConfigMutationStore {
 
   /** Reads unresolved commit markers without treating canonical bytes as proof of completion. */
   readProgressMarkers(): readonly ConfigMutationProgressMarker[] {
-    return [join(this.root, "in-progress"), join(this.base, "in-progress-global")]
+    return [join(this.root, "in-progress"), join(this.globalBase, "in-progress-global")]
       .flatMap((directory) => !existsSync(directory) ? [] : readdirSync(directory, { withFileTypes: true })
         .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
         .map((entry) => readJson<ConfigMutationProgressMarker>(join(directory, entry.name))))
@@ -314,7 +316,7 @@ export class ConfigMutationStore {
     if (!existsSync(directory)) return [];
     return readdirSync(directory, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map((entry) => readJson<ConfigMutationProposalRecord>(join(directory, entry.name)))
+      .map((entry) => parseConfigMutationProposalRecord(readJson<unknown>(join(directory, entry.name))))
       .filter((record): record is ConfigMutationProposalRecord => record !== null)
       .sort((left, right) => left.proposal.createdAt.localeCompare(right.proposal.createdAt)
         || left.proposal.proposalId.localeCompare(right.proposal.proposalId));
@@ -330,16 +332,25 @@ export class ConfigMutationStore {
    * the loser reads the winner's record.
    */
   settle(settlement: StoredConfigMutationSettlement): StoredConfigMutationSettlement {
-    const normalized = normalizeStoredConfigMutationSettlement(settlement);
+    const normalized = parseStoredConfigMutationSettlement(settlement);
     if (normalized === null) {
       throw new TypeError("Config mutation settlement has invalid activation observation evidence.");
     }
     const path = settlement.scope === "global"
       ? this.globalSettlementPath(settlement.proposalId)
       : this.projectSettlementPath(settlement.proposalId);
-    mkdirSync(dirname(path), { recursive: true });
+    const privateWrite = settlement.scope !== "global";
+    if (privateWrite) {
+      ensurePrivateStateDirectorySync(this.privateStateRoot, dirname(path));
+    } else {
+      mkdirSync(dirname(path), { recursive: true });
+    }
     const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
     try {
+      if (privateWrite) {
+        assertPrivateStateFileTargetSync(this.privateStateRoot, path);
+        assertPrivateStateFileTargetSync(this.privateStateRoot, temporaryPath);
+      }
       writeFileSync(temporaryPath, JSON.stringify(normalized, null, 2), "utf-8");
       linkSync(temporaryPath, path);
       return normalized;
@@ -369,22 +380,17 @@ export class ConfigMutationStore {
     return join(this.globalSettlementDirectory(), `${safeId(proposalId)}.json`);
   }
 
-  private legacyGlobalSettlementPath(proposalId: string): string {
-    return join(this.base, "settlements-global", `${safeId(proposalId)}.json`);
-  }
-
   private globalSettlementDirectory(): string {
-    return join(this.base, "settlements-global", this.projectIdentity);
+    return join(this.globalBase, "settlements-global", this.projectIdentity);
   }
 
   private settlementDirectoriesForPath(canonicalPath: string): readonly string[] {
     if (!this.isGlobalPath(canonicalPath)) return [join(this.root, "settlements")];
-    const root = join(this.base, "settlements-global");
-    if (!existsSync(root)) return [root];
-    const namespaces = readdirSync(root, { withFileTypes: true })
+    const root = join(this.globalBase, "settlements-global");
+    if (!existsSync(root)) return [];
+    return readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => join(root, entry.name));
-    return [...namespaces, root];
   }
 
   private isGlobalPath(canonicalPath: string): boolean {
@@ -396,7 +402,7 @@ export class ConfigMutationStore {
   }
 
   private globalMarkerPath(proposalId: string): string {
-    return join(this.base, "in-progress-global", `${safeId(proposalId)}.json`);
+    return join(this.globalBase, "in-progress-global", `${safeId(proposalId)}.json`);
   }
 
   private markerPathFor(canonicalPath: string, proposalId: string): string {
@@ -413,11 +419,24 @@ export function createConfigApprovalId(input: {
   return `cfgap_${createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 24)}`;
 }
 
-function writeJson(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
+function writeJson(path: string, value: unknown, privateStateRoot: string): void {
+  const privateWrite = isWithin(privateStateRoot, path);
+  if (privateWrite) {
+    ensurePrivateStateDirectorySync(privateStateRoot, dirname(path));
+    assertPrivateStateFileTargetSync(privateStateRoot, path);
+  } else {
+    mkdirSync(dirname(path), { recursive: true });
+  }
   const temporaryPath = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, JSON.stringify(value, null, 2), "utf-8");
-  renameSync(temporaryPath, path);
+  try {
+    if (privateWrite) {
+      assertPrivateStateFileTargetSync(privateStateRoot, temporaryPath);
+    }
+    writeFileSync(temporaryPath, JSON.stringify(value, null, 2), "utf-8");
+    renameSync(temporaryPath, path);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
 }
 
 function readJson<T>(path: string): T | null {
@@ -432,6 +451,19 @@ function projectNamespace(projectPath: string): string {
   return hashPath(projectPath);
 }
 
+function parseConfigMutationProposalRecord(candidate: unknown): ConfigMutationProposalRecord | null {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const record = candidate as Partial<ConfigMutationProposalRecord>;
+  if (record.recordVersion !== 2
+    || !record.proposal
+    || typeof record.proposal !== "object"
+    || typeof record.proposalHash !== "string"
+    || !Array.isArray(record.writes)) return null;
+  if (record.proposal.operation === "setting.reset"
+    && typeof record.proposal.normalizedPayload.key !== "string") return null;
+  return record as ConfigMutationProposalRecord;
+}
+
 function hashPath(value: string): string {
   return createHash("sha256").update(resolve(value).toLowerCase()).digest("hex").slice(0, 16);
 }
@@ -440,19 +472,12 @@ function readSettlementDirectory(directory: string): readonly StoredConfigMutati
   if (!existsSync(directory)) return [];
   return readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => normalizeStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name))))
+    .map((entry) => parseStoredConfigMutationSettlement(readJson<unknown>(join(directory, entry.name))))
     .filter((settlement): settlement is StoredConfigMutationSettlement => settlement !== null);
 }
 
-/**
- * Read-normalize settlements written before activation observation became a
- * required part of the terminal contract. Historical records cannot prove
- * activation from a committed revision or its hash, so they are explicitly
- * projected as unsupported rather than reported active. The durable terminal
- * record remains immutable; normalization is only a compatibility read at the
- * one existing store boundary.
- */
-function normalizeStoredConfigMutationSettlement(value: unknown): StoredConfigMutationSettlement | null {
+/** Accept only the current terminal settlement contract; unsupported records are not executable evidence. */
+function parseStoredConfigMutationSettlement(value: unknown): StoredConfigMutationSettlement | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const settlement = value as Partial<StoredConfigMutationSettlement>;
   if (settlement.reconciliationGenerations !== undefined) {
@@ -460,50 +485,9 @@ function normalizeStoredConfigMutationSettlement(value: unknown): StoredConfigMu
     const generations = settlement.reconciliationGenerations;
     if (generations.some((entry) => !isReconciliationGeneration(entry))) return null;
   }
-  if (settlement.activationObservation !== undefined) {
-    return isValidActivationObservation(settlement)
-      ? settlement as StoredConfigMutationSettlement
-      : null;
-  }
-
-  const committedRevision = settlement.committedRevision;
-  if (committedRevision !== null
-    && committedRevision !== "absent"
-    && (typeof committedRevision !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(committedRevision))) {
-    return null;
-  }
-  const activation = settlement.activation === "hot"
-    || settlement.activation === "next-turn"
-    || settlement.activation === "next-session"
-    || settlement.activation === "reconcile"
-    || settlement.activation === "restart-required"
-    ? settlement.activation
-    : "restart-required";
-
-  if (committedRevision === null) {
-    return {
-      ...settlement,
-      activation,
-      activationObservation: {
-        state: "not-started",
-        boundary: activation,
-        committedRevision: null,
-        activeRevision: null,
-        summary: "Historical settlement lacks activation evidence; activation is unproven.",
-      },
-    } as StoredConfigMutationSettlement;
-  }
-  return {
-    ...settlement,
-    activation,
-    activationObservation: {
-      state: "unsupported",
-      boundary: activation,
-      committedRevision,
-      activeRevision: null,
-      summary: "Historical settlement lacks activation evidence; activation is unproven.",
-    },
-  } as StoredConfigMutationSettlement;
+  return isValidActivationObservation(settlement)
+    ? settlement as StoredConfigMutationSettlement
+    : null;
 }
 
 function isValidActivationObservation(
@@ -563,6 +547,12 @@ function isReconciliationGeneration(value: unknown): value is ConfigMutationReco
 
 function samePath(left: string, right: string): boolean {
   return resolve(left).toLowerCase() === resolve(right).toLowerCase();
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const child = relative(resolve(root), resolve(candidate));
+  return child === ""
+    || (!isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
 }
 
 function safeId(value: string): string {

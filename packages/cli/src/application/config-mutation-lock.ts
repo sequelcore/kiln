@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 
 interface MutationLockOwner {
   readonly pid: number;
@@ -31,8 +35,17 @@ export class ConfigMutationLockUnavailableError extends Error {
 export async function withConfigMutationLock<T>(
   lockPath: string,
   run: () => T | Promise<T>,
-  options?: { readonly waitMs?: number; readonly retryMs?: number },
+  options?: {
+    readonly waitMs?: number;
+    readonly retryMs?: number;
+    /** Canonical private root when the lock is a project-state artifact. */
+    readonly privateStateRoot?: string;
+  },
 ): Promise<T> {
+  if (options?.privateStateRoot !== undefined) {
+    ensurePrivateStateDirectorySync(options.privateStateRoot, dirname(lockPath));
+    assertPrivateStateFileTargetSync(options.privateStateRoot, lockPath);
+  }
   const lock = await acquireWithWait(lockPath, options);
   try {
     return await run();

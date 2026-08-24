@@ -9,11 +9,9 @@ import {
   serializeProjectConfigDescriptors,
   serializeProjectConfigEditorSchema,
 } from "../../src/config/project-config-schema.js";
-import { readKilnYaml } from "../../src/kiln-yaml.js";
 import type {
   KilnContextGovernanceConfig,
   KilnWorkGovernanceConfig,
-  KilnYamlInteractiveUseConfig,
   KilnYamlMcp,
   KilnYamlPermissions,
   KilnYamlSkillsConfig,
@@ -22,7 +20,6 @@ import type {
 import type { KilnProjectConfig } from "../../src/config/project-config-schema.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const repositoryRoot = join(packageRoot, "..", "..");
 
 describe("project configuration schema", () => {
   it("is the strict runtime and editor contract for the project family", () => {
@@ -34,15 +31,47 @@ describe("project configuration schema", () => {
 
   it("derives path-addressed field descriptors from schema metadata", () => {
     expect(PROJECT_CONFIG_FIELD_DESCRIPTORS).toContainEqual(expect.objectContaining({
-      identity: "/permissions/tools/*/action",
+      identity: "/permissions/sandbox",
       structuralOwner: "project-configuration",
       semanticOwner: "model-facing-execution-authority",
       scope: "project",
       sensitivity: "public",
       authorityImpact: "authority-bearing",
+      projectAdmission: "attenuation-only",
+      comparator: "global-permission-narrowing",
       activation: "next-session",
       schemaRevision: 1,
     }));
+  });
+
+  it("gives every descriptor an explicit project admission and names every attenuation comparator", () => {
+    expect(PROJECT_CONFIG_FIELD_DESCRIPTORS.length).toBeGreaterThan(0);
+    for (const descriptor of PROJECT_CONFIG_FIELD_DESCRIPTORS) {
+      expect(["project-owned", "attenuation-only", "forbidden"]).toContain(descriptor.projectAdmission);
+      if (descriptor.projectAdmission === "attenuation-only") {
+        expect(descriptor.comparator, descriptor.identity).toEqual(expect.any(String));
+      } else {
+        expect(descriptor.comparator, descriptor.identity).toBeUndefined();
+      }
+    }
+  });
+
+  it("does not expose project-only execution owners in the project schema", () => {
+    expect(PROJECT_CONFIG_SCHEMA.properties).not.toHaveProperty("teamMode");
+    expect(PROJECT_CONFIG_SCHEMA.properties).not.toHaveProperty("requireApproval");
+    expect(PROJECT_CONFIG_SCHEMA.properties).not.toHaveProperty("qualityGates");
+    expect(PROJECT_CONFIG_SCHEMA.properties).not.toHaveProperty("interactiveUse");
+
+    const mcpServer = PROJECT_CONFIG_SCHEMA.properties.mcp?.properties?.servers?.patternProperties?.["^(.*)$"];
+    expect(mcpServer?.properties).not.toHaveProperty("command");
+    expect(mcpServer?.properties).not.toHaveProperty("url");
+    expect(mcpServer?.properties).not.toHaveProperty("env");
+    expect(mcpServer?.properties).not.toHaveProperty("headers");
+    expect(mcpServer?.properties?.admission?.properties).not.toHaveProperty("effects");
+    expect(PROJECT_CONFIG_SCHEMA.properties.contextGovernance?.properties?.adaptation?.properties)
+      .not.toHaveProperty("candidateRecordHash");
+    expect(PROJECT_CONFIG_SCHEMA.properties.contextGovernance?.properties?.adaptation?.properties)
+      .not.toHaveProperty("evaluationEvidenceHash");
   });
 
   it("keeps inferred project fields aligned with their existing semantic contracts", () => {
@@ -51,7 +80,6 @@ describe("project configuration schema", () => {
     expectTypeOf<KilnProjectConfig["permissions"]>().toMatchTypeOf<KilnYamlPermissions | undefined>();
     expectTypeOf<KilnProjectConfig["communication"]>().toMatchTypeOf<CommunicationIntent | undefined>();
     expectTypeOf<KilnProjectConfig["web"]>().toMatchTypeOf<KilnYamlWebConfig | undefined>();
-    expectTypeOf<KilnProjectConfig["interactiveUse"]>().toMatchTypeOf<KilnYamlInteractiveUseConfig | undefined>();
     expectTypeOf<KilnProjectConfig["skills"]>().toMatchTypeOf<KilnYamlSkillsConfig | undefined>();
     expectTypeOf<KilnProjectConfig["contextGovernance"]>().toMatchTypeOf<KilnContextGovernanceConfig | undefined>();
   });
@@ -63,13 +91,4 @@ describe("project configuration schema", () => {
       .toBe(serializeProjectConfigDescriptors());
   });
 
-  it.each([
-    join(repositoryRoot, ".kiln"),
-    join(repositoryRoot, "docs", "examples", "booking-assistant", ".kiln"),
-    join(repositoryRoot, "docs", "examples", "incident-triage", ".kiln"),
-    join(repositoryRoot, "docs", "examples", "research-brief", ".kiln"),
-    join(repositoryRoot, "docs", "examples", "support-agent", ".kiln"),
-  ])("admits the public project fixture at %s", (kilnDir) => {
-    expect(readKilnYaml(kilnDir)).not.toBeNull();
-  });
 });

@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   createProviderModelRouteHealthRecord,
@@ -8,8 +7,11 @@ import {
   type ProviderModelRouteHealthDecision,
   type ProviderModelRouteHealthRecord,
 } from "@kilnai/core";
+import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export interface ProviderModelRouteHealthStoreConfig {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly rootDir?: string;
 }
 
@@ -18,7 +20,7 @@ export class ProviderModelRouteHealthStore {
   private readonly recordsByProvider = new Map<string, readonly ProviderModelRouteHealthRecord[]>();
 
   constructor(config: ProviderModelRouteHealthStoreConfig = {}) {
-    this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "route-health");
+    this.rootDir = resolveRuntimeStoreRoot(config, "route-health");
   }
 
   async readProviderHealth(providerId: string): Promise<readonly ProviderModelRouteHealthRecord[]> {

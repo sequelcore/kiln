@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const {
   coreGovernorConstructorMock,
@@ -42,10 +44,35 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 });
 
 describe("SessionManager context governor integration", () => {
+  let privateHome = "";
+  let projectPath = "";
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
     coreGovernorProjectMock.mockReturnValue(projectedContextFromCore);
+    privateHome = mkdtempSync(join(tmpdir(), "kiln-session-manager-home-"));
+    projectPath = mkdtempSync(join(privateHome, "project-"));
+    process.env.HOME = privateHome;
+    process.env.USERPROFILE = privateHome;
+    process.env.XDG_CONFIG_HOME = join(privateHome, "xdg-config");
+  });
+
+  afterEach(() => {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
+    if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    if (privateHome) {
+      rmSync(privateHome, { recursive: true, force: true });
+      privateHome = "";
+      projectPath = "";
+    }
   });
 
   it("uses the core DefaultContextGovernor when preparing projected context", async () => {
@@ -72,7 +99,7 @@ describe("SessionManager context governor integration", () => {
     );
 
     await expect(
-      manager.prepare("prove core governor usage", "/workspace/project", "memory snapshot"),
+      manager.prepare("prove core governor usage", projectPath, "memory snapshot"),
     ).resolves.toMatchObject({
       projectedContext: projectedContextFromCore,
       systemPrompt: "system prompt",
@@ -117,7 +144,7 @@ describe("SessionManager context governor integration", () => {
 
     await manager.prepare(
       "shape test",
-      "/workspace/project",
+      projectPath,
       "memory snapshot",
       false,
       "resume-shape",
@@ -162,7 +189,7 @@ describe("SessionManager context governor integration", () => {
       artifactCache,
     );
 
-    await manager.prepare("default aggressiveness", "/workspace/project");
+    await manager.prepare("default aggressiveness", projectPath);
 
     expect(coreGovernorProjectMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,7 +209,7 @@ describe("SessionManager context governor integration", () => {
     };
     const contextCandidates = [{
       kind: "procedural" as const,
-      source: "runtime-skill:/workspace/project/.kiln/skills/review/SKILL.md",
+      source: `runtime-skill:${join(projectPath, "private-state", "skills", "review", "SKILL.md")}`,
       content: "Skill\nname: review",
       required: true,
     }];
@@ -199,7 +226,7 @@ describe("SessionManager context governor integration", () => {
       artifactCache,
     );
 
-    await manager.prepare("candidate test", "/workspace/project");
+    await manager.prepare("candidate test", projectPath);
 
     expect(coreGovernorProjectMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -235,7 +262,7 @@ describe("SessionManager context governor integration", () => {
       artifactCache,
     );
 
-    await manager.prepare("fresh task", "/workspace/project");
+    await manager.prepare("fresh task", projectPath);
 
     const input = coreGovernorProjectMock.mock.calls[0]?.[0];
 
@@ -272,7 +299,7 @@ describe("SessionManager context governor integration", () => {
 
     await manager.prepare(
       "resume test",
-      "/workspace/project",
+      projectPath,
       undefined,
       false,
       "resume-123",
@@ -295,13 +322,13 @@ describe("SessionManager context governor integration", () => {
 
     expect(input).toMatchObject({
       artifactCache,
-      projectArtifactKey: "project-summary:/workspace/project",
-      planArtifactKey: "plan-summary:/workspace/project:resume-test",
+      projectArtifactKey: `project-summary:${projectPath}`,
+      planArtifactKey: `plan-summary:${projectPath}:resume-test`,
       sessionArtifactKey: "session-summary:resume-123",
       sessionLedger: expect.objectContaining({
         currentPhase: "verify",
         resumedFrom: "resume-123",
-        workingDirectory: "/workspace/project",
+        workingDirectory: projectPath,
         lastProvider: "codex",
         toolCallCount: 4,
         turnDepth: 7,

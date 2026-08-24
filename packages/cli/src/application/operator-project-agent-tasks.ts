@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import {
@@ -52,7 +52,6 @@ import {
   type ManagedInvocationRouteResolution,
 } from "../config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
-import { resolveNativeHarnessProjectRoot } from "./native-harness-project-root.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import {
   KILN_STATUS_EVIDENCE_VERSION,
@@ -65,11 +64,20 @@ import { deriveEffectiveKilnYaml, loadResolvedKilnMcpConfiguration } from "../co
 import { publicEffectiveConfigValue } from "./effective-config-projection.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
 import { readGlobalConfig, readGlobalExecutionTargetAuthority } from "../config/global-config.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
 import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
+import { resolveProjectRoot } from "./project-root-resolver.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "./project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 
 const MAX_GOVERNANCE_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
 const MAX_GOVERNANCE_FUTURE_CLOCK_SKEW_MS = 60 * 1_000;
@@ -90,9 +98,10 @@ const MANAGED_WRITE_APPROVAL_DB_FILE = "managed-write-approvals.sqlite";
  */
 function loadOperatorProjectManagedRouteConfig(
   rootPath: string,
+  projectStateBinding: ProjectStateBinding = resolveProjectStateBinding(rootPath),
 ): ManagedAgentRouteConfigSource | undefined {
   const globalConfig = readGlobalConfig();
-  const projectConfig = readKilnYaml(join(rootPath, ".kiln"));
+  const projectConfig = readKilnYamlFile(projectStateBinding.configPath);
   const effectiveConfig = deriveEffectiveKilnYaml(globalConfig, projectConfig);
   if (!effectiveConfig) return undefined;
   const targetAuthority = readGlobalExecutionTargetAuthority(globalConfig);
@@ -123,6 +132,8 @@ export interface CreateOperatorProjectAgentTaskApplicationCompositionOptions {
     description: string,
   ) => Promise<{ readonly approved: boolean; readonly reason?: string }>;
   readonly projectPath: string;
+  /** Test/embedding seam for the verified operator-private project state. */
+  readonly projectStateBinding?: ProjectStateBinding;
   /** Full Core/Runtime admission receipt owned by the enclosing turn. */
   readonly authorityAdmission?: EffectiveAuthorityAdmissionBundle;
   readonly managedAccountComposition?: NonNullable<ReturnType<typeof createManagedAccountRuntimeComposition>>;
@@ -136,14 +147,17 @@ interface OperatorProjectGovernanceEvidence {
  * Reads project-neutral governance authority from the canonical config-status
  * owner. Harness-facing inspection remains a separate per-request concern.
  */
-function createOperatorProjectGovernanceReader(rootPath: string): {
+function createOperatorProjectGovernanceReader(
+  rootPath: string,
+  projectStateBinding: ProjectStateBinding,
+): {
   read(): Promise<OperatorProjectGovernanceEvidence>;
 } {
   return {
     async read() {
       let candidate: unknown;
       try {
-        candidate = await readConfigStatusSnapshot({ projectPath: rootPath });
+        candidate = await readConfigStatusSnapshot({ projectPath: rootPath, projectStateBinding });
       } catch {
         throw new AgentTaskApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
       }
@@ -176,6 +190,15 @@ function createOperatorProjectGovernanceReader(rootPath: string): {
   };
 }
 
+function resolveOperatorProjectStateBinding(projectPath: string): ProjectStateBinding | undefined {
+  try {
+    const root = resolveProjectRoot({ explicitPath: projectPath });
+    return resolveProjectStateBinding(root.rootPath);
+  } catch {
+    return undefined;
+  }
+}
+
 function sameCanonicalProjectRoot(left: string, right: string): boolean {
   try {
     return realpathSync(left) === realpathSync(right);
@@ -194,12 +217,13 @@ export function createOperatorGlobalManagedAccountComposition(input: {
   readonly projectPath: string;
   readonly compositionKey: string;
   readonly databasePath: string;
+  readonly projectStateBinding?: ProjectStateBinding;
 }): ReturnType<typeof createManagedAccountRuntimeComposition> {
-  const root = resolveNativeHarnessProjectRoot(input.projectPath);
-  if (root.status !== "resolved") return undefined;
-  const config = loadOperatorProjectManagedRouteConfig(root.rootPath);
+  const binding = input.projectStateBinding ?? resolveOperatorProjectStateBinding(input.projectPath);
+  if (!binding) return undefined;
+  const config = loadOperatorProjectManagedRouteConfig(binding.canonicalRoot, binding);
   return config
-    ? createManagedAccountRuntimeComposition(config, root.rootPath, {
+    ? createManagedAccountRuntimeComposition(config, binding.canonicalRoot, {
         compositionKey: input.compositionKey,
         databasePath: input.databasePath,
       })
@@ -334,11 +358,14 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   if (!options || typeof options.projectPath !== "string" || options.projectPath.trim().length === 0) {
     throw new AgentTaskApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
   }
-  const root = resolveNativeHarnessProjectRoot(options.projectPath);
-  if (root.status !== "resolved") {
+  const projectStateBinding = options.projectStateBinding ?? resolveOperatorProjectStateBinding(options.projectPath);
+  if (!projectStateBinding) {
     throw new AgentTaskApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
   }
-  const startupRouteConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
+  const root = { rootPath: projectStateBinding.canonicalRoot } as const;
+  const loadRouteConfig = (): ManagedAgentRouteConfigSource | undefined =>
+    loadOperatorProjectManagedRouteConfig(root.rootPath, projectStateBinding);
+  const startupRouteConfig = loadRouteConfig();
   if (
     startupRouteConfig?.targetCatalog?.targets.some((target) => target.kind === "direct")
     && !startupRouteConfig.executionCatalog
@@ -348,39 +375,51 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
       "Managed direct targets require targetCatalog in global config.",
     );
   }
-  const mcpResolution = loadResolvedKilnMcpConfiguration(root.rootPath);
+  const mcpResolution = loadResolvedKilnMcpConfiguration(root.rootPath, { projectStateBinding });
   if (mcpResolution.diagnostics.length > 0) {
     throw new AgentTaskApplicationError("route_unavailable", "Repair canonical MCP configuration before using managed-agent routes.");
   }
   const admittedMcpServers = Object.values(mcpResolution.servers).filter((server) =>
     server.enabled && server.admission?.state === "admitted");
+  const worktreeBaseDir = join(projectStateBinding.tmpPath, "worktrees");
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, worktreeBaseDir);
   const { registry } = createDefaultRegistry({
+    kilnHome: projectStateBinding.kilnHome,
     canonicalMcpServers: admittedMcpServers,
     canonicalMcpProjectPath: root.rootPath,
     runtimePermissionObservationProjectPath: root.rootPath,
+    worktreeRepoRoot: root.rootPath,
+    worktreeBaseDir,
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
-  const transcriptStore = new TranscriptStore(root.rootPath);
+  const transcriptStore = new TranscriptStore(projectStateBinding);
   const authorityAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
   if (options.authorityAdmission) {
     await authorityAdmissionEvidence.persist(options.authorityAdmission);
   }
-  const runtimeDirectory = join(root.rootPath, ".kiln", "runtime");
-  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+  const runtimeDirectory = projectStateBinding.runtimePath;
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, runtimeDirectory);
+  const managedDirectModelRoundActionClaimsPath = join(runtimeDirectory, "managed-direct-model-round-action-claims.sqlite");
+  const managedDirectToolActionClaimsPath = join(runtimeDirectory, "managed-direct-tool-action-claims.sqlite");
+  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedDirectModelRoundActionClaimsPath);
+  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedDirectToolActionClaimsPath);
   const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-    path: join(runtimeDirectory, "managed-direct-model-round-action-claims.sqlite"),
+    path: managedDirectModelRoundActionClaimsPath,
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
   let managedDirectToolActionClaims: SqliteRuntimeToolActionClaimStore;
   try {
     managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
-      path: join(runtimeDirectory, "managed-direct-tool-action-claims.sqlite"),
+      path: managedDirectToolActionClaimsPath,
+      privateStateRoot: projectStateBinding.projectStateRoot,
     });
   } catch (error) {
     managedDirectModelRoundActionClaims.close();
     throw error;
   }
-  const governance = createOperatorProjectGovernanceReader(root.rootPath);
+  const governance = createOperatorProjectGovernanceReader(root.rootPath, projectStateBinding);
   const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionRouteDataPolicyDecision => {
-    const currentPolicyConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
+    const currentPolicyConfig = loadRouteConfig();
     const directTarget = currentPolicyConfig?.executionCatalog?.routes.find(({ id }) => id === route.routeId);
     const intentTarget = currentPolicyConfig?.targetCatalog?.targets.find(({ id }) => id === route.routeId);
     const managedTarget = currentPolicyConfig?.executionTargetEvidence?.targets.find(({ targetId }) => targetId === route.routeId);
@@ -408,7 +447,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   ): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
     let config: ManagedAgentRouteConfigSource | undefined;
     try {
-      config = loadOperatorProjectManagedRouteConfig(root.rootPath);
+      config = loadRouteConfig();
     } catch {
       throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
     }
@@ -416,13 +455,16 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     let refreshFailure: unknown;
     const catalog = await createStagedManagedInvocationRouteCatalog(config, {
       cwd: root.rootPath,
+      projectStateBinding,
       registry,
       surface: "operator",
       compositionMode,
+      runtimeStateRoot: projectStateBinding.runtimePath,
       ...(managedAccountComposition ? { managedAccountComposition } : {}),
       ...(managedInvocationService ? { invocationService: managedInvocationService } : {}),
       ...(managedInvocationServiceKey ? { invocationServiceKey: managedInvocationServiceKey } : {}),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        kilnHome: projectStateBinding.kilnHome,
         builtinToolOptions: createSessionBuiltinToolOptions(),
         canonicalMcpServers: admittedMcpServers,
         runtimeToolActionClaims: managedDirectToolActionClaims,
@@ -450,12 +492,17 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   // The acknowledgement is durable evidence for this composition's exact
   // route admission. Capture it once, never regenerate it per profile lookup.
   const nativeHarnessAcknowledgedAt = new Date().toISOString();
-  const initialConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
+  const initialConfig = loadRouteConfig();
   if (!initialConfig) {
     throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
   }
+  const managedAccountDatabasePath = join(projectStateBinding.runtimePath, "managed-account-leases.sqlite");
+  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedAccountDatabasePath);
   const managedAccountComposition = options.managedAccountComposition
-    ?? createManagedAccountRuntimeComposition(initialConfig, root.rootPath);
+    ?? createManagedAccountRuntimeComposition(initialConfig, root.rootPath, {
+      compositionKey: root.rootPath,
+      databasePath: managedAccountDatabasePath,
+    });
   const ownsManagedAccountComposition = options.managedAccountComposition === undefined;
   const economicDispatch = managedAccountComposition
     ? createManagedEconomicDispatchComposition(
@@ -467,11 +514,19 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     : undefined;
   const commitmentRecovery = managedAccountComposition?.authority.createAgentTaskCommitmentRecoveryPort();
   const economicReplay = managedAccountComposition?.authority.createAgentTaskReplayInspectionPort();
-  const configuredAgents = await loadAgentDefinitions(root.rootPath);
+  const configuredAgents = await loadAgentDefinitions(root.rootPath, { projectStateBinding });
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
-  const agentTaskStore = new FilesystemAgentTaskStore(join(root.rootPath, ".kiln", "agent-tasks"));
+  const agentTaskRoot = join(projectStateBinding.runtimePath, "agent-tasks");
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, agentTaskRoot);
+  const agentTaskStore = new FilesystemAgentTaskStore(
+    agentTaskRoot,
+    60_000,
+    projectStateBinding.projectStateRoot,
+  );
+  const writeApprovalDatabasePath = join(runtimeDirectory, MANAGED_WRITE_APPROVAL_DB_FILE);
+  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, writeApprovalDatabasePath);
   const writeApprovalAuthority = new SqliteManagedWriteApprovalAuthority({
-    path: join(runtimeDirectory, MANAGED_WRITE_APPROVAL_DB_FILE),
+    path: writeApprovalDatabasePath,
   });
   const service = new AgentTaskApplicationService({
     project: { resolve: async () => project },
@@ -504,7 +559,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     },
     profiles: {
       resolve: async (id) => {
-        const agent = findAgent(await loadAgentDefinitions(root.rootPath), id);
+        const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), id);
         const current = await freshManagedInvocation();
         const catalogEntry = current.agentCatalog?.find(
           (candidate) => candidate.name === id,
@@ -521,7 +576,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
             admissionProfileId,
             nativeRoute,
             nativeHarnessAcknowledgedAt,
-            loadOperatorProjectManagedRouteConfig(root.rootPath)?.deliberationPolicy,
+            loadRouteConfig()?.deliberationPolicy,
           );
         }
         if (
@@ -565,13 +620,13 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
             return undefined;
           }
           if (route.capability.capacity.kind !== "accountless") return undefined;
-          const agent = findAgent(await loadAgentDefinitions(root.rootPath), profile.id);
+          const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), profile.id);
           if (!agent) return undefined;
           return nativeHarnessRouteFromProfile(
             profile,
             route,
             agent,
-            loadOperatorProjectManagedRouteConfig(root.rootPath)?.deliberationPolicy,
+            loadRouteConfig()?.deliberationPolicy,
           );
         }
         return collectManagedEconomicCandidates({
@@ -603,7 +658,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         if (job.dispatch.kind !== "economic") {
           throw new AgentTaskApplicationError("identity-revision-conflict", "Restore the persisted economic managed dispatch.");
         }
-        const currentConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
+        const currentConfig = loadRouteConfig();
         if (!currentConfig) {
           throw new AgentTaskApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
         }
@@ -635,7 +690,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
           && candidate.providerId === route.providerId
           && candidate.model === route.model);
         const invocationService = execution.invocationService;
-        const agent = findAgent(await loadAgentDefinitions(root.rootPath), job.configuredAgentProfileId);
+          const agent = findAgent(await loadAgentDefinitions(root.rootPath, { projectStateBinding }), job.configuredAgentProfileId);
         const catalogEntry = execution.agentCatalog?.find((candidate) => candidate.name === job.configuredAgentProfileId);
         const profile = currentRoute && catalogEntry
           ? resolveConfiguredManagedInvocationRouteProfile(currentRoute, catalogEntry, job.admissionProfileId)
@@ -644,7 +699,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
           ? resolveNativeHarnessDeliberation(
               agent,
               currentRoute,
-              loadOperatorProjectManagedRouteConfig(root.rootPath)?.deliberationPolicy,
+              loadRouteConfig()?.deliberationPolicy,
             )
           : undefined;
         if (

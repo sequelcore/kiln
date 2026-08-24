@@ -10,6 +10,7 @@ import type {
   PrivateFormalScreeningPackageFacts,
 } from "../../src/application/private-formal-screening-package.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
@@ -50,7 +51,17 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
   prepare: vi.fn(),
   readGlobalConfig: vi.fn(),
-  readKilnYaml: vi.fn(),
+  readKilnYamlFile: vi.fn(),
+  readRuntimeConfigurationRevision: vi.fn(() => ({
+    revisionSetId: `sha256:${"a".repeat(64)}`,
+    revisions: {
+      global: `sha256:${"b".repeat(64)}`,
+      project: `sha256:${"c".repeat(64)}`,
+      "project-state": `sha256:${"d".repeat(64)}`,
+      adoption: `sha256:${"e".repeat(64)}`,
+      "execution-target-evidence": `sha256:${"f".repeat(64)}`,
+    },
+  })),
   recordRouteHealth: vi.fn(),
   resolveEngineAvailabilityMap: vi.fn(),
   resolveManagedInvocationToolOptions: vi.fn(),
@@ -183,7 +194,11 @@ vi.mock("../../src/engines/engine-registry.js", () => ({
 }));
 
 vi.mock("../../src/kiln-yaml.js", () => ({
-  readKilnYaml: benchmarkExecutorMocks.readKilnYaml,
+  readKilnYamlFile: benchmarkExecutorMocks.readKilnYamlFile,
+}));
+
+vi.mock("../../src/application/runtime-configuration-revision.js", () => ({
+  readRuntimeConfigurationRevision: benchmarkExecutorMocks.readRuntimeConfigurationRevision,
 }));
 
 vi.mock("../../src/application/config-tools.js", () => ({
@@ -459,7 +474,7 @@ describe("createBenchmarkSessionExecutor", () => {
       },
     });
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue({});
-    benchmarkExecutorMocks.readKilnYaml.mockReturnValue({});
+    benchmarkExecutorMocks.readKilnYamlFile.mockReturnValue({});
     benchmarkExecutorMocks.recordRouteHealth.mockResolvedValue(undefined);
     benchmarkExecutorMocks.resolveEngineAvailabilityMap.mockReturnValue(new Map());
     benchmarkExecutorMocks.resolveManagedInvocationToolOptions.mockResolvedValue({});
@@ -604,6 +619,7 @@ describe("createBenchmarkSessionExecutor", () => {
 
   it("runs declared synthetic fixtures without loading project context from the repository root", async () => {
     const repositoryRoot = resolveProjectRoot().rootPath;
+    const projectStateBinding = resolveProjectStateBinding(repositoryRoot);
     const fixturePath = "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation";
     const expectedWorkspace = join(repositoryRoot, ...fixturePath.split("/"));
     const priorManagedResolutionCount = benchmarkExecutorMocks.resolveManagedInvocationToolOptions.mock.calls.length;
@@ -618,7 +634,10 @@ describe("createBenchmarkSessionExecutor", () => {
       metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
     }));
 
-    expect(benchmarkExecutorMocks.getProjectContextArtifactCache).toHaveBeenCalledWith(expectedWorkspace);
+    expect(benchmarkExecutorMocks.getProjectContextArtifactCache).toHaveBeenCalledWith(
+      join("C:/temp/benchmark-authority", "cache", "context-artifacts.json"),
+      "C:/temp/benchmark-authority",
+    );
     expect(benchmarkExecutorMocks.prepare).toHaveBeenCalledWith(
       expect.stringContaining("Use paths relative to this workspace root"),
       expectedWorkspace,
@@ -651,9 +670,10 @@ describe("createBenchmarkSessionExecutor", () => {
         managedAccountComposition: expect.anything(),
       }),
     );
-    expect(benchmarkExecutorMocks.createProjectBoundedWorkAuthority).toHaveBeenCalledWith(expectedWorkspace, {
+    expect(benchmarkExecutorMocks.createProjectBoundedWorkAuthority).toHaveBeenLastCalledWith(expectedWorkspace, {
       authorityStateRoot: "C:/temp/benchmark-authority",
       projectIdentityRoot: expectedWorkspace,
+      projectStateBinding,
       formalVerificationCapability: {
         metric: "formal_verification",
         status: "unavailable",
@@ -725,14 +745,13 @@ describe("createBenchmarkSessionExecutor", () => {
       expect(existsSync(authorityLeaseRoot)).toBe(false);
       const transcriptPath = join(
         evidenceRoot,
-        ".kiln",
         "sessions",
         encodeURIComponent(ownerSessionId),
         "transcript.jsonl",
       );
       expect(existsSync(transcriptPath)).toBe(true);
       expect(JSON.parse(readFileSync(transcriptPath, "utf8")).kind).toBe("operator_adoption_decision");
-      await expect(new TranscriptStore(evidenceRoot).readTranscript(ownerSessionId)).resolves.toEqual([
+      await expect(new TranscriptStore({ sessionsPath: join(evidenceRoot, "sessions") }).readTranscript(ownerSessionId)).resolves.toEqual([
         expect.objectContaining({ kind: "operator_adoption_decision", turnId: operatorTurnId }),
       ]);
     } finally {

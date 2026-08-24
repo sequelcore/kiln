@@ -64,6 +64,8 @@ import type { ProviderAdapter } from "@kilnai/core";
  */
 export interface ConfiguredExecutionAccountRuntimeOptions {
   readonly catalog: ExecutionCatalog;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
@@ -171,9 +173,10 @@ export class ConfiguredExecutionAccountRuntime {
   constructor(options: ConfiguredExecutionAccountRuntimeOptions) {
     this.#catalog = options.catalog;
     this.#codexPool = options.codexPool
-      ?? new CodexOAuthCredentialPoolService({ rootDir: options.credentialRootDir });
-    this.#openCodePool = new OpenCodeCredentialPoolService({ rootDir: options.credentialRootDir });
+      ?? new CodexOAuthCredentialPoolService({ kilnHome: options.kilnHome, rootDir: options.credentialRootDir });
+    this.#openCodePool = new OpenCodeCredentialPoolService({ kilnHome: options.kilnHome, rootDir: options.credentialRootDir });
     this.#directPool = new DirectProviderCredentialPoolService({
+      kilnHome: options.kilnHome,
       rootDir: options.credentialRootDir,
       env: options.env,
     });

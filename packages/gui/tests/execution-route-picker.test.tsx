@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ExecutionRouteCatalog } from "@kilnai/gateway-contracts";
 import { ExecutionRoutePicker } from "../src/components/execution-route-picker.js";
 
 const catalog = {
@@ -15,7 +16,7 @@ const catalog = {
       routeId: "offline", label: "Offline", providerId: "private-provider", providerModelId: "v1", accountSelection: { mode: "exact" as const, eligibleAccountCount: 1, allowOperatorOverride: false as const }, availability: "unresolved" as const, reasonCodes: ["missing-credentials" as const], repairActions: ["authenticate-provider" as const, "refresh-route-catalog" as const],
     },
   ],
-};
+} satisfies ExecutionRouteCatalog;
 
 describe("ExecutionRoutePicker", () => {
   it("uses the approved searchable command composition with official provider marks and brand/access filters", () => {
@@ -36,7 +37,7 @@ describe("ExecutionRoutePicker", () => {
     expect(screen.getByRole("option", { name: /Codex Auto Review, team-a, Current/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: /Codex Auto Review, team-a, Current/ }));
     fireEvent.click(screen.getByRole("combobox", { name: "Codex Auto Review account" }));
-    fireEvent.click(screen.getByRole("option", { name: "team-a", exact: true }));
+    fireEvent.click(screen.getByRole("option", { name: /^team-a$/u }));
     expect(onSelect).toHaveBeenNthCalledWith(1, { routeId: "codex-auto-review" });
     expect(onSelect).toHaveBeenNthCalledWith(2, { routeId: "codex-auto-review", accountOverrideId: "team-a" });
 
@@ -69,8 +70,8 @@ describe("ExecutionRoutePicker", () => {
     }] }} onSelect={vi.fn()} onRepair={vi.fn()} />);
 
     const rail = screen.getByRole("group", { name: "Providers" });
-    expect(within(rail).getByRole("button", { name: "All providers", exact: true })).toBeInTheDocument();
-    expect(within(rail).getByRole("button", { name: "all", exact: true })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: /^All providers$/u })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: /^all$/u })).toBeInTheDocument();
   });
 
   it("falls back to automatic when the active account override is no longer eligible", () => {

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   AppGatewayRuntimeIdentitySchema,
   type AppGatewayRuntimeIdentity,
@@ -11,6 +11,11 @@ import type {
   AppGatewayShutdownResult,
 } from "./app-gateway-control.js";
 import type { GatewayConfigurationRevision } from "./gateway-configuration-source.js";
+import {
+  assertPrivateStateFileTarget,
+  assertPrivateStateTarget,
+  ensurePrivateStateDirectory,
+} from "../utils/private-state-filesystem.js";
 
 export interface AppGatewayLaunchDescriptor {
   readonly schemaVersion: 1;
@@ -62,6 +67,11 @@ type ExpectedIdentity = Partial<Omit<AppGatewayRuntimeIdentity, "lifecycle">>;
 
 export class AppGatewaySupervisor {
   readonly #runtimeDir: string;
+  /**
+   * Keep the enclosing canonical root separately so a later junction swap of
+   * runtimeDir remains visible to each effect-time filesystem check.
+   */
+  readonly #privateStateRoot: string;
   readonly #desired: { readonly port: number; readonly configurationRevision: GatewayConfigurationRevision };
   readonly #version: string;
   readonly #launch: AppGatewayLaunchDescriptor;
@@ -75,6 +85,8 @@ export class AppGatewaySupervisor {
 
   constructor(input: {
     readonly runtimeDir: string;
+    /** Canonical project-private root that physically contains runtimeDir. */
+    readonly privateStateRoot: string;
     readonly desired: { readonly port: number; readonly configurationRevision: GatewayConfigurationRevision };
     readonly version: string;
     readonly launch: AppGatewayLaunchDescriptor;
@@ -86,7 +98,8 @@ export class AppGatewaySupervisor {
     readonly now?: () => number;
     readonly wait?: (ms: number) => Promise<void>;
   }) {
-    this.#runtimeDir = input.runtimeDir;
+    this.#privateStateRoot = resolve(input.privateStateRoot);
+    this.#runtimeDir = assertPrivateStateTarget(this.#privateStateRoot, input.runtimeDir);
     this.#desired = input.desired;
     this.#version = input.version;
     this.#launch = validateLaunch(input.launch);
@@ -265,12 +278,14 @@ export class AppGatewaySupervisor {
   }
 
   async #readStoredState(): Promise<AppGatewayRuntimeState | null> {
-    return readAppGatewayRuntimeState(this.#runtimeDir);
+    return readAppGatewayRuntimeState(this.#runtimeDir, this.#privateStateRoot);
   }
 
   async #readStoredCredentials(required: boolean): Promise<AppGatewayChildCredentials | null> {
+    const credentialsPath = this.#credentialsPath();
+    await assertPrivateStateFileTarget(this.#privateStateRoot, credentialsPath);
     try {
-      const value: unknown = JSON.parse(await readFile(this.#credentialsPath(), "utf8"));
+      const value: unknown = JSON.parse(await readFile(credentialsPath, "utf8"));
       if (isCredentials(value)) return value;
       throw new Error("App Gateway credentials are unsupported or invalid.");
     } catch (error) {
@@ -280,20 +295,24 @@ export class AppGatewaySupervisor {
   }
 
   async #withLock<T>(action: () => Promise<T>): Promise<T> {
-    await mkdir(this.#runtimeDir, { recursive: true, mode: 0o700 });
+    await ensurePrivateStateDirectory(this.#privateStateRoot, this.#runtimeDir, true);
+    const lockPath = this.#lockPath();
+    await assertPrivateStateFileTarget(this.#privateStateRoot, lockPath);
     let handle;
     try {
-      handle = await open(this.#lockPath(), "wx", 0o600);
+      handle = await open(lockPath, "wx", 0o600);
     } catch (error) {
       if (!isFsCode(error, "EEXIST")) throw error;
       throw new Error("Another App Gateway lifecycle operation is in progress.");
     }
     try {
+      await assertPrivateStateFileTarget(this.#privateStateRoot, lockPath);
       await handle.writeFile(String(process.pid), "utf8");
       return await action();
     } finally {
       await handle.close();
-      await rm(this.#lockPath(), { force: true });
+      await assertPrivateStateFileTarget(this.#privateStateRoot, lockPath);
+      await rm(lockPath, { force: true });
     }
   }
 
@@ -306,14 +325,25 @@ export class AppGatewaySupervisor {
   }
 
   async #writeAtomic(path: string, value: unknown): Promise<void> {
-    await mkdir(this.#runtimeDir, { recursive: true, mode: 0o700 });
+    await ensurePrivateStateDirectory(this.#privateStateRoot, this.#runtimeDir, true);
     const temporary = `${path}.${process.pid}.tmp`;
+    await assertPrivateStateFileTarget(this.#privateStateRoot, temporary);
     await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await assertPrivateStateFileTarget(this.#privateStateRoot, temporary);
+    await assertPrivateStateFileTarget(this.#privateStateRoot, path);
     await rename(temporary, path);
   }
 
   async #removeRuntimeFiles(): Promise<void> {
-    await Promise.all([rm(this.#statePath(), { force: true }), rm(this.#credentialsPath(), { force: true })]);
+    await Promise.all([
+      this.#removeRuntimeFile(this.#statePath()),
+      this.#removeRuntimeFile(this.#credentialsPath()),
+    ]);
+  }
+
+  async #removeRuntimeFile(path: string): Promise<void> {
+    await assertPrivateStateFileTarget(this.#privateStateRoot, path);
+    await rm(path, { force: true });
   }
 
   #statePath(): string { return join(this.#runtimeDir, "state.json"); }
@@ -321,15 +351,25 @@ export class AppGatewaySupervisor {
   #lockPath(): string { return join(this.#runtimeDir, "lifecycle.lock"); }
 }
 
-export async function readAppGatewayChildCredentials(runtimeDir: string): Promise<AppGatewayChildCredentials> {
-  const value: unknown = JSON.parse(await readFile(join(runtimeDir, "credentials.json"), "utf8"));
+export async function readAppGatewayChildCredentials(
+  runtimeDir: string,
+  privateStateRoot: string,
+): Promise<AppGatewayChildCredentials> {
+  const credentialsPath = join(runtimeDir, "credentials.json");
+  await assertPrivateStateFileTarget(privateStateRoot, credentialsPath);
+  const value: unknown = JSON.parse(await readFile(credentialsPath, "utf8"));
   if (!isCredentials(value)) throw new Error("App Gateway credentials are unsupported or invalid.");
   return value;
 }
 
-export async function readAppGatewayRuntimeState(runtimeDir: string): Promise<AppGatewayRuntimeState | null> {
+export async function readAppGatewayRuntimeState(
+  runtimeDir: string,
+  privateStateRoot: string,
+): Promise<AppGatewayRuntimeState | null> {
+  const statePath = join(runtimeDir, "state.json");
+  await assertPrivateStateFileTarget(privateStateRoot, statePath);
   try {
-    const value: unknown = JSON.parse(await readFile(join(runtimeDir, "state.json"), "utf8"));
+    const value: unknown = JSON.parse(await readFile(statePath, "utf8"));
     if (isRuntimeState(value)) return value;
     throw new Error("App Gateway state is unsupported or invalid; remove state.json only after confirming no gateway process is running.");
   } catch (error) {

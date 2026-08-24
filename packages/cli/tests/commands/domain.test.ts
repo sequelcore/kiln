@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { KilnAppConfig } from "../../src/config.js";
@@ -13,6 +21,7 @@ vi.mock("node:child_process", () => ({
 
 import { execFile } from "node:child_process";
 import { domainCommand } from "../../src/commands/domain.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const mockExecFile = vi.mocked(execFile);
 
@@ -85,13 +94,14 @@ describe("domainCommand", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-domain-"));
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    mkdirSync(join(tempDir, ".git"), { recursive: true });
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExecSuccess();
   });
 
   afterEach(() => {
+    rmSync(resolveProjectStateBinding(tempDir).projectStateRoot, { recursive: true, force: true });
     rmSync(tempDir, { recursive: true, force: true });
     logSpy.mockRestore();
     errorSpy.mockRestore();
@@ -127,19 +137,19 @@ describe("domainCommand", () => {
 
   // --- List ---
 
-  it("list prints 'no domains installed' when .kiln/domains does not exist", async () => {
+  it("list prints 'no domains installed' when private domain state does not exist", async () => {
     await domainCommand(MOCK_APP_CONFIG, "list", [], tempDir);
     expect(getOutput()).toContain("No domains installed.");
   });
 
-  it("list prints 'no domains installed' when .kiln/domains is empty", async () => {
-    mkdirSync(join(tempDir, ".kiln", "domains"), { recursive: true });
+  it("list prints 'no domains installed' when private domain state is empty", async () => {
+    mkdirSync(privateDomainsDir(tempDir), { recursive: true });
     await domainCommand(MOCK_APP_CONFIG, "list", [], tempDir);
     expect(getOutput()).toContain("No domains installed.");
   });
 
   it("list shows installed domains", async () => {
-    const domainsDir = join(tempDir, ".kiln", "domains");
+    const domainsDir = privateDomainsDir(tempDir);
     mkdirSync(domainsDir, { recursive: true });
     writeFileSync(join(domainsDir, "rust.yaml"), VALID_DOMAIN_YAML);
     writeFileSync(join(domainsDir, "elixir.yaml"), VALID_DOMAIN_YAML_2);
@@ -154,7 +164,7 @@ describe("domainCommand", () => {
   });
 
   it("list skips invalid YAML files gracefully", async () => {
-    const domainsDir = join(tempDir, ".kiln", "domains");
+    const domainsDir = privateDomainsDir(tempDir);
     mkdirSync(domainsDir, { recursive: true });
     writeFileSync(join(domainsDir, "broken.yaml"), "{}");
     writeFileSync(join(domainsDir, "rust.yaml"), VALID_DOMAIN_YAML);
@@ -163,6 +173,30 @@ describe("domainCommand", () => {
     const output = getOutput();
     expect(output).toContain("Warning: Could not parse broken.yaml");
     expect(output).toContain("Rust");
+  });
+
+  it("list fails closed when the private domain root is a junction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-domain-list-junction-"));
+    const outside = join(root, "outside");
+    mkdirSync(outside, { recursive: true });
+    const outsideFile = join(outside, "rust.yaml");
+    writeFileSync(outsideFile, VALID_DOMAIN_YAML);
+    const binding = resolveProjectStateBinding(tempDir);
+    mkdirSync(binding.projectStateRoot, { recursive: true });
+    try {
+      try {
+        symlinkSync(outside, binding.domainsPath, "junction");
+      } catch {
+        return;
+      }
+
+      await expect(domainCommand(MOCK_APP_CONFIG, "list", [], tempDir))
+        .rejects.toThrow(/unsafe|canonical root/iu);
+      expect(readFileSync(outsideFile, "utf8")).toBe(VALID_DOMAIN_YAML);
+      expect(getOutput()).not.toContain("Rust");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // --- Search ---
@@ -242,7 +276,32 @@ describe("domainCommand", () => {
     await domainCommand(MOCK_APP_CONFIG, "install", [pkgName], tempDir);
     const output = getOutput();
     expect(output).toContain("Installed Rust v1.2.0");
-    expect(existsSync(join(tempDir, ".kiln", "domains", "rust.yaml"))).toBe(true);
+    expect(existsSync(join(privateDomainsDir(tempDir), "rust.yaml"))).toBe(true);
+  });
+
+  it("install fails closed before copying through a private domain junction", async () => {
+    const pkgName = "@kiln-domains/rust";
+    const pkgDir = join(tempDir, "node_modules", "@kiln-domains", "rust");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, "domain.yaml"), VALID_DOMAIN_YAML);
+    writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: pkgName }));
+
+    const outside = mkdtempSync(join(tmpdir(), "kiln-domain-install-junction-outside-"));
+    const binding = resolveProjectStateBinding(tempDir);
+    mkdirSync(binding.projectStateRoot, { recursive: true });
+    try {
+      try {
+        symlinkSync(outside, binding.domainsPath, "junction");
+      } catch {
+        return;
+      }
+
+      await expect(domainCommand(MOCK_APP_CONFIG, "install", [pkgName], tempDir))
+        .rejects.toThrow(/unsafe|canonical root/iu);
+      expect(existsSync(join(outside, "rust.yaml"))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("install fails when bun add fails", async () => {
@@ -286,7 +345,7 @@ describe("domainCommand", () => {
   });
 
   it("info shows details for installed domain", async () => {
-    const domainsDir = join(tempDir, ".kiln", "domains");
+    const domainsDir = privateDomainsDir(tempDir);
     mkdirSync(domainsDir, { recursive: true });
     writeFileSync(join(domainsDir, "rust.yaml"), VALID_DOMAIN_YAML);
 
@@ -300,7 +359,7 @@ describe("domainCommand", () => {
     expect(output).toContain("build, test");
   });
 
-  it("info falls back to node_modules when not in .kiln/domains", async () => {
+  it("info falls back to node_modules when not in private domain state", async () => {
     const pkgDir = join(tempDir, "node_modules", "@kiln-domains", "rust");
     mkdirSync(pkgDir, { recursive: true });
     writeFileSync(join(pkgDir, "domain.yaml"), VALID_DOMAIN_YAML);
@@ -324,7 +383,7 @@ describe("domainCommand", () => {
   });
 
   it("remove deletes domain YAML and runs bun remove", async () => {
-    const domainsDir = join(tempDir, ".kiln", "domains");
+    const domainsDir = privateDomainsDir(tempDir);
     mkdirSync(domainsDir, { recursive: true });
     writeFileSync(join(domainsDir, "rust.yaml"), VALID_DOMAIN_YAML);
 
@@ -336,6 +395,29 @@ describe("domainCommand", () => {
     expect(existsSync(join(domainsDir, "rust.yaml"))).toBe(false);
   });
 
+  it("remove fails closed before deleting through a private domain junction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-domain-remove-junction-"));
+    const outside = join(root, "outside");
+    mkdirSync(outside, { recursive: true });
+    const outsideFile = join(outside, "rust.yaml");
+    writeFileSync(outsideFile, VALID_DOMAIN_YAML);
+    const binding = resolveProjectStateBinding(tempDir);
+    mkdirSync(binding.projectStateRoot, { recursive: true });
+    try {
+      try {
+        symlinkSync(outside, binding.domainsPath, "junction");
+      } catch {
+        return;
+      }
+
+      await expect(domainCommand(MOCK_APP_CONFIG, "remove", ["rust"], tempDir))
+        .rejects.toThrow(/unsafe|canonical root/iu);
+      expect(existsSync(outsideFile)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("remove shows 'not found' for unknown package", async () => {
     mockExecSuccess();
 
@@ -343,3 +425,7 @@ describe("domainCommand", () => {
     expect(getOutput()).toContain('Domain "nonexistent" not found.');
   });
 });
+
+function privateDomainsDir(projectRoot: string): string {
+  return resolveProjectStateBinding(projectRoot).domainsPath;
+}

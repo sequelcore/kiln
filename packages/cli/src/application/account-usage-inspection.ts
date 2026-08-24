@@ -35,8 +35,9 @@ export interface CreateAccountUsageInspectionServiceOptions {
 
 export function createAccountUsageInspectionService(
   options?: CreateAccountUsageInspectionServiceOptions,
+  kilnHome?: string,
 ): AccountUsageInspectionService {
-  const defaults = options ?? defaultOptions();
+  const defaults = options ?? defaultOptions(kilnHome);
   return {
     async inspect() {
       const now = defaults.now?.() ?? new Date();
@@ -72,8 +73,8 @@ export function createAccountUsageInspectionService(
   };
 }
 
-function defaultOptions(): CreateAccountUsageInspectionServiceOptions {
-  const codex = new CodexOAuthCredentialPoolService();
+function defaultOptions(kilnHome?: string): CreateAccountUsageInspectionServiceOptions {
+  const codex = new CodexOAuthCredentialPoolService({ kilnHome });
   return {
     readExecutionCatalog: () => {
       const catalog = readGlobalExecutionCatalog(readGlobalConfig());

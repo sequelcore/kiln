@@ -15,11 +15,18 @@ import { join, relative } from "node:path";
 import { loadSkillMdIndex, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { NATIVE_SKILL_TARGETS } from "./native-skill-targets.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
+import { resolveKilnHomePath } from "./global-config/path.js";
 
 export interface AdoptNativeHarnessSkillsOptions {
   readonly projectPath: string;
   readonly userHome?: string;
   readonly skillConfig?: KilnYamlSkillsConfig | null;
+  /** Explicit private project skills directory supplied by composition. */
+  readonly projectSkillsDirectory?: string;
+  /** Already-established private project binding. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export interface AdoptNativeHarnessSkillsResult {
@@ -37,12 +44,16 @@ interface NativeSkillCandidate {
 export function adoptNativeHarnessSkills(
   options: AdoptNativeHarnessSkillsOptions,
 ): AdoptNativeHarnessSkillsResult {
-  const userHome = options.userHome ?? homedir();
-  const configuredNames = readConfiguredSkillNames(options.projectPath, userHome, options.skillConfig);
+  const userHome = options.userHome;
+  const harnessHome = userHome ?? homedir();
+  const projectSkillsDirectory = options.projectSkillsDirectory
+    ?? options.projectStateBinding?.skillsPath
+    ?? resolvePrivateProjectSkillsDirectory(options.projectPath, userHome);
+  const configuredNames = readConfiguredSkillNames(projectSkillsDirectory, userHome, options.skillConfig);
   const candidatesByName = new Map<string, NativeSkillCandidate[]>();
 
   for (const target of NATIVE_SKILL_TARGETS) {
-    for (const candidate of discoverNativeSkillCandidates(target.dir(userHome))) {
+    for (const candidate of discoverNativeSkillCandidates(target.dir(harnessHome))) {
       if (configuredNames.has(candidate.name)) {
         continue;
       }
@@ -55,7 +66,7 @@ export function adoptNativeHarnessSkills(
   const adopted: string[] = [];
   const skipped: string[] = [];
   const errors: string[] = [];
-  const destinationRoot = join(userHome, ".kiln", "skills");
+  const destinationRoot = join(resolveConfiguredKilnHome(userHome), "skills");
   const adoptable: NativeSkillCandidate[] = [];
 
   for (const [name, candidates] of [...candidatesByName.entries()].sort(([left], [right]) => left.localeCompare(right))) {
@@ -104,17 +115,29 @@ export function adoptNativeHarnessSkills(
 }
 
 function readConfiguredSkillNames(
-  projectPath: string,
-  userHome: string,
+  projectSkillsDirectory: string,
+  userHome: string | undefined,
   skillConfig?: KilnYamlSkillsConfig | null,
 ): ReadonlySet<string> {
   const names = new Set<string>();
-  addSkillNames(names, join(userHome, ".kiln", "skills"));
-  addSkillNames(names, join(projectPath, ".kiln", "skills"));
+  addSkillNames(names, join(resolveConfiguredKilnHome(userHome), "skills"));
+  addSkillNames(names, projectSkillsDirectory);
   for (const skill of resolveKilnCoreBuiltinSkills(skillConfig?.builtin)) {
     names.add(skill.name);
   }
   return names;
+}
+
+function resolvePrivateProjectSkillsDirectory(projectPath: string, userHome: string | undefined): string {
+  const projectRoot = resolveProjectRoot({
+    explicitPath: projectPath,
+    ...(userHome ? { userHome } : {}),
+  }).rootPath;
+  return resolveProjectStateBinding(projectRoot, userHome ? { kilnHome: join(userHome, ".kiln") } : {}).skillsPath;
+}
+
+function resolveConfiguredKilnHome(userHome: string | undefined): string {
+  return userHome ? join(userHome, ".kiln") : resolveKilnHomePath();
 }
 
 function addSkillNames(names: Set<string>, root: string): void {

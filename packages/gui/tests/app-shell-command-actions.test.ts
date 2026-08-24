@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAppShellCommandExecutor } from "../src/components/app-shell-command-actions.js";
+import type { CommandPaletteItem } from "../src/components/command-palette.js";
+
+function command(id: string, title: string): CommandPaletteItem {
+  return {
+    id,
+    trigger: title.toLowerCase(),
+    title,
+  };
+}
 
 function createInput(overrides: Partial<Parameters<typeof createAppShellCommandExecutor>[0]> = {}) {
   return {
@@ -30,7 +39,7 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "clear", label: "New session" });
+    execute(command("clear", "New session"));
 
     expect(input.closeComposerCommands).toHaveBeenCalledTimes(1);
     expect(input.startNewSession).toHaveBeenCalledTimes(1);
@@ -41,7 +50,7 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "theme", label: "Theme" });
+    execute(command("theme", "Theme"));
 
     expect(input.setPaletteMode).toHaveBeenCalledWith("theme");
     expect(input.setPaletteQuery).toHaveBeenCalledWith("");
@@ -53,8 +62,8 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "deliberation", label: "Deliberation" });
-    execute({ id: "authority", label: "Authority" });
+    execute(command("deliberation", "Deliberation"));
+    execute(command("authority", "Authority"));
 
     expect(input.setDeliberationLevel).toHaveBeenCalledWith("high");
     expect(input.setRequestedAuthority).toHaveBeenCalledWith("read_only");
@@ -65,7 +74,7 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "target", label: "Execution target" });
+    execute(command("target", "Execution target"));
 
     expect(input.openExecutionRoutePicker).toHaveBeenCalledOnce();
     expect(input.closePalette).toHaveBeenCalledOnce();
@@ -75,8 +84,8 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "plan", label: "Plan mode" });
-    execute({ id: "setup", label: "Setup" });
+    execute(command("plan", "Plan mode"));
+    execute(command("setup", "Setup"));
 
     expect(input.setTargetedPlanMode).toHaveBeenCalledWith(true);
     expect(input.setWorkbenchSurface).toHaveBeenNthCalledWith(1, "chat");
@@ -87,8 +96,8 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "theme:system-follow", label: "System" });
-    execute({ id: "theme:unknown", label: "Unknown" });
+    execute(command("theme:system-follow", "System"));
+    execute(command("theme:unknown", "Unknown"));
 
     expect(input.persistThemePreference).toHaveBeenCalledWith("system-follow");
     expect(input.closePalette).toHaveBeenCalledTimes(2);

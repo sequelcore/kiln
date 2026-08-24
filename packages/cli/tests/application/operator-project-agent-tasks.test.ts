@@ -137,7 +137,6 @@ vi.mock("../../src/application/config-status.js", () => ({
         rootPath: projectRoot,
         projectName: "kiln",
         hasGitRoot: true,
-        hasKilnYaml: true,
         kilnYaml: { path: resolve(projectRoot, ".kiln", "kiln.yaml"), status: "valid" },
         projectContext: { path: resolve(projectRoot, ".kiln", "project-context.md"), status: "valid" },
       },

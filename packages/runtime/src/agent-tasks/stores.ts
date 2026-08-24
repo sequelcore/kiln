@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { AgentTaskApplicationError } from "./errors.js";
+import {
+  assertPrivateStateFileTarget,
+  assertPrivateStateTarget,
+  ensurePrivateStateDirectory,
+} from "../utils/private-state-filesystem.js";
 import {
   canTransition,
   cloneAgentTask,
@@ -186,8 +191,17 @@ export class InMemoryAgentTaskStore implements AgentTaskStore {
 
 export class FilesystemAgentTaskStore implements AgentTaskStore {
   private readonly root: string;
+  private readonly privateStateRoot: string | undefined;
   private currentProcessStartIdentityPromise: Promise<string | undefined> | undefined;
-  constructor(rootPath: string, private readonly staleLockMs = 60000) { this.root = resolve(rootPath); }
+  constructor(
+    rootPath: string,
+    private readonly staleLockMs = 60000,
+    privateStateRoot?: string,
+  ) {
+    this.root = resolve(rootPath);
+    this.privateStateRoot = privateStateRoot === undefined ? undefined : resolve(privateStateRoot);
+    if (this.privateStateRoot !== undefined) assertPrivateStateTarget(this.privateStateRoot, this.root);
+  }
   async reserve(input: { readonly job: AgentTaskRecord }): Promise<AgentTaskReservation> {
     return this.withLock(async (lease) => {
       const memory = await this.loadMemory();
@@ -234,8 +248,11 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
   /** Inspection-only store projection; a task owns exactly one run in V14. */
   async all(): Promise<readonly AgentTaskRecord[]> { return this.withLock(async () => (await this.loadMemory()).all()); }
   private async loadMemory(): Promise<InMemoryAgentTaskStore> {
+    const target = resolve(this.root, "agent-tasks", "agent-tasks.json");
     try {
-      const parsed = JSON.parse(await readFile(resolve(this.root, "agent-tasks", "agent-tasks.json"), "utf8")) as unknown;
+      await this.ensurePrivateDirectory(dirname(target), false);
+      await this.assertPrivateFile(target);
+      const parsed = JSON.parse(await readFile(target, "utf8")) as unknown;
       if (!Array.isArray(parsed)) throw new Error("corrupt");
       return new InMemoryAgentTaskStore(rejectLegacyAgentTasks(parsed));
     } catch (error) {
@@ -254,24 +271,31 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
   }
   private async saveMemory(memory: InMemoryAgentTaskStore, lease: FilesystemLockLease): Promise<void> {
     await this.assertLockOwner(lease);
-    await mkdir(resolve(this.root, "agent-tasks"), { recursive: true });
+    const directory = resolve(this.root, "agent-tasks");
+    await this.ensurePrivateDirectory(directory, true);
     const records = memory.all();
-    const target = resolve(this.root, "agent-tasks", "agent-tasks.json");
+    const target = resolve(directory, "agent-tasks.json");
     const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
     try {
+      await this.assertPrivateFile(target);
+      await this.assertPrivateFile(temp);
       await writeFile(temp, `${JSON.stringify(records)}\n`, "utf8");
       // The lease check is part of the persistence transaction. A stale
       // owner may not publish a snapshot after a successor has taken over;
       // the liveness-gated takeover below prevents a live paused owner from
       // being displaced between this check and the atomic rename.
       await this.assertLockOwner(lease);
+      await this.ensurePrivateDirectory(directory, false);
+      await this.assertPrivateFile(temp);
+      await this.assertPrivateFile(target);
       await rename(temp, target);
     } finally {
+      await this.assertPrivateFile(temp);
       await rm(temp, { force: true }).catch(() => undefined);
     }
   }
   private async withLock<T>(action: (lease: FilesystemLockLease) => Promise<T>): Promise<T> {
-    await mkdir(this.root, { recursive: true });
+    await this.ensurePrivateDirectory(this.root, true);
     const lease = await this.acquireLock();
     try {
       await this.afterLockAcquired(lease);
@@ -281,6 +305,20 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
       if (lease.heartbeatTimer !== undefined) clearInterval(lease.heartbeatTimer);
       await lease.heartbeatInFlight?.catch(() => undefined);
       await this.releaseLock(lease);
+    }
+  }
+
+  private async ensurePrivateDirectory(targetDirectory: string, create: boolean): Promise<boolean> {
+    if (this.privateStateRoot === undefined) {
+      if (create) await mkdir(targetDirectory, { recursive: true });
+      return true;
+    }
+    return ensurePrivateStateDirectory(this.privateStateRoot, targetDirectory, create);
+  }
+
+  private async assertPrivateFile(filePath: string): Promise<void> {
+    if (this.privateStateRoot !== undefined) {
+      await assertPrivateStateFileTarget(this.privateStateRoot, filePath);
     }
   }
 
@@ -309,12 +347,14 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     let livenessObservedAt = 0;
     let liveness: OwnerLiveness | undefined;
     for (let attempt = 0; attempt < 200; attempt += 1) {
+      await this.ensurePrivateDirectory(this.root, false);
       const token = randomUUID();
       const leaseGeneration = randomUUID();
       const staging = resolve(this.root, `.agent-tasks.lock.staging-${token}-${randomUUID()}`);
       const ownerPath = join(staging, lockOwnerFileName(token));
       let stagingCreated = false;
       try {
+        await this.ensurePrivateDirectory(dirname(staging), false);
         await mkdir(staging);
         stagingCreated = true;
         const processStartIdentity = await this.currentProcessStartIdentity();
@@ -336,8 +376,12 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
           closed: false,
           lost: false,
         };
+        await this.assertPrivateFile(ownerPath);
         await writeFile(ownerPath, serializeLockOwner(lease), "utf8");
+        await this.assertPrivateFile(ownerPath);
         await this.beforeLockPublish(staging, lease);
+        await this.ensurePrivateDirectory(staging, false);
+        await this.ensurePrivateDirectory(lock, false);
         await rename(staging, lock);
         lease.ownerPath = join(lock, lockOwnerFileName(token));
         lease.heartbeatTimer = setInterval(
@@ -352,7 +396,10 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
         lease.heartbeatTimer.unref?.();
         return lease;
       } catch (error) {
-        if (stagingCreated) await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+        if (stagingCreated) {
+          await this.ensurePrivateDirectory(staging, false);
+          await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+        }
         const code = (error as NodeJS.ErrnoException).code;
         // Directory publish collisions vary by platform and filesystem. In
         // every admitted case the staging directory is disposable and the
@@ -391,9 +438,14 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
       }
       const temp = `${lease.lock}.heartbeat-${lease.ownerToken}-${randomUUID()}.tmp`;
       try {
+        await this.ensurePrivateDirectory(lease.lock, false);
+        await this.assertPrivateFile(temp);
         await writeFile(temp, serializeLockOwner(lease), "utf8");
+        await this.assertPrivateFile(temp);
+        await this.assertPrivateFile(lease.ownerPath);
         await rename(temp, lease.ownerPath);
       } finally {
+        await this.assertPrivateFile(temp);
         await rm(temp, { force: true }).catch(() => undefined);
       }
       const refreshed = await this.readLockOwner(lease.lock);
@@ -435,6 +487,7 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
 
   private async removeEmptyLock(lock: string): Promise<boolean> {
     try {
+      await this.ensurePrivateDirectory(lock, false);
       const entries = await readdir(lock);
       if (entries.length !== 0) return false;
       await rmdir(lock);
@@ -459,12 +512,15 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     if (!current || !sameLockOwner(current, expected)) return false;
     const ownerPath = join(lock, lockOwnerFileName(expected.ownerToken));
     try {
+      await this.ensurePrivateDirectory(lock, false);
+      await this.assertPrivateFile(ownerPath);
       await rm(ownerPath, { force: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
       return false;
     }
     try {
+      await this.ensurePrivateDirectory(lock, false);
       await rmdir(lock);
       return true;
     } catch (error) {
@@ -478,6 +534,7 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
   }
 
   private async readLockOwner(lock: string): Promise<LockOwnerRecord | undefined> {
+    await this.ensurePrivateDirectory(lock, false);
     let entries: string[];
     try {
       entries = await readdir(lock);
@@ -490,7 +547,9 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     const ownerFile = ownerFiles[0]!;
     const ownerToken = ownerFile.slice("owner-".length, -".json".length);
     try {
-      const parsed = JSON.parse(await readFile(join(lock, ownerFile), "utf8")) as unknown;
+      const ownerPath = join(lock, ownerFile);
+      await this.assertPrivateFile(ownerPath);
+      const parsed = JSON.parse(await readFile(ownerPath, "utf8")) as unknown;
       if (!isLockOwnerRecord(parsed) || parsed.ownerToken !== ownerToken) return undefined;
       return parsed;
     } catch {

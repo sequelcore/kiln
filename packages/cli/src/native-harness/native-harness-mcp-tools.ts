@@ -54,6 +54,8 @@ export interface NativeHarnessMcpCallResult {
 
 export interface NativeHarnessMcpToolsOptions {
   readonly harness: NativeHarnessId;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly inspection?: NativeHarnessInspectionService;
   readonly agentTasks?: AgentTaskApplicationPort;
   readonly requestIdentity?: () => NativeHarnessMcpRequestIdentity;
@@ -75,7 +77,7 @@ export class NativeHarnessMcpTools {
     this.inspection = options.inspection ?? createNativeHarnessInspectionService({ harness: options.harness });
     this.agentTasks = options.agentTasks;
     this.requestIdentity = options.requestIdentity;
-    this.accountUsage = options.accountUsage ?? createAccountUsageInspectionService();
+    this.accountUsage = options.accountUsage ?? createAccountUsageInspectionService(undefined, options.kilnHome);
     this.settings = options.settings;
   }
 

@@ -2,10 +2,10 @@
 kiln:repo-shim:v1
 target: claude
 projectName: kiln
-projectRootId: sha256:cdfe9ad58b46226d
+projectRootId: sha256:krp_068d3de3981b76f23d85748e601c295456aa1c0a2cdd12682c989c220be9a54d
 sourceProfiles: sequel-engineering,operator-communication
 generator: repo-shims-v1
-contentHash: sha256:5efb0b013a7d46a3d2d45ab08b1f8c68885910abfa6c12b6cafd431df39ad481
+contentHash: sha256:934e9c7ffcdd228af5760c4c3ac6f272e3720289720cda43695c1e5a3ba856b7
 -->
 # Claude Project Guidance
 
@@ -18,7 +18,7 @@ contentHash: sha256:5efb0b013a7d46a3d2d45ab08b1f8c68885910abfa6c12b6cafd431df39a
 - Default provider: codex-oauth
 - Default model: gpt-5.6-sol
 - Max depth: 3
-- Parallel workers: 3
+- Parallel workers: 1
 
 ## Repository Evidence
 
@@ -40,12 +40,13 @@ contentHash: sha256:5efb0b013a7d46a3d2d45ab08b1f8c68885910abfa6c12b6cafd431df39a
 - Script `test:harness`: `bun run scripts/run-managed-agent-harness-tests.ts`
 - Script `test:managed-agents:live`: `bun run scripts/run-managed-agent-live-tests.ts`
 - Script `test:model-gateway-harnesses:live`: `bun run scripts/run-model-gateway-harness-live-probe.ts`
+- Script `test:mutation:runtime`: `stryker run stryker.runtime.conf.mjs`
 - Script `test:runtime`: `bun run --filter @kilnai/runtime test`
 - Script `test:scripts`: `vitest run --config scripts/vitest.config.ts --exclude scripts/profile-startup.test.ts`
 - Script `test:startup-profile`: `vitest run --config scripts/vitest.config.ts scripts/profile-startup.test.ts`
 - Script `test:surfaces`: `bun run --parallel --filter @kilnai/react --filter @kilnai/widget --filter @kilnai/tui --filter @kilnai/gui test`
 - Script `typecheck`: `bun run compile && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit && bun run typecheck:tests`
-- Script `typecheck:tests`: `tsc -p packages/tools/tsconfig.test.json && tsc -p packages/gateway-contracts/tsconfig.test.json && tsc -p packages/sdk/tsconfig.test.json && tsc -p packages/tui/tsconfig.test.json && tsc -p packages/core/tsconfig.test.json && tsc -p packages/cli/tsconfig.test.json`
+- Script `typecheck:tests`: `tsc -p packages/tools/tsconfig.test.json && tsc -p packages/gateway-contracts/tsconfig.test.json && tsc -p packages/sdk/tsconfig.test.json && tsc -p packages/tui/tsconfig.test.json && tsc -p packages/core/tsconfig.test.json && tsc -p packages/runtime/tsconfig.test.json && tsc -p packages/cli/tsconfig.test.json && tsc -p packages/gui/tsconfig.test.json`
 - Script `vendor:tools`: `bun run scripts/vendor-tools.ts`
 - Workspace package: `packages/*`
 
@@ -59,19 +60,19 @@ contentHash: sha256:5efb0b013a7d46a3d2d45ab08b1f8c68885910abfa6c12b6cafd431df39a
 
 ## Adopted Project Context
 
-Canonical source: `.kiln/project-context.md`.
+Canonical source: private project state `context`.
 
 ### No External Consumers
 
 Kiln is published to npm and has no external consumers; the operator is the
 only one. Breaking changes therefore need no migration shim, deprecation
-window, or compatibility variant. Replace contracts outright and delete the old
-path in the same change.
+window, or compatibility variant. Replace contracts outright and delete the
+old path in the same change.
 
-The operator's durable local state under `.kiln/` and `~/.kiln/` is the one
-exception, and it is a data-migration question decided per change, not a reason
-to keep an API compatibility layer. Discarding local state with no
-future-useful evidence is an admitted outcome.
+The operator's durable private project state and global `~/.kiln/` state are
+the one exception, and data retention is decided per change rather than by an
+API compatibility layer. Discarding local state with no future-useful evidence
+is an admitted outcome.
 
 Canonical statement and full rules: `docs/architecture/core/engineering-standards.md`,
 section "Consumer Surface".

@@ -179,9 +179,9 @@ separately. The procedure cannot manufacture missing delegation capability or
 widen route, provider, permission, budget, approval, or lifecycle authority.
 
 Repository-context authoring follows the same boundary. Deterministic scouting
-may propose or write canonical `.kiln/project-context.md`; generated
-`AGENTS.md` and `CLAUDE.md` remain sync projections and are never the durable
-authoring target.
+may propose or write the canonical bound private project `context` artifact
+under `<Kiln home>/projects/<project-id>/`; generated `AGENTS.md` and
+`CLAUDE.md` remain sync projections and are never the durable authoring target.
 
 ## Non-claims
 

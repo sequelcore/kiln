@@ -22,6 +22,9 @@ describe("MessageRow", () => {
 
     const message = container.querySelector('[data-slot="message"]');
     const bubble = container.querySelector('[data-slot="bubble"]');
+    if (!(message instanceof HTMLElement) || !(bubble instanceof HTMLElement)) {
+      throw new Error("Message primitives were not rendered as HTML elements.");
+    }
     expect(message).toHaveAttribute("data-align", "end");
     expect(message).toContainElement(bubble);
   });

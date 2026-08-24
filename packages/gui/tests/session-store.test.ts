@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
+import type { GuiSessionEvent } from "@kilnai/gateway-contracts";
 import {
   deriveChangedFiles,
   derivePendingApprovals,
   deriveToolCallLog,
   deriveWorkItems,
+  type TimelineEventEntry,
   useSessionStore,
 } from "../src/lib/session-store/index.js";
 import {
@@ -26,9 +27,13 @@ function resetSessionStore(): void {
     providerCatalogError: null,
     providerOperationFailure: null,
     providers: [],
-    providerModelDiscovery: defaultProviderModelDiscovery(),
-    activeProvider: null,
-    activeModel: null,
+    providerDiscovery: [],
+    providerModelDiscovery: null,
+    availableModels: null,
+    executionRouteCatalog: { routes: [] },
+    executionTargetWizardResult: null,
+    activeRouteId: null,
+    activeAccountOverrideId: null,
     sessionList: [],
     selectedSessionId: null,
     liveSessionId: null,
@@ -51,22 +56,21 @@ function resetSessionStore(): void {
     goalControlFailure: null,
     approvalResponseFailure: null,
     approvalResponsesPending: [],
-    providerSwitching: false,
-    providerSwitchTarget: null,
+    executionRouteSelecting: false,
+    executionRouteSelectionTarget: null,
     providerAuthenticating: false,
     providerAuthTarget: null,
     providerAuthMessage: null,
-    providerExplicitSelection: false,
+    providerAuthDetails: null,
     authorityStatus: null,
     contextUsage: null,
     activityPhase: "idle",
     interactiveUseSnapshot: null,
     browserSessionState: null,
     browserLiveViewportFrame: null,
-    browserOperatorInputAck: null,
     outboundSend: null,
     clearTimeoutId: null,
-    providerSwitchTimeoutId: null,
+    executionRouteSelectionTimeoutId: null,
     providerAuthTimeoutId: null,
   });
 }
@@ -111,18 +115,6 @@ function efficiencyEvidenceFixture(input: {
   };
 }
 
-function defaultProviderModelDiscovery(): GuiProviderModelDiscoveryProjection {
-  return {
-    catalogEvidence: {
-      status: "complete",
-      source: { kind: "test", id: "session-store" },
-      observedAt: "2026-07-01T00:00:00.000Z",
-      counts: { total: 0, returned: 0, omitted: 0 },
-    },
-    entries: [],
-  };
-}
-
 describe("session-store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -142,12 +134,13 @@ describe("session-store", () => {
           label: "Claude Sonnet",
           providerId: "claude",
           providerModelId: "sonnet",
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: false },
+          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
           availability: "available",
           reasonCodes: [],
           repairActions: [],
         }],
       },
+      availableModels: { observedAt: "2026-08-23T00:00:00.000Z", entries: [] },
       activeRouteId: "claude-sonnet",
       executionMode: "execute",
     });
@@ -1057,8 +1050,8 @@ describe("session-store", () => {
 
   it("tracks session telemetry from cost updates and canonical file-change events", () => {
     useSessionStore.setState({
-      activeProvider: "claude",
-      activeModel: "sonnet",
+      respondingProvider: "claude",
+      respondingModel: "sonnet",
       status: "running",
     });
 
@@ -1290,8 +1283,8 @@ describe("session-store", () => {
 
   it("applies live canonical session events to streaming/tool/approval state", () => {
     useSessionStore.setState({
-      activeProvider: "codex-oauth",
-      activeModel: "gpt-5.4-mini",
+      respondingProvider: "codex-oauth",
+      respondingModel: "gpt-5.4-mini",
       status: "running",
     });
 
@@ -1482,6 +1475,97 @@ describe("session-store", () => {
     ]);
   });
 
+  it("keeps approval identity and resolution consistent between live and replay paths", () => {
+    const event = (
+      eventId: string,
+      sequence: number,
+      kind: "approval_requested" | "approval_resolved",
+      payload: Record<string, unknown>,
+    ): GuiSessionEvent => ({
+      eventId,
+      kilnSessionId: "session-approval-parity",
+      sequence,
+      timestamp: `2026-08-23T19:00:${String(sequence - 1).padStart(2, "0")}.000Z`,
+      kind,
+      payload,
+    });
+    const requestOne = event("evt-approval-one", 1, "approval_requested", {
+      approvalId: "approval-one",
+      action: "Write one",
+    });
+    const requestTwo = event("evt-approval-two", 2, "approval_requested", {
+      approvalId: "approval-two",
+      action: "Write two",
+    });
+    const resolutionOne = event("evt-approval-one-resolved", 6, "approval_resolved", {
+      approvalId: "approval-one",
+      resolution: { decision: "approved", resolvedBy: "operator" },
+    });
+    const malformedResolutions: readonly GuiSessionEvent[] = [
+      event("evt-approval-missing-id", 3, "approval_resolved", {
+        resolution: { decision: "approved" },
+      }),
+      event("evt-approval-non-string-id", 4, "approval_resolved", {
+        approvalId: 42,
+        resolution: { decision: "approved" },
+      }),
+      event("evt-approval-blank-id", 5, "approval_resolved", {
+        approvalId: "   ",
+        resolution: { decision: "approved" },
+      }),
+    ];
+    const events = [requestOne, requestTwo, ...malformedResolutions, resolutionOne];
+
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-approval-parity",
+    });
+    for (const event of events) {
+      useSessionStore.getState().onSessionEvent(event);
+    }
+    const liveState = useSessionStore.getState();
+    const liveResolution = liveState.timelineEntries.find((entry) => entry.id === "timeline:evt-approval-one-resolved");
+    expect(liveResolution).toMatchObject({
+      details: {
+        approvalId: "approval-one",
+        resolution: {
+          decision: "approved",
+          resolvedBy: "operator",
+        },
+      },
+    });
+    const livePending = derivePendingApprovals(liveState.timelineEntries);
+    expect(livePending).toEqual([{
+      id: "approval-two",
+      description: "Write two",
+      sessionId: "session-approval-parity",
+      requestedAt: "2026-08-23T19:00:01.000Z",
+    }]);
+
+    useSessionStore.getState().onSessionEvent(requestOne);
+    useSessionStore.getState().onSessionEvent(resolutionOne);
+    expect(useSessionStore.getState().timelineEntries.filter((entry) => (
+      entry.type === "event" && entry.eventKind.startsWith("approval_")
+    ))).toHaveLength(events.length);
+    expect(derivePendingApprovals(useSessionStore.getState().timelineEntries)).toEqual(livePending);
+
+    resetSessionStore();
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-approval-parity",
+      meta: {
+        kilnSessionId: "session-approval-parity",
+        title: "Approval parity",
+        task: "Approval parity",
+        startedAt: "2026-08-23T19:00:00.000Z",
+      },
+      events: [...events, requestOne, resolutionOne],
+    });
+    const replayState = useSessionStore.getState();
+    const replayResolution = replayState.timelineEntries.find((entry) => entry.id === "timeline:evt-approval-one-resolved");
+    expect(replayResolution).toEqual(liveResolution);
+    expect(derivePendingApprovals(replayState.timelineEntries)).toEqual(livePending);
+  });
+
   it("applies live canonical turn completion authority and routing state", () => {
     useSessionStore.setState({
       status: "running",
@@ -1576,7 +1660,7 @@ describe("session-store", () => {
       },
     });
 
-    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+    const entry = useSessionStore.getState().timelineEntries.find((item): item is TimelineEventEntry => (
       item.type === "event" && item.eventKind === "tool_call_completed"
     ));
     expect(entry).toMatchObject({
@@ -1620,7 +1704,7 @@ describe("session-store", () => {
       },
     });
 
-    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+    const entry = useSessionStore.getState().timelineEntries.find((item): item is TimelineEventEntry => (
       item.type === "event" && item.eventKind === "tool_call_completed"
     ));
     expect(entry).toMatchObject({
@@ -1676,7 +1760,7 @@ describe("session-store", () => {
       },
     });
 
-    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+    const entry = useSessionStore.getState().timelineEntries.find((item): item is TimelineEventEntry => (
       item.type === "event" && item.eventKind === "tool_call_completed"
     ));
     expect(entry).toMatchObject({
@@ -1925,8 +2009,8 @@ describe("session-store", () => {
 
   it("projects agent invocation lifecycle events into timeline entries", () => {
     useSessionStore.setState({
-      activeProvider: "codex-oauth",
-      activeModel: "gpt-5.4",
+      respondingProvider: "codex-oauth",
+      respondingModel: "gpt-5.4",
       status: "running",
     });
 
@@ -2502,8 +2586,8 @@ describe("session-store", () => {
 
   it("stores runtime continuity per finalized provider and reconciles done-token fallback", () => {
     useSessionStore.setState({
-      activeProvider: "claude",
-      activeModel: "sonnet",
+      respondingProvider: "claude",
+      respondingModel: "sonnet",
       status: "running",
     });
 
@@ -2748,7 +2832,7 @@ describe("session-store", () => {
           label: "Claude Sonnet",
           providerId: "anthropic",
           providerModelId: "claude-sonnet",
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: false },
+          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
           availability: "available",
           reasonCodes: [],
           repairActions: [],
@@ -2826,9 +2910,8 @@ describe("session-store", () => {
     resetSessionStore();
     useSessionStore.getState().onWelcome({
       type: "welcome",
-      models: { claude: ["sonnet"] },
-      activeProvider: "claude",
-      activeModel: "sonnet",
+      executionRouteCatalog: { routes: [] },
+      availableModels: { observedAt: "2026-08-23T00:00:00.000Z", entries: [] },
       executionMode: "execute",
     });
 
@@ -2919,7 +3002,6 @@ describe("session-store", () => {
         task: "Inspect resume UX",
         startedAt: "2026-04-21T10:00:00.000Z",
         completedAt: "2026-04-21T10:05:00.000Z",
-        lastProvider: "codex-oauth",
       },
       events: [
         {
@@ -3718,8 +3800,23 @@ describe("session-store", () => {
     useSessionStore.setState({
       selectedSessionId: "removed-session",
       continuationTargetId: "removed-session",
-      messages: [{ id: "message-1", role: "assistant", content: "stale detail" }],
-      timelineEntries: [{ id: "timeline-1", kind: "assistant", label: "stale detail" }],
+      messages: [{
+        id: "message-1",
+        role: "assistant",
+        content: "stale detail",
+        createdAt: "2026-08-11T00:00:00.000Z",
+      }],
+      timelineEntries: [{
+        id: "timeline-1",
+        type: "message",
+        createdAt: "2026-08-11T00:00:00.000Z",
+        message: {
+          id: "message-1",
+          role: "assistant",
+          content: "stale detail",
+          createdAt: "2026-08-11T00:00:00.000Z",
+        },
+      }],
       sessionEvents: [{
         eventId: "event-1",
         kilnSessionId: "removed-session",
@@ -3731,9 +3828,18 @@ describe("session-store", () => {
       sessionCostUsd: 1.25,
       inputTokens: 100,
       outputTokens: 50,
-      authorityStatus: { requested: "audited", effective: "audited" },
-      browserLiveViewportFrame: { sessionId: "removed-session" },
-    } as never);
+      authorityStatus: { effective: "audited", completeness: "authoritative" },
+      browserLiveViewportFrame: {
+        type: "browser_live_viewport_frame",
+        sessionId: "removed-session",
+        frameId: "frame-1",
+        transport: "cdp-screencast",
+        format: "jpeg",
+        width: 1,
+        height: 1,
+        capturedAt: "2026-08-11T00:00:00.000Z",
+      },
+    });
 
     useSessionStore.getState().setSessionList([]);
 

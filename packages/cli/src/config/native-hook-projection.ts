@@ -13,6 +13,10 @@ import {
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import {
   describeProjectionDrift,
   isNativeProjectionHarnessDisabled,
   type ProjectionOutcome,
@@ -44,7 +48,10 @@ export interface NativeHookProjectionResult {
   outcomes: readonly ProjectionOutcome[];
 }
 
-export interface NativeHookProjectionOptions extends NativeProjectionSyncOptions {}
+export interface NativeHookProjectionOptions extends NativeProjectionSyncOptions {
+  /** Established private state root when `kilnDir` is project-owned state. */
+  readonly privateStateRoot?: string;
+}
 
 interface HookTargetResult {
   readonly ok: boolean;
@@ -69,6 +76,9 @@ export async function syncNativeHookProjections(
   let installState = readNativeProjectionInstallState(kilnDir);
 
   const sourcePath = join(kilnDir, "hooks", "autoformat.sh");
+  if (!options.dryRun && options.privateStateRoot !== undefined) {
+    ensurePrivateStateDirectorySync(options.privateStateRoot, join(kilnDir, "hooks"));
+  }
   const sourceContent = existsSync(sourcePath)
     ? readFileSync(sourcePath, "utf-8")
     : DEFAULT_HOOK_CONTENT;
@@ -78,6 +88,9 @@ export async function syncNativeHookProjections(
     mkdirSync(join(kilnDir, "hooks"), { recursive: true });
   }
   if (!options.dryRun && !sourceExists) {
+    if (options.privateStateRoot !== undefined) {
+      assertPrivateStateFileTargetSync(options.privateStateRoot, sourcePath);
+    }
     writeFileSync(sourcePath, DEFAULT_HOOK_CONTENT, "utf-8");
   }
   outcomes.push({
@@ -140,7 +153,9 @@ export async function syncNativeHookProjections(
     });
   }
 
-  if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
+  if (!options.dryRun) {
+    writeNativeProjectionInstallState(kilnDir, installState, options.privateStateRoot);
+  }
 
   return { claudeHook, codexHook, skippedWindows, errors, outcomes };
 }
@@ -226,7 +241,12 @@ async function syncClaudeHook(
       ],
     };
   }
-  backupNativeProjectionFile({ kilnDir, targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile, filePath: hookPath });
+  backupNativeProjectionFile({
+    kilnDir,
+    privateStateRoot: options.privateStateRoot,
+    targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile,
+    filePath: hookPath,
+  });
   writeFileSync(hookPath, sourceContent, "utf-8");
   snapshots.push(createNativeProjectionFileSnapshot({
     targetId: HOOK_PROJECTION_TARGET_IDS.claudeFile,
@@ -234,7 +254,12 @@ async function syncClaudeHook(
     content: sourceContent,
   }));
 
-  backupNativeProjectionFile({ kilnDir, targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings, filePath: settingsPath });
+  backupNativeProjectionFile({
+    kilnDir,
+    privateStateRoot: options.privateStateRoot,
+    targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings,
+    filePath: settingsPath,
+  });
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   snapshots.push(createNativeProjectionSnapshot({
     targetId: HOOK_PROJECTION_TARGET_IDS.claudeSettings,
@@ -291,7 +316,12 @@ async function syncCodexHook(
       outcomes: [{ targetId: HOOK_PROJECTION_TARGET_IDS.codexFile, path: hookPath, status: "planned", reason: "write projected hook file content" }],
     };
   }
-  backupNativeProjectionFile({ kilnDir, targetId: HOOK_PROJECTION_TARGET_IDS.codexFile, filePath: hookPath });
+  backupNativeProjectionFile({
+    kilnDir,
+    privateStateRoot: options.privateStateRoot,
+    targetId: HOOK_PROJECTION_TARGET_IDS.codexFile,
+    filePath: hookPath,
+  });
   writeFileSync(hookPath, sourceContent, "utf-8");
 
   return {

@@ -19,7 +19,7 @@ export async function projectCommand(
     return;
   }
 
-  if (!root.hasKilnYaml && !root.hasGitRoot) {
+  if (!root.hasGitRoot && root.source !== "explicit") {
     console.error(`Error: unable to resolve a Kiln project root from ${root.rootPath}`);
     process.exit(1);
   }
@@ -35,7 +35,11 @@ export async function projectCommand(
       break;
     }
     case "adopt": {
-      const result = writeProjectContextAdoption(root.rootPath, { force: args.includes("--force") });
+      const kilnHome = findFlag(args, "--kiln-home");
+      const result = writeProjectContextAdoption(root.rootPath, {
+        force: args.includes("--force"),
+        ...(kilnHome === undefined ? {} : { kilnHome }),
+      });
       if (result.errors.length > 0) {
         for (const error of result.errors) {
           console.error(`Error: ${error}`);
@@ -66,12 +70,13 @@ function printProjectHelp(): void {
   console.log("\nUsage: kiln project <subcommand> [options]\n");
   console.log("Subcommands:");
   console.log("  scout          Print deterministic repo-context evidence");
-  console.log("  adopt          Write .kiln/project-context.md from repo evidence");
+  console.log("  adopt          Write private project context from repo evidence");
   console.log("");
   console.log("Options:");
   console.log("  --project PATH Resolve project root from PATH");
   console.log("  --cwd PATH     Alias for --project");
   console.log("  --json         Print scout evidence as JSON");
   console.log("  --force        Replace existing project context after backup");
+  console.log("  --kiln-home PATH  Override the private Kiln state home");
   console.log("");
 }

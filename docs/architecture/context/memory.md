@@ -60,18 +60,15 @@ claim that Kiln reproduces biological recall or plasticity.
 
 Mutable CLI memory is operator state, not repository source. CLI, TUI, GUI, and
 MCP surfaces that need a project-scoped SQLite backing store must resolve it
-through the shared CLI memory storage resolver, which stores data under Kiln
-user app state keyed by normalized project identity.
+through the shared CLI memory storage resolver, which stores data under the
+bound private project namespace's `memory/` directory keyed by the normalized
+`krp_<sha256>` project identity.
 
-Project `.kiln/` is reserved for explicit project-owned artifacts: project
-config, adopted project context, instructions, agents, skills, repo shims,
-governed projections, and explicit export artifacts. A surface must not create
-`.kiln/memory.db` in the current working directory as an implicit side effect of
-opening Kiln or exposing tools.
-
-Project-local `.kiln/memory.db` files are not a supported Kiln contract. If
-they appear in a workspace, treat them as stale operator-local runtime debris
-and remove them from the repository workspace. Gateway apps remain separate:
+The repository is never a Kiln project-state root. A surface must not create a
+`.kiln/` tree or `memory.db` in the current working directory as an implicit
+side effect of opening Kiln or exposing tools. Repository-local `.kiln` state is
+legacy debris, not a supported contract; remove it rather than importing it
+through a compatibility reader. Gateway apps remain separate:
 their tenant/application memory uses the app-resolved memory base path, not the
 CLI project-state resolver.
 

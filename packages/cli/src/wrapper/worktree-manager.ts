@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { assertPrivateStateDirectoryTargetSync } from "../application/private-project-state-filesystem.js";
 
 export interface GitRunner {
   exec(args: string[], cwd: string): Promise<{
@@ -82,20 +84,24 @@ function parseWorktreeList(output: string): Array<{
 
 export class WorktreeManager {
   private readonly registry = new Map<string, WorktreeHandle>();
-  private readonly baseDir = ".kiln-worktrees";
 
   constructor(
-    private readonly repoRoot: string,
+    private readonly repoRoot?: string,
+    private readonly baseDir?: string,
     private readonly runner: GitRunner = defaultGitRunner(),
+    /** Canonical private project-state root that owns baseDir. */
+    private readonly privateStateRoot?: string,
   ) {}
 
   async allocate(sessionId: string): Promise<WorktreeHandle> {
+    const { repoRoot, baseDir } = this.requireConfigured();
     const branch = `kiln/${sessionId}-${Date.now()}`;
-    const pathInput = resolve(this.repoRoot, this.baseDir, sessionId);
+    const pathInput = resolve(baseDir, sessionId);
 
-    const addResult = await this.runner.exec(
+    const addResult = await this.exec(
       ["worktree", "add", pathInput, "-b", branch],
-      this.repoRoot,
+      repoRoot,
+      pathInput,
     );
 
     if (addResult.exitCode !== 0) {
@@ -106,18 +112,20 @@ export class WorktreeManager {
       );
     }
 
-    const listResult = await this.runner.exec(
+    const listResult = await this.exec(
       ["worktree", "list", "--porcelain"],
-      this.repoRoot,
+      repoRoot,
     );
 
     const entries = parseWorktreeList(listResult.stdout);
     const entry = entries.find(
       (e) => e.branch === `refs/heads/${branch}`,
     );
+    const worktreePath = entry?.worktree ?? pathInput;
+    this.assertWorktreePath(worktreePath);
 
     const handle: WorktreeHandle = {
-      path: entry?.worktree ?? pathInput,
+      path: worktreePath,
       branch,
       sessionId,
       dispose: async (): Promise<void> => {
@@ -132,31 +140,35 @@ export class WorktreeManager {
   async release(sessionId: string): Promise<void> {
     const handle = this.registry.get(sessionId);
     if (!handle) return;
+    const { repoRoot } = this.requireConfigured();
 
-    await this.runner.exec(
+    await this.exec(
       ["worktree", "remove", "--force", handle.path],
-      this.repoRoot,
+      repoRoot,
+      handle.path,
     );
 
-    await this.runner.exec(
+    await this.exec(
       ["branch", "-D", handle.branch],
-      this.repoRoot,
+      repoRoot,
     );
 
     this.registry.delete(sessionId);
   }
 
   async pruneStale(): Promise<void> {
+    if (this.repoRoot === undefined && this.baseDir === undefined) return;
+    const { repoRoot } = this.requireConfigured();
     try {
-      await this.runner.exec(["worktree", "prune"], this.repoRoot);
+      await this.exec(["worktree", "prune"], repoRoot);
     } catch {
       // ignore
     }
 
     try {
-      const branchResult = await this.runner.exec(
+      const branchResult = await this.exec(
         ["branch", "--list", "kiln/session-*"],
-        this.repoRoot,
+        repoRoot,
       );
 
       const branchNames = branchResult.stdout
@@ -166,7 +178,7 @@ export class WorktreeManager {
 
       for (const branch of branchNames) {
         try {
-          await this.runner.exec(["branch", "-D", branch], this.repoRoot);
+          await this.exec(["branch", "-D", branch], repoRoot);
         } catch {
           // ignore failures (worktree still exists or already deleted)
         }
@@ -177,7 +189,8 @@ export class WorktreeManager {
   }
 
   async list(): Promise<WorktreeHandle[]> {
-    const result = await this.runner.exec(
+    if (this.repoRoot === undefined || this.baseDir === undefined) return [];
+    const result = await this.exec(
       ["worktree", "list", "--porcelain"],
       this.repoRoot,
     );
@@ -189,6 +202,10 @@ export class WorktreeManager {
         (e): e is { worktree: string; branch: string } =>
           Boolean(e.branch?.startsWith("refs/heads/kiln/session-") && e.worktree),
       )
+      .map((entry) => {
+        this.assertWorktreePath(entry.worktree);
+        return entry;
+      })
       .map((e) => {
         const branch = e.branch.replace("refs/heads/", "");
         const sessionId = branch.replace(/^kiln\/session-/, "").replace(/-\d+$/, "").trim();
@@ -203,4 +220,121 @@ export class WorktreeManager {
         } satisfies WorktreeHandle;
       });
   }
+
+  private requireConfigured(): {
+    readonly repoRoot: string;
+    readonly baseDir: string;
+    readonly privateStateRoot: string;
+  } {
+    if (this.repoRoot === undefined || this.baseDir === undefined) {
+      throw new WorktreeError("Private worktree state is not configured for this registry.");
+    }
+    if (this.privateStateRoot === undefined || this.privateStateRoot.trim().length === 0) {
+      throw new WorktreeError("Configured private worktrees require a canonical privateStateRoot.");
+    }
+    return {
+      repoRoot: this.repoRoot,
+      baseDir: this.baseDir,
+      privateStateRoot: this.privateStateRoot,
+    };
+  }
+
+  /**
+   * Run one Git effect only after revalidating the private worktree boundary.
+   * The caller may provide a worktree path when the Git operation targets one.
+   * Rechecking here is intentional: the base directory may have been replaced
+   * by a junction after composition/startup validation.
+   */
+  private async exec(
+    args: string[],
+    cwd: string,
+    worktreePath?: string,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    this.assertPrivateWorktreeBase();
+    if (worktreePath !== undefined) this.assertWorktreePath(worktreePath);
+    return this.runner.exec(args, cwd);
+  }
+
+  private assertPrivateWorktreeBase(): void {
+    const { baseDir, privateStateRoot } = this.requireConfigured();
+
+    const baseExists = assertPrivateStateDirectoryTargetSync(privateStateRoot, baseDir);
+    if (!baseExists) {
+      throw new WorktreeError("Private worktree base directory is unavailable.");
+    }
+
+    const canonicalRoot = realpathSync(resolve(privateStateRoot));
+    const canonicalBase = realpathSync(resolve(baseDir));
+    if (!isWithin(canonicalRoot, canonicalBase)) {
+      throw new WorktreeError("Private worktree base directory escapes its canonical private state root.");
+    }
+  }
+
+  /** Validate a Git-returned or caller-derived worktree path before any use. */
+  private assertWorktreePath(worktreePath: string): void {
+    const { baseDir } = this.requireConfigured();
+    const absolutePath = resolve(worktreePath);
+    const canonicalBase = this.canonicalPrivateWorktreeBase();
+    if (!isWithin(canonicalBase, absolutePath, false)) {
+      throw new WorktreeError("Git worktree path escapes the private worktree base directory.");
+    }
+
+    let existingPath = absolutePath;
+    let existingStat: ReturnType<typeof lstatSync> | undefined;
+    while (true) {
+      try {
+        existingStat = lstatSync(existingPath);
+        break;
+      } catch (error) {
+        if (!isMissingPathError(error)) throw error;
+        const parent = dirname(existingPath);
+        if (parent === existingPath) {
+          throw new WorktreeError("Git worktree path cannot be physically validated.");
+        }
+        existingPath = parent;
+      }
+    }
+
+    if (existingStat.isSymbolicLink() || !existingStat.isDirectory()) {
+      throw new WorktreeError("Git worktree path contains an unsafe entry.");
+    }
+
+    const physicalExistingPath = realpathSync(existingPath);
+    if (!isWithin(canonicalBase, physicalExistingPath)) {
+      throw new WorktreeError("Git worktree path escapes the physical private worktree base.");
+    }
+
+    if (existingPath === absolutePath) {
+      const physicalPath = realpathSync(absolutePath);
+      if (!isWithin(canonicalBase, physicalPath, false)) {
+        throw new WorktreeError("Git worktree path escapes the physical private worktree base.");
+      }
+    }
+
+    // Keep the lexical base check explicit even though canonicalPrivateWorktreeBase
+    // already validated the same directory. This guards against accidental use of
+    // the pre-resolved base in future edits.
+    if (!isWithin(resolve(baseDir), absolutePath, false)) {
+      throw new WorktreeError("Git worktree path escapes the private worktree base directory.");
+    }
+  }
+
+  private canonicalPrivateWorktreeBase(): string {
+    const { baseDir } = this.requireConfigured();
+    this.assertPrivateWorktreeBase();
+    return realpathSync(resolve(baseDir));
+  }
+}
+
+function isWithin(parent: string, child: string, allowEqual = true): boolean {
+  const path = relative(resolve(parent), resolve(child));
+  if (path === "") return allowEqual;
+  return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error
+    && "code" in error
+    && ((error as NodeJS.ErrnoException).code === "ENOENT"
+      || (error as NodeJS.ErrnoException).code === "ENOTDIR");
 }

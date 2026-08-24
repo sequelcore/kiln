@@ -72,10 +72,14 @@ describe("SessionList", () => {
       within(history).getByRole("button", { name: /Runtime boundary review/ }),
       within(history).getByRole("button", { name: /Sidebar continuity/ }),
     ];
-    fireEvent.keyDown(options[0], { key: "ArrowDown" });
+    const [firstOption, secondOption] = options;
+    if (!firstOption || !secondOption) {
+      throw new Error("Session history did not render both navigation options.");
+    }
+    fireEvent.keyDown(firstOption, { key: "ArrowDown" });
     expect(onSelect).toHaveBeenCalledWith("session-2");
 
-    fireEvent.keyDown(options[1], { key: "ArrowUp" });
+    fireEvent.keyDown(secondOption, { key: "ArrowUp" });
     expect(onSelect).toHaveBeenCalledWith("session-1");
   });
 

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { defaultGlobalConfig } from "../../src/config/global-config.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   createCliOperatorThemeController,
   persistOperatorThemePreference,
@@ -12,6 +14,7 @@ import {
 
 let tempDir: string;
 let globalHome: string;
+let projectBinding: ProjectStateBinding;
 let previousXdgConfigHome: string | undefined;
 let previousCwd: string;
 
@@ -28,12 +31,16 @@ describe("operator theme preferences", () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-theme-preferences-"));
     globalHome = mkdtempSync(join(tmpdir(), "kiln-theme-config-"));
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    mkdirSync(join(tempDir, ".git"), { recursive: true });
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     previousCwd = process.cwd();
     process.env.XDG_CONFIG_HOME = globalHome;
     process.chdir(tempDir);
     seedGlobalConfig();
+    projectBinding = resolveProjectStateBinding(tempDir);
+    mkdirSync(projectBinding.projectStateRoot, { recursive: true });
+    writeFileSync(projectBinding.configPath, 'version: "1"\n', "utf-8");
+    bootstrapProjectAdoption(projectBinding);
   });
 
   afterEach(() => {

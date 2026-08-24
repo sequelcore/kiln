@@ -38,11 +38,17 @@ import {
 import { parseProjectConfigStructure } from "../config/project-config-schema.js";
 import type { KilnContextGovernanceConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import { parseAgentDefinitionContent, type KilnAgentDefinition } from "./agent-loader.js";
+import {
+  type ProjectStateBinding,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
 
 /** Where an operation reads current state from and writes its canonical result to. */
 export interface ConfigMutationContext {
   readonly projectPath: string;
   readonly globalConfigPath: string;
+  /** Established private project-state binding; repository `.kiln` is never a source. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 /**
@@ -85,11 +91,11 @@ export function normalizeConfigMutation(
     case "skill.upsert":
       return normalizeSkillUpsert(context, payload);
     case "agent.upsert":
-      return normalizeAgentUpsert(context.projectPath, payload);
+      return normalizeAgentUpsert(projectBinding(context), payload);
     case "agent.attach_skills":
-      return normalizeAgentAttachSkills(context.projectPath, payload);
+      return normalizeAgentAttachSkills(projectBinding(context), payload);
     case "context_governance.adapt":
-      return normalizeContextGovernanceAdaptation(context.projectPath, payload);
+      return normalizeContextGovernanceAdaptation(projectBinding(context), payload);
     case "setting.set":
       return normalizeSettingSet(context, payload);
     case "setting.reset":
@@ -126,10 +132,10 @@ export function agentToolAuthorityImpact(
   return "none";
 }
 
-function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
+function normalizeContextGovernanceAdaptation(binding: ProjectStateBinding, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
-  const path = join(projectPath, ".kiln", "kiln.yaml");
+  const path = binding.configPath;
   const existingContent = existsSync(path) ? readFileSync(path, "utf-8") : "version: '1'\n";
   const parsed = parse(existingContent) as ResolvedKilnConfig | null;
   const config: ResolvedKilnConfig = parsed && typeof parsed === "object" ? parsed : { version: "1" };
@@ -171,8 +177,6 @@ function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: u
             configurationHash: currentConfigurationHash,
             allocationMode: currentMode,
           },
-          candidateRecordHash: candidate.candidateRecordHash,
-          evaluationEvidenceHash: evaluation.evidenceHash,
         },
       };
     } else if (action === "freeze") {
@@ -188,8 +192,6 @@ function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: u
           frozen: true,
           freezeReason: reason,
           ...(currentAdaptation?.rollback ? { rollback: currentAdaptation.rollback } : {}),
-          ...(currentAdaptation?.candidateRecordHash ? { candidateRecordHash: currentAdaptation.candidateRecordHash } : {}),
-          ...(currentAdaptation?.evaluationEvidenceHash ? { evaluationEvidenceHash: currentAdaptation.evaluationEvidenceHash } : {}),
         },
       };
     } else if (action === "unfreeze") {
@@ -250,7 +252,7 @@ function normalizeSkillUpsert(context: ConfigMutationContext, rawPayload: unknow
   const tools = optionalStringList(payload.tools, "tools", diagnostics);
   const tags = optionalStringList(payload.tags, "tags", diagnostics);
   const triggers = optionalSkillTriggers(payload.triggers, diagnostics);
-  const path = join(context.projectPath, ".kiln", "skills", name || "invalid-skill", "SKILL.md");
+  const path = join(projectBinding(context).skillsPath, name || "invalid-skill", "SKILL.md");
   const canonicalPath = userScope
     ? join(dirname(context.globalConfigPath), "skills", name || "invalid-skill", "SKILL.md")
     : path;
@@ -328,7 +330,7 @@ function normalizeSettingSet(
     }
   }
 
-  const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context.projectPath);
+  const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context);
   const document = readCanonicalDocument(path, scope, diagnostics);
   if (document && descriptor && admitted !== undefined) {
     if (targetsAlias(document, descriptor.path)) {
@@ -472,7 +474,7 @@ function normalizeSettingReset(
       message: `${descriptor.key} cannot be reset in the ${scope} scope. Supported scopes: ${descriptor.scopes.join(", ")}.`,
     });
   }
-  const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context.projectPath);
+  const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context);
   const document = readCanonicalDocument(path, scope, diagnostics);
   if (document && descriptor && descriptor.scopes.includes(scope)) {
     if (targetsAlias(document, descriptor.path)) {
@@ -565,7 +567,7 @@ function normalizeProjectAdopt(
     });
   }
 
-  const path = projectConfigPath(context.projectPath);
+  const path = projectConfigPath(context);
   const existingContent = existsSync(path) ? readFileSync(path, "utf-8") : "";
   const safeApproval = safeProjectApproval(context.globalConfigPath);
   let nextContent: string;
@@ -907,8 +909,12 @@ function normalizeNativeImport(
   };
 }
 
-function projectConfigPath(projectPath: string): string {
-  return join(projectPath, ".kiln", "kiln.yaml");
+function projectConfigPath(context: ConfigMutationContext): string {
+  return projectBinding(context).configPath;
+}
+
+function projectBinding(context: ConfigMutationContext): ProjectStateBinding {
+  return context.projectStateBinding ?? resolveProjectStateBinding(context.projectPath);
 }
 
 /**
@@ -1047,7 +1053,7 @@ export function permissionAuthorityImpact(
   return "unknown";
 }
 
-function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
+function normalizeAgentUpsert(binding: ProjectStateBinding, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const name = requireId(payload.name, "name", diagnostics);
@@ -1084,7 +1090,7 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
     taskAffinity,
     instructions,
   });
-  const path = join(projectPath, ".kiln", "agents", `${name || "invalid-agent"}.md`);
+  const path = join(binding.agentsPath, `${name || "invalid-agent"}.md`);
   const nextContent = renderAgentMarkdown(normalized);
 
   if (!parseAgentDefinitionContent(nextContent, "project")) {
@@ -1108,7 +1114,7 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
   };
 }
 
-function normalizeAgentAttachSkills(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
+function normalizeAgentAttachSkills(binding: ProjectStateBinding, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const agent = requireId(payload.agent, "agent", diagnostics);
@@ -1117,7 +1123,7 @@ function normalizeAgentAttachSkills(projectPath: string, rawPayload: unknown): N
     diagnostics.push({ severity: "error", field: "skills", message: "At least one skill is required." });
   }
 
-  const path = join(projectPath, ".kiln", "agents", `${agent || "invalid-agent"}.md`);
+  const path = join(binding.agentsPath, `${agent || "invalid-agent"}.md`);
   const existing = existsSync(path) ? readFileSync(path, "utf-8") : "";
   const existingAgent = existing ? parseAgentDefinitionContent(existing, "project") : undefined;
   if (!existingAgent) {

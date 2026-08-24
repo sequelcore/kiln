@@ -5,6 +5,10 @@ import { CommunicationResolutionSchema, type TrustedExecutionIntegrity } from "@
 import { validateResolvedCommunicationIntent, type CommunicationResolution } from "@kilnai/core";
 import { normalizeProjectionPath } from "./native-projection-paths.js";
 import { resolveGlobalConfigPath } from "./global-config.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 
 export type NativeProjectionFileHarness = "claude" | "codex" | "opencode";
 
@@ -133,11 +137,20 @@ function validatePersistedCommunicationResolution(
 export function writeNativeProjectionInstallState(
   kilnDir: string,
   state: NativeProjectionInstallState,
+  privateStateRoot?: string,
 ): void {
   const path = join(kilnDir, INSTALL_STATE_FILE);
-  mkdirSync(dirname(path), { recursive: true });
+  if (privateStateRoot === undefined) {
+    mkdirSync(dirname(path), { recursive: true });
+  } else {
+    ensurePrivateStateDirectorySync(privateStateRoot, dirname(path));
+    assertPrivateStateFileTargetSync(privateStateRoot, path);
+  }
   const temporary = `${path}.${process.pid}.${++installStateWriteSequence}.tmp`;
   try {
+    if (privateStateRoot !== undefined) {
+      assertPrivateStateFileTargetSync(privateStateRoot, temporary);
+    }
     writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     renameSync(temporary, path);
   } finally {
@@ -292,20 +305,12 @@ function currentFileContentHashes(target: NativeProjectionTargetState): readonly
 }
 
 function hashFileContent(content: string | Uint8Array): string {
-  return typeof content === "string"
-    ? hashStableValue(content)
-    : createHash("sha256").update(content).digest("hex");
+  const bytes = typeof content === "string" ? Buffer.from(content, "utf8") : content;
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function fileContentHashes(content: string | Uint8Array): readonly string[] {
-  const canonical = hashFileContent(content);
-  if (typeof content === "string") {
-    return [canonical];
-  }
-  // Text projections created before recursive binary-safe sync were hashed as
-  // UTF-8 strings. Accept that legacy hash once so an unchanged file does not
-  // report false drift during migration.
-  return [canonical, hashStableValue(Buffer.from(content).toString("utf-8"))];
+  return [hashFileContent(content)];
 }
 
 export function mergeManagedFields(input: {

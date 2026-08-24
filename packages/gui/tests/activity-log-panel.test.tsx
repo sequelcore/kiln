@@ -143,11 +143,18 @@ describe("ActivityLogPanel", () => {
       tone: "success",
       toolPresentation: {
         outputKind: "search_results",
+        classification: {
+          source: "tool-metadata",
+          reason: "Synthetic search metadata identifies structured result output.",
+          confidence: "high",
+        },
         title: "Search results",
         searchResults: [
           { title: "Kiln documentation", url: "https://example.com/kiln", snippet: "Canonical evidence." },
           { title: "Architecture", url: "https://example.com/architecture" },
         ],
+        fields: [],
+        raw: { available: false },
       },
     }];
 

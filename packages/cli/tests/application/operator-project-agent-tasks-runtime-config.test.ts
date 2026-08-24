@@ -48,6 +48,8 @@ import { createNativeHarnessInspectionService } from "../../src/application/nati
 import { NativeHarnessMcpTools } from "../../src/native-harness/native-harness-mcp-tools.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import { managedAgentIntentConfig } from "../config/managed-agent-intent-config-fixture.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const routeCatalogTrace = vi.hoisted(() => ({
   contexts: [] as Array<{ readonly compositionMode?: "execution" | "candidate-admission"; readonly managedAccountComposition?: unknown }>,
@@ -506,6 +508,7 @@ function openCodeGoWriteEconomicConfig(): KilnGlobalConfig {
 
 describe("native-harness managed-route runtime config authority (#56 S1)", () => {
   const tempDirs: string[] = [];
+  const projectStateBindings = new Map<string, ReturnType<typeof resolveProjectStateBinding>>();
   const isolatedEnvKeys = ["XDG_CONFIG_HOME", "HOME", "USERPROFILE"] as const;
   const originalEnv: Partial<Record<typeof isolatedEnvKeys[number], string | undefined>> = {};
 
@@ -520,6 +523,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
+    projectStateBindings.clear();
     routeCatalogTrace.contexts.length = 0;
     routeCatalogTrace.catalogs.length = 0;
     routeCatalogTrace.mutateExecutionCapabilityVersion = false;
@@ -546,7 +550,9 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
     const globalHome = mkdtempSync(join(tmpdir(), "kiln-global-config-"));
     tempDirs.push(globalHome);
-    process.env.XDG_CONFIG_HOME = globalHome;
+    // Keep the canonical Kiln-home derivation aligned with every private
+    // source loader: without an XDG override, all fixtures use `<home>/.kiln`.
+    delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = globalHome;
     process.env.USERPROFILE = globalHome;
     const authRoot = join(globalHome, ".kiln", "auth");
@@ -593,14 +599,18 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
   function createProjectRoot(kilnYamlContents: string, agents: Readonly<Record<string, string>> = {}): string {
     const projectRoot = mkdtempSync(join(tmpdir(), "kiln-native-harness-runtime-config-"));
     tempDirs.push(projectRoot);
-    mkdirSync(join(projectRoot, ".kiln"), { recursive: true });
-    writeFileSync(join(projectRoot, ".kiln", "kiln.yaml"), kilnYamlContents, "utf8");
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    const projectStateBinding = resolveProjectStateBinding(projectRoot);
+    projectStateBindings.set(projectRoot, projectStateBinding);
+    mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
+    writeFileSync(projectStateBinding.configPath, kilnYamlContents, "utf8");
     if (Object.keys(agents).length > 0) {
-      mkdirSync(join(projectRoot, ".kiln", "agents"), { recursive: true });
+      mkdirSync(projectStateBinding.agentsPath, { recursive: true });
       for (const [fileName, contents] of Object.entries(agents)) {
-        writeFileSync(join(projectRoot, ".kiln", "agents", fileName), contents, "utf8");
+        writeFileSync(join(projectStateBinding.agentsPath, fileName), contents, "utf8");
       }
     }
+    bootstrapProjectAdoption(projectStateBinding);
     return projectRoot;
   }
 
@@ -611,6 +621,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -680,6 +691,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
     });
@@ -746,6 +758,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
     });
@@ -799,6 +812,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -860,6 +874,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
     });
@@ -959,6 +974,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never));
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
     });
@@ -1071,6 +1087,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
     });
@@ -1117,6 +1134,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -1158,6 +1176,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     try {
       await expect(createOperatorProjectAgentTaskApplicationComposition({
         projectPath: projectRoot,
+        projectStateBinding: projectStateBindings.get(projectRoot),
         authorityAdmission: taskAuthorityAdmission(),
         discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
       })).rejects.toThrow("data-policy evidence is stale");
@@ -1179,6 +1198,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -1222,6 +1242,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -1256,6 +1277,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     await expect(createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     })).rejects.toThrow(/engines is global-only/u);
@@ -1272,6 +1294,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
     await expect(createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
+      projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
       discoverProviderModels: async () => ({}),
     })).rejects.toThrow(/managedAgents is global-only/u);

@@ -135,6 +135,8 @@ async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
 export interface TuiGatewayOptions {
   /** Port for the TUI gateway. Default: 4801. */
   readonly port?: number;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   /**
    * Multi-provider session manager (injected by packages/cli/src/commands/tui.ts).
    * Provides factory + provider/model get/set for cross-provider session support.
@@ -489,7 +491,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
-    () => resolveTuiProviderDiscovery(options.getProviderAvailability),
+    () => resolveTuiProviderDiscovery(options.getProviderAvailability, options.kilnHome),
     [],
     {
       initialDiscovery: options.initialProviderDiscovery
@@ -900,7 +902,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 provider: typeof frame.provider === "string" ? frame.provider : null,
                 requestId: typeof frame.requestId === "string" ? frame.requestId : null,
               });
-              const auth = await startProviderAuthRequest(frame);
+              const auth = await startProviderAuthRequest({ ...frame, kilnHome: options.kilnHome });
               if (!auth.ok) {
                 tuiProviderAuthDebug("request rejected", {
                   provider: auth.provider,
@@ -1661,11 +1663,12 @@ class TuiActivityStreamer {
 
 async function resolveTuiProviderDiscovery(
   getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>,
+  kilnHome?: string,
 ): Promise<GuiProviderDiscoveryResult[]> {
   const providerAvailability = getProviderAvailability
     ? await Promise.resolve(getProviderAvailability()).catch(() => ({}))
     : {};
-  return resolveGuiOperatorDiscoveryResults(providerAvailability);
+  return resolveGuiOperatorDiscoveryResults(providerAvailability, undefined, kilnHome);
 }
 
 export function resolveTuiProviderSwitch(input: {

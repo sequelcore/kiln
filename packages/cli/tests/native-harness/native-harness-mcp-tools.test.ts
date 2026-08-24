@@ -88,7 +88,6 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
       rootPath: "C:\\workspace\\kiln",
       projectName: "kiln",
       hasGitRoot: true,
-      hasKilnYaml: true,
       kilnYaml: { path: "C:\\workspace\\kiln\\.kiln\\kiln.yaml", status: "valid" },
       projectContext: { path: "C:\\workspace\\kiln\\.kiln\\project-context.md", status: "valid" },
     },

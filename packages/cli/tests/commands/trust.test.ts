@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/config/global-config.js", () => ({ readGlobalConfig: () => mocks.config }));
 vi.mock("../../src/application/project-root-resolver.js", () => ({ resolveProjectRoot: () => ({ rootPath: mocks.projectRoot }) }));
 vi.mock("@kilnai/core", () => ({
+  resolveCoreKilnHome: () => "C:/kiln-test-home",
   OPENCODE_NO_FILESYSTEM_SANDBOX: {
     id: "opencode.no-filesystem-sandbox",
     reviewAfter: "2026-11-13T00:00:00.000Z",

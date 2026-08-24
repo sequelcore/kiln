@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 
 const FIXTURE_ROOT = join(tmpdir(), "kiln-project-root-resolver-test");
@@ -17,19 +17,18 @@ describe("project-root-resolver", () => {
     rmSync(FIXTURE_ROOT, { recursive: true, force: true });
   });
 
-  it("prefers the nearest Kiln project config over a repository root", () => {
+  it("uses the Git root without consulting a repository-local Kiln config", () => {
     const root = resetFixture();
     mkdirSync(join(root, ".git"), { recursive: true });
     mkdirSync(join(root, ".kiln"), { recursive: true });
     mkdirSync(join(root, "packages", "api"), { recursive: true });
-    writeFileSync(join(root, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    writeFileSync(join(root, ".kiln", "kiln.yaml"), 'version: "1"\n', "utf-8");
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture-project" }), "utf-8");
 
     const resolved = resolveProjectRoot({ cwd: join(root, "packages", "api") });
 
     expect(resolved.rootPath).toBe(root);
-    expect(resolved.source).toBe("kiln-yaml");
-    expect(resolved.hasKilnYaml).toBe(true);
+    expect(resolved.source).toBe("git");
     expect(resolved.hasGitRoot).toBe(true);
     expect(resolved.projectName).toBe("fixture-project");
   });
@@ -44,7 +43,6 @@ describe("project-root-resolver", () => {
 
     expect(resolved.rootPath).toBe(root);
     expect(resolved.source).toBe("git");
-    expect(resolved.hasKilnYaml).toBe(false);
     expect(resolved.hasGitRoot).toBe(true);
     expect(resolved.projectName).toBe("git-only-project");
   });
@@ -70,13 +68,12 @@ describe("project-root-resolver", () => {
     mkdirSync(join(home, ".git"), { recursive: true });
     mkdirSync(join(home, ".kiln"), { recursive: true });
     mkdirSync(scratch, { recursive: true });
-    writeFileSync(join(home, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    writeFileSync(join(home, ".kiln", "kiln.yaml"), 'version: "1"\n', "utf-8");
 
     const resolved = resolveProjectRoot({ cwd: scratch, userHome: home });
 
     expect(resolved.rootPath).toBe(scratch);
     expect(resolved.source).toBe("cwd");
-    expect(resolved.hasKilnYaml).toBe(false);
     expect(resolved.hasGitRoot).toBe(false);
     expect(resolved.projectName).toBe("scratch");
   });
@@ -113,17 +110,16 @@ describe("project-root-resolver", () => {
     expect(resolved.hasGitRoot).toBe(true);
   });
 
-  it("adopts the user home when the caller starts there", () => {
+  it("does not adopt a user home from a repository-local Kiln config", () => {
     const root = resetFixture();
     const home = join(root, "home");
     mkdirSync(join(home, ".kiln"), { recursive: true });
-    writeFileSync(join(home, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    writeFileSync(join(home, ".kiln", "kiln.yaml"), 'version: "1"\n', "utf-8");
 
     const resolved = resolveProjectRoot({ cwd: home, userHome: home });
 
     expect(resolved.rootPath).toBe(home);
-    expect(resolved.source).toBe("kiln-yaml");
-    expect(resolved.hasKilnYaml).toBe(true);
+    expect(resolved.source).toBe("cwd");
   });
 
   it("ignores nested Kiln state that is not a project config", () => {
@@ -131,7 +127,7 @@ describe("project-root-resolver", () => {
     mkdirSync(join(root, ".git"), { recursive: true });
     mkdirSync(join(root, ".kiln"), { recursive: true });
     mkdirSync(join(root, "packages", "cli", ".kiln"), { recursive: true });
-    writeFileSync(join(root, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    writeFileSync(join(root, ".kiln", "kiln.yaml"), 'version: "1"\n', "utf-8");
     writeFileSync(
       join(root, "packages", "cli", ".kiln", "continuation-targets.json"),
       JSON.stringify({ defaultSessionId: "stale-nested-session" }),
@@ -144,7 +140,6 @@ describe("project-root-resolver", () => {
     });
 
     expect(resolved.rootPath).toBe(root);
-    expect(resolved.source).toBe("kiln-yaml");
-    expect(resolved.hasKilnYaml).toBe(true);
+    expect(resolved.source).toBe("git");
   });
 });

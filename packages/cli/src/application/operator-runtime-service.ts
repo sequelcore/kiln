@@ -31,6 +31,7 @@ import {
   closeManagedAccountRuntimeComposition,
 } from "../config/managed-agent-routes.js";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
+import { resolveKilnHomePath } from "../config/global-config/path.js";
 import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import {
   resolveTrustedWorkspace,
@@ -60,7 +61,7 @@ export interface OperatorRuntimeApplicationCommand {
 }
 
 export interface OperatorRuntimeSessionOpenInput {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly canonicalRoot: string;
   readonly binding: OperatorProjectBinding;
   readonly principal: OperatorRuntimePrincipal;
@@ -136,7 +137,45 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
   const globalEconomicAuthorityDatabasePath = resolveGlobalEconomicAuthorityDatabasePath(resolveGlobalConfigPath());
   const globalEconomicRuntimeDirectory = dirname(globalEconomicAuthorityDatabasePath);
   let globalManagedAccountComposition: ReturnType<typeof createOperatorGlobalManagedAccountComposition>;
-  const createComposition = options.createComposition ?? (async ({ projectPath }: { readonly projectPath: string }) => {
+  let globalManagedAccountCompositionRevision: string | undefined;
+  let globalRevisionRefresh: Promise<void> | undefined;
+  const refreshGlobalCompositionRevision = async (globalConfigRevision: string): Promise<void> => {
+    if (options.createComposition !== undefined || globalManagedAccountCompositionRevision === globalConfigRevision)
+      return;
+    if (globalRevisionRefresh) {
+      await globalRevisionRefresh;
+      return refreshGlobalCompositionRevision(globalConfigRevision);
+    }
+    const refresh = (async () => {
+      // A global revision changes the authority for every project. Drain all
+      // requests and owners before replacing the process-scoped SQLite owner;
+      // otherwise an old project composition could retain stale global routes
+      // or keep the database authority claimed while the fresh one starts.
+      await Promise.allSettled([...requestCompletions]);
+      await Promise.allSettled([...projectOperations.values()]);
+      sessions.clear();
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = undefined;
+      if (globalManagedAccountCompositionRevision !== undefined)
+        await registry.closeAll();
+      if (globalManagedAccountComposition !== undefined) {
+        closeManagedAccountRuntimeComposition(globalEconomicRuntimeDirectory);
+        globalManagedAccountComposition = undefined;
+      }
+      globalManagedAccountCompositionRevision = globalConfigRevision;
+    })();
+    globalRevisionRefresh = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (globalRevisionRefresh === refresh) globalRevisionRefresh = undefined;
+    }
+  };
+  const createDefaultComposition = async ({
+    projectPath,
+  }: {
+    readonly projectPath: string;
+  }): Promise<OperatorProjectAgentTaskApplicationComposition> => {
     if (globalManagedAccountComposition === undefined) {
       globalManagedAccountComposition = createOperatorGlobalManagedAccountComposition({
         projectPath,
@@ -148,9 +187,13 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       projectPath,
       ...(globalManagedAccountComposition ? { managedAccountComposition: globalManagedAccountComposition } : {}),
     });
-  });
+  };
   const registry = options.registry ?? new ProjectRuntimeRegistry((descriptor) =>
-    createComposition({ projectPath: descriptor.canonicalRoot }));
+    options.createComposition
+      ? options.createComposition({ projectPath: descriptor.canonicalRoot })
+      : createDefaultComposition({
+        projectPath: descriptor.canonicalRoot,
+      }));
   const sdkLoader = options.sdkLoader ?? loadMcpSdk;
   const sessions = new Map<string, OperatorRuntimeSessionRecord>();
   const activeRequests = new Map<string, number>();
@@ -190,14 +233,14 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
 
   const evictUnusedProject = async (
     projectRuntimeId: string,
-    expectedMarkerDigest: string,
+    expectedCompositionRevision: string,
   ): Promise<void> => {
     if (hasProjectSession(projectRuntimeId)) return;
     await waitForProjectDrain(projectRuntimeId);
     if (hasProjectSession(projectRuntimeId)) return;
     const pending = evictions.get(projectRuntimeId);
     if (pending) return pending;
-    const eviction = registry.close(projectRuntimeId, expectedMarkerDigest);
+    const eviction = registry.close(projectRuntimeId, expectedCompositionRevision);
     evictions.set(projectRuntimeId, eviction);
     try {
       await eviction;
@@ -211,15 +254,15 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     const expiredProjects = new Map<string, string>();
     for (const session of sessions.values()) {
       if (now > session.claims.expiresAt)
-        expiredProjects.set(session.binding.projectRuntimeId, session.binding.markerDigest);
+        expiredProjects.set(session.binding.projectRuntimeId, session.binding.compositionRevision);
     }
-    await Promise.allSettled([...expiredProjects].map(([projectRuntimeId, markerDigest]) =>
+    await Promise.allSettled([...expiredProjects].map(([projectRuntimeId, compositionRevision]) =>
       runProjectOperation(projectRuntimeId, async () => {
         for (const [sessionId, session] of sessions) {
           if (session.binding.projectRuntimeId === projectRuntimeId && now > session.claims.expiresAt)
             sessions.delete(sessionId);
         }
-        await evictUnusedProject(projectRuntimeId, markerDigest);
+        await evictUnusedProject(projectRuntimeId, compositionRevision);
       })));
   };
 
@@ -245,27 +288,37 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
   const onSessionOpen = async (input: OperatorRuntimeSessionOpenInput): Promise<OperatorRuntimeSessionOpenResult> => {
     if (closed) throw unavailable();
     const issuedAt = checkedNow(nowEpochSeconds);
+    const initialResolution = resolveWorkspace({ cwd: () => input.canonicalRoot });
+    if (!isExactResolution(initialResolution, input.canonicalRoot, input.binding)) throw unavailable();
+    try {
+      if (options.createComposition === undefined)
+        await refreshGlobalCompositionRevision(readGlobalConfigRevision(initialResolution));
+    } catch {
+      throw unavailable();
+    }
     await expireSessions(issuedAt);
     return runProjectOperation(input.binding.projectRuntimeId, async () => {
       if (closed) throw unavailable();
       const resolution = resolveWorkspace({ cwd: () => input.canonicalRoot });
       if (!isExactResolution(resolution, input.canonicalRoot, input.binding)) throw unavailable();
+      if (options.createComposition === undefined
+        && readGlobalConfigRevision(resolution) !== globalManagedAccountCompositionRevision) throw unavailable();
 
       const existing = sessions.get(input.sessionId);
       if (existing && !sameSessionAuthority(existing, input)) throw unavailable();
       let removedStaleBinding = false;
-      let staleMarkerDigest: string | undefined;
+      let staleCompositionRevision: string | undefined;
       for (const [sessionId, session] of sessions) {
         if (session.binding.projectRuntimeId === input.binding.projectRuntimeId
-          && session.binding.markerDigest !== input.binding.markerDigest) {
+          && session.binding.compositionRevision !== input.binding.compositionRevision) {
           sessions.delete(sessionId);
           removedStaleBinding = true;
-          staleMarkerDigest = session.binding.markerDigest;
+          staleCompositionRevision = session.binding.compositionRevision;
         }
       }
       if (removedStaleBinding) {
-        if (staleMarkerDigest !== undefined)
-          await evictUnusedProject(input.binding.projectRuntimeId, staleMarkerDigest).catch(() => {
+        if (staleCompositionRevision !== undefined)
+          await evictUnusedProject(input.binding.projectRuntimeId, staleCompositionRevision).catch(() => {
             throw unavailable();
           });
         else
@@ -285,7 +338,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
         protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
         audience: OPERATOR_RUNTIME_AUDIENCE,
         projectRuntimeId: input.binding.projectRuntimeId,
-        markerDigest: input.binding.markerDigest,
+        compositionRevision: input.binding.compositionRevision,
         principal: input.principal,
         sessionId: input.sessionId,
         issuedAt,
@@ -315,7 +368,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     if (now > session.claims.expiresAt) {
       sessions.delete(session.sessionId);
       void runProjectOperation(session.binding.projectRuntimeId, () =>
-        evictUnusedProject(session.binding.projectRuntimeId, session.binding.markerDigest)).catch(() => undefined);
+        evictUnusedProject(session.binding.projectRuntimeId, session.binding.compositionRevision)).catch(() => undefined);
       scheduleExpiry();
       return deniedResponse();
     }
@@ -331,12 +384,12 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       await runProjectOperation(session.binding.projectRuntimeId, async () => {
         for (const [sessionId, candidate] of sessions) {
           if (candidate.binding.projectRuntimeId === session.binding.projectRuntimeId
-            && candidate.binding.markerDigest === session.binding.markerDigest)
+            && candidate.binding.compositionRevision === session.binding.compositionRevision)
             sessions.delete(sessionId);
         }
         await evictUnusedProject(
           session.binding.projectRuntimeId,
-          session.binding.markerDigest,
+          session.binding.compositionRevision,
         ).catch(() => undefined);
       });
       scheduleExpiry();
@@ -375,7 +428,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
           await expireSessions(releasedAt);
         if (!hasProjectSession(projectRuntimeId))
           await runProjectOperation(projectRuntimeId, () =>
-            evictUnusedProject(projectRuntimeId, session.binding.markerDigest)).catch(() => undefined);
+            evictUnusedProject(projectRuntimeId, session.binding.compositionRevision)).catch(() => undefined);
       } finally {
         requestCompletions.delete(requestCompletion);
         completeRequest();
@@ -548,6 +601,7 @@ async function handleMcpRequest(input: {
   const agentTasks = createLazyAgentTaskPort(input.registry, input.session);
   const adapter = new NativeHarnessMcpTools({
     harness: requireNativeHarness(input.session.principal),
+    kilnHome: resolveKilnHomePath(),
     inspection: createNativeHarnessInspectionService({
       harness: requireNativeHarness(input.session.principal),
       readProjectRoot: async () => ({ status: "resolved", rootPath: input.session.canonicalRoot }),
@@ -622,21 +676,27 @@ function isExactResolution(
   return resolution.status === "resolved"
     && resolution.canonicalRoot === canonicalRoot
     && resolution.projectRuntimeId === binding.projectRuntimeId
-    && resolution.markerDigest === binding.markerDigest;
+    && resolution.compositionRevision === binding.compositionRevision;
+}
+
+function readGlobalConfigRevision(
+  resolution: Extract<TrustedWorkspaceResolution, { readonly status: "resolved" }>,
+): string {
+  return resolution.globalConfigRevision;
 }
 
 function sameSessionAuthority(record: OperatorRuntimeSessionRecord, input: OperatorRuntimeSessionOpenInput): boolean {
   return record.canonicalRoot === input.canonicalRoot
     && samePrincipal(record.principal, input.principal)
     && record.binding.projectRuntimeId === input.binding.projectRuntimeId
-    && record.binding.markerDigest === input.binding.markerDigest;
+    && record.binding.compositionRevision === input.binding.compositionRevision;
 }
 
 function sameClaims(left: OperatorSessionClaims, right: OperatorSessionClaims): boolean {
   return left.protocolVersion === right.protocolVersion
     && left.audience === right.audience
     && left.projectRuntimeId === right.projectRuntimeId
-    && left.markerDigest === right.markerDigest
+    && left.compositionRevision === right.compositionRevision
     && samePrincipal(left.principal, right.principal)
     && left.sessionId === right.sessionId
     && left.issuedAt === right.issuedAt

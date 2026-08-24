@@ -647,7 +647,7 @@ export interface KilnContextGovernanceConfig {
 }
 
 /** Fully resolved Runtime input after global authority and project restrictions are composed. */
-export interface ResolvedKilnConfig extends KilnProjectConfig {
+export type ResolvedKilnConfig = Omit<KilnProjectConfig, "permissions" | "skills" | "web"> & {
   readonly provider?: string;
   readonly model?: KilnYamlModel;
   readonly providers?: Record<string, KilnYamlProvider>;
@@ -656,8 +656,16 @@ export interface ResolvedKilnConfig extends KilnProjectConfig {
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly hooks?: KilnHooksConfig;
+  /** Full global permission policy after project approval/sandbox attenuation. */
+  readonly permissions?: KilnYamlPermissions;
+  /** Full global skill policy after project builtin/selection attenuation. */
+  readonly skills?: KilnYamlSkillsConfig;
+  /** Global provider definitions composed with project network attenuation. */
+  readonly web?: KilnYamlWebConfig;
+  /** Global-only physical browser/computer provider authority. */
+  readonly interactiveUse?: KilnYamlInteractiveUseConfig;
   /** Global-only physical target authority projected into Runtime composition. */
   readonly targetCatalog?: KilnTargetCatalogIntentConfig;
   /** Global-only reusable authority profiles projected into Runtime composition. */
   readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
-}
+};

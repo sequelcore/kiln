@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Runtime-owned wire contract shared by native harness and operator-surface clients. */
-export const OPERATOR_RUNTIME_PROTOCOL_VERSION = "2" as const;
+export const OPERATOR_RUNTIME_PROTOCOL_VERSION = "3" as const;
 export const OPERATOR_RUNTIME_AUDIENCE = "kiln-operator-runtime" as const;
 
 export const OPERATOR_RUNTIME_HARNESSES = ["codex", "claude", "opencode"] as const;
@@ -22,7 +22,7 @@ const portableIdentifier = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/, "must be a non-empty portable identifier");
 const projectRuntimeId = z.string().regex(/^krp_[a-f0-9]{64}$/);
-const markerDigest = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const compositionRevision = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const runtimeVersion = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/, "must be a bounded portable version identifier");
@@ -30,7 +30,7 @@ const runtimeVersion = z
 export const OperatorProjectBindingSchema = z
   .object({
     projectRuntimeId,
-    markerDigest,
+    compositionRevision,
   })
   .strict();
 
@@ -76,7 +76,7 @@ export const OperatorSessionClaimsSchema = z
     protocolVersion: z.literal(OPERATOR_RUNTIME_PROTOCOL_VERSION),
     audience: z.literal(OPERATOR_RUNTIME_AUDIENCE),
     projectRuntimeId,
-    markerDigest,
+    compositionRevision,
     principal: OperatorRuntimePrincipalSchema,
     sessionId: portableIdentifier,
     issuedAt: epochSeconds,

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, copyFileSync, unlinkSync } from "node:fs";
 import { join, basename } from "node:path";
 import { execFile } from "node:child_process";
 import {
@@ -7,6 +7,13 @@ import {
   validatePackageSecurity,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
+import {
+  assertPrivateStateDirectoryTargetSync,
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 interface SpawnResult {
   exitCode: number;
@@ -32,7 +39,7 @@ export async function domainCommand(
   args: string[],
   projectPath?: string,
 ): Promise<void> {
-  const root = projectPath ?? process.cwd();
+  const root = resolveProjectRoot({ cwd: projectPath ?? process.cwd() }).rootPath;
 
   switch (subcommand) {
     case "install":
@@ -123,22 +130,31 @@ async function installDomain(_appConfig: KilnAppConfig, pkg: string | undefined,
     console.log(`Warning: ${warn}`);
   }
 
-  // Copy to .kiln/domains/
-  const domainsDir = join(root, ".kiln", "domains");
-  mkdirSync(domainsDir, { recursive: true });
+  const binding = projectStateBinding(root);
+  const domainsDir = binding.domainsPath;
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, domainsDir);
   const destPath = join(domainsDir, `${manifest.config.name}.yaml`);
+  // The destination is private state. Recheck after composing the final path
+  // and immediately before copying so a replaced entry cannot redirect it.
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, destPath);
   copyFileSync(yamlPath, destPath);
 
   console.log(`Installed ${manifest.config.displayName} v${manifest.version}`);
 }
 
 function listDomains(_appConfig: KilnAppConfig, root: string): void {
-  const domainsDir = join(root, ".kiln", "domains");
-  if (!existsSync(domainsDir)) {
+  const binding = projectStateBinding(root);
+  const domainsDir = binding.domainsPath;
+  if (!assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, domainsDir)) {
     console.log("No domains installed.");
     return;
   }
 
+  // Recheck at the directory enumeration effect boundary.
+  if (!assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, domainsDir)) {
+    console.log("No domains installed.");
+    return;
+  }
   const files = readdirSync(domainsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
   if (files.length === 0) {
     console.log("No domains installed.");
@@ -152,6 +168,9 @@ function listDomains(_appConfig: KilnAppConfig, root: string): void {
   for (const file of files) {
     const filePath = join(domainsDir, file);
     try {
+      // A catalog entry may itself be a junction/symlink even when the owner
+      // directory is safe; validate it immediately before reading.
+      assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
       const content = readFileSync(filePath, "utf-8");
       const config = parseDomainYaml(content, filePath);
       const versionMatch = content.match(/^version:\s*(.+)$/m);
@@ -220,14 +239,18 @@ function infoDomain(_appConfig: KilnAppConfig, pkg: string | undefined, root: st
     return;
   }
 
-  // Try .kiln/domains/ first (by name field match)
-  const domainsDir = join(root, ".kiln", "domains");
-  if (existsSync(domainsDir)) {
+  // Try the operator-private project domain catalog first (by name field match).
+  const binding = projectStateBinding(root);
+  const domainsDir = binding.domainsPath;
+  if (assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, domainsDir)) {
+    // Recheck at the directory enumeration effect boundary.
+    assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, domainsDir);
     const files = readdirSync(domainsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
     for (const file of files) {
       const filePath = join(domainsDir, file);
-      const content = readFileSync(filePath, "utf-8");
       try {
+        assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
+        const content = readFileSync(filePath, "utf-8");
         const manifest = parseDomainPackageYaml(content, domainsDir, filePath);
         if (manifest.config.name === pkg || basename(file, ".yaml") === pkg) {
           printManifestInfo(manifest);
@@ -280,24 +303,31 @@ async function removeDomain(_appConfig: KilnAppConfig, pkg: string | undefined, 
     return;
   }
 
-  // Find matching domain in .kiln/domains/
-  const domainsDir = join(root, ".kiln", "domains");
+  const binding = projectStateBinding(root);
+  const domainsDir = binding.domainsPath;
   let removedName: string | null = null;
 
-  if (existsSync(domainsDir)) {
+  if (assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, domainsDir)) {
+    // Recheck at the directory enumeration effect boundary.
+    assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, domainsDir);
     const files = readdirSync(domainsDir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
     for (const file of files) {
       const filePath = join(domainsDir, file);
+      // Do not let the fallback cleanup branch turn an unsafe catalog entry
+      // into an unlink operation. Its guard must run outside the parse catch.
+      assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
       try {
         const content = readFileSync(filePath, "utf-8");
         const config = parseDomainYaml(content, filePath);
         if (config.name === pkg || basename(file, ".yaml") === pkg) {
+          assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
           unlinkSync(filePath);
           removedName = config.displayName;
           break;
         }
       } catch {
         if (basename(file, ".yaml") === pkg) {
+          assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
           unlinkSync(filePath);
           removedName = pkg;
           break;
@@ -314,4 +344,8 @@ async function removeDomain(_appConfig: KilnAppConfig, pkg: string | undefined, 
   } else {
     console.log(`Domain "${pkg}" not found.`);
   }
+}
+
+function projectStateBinding(projectRoot: string) {
+  return resolveProjectStateBinding(projectRoot);
 }

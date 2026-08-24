@@ -6,10 +6,12 @@ import { defineExecutionCatalog } from "@kilnai/core/agents";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { createAppGatewayExecutionComposition } from "../../src/application/app-gateway-execution-composition.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 describe("createAppGatewayExecutionComposition", () => {
   it("uses the captured canonical snapshot and persists adoption events in the project transcript", async () => {
     const projectPath = await mkdtemp(join(tmpdir(), "kiln-app-gateway-"));
+    const projectStateBinding = resolveProjectStateBinding(projectPath, { kilnHome: join(projectPath, "kiln-home") });
     const catalog = defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
     const configPath = await writeGatewayFixture(projectPath);
     const snapshot = {
@@ -22,6 +24,7 @@ describe("createAppGatewayExecutionComposition", () => {
     const composition = createAppGatewayExecutionComposition({
       projectPath,
       configPath,
+      projectStateBinding,
       captureCatalogSnapshot: () => snapshot,
       readGlobalConfigSnapshot: () => ({ config: null, revision: "sha256:global" }),
     });
@@ -51,20 +54,22 @@ describe("createAppGatewayExecutionComposition", () => {
       source: { actor: "runtime", surface: "runtime", component: "operator-adoption" },
     });
 
-    const transcript = await new TranscriptStore(projectPath).readTranscript("session-1");
+    const transcript = await new TranscriptStore(projectStateBinding).readTranscript("session-1");
     expect(transcript).toHaveLength(1);
     expect(transcript[0]).toMatchObject({ kind: "operator_adoption_decision", turnId });
-    expect(await readFile(join(projectPath, ".kiln", "runtime", "operator-session-account-capacity.sqlite"))).toBeDefined();
-    expect(await readFile(join(projectPath, ".kiln", "runtime", "app-gateway-model-round-claims.sqlite"))).toBeDefined();
+    expect(await readFile(join(projectStateBinding.runtimePath, "operator-session-account-capacity.sqlite"))).toBeDefined();
+    expect(await readFile(join(projectStateBinding.runtimePath, "app-gateway-model-round-claims.sqlite"))).toBeDefined();
     composition.close();
   });
 
   it("supplies the configured canonical session-turn budget to Runtime admission", async () => {
     const projectPath = await mkdtemp(join(tmpdir(), "kiln-app-gateway-"));
+    const projectStateBinding = resolveProjectStateBinding(projectPath, { kilnHome: join(projectPath, "kiln-home") });
     const configPath = await writeGatewayFixture(projectPath);
     const composition = createAppGatewayExecutionComposition({
       projectPath,
       configPath,
+      projectStateBinding,
       captureCatalogSnapshot: () => ({
         catalog: defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] }),
         configurationRevision: { revisionSetId: "sha256:r1", revisions: { global: "sha256:g1" } },

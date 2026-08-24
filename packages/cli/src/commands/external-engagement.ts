@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   buildExternalEngagementReviewReport,
   buildExternalEvidenceReport,
@@ -30,13 +30,17 @@ import {
   type XPostReference,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 import { EnvSecretResolver, EnvSecretResolverError } from "../credentials/env-secret-resolver.js";
 import { FileXEvidenceReportCache, type XEvidenceReportCache } from "./x-evidence-report-cache.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
 
 const X_POST_LOOKUP_LIMIT = 100;
 const X_RECENT_SEARCH_MAX_RESULTS_LIMIT = 100;
-const DEFAULT_X_REPORT_CACHE_DIR = ".kiln/cache/external-engagement/x-report";
-const DEFAULT_EXTERNAL_ENGAGEMENT_WORKSPACE_DIR = ".kiln/external-engagement";
 const DEFAULT_FEATURE_INTAKE_FILENAME = "feature-intake.json";
 
 export interface XEvidenceFetchInput {
@@ -137,6 +141,11 @@ export interface ExternalEngagementCommandDependencies {
   readonly now?: () => Date;
   readonly reportId?: () => string;
   readonly defaultCacheDir?: string;
+  readonly defaultArtifactDir?: string;
+  /** Strict test/embedding seam for the operator-owned private project state. */
+  readonly projectStateBinding?: ProjectStateBinding;
+  /** Internal effect-time guard root populated by the command composition. */
+  readonly privateStateRoot?: string;
 }
 
 interface XReportFlags {
@@ -214,6 +223,14 @@ export async function externalEngagementCommand(
   args: readonly string[],
   dependencies: ExternalEngagementCommandDependencies = {},
 ): Promise<void> {
+  const projectBinding = dependencies.projectStateBinding
+    ?? resolveProjectStateBinding(resolveProjectRoot({ cwd: process.cwd() }).rootPath);
+  const effectiveDependencies: ExternalEngagementCommandDependencies = {
+    ...dependencies,
+    defaultCacheDir: dependencies.defaultCacheDir ?? join(projectBinding.cachePath, "external-engagement", "x-report"),
+    defaultArtifactDir: dependencies.defaultArtifactDir ?? join(projectBinding.evidencePath, "external-engagement"),
+    privateStateRoot: projectBinding.projectStateRoot,
+  };
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
     printHelp();
     return;
@@ -226,34 +243,34 @@ export async function externalEngagementCommand(
     return;
   }
   if (subcommand === "x-smoke") {
-    await runXSmoke(parseXSmokeFlags(args), dependencies);
+    await runXSmoke(parseXSmokeFlags(args), effectiveDependencies);
     return;
   }
   if (subcommand === "x-search") {
-    await runXSearch(parseXSearchFlags(args), dependencies);
+    await runXSearch(parseXSearchFlags(args), effectiveDependencies);
     return;
   }
   if (subcommand === "x-refresh") {
-    await runXRefresh(parseXRefreshFlags(args), dependencies);
+    await runXRefresh(parseXRefreshFlags(args), effectiveDependencies);
     return;
   }
   if (subcommand === "x-candidates") {
-    await runXCandidates(parseXCandidatesFlags(args), dependencies);
+    await runXCandidates(parseXCandidatesFlags(args), effectiveDependencies);
     return;
   }
   if (subcommand === "x-review") {
-    await runXReview(parseXReviewFlags(args), dependencies);
+    await runXReview(parseXReviewFlags(args), effectiveDependencies);
     return;
   }
   if (subcommand === "x-decide") {
-    await runXDecide(parseXDecideFlags(args), dependencies);
+    await runXDecide(parseXDecideFlags(args), effectiveDependencies);
     return;
   }
   if (subcommand === "x-promote") {
-    await runXPromote(parseXPromoteFlags(args), dependencies);
+    await runXPromote(parseXPromoteFlags(args, effectiveDependencies.defaultArtifactDir!), effectiveDependencies);
     return;
   }
-  await runXReport(parseXReportFlags(args), dependencies);
+  await runXReport(parseXReportFlags(args), effectiveDependencies);
 }
 
 async function runXReport(
@@ -284,18 +301,21 @@ async function runXReport(
       budget,
       artifacts: [],
       signals: [],
-    }), flags.outputPath);
+    }), flags.outputPath, dependencies.privateStateRoot);
     return;
   }
   const cache = flags.cacheMode === "disabled"
     ? undefined
     : dependencies.reportCache ?? new FileXEvidenceReportCache(
-      flags.cacheDir ?? dependencies.defaultCacheDir ?? DEFAULT_X_REPORT_CACHE_DIR,
+      flags.cacheDir ?? dependencies.defaultCacheDir!,
+      isPrivateStateTarget(dependencies.privateStateRoot, flags.cacheDir ?? dependencies.defaultCacheDir!)
+        ? { privateStateRoot: dependencies.privateStateRoot }
+        : undefined,
     );
   if (cache && flags.cacheMode !== "refresh") {
     const cached = cache.read(query);
     if (cached) {
-      printOrWrite(cached, flags.outputPath);
+      printOrWrite(cached, flags.outputPath, dependencies.privateStateRoot);
       return;
     }
   }
@@ -315,7 +335,7 @@ async function runXReport(
     budget,
   });
   cache?.write(report);
-  printOrWrite(report, flags.outputPath);
+  printOrWrite(report, flags.outputPath, dependencies.privateStateRoot);
 }
 
 async function runXSearch(
@@ -360,18 +380,21 @@ async function runXSearch(
       budget,
       artifacts: [],
       signals: [],
-    }), flags.outputPath);
+    }), flags.outputPath, dependencies.privateStateRoot);
     return;
   }
   const cache = flags.cacheMode === "disabled"
     ? undefined
     : dependencies.reportCache ?? new FileXEvidenceReportCache(
-      flags.cacheDir ?? dependencies.defaultCacheDir ?? DEFAULT_X_REPORT_CACHE_DIR,
+      flags.cacheDir ?? dependencies.defaultCacheDir!,
+      isPrivateStateTarget(dependencies.privateStateRoot, flags.cacheDir ?? dependencies.defaultCacheDir!)
+        ? { privateStateRoot: dependencies.privateStateRoot }
+        : undefined,
     );
   if (cache && flags.cacheMode !== "refresh") {
     const cached = cache.read(query);
     if (cached) {
-      printOrWrite(cached, flags.outputPath);
+      printOrWrite(cached, flags.outputPath, dependencies.privateStateRoot);
       return;
     }
   }
@@ -395,7 +418,7 @@ async function runXSearch(
     budget,
   });
   cache?.write(report);
-  printOrWrite(report, flags.outputPath);
+  printOrWrite(report, flags.outputPath, dependencies.privateStateRoot);
 }
 
 async function runXSmoke(
@@ -418,7 +441,7 @@ async function runXSmoke(
     generatedAt,
     credentialRefId: accessTokenRef.id,
   });
-  printOrWriteJson(result, flags.outputPath);
+  printOrWriteJson(result, flags.outputPath, dependencies.privateStateRoot);
 }
 
 async function runXRefresh(
@@ -474,7 +497,7 @@ async function runXRefresh(
     ...(result.scopes ? { scopes: result.scopes } : {}),
     accessToken: result.accessToken,
     ...(result.refreshToken ? { refreshToken: result.refreshToken } : {}),
-  });
+  }, dependencies.privateStateRoot);
   const summary: XOAuth2RefreshSummary = {
     source: "x",
     operation: "oauth2-refresh",
@@ -513,7 +536,7 @@ async function runXCandidates(
     sourceReportId: sourceReport.reportId,
     signals,
   });
-  printOrWriteFeatureCandidateReport(candidateReport, flags.outputPath);
+  printOrWriteFeatureCandidateReport(candidateReport, flags.outputPath, dependencies.privateStateRoot);
 }
 
 async function runXReview(
@@ -531,7 +554,7 @@ async function runXReview(
     generatedAt,
     candidateReport,
   });
-  printOrWriteReviewMarkdown(review.markdown, flags.outputPath);
+  printOrWriteReviewMarkdown(review.markdown, flags.outputPath, dependencies.privateStateRoot);
 }
 
 async function runXDecide(
@@ -554,7 +577,7 @@ async function runXDecide(
     candidateReport,
     decisions,
   });
-  printOrWriteFeatureCandidateDecisionReport(decisionReport, flags.outputPath);
+  printOrWriteFeatureCandidateDecisionReport(decisionReport, flags.outputPath, dependencies.privateStateRoot);
 }
 
 async function runXPromote(
@@ -572,7 +595,11 @@ async function runXPromote(
     generatedAt,
     decisionReport,
   });
-  printOrWriteFeatureIntakeReport(intakeReport, flags.outputPath ?? defaultFeatureIntakePath(flags.workspaceDir));
+  printOrWriteFeatureIntakeReport(
+    intakeReport,
+    flags.outputPath ?? defaultFeatureIntakePath(flags.workspaceDir),
+    dependencies.privateStateRoot,
+  );
 }
 
 async function resolveAccessToken(
@@ -995,10 +1022,10 @@ function parseXDecideFlags(args: readonly string[]): XDecideFlags {
   };
 }
 
-function parseXPromoteFlags(args: readonly string[]): XPromoteFlags {
+function parseXPromoteFlags(args: readonly string[], defaultArtifactDir: string): XPromoteFlags {
   let decisionsPath: string | undefined;
   let outputPath: string | undefined;
-  let workspaceDir = process.cwd();
+  let workspaceDir = defaultArtifactDir;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
@@ -1034,37 +1061,51 @@ function readInputReferences(inputPath: string | undefined): readonly string[] {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
-function printOrWrite(report: ExternalEvidenceReport, outputPath: string | undefined): void {
-  printOrWriteJson(report, outputPath);
+function printOrWrite(
+  report: ExternalEvidenceReport,
+  outputPath: string | undefined,
+  privateStateRoot?: string,
+): void {
+  printOrWriteJson(report, outputPath, privateStateRoot);
 }
 
-function printOrWriteJson(value: unknown, outputPath: string | undefined): void {
+function printOrWriteJson(value: unknown, outputPath: string | undefined, privateStateRoot?: string): void {
   const body = `${JSON.stringify(value, null, 2)}\n`;
   if (!outputPath) {
     console.log(body.trimEnd());
     return;
   }
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   writeFileSync(outputPath, body, "utf-8");
   console.log(`External engagement report written: ${outputPath}`);
 }
 
-function printOrWriteFeatureCandidateReport(report: FeatureCandidateReport, outputPath: string | undefined): void {
+function printOrWriteFeatureCandidateReport(
+  report: FeatureCandidateReport,
+  outputPath: string | undefined,
+  privateStateRoot?: string,
+): void {
   if (!outputPath) {
     console.log(JSON.stringify(report, null, 2));
     return;
   }
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
   console.log(`External engagement feature candidates written: ${outputPath}`);
 }
 
-function printOrWriteReviewMarkdown(markdown: string, outputPath: string | undefined): void {
+function printOrWriteReviewMarkdown(markdown: string, outputPath: string | undefined, privateStateRoot?: string): void {
   if (!outputPath) {
     console.log(markdown);
     return;
   }
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   writeFileSync(outputPath, `${markdown}\n`, "utf-8");
   console.log(`External engagement review written: ${outputPath}`);
 }
@@ -1072,28 +1113,51 @@ function printOrWriteReviewMarkdown(markdown: string, outputPath: string | undef
 function printOrWriteFeatureCandidateDecisionReport(
   report: FeatureCandidateDecisionReport,
   outputPath: string | undefined,
+  privateStateRoot?: string,
 ): void {
   if (!outputPath) {
     console.log(JSON.stringify(report, null, 2));
     return;
   }
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
   console.log(`External engagement candidate decisions written: ${outputPath}`);
 }
 
-function printOrWriteFeatureIntakeReport(report: FeatureIntakeReport, outputPath: string): void {
+function printOrWriteFeatureIntakeReport(
+  report: FeatureIntakeReport,
+  outputPath: string,
+  privateStateRoot?: string,
+): void {
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
   console.log(`External engagement feature intake written: ${outputPath}`);
 }
 
 function defaultFeatureIntakePath(workspaceDir: string): string {
-  return join(workspaceDir, DEFAULT_EXTERNAL_ENGAGEMENT_WORKSPACE_DIR, DEFAULT_FEATURE_INTAKE_FILENAME);
+  return join(workspaceDir, DEFAULT_FEATURE_INTAKE_FILENAME);
 }
 
-function writeSecretJson(outputPath: string, value: unknown): void {
+function guardPrivateFileWrite(privateStateRoot: string | undefined, filePath: string): void {
+  if (!isPrivateStateTarget(privateStateRoot, filePath)) return;
+  ensurePrivateStateDirectorySync(privateStateRoot!, dirname(filePath));
+  assertPrivateStateFileTargetSync(privateStateRoot!, filePath);
+}
+
+function isPrivateStateTarget(privateStateRoot: string | undefined, targetPath: string): boolean {
+  if (!privateStateRoot) return false;
+  const path = relative(resolve(privateStateRoot), resolve(targetPath));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !/^[a-zA-Z]:[\\/]/u.test(path));
+}
+
+function writeSecretJson(outputPath: string, value: unknown, privateStateRoot?: string): void {
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(privateStateRoot, outputPath);
   writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
@@ -1475,7 +1539,7 @@ function printHelp(): void {
     "  --allow-live             Required for x-smoke live network access",
     "  --secret-output PATH     Write refreshed OAuth2 tokens to PATH for x-refresh",
     "  --public-client          Refresh without a client secret for OAuth2 public clients",
-    "  --cache-dir PATH         Cache x-report JSON under PATH (default: .kiln/cache/external-engagement/x-report)",
+    "  --cache-dir PATH         Cache x-report JSON under PATH (default: private project cache)",
     "  --no-cache               Disable x-report cache reads and writes",
     "  --refresh-cache          Bypass cache reads and replace the cached x-report",
     "  --output PATH            Write report JSON to PATH",

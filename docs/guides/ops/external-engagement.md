@@ -69,7 +69,7 @@ kiln external-engagement x-search \
   --max-posts 25 \
   --max-replies 3 \
   --max-requests 30 \
-  --output ./.kiln/external-engagement/x-search-report.json
+  --output ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-search-report.json
 ```
 
 `x-search` uses X recent search and records the discovery scope in the evidence
@@ -94,13 +94,13 @@ Fetch a bounded report:
 kiln external-engagement x-report \
   --input ./x-sources.txt \
   --max-replies 25 \
-  --output ./.kiln/external-engagement/x-report.json
+  --output ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-report.json
 ```
 
 `x-search` and `x-report` cache successful reports by default under:
 
 ```text
-.kiln/cache/external-engagement/x-report
+~/.kiln/projects/<krp_sha256>/cache/external-engagement/x-report
 ```
 
 For `x-report`, the cache key is based on X post ids and `--max-replies`, not
@@ -157,8 +157,8 @@ Build feature candidates from an existing evidence report without touching X:
 
 ```bash
 kiln external-engagement x-candidates \
-  --report ./.kiln/external-engagement/x-report.json \
-  --output ./.kiln/external-engagement/x-candidates.json
+  --report ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-report.json \
+  --output ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-candidates.json
 ```
 
 `x-candidates` is an offline transformation. It reads a prior `x-report`,
@@ -186,8 +186,8 @@ Build a review-friendly Markdown report from candidates:
 
 ```bash
 kiln external-engagement x-review \
-  --candidates ./.kiln/external-engagement/x-candidates.json \
-  --output ./.kiln/external-engagement/x-review.md
+  --candidates ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-candidates.json \
+  --output ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-review.md
 ```
 
 `x-review` is also offline. The default Markdown review includes candidate
@@ -200,9 +200,9 @@ Record operator decisions against reviewed candidates:
 
 ```bash
 kiln external-engagement x-decide \
-  --candidates ./.kiln/external-engagement/x-candidates.json \
-  --decisions ./.kiln/external-engagement/x-decisions-input.json \
-  --output ./.kiln/external-engagement/x-decisions.json
+  --candidates ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-candidates.json \
+  --decisions ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-decisions-input.json \
+  --output ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-decisions.json
 ```
 
 The decisions input is JSON:
@@ -232,11 +232,11 @@ Promote accepted or narrowed decisions into provider-neutral feature intake:
 
 ```bash
 kiln external-engagement x-promote \
-  --decisions ./.kiln/external-engagement/x-decisions.json
+  --decisions ~/.kiln/projects/<krp_sha256>/evidence/external-engagement/x-decisions.json
 ```
 
 Without `--output`, `x-promote` writes to
-`.kiln/external-engagement/feature-intake.json` under the current workspace.
+the private project's `evidence/external-engagement/feature-intake.json`.
 Use `--workspace-dir` when running from another directory, or `--output` for an
 explicit destination.
 
@@ -256,7 +256,7 @@ kiln tools --resource kiln://external-engagement/evidence/1000000000000000001
 ```
 
 The resource provider reads only workspace artifacts under
-`.kiln/external-engagement`. Artifact resources expose generated evidence,
+the private project's `evidence/external-engagement` directory. Artifact resources expose generated evidence,
 candidate, review, decision, and intake files. The artifact index derives each
 artifact kind from file content when possible and reports aggregate counts for
 evidence artifacts, signals, candidates, review items, decisions, and feature

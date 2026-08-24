@@ -25,6 +25,7 @@ import type {
 import { SessionRegistry } from "../../src/wrapper/session-registry.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application/authority-admission-evidence-store.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   projectManagedEconomicJobAdoption,
@@ -1324,9 +1325,10 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("exposes canonical agent profiles as managed invocation selection catalog", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-managed-agent-catalog-"));
     try {
-      const agentsDir = join(root, ".kiln", "agents");
-      const testSkillDir = join(root, ".kiln", "skills", "test-generator");
-      const repoReviewSkillDir = join(root, ".kiln", "skills", "repo-review");
+      const projectStateBinding = resolveProjectStateBinding(root, { kilnHome: join(root, "private-kiln") });
+      const agentsDir = projectStateBinding.agentsPath;
+      const testSkillDir = join(projectStateBinding.skillsPath, "test-generator");
+      const repoReviewSkillDir = join(projectStateBinding.skillsPath, "repo-review");
       mkdirSync(agentsDir, { recursive: true });
       mkdirSync(testSkillDir, { recursive: true });
       mkdirSync(repoReviewSkillDir, { recursive: true });
@@ -1409,6 +1411,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       }), {
         cwd: root,
         userHome: root,
+        projectStateBinding,
         registry: createRegistry("codex"),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1674,7 +1677,8 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("projects agent route hints from configured task suitability without model-name heuristics", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-route-suitability-"));
     try {
-      const agentsDir = join(root, ".kiln", "agents");
+      const projectStateBinding = resolveProjectStateBinding(root, { kilnHome: join(root, "private-kiln") });
+      const agentsDir = projectStateBinding.agentsPath;
       mkdirSync(agentsDir, { recursive: true });
       writeFileSync(join(agentsDir, "bounded-scout.md"), [
         "---",
@@ -1717,6 +1721,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         }],
       }, {
         cwd: root,
+        projectStateBinding,
         registry: createRegistry("codex-oauth"),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,

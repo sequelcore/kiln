@@ -33,6 +33,21 @@ describe("ProviderModelRouteHealthStore", () => {
     });
   });
 
+  it("stores route health below the explicit global Kiln home", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "kiln-route-health-home-"));
+    const kilnHome = join(rootDir, "xdg", "kiln");
+    const store = new ProviderModelRouteHealthStore({ kilnHome });
+
+    await store.recordOutcome({
+      providerId: "openrouter",
+      modelId: "openrouter/free",
+      outcome: { type: "rate-limited" },
+    });
+
+    expect(await readFile(join(kilnHome, "route-health", "openrouter.json"), "utf8"))
+      .toContain("openrouter/free");
+  });
+
   it("round-trips route-specific failure evidence without converting it to a credential outcome", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "kiln-route-health-"));
     const store = new ProviderModelRouteHealthStore({ rootDir });

@@ -1,8 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   AnthropicAdapter,
   CredentialPool,
@@ -21,10 +19,13 @@ import { CredentialFileStore } from "./credential-file-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
+import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export type PooledDirectProviderId = "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama" | "lmstudio";
 
 export interface DirectProviderCredentialPoolServiceConfig {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly rootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly healthStore?: CredentialHealthStore;
@@ -125,7 +126,7 @@ export class DirectProviderCredentialPoolService {
   }>();
 
   constructor(config: DirectProviderCredentialPoolServiceConfig = {}) {
-    this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
+    this.rootDir = resolveRuntimeStoreRoot(config, "auth");
     this.env = config.env ?? process.env;
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.watcher = config.watcher;

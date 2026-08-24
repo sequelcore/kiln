@@ -220,7 +220,7 @@ describe("permission projection translators", () => {
         },
       },
     });
-    expect(projection.document.kiln).toBeUndefined();
+    expect(projection.document.kiln).toEqual({ legacyFlag: true });
   });
 
   it("orders the OpenCode wildcard rule first so specific rules win", () => {

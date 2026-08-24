@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   createFeedbackBundle,
   createFeedbackIssueDraft,
@@ -10,7 +10,12 @@ import {
   type FeedbackReporterMode,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
 
 interface FeedbackDraftFlags {
   readonly projectPath?: string;
@@ -70,7 +75,10 @@ function writeFeedbackDraft(flags: FeedbackDraftFlags): WriteFeedbackDraftResult
   const sessionId = required(flags.sessionId, "--session");
   const description = required(flags.description, "--description");
   const actualBehavior = required(flags.actualBehavior, "--actual");
-  const outputDir = resolve(project.rootPath, flags.outputDir ?? join(".kiln", "feedback"));
+  const projectStateBinding = resolveProjectStateBinding(project.rootPath);
+  const outputDir = flags.outputDir === undefined
+    ? projectStateBinding.feedbackPath
+    : resolve(project.rootPath, flags.outputDir);
   const gitStatus = resolveGitStatus(flags, project.rootPath);
   const evidence = buildEvidence(gitStatus);
 
@@ -91,8 +99,12 @@ function writeFeedbackDraft(flags: FeedbackDraftFlags): WriteFeedbackDraftResult
   const bundlePath = join(outputDir, `${feedbackId}.json`);
   const issuePath = join(outputDir, `${feedbackId}.md`);
 
+  guardPrivateFileWrite(projectStateBinding, bundlePath);
+  guardPrivateFileWrite(projectStateBinding, issuePath);
   mkdirSync(outputDir, { recursive: true });
+  guardPrivateFileWrite(projectStateBinding, bundlePath);
   writeFileSync(bundlePath, `${JSON.stringify(bundle, null, 2)}\n`, "utf-8");
+  guardPrivateFileWrite(projectStateBinding, issuePath);
   writeFileSync(issuePath, `${issue.markdown}\n`, "utf-8");
 
   return {
@@ -211,6 +223,17 @@ function isOptionToken(value: string): boolean {
   return value.startsWith("--");
 }
 
+function guardPrivateFileWrite(binding: ProjectStateBinding, filePath: string): void {
+  if (!isPrivateStateTarget(binding.projectStateRoot, filePath)) return;
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, dirname(filePath));
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
+}
+
+function isPrivateStateTarget(privateStateRoot: string, targetPath: string): boolean {
+  const path = relative(resolve(privateStateRoot), resolve(targetPath));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !/^[a-zA-Z]:[\\/]/u.test(path));
+}
+
 function printFeedbackHelp(): void {
   console.log("\nUsage: kiln feedback draft [options]\n");
   console.log("Options:");
@@ -223,6 +246,6 @@ function printFeedbackHelp(): void {
   console.log("  --actual TEXT           Required actual behavior");
   console.log("  --git-status            Include current git status snapshot");
   console.log("  --git-status-text TEXT  Include provided git status text");
-  console.log("  --output-dir PATH       Output directory; default .kiln/feedback");
+  console.log("  --output-dir PATH       Output directory; default private project feedback state");
   console.log("");
 }

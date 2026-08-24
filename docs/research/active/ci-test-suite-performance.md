@@ -201,9 +201,6 @@ before documenting the ordinary clean-install path.
   reducing the current 370–415s CLI lane. Runtime root-barrel imports and five
   historically expensive files are leads, not accepted solutions; current
   attribution must earn any production boundary change.
-- [#106](https://github.com/sequelcore/kiln/issues/106) owns admitting GUI test
-  sources to the canonical test-typechecking gate. Its current probe reports
-  197 errors across 28 files.
 - Ten hosted post-change runs remain necessary before this research can report
   stable p50/p95 CI outcomes and satisfy its exit condition.
 
@@ -242,12 +239,14 @@ while rewriting tsconfig files, so the pilot skips that optional rewrite while
 keeping the sandbox. The TypeScript checker plugin is not admitted until the
 upstream TypeScript 7 migration is complete.
 
-The remaining supported package inventory is explicit. Widget already includes
-its four test sources in `packages/widget/tsconfig.json`. GUI includes only
-`src` today: a correct test probe found 197 errors across 28 of its 75 test
-files, all confined to `packages/gui`. Issue
-[#106](https://github.com/sequelcore/kiln/issues/106) owns that separate
-admission rather than expanding #85.
+The supported package inventory is now explicit. Widget includes its four test
+sources in `packages/widget/tsconfig.json`. Issue
+[#106](https://github.com/sequelcore/kiln/issues/106) added
+`packages/gui/tsconfig.test.json`, repaired the 197-diagnostic GUI test backlog,
+and admitted that project to the root `typecheck:tests` gate with zero errors.
+The admission uses no tolerated baseline, blanket exclusion, or `skipLibCheck`
+workaround; the full GUI and supported surface lanes remain the behavioral
+oracle for those compiler-driven repairs.
 
 ## Sources
 

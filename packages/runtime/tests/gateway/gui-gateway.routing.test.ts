@@ -538,7 +538,11 @@ describe("GUI gateway execution routing", () => {
         "Expected codex-oauth models to be advertised after background discovery.",
       );
 
-      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledWith({ "codex-oauth": true });
+      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledWith(
+        { "codex-oauth": true },
+        undefined,
+        undefined,
+      );
       expect(gateway.operatorModels?.["codex-oauth"]).toEqual(["gpt-5.4-mini"]);
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();

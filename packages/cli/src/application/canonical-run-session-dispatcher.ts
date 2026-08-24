@@ -104,7 +104,8 @@ export function createCanonicalRunSessionDispatcher(input: {
       const payload = request.payload;
       const provider = admission.providerId as ProviderId;
       if (!isDirectApiProvider(provider)) throw new Error(`Canonical direct run resolved unsupported provider '${admission.providerId}'.`);
-      const mcpClients = (payload.sessionConfig.canonicalMcpServers ?? []).map(createCanonicalMcpClient);
+      const mcpClients = (payload.sessionConfig.canonicalMcpServers ?? [])
+        .map((server) => createCanonicalMcpClient(server, payload.sessionConfig.kilnHome));
       const discoveredMcpCapabilities = (await Promise.all(mcpClients.map((client) => client.discoverProviderCapabilities()))).flat();
       const permissionEvaluator = createPermissionEvaluator(payload.permissionPolicy, { agent: payload.permissionAgent });
       const scopedMcpToolAllowlist = permissionEvaluator.scope.matchedScope && permissionEvaluator.scope.mcpTools

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mcpConfigCommand } from "../../src/commands/mcp-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
+import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(() => ({ servers: {}, diagnostics: [] })),
@@ -43,6 +44,9 @@ const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => { throw new Error("not used"); },
 };
 
+const PROJECT_PATH = resolveProjectRoot({ cwd: process.cwd() }).rootPath;
+const PRIVATE_BINDING = expect.objectContaining({ canonicalRoot: PROJECT_PATH });
+
 describe("mcpConfigCommand", () => {
   beforeEach(() => {
     mocks.load.mockClear();
@@ -56,11 +60,14 @@ describe("mcpConfigCommand", () => {
   it("syncs every supported harness from canonical effective configuration by default", async () => {
     await mcpConfigCommand(APP_CONFIG, {});
 
-    expect(mocks.load).toHaveBeenCalledWith(process.cwd());
+    expect(mocks.load).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      { projectStateBinding: PRIVATE_BINDING },
+    );
     expect(mocks.sync).toHaveBeenCalledWith(
       { servers: {}, diagnostics: [] },
-      process.cwd(),
-      { harnesses: ["codex", "claude", "opencode"] },
+      PROJECT_PATH,
+      { harnesses: ["codex", "claude", "opencode"], projectStateBinding: PRIVATE_BINDING },
     );
     expect(mocks.globalSync).toHaveBeenCalledWith({
       operation: "install",
@@ -75,14 +82,21 @@ describe("mcpConfigCommand", () => {
     ["opencode", "opencode"],
   ] as const)("installs the control plane when %s is selected alone", async (client, harness) => {
     await mcpConfigCommand(APP_CONFIG, { client });
-    expect(mocks.sync).toHaveBeenCalledWith(expect.anything(), process.cwd(), { harnesses: [harness] });
+    expect(mocks.sync).toHaveBeenCalledWith(
+      expect.anything(),
+      PROJECT_PATH,
+      { harnesses: [harness], projectStateBinding: PRIVATE_BINDING },
+    );
     expect(mocks.globalSync).toHaveBeenCalledWith({ operation: "install", harnesses: [harness], projectPath: process.cwd() });
   });
 
   it("uninstalls only the selected governed MCP projection", async () => {
     await mcpConfigCommand(APP_CONFIG, { client: "codex", uninstall: true });
 
-    expect(mocks.uninstall).toHaveBeenCalledWith(process.cwd(), { harnesses: ["codex"] });
+    expect(mocks.uninstall).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      { harnesses: ["codex"], projectStateBinding: PRIVATE_BINDING },
+    );
     expect(mocks.globalSync).toHaveBeenCalledWith({ operation: "uninstall", harnesses: ["codex"] });
     expect(mocks.load).not.toHaveBeenCalled();
     expect(mocks.sync).not.toHaveBeenCalled();

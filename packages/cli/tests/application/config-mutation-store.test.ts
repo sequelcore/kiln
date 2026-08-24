@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
+import { type ProjectStateBinding, resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const roots: string[] = [];
 
@@ -12,6 +13,34 @@ afterEach(() => {
 
 function digest(letter: string): `sha256:${string}` {
   return `sha256:${letter.repeat(64)}`;
+}
+
+interface StoreFixture {
+  readonly projectPath: string;
+  readonly binding: ProjectStateBinding;
+  readonly globalConfigPath: string;
+}
+
+function workspace(label: string): { readonly root: string; readonly kilnHome: string } {
+  const root = mkdtempSync(join(tmpdir(), `kiln-config-store-${label}-`));
+  const kilnHome = join(root, "kiln-home");
+  mkdirSync(kilnHome, { recursive: true });
+  roots.push(root);
+  return { root, kilnHome };
+}
+
+function projectFixture(root: string, kilnHome: string, name: string): StoreFixture {
+  const projectPath = join(root, name);
+  mkdirSync(join(projectPath, ".git"), { recursive: true });
+  const binding = resolveProjectStateBinding(projectPath, { kilnHome });
+  return { projectPath, binding, globalConfigPath: join(kilnHome, "config.yaml") };
+}
+
+function storeFor(fixture: StoreFixture): ConfigMutationStore {
+  return new ConfigMutationStore(fixture.projectPath, {
+    root: fixture.binding.mutationsPath,
+    globalConfigPath: fixture.globalConfigPath,
+  });
 }
 
 function settlement(input: {
@@ -48,14 +77,13 @@ function settlement(input: {
 
 describe("ConfigMutationStore settlement lineage query", () => {
   it("selects the latest settlement by canonical path and committed revision", () => {
-    const projectPath = mkdtempSync(join(tmpdir(), "kiln-config-store-project-"));
-    const storeRoot = mkdtempSync(join(tmpdir(), "kiln-config-store-root-"));
-    roots.push(projectPath, storeRoot);
-    const path = join(projectPath, ".kiln", "kiln.yaml");
-    const otherPath = join(projectPath, ".kiln", "agents", "reviewer.md");
+    const fixtureRoot = workspace("lineage");
+    const fixture = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project");
+    const path = fixture.binding.configPath;
+    const otherPath = join(fixture.binding.agentsPath, "reviewer.md");
     const revisionA = digest("a");
     const revisionB = digest("b");
-    const store = new ConfigMutationStore(projectPath, { root: storeRoot });
+    const store = storeFor(fixture);
 
     store.settle(settlement({ proposalId: "cfg-apply-a", path, committedRevision: revisionA, settledAt: "2026-08-22T00:00:00.000Z" }));
     store.settle(settlement({ proposalId: "cfg-apply-b", path, committedRevision: revisionB, settledAt: "2026-08-22T00:00:02.000Z" }));
@@ -68,13 +96,12 @@ describe("ConfigMutationStore settlement lineage query", () => {
   });
 
   it("does not resurrect an older same-hash settlement after an ungoverned byte change", () => {
-    const projectPath = mkdtempSync(join(tmpdir(), "kiln-config-store-resurrection-project-"));
-    const storeRoot = mkdtempSync(join(tmpdir(), "kiln-config-store-resurrection-root-"));
-    roots.push(projectPath, storeRoot);
-    const path = join(projectPath, ".kiln", "kiln.yaml");
+    const fixtureRoot = workspace("resurrection");
+    const fixture = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project");
+    const path = fixture.binding.configPath;
     const revisionA = digest("a");
     const revisionB = digest("b");
-    const store = new ConfigMutationStore(projectPath, { root: storeRoot });
+    const store = storeFor(fixture);
 
     store.settle(settlement({ proposalId: "cfg-resurrection-a", path, committedRevision: revisionA, settledAt: "2026-08-22T00:00:00.000Z" }));
     store.settle(settlement({ proposalId: "cfg-resurrection-b", path, committedRevision: revisionB, settledAt: "2026-08-22T00:00:01.000Z" }));
@@ -85,13 +112,12 @@ describe("ConfigMutationStore settlement lineage query", () => {
   });
 
   it("shares globally scoped settlement order across project namespaces", () => {
-    const projectA = mkdtempSync(join(tmpdir(), "kiln-config-store-project-a-"));
-    const projectB = mkdtempSync(join(tmpdir(), "kiln-config-store-project-b-"));
-    const storeRoot = mkdtempSync(join(tmpdir(), "kiln-config-store-global-root-"));
-    const globalPath = join(storeRoot, "config.yaml");
-    roots.push(projectA, projectB, storeRoot);
-    const storeA = new ConfigMutationStore(projectA, { root: storeRoot, globalConfigPath: globalPath });
-    const storeB = new ConfigMutationStore(projectB, { root: storeRoot, globalConfigPath: globalPath });
+    const fixtureRoot = workspace("global-order");
+    const projectA = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project-a");
+    const projectB = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project-b");
+    const globalPath = join(fixtureRoot.kilnHome, "config.yaml");
+    const storeA = storeFor(projectA);
+    const storeB = storeFor(projectB);
     const revisionA = digest("a");
 
     storeA.settle(settlement({ proposalId: "cfg-global-a", path: globalPath, scope: "global", committedRevision: revisionA, settledAt: "2026-08-22T00:00:00.000Z" }));
@@ -103,13 +129,12 @@ describe("ConfigMutationStore settlement lineage query", () => {
   });
 
   it("qualifies global settlements to the project whose projection evidence was produced", () => {
-    const projectA = mkdtempSync(join(tmpdir(), "kiln-config-store-project-a-"));
-    const projectB = mkdtempSync(join(tmpdir(), "kiln-config-store-project-b-"));
-    const storeRoot = mkdtempSync(join(tmpdir(), "kiln-config-store-global-root-"));
-    const globalPath = join(storeRoot, "config.yaml");
-    roots.push(projectA, projectB, storeRoot);
-    const storeA = new ConfigMutationStore(projectA, { root: storeRoot, globalConfigPath: globalPath });
-    const storeB = new ConfigMutationStore(projectB, { root: storeRoot, globalConfigPath: globalPath });
+    const fixtureRoot = workspace("global-qualification");
+    const projectA = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project-a");
+    const projectB = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project-b");
+    const globalPath = join(fixtureRoot.kilnHome, "config.yaml");
+    const storeA = storeFor(projectA);
+    const storeB = storeFor(projectB);
 
     storeA.settle({
       ...settlement({
@@ -128,13 +153,12 @@ describe("ConfigMutationStore settlement lineage query", () => {
   });
 
   it("exposes global in-flight markers to every project store and clears the shared marker", () => {
-    const projectA = mkdtempSync(join(tmpdir(), "kiln-config-store-progress-a-"));
-    const projectB = mkdtempSync(join(tmpdir(), "kiln-config-store-progress-b-"));
-    const storeRoot = mkdtempSync(join(tmpdir(), "kiln-config-store-progress-root-"));
-    const globalPath = join(storeRoot, "config.yaml");
-    roots.push(projectA, projectB, storeRoot);
-    const storeA = new ConfigMutationStore(projectA, { root: storeRoot, globalConfigPath: globalPath });
-    const storeB = new ConfigMutationStore(projectB, { root: storeRoot, globalConfigPath: globalPath });
+    const fixtureRoot = workspace("global-progress");
+    const projectA = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project-a");
+    const projectB = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project-b");
+    const globalPath = join(fixtureRoot.kilnHome, "config.yaml");
+    const storeA = storeFor(projectA);
+    const storeB = storeFor(projectB);
     const marker = {
       proposalId: "cfg-global-in-flight",
       path: globalPath,
@@ -151,14 +175,13 @@ describe("ConfigMutationStore settlement lineage query", () => {
   });
 
   it("rejects a settlement with an inconsistent activation observation", () => {
-    const projectPath = mkdtempSync(join(tmpdir(), "kiln-config-store-invalid-observation-"));
-    const storeRoot = mkdtempSync(join(tmpdir(), "kiln-config-store-invalid-observation-root-"));
-    roots.push(projectPath, storeRoot);
-    const store = new ConfigMutationStore(projectPath, { root: storeRoot });
+    const fixtureRoot = workspace("invalid-observation");
+    const fixture = projectFixture(fixtureRoot.root, fixtureRoot.kilnHome, "project");
+    const store = storeFor(fixture);
     const malformed = {
       ...settlement({
         proposalId: "cfg-invalid-observation",
-        path: join(projectPath, ".kiln", "kiln.yaml"),
+        path: fixture.binding.configPath,
         committedRevision: digest("a"),
         settledAt: "2026-08-22T00:00:00.000Z",
       }),

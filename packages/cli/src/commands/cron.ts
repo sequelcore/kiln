@@ -9,13 +9,7 @@ export async function cronCommand(
   args: string[],
 ): Promise<void> {
   const root = projectPath ?? process.cwd();
-  const appDir = join(root, ".kiln");
-  const appYamlPath = join(appDir, "app.yaml");
-
-  if (!existsSync(appDir)) {
-    console.error(`Not initialized. Run 'kiln init' first.`);
-    process.exit(1);
-  }
+  const appYamlPath = join(root, "app.yaml");
 
   const subcommand = args[0] ?? "";
 

@@ -14,12 +14,20 @@ import {
 } from "@kilnai/runtime";
 import type { AppGatewayRuntimeIdentity } from "@kilnai/gateway-contracts";
 import pkg from "../../package.json" with { type: "json" };
-import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import {
+  loadResolvedKilnMcpConfiguration,
+  readGlobalConfigSnapshotAtPath,
+} from "../config/config-merger.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 import {
   createAppGatewayExecutionComposition,
   gatewayRequiresAppGatewayExecution,
 } from "../application/app-gateway-execution-composition.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "../application/project-state-root.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 interface GatewaySupervisorSurface {
   start(): Promise<AppGatewaySupervisorStatus>;
@@ -32,6 +40,8 @@ interface GatewaySupervisorSurface {
 
 export interface GatewayCommandDependencies {
   readonly projectPath: string;
+  /** Test/embedding seam for the verified operator-private project state. */
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly entrypoint: string;
   readonly executable: string;
   readonly version: string;
@@ -82,7 +92,10 @@ export async function gatewayCommand(
     throw new Error("Supervised gateway serve requires both --supervised-runtime and --instance-id.");
   }
 
-  const configPath = resolve(dependencies.projectPath, flags.configPath ?? "gateway.yaml");
+  const projectPath = resolveProjectRoot({ explicitPath: dependencies.projectPath }).rootPath;
+  const configPath = resolve(projectPath, flags.configPath ?? "gateway.yaml");
+  const projectStateBinding = dependencies.projectStateBinding
+    ?? resolveProjectStateBinding(projectPath);
   if (!dependencies.exists(configPath)) {
     throw new Error(`Gateway config not found: ${configPath}. Create gateway.yaml or specify --config <path>.`);
   }
@@ -91,13 +104,13 @@ export async function gatewayCommand(
 
   if (subcommand === "serve") {
     const supervision = flags.supervisedRuntime
-      ? await resolveChildSupervision(flags, source.configurationRevision, port, dependencies)
+      ? await resolveChildSupervision(flags, source.configurationRevision, port, dependencies, projectStateBinding.projectStateRoot)
       : undefined;
-    await serve(configPath, source, port, supervision, dependencies);
+    await serve(configPath, source, port, supervision, dependencies, projectStateBinding);
     return;
   }
 
-  const runtimeDir = join(dependencies.projectPath, ".kiln", "runtime", "app-gateway");
+  const runtimeDir = join(projectStateBinding.runtimePath, "app-gateway");
   const launch: AppGatewayLaunchDescriptor = {
     schemaVersion: 1,
     command: dependencies.executable,
@@ -109,12 +122,13 @@ export async function gatewayCommand(
       configPath,
       ...(flags.port === undefined ? [] : ["--port", String(flags.port)]),
     ],
-    cwd: dependencies.projectPath,
+    cwd: projectPath,
     mode: dependencies.entrypoint.includes(`${join("packages", "cli", "src")}`) ? "local-dev" : "installed",
     version: dependencies.version,
   };
   const supervisor = dependencies.createSupervisor({
     runtimeDir,
+    privateStateRoot: projectStateBinding.projectStateRoot,
     desired: { port, configurationRevision: source.configurationRevision },
     version: dependencies.version,
     launch,
@@ -139,11 +153,12 @@ async function resolveChildSupervision(
   configurationRevision: `sha256:${string}`,
   port: number,
   dependencies: GatewayCommandDependencies,
+  privateStateRoot: string,
 ): Promise<StartGatewayOptions["supervision"]> {
   if (!flags.supervisedRuntime || !flags.instanceId || flags.startedAt === undefined) {
     throw new Error("Supervised gateway serve requires --supervised-runtime, --instance-id, and --started-at.");
   }
-  const credentials = await dependencies.readChildCredentials(resolve(flags.supervisedRuntime));
+  const credentials = await dependencies.readChildCredentials(resolve(flags.supervisedRuntime), privateStateRoot);
   const identity: AppGatewayRuntimeIdentity = {
     protocolVersion: "1",
     service: "kiln-app-gateway",
@@ -164,19 +179,27 @@ async function serve(
   port: number,
   supervision: StartGatewayOptions["supervision"],
   dependencies: GatewayCommandDependencies,
+  projectStateBinding: ProjectStateBinding,
 ): Promise<void> {
-  const mcp = loadResolvedKilnMcpConfiguration(dependencies.projectPath);
+  const mcp = loadResolvedKilnMcpConfiguration(projectStateBinding.canonicalRoot, { projectStateBinding });
   if (mcp.diagnostics.length > 0) {
     throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
   }
   const appGatewayExecution = gatewayRequiresAppGatewayExecution(source)
-    ? createAppGatewayExecutionComposition({ projectPath: dependencies.projectPath, configPath })
+    ? createAppGatewayExecutionComposition({
+        projectPath: projectStateBinding.canonicalRoot,
+        configPath,
+        projectStateBinding,
+        readGlobalConfigSnapshot: () => readGlobalConfigSnapshotAtPath(join(projectStateBinding.kilnHome, "config.yaml")),
+      })
     : undefined;
   try {
     await dependencies.startGateway(configPath, {
       port,
+      kilnHome: projectStateBinding.kilnHome,
+      privateStateRoot: join(projectStateBinding.runtimePath, "app-gateway"),
       canonicalMcpServers: new Map(Object.entries(mcp.servers)),
-      mcpCredentialResolver: createMcpCredentialAccess().resolve,
+      mcpCredentialResolver: createMcpCredentialAccess(process.env, projectStateBinding.kilnHome).resolve,
       ...(appGatewayExecution ? { appGatewayExecution: appGatewayExecution.bundle } : {}),
       ...(supervision ? { supervision } : {}),
     });

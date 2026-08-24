@@ -35,6 +35,7 @@ describe("Codex external skill exposure projection", () => {
     expect(readFileSync(config, "utf8")).toBe(before);
 
     writeFileSync(config, `${readFileSync(config, "utf8")}\n[[skills.config]]\nname = "one"\nenabled = true\n`, "utf8");
+    mkdirSync(join(root, "project"), { recursive: true });
     const status = readSkillCatalogStatus({
       projectPath: join(root, "project"), userHome: home,
       skillConfig: { externalCatalog: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } } },

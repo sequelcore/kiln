@@ -1,26 +1,29 @@
-import { homedir } from "node:os";
 import type {
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolution,
 } from "@kilnai/runtime";
+import { join } from "node:path";
 import type { ModelTaskSuitabilityTask } from "@kilnai/core";
 import { findAgent, loadAgentDefinitions } from "../application/agent-loader.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { readGlobalConfig } from "./global-config.js";
 import type { KilnGlobalConfig } from "./global-config.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import type { KilnModelTaskSuitabilityOverride, KilnProjectConfig, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
-import { join } from "node:path";
 import { inferRouteTask } from "./execution-route-resolver.js";
 import { resolveTaskSkillSelection } from "./task-skill-selection.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
 export function createManagedInvocationContextResolver(
   projectPath: string,
-  userHome = homedir(),
+  userHome: string | undefined = undefined,
   config: {
     readonly globalConfig?: KilnGlobalConfig | null;
     readonly projectConfig?: KilnProjectConfig | null;
     readonly skillConfig?: KilnYamlSkillsConfig | null;
+    readonly projectAgentsDirectory?: string;
+    readonly projectSkillsDirectory?: string;
     readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   } = {},
 ): ManagedInvocationContextResolver {
@@ -36,7 +39,10 @@ export function createManagedInvocationContextResolver(
     let agentTaskAffinity: readonly ModelTaskSuitabilityTask[] = [];
     let agentWorkClassification = input.workClassification;
     if (input.agentProfile) {
-      const definitions = await loadAgentDefinitions(projectPath);
+      const definitions = await loadAgentDefinitions(projectPath, {
+        ...(userHome ? { userHome } : {}),
+        ...(config.projectAgentsDirectory ? { projectAgentsDirectory: config.projectAgentsDirectory } : {}),
+      });
       const agent = findAgent(definitions, input.agentProfile);
       if (!agent) {
         throw new Error(`Managed invocation agent profile not found: ${input.agentProfile}`);
@@ -76,6 +82,7 @@ export function createManagedInvocationContextResolver(
         ...input.skills,
       ]),
       projectPath,
+      ...(config.projectSkillsDirectory ? { projectSkillsDirectory: config.projectSkillsDirectory } : {}),
       userHome,
       skillConfig: config.skillConfig,
       selection: config.skillConfig?.selection,
@@ -108,7 +115,7 @@ export function createManagedInvocationContextResolver(
 
 function resolveManagedInstructionProfiles(
   projectPath: string,
-  userHome: string,
+  userHome: string | undefined,
   agentInstructionProfiles: readonly string[],
   sections: string[],
   config: {
@@ -116,11 +123,18 @@ function resolveManagedInstructionProfiles(
     readonly projectConfig?: KilnProjectConfig | null;
   },
 ): readonly string[] {
+  const binding = resolveProjectStateBinding(
+    resolveProjectRoot({
+      explicitPath: projectPath,
+      ...(userHome ? { userHome } : {}),
+    }).rootPath,
+    userHome ? { kilnHome: join(userHome, ".kiln") } : {},
+  );
   const candidates = resolveInstructionProfileContextCandidates({
     projectPath,
     userHome,
     globalConfig: config.globalConfig === undefined ? readGlobalConfig() : config.globalConfig,
-    projectConfig: config.projectConfig === undefined ? readKilnYaml(join(projectPath, ".kiln")) : config.projectConfig,
+    projectConfig: config.projectConfig === undefined ? readKilnYamlFile(binding.configPath) : config.projectConfig,
     agent: agentInstructionProfiles.length > 0
       ? { name: "managed-child", instructionProfiles: agentInstructionProfiles }
       : undefined,

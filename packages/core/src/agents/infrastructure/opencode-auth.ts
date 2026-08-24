@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { KilnError } from "../../engine/errors.js";
+import { resolveCoreKilnHome } from "../../kiln-home.js";
 
 export type OpenCodeTier = "go" | "zen";
 
@@ -13,9 +14,9 @@ export interface OpenCodeAuthFile {
 
 export interface OpenCodeAuthOptions {
   readonly tokenPath?: string;
+  /** Canonical operator Kiln home supplied by CLI/Runtime composition. */
+  readonly kilnHome?: string;
 }
-
-const DEFAULT_TOKEN_PATH = join(homedir(), ".kiln", "auth", "opencode.json");
 
 function getDefaultOpenCodeSourcePath(): string {
   const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
@@ -26,7 +27,7 @@ export class OpenCodeAuth {
   private readonly tokenPath: string;
 
   constructor(options: OpenCodeAuthOptions = {}) {
-    this.tokenPath = options.tokenPath ?? DEFAULT_TOKEN_PATH;
+    this.tokenPath = options.tokenPath ?? join(resolveCoreKilnHome(options.kilnHome), "auth", "opencode.json");
   }
 
   async saveAuthFile(file: OpenCodeAuthFile): Promise<void> {

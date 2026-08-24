@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { readKilnYaml } from "../../src/kiln-yaml.js";
+import { readKilnYamlFile } from "../../src/kiln-yaml.js";
 import { validateGlobalConfig } from "../../src/config/global-config.js";
 import { resolveKilnMcpConfiguration } from "../../src/config/config-merger.js";
 
@@ -30,7 +30,9 @@ describe("Kiln MCP configuration boundary", () => {
       "",
     ].join("\n"));
 
-    expect(() => readKilnYaml(kilnDir)).toThrow(/MCP_TRANSPORT_FIELDS_MIXED/);
+    expect(() => readKilnYamlFile(join(kilnDir, "kiln.yaml"))).toThrow(
+      /Invalid project config at \/mcp\/servers\/invalid\/transport: unknown field/u,
+    );
   });
 
   it("rejects an incomplete global MCP definition", () => {
@@ -124,11 +126,12 @@ describe("Kiln MCP configuration boundary", () => {
     expect(result.servers.studio?.provenance.admission).toMatchObject({ scope: "project" });
   });
 
-  it("parses every canonical MCP project bundled with the App Gateway examples", () => {
+  it("rejects legacy MCP project connection definitions in the App Gateway examples", () => {
     const repositoryRoot = fileURLToPath(new URL("../../../..", import.meta.url));
     for (const example of ["support-agent", "booking-assistant", "research-brief", "incident-triage"]) {
-      const config = readKilnYaml(join(repositoryRoot, "docs", "examples", example, ".kiln"));
-      expect(config?.mcp?.servers).toBeDefined();
+      expect(() => readKilnYamlFile(join(repositoryRoot, "docs", "examples", example, ".kiln", "kiln.yaml"))).toThrow(
+        /Invalid project config at \/mcp\/servers\/[^/]+\/transport: unknown field/u,
+      );
     }
   });
 });

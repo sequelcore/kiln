@@ -26,6 +26,7 @@ export * from "./change-artifacts/index.js";
 export * from "./external-engagement/index.js";
 export * from "./credentials/index.js";
 export * from "./capabilities/index.js";
+export { resolveCoreKilnHome } from "./kiln-home.js";
 export type { FsPolicy, NetPolicy, SandboxConfig } from "./sandbox/index.js";
 export {
   DOCUMENTATION_DOMAINS,

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { feedbackCommand } from "../../src/commands/feedback.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const tempRoots: string[] = [];
 
@@ -37,8 +38,9 @@ describe("feedback command", () => {
       "2026-05-18T10:00:00.000Z",
     ]);
 
-    const bundlePath = join(root, ".kiln", "feedback", "feedback-2026-05-18T10-00-00-000Z.json");
-    const issuePath = join(root, ".kiln", "feedback", "feedback-2026-05-18T10-00-00-000Z.md");
+    const outputDir = join(resolveProjectStateBinding(root).projectStateRoot, "feedback");
+    const bundlePath = join(outputDir, "feedback-2026-05-18T10-00-00-000Z.json");
+    const issuePath = join(outputDir, "feedback-2026-05-18T10-00-00-000Z.md");
     expect(existsSync(bundlePath)).toBe(true);
     expect(existsSync(issuePath)).toBe(true);
 
@@ -87,6 +89,31 @@ describe("feedback command", () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
+  it("fails closed when the private feedback owner is redirected by a junction", async () => {
+    const root = createTempRoot();
+    const binding = resolveProjectStateBinding(root);
+    const outside = join(root, "redirect-target");
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(binding.projectStateRoot, { recursive: true });
+    try {
+      symlinkSync(outside, binding.feedbackPath, "junction");
+    } catch {
+      return;
+    }
+
+    await expect(feedbackCommand({} as never, "draft", [
+      "--project",
+      root,
+      "--session",
+      "session-123",
+      "--description",
+      "Something failed.",
+      "--actual",
+      "The command failed.",
+    ])).rejects.toThrow(/unsafe/iu);
+    expect(readdirSync(outside)).toHaveLength(0);
+  });
+
   it("fails closed when an option value is missing", async () => {
     const root = createTempRoot();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -125,7 +152,11 @@ describe("feedback command", () => {
       "2026-05-18T10:00:00.000Z",
     ]);
 
-    const bundlePath = join(root, ".kiln", "feedback", "feedback-2026-05-18T10-00-00-000Z.json");
+    const bundlePath = join(
+      resolveProjectStateBinding(root).projectStateRoot,
+      "feedback",
+      "feedback-2026-05-18T10-00-00-000Z.json",
+    );
     const bundle = JSON.parse(readFileSync(bundlePath, "utf-8")) as {
       readonly report: { readonly description: string; readonly actualBehavior: string };
     };

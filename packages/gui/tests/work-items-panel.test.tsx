@@ -4,6 +4,31 @@ import { WorkItemsPanel } from "../src/components/work-items-panel.js";
 import type { WorkItemEntry } from "../src/lib/session-store/index.js";
 import { useUiStore } from "../src/lib/ui-store.js";
 
+const workItemProjectionDefaults = {
+  resourceUri: "kiln://fixture/work-items/work-item",
+  referenceRoots: [],
+  pauseRequirements: [],
+  executionAttempts: [],
+  pendingPauseRequirementCount: 0,
+  missingEvidence: [],
+  missingGoalEvidence: [],
+  missingVerificationGates: [],
+  failedVerificationGates: [],
+  missingResidualRisk: false,
+} satisfies Pick<
+  WorkItemEntry,
+  | "resourceUri"
+  | "referenceRoots"
+  | "pauseRequirements"
+  | "executionAttempts"
+  | "pendingPauseRequirementCount"
+  | "missingEvidence"
+  | "missingGoalEvidence"
+  | "missingVerificationGates"
+  | "failedVerificationGates"
+  | "missingResidualRisk"
+>;
+
 describe("WorkItemsPanel", () => {
   beforeEach(() => {
     useUiStore.getState().setTheme("phosphor");
@@ -56,6 +81,7 @@ describe("WorkItemsPanel", () => {
   it("renders assigned agent profiles with stable identity marks", () => {
     const items: WorkItemEntry[] = [
       {
+        ...workItemProjectionDefaults,
         id: "work-1",
         summary: "Review managed agent surface parity",
         status: "in_progress",
@@ -87,6 +113,7 @@ describe("WorkItemsPanel", () => {
   it("renders pause requirements and latest execution attempt state", () => {
     const items: WorkItemEntry[] = [
       {
+        ...workItemProjectionDefaults,
         id: "work-paused",
         summary: "Resume governed execution",
         status: "in_progress",
@@ -125,6 +152,7 @@ describe("WorkItemsPanel", () => {
   it("does not render a superseded pause requirement as a pending blocker", () => {
     const items: WorkItemEntry[] = [
       {
+        ...workItemProjectionDefaults,
         id: "work-superseded",
         summary: "Resume governed execution after supersession",
         status: "pending",
@@ -152,6 +180,7 @@ describe("WorkItemsPanel", () => {
   it("pulses only the most recently updated active work item", () => {
     const items: WorkItemEntry[] = [
       {
+        ...workItemProjectionDefaults,
         id: "work-older",
         summary: "Inspect the existing surface",
         status: "in_progress",
@@ -162,6 +191,7 @@ describe("WorkItemsPanel", () => {
         updatedAt: "2026-07-14T10:00:00.000Z",
       },
       {
+        ...workItemProjectionDefaults,
         id: "work-current",
         summary: "Implement the admitted slice",
         status: "in_progress",
@@ -187,6 +217,7 @@ describe("WorkItemsPanel", () => {
     const onOpenResource = vi.fn();
     const items: WorkItemEntry[] = [
       {
+        ...workItemProjectionDefaults,
         id: "work-inspectable",
         summary: "Audit work item inspectability",
         status: "blocked",

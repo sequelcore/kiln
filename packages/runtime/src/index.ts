@@ -344,6 +344,8 @@ export type {
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
+export { resolveGatewayPrivateState } from "./gateway/gateway-private-state.js";
+export type { GatewayPrivateStatePaths } from "./gateway/gateway-private-state.js";
 export { readGatewayConfigurationSource } from "./gateway/gateway-configuration-source.js";
 export type {
   GatewayAppConfigurationSource,

@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { createManagedInvocationContextResolver } from "../../src/config/managed-invocation-context-resolver.js";
 
-function writeSkill(root: string, name: string, description = `${name} skill.`): void {
-  const dir = join(root, ".kiln", "skills", name);
+function writeSkill(skillsDirectory: string, name: string, description = `${name} skill.`): void {
+  const dir = join(skillsDirectory, name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "SKILL.md"), [
     "---",
@@ -35,6 +36,12 @@ describe("managed invocation context resolver skill admission", () => {
     return root;
   }
 
+  function projectSkillsDirectory(root: string): string {
+    return resolveProjectStateBinding(root, {
+      kilnHome: join(root, "synthetic-kiln-home"),
+    }).skillsPath;
+  }
+
   it("fails closed for explicitly requested missing skills", async () => {
     const root = tempRoot();
     const resolver = createManagedInvocationContextResolver(root, root, {
@@ -56,10 +63,12 @@ describe("managed invocation context resolver skill admission", () => {
 
   it("keeps recommended skills advisory unless auto selection is enabled", async () => {
     const root = tempRoot();
-    writeSkill(root, "frontend-design");
+    const skillsDirectory = projectSkillsDirectory(root);
+    writeSkill(skillsDirectory, "frontend-design");
     const resolver = createManagedInvocationContextResolver(root, root, {
       globalConfig: null,
       projectConfig: null,
+      projectSkillsDirectory: skillsDirectory,
       skillConfig: {
         selection: { mode: "advisory" },
         builtin: { enabled: false },
@@ -89,10 +98,12 @@ describe("managed invocation context resolver skill admission", () => {
 
   it("records auto-selected recommended skills as admitted context", async () => {
     const root = tempRoot();
-    writeSkill(root, "frontend-design");
+    const skillsDirectory = projectSkillsDirectory(root);
+    writeSkill(skillsDirectory, "frontend-design");
     const resolver = createManagedInvocationContextResolver(root, root, {
       globalConfig: null,
       projectConfig: null,
+      projectSkillsDirectory: skillsDirectory,
       skillConfig: {
         selection: { mode: "auto" },
         builtin: { enabled: false },

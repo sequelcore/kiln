@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -77,6 +77,26 @@ function open() {
 }
 
 describe("SqliteRuntimeToolActionClaimStore", () => {
+  it("rejects a project-private claim path redirected through a junction", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kiln-runtime-tool-private-root-"));
+    dirs.push(dir);
+    const privateRoot = join(dir, "private");
+    const redirected = join(dir, "redirected");
+    mkdirSync(privateRoot, { recursive: true });
+    mkdirSync(redirected, { recursive: true });
+    try {
+      symlinkSync(redirected, join(privateRoot, "runtime"), "junction");
+    } catch {
+      return;
+    }
+
+    expect(() => new SqliteRuntimeToolActionClaimStore({
+      path: join(privateRoot, "runtime", "claims.sqlite"),
+      privateStateRoot: privateRoot,
+    })).toThrow(/unsafe/iu);
+    expect(readdirSync(redirected)).toEqual([]);
+  });
+
   it("rejects a fixed-path overlap before invalidating the live owner's permit", () => {
     const dir = mkdtempSync(join(tmpdir(), "kiln-runtime-tool-owner-"));
     dirs.push(dir);

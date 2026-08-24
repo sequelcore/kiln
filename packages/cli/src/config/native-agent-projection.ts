@@ -9,6 +9,7 @@ import {
   type RouteAdmissionDecision,
 } from "@kilnai/core";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
+import type { ProjectStateBinding } from "../application/project-state-root.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
   createNativeProjectionFileSnapshot,
@@ -62,6 +63,8 @@ export interface NativeAgentProjectionUnavailable {
 
 export interface NativeAgentProjectionOptions extends NativeProjectionSyncOptions {
   readonly communicationCandidates?: readonly CommunicationIntentCandidate[];
+  /** Established private project-state binding for project agent sources. */
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly resolveRouteAdmission?: (input: {
     readonly agent: KilnAgentDefinition;
     readonly routeId?: string;
@@ -265,7 +268,10 @@ export async function syncNativeAgentProjections(
   try {
     agents = await loadAgentDefinitions(
       projectPath,
-      options.userHome === undefined ? {} : { userHome: options.userHome },
+      {
+        ...(options.userHome === undefined ? {} : { userHome: options.userHome }),
+        ...(options.projectStateBinding === undefined ? {} : { projectStateBinding: options.projectStateBinding }),
+      },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

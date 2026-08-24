@@ -1,6 +1,20 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type {
+  OperatorWorkspaceDirectorySnapshot,
+  OperatorWorkspaceTreeEntry,
+} from "@kilnai/gateway-contracts";
 import { WorkspacePanel } from "../src/components/workspace-panel.js";
+
+type WorkspaceClient = {
+  readonly loadWorkspaceDirectory: (path?: string) => Promise<OperatorWorkspaceDirectorySnapshot>;
+};
+
+type WorkspacePanelOptions = {
+  readonly workspaceClient?: WorkspaceClient;
+  readonly onOpenFile?: (entry: OperatorWorkspaceTreeEntry) => void;
+  readonly selectedFilePath?: string | null;
+};
 
 const rootTree = {
   rootPath: "C:\\workspace\\kiln",
@@ -28,15 +42,11 @@ const rootTree = {
   ],
 };
 
-function renderWorkspace(options: {
-  readonly workspaceClient?: { loadWorkspaceDirectory: ReturnType<typeof vi.fn> };
-  readonly onOpenFile?: ReturnType<typeof vi.fn>;
-  readonly selectedFilePath?: string | null;
-} = {}) {
+function renderWorkspace(options: WorkspacePanelOptions = {}) {
   const workspaceClient = options.workspaceClient ?? {
-    loadWorkspaceDirectory: vi.fn(),
+    loadWorkspaceDirectory: vi.fn<(path?: string) => Promise<OperatorWorkspaceDirectorySnapshot>>(),
   };
-  const onOpenFile = options.onOpenFile ?? vi.fn();
+  const onOpenFile = options.onOpenFile ?? vi.fn<(entry: OperatorWorkspaceTreeEntry) => void>();
   render(
     <WorkspacePanel
       gatewayWorkingDirectory={"C:\\workspace\\kiln"}
@@ -69,8 +79,8 @@ describe("WorkspacePanel", () => {
   });
 
   it("lazily expands directories and delegates selected files to the main document workspace", async () => {
-    const workspaceClient = {
-      loadWorkspaceDirectory: vi.fn().mockResolvedValue({
+    const workspaceClient: WorkspaceClient = {
+      loadWorkspaceDirectory: vi.fn<(path?: string) => Promise<OperatorWorkspaceDirectorySnapshot>>().mockResolvedValue({
         rootPath: rootTree.rootPath,
         directoryPath: "C:\\workspace\\kiln\\packages",
         parentPath: rootTree.rootPath,
@@ -84,7 +94,7 @@ describe("WorkspacePanel", () => {
         ],
       }),
     };
-    const onOpenFile = vi.fn();
+    const onOpenFile = vi.fn<(entry: OperatorWorkspaceTreeEntry) => void>();
     renderWorkspace({ workspaceClient, onOpenFile });
 
     fireEvent.click(screen.getByRole("button", { name: "Folder packages" }));
@@ -102,8 +112,8 @@ describe("WorkspacePanel", () => {
   });
 
   it("contains directory expansion failures in the workspace tree", async () => {
-    const workspaceClient = {
-      loadWorkspaceDirectory: vi.fn().mockRejectedValue(new Error("Workspace directory was not found.")),
+    const workspaceClient: WorkspaceClient = {
+      loadWorkspaceDirectory: vi.fn<(path?: string) => Promise<OperatorWorkspaceDirectorySnapshot>>().mockRejectedValue(new Error("Workspace directory was not found.")),
     };
     renderWorkspace({ workspaceClient });
 

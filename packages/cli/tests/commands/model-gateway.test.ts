@@ -167,6 +167,7 @@ describe("modelGatewayCommand", () => {
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       version: "3.0.0-test",
       pid: 99,
+      projectPath: root,
       registerShutdown,
       log,
     });
@@ -174,7 +175,7 @@ describe("modelGatewayCommand", () => {
     expect(start).toHaveBeenCalledOnce();
     expect(start.mock.calls[0]![0]).toMatchObject({
       config: { port: 4819 },
-      databasePath: join(root, ".kiln", "model-gateway", "model-gateway.sqlite"),
+      databasePath: expect.stringMatching(/[\\/]projects[\\/]krp_[a-f0-9]{64}[\\/]runtime[\\/]model-gateway[\\/]development\.sqlite$/u),
       identity: { instanceId: "dev-99", version: "3.0.0-test", pid: 99, configDigest: expect.stringMatching(/^[a-f0-9]{64}$/) },
     });
     expect(registerShutdown).toHaveBeenCalledOnce();

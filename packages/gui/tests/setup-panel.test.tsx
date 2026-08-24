@@ -45,6 +45,8 @@ function permissionIntegrity(): TrustedExecutionIntegrity {
       revocable: true,
     },
     semanticLoss: [],
+    semanticLimitations: [],
+    limitationAcceptances: [],
     classification: "runtime-policy-mismatch",
     recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
     remediationRequiresApproval: true,
@@ -86,6 +88,7 @@ function skillCatalog(): KilnSkillCatalogSummarySnapshot {
     equivalentDuplicates: 2,
     divergentCollisions: 1,
     caseCollisions: 3,
+    externalExposure: [],
     issueCount: 4,
     omittedIssueCount: 3,
     harnesses: [
@@ -257,7 +260,7 @@ describe("SetupPanel", () => {
     expect(screen.queryByRole("heading", { name: "Setup Sources" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Configuration Overview" })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Canonical configuration sources" })).toHaveTextContent(
-      "Durable repository guidance inherited by every harness",
+      "Durable project guidance projected to every harness",
     );
     expect(screen.getByRole("table", { name: "Native harness projections" })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Native harness projections" })).toHaveTextContent("1 managed field");

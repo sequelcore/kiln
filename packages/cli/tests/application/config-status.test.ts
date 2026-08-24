@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { stringify as stringifyToml } from "smol-toml";
 import { stringify as stringifyYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  acceptTrustedExecutionSemanticLimitation,
+  OPENCODE_NO_FILESYSTEM_SANDBOX,
+} from "@kilnai/core/security";
 import {
   readConfigStatusSnapshot as readConfigStatusSnapshotImplementation,
   readConfigStatusView as readConfigStatusViewImplementation,
@@ -14,6 +18,7 @@ import {
 import { readSettingsSnapshot } from "../../src/application/config-settings.js";
 import { KilnConfigActivationStatusSchema, type KilnConfigReadView, type KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
 import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
 import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
 import { recordMcpDiscovery } from "../../src/config/mcp-runtime-state.js";
@@ -21,10 +26,13 @@ import {
   createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
   emptyNativeProjectionInstallState,
+  readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
+import { createPermissionProjectionIntegrity } from "../../src/config/translators/permission-projection.js";
 import { defaultKilnYaml, type KilnProjectConfig } from "../../src/kiln-yaml.js";
 import {
   createRuntimePermissionObservationStore,
@@ -32,26 +40,36 @@ import {
 } from "../../src/wrapper/runtime-permission-observation.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 let tempDir: string;
+let projectStateBinding: ProjectStateBinding;
 
 const emptyPluginProvider = () => ({ roots: [], diagnostics: [] });
 const readConfigStatusSnapshot = (options: ReadConfigStatusOptions = {}) =>
-  readConfigStatusSnapshotImplementation({ ...options, pluginProvider: emptyPluginProvider });
+  readConfigStatusSnapshotImplementation({
+    ...options,
+    projectStateBinding: options.projectStateBinding ?? projectStateBinding,
+    pluginProvider: emptyPluginProvider,
+  });
 const readConfigStatusView = (
   snapshot: KilnConfigStatusSnapshot,
   view: KilnConfigReadView,
   options: ReadConfigStatusViewOptions = {},
-) => readConfigStatusViewImplementation(snapshot, view, { ...options, pluginProvider: emptyPluginProvider });
+) => readConfigStatusViewImplementation(snapshot, view, {
+  ...options,
+  projectStateBinding: options.projectStateBinding ?? projectStateBinding,
+  pluginProvider: emptyPluginProvider,
+});
 
 async function detailedSkillEntries(snapshot: Awaited<ReturnType<typeof readConfigStatusSnapshot>>, userHome?: string) {
   const view = await readConfigStatusView(snapshot, "skills", { userHome });
   return (view.value as { entries: readonly Record<string, unknown>[] }).entries;
 }
 
-function writeProjectConfig(projectPath: string): void {
-  mkdirSync(join(projectPath, ".kiln"), { recursive: true });
-  writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), [
+function writeProjectConfig(_projectPath: string): void {
+  mkdirSync(dirname(projectStateBinding.configPath), { recursive: true });
+  writeFileSync(projectStateBinding.configPath, [
     'version: "1"',
     "permissions:",
     "  approval: on-request",
@@ -64,9 +82,9 @@ function writeProjectConfig(projectPath: string): void {
   });
 }
 
-function writeProjectConfigFixtureFile(kilnDir: string, config: KilnProjectConfig): void {
-  mkdirSync(kilnDir, { recursive: true });
-  writeFileSync(join(kilnDir, "kiln.yaml"), stringifyYaml(config), "utf8");
+function writeProjectConfigFixtureFile(configPath: string, config: KilnProjectConfig): void {
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, stringifyYaml(config), "utf8");
 }
 
 function writeSkill(root: string, name: string, description: string): void {
@@ -89,6 +107,14 @@ function writeSkillFile(root: string, name: string, fileName: string, descriptio
   ].join("\n"), "utf-8");
 }
 
+/** Mirror harness skill install evidence into this project's private projection state. */
+function mirrorNativeProjectionState(userHome: string): void {
+  writeNativeProjectionInstallState(
+    projectStateBinding.projectionsPath,
+    readNativeProjectionInstallState(resolveGlobalNativeProjectionStateDir(userHome)),
+  );
+}
+
 describe("config-status", () => {
   it("skips plugin discovery for an unrelated targeted config view", async () => {
     writeProjectConfig(tempDir);
@@ -96,6 +122,7 @@ describe("config-status", () => {
 
     await readConfigStatusSnapshotImplementation({
       projectPath: tempDir,
+      projectStateBinding,
       userHome: join(tempDir, "home"),
       view: "effective",
       pluginProvider,
@@ -109,10 +136,10 @@ describe("config-status", () => {
     const userHome = join(tempDir, "home");
     const pluginProvider = vi.fn(() => ({ roots: [], diagnostics: [] }));
     const snapshot = await readConfigStatusSnapshotImplementation({
-      projectPath: tempDir, userHome, view: "skills", pluginProvider,
+      projectPath: tempDir, projectStateBinding, userHome, view: "skills", pluginProvider,
     });
 
-    await readConfigStatusViewImplementation(snapshot, "skills", { userHome, pluginProvider });
+    await readConfigStatusViewImplementation(snapshot, "skills", { projectStateBinding, userHome, pluginProvider });
 
     expect(pluginProvider).toHaveBeenCalledTimes(1);
   });
@@ -120,10 +147,16 @@ describe("config-status", () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-config-status-"));
     vi.stubEnv("XDG_CONFIG_HOME", join(tempDir, "xdg"));
+    projectStateBinding = resolveProjectStateBinding(tempDir, { kilnHome: join(tempDir, "xdg", "kiln") });
+    bootstrapProjectAdoption(projectStateBinding);
     writeFileSync(join(tempDir, "package.json"), JSON.stringify({
       name: "status-project",
       scripts: { test: "bun test" },
     }), "utf-8");
+    persistGlobalConfigFixture({
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    });
   });
 
   afterEach(() => {
@@ -201,9 +234,40 @@ describe("config-status", () => {
     });
   });
 
+  it("reads global config and projection status from the composed binding after XDG changes", async () => {
+    const binding = resolveProjectStateBinding(tempDir, { kilnHome: join(tempDir, "bound-kiln") });
+    const globalConfig = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "bound-default");
+    mkdirSync(binding.kilnHome, { recursive: true });
+    writeFileSync(join(binding.kilnHome, "config.yaml"), stringifyYaml(globalConfig), "utf-8");
+    writeProjectConfigFixtureFile(binding.configPath, { version: "1" });
+    vi.stubEnv("XDG_CONFIG_HOME", join(tempDir, "ambient-xdg-after-composition"));
+
+    const snapshot = await readConfigStatusSnapshotImplementation({
+      projectPath: tempDir,
+      projectStateBinding: binding,
+      view: "effective",
+      userHome: join(tempDir, "home"),
+      pluginProvider: emptyPluginProvider,
+    });
+
+    expect(snapshot.global).toMatchObject({
+      path: join(binding.kilnHome, "config.yaml"),
+      status: "valid",
+    });
+    expect(snapshot.effectiveConfigStatus).toBe("valid");
+    expect(snapshot.effectiveConfig?.fields).toContainEqual(expect.objectContaining({
+      identity: "/model",
+      value: { default: "gpt-5.4-mini" },
+    }));
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "repo-shim:agents", path: join(tempDir, "AGENTS.md") }),
+      expect.objectContaining({ targetId: "workflow-snapshot:manifest", path: join(binding.projectionsPath, "workflow-snapshot-manifest.json") }),
+    ]));
+  });
+
   it("derives activation status from the current canonical lineage and settlement evidence", async () => {
     writeProjectConfig(tempDir);
-    const projectConfigPath = join(tempDir, ".kiln", "kiln.yaml");
+    const projectConfigPath = projectStateBinding.configPath;
     const projectBytes = readFileSync(projectConfigPath, "utf-8");
     const projectRevision = `sha256:${createHash("sha256").update(projectBytes).digest("hex")}`;
     const settlement: StoredConfigMutationSettlement = {
@@ -230,7 +294,7 @@ describe("config-status", () => {
       reconciliationGenerations: [],
       restore: [],
     };
-    new ConfigMutationStore(tempDir).settle(settlement);
+    new ConfigMutationStore(tempDir, { root: projectStateBinding.mutationsPath }).settle(settlement);
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
     expect(snapshot.activationStatus).toMatchObject({
@@ -257,7 +321,7 @@ describe("config-status", () => {
 
   it("projects the shared settings snapshot with inherited and modified state", async () => {
     writeProjectConfig(tempDir);
-    const projectFile = join(tempDir, ".kiln", "kiln.yaml");
+    const projectFile = projectStateBinding.configPath;
     writeFileSync(projectFile, [
       "# Preserve this comment",
       'version: "1"',
@@ -292,30 +356,37 @@ describe("config-status", () => {
       effective: { value: "backend" },
       writeTargets: [{ current: { value: "backend" } }],
     });
-    expect(settings.entries.find((entry) => entry.key === "teamMode")).toMatchObject({ modified: false, inherited: true });
+    expect(settings.entries.find((entry) => entry.key === "activeInstructionProfiles")).toMatchObject({ modified: false, inherited: true });
     expect(settings.entries.flatMap((entry) => entry.writeTargets).map((target) => target.document)).not.toContain("C:\\");
     expect(JSON.stringify(settings)).not.toContain(".kiln/kiln.yaml");
   });
 
   it("projects one secret-free effective value and provenance contract", async () => {
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+    mkdirSync(dirname(projectStateBinding.configPath), { recursive: true });
+    writeFileSync(projectStateBinding.configPath, [
       'version: "1"',
       "permissions:",
       "  sandbox: read-only",
       "mcp:",
       "  servers:",
       "    private:",
-      "      transport: stdio",
-      "      command: private-server",
-      "      env:",
-      "        TOKEN:",
-      "          fromEnv: KILN_SUPER_SECRET_TOKEN",
+      "      admission:",
+      "        state: admitted",
       "",
     ].join("\n"), "utf-8");
     persistGlobalConfigFixture({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
       permissions: { approval: "on-request", sandbox: "read-only" },
+      mcp: {
+        servers: {
+          private: {
+            transport: "stdio",
+            command: "private-server",
+            env: { TOKEN: { fromEnv: "KILN_SUPER_SECRET_TOKEN" } },
+            admission: { state: "admitted" },
+          },
+        },
+      },
     });
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
@@ -337,7 +408,7 @@ describe("config-status", () => {
       value: { approval: "on-request", sandbox: "read-only" },
     });
     expect(mcp).toMatchObject({
-      source: "project",
+      source: "composed",
       sensitivity: "secret-reference",
       redacted: { present: true },
     });
@@ -359,7 +430,7 @@ describe("config-status", () => {
       managedFields: ["model"],
       updatedAt: "2026-08-20T00:00:00.000Z",
     });
-    writeNativeProjectionInstallState(join(tempDir, ".kiln"), upsertNativeProjectionTargetState(state, drifted));
+    writeNativeProjectionInstallState(projectStateBinding.projectionsPath, upsertNativeProjectionTargetState(state, drifted));
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
@@ -371,8 +442,8 @@ describe("config-status", () => {
   });
 
   it("reports the same rejection as runtime admission for a broadening project policy", async () => {
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+    mkdirSync(dirname(projectStateBinding.configPath), { recursive: true });
+    writeFileSync(projectStateBinding.configPath, [
       'version: "1"',
       "permissions:",
       "  approval: on-request",
@@ -438,20 +509,29 @@ describe("config-status", () => {
   });
 
   it("publishes canonical MCP resolution in the shared status and bounded read view", async () => {
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+    mkdirSync(dirname(projectStateBinding.configPath), { recursive: true });
+    writeFileSync(projectStateBinding.configPath, [
       'version: "1"',
       "mcp:",
       "  servers:",
       "    fixture:",
-      "      transport: stdio",
-      "      command: fixture-mcp.exe",
       "      admission:",
       "        state: admitted",
       "        tools:",
       "          allow: [echo]",
       "",
     ].join("\n"), "utf-8");
+    persistGlobalConfigFixture((current) => {
+      if (!current) throw new Error("expected the fixture global config to exist");
+      return {
+        ...current,
+        mcp: {
+          servers: {
+            fixture: { transport: "stdio", command: "fixture-mcp.exe", admission: { state: "admitted" } },
+          },
+        },
+      };
+    });
     recordMcpDiscovery(tempDir, {
       serverId: "fixture",
       tools: [{ serverId: "fixture", kind: "tool", selector: "mcp:fixture:tool:echo", descriptor: { name: "echo", inputSchema: {} } }],
@@ -465,7 +545,7 @@ describe("config-status", () => {
       servers: [{
         id: "fixture",
         enabled: true,
-        source: "project",
+        source: "overridden",
         transport: "stdio",
         admission: "admitted",
         trust: "untrusted",
@@ -494,20 +574,32 @@ describe("config-status", () => {
   it("keeps credential-backed servers valid in status without exposing the secret", async () => {
     const userHome = join(tempDir, "home");
     vi.stubEnv(KILN_MCP_SECRET_KEY_ENV, "status-test-master-key");
-    createMcpCredentialAccess(process.env, userHome).set("docs-token", "super-secret-token");
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+    createMcpCredentialAccess(process.env, projectStateBinding.kilnHome).set("docs-token", "super-secret-token");
+    mkdirSync(dirname(projectStateBinding.configPath), { recursive: true });
+    writeFileSync(projectStateBinding.configPath, [
       'version: "1"',
       "mcp:",
       "  servers:",
       "    docs:",
-      "      transport: streamable-http",
-      "      url: https://mcp.example.com/mcp",
-      "      headers:",
-      "        Authorization: { fromCredential: docs-token }",
       "      admission: { state: admitted }",
       "",
     ].join("\n"), "utf-8");
+    persistGlobalConfigFixture((current) => {
+      if (!current) throw new Error("expected the fixture global config to exist");
+      return {
+        ...current,
+        mcp: {
+          servers: {
+            docs: {
+              transport: "streamable-http",
+              url: "https://mcp.example.com/mcp",
+              headers: { Authorization: { fromCredential: "docs-token" } },
+              admission: { state: "admitted" },
+            },
+          },
+        },
+      };
+    });
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
@@ -517,18 +609,26 @@ describe("config-status", () => {
   });
 
   it("reports a server incompatible when no native harness can preserve its policy", async () => {
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+    mkdirSync(dirname(projectStateBinding.configPath), { recursive: true });
+    writeFileSync(projectStateBinding.configPath, [
       'version: "1"',
       "mcp:",
       "  servers:",
       "    guarded:",
-      "      transport: stdio",
-      "      command: guarded-mcp.exe",
-      "      maxCapabilities: 16",
       "      admission: { state: admitted }",
       "",
     ].join("\n"), "utf-8");
+    persistGlobalConfigFixture((current) => {
+      if (!current) throw new Error("expected the fixture global config to exist");
+      return {
+        ...current,
+        mcp: {
+          servers: {
+            guarded: { transport: "stdio", command: "guarded-mcp.exe", maxCapabilities: 16, admission: { state: "admitted" } },
+          },
+        },
+      };
+    });
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
 
@@ -567,7 +667,7 @@ describe("config-status", () => {
   it("reports workflow snapshot manifest drift without mutating canonical state", async () => {
     writeProjectConfig(tempDir);
     await writeRepoShimProjections(tempDir);
-    const manifestPath = join(tempDir, ".kiln", "projections", "workflow-snapshot-manifest.json");
+    const manifestPath = join(projectStateBinding.projectionsPath, "workflow-snapshot-manifest.json");
     const originalManifest = readFileSync(manifestPath, "utf-8");
     const staleManifest = JSON.stringify({
       ...JSON.parse(originalManifest),
@@ -619,7 +719,7 @@ describe("config-status", () => {
 
   it("reports unresolved native projection decisions for configured agents", async () => {
     writeProjectConfig(tempDir);
-    const agentsDir = join(tempDir, ".kiln", "agents");
+    const agentsDir = projectStateBinding.agentsPath;
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(join(agentsDir, "reviewer.md"), [
       "---",
@@ -655,7 +755,7 @@ describe("config-status", () => {
       model: "gpt-5.3-codex-spark",
     }), "utf-8");
     writeNativeProjectionInstallState(
-      join(tempDir, ".kiln"),
+      projectStateBinding.projectionsPath,
       upsertNativeProjectionTargetState(
         emptyNativeProjectionInstallState(),
         createNativeProjectionSnapshot({
@@ -707,7 +807,7 @@ describe("config-status", () => {
       sandbox_mode: "danger-full-access",
     }), "utf-8");
     writeNativeProjectionInstallState(
-      join(tempDir, ".kiln"),
+      projectStateBinding.projectionsPath,
       upsertNativeProjectionTargetState(
         emptyNativeProjectionInstallState(),
         createNativeProjectionSnapshot({
@@ -781,7 +881,7 @@ describe("config-status", () => {
     mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
     writeFileSync(codexConfigPath, stringifyToml(projected), "utf-8");
     writeNativeProjectionInstallState(
-      join(tempDir, ".kiln"),
+      projectStateBinding.projectionsPath,
       upsertNativeProjectionTargetState(
         emptyNativeProjectionInstallState(),
         createNativeProjectionSnapshot({
@@ -813,6 +913,73 @@ describe("config-status", () => {
     ]));
   });
 
+  it("reads OpenCode limitation acceptance from the established binding home instead of ambient XDG state", async () => {
+    const binding = resolveProjectStateBinding(tempDir, { kilnHome: join(tempDir, "bound-kiln") });
+    const userHome = join(tempDir, "native-home");
+    const opencodeConfigPath = join(userHome, ".config", "opencode", "opencode.json");
+    const now = new Date("2026-08-23T00:00:00.000Z");
+    const integrity = createPermissionProjectionIntegrity({
+      harness: "opencode",
+      policy: { approval: "on-request", sandbox: "workspace-write" },
+      translated: {
+        backend: "opencode",
+        config: { permissionDefault: "ask" },
+        nativeRules: { tools: [], commands: [], fileGovernance: { denyGlobs: [], askGlobs: [], allowGlobs: [] } },
+        representableRules: [],
+        unsupportedRules: [],
+        constraintInstructions: [],
+        warnings: [],
+      },
+      enforcement: { approvalControl: "not-enforced", filesystemSandbox: "not-enforced", networkBoundary: "unknown", strength: "rules-only" },
+      semanticLimitations: [OPENCODE_NO_FILESYSTEM_SANDBOX],
+      now,
+    });
+
+    writeProjectConfigFixtureFile(binding.configPath, {
+      version: "1",
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    });
+    mkdirSync(dirname(opencodeConfigPath), { recursive: true });
+    writeFileSync(opencodeConfigPath, JSON.stringify({ permission: { "*": "ask" } }), "utf-8");
+    writeNativeProjectionInstallState(
+      binding.projectionsPath,
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionSnapshot({
+          targetId: "opencode-config",
+          filePath: opencodeConfigPath,
+          document: { permission: { "*": "ask" } },
+          managedFields: ["permission.*"],
+          permissionIntegrity: integrity,
+        }),
+      ),
+    );
+
+    const ambientLimitationDir = join(projectStateBinding.kilnHome, "trust", "semantic-limitations");
+    const bindingLimitationDir = join(binding.kilnHome, "trust", "semantic-limitations");
+    const acceptanceInput = {
+      projectPath: tempDir,
+      descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX,
+      acceptedAt: "2026-08-13T01:00:00.000Z",
+      reviewAfter: OPENCODE_NO_FILESYSTEM_SANDBOX.reviewAfter,
+    };
+    acceptTrustedExecutionSemanticLimitation({ ...acceptanceInput, acceptedBy: "ambient-home", baseDir: ambientLimitationDir });
+    acceptTrustedExecutionSemanticLimitation({ ...acceptanceInput, acceptedBy: "binding-home", baseDir: bindingLimitationDir });
+
+    const snapshot = await readConfigStatusSnapshotImplementation({
+      projectPath: tempDir,
+      projectStateBinding: binding,
+      userHome,
+      now,
+      pluginProvider: emptyPluginProvider,
+    });
+    const projection = snapshot.projections.find((item) => item.targetId === "opencode-config");
+    expect(projection?.permissionIntegrity).toMatchObject({
+      remediationRequiresApproval: false,
+      limitationAcceptances: [expect.objectContaining({ acceptedBy: "binding-home" })],
+    });
+  });
+
   it("reports native permission integrity from install-state evidence", async () => {
     writeProjectConfig(tempDir);
     const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
@@ -823,7 +990,7 @@ describe("config-status", () => {
     mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
     writeFileSync(codexConfigPath, stringifyToml(projected), "utf-8");
     writeNativeProjectionInstallState(
-      join(tempDir, ".kiln"),
+      projectStateBinding.projectionsPath,
       upsertNativeProjectionTargetState(
         emptyNativeProjectionInstallState(),
         createNativeProjectionSnapshot({
@@ -870,7 +1037,7 @@ describe("config-status", () => {
     );
 
     const observedAt = new Date("2026-07-01T15:02:00.000Z");
-    const runtimeStore = createRuntimePermissionObservationStore({ projectPath: tempDir });
+    const runtimeStore = createRuntimePermissionObservationStore({ projectPath: tempDir, projectStateBinding });
     const requested = await runtimeStore.recordRequested(
       deriveCodexRuntimePermissionRequest({
         sessionId: "portable-test-session",
@@ -936,7 +1103,7 @@ describe("config-status", () => {
     mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
     writeFileSync(codexConfigPath, stringifyToml(projected), "utf-8");
     writeNativeProjectionInstallState(
-      join(tempDir, ".kiln"),
+      projectStateBinding.projectionsPath,
       upsertNativeProjectionTargetState(
         emptyNativeProjectionInstallState(),
         createNativeProjectionSnapshot({
@@ -963,7 +1130,7 @@ describe("config-status", () => {
 
   it("reports adapter-supported agents without native projection", async () => {
     writeProjectConfig(tempDir);
-    const agentsDir = join(tempDir, ".kiln", "agents");
+    const agentsDir = projectStateBinding.agentsPath;
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(join(agentsDir, "opencode-reviewer.md"), [
       "---",
@@ -1027,7 +1194,7 @@ describe("config-status", () => {
 
   it("reports canonical direct-route admission independently from native projection", async () => {
     writeProjectConfig(tempDir);
-    const agentsDir = join(tempDir, ".kiln", "agents");
+    const agentsDir = projectStateBinding.agentsPath;
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(join(agentsDir, "opencode-reviewer.md"), [
       "---",
@@ -1088,7 +1255,7 @@ describe("config-status", () => {
     const userHome = join(tempDir, "home");
     writeSkill(join(userHome, ".kiln", "skills"), "custom-user", "User skill.");
     writeSkill(join(userHome, ".kiln", "skills"), "tdd-workflow", "User override.");
-    writeSkill(join(tempDir, ".kiln", "skills"), "tdd-workflow", "Project override.");
+    writeSkill(projectStateBinding.skillsPath, "tdd-workflow", "Project override.");
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
     const skills = await readConfigStatusView(snapshot, "skills", { userHome });
@@ -1134,12 +1301,17 @@ describe("config-status", () => {
       visibility: { overrides: { planner: "explicit-only" as const } },
     };
 
-    await syncNativeSkillProjections(tempDir, { userHome, skillConfig });
-    writeProjectConfigFixtureFile(join(tempDir, ".kiln"), defaultKilnYaml("default"));
+    await syncNativeSkillProjections(tempDir, { userHome, skillConfig, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
+    writeProjectConfigFixtureFile(projectStateBinding.configPath, defaultKilnYaml("default"));
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [
-      'version: "4"', "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
+      'version: "4"',
+      "permissions:",
+      "  approval: on-request",
+      "  sandbox: read-only",
+      "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
     ].join("\n"), "utf8");
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
@@ -1182,7 +1354,8 @@ describe("config-status", () => {
     const userHome = join(tempDir, "home");
     writeSkillFile(join(userHome, ".kiln", "skills"), "shadcn", "skill.md", "User skill.");
 
-    await syncNativeSkillProjections(tempDir, { userHome });
+    await syncNativeSkillProjections(tempDir, { userHome, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
     expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
@@ -1206,7 +1379,8 @@ describe("config-status", () => {
     writeSkill(skillRoot, "multi-file", "User skill.");
     writeFileSync(join(skillRoot, "multi-file", "notes.md"), "canonical\n", "utf-8");
 
-    await syncNativeSkillProjections(tempDir, { userHome });
+    await syncNativeSkillProjections(tempDir, { userHome, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
     writeFileSync(join(userHome, ".codex", "skills", "multi-file", "notes.md"), "drifted\n", "utf-8");
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
@@ -1220,14 +1394,15 @@ describe("config-status", () => {
     ]));
   });
 
-  it("treats canonical skill bytes as projected when install-state is historical", async () => {
+  it("keeps private projection evidence authoritative after global install state changes", async () => {
     writeProjectConfig(tempDir);
     const userHome = join(tempDir, "home");
     const skillRoot = join(userHome, ".kiln", "skills");
-    writeSkill(skillRoot, "historical", "User skill.");
+    writeSkill(skillRoot, "private-evidence", "User skill.");
 
-    await syncNativeSkillProjections(tempDir, { userHome });
-    const installStatePath = join(tempDir, ".kiln", "install-state.json");
+    await syncNativeSkillProjections(tempDir, { userHome, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
+    const installStatePath = join(userHome, ".kiln", "runtime", "native-projections", "install-state.json");
     const installState = JSON.parse(readFileSync(installStatePath, "utf8")) as {
       targets: Record<string, { contentHash: string; managedFieldHashes: Record<string, string> }>;
     };
@@ -1242,7 +1417,7 @@ describe("config-status", () => {
 
     expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        name: "historical",
+        name: "private-evidence",
         projections: expect.arrayContaining([
           expect.objectContaining({ target: "claude", status: "projected" }),
           expect.objectContaining({ target: "codex", status: "projected" }),
@@ -1258,7 +1433,8 @@ describe("config-status", () => {
     const skillRoot = join(userHome, ".kiln", "skills");
     writeSkill(skillRoot, "untouched", "User skill.");
 
-    await syncNativeSkillProjections(tempDir, { userHome });
+    await syncNativeSkillProjections(tempDir, { userHome, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
     // Skill projections are written and drift-checked as bytes.  A status
@@ -1279,7 +1455,7 @@ describe("config-status", () => {
     mkdirSync(join(tempDir, "home", ".claude", "hooks"), { recursive: true });
     writeFileSync(hookPath, content, "utf-8");
     writeNativeProjectionInstallState(
-      join(tempDir, ".kiln"),
+      projectStateBinding.projectionsPath,
       upsertNativeProjectionTargetState(
         emptyNativeProjectionInstallState(),
         // Hook, agent and shim projections hash their content as a string,
@@ -1305,7 +1481,8 @@ describe("config-status", () => {
     mkdirSync(referenceDir, { recursive: true });
     writeFileSync(join(referenceDir, "workflow.md"), "canonical\n", "utf-8");
 
-    await syncNativeSkillProjections(tempDir, { userHome });
+    await syncNativeSkillProjections(tempDir, { userHome, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
     writeFileSync(
       join(userHome, ".codex", "skills", "nested-resource", "references", "workflow.md"),
       "drifted\n",
@@ -1375,7 +1552,8 @@ describe("config-status", () => {
       "",
     ].join("\n"), "utf-8");
 
-    await syncNativeSkillProjections(tempDir, { userHome });
+    await syncNativeSkillProjections(tempDir, { userHome, projectStateBinding });
+    mirrorNativeProjectionState(userHome);
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
     expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
@@ -1401,14 +1579,15 @@ describe("config-status", () => {
       memoryDbPresent: expect.any(Boolean),
     });
     expect(JSON.stringify(memory.value)).toContain("memory.db");
-    expect((memory.value as { memoryDbPath: string }).memoryDbPath).not.toBe(join(tempDir, ".kiln", "memory.db"));
+    expect((memory.value as { memoryDbPath: string }).memoryDbPath).not.toBe(join(projectStateBinding.projectStateRoot, "memory.db"));
     expect(JSON.stringify(memory.value)).not.toContain("legacy");
     expect(JSON.stringify(memory.value)).not.toContain("migration");
   });
 
   it("reports invalid project context without blocking effective config", async () => {
     writeProjectConfig(tempDir);
-    writeFileSync(join(tempDir, ".kiln", "project-context.md"), "# invalid", "utf-8");
+    mkdirSync(dirname(projectStateBinding.contextPath), { recursive: true });
+    writeFileSync(projectStateBinding.contextPath, "# invalid", "utf-8");
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
 
@@ -1417,7 +1596,7 @@ describe("config-status", () => {
     expect(snapshot.errors).toEqual(expect.arrayContaining([
       expect.stringContaining("project context"),
     ]));
-    expect(readFileSync(join(tempDir, ".kiln", "project-context.md"), "utf-8")).toBe("# invalid");
+    expect(readFileSync(projectStateBinding.contextPath, "utf-8")).toBe("# invalid");
   });
 
   it("reports missing global Claude concise projection from canonical communication intent", async () => {
@@ -1447,7 +1626,8 @@ describe("config-status", () => {
 
   it("reports legacy duplicated project context as invalid", async () => {
     writeProjectConfig(tempDir);
-    writeFileSync(join(tempDir, ".kiln", "project-context.md"), [
+    mkdirSync(dirname(projectStateBinding.contextPath), { recursive: true });
+    writeFileSync(projectStateBinding.contextPath, [
       "---",
       'version: "1"',
       "source: deterministic-repo-scout",

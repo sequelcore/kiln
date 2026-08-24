@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { parse } from "yaml";
 import { KilnYamlError, validateAgentScopeInheritance } from "./kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./config/mcp-config.js";
@@ -12,11 +11,9 @@ import type {
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlWebConfig,
-  KilnYamlInteractiveUseConfig,
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
   KilnYamlSkillSelectionConfig,
-  KilnYamlSkillVisibilityConfig,
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
@@ -68,16 +65,17 @@ export type {
   KilnHooksConfig,
 } from "./kiln-yaml-types.js";
 
-export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
-  return readKilnYamlSnapshot(kilnDir).config;
+/** Reads the private canonical project config from its explicit file path. */
+export function readKilnYamlFile(configPath: string): KilnProjectConfig | null {
+  return readKilnYamlFileSnapshot(configPath).config;
 }
 
-/** Reads project bytes once so parsed intent and optimistic revision cannot disagree. */
-export function readKilnYamlSnapshot(kilnDir: string): {
+/** Reads project bytes once from an explicit canonical config file path. */
+export function readKilnYamlFileSnapshot(configPath: string): {
   readonly config: KilnProjectConfig | null;
   readonly revision: `sha256:${string}` | "absent";
 } {
-  const path = join(kilnDir, "kiln.yaml");
+  const path = configPath;
   if (!existsSync(path)) {
     return { config: null, revision: "absent" };
   }
@@ -106,14 +104,10 @@ function parseKilnYamlRaw(raw: string, path: string): KilnProjectConfig {
       scope: "project",
       sourcePath: path,
     });
-    const skills = parsed.skills;
-    if (skills?.visibility !== undefined) {
-      throw new KilnYamlError(
-        "skills.visibility is global-only because native skill targets are user-global; project-scoped visibility requires scoped harness projections",
-      );
-    }
-    if (skills?.externalCatalog !== undefined) {
-      throw new KilnYamlError("skills.externalCatalog is global-only because it governs user-global native harness exposure");
+    for (const [serverId, server] of Object.entries(parsed.mcp?.servers ?? {})) {
+      if (server.enabled === true) {
+        throw new KilnYamlError(`Project MCP server '${serverId}' cannot enable a global connection.`);
+      }
     }
     if (parsed.communication !== undefined) {
       try {
@@ -142,26 +136,26 @@ export function mergeKilnYaml(base: ResolvedKilnConfig, override: KilnProjectCon
   }
   return {
     version: override.version ?? base.version ?? "1",
-    activeInstructionProfiles: mergeStringList(base.activeInstructionProfiles, override.activeInstructionProfiles),
+    // Project profiles are an admitted subset of the global ceiling. An
+    // explicit project list therefore narrows by replacement; unioning it
+    // with the base would silently restore profiles the project removed.
+    activeInstructionProfiles: override.activeInstructionProfiles ?? base.activeInstructionProfiles,
     workGovernance: mergeWorkGovernance(base.workGovernance, override.workGovernance),
     domain: override.domain ?? base.domain,
     provider: base.provider,
     channels: override.channels ?? base.channels,
-    teamMode: override.teamMode ?? base.teamMode,
-    requireApproval: override.requireApproval ?? base.requireApproval,
     maxDepth: override.maxDepth ?? base.maxDepth,
     parallelWorkers: override.parallelWorkers ?? base.parallelWorkers,
     mcp: mergeMcp(base.mcp, override.mcp),
     model: base.model,
     permissions: mergePermissions(base.permissions, override.permissions),
-    qualityGates: override.qualityGates ?? base.qualityGates,
     providers: base.providers,
     managedAgents: base.managedAgents,
     modelTaskSuitability: base.modelTaskSuitability,
     deliberationPolicy: base.deliberationPolicy,
     communication: mergeCommunication(base.communication, override.communication),
     web: mergeWeb(base.web, override.web),
-    interactiveUse: mergeInteractiveUse(base.interactiveUse, override.interactiveUse),
+    interactiveUse: base.interactiveUse,
     skills: mergeSkills(base.skills, override.skills),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: base.hooks,
@@ -198,26 +192,15 @@ function mergePermissions(
   override: KilnProjectConfig["permissions"],
 ): ResolvedKilnConfig["permissions"] {
   if (!base && !override) return undefined;
-  if (!base) return override;
   if (!override) return base;
 
+  const projectSafe = {
+    ...(override.approval === undefined ? {} : { approval: override.approval }),
+    ...(override.sandbox === undefined ? {} : { sandbox: override.sandbox }),
+  };
   return {
-    ...base,
-    ...override,
-    ...(override.fileGovernance || base.fileGovernance ? {
-      fileGovernance: {
-        ...base.fileGovernance,
-        ...override.fileGovernance,
-      },
-    } : {}),
-    ...(override.memory || base.memory ? {
-      memory: {
-        ...base.memory,
-        ...override.memory,
-        ...(override.memory?.read || base.memory?.read ? { read: override.memory?.read ?? base.memory?.read } : {}),
-        ...(override.memory?.write || base.memory?.write ? { write: override.memory?.write ?? base.memory?.write } : {}),
-      },
-    } : {}),
+    ...(base ?? {}),
+    ...projectSafe,
   };
 }
 
@@ -249,34 +232,18 @@ function mergeStringList(
 
 function mergeWeb(
   base: KilnYamlWebConfig | undefined,
-  override: KilnYamlWebConfig | undefined,
+  override: KilnProjectConfig["web"] | undefined,
 ): KilnYamlWebConfig | undefined {
   if (!base && !override) return undefined;
   return {
-    ...base,
-    ...override,
-    searchProvider: override?.searchProvider ?? base?.searchProvider,
-    searchFallbackProviders: override?.searchFallbackProviders ?? base?.searchFallbackProviders,
-    extractProvider: override?.extractProvider ?? base?.extractProvider,
-    allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
-  };
-}
-
-function mergeInteractiveUse(
-  base: KilnYamlInteractiveUseConfig | undefined,
-  override: KilnYamlInteractiveUseConfig | undefined,
-): KilnYamlInteractiveUseConfig | undefined {
-  if (!base && !override) return undefined;
-  const browserEnvironment = override?.browserEnvironment ?? base?.browserEnvironment;
-  const computerEnvironment = override?.computerEnvironment ?? base?.computerEnvironment;
-  return {
-    ...base,
-    ...override,
-    allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
-    allowedApplications: override?.allowedApplications ?? base?.allowedApplications,
-    applicationAliases: override?.applicationAliases ?? base?.applicationAliases,
-    ...(browserEnvironment ? { browserEnvironment } : {}),
-    ...(computerEnvironment ? { computerEnvironment } : {}),
+    // Provider identity and credentials are global-owned. Copying the whole
+    // project object here would silently reintroduce those authority fields
+    // for callers that bypass the YAML schema parser.
+    ...(base ?? {}),
+    enabled: override?.enabled ?? base?.enabled,
+    netPolicy: override?.netPolicy ?? base?.netPolicy,
+    allowedDomains: override?.allowedDomains
+      ?? (override?.netPolicy === undefined ? base?.allowedDomains : undefined),
   };
 }
 
@@ -287,26 +254,13 @@ function mergeSkills(
   if (!base && !override) return undefined;
   const builtin = mergeBuiltinSkills(base?.builtin, override?.builtin);
   const selection = mergeSkillSelection(base?.selection, override?.selection);
-  const visibility = mergeSkillVisibility(base?.visibility, override?.visibility);
   return {
     ...(builtin ? { builtin } : {}),
     ...(selection ? { selection } : {}),
-    ...(visibility ? { visibility } : {}),
+    // Visibility and external-catalog policy are global-only. Preserve the
+    // global projection, but never accept either field from project input.
+    ...(base?.visibility ? { visibility: base.visibility } : {}),
     ...(base?.externalCatalog ? { externalCatalog: base.externalCatalog } : {}),
-  };
-}
-
-function mergeSkillVisibility(
-  base: KilnYamlSkillVisibilityConfig | undefined,
-  override: KilnYamlSkillVisibilityConfig | undefined,
-): KilnYamlSkillVisibilityConfig | undefined {
-  if (!base && !override) return undefined;
-  const defaultVisibility = override?.default ?? base?.default;
-  return {
-    ...(defaultVisibility ? { default: defaultVisibility } : {}),
-    ...((base?.overrides || override?.overrides) ? {
-      overrides: { ...base?.overrides, ...override?.overrides },
-    } : {}),
   };
 }
 
@@ -327,7 +281,11 @@ function mergeBuiltinSkills(
   if (!base && !override) return undefined;
   return {
     enabled: override?.enabled ?? base?.enabled,
-    include: mergeStringList(base?.include, override?.include),
+    // A project include list is an admitted subset and therefore replaces the
+    // global ceiling. Unioning it with the global list would erase narrowing.
+    include: override?.include === undefined
+      ? mergeStringList(undefined, base?.include)
+      : mergeStringList(undefined, override.include),
     exclude: mergeStringList(base?.exclude, override?.exclude),
   };
 }
@@ -345,12 +303,84 @@ function mergeMcp(
   for (const name of allNames) {
     const baseServer = base?.servers?.[name];
     const overrideServer = override?.servers?.[name];
+    if (overrideServer !== undefined && baseServer === undefined) {
+      throw new Error(`Project-only MCP server '${name}' is not admitted by global configuration.`);
+    }
+    if (overrideServer?.enabled === true) {
+      throw new Error(`Project MCP server '${name}' cannot enable a global connection.`);
+    }
+    if (overrideServer?.maxCapabilities !== undefined) {
+      if (baseServer?.maxCapabilities === undefined) {
+        throw new Error(`Project MCP maxCapabilities for '${name}' has no global catalog limit.`);
+      }
+      if (overrideServer.maxCapabilities > baseServer.maxCapabilities) {
+        throw new Error(`Project MCP maxCapabilities for '${name}' cannot exceed the global catalog limit.`);
+      }
+    }
+    if (
+      baseServer?.admission?.state === "denied"
+      && overrideServer?.admission?.state === "admitted"
+    ) {
+      throw new Error(`Project MCP admission for '${name}' cannot enable a globally denied server.`);
+    }
+    if (overrideServer?.admission !== undefined) {
+      const globalAdmission = baseServer?.admission;
+      if (globalAdmission === undefined) {
+        throw new Error(`Project MCP admission for '${name}' has no global capability ceiling.`);
+      }
+      for (const kind of ["tools", "resources", "prompts"] as const) {
+        const globalAllow = globalAdmission[kind]?.allow;
+        const projectAllow = overrideServer.admission[kind]?.allow;
+        if (globalAllow && projectAllow?.some((entry) => !globalAllow.includes(entry))) {
+          throw new Error(`Project MCP ${kind} admission for '${name}' must be equal to or narrower than global.`);
+        }
+        const globalDeny = new Set(globalAdmission[kind]?.deny ?? []);
+        if (projectAllow?.some((entry) => globalDeny.has(entry))) {
+          throw new Error(`Project MCP ${kind} admission for '${name}' cannot re-enable globally denied capabilities.`);
+        }
+      }
+    }
+    const admission = mergeMcpAdmission(baseServer?.admission, overrideServer?.admission);
     servers[name] = {
+      // Only global-owned connection fields come from the base. Project input
+      // can contribute disablement, a bounded catalog limit, and narrower
+      // admission lists; it can never replace transport or credentials.
       ...baseServer,
-      ...overrideServer,
+      ...(overrideServer?.enabled !== undefined ? { enabled: overrideServer.enabled } : {}),
+      ...(overrideServer?.maxCapabilities !== undefined ? { maxCapabilities: overrideServer.maxCapabilities } : {}),
+      ...(admission !== undefined ? { admission } : {}),
     };
   }
   return { servers };
+}
+
+function mergeMcpAdmission(
+  base: KilnYamlMcpServer["admission"],
+  override: KilnYamlMcpServer["admission"],
+): KilnYamlMcpServer["admission"] {
+  if (!base && !override) return undefined;
+  const state = override?.state ?? base?.state;
+  if (state === undefined) return undefined;
+  return {
+    state,
+    ...(["tools", "resources", "prompts"] as const).reduce((merged, kind) => {
+      const policy = mergeMcpAdmissionList(base?.[kind], override?.[kind]);
+      return policy === undefined ? merged : { ...merged, [kind]: policy };
+    }, {} as Record<string, unknown>),
+  } as KilnYamlMcpServer["admission"];
+}
+
+function mergeMcpAdmissionList(
+  base: NonNullable<KilnYamlMcpServer["admission"]>["tools"],
+  override: NonNullable<KilnYamlMcpServer["admission"]>["tools"],
+): NonNullable<KilnYamlMcpServer["admission"]>["tools"] {
+  if (!base && !override) return undefined;
+  const allow = override?.allow ?? base?.allow;
+  const deny = mergeStringList(base?.deny, override?.deny);
+  return {
+    ...(allow === undefined ? {} : { allow }),
+    ...(deny === undefined ? {} : { deny }),
+  };
 }
 
 export function defaultKilnYaml(domain: string): KilnProjectConfig {

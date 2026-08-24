@@ -5,9 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
 import { defaultGlobalConfig } from "../../src/config/global-config.js";
 import { createConfigSettingsApplication } from "../../src/application/config-settings-application.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 let projectPath: string;
 let configHome: string;
+let projectStateBinding: ProjectStateBinding;
 let previousXdgConfigHome: string | undefined;
 
 describe("configuration settings application port", () => {
@@ -16,8 +19,9 @@ describe("configuration settings application port", () => {
     configHome = mkdtempSync(join(tmpdir(), "kiln-settings-home-"));
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = configHome;
-    mkdirSync(join(projectPath, ".kiln"), { recursive: true });
-    writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), "version: '1'\ndomain: default\n", "utf8");
+    projectStateBinding = resolveProjectStateBinding(projectPath);
+    bootstrapProjectAdoption(projectStateBinding);
+    writeFileSync(projectStateBinding.configPath, "version: '1'\ndomain: default\n", "utf8");
     mkdirSync(join(configHome, "kiln"), { recursive: true });
     writeFileSync(join(configHome, "kiln", "config.yaml"), stringify(defaultGlobalConfig()), "utf8");
   });
@@ -44,7 +48,7 @@ describe("configuration settings application port", () => {
     const result = await application.apply({ proposalId: proposal.proposalId }, "operator");
 
     expect(result).toMatchObject({ outcome: "committed", rejectionCode: null });
-    expect(parse(readFileSync(join(projectPath, ".kiln", "kiln.yaml"), "utf8")).domain).toBe("backend");
+    expect(parse(readFileSync(projectStateBinding.configPath, "utf8")).domain).toBe("backend");
   });
 
   it("keeps authority approval explicit at the shared boundary", async () => {

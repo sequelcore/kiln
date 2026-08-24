@@ -1,6 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
+import type { ProjectStateBinding, ProjectStateRootOptions } from "./project-state-root.js";
+import { resolveProjectStateBinding } from "./project-state-root.js";
 
 export interface ProjectContextEvidence {
   readonly projectName: string;
@@ -19,6 +25,8 @@ export interface ProjectContextAdoptionResult {
 
 export interface ProjectContextAdoptionOptions {
   readonly force?: boolean;
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly kilnHome?: string;
 }
 
 interface ProjectContextFrontmatter {
@@ -30,10 +38,13 @@ export interface ProjectContextAdoption {
   readonly reviewNotes: string;
 }
 
-const PROJECT_CONTEXT_PATH = ".kiln/project-context.md";
 
-export function projectContextPath(projectPath: string): string {
-  return join(projectPath, PROJECT_CONTEXT_PATH);
+export function projectContextPath(
+  projectPath: string,
+  options: ProjectStateRootOptions & { readonly projectStateBinding?: ProjectStateBinding } = {},
+): string {
+  return options.projectStateBinding?.contextPath
+    ?? resolveProjectStateBinding(projectPath, options).contextPath;
 }
 
 export function collectProjectContextEvidence(projectPath: string): ProjectContextEvidence {
@@ -136,8 +147,11 @@ export function parseProjectContextMarkdown(content: string): ProjectContextAdop
   return { reviewNotes: remainder.slice(0, nextSection?.index ?? remainder.length).trim() };
 }
 
-export function readProjectContextAdoption(projectPath: string): ProjectContextAdoption | null {
-  const path = projectContextPath(projectPath);
+export function readProjectContextAdoption(
+  projectPath: string,
+  options: ProjectContextAdoptionOptions = {},
+): ProjectContextAdoption | null {
+  const path = projectContextPath(projectPath, options);
   if (!existsSync(path)) {
     return null;
   }
@@ -148,7 +162,10 @@ export function writeProjectContextAdoption(
   projectPath: string,
   options: ProjectContextAdoptionOptions = {},
 ): ProjectContextAdoptionResult {
-  const path = projectContextPath(projectPath);
+  const binding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath, options);
+  const path = binding.contextPath;
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, binding.projectStateRoot);
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, path);
   const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
   let adoption: ProjectContextAdoption = { reviewNotes: "" };
   if (existing) {
@@ -169,16 +186,15 @@ export function writeProjectContextAdoption(
       written: false,
       path,
       status: "blocked",
-      errors: [`${PROJECT_CONTEXT_PATH}: existing project context differs; review it or rerun with --force`],
+      errors: ["existing project context differs; review it or rerun with --force"],
     };
   }
 
   if (existing && options.force) {
-    backupProjectContext(projectPath, existing);
+    backupProjectContext(binding, existing);
   }
 
-  mkdirSync(join(projectPath, ".kiln"), { recursive: true });
-  writeFileSync(path, content, "utf-8");
+  writeAtomic(binding.projectStateRoot, path, content);
   return { written: true, path, status: "written", errors: [] };
 }
 
@@ -215,9 +231,20 @@ function detectPackageManager(projectPath: string): string | null {
   return null;
 }
 
-function backupProjectContext(projectPath: string, content: string): void {
-  const backupDir = join(projectPath, ".kiln", "backups", "project-context");
-  mkdirSync(backupDir, { recursive: true });
+function backupProjectContext(binding: ProjectStateBinding, content: string): void {
+  const backupDir = join(binding.backupsPath, "project-context");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  writeFileSync(join(backupDir, `project-context.md.${timestamp}.bak`), content, "utf-8");
+  writeAtomic(binding.projectStateRoot, join(backupDir, `project-context.md.${timestamp}.bak`), content);
+}
+
+function writeAtomic(projectStateRoot: string, path: string, content: string): void {
+  ensurePrivateStateDirectorySync(projectStateRoot, dirname(path));
+  assertPrivateStateFileTargetSync(projectStateRoot, path);
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryPath, content, { encoding: "utf-8", flag: "wx", mode: 0o600 });
+    renameSync(temporaryPath, path);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
 }

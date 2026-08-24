@@ -32,6 +32,8 @@ interface AccessTokenProvider {
 
 interface CodexOAuthAdapterConfig {
   readonly auth?: AccessTokenProvider;
+  /** Canonical operator Kiln home supplied by CLI/Runtime composition. */
+  readonly kilnHome?: string;
   readonly defaultModel: string;
   /** Disable all automatic request replay for an outer one-effect claim. */
   readonly internalRetry?: boolean;
@@ -138,7 +140,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private readonly internalRetry: boolean;
 
   constructor(config: CodexOAuthAdapterConfig) {
-    this.auth = config.auth ?? new CodexOAuthAuth();
+    this.auth = config.auth ?? new CodexOAuthAuth({ kilnHome: config.kilnHome });
     this.model = config.defaultModel.trim();
     this.internalRetry = config.internalRetry ?? true;
     if (this.model.length === 0) {

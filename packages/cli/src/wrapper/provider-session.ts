@@ -78,6 +78,8 @@ import { createCliOperatorThemeController } from "../application/operator-theme-
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly runtimeSessionId?: string;
   readonly model?: string;
   readonly credentialBinding?: DirectProviderCredentialBinding;
@@ -330,7 +332,7 @@ export class ProviderSession implements IKilnSession {
       compactionThreshold: 0.85,
     });
     const operatorSurface = config.operatorSurface ?? {
-      theme: createCliOperatorThemeController(),
+      theme: createCliOperatorThemeController(config.cwd ?? process.cwd()),
     };
     const builtinToolSurface = config.authorityAdmissionContext?.builtinToolSurface ?? createAttachedRuntimeBuiltinToolSurface({
       operatorSurface,
@@ -605,6 +607,7 @@ export class ProviderSession implements IKilnSession {
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
+      kilnHome: this.config.kilnHome,
       credentialBinding: this.config.credentialBinding,
       executionCredential: this.config.executionCredential,
       configEnv: this.config.env,
@@ -941,6 +944,7 @@ export class ProviderSession implements IKilnSession {
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
+      kilnHome: this.config.kilnHome,
       credentialBinding: this.config.credentialBinding,
       executionCredential: this.config.executionCredential,
       configEnv: this.config.env,

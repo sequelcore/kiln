@@ -6,6 +6,9 @@ import { parse } from "yaml";
 import { DomainRegistry } from "@kilnai/core/domain";
 import { defaultGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { proposeConfigMutation } from "../../src/application/config-mutation-authority.js";
+import { readProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
+import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace-resolution.js";
 import { initCommand } from "../../src/commands/init.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
@@ -58,7 +61,13 @@ describe("initCommand", () => {
     projectPath = mkdtempSync(join(tmpdir(), "kiln-init-v5-"));
     globalHome = mkdtempSync(join(tmpdir(), "kiln-init-v5-global-"));
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
-    writeFileSync(join(globalHome, "kiln", "config.yaml"), "version: '4'\n", "utf8");
+    writeFileSync(join(globalHome, "kiln", "config.yaml"), [
+      "version: '4'",
+      "permissions:",
+      "  approval: on-request",
+      "  sandbox: read-only",
+      "",
+    ].join("\n"), "utf8");
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = globalHome;
     readlineState.answers = [];
@@ -89,14 +98,23 @@ describe("initCommand", () => {
     });
 
     expect(result?.version).toBe("1");
-    const kilnDir = join(projectPath, ".kiln");
-    expect(parse(readFileSync(join(kilnDir, "kiln.yaml"), "utf8"))).toEqual({
+    const binding = resolveProjectStateBinding(projectPath);
+    expect(parse(readFileSync(binding.configPath, "utf8"))).toEqual({
       version: "1",
       permissions: { approval: "on-request", sandbox: "read-only" },
     });
-    expect(existsSync(join(kilnDir, "app.yaml"))).toBe(false);
-    expect(existsSync(join(kilnDir, "gateway.yaml"))).toBe(false);
-    expect(existsSync(join(kilnDir, "memory"))).toBe(false);
+    expect(readProjectAdoption(binding).status).toBe("adopted");
+    const trusted = resolveTrustedWorkspace(
+      { cwd: () => projectPath },
+      {
+        userHome: tmpdir(),
+        kilnHome: join(globalHome, "kiln"),
+        globalConfigPath: join(globalHome, "kiln", "config.yaml"),
+      },
+    );
+    if (trusted.status === "rejected") throw new Error(`Freshly initialized workspace was rejected: ${trusted.reason}`);
+    expect(trusted.status).toBe("resolved");
+    expect(existsSync(join(projectPath, ".kiln"))).toBe(false);
   });
 
   it("reruns idempotently without proposing another project adoption", async () => {
@@ -126,7 +144,7 @@ describe("initCommand", () => {
     });
 
     expect(result).toBeNull();
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(resolveProjectStateBinding(projectPath).configPath)).toBe(false);
     expect(consoleLog.mock.calls.flat().join("\n")).toContain("cancelled");
     expect(readlineState.questions.some((question) => question.startsWith("Apply onboarding"))).toBe(true);
   });
@@ -143,7 +161,7 @@ describe("initCommand", () => {
     });
 
     expect(result).toBeNull();
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(resolveProjectStateBinding(projectPath).configPath)).toBe(false);
     expect(consoleLog.mock.calls.flat().join("\n")).toContain("cancelled");
     expect(readlineState.questions.some((question) => question.startsWith("Apply onboarding"))).toBe(false);
   });
@@ -161,7 +179,7 @@ describe("initCommand", () => {
     });
 
     expect(result).toBeNull();
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(resolveProjectStateBinding(projectPath).configPath)).toBe(false);
     expect(consoleLog.mock.calls.flat().join("\n")).toContain("cancelled");
   });
 
@@ -175,7 +193,7 @@ describe("initCommand", () => {
     });
 
     expect(result).toBeNull();
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(resolveProjectStateBinding(projectPath).configPath)).toBe(false);
     expect(consoleError.mock.calls.flat().join("\n")).toContain("target");
   });
 
@@ -190,7 +208,7 @@ describe("initCommand", () => {
     });
 
     expect(result).toBeNull();
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(resolveProjectStateBinding(projectPath).configPath)).toBe(false);
     expect(consoleError.mock.calls.flat().join("\n")).toContain("Select an admitted direct target");
   });
 });

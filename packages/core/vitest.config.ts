@@ -5,7 +5,7 @@ export default defineConfig({
     alias: {
       "bun:sqlite": new URL("../../vitest-bun-sqlite-mock.ts", import.meta.url).pathname,
     },
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.kiln-worktrees/**"],
+    exclude: ["**/node_modules/**", "**/dist/**"],
     projects: [
       {
         extends: true,

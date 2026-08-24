@@ -1,7 +1,13 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
+import {
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
+import { resolveProjectRoot } from "./project-root-resolver.js";
+import { resolveKilnHomePath } from "../config/global-config/path.js";
 
 export interface KilnInstructionProfileDefinition {
   readonly name: string;
@@ -213,12 +219,25 @@ function readProfilesFromDirectory(
   return profiles;
 }
 
+export interface LoadInstructionProfilesOptions extends ProjectStateRootOptions {
+  /** Explicit global catalog directory; defaults to the canonical Kiln home. */
+  readonly globalInstructionsDirectory?: string;
+  /** Explicit private project catalog directory supplied by composition. */
+  readonly projectInstructionsDirectory?: string;
+  /** Already-established private project binding. */
+  readonly projectStateBinding?: ProjectStateBinding;
+}
+
 export function loadInstructionProfiles(
   projectPath: string,
-  userHome = homedir(),
+  userHome: string | undefined = undefined,
+  options: LoadInstructionProfilesOptions = {},
 ): readonly KilnInstructionProfileDefinition[] {
-  const globalDirectory = join(userHome, ".kiln", "instructions");
-  const projectDirectory = join(projectPath, ".kiln", "instructions");
+  const globalDirectory = options.globalInstructionsDirectory
+    ?? join(resolveConfiguredKilnHome(userHome, options), "instructions");
+  const projectDirectory = options.projectInstructionsDirectory
+    ?? options.projectStateBinding?.instructionsPath
+    ?? resolvePrivateProjectInstructionsDirectory(projectPath, userHome, options);
   const merged = new Map<string, KilnInstructionProfileDefinition>();
 
   for (const profile of readProfilesFromDirectory(globalDirectory, "global")) {
@@ -229,6 +248,33 @@ export function loadInstructionProfiles(
   }
 
   return [...merged.values()];
+}
+
+function resolvePrivateProjectInstructionsDirectory(
+  projectPath: string,
+  userHome: string | undefined,
+  options: LoadInstructionProfilesOptions,
+): string {
+  const projectRoot = resolveProjectRoot({
+    explicitPath: projectPath,
+    ...(userHome ? { userHome } : {}),
+  }).rootPath;
+  const kilnHome = options.kilnHome
+    ?? (userHome ? join(userHome, ".kiln") : undefined);
+  const binding = resolveProjectStateBinding(projectRoot, {
+    ...(kilnHome ? { kilnHome } : {}),
+    ...(options.platform ? { platform: options.platform } : {}),
+  });
+  return binding.instructionsPath;
+}
+
+function resolveConfiguredKilnHome(
+  userHome: string | undefined,
+  options: LoadInstructionProfilesOptions,
+): string {
+  if (options.kilnHome) return options.kilnHome;
+  if (userHome) return join(userHome, ".kiln");
+  return resolveKilnHomePath();
 }
 
 export function findInstructionProfile(

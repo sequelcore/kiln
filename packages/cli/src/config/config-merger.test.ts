@@ -1,13 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stringify as stringifyYaml } from "yaml";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("../kiln-yaml.js", () => ({
-  readKilnYaml: vi.fn(),
+  readKilnYamlFile: vi.fn(),
   mergeKilnYaml: vi.fn(),
 }));
 
 vi.mock("./global-config.js", () => ({
   readGlobalConfig: vi.fn(),
+  resolveGlobalConfigPath: () => "/ambient-kiln/config.yaml",
   resolveGlobalDefaultProvider: (config: {
     targetRouting?: { defaultTargetId?: string };
     targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
@@ -20,17 +24,21 @@ vi.mock("./global-config.js", () => ({
 
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
-import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
+import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "./mcp-credentials.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import { makeOperatorSurfaceGlobalConfig } from "../../tests/commands/operator-surface-v4-fixture.js";
+import { mergeKilnYaml, readKilnYamlFile } from "../kiln-yaml.js";
 import { readGlobalConfig } from "./global-config.js";
 import {
   deriveEffectiveKilnYaml,
   globalToKilnYaml,
   loadKilnConfig,
   loadKilnConfigWithGlobalAuthority,
+  loadResolvedKilnMcpConfiguration,
 } from "./config-merger.js";
 
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
-const readKilnYamlMock = readKilnYaml as unknown as ReturnType<typeof vi.fn>;
+const readKilnYamlMock = readKilnYamlFile as unknown as ReturnType<typeof vi.fn>;
 const mergeKilnYamlMock = mergeKilnYaml as unknown as ReturnType<typeof vi.fn>;
 
 describe("config-merger", () => {
@@ -47,8 +55,67 @@ describe("config-merger", () => {
 
     const result = await loadKilnConfig("/repo");
 
-    expect(readKilnYamlMock).toHaveBeenCalledWith(join("/repo", ".kiln"));
+    expect(readKilnYamlMock).toHaveBeenCalledWith(expect.stringMatching(/[\\/]config\.yaml$/u));
     expect(result).toBeNull();
+  });
+
+  it("checks MCP credentials in the established binding home", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-config-merger-binding-"));
+    const bindingHome = join(root, "binding-home");
+    const ambientHome = join(root, "ambient-home");
+    const binding = resolveProjectStateBinding(root, { kilnHome: bindingHome });
+    const globalConfig = {
+      version: "4",
+      mcp: {
+        servers: {
+          shared: {
+            enabled: true,
+            transport: "stdio",
+            command: "fixture-mcp",
+            env: { TOKEN: { fromCredential: "bound-token" } },
+            admission: { state: "admitted" },
+          },
+        },
+      },
+    } as unknown as KilnGlobalConfig;
+    try {
+      vi.stubEnv("XDG_CONFIG_HOME", ambientHome);
+      vi.stubEnv(KILN_MCP_SECRET_KEY_ENV, "binding-master-key");
+      createMcpCredentialAccess(process.env, binding.kilnHome).set("bound-token", "secret-value");
+      readGlobalConfigMock.mockReturnValue(globalConfig);
+      readKilnYamlMock.mockReturnValue(null);
+
+      const result = loadResolvedKilnMcpConfiguration(root, { projectStateBinding: binding, globalConfig });
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.servers.shared?.admission?.state).toBe("admitted");
+      expect(result.servers.shared?.env).toEqual({ TOKEN: { fromCredential: "bound-token" } });
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads global authority from the established binding after XDG changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-config-merger-global-binding-"));
+    const bindingHome = join(root, "binding-home");
+    const ambientHome = join(root, "ambient-home");
+    const binding = resolveProjectStateBinding(root, { kilnHome: bindingHome });
+    const globalConfig = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "bound-default");
+    try {
+      mkdirSync(bindingHome, { recursive: true });
+      writeFileSync(join(bindingHome, "config.yaml"), stringifyYaml(globalConfig), "utf-8");
+      vi.stubEnv("XDG_CONFIG_HOME", ambientHome);
+      readKilnYamlMock.mockReturnValue(null);
+
+      const result = await loadKilnConfigWithGlobalAuthority(root, { projectStateBinding: binding });
+
+      expect(result.globalConfig?.targetRouting?.defaultTargetId).toBe("bound-default");
+      expect(result.kilnYaml?.model?.default).toBe("gpt-5.4-mini");
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("returns the exact global authority alongside effective project config", async () => {
@@ -187,21 +254,144 @@ describe("config-merger", () => {
     expect(() => deriveEffectiveKilnYaml(globalConfig, {
       version: "1",
       permissions: { tools: [{ tool: "git", action: "deny" }] },
-    })).toThrow("Project permissions.tools cannot be proven to narrow global.permissions.tools.");
+    } as unknown as ResolvedKilnConfig)).toThrow(
+      /Invalid project config at \/permissions\/tools: unknown field/u,
+    );
   });
 
-  it("allows a project policy as the root when no global permissions exist", () => {
+  it("admits only a project subset of global active instruction profiles", () => {
+    const globalConfig = {
+      version: "4",
+      activeInstructionProfiles: ["sequel-engineering", "operator-communication"],
+    } as KilnGlobalConfig;
     const projectConfig = {
       version: "1",
-      permissions: {
-        tools: [{ tool: "bash", action: "deny" }],
-      },
-    } as unknown as ResolvedKilnConfig;
-    const merged = { ...projectConfig, version: "1" } as ResolvedKilnConfig;
-    mergeKilnYamlMock.mockReturnValue(merged);
+      activeInstructionProfiles: ["sequel-engineering"],
+    } as ResolvedKilnConfig;
+    mergeKilnYamlMock.mockReturnValue({ version: "1", activeInstructionProfiles: ["sequel-engineering"] });
 
-    expect(deriveEffectiveKilnYaml({ version: "4" } as KilnGlobalConfig, projectConfig)).toBe(merged);
-    expect(mergeKilnYamlMock).toHaveBeenCalledTimes(1);
+    expect(deriveEffectiveKilnYaml(globalConfig, projectConfig).activeInstructionProfiles).toEqual([
+      "sequel-engineering",
+    ]);
+    expect(mergeKilnYamlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ activeInstructionProfiles: ["sequel-engineering", "operator-communication"] }),
+      expect.objectContaining({ activeInstructionProfiles: ["sequel-engineering"] }),
+    );
+  });
+
+  it("denies project permission leaves with no global permission ceiling", () => {
+    const projectConfig = {
+      version: "1",
+      permissions: { sandbox: "read-only" },
+    } as const;
+    mergeKilnYamlMock.mockImplementation((base: ResolvedKilnConfig, override: ResolvedKilnConfig) => ({
+      ...base,
+      ...override,
+    }));
+
+    expect(() => deriveEffectiveKilnYaml({ version: "4" } as KilnGlobalConfig, projectConfig)).toThrow(
+      "Project permissions.sandbox has no global permission ceiling.",
+    );
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("denies an unbounded project permission sibling in a partial global ceiling", () => {
+    expect(() => deriveEffectiveKilnYaml({
+      version: "4",
+      permissions: { sandbox: "read-only" },
+    } as KilnGlobalConfig, {
+      version: "1",
+      permissions: { approval: "untrusted" },
+    })).toThrow("Project permissions.approval has no global permission ceiling.");
+  });
+
+  it("denies an execution limit whose matching global bound is omitted", () => {
+    expect(() => deriveEffectiveKilnYaml({
+      version: "4",
+      workGovernance: { boundedWorkCeiling: { maximumLimits: { maxChildDepth: 2 } } },
+    } as unknown as KilnGlobalConfig, {
+      version: "1",
+      parallelWorkers: 1,
+    })).toThrow("Project parallelWorkers cannot exceed global bounded-work ceiling.");
+  });
+
+  it("rejects project web policy and domains that broaden the global ceiling", () => {
+    const globalConfig = {
+      version: "4",
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      },
+    } as KilnGlobalConfig;
+
+    expect(() => deriveEffectiveKilnYaml(globalConfig, {
+      version: "1",
+      web: { enabled: true, netPolicy: "full" },
+    })).toThrow("Project web.netPolicy cannot broaden the global network policy.");
+    expect(() => deriveEffectiveKilnYaml(globalConfig, {
+      version: "1",
+      web: { enabled: true, netPolicy: "documentation", allowedDomains: ["other.example.com"] },
+    })).toThrow("Project web.allowedDomains must be a subset of the global domain ceiling.");
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("never promotes project authority to the root when global config is absent", () => {
+    const projectConfig = {
+      version: "1",
+      domain: "project-fact",
+      communication: { responseDetail: "concise" },
+      permissions: { sandbox: "danger-full-access", approval: "never" },
+      workGovernance: { defaultPosture: "direct" },
+    } as unknown as ResolvedKilnConfig;
+
+    expect(deriveEffectiveKilnYaml(null, projectConfig)).toEqual({
+      version: "1",
+      domain: "project-fact",
+      communication: { responseDetail: "concise" },
+    });
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects project-only MCP servers instead of granting project connection authority", () => {
+    expect(() => deriveEffectiveKilnYaml(
+      {
+        version: "4",
+        mcp: { servers: { global: { type: "stdio", command: "global" } } },
+      } as unknown as KilnGlobalConfig,
+      {
+        version: "1",
+        mcp: { servers: { projectOnly: { enabled: true } } },
+      } as unknown as ResolvedKilnConfig,
+    )).toThrow(/project-only MCP server.*projectOnly|MCP.*projectOnly.*global/iu);
+  });
+
+  it("rejects project MCP servers when global authority is absent", () => {
+    expect(() => deriveEffectiveKilnYaml(null, {
+      version: "1",
+      mcp: { servers: { projectOnly: { enabled: false } } },
+    })).toThrow(/project-only MCP server.*projectOnly/iu);
+  });
+
+  it("rejects project execution limits above the global bounded-work ceiling", () => {
+    expect(() => deriveEffectiveKilnYaml(
+      {
+        version: "4",
+        workGovernance: {
+          boundedWorkCeiling: {
+            maximumLimits: {
+              maxChildDepth: 2,
+              maxConcurrentManagedInvocations: 3,
+            },
+          },
+        },
+      } as unknown as KilnGlobalConfig,
+      {
+        version: "1",
+        maxDepth: 3,
+        parallelWorkers: 4,
+      } as unknown as ResolvedKilnConfig,
+    )).toThrow(/cannot exceed global bounded-work ceiling/iu);
   });
 
   it("returns global-converted-to-ResolvedKilnConfig when only global config exists", async () => {
@@ -317,16 +507,14 @@ describe("config-merger", () => {
   it("returns project config as-is when only project config exists", async () => {
     const projectConfig: ResolvedKilnConfig = {
       version: "1",
-      provider: "claude",
       domain: "cinema",
-      model: { default: "sonnet" },
     };
     readGlobalConfigMock.mockReturnValue(null);
     readKilnYamlMock.mockReturnValue(projectConfig);
 
     const result = await loadKilnConfig("/repo");
 
-    expect(result).toBe(projectConfig);
+    expect(result).toEqual(projectConfig);
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });
 
@@ -342,15 +530,12 @@ describe("config-merger", () => {
     };
     const projectConfig: ResolvedKilnConfig = {
       version: "1",
-      provider: "claude",
       domain: "project-domain",
-      teamMode: "solo",
     };
     const merged: ResolvedKilnConfig = {
       version: "1",
-      provider: "claude",
+      provider: "codex",
       domain: "project-domain",
-      teamMode: "solo",
       model: { default: "gpt-5.4" },
     };
 
@@ -377,34 +562,22 @@ describe("config-merger", () => {
     expect(result).toEqual(merged);
   });
 
-  it("MCP servers are additive - global + project servers both present in result", async () => {
+  it("rejects project-only MCP servers instead of treating them as additive", async () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",
       mcp: { servers: { globalSrv: { type: "stdio", command: "global" } } },
     };
     const projectConfig: ResolvedKilnConfig = {
       version: "1",
-      mcp: { servers: { projectSrv: { type: "stdio", command: "project" } } },
+      mcp: { servers: { projectSrv: { enabled: false } } },
     };
-    const merged: ResolvedKilnConfig = {
-      version: "1",
-      mcp: {
-        servers: {
-          globalSrv: { type: "stdio", command: "global" },
-          projectSrv: { type: "stdio", command: "project" },
-        },
-      },
-    };
-
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(projectConfig);
-    mergeKilnYamlMock.mockReturnValue(merged);
 
-    const result = await loadKilnConfig("/repo");
-
-    expect(mergeKilnYamlMock).toHaveBeenCalledTimes(1);
-    expect(result?.mcp?.servers.globalSrv).toEqual({ type: "stdio", command: "global" });
-    expect(result?.mcp?.servers.projectSrv).toEqual({ type: "stdio", command: "project" });
+    await expect(loadKilnConfig("/repo")).rejects.toThrow(
+      "Project-only MCP server 'projectSrv' is not admitted by global configuration.",
+    );
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });
 
   it("globalToKilnYaml() maps provider, model, permissions, mcp, hooks correctly", () => {

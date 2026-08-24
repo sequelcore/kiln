@@ -3,6 +3,16 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { KilnConfigReconciliationTarget } from "@kilnai/gateway-contracts";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
+import {
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
+
+export interface ConfigReconciliationGenerationOptions extends ProjectStateRootOptions {
+  readonly globalConfigPath?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
+}
 
 /**
  * Captures the canonical inputs that can feed a reconciliation target.
@@ -12,9 +22,11 @@ import { resolveGlobalConfigPath } from "../config/global-config.js";
 export function captureCanonicalReconciliationGeneration(
   projectPath: string,
   target: KilnConfigReconciliationTarget,
+  options: ConfigReconciliationGenerationOptions = {},
 ): string {
+  const binding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath, options);
   const digest = createHash("sha256").update(`kiln:config-reconciliation:${target}\0`, "utf8");
-  for (const path of canonicalInputs(projectPath, target)) {
+  for (const path of canonicalInputs(target, binding, options.globalConfigPath)) {
     digestInput(digest, path);
   }
   return `sha256:${digest.digest("hex")}`;
@@ -45,23 +57,27 @@ function digestInput(digest: ReturnType<typeof createHash>, path: string): void 
   }
 }
 
-function canonicalInputs(projectPath: string, target: KilnConfigReconciliationTarget): readonly string[] {
-  const globalPath = resolveGlobalConfigPath();
+function canonicalInputs(
+  target: KilnConfigReconciliationTarget,
+  binding: ProjectStateBinding,
+  configuredGlobalPath?: string,
+): readonly string[] {
+  const globalPath = configuredGlobalPath ?? resolveGlobalConfigPath();
   const globalRoot = dirname(globalPath);
-  const projectPathname = join(projectPath, ".kiln", "kiln.yaml");
+  const projectPathname = binding.configPath;
   switch (target) {
     case "native-agents":
-      return [globalPath, projectPathname, join(globalRoot, "agents"), join(projectPath, ".kiln", "agents")];
+      return [globalPath, projectPathname, join(globalRoot, "agents"), binding.agentsPath];
     case "native-skills":
-      return [globalPath, projectPathname, join(globalRoot, "skills"), join(projectPath, ".kiln", "skills")];
+      return [globalPath, projectPathname, join(globalRoot, "skills"), binding.skillsPath];
     case "native-permissions":
     case "execution-routes":
       return [globalPath];
     case "repo-shims":
       return [
         projectPathname,
-        join(projectPath, ".kiln", "project-context.md"),
-        join(projectPath, ".kiln", "instructions"),
+        binding.contextPath,
+        binding.instructionsPath,
         join(globalRoot, "instructions"),
       ];
   }

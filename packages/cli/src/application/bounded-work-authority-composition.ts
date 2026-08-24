@@ -21,6 +21,14 @@ import {
   SqliteBoundedWorkAuthority,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "@kilnai/runtime";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "./project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 import type {
   BoundedWorkCandidateCloseout,
   BoundedWorkExecutionAttemptAdmission,
@@ -42,13 +50,24 @@ export function createProjectBoundedWorkAuthority(
   options: {
     readonly authorityStateRoot?: string;
     readonly projectIdentityRoot?: string;
+    /** Test/embedding seam for the verified operator-private project state. */
+    readonly projectStateBinding?: ProjectStateBinding;
     readonly formalVerificationCapability?: BoundedWorkCapabilityObservation;
   } = {},
 ): ProjectBoundedWorkAuthorityComposition {
-  const projectRoot = resolve(cwd);
-  const authorityStateRoot = resolve(options.authorityStateRoot ?? projectRoot);
-  const projectIdentityRoot = resolve(options.projectIdentityRoot ?? authorityStateRoot);
-  const runtimeDirectory = join(authorityStateRoot, ".kiln", "runtime");
+  // Benchmark callers provide an explicit disposable authority root. Production
+  // callers resolve the verified project root once and use its private Runtime
+  // namespace; no repository-local `.kiln` path is ever synthesized here.
+  const binding = options.projectStateBinding
+    ?? (options.authorityStateRoot === undefined ? resolveProjectStateBinding(cwd) : undefined);
+  const projectRoot = binding?.canonicalRoot ?? resolve(cwd);
+  const authorityStateRoot = resolve(options.authorityStateRoot ?? binding?.runtimePath ?? projectRoot);
+  const projectIdentityRoot = resolve(options.projectIdentityRoot ?? binding?.canonicalRoot ?? projectRoot);
+  const runtimeDirectory = authorityStateRoot;
+  if (binding !== undefined && authorityStateRoot === resolve(binding.runtimePath)) {
+    ensurePrivateStateDirectorySync(binding.projectStateRoot, runtimeDirectory);
+    assertPrivateStateFileTargetSync(binding.projectStateRoot, join(runtimeDirectory, "bounded-work-authority.sqlite"));
+  }
   mkdirSync(runtimeDirectory, { recursive: true });
   const authority = new SqliteBoundedWorkAuthority({
     path: join(runtimeDirectory, "bounded-work-authority.sqlite"),

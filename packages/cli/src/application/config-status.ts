@@ -20,16 +20,14 @@ import type {
   KilnConfigActivationStatusEntry,
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
-import { readKilnYaml, readKilnYamlSnapshot } from "../kiln-yaml.js";
+import { readKilnYamlFile, readKilnYamlFileSnapshot } from "../kiln-yaml.js";
 import type { KilnProjectConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import {
   deriveEffectiveKilnYaml,
+  readGlobalConfigSnapshotAtPath,
   resolveKilnMcpConfiguration,
 } from "../config/config-merger.js";
 import {
-  readGlobalConfig,
-  readGlobalConfigSnapshot,
-  resolveGlobalConfigPath,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
 import {
@@ -66,6 +64,10 @@ import {
 import { projectContextPath, readProjectContextAdoption } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import {
+  type ProjectStateBinding,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
+import {
   readRepoShimProjectionStatuses,
   readWorkflowSnapshotManifestStatus,
 } from "./repo-shim-projection.js";
@@ -101,6 +103,8 @@ export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
   readonly now?: Date;
   readonly userHome?: string;
+  readonly kilnHome?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly cwd?: string;
   readonly pluginProvider?: SkillPluginProvider;
   readonly commandRunner?: SkillInventoryCommandRunner;
@@ -109,6 +113,8 @@ export interface ReadConfigStatusOptions {
 
 export interface ReadConfigStatusViewOptions {
   readonly userHome?: string;
+  readonly kilnHome?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly cwd?: string;
   readonly query?: string;
   readonly modified?: boolean;
@@ -152,19 +158,23 @@ const configSourceDetails = new WeakMap<KilnConfigStatusSnapshot, {
   readonly global: GlobalConfigLoadState;
   readonly project: ProjectConfigLoadState;
 }>();
+const projectStateBindingDetails = new WeakMap<KilnConfigStatusSnapshot, ProjectStateBinding>();
 
 export async function readConfigStatusSnapshot(
   options: ReadConfigStatusOptions = {},
 ): Promise<KilnConfigStatusSnapshot> {
   const root = resolveProjectRoot({ explicitPath: options.projectPath });
   const rootPath = root.rootPath;
+  const projectStateBinding = options.projectStateBinding ?? resolveProjectStateBinding(rootPath, {
+    ...(options.kilnHome ? { kilnHome: options.kilnHome } : {}),
+  });
   const now = options.now ?? new Date();
   const errors: string[] = [];
-  const globalState = readGlobalConfigState();
-  const projectState = readProjectConfigState(rootPath);
-  const projectContext = readProjectContextState(rootPath);
+  const globalState = readGlobalConfigState(projectStateBinding);
+  const projectState = readProjectConfigState(rootPath, projectStateBinding);
+  const projectContext = readProjectContextState(rootPath, projectStateBinding);
   const effectiveConfig = buildEffectiveConfig(globalState, projectState, errors);
-  const mcp = buildMcpStatus(globalState, projectState, rootPath, options.userHome ?? homedir());
+  const mcp = buildMcpStatus(globalState, projectState, rootPath, projectStateBinding, projectStateBinding.kilnHome);
 
   errors.push(
     ...sourceErrors("global config", globalState.source),
@@ -174,9 +184,11 @@ export async function readConfigStatusSnapshot(
 
   const projectionState = await readProjectionSnapshots(
     rootPath,
+    projectStateBinding,
     errors,
     effectiveConfig ?? undefined,
-    options.userHome ?? homedir(),
+    options.userHome,
+    globalState.config,
     now,
   );
   const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
@@ -195,7 +207,8 @@ export async function readConfigStatusSnapshot(
   const skillCatalog = effectiveConfig && shouldReadSkillCatalog
     ? readSkillCatalogStatus({
       projectPath: rootPath,
-      userHome: options.userHome ?? homedir(),
+      ...(options.userHome === undefined ? {} : { userHome: options.userHome }),
+      projectStateBinding,
       cwd: options.cwd ?? rootPath,
       skillConfig: effectiveConfig.skills,
       ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
@@ -218,6 +231,7 @@ export async function readConfigStatusSnapshot(
     globalState,
     projectState,
     errors,
+    projectStateBinding,
   );
 
   const snapshot: KilnConfigStatusSnapshot = {
@@ -227,7 +241,6 @@ export async function readConfigStatusSnapshot(
       rootPath,
       projectName: root.projectName,
       hasGitRoot: root.hasGitRoot,
-      hasKilnYaml: root.hasKilnYaml,
       kilnYaml: projectState.source,
       projectContext,
     },
@@ -244,6 +257,7 @@ export async function readConfigStatusSnapshot(
   };
   if (effectiveConfig) resolvedConfigDetails.set(snapshot, effectiveConfig);
   configSourceDetails.set(snapshot, { global: globalState, project: projectState });
+  projectStateBindingDetails.set(snapshot, projectStateBinding);
   if (skillCatalog) skillCatalogDetails.set(snapshot, skillCatalog);
   return snapshot;
 }
@@ -254,10 +268,17 @@ async function readActivationStatus(
   globalState: GlobalConfigLoadState,
   projectState: ProjectConfigLoadState,
   errors: string[],
+  projectStateBinding: ProjectStateBinding,
 ): Promise<NonNullable<KilnConfigStatusSnapshot["activationStatus"]>> {
   try {
-    const desiredRevision = readRuntimeConfigurationRevision(projectPath, { globalConfigPath });
-    const store = new ConfigMutationStore(projectPath, { globalConfigPath });
+    const desiredRevision = readRuntimeConfigurationRevision(projectPath, {
+      globalConfigPath,
+      projectStateBinding,
+    });
+    const store = new ConfigMutationStore(projectPath, {
+      globalConfigPath,
+      root: projectStateBinding.mutationsPath,
+    });
     const admittedBundles = await readPersistedActivationAdmissionBoundaries(projectPath);
     const projected = projectActivationStatus({
       desiredRevision,
@@ -325,12 +346,13 @@ function buildMcpStatus(
   globalState: GlobalConfigLoadState,
   projectState: ProjectConfigLoadState,
   rootPath: string,
-  userHome: string,
+  projectStateBinding: ProjectStateBinding,
+  kilnHome: string,
 ): KilnMcpStatusSnapshot {
   if (globalState.source.status === "invalid" || projectState.source.status === "invalid") {
     return { servers: [], diagnostics: [] };
   }
-  const credentials = createMcpCredentialAccess(process.env, userHome);
+  const credentials = createMcpCredentialAccess(process.env, kilnHome);
   const resolution = resolveKilnMcpConfiguration({
     globalConfig: globalState.config,
     globalPath: globalState.source.path,
@@ -338,8 +360,10 @@ function buildMcpStatus(
     projectPath: projectState.source.path,
     credentialExists: credentials.exists,
   });
-  const installState = readNativeProjectionInstallState(join(rootPath, ".kiln"));
-  const runtimeState = readMcpRuntimeState(rootPath);
+  const installState = readNativeProjectionInstallState(projectStateBinding.projectionsPath);
+  const runtimeState = readMcpRuntimeState(rootPath, {
+    statePath: join(projectStateBinding.runtimePath, "mcp-state.json"),
+  });
   return {
     servers: Object.values(resolution.servers).map((server) => {
       const observed = runtimeState.servers[server.id];
@@ -431,8 +455,8 @@ export function isConfigReadView(value: string): value is KilnConfigReadView {
   return (KILN_CONFIG_READ_VIEWS as readonly string[]).includes(value);
 }
 
-function readGlobalConfigState(): GlobalConfigLoadState {
-  const path = resolveGlobalConfigPath();
+function readGlobalConfigState(projectStateBinding: ProjectStateBinding): GlobalConfigLoadState {
+  const path = join(projectStateBinding.kilnHome, "config.yaml");
   if (!existsSync(path)) {
     return {
       source: { path, status: "missing" },
@@ -442,7 +466,7 @@ function readGlobalConfigState(): GlobalConfigLoadState {
   }
 
   try {
-    const captured = readGlobalConfigSnapshot();
+    const captured = readGlobalConfigSnapshotAtPath(path);
     return {
       source: { path, status: "valid" },
       config: captured.config,
@@ -457,9 +481,8 @@ function readGlobalConfigState(): GlobalConfigLoadState {
   }
 }
 
-function readProjectConfigState(projectPath: string): ProjectConfigLoadState {
-  const kilnDir = join(projectPath, ".kiln");
-  const path = join(kilnDir, "kiln.yaml");
+function readProjectConfigState(_projectPath: string, projectStateBinding: ProjectStateBinding): ProjectConfigLoadState {
+  const path = projectStateBinding.configPath;
   if (!existsSync(path)) {
     return {
       source: { path, status: "missing" },
@@ -469,7 +492,7 @@ function readProjectConfigState(projectPath: string): ProjectConfigLoadState {
   }
 
   try {
-    const captured = readKilnYamlSnapshot(kilnDir);
+    const captured = readKilnYamlFileSnapshot(path);
     return {
       source: { path, status: "valid" },
       config: captured.config,
@@ -504,13 +527,13 @@ function buildEffectiveConfig(
   }
 }
 
-function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot {
-  const path = projectContextPath(projectPath);
+function readProjectContextState(projectPath: string, projectStateBinding: ProjectStateBinding): KilnConfigSourceSnapshot {
+  const path = projectContextPath(projectPath, { projectStateBinding });
   if (!existsSync(path)) {
     return { path, status: "missing" };
   }
   try {
-    readProjectContextAdoption(projectPath);
+    readProjectContextAdoption(projectPath, { projectStateBinding });
     return { path, status: "valid" };
   } catch (error) {
     return {
@@ -523,9 +546,11 @@ function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot 
 
 async function readProjectionSnapshots(
   projectPath: string,
+  projectStateBinding: ProjectStateBinding,
   errors: string[],
   effectiveConfig?: ResolvedKilnConfig,
   userHome?: string,
+  globalConfig: KilnGlobalConfig | null = null,
   now = new Date(),
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
@@ -535,10 +560,11 @@ async function readProjectionSnapshots(
   const projections: KilnProjectionTargetSnapshot[] = [];
   const repoShimSnapshots: KilnRepoShimProjectionSnapshot[] = [];
   const globalInstructionShimSnapshots: KilnGlobalInstructionShimSetupSnapshot[] = [];
-  const runtimeObservationStore = createRuntimePermissionObservationStore({ projectPath });
+  const runtimeObservationStore = createRuntimePermissionObservationStore({ projectPath, projectStateBinding });
+  const semanticLimitationBaseDir = join(projectStateBinding.kilnHome, "trust", "semantic-limitations");
 
   try {
-    const repoShims = await readRepoShimProjectionStatuses(projectPath);
+    const repoShims = await readRepoShimProjectionStatuses(projectPath, { projectStateBinding });
     for (const shim of repoShims) {
       const targetId = `repo-shim:${shim.target}`;
       repoShimSnapshots.push({
@@ -560,7 +586,7 @@ async function readProjectionSnapshots(
   }
 
   try {
-    const workflowSnapshot = await readWorkflowSnapshotManifestStatus(projectPath);
+    const workflowSnapshot = await readWorkflowSnapshotManifestStatus(projectPath, { projectStateBinding });
     projections.push({
       targetId: "workflow-snapshot:manifest",
       path: workflowSnapshot.path,
@@ -573,7 +599,10 @@ async function readProjectionSnapshots(
   }
 
   try {
-    const globalInstructionShims = await readGlobalInstructionShimProjectionSnapshots(projectPath, { userHome });
+    const globalInstructionShims = await readGlobalInstructionShimProjectionSnapshots(projectPath, {
+      userHome,
+      projectStateBinding,
+    });
     for (const shim of globalInstructionShims) {
       globalInstructionShimSnapshots.push({
         targetId: shim.targetId,
@@ -598,7 +627,7 @@ async function readProjectionSnapshots(
 
   try {
     const globalCommunication = readGlobalCommunicationProjectionSnapshot({
-      intent: resolveConfiguredCommunication({ global: readGlobalConfig()?.communication }),
+      intent: resolveConfiguredCommunication({ global: globalConfig?.communication }),
       userHome,
     });
     if (globalCommunication) {
@@ -616,11 +645,8 @@ async function readProjectionSnapshots(
   }
 
   try {
-    const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
+    const installState = readNativeProjectionInstallState(projectStateBinding.projectionsPath);
     for (const target of Object.values(installState.targets)) {
-      if (isGlobalInstructionShimTargetId(target.targetId)) {
-        continue;
-      }
       const safeHarnessPath = isNativeHarnessFileProjectionPath(target, userHome ?? homedir());
       const routeIntegrity = safeHarnessPath ? readNativeRouteIntegrity(target, effectiveConfig) : undefined;
       const status = safeHarnessPath ? readNativeProjectionStatus(target) : "drifted";
@@ -635,6 +661,7 @@ async function readProjectionSnapshots(
             targetId: target.targetId,
             projectionDigest: target.contentHash,
             projectPath,
+            limitationAcceptanceBaseDir: semanticLimitationBaseDir,
             now,
           })
         : undefined;
@@ -658,12 +685,6 @@ async function readProjectionSnapshots(
     repoShims: repoShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
     globalInstructionShims: globalInstructionShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
   };
-}
-
-function isGlobalInstructionShimTargetId(targetId: string): boolean {
-  return targetId === "codex-global-instructions"
-    || targetId === "claude-global-instructions"
-    || targetId === "opencode-global-instructions";
 }
 
 function isNativeHarnessFileProjectionPath(
@@ -844,13 +865,21 @@ async function projectConfigView(
         "/provider", "/model", "/targetCatalog", "/authorityProfiles",
         "/managedAgents", "/modelTaskSuitability", "/deliberationPolicy",
       ]);
-    case "agents":
-      return readAgentIndexes(snapshot.project.rootPath, options);
+    case "agents": {
+      const binding = projectStateBindingDetails.get(snapshot) ?? options.projectStateBinding;
+      return readAgentIndexes(
+        snapshot.project.rootPath,
+        options,
+        binding,
+        configSourceDetails.get(snapshot)?.global.config,
+      );
+    }
     case "skills":
       return {
         ...(skillCatalogDetails.get(snapshot) ?? readSkillCatalogStatus({
           projectPath: snapshot.project.rootPath,
           userHome: options.userHome,
+          ...(projectStateBindingDetails.get(snapshot) ? { projectStateBinding: projectStateBindingDetails.get(snapshot) } : {}),
           cwd: options.cwd ?? snapshot.project.rootPath,
           skillConfig: config?.skills,
           ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
@@ -866,7 +895,10 @@ async function projectConfigView(
     case "mcp":
       return snapshot.mcp;
     case "memory": {
-      const memoryStorage = resolveCliMemoryStorage(snapshot.project.rootPath);
+      const binding = projectStateBindingDetails.get(snapshot);
+      const memoryStorage = binding
+        ? { memoryDbPath: join(binding.memoryPath, "memory.db") }
+        : resolveCliMemoryStorage(snapshot.project.rootPath);
       return {
         configuration: effectiveConfigField(snapshot.effectiveConfig, "/permissions") ?? null,
         memoryDbPath: memoryStorage.memoryDbPath,
@@ -1049,15 +1081,27 @@ function uniqueSetupActions(actions: readonly KilnConfigSetupAction[]): readonly
   return filtered.length > 0 ? [...new Set(filtered)] : ["none"];
 }
 
-async function readAgentIndexes(projectPath: string, options: ReadConfigStatusViewOptions): Promise<unknown> {
-  const agents = await loadAgentDefinitions(projectPath, options.userHome === undefined ? undefined : { userHome: options.userHome });
+async function readAgentIndexes(
+  projectPath: string,
+  options: ReadConfigStatusViewOptions,
+  projectStateBinding?: ProjectStateBinding,
+  globalConfig?: KilnGlobalConfig | null,
+): Promise<unknown> {
+  const binding = projectStateBinding ?? options.projectStateBinding ?? resolveProjectStateBinding(projectPath, {
+    ...(options.kilnHome === undefined ? {} : { kilnHome: options.kilnHome }),
+  });
+  const agents = await loadAgentDefinitions(projectPath, {
+    ...(options.userHome === undefined ? {} : { userHome: options.userHome }),
+    ...(options.kilnHome === undefined ? {} : { kilnHome: options.kilnHome }),
+    projectStateBinding: binding,
+  });
   const createRouteAdmissionResolver = options.createManagedAgentRouteAdmissionResolver
     ?? createManagedAgentRouteAdmissionResolver;
   const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath);
   const installState = readNativeProjectionInstallState(resolveGlobalNativeProjectionStateDir(options.userHome));
   const communicationCandidates = configuredCommunicationCandidates({
-    global: readGlobalConfig()?.communication,
-    project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
+    global: globalConfig?.communication,
+    project: readKilnYamlFile(binding.configPath)?.communication,
   });
   return {
     agents: agents.map((agent) => ({

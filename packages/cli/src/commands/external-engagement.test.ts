@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ResolvedSecret, SecretResolver } from "@kilnai/core/credentials";
@@ -14,6 +14,7 @@ import {
   type XOAuth2TokenRefresher,
 } from "./external-engagement.js";
 import type { XEvidenceReportCache } from "./x-evidence-report-cache.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
 const tempRoots: string[] = [];
 
@@ -443,6 +444,46 @@ describe("external engagement command", () => {
       reportId: "fresh-cache-report",
       artifacts: [{ text: "Cached root post" }],
     });
+  });
+
+  it("fails closed when the private X report cache is redirected by a junction", async () => {
+    const root = tempRoot();
+    const binding = resolveProjectStateBinding(root, { kilnHome: join(root, "kiln-home") });
+    const outside = join(root, "redirect-target");
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(binding.projectStateRoot, { recursive: true });
+    try {
+      symlinkSync(outside, binding.cachePath, "junction");
+    } catch {
+      return;
+    }
+
+    const fetcher: XEvidenceFetcher = {
+      fetchEvidence: vi.fn(async ({ references, maxRepliesPerPost, generatedAt, reportId, budget }) =>
+        buildExternalEvidenceReport({
+          reportId,
+          generatedAt,
+          source: "x",
+          query: { references, maxRepliesPerPost },
+          budget,
+          artifacts: [],
+          signals: [],
+        })),
+    };
+
+    await expect(externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--max-replies",
+      "0",
+    ], {
+      projectStateBinding: binding,
+      fetcher,
+      env: { KILN_X_OAUTH2_ACCESS_TOKEN: "token" },
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      reportId: () => "redirected-cache-report",
+    })).rejects.toThrow(/unsafe/iu);
+    expect(readdirSync(outside)).toHaveLength(0);
   });
 
   it("refreshes cache when requested", async () => {
@@ -1117,7 +1158,7 @@ describe("external engagement command", () => {
       reportId: () => "intake-report-1",
     });
 
-    const outputPath = join(root, ".kiln", "external-engagement", "feature-intake.json");
+    const outputPath = join(root, "feature-intake.json");
     const intake = JSON.parse(readFileSync(outputPath, "utf-8")) as Record<string, unknown>;
     expect(intake).toEqual({
       reportId: "intake-report-1",

@@ -5,6 +5,7 @@ import { findOperatorCommand, type OperatorTurnRequestedAuthority } from "@kilna
 import pkg from "../package.json" with { type: "json" };
 import { parseRunOutputMode, type RunOutputMode } from "./application/run-output.js";
 import type { KilnAppConfig } from "./config.js";
+import { resolveKilnHomePath } from "./config/global-config/path.js";
 
 type RunArgFlags = {
   target?: string;
@@ -115,7 +116,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --approve    Approve authority-bearing target selection during `init`");
     console.log("  --deliberation-level  Provider-advertised deliberation level override");
     console.log("  --authority  Requested turn authority (auto, read_only, audited, destructive)");
-    console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
+    console.log("  --agent      Agent name from the private project catalog or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --gui-port   GUI dev server port override (gui command)");
     console.log("  --connect    Attach GUI to an existing App Gateway URL");
@@ -348,7 +349,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "auth") {
     const { runAuth } = await import("./commands/auth.js");
-    await runAuth(args.slice(1));
+    await runAuth(args.slice(1), { kilnHome: resolveKilnHomePath() });
     return;
   }
 
@@ -436,7 +437,7 @@ function printRunHelp(appName: string): void {
   console.log("  --target <id>                Execution target from global configuration");
   console.log("  --deliberation-level <id>    Provider-advertised deliberation level override");
   console.log("  --authority <authority>      Requested authority (auto, read_only, audited, destructive)");
-  console.log("  --agent <name>               Agent profile from .kiln/agents or ~/.kiln/agents");
+  console.log("  --agent <name>               Agent profile from the private project catalog or ~/.kiln/agents");
   console.log("  --plan                       Run read-only plan mode first");
   console.log("  --continue                     Continue the current canonical Kiln session target");
   console.log("  --continue-session <id>        Continue an explicit Kiln session id");

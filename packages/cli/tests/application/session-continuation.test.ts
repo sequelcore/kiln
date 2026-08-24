@@ -4,14 +4,17 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
 import { resolveContinuationSessionId } from "../../src/application/session-continuation.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 describe("resolveContinuationSessionId", () => {
   let tmpDir: string;
+  let state: ProjectStateBinding;
   let store: SessionStore;
   let transcriptStore: TranscriptStore;
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "kiln-session-continuation-"));
+    state = resolveProjectStateBinding(tmpDir);
     store = new SessionStore(tmpDir);
     transcriptStore = new TranscriptStore(tmpDir);
   });
@@ -145,9 +148,9 @@ describe("resolveContinuationSessionId", () => {
       task: "gui task",
       startedAt: new Date().toISOString(),
     });
-    await mkdir(join(tmpDir, ".kiln"), { recursive: true });
+    await mkdir(state.sessionsPath, { recursive: true });
     await writeFile(
-      join(tmpDir, ".kiln", "continuation-targets.json"),
+      join(state.sessionsPath, "continuation-targets.json"),
       JSON.stringify({ defaultSessionId: "target-transcript-only" }),
       "utf-8",
     );

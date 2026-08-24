@@ -2,8 +2,8 @@
 
 Status: Ready
 Priority: Urgent
-Execution: Ready - close the existing GUI exposure and approval-replay defect,
-then restore trustworthy verification before product expansion.
+Execution: Ready - advance Slice 3 / issue #97 against the final project-state
+owner completed by Slice 2.
 Created: 2026-08-23
 
 ## Objective
@@ -56,28 +56,35 @@ listed below:
 
 ### Slice 0 - Existing Security And Correctness Defects
 
-Status: Ready; issue #101 is complete and issue #102 is the next admissible work.
+Status: Complete; issue #101 is complete and issue #102 reached code/integration-complete state.
 
-Completed [issue #101](https://github.com/sequelcore/kiln/issues/101). Complete
-[issue #102](https://github.com/sequelcore/kiln/issues/102) next. Normal GUI startup
-must be loopback-only with exact origin policy, and replaying one approval
-resolution must never resolve another pending approval.
+[Issue #101](https://github.com/sequelcore/kiln/issues/101) is complete. On
+2026-08-23, the exact clean candidate for
+[issue #102](https://github.com/sequelcore/kiln/issues/102) passed the full root
+suite, build, typecheck, startup profile, documentation check, and diff check.
+Normal GUI startup must be loopback-only with exact origin policy, and replaying
+one approval resolution must never resolve another pending approval.
 
 Exit gate: focused negative tests demonstrate both boundaries and the affected
 Runtime, GUI, CLI, surfaces, typecheck, and startup-profile gates pass.
 
 ### Slice 1 - Trustworthy Test Oracle
 
-Status: Runtime admission and repository-path hermeticity are complete; GUI
-test admission is queued behind the remaining Slice 0 defect.
+Status: Complete; Slice 1 / issue #106 implementation evidence was completed on
+2026-08-23. Runtime admission and repository-path hermeticity are complete.
 
 [Issue #85](https://github.com/sequelcore/kiln/issues/85) admitted Runtime test
 sources to the ratcheted root typechecking gate, and
 [issue #88](https://github.com/sequelcore/kiln/issues/88) closed the owned
 repository-path defects while assigning live execution policy to issue #97.
-Complete [issue #106](https://github.com/sequelcore/kiln/issues/106) by repairing
-and admitting the remaining GUI test sources without baselines, exclusions, or
-production contract weakening.
+The GUI test typecheck project now reports zero errors and is wired into the
+root `typecheck:tests` gate without an issue-specific exclusion, baseline, or
+escape hatch. The GUI suite reports 546 tests and the surfaces suites report
+731 tests. The full root tests, build, typecheck, startup profile, documentation
+check, and diff check pass. Representative mutation evidence is recorded in
+[issue #106](https://github.com/sequelcore/kiln/issues/106), alongside the
+focused repair evidence. This records Slice 1 repository evidence; it does not
+claim issue closure, a commit, a supported source, or a release.
 
 Exit gate: no supported package test surface is omitted because its current
 tests do not compile, and live tests remain typechecked even when ordinary CI
@@ -85,7 +92,10 @@ correctly excludes credential-bearing execution.
 
 ### Slice 2 - Final Project-State Ownership
 
-Status: Queued behind Slice 1.
+Status: Implementation complete; operator cleanup pending. Slice 2 / issue #100
+passed its code, review, and deterministic gates on 2026-08-23, but its
+operator-owned lifecycle is not closed until the inactive legacy discard
+quarantine is physically deleted.
 
 Complete the bounded cutover in
 [issue #100](https://github.com/sequelcore/kiln/issues/100). Keep global
@@ -97,10 +107,28 @@ Exit gate: two synthetic repositories retain distinct private configuration,
 authority cannot be broadened from project scope, no production source uses a
 repository `.kiln/` state root, and standalone harness projections still work.
 
+The completed cutover establishes one canonical `ProjectStateBinding`, keeps
+global configuration distinct from project attenuation, stores project state
+under the operator Kiln home, and deletes the repository-state readers and
+writers without a compatibility or migration path. The operator chose to
+discard the unused 106,496-byte legacy Memory Lattice database; it was removed
+from active ownership through a quiescent operator move, not product migration
+code. The discarded database and associated obsolete state remain only in an
+inactive operator quarantine until the final physical deletion; no product
+reader, writer, fallback, or compatibility path uses them. Effect-time
+containment tests cover private-state reads, writes, deletes,
+worktrees, App Gateway state, and the retained repository instruction shims,
+including Windows junction and symlink swaps. The full supported test surfaces,
+root typecheck, build, startup profile, documentation check, generated schema
+check, managed-agent harness, and diff check pass. Independent Sol-high review
+reported no HIGH or MEDIUM findings. This records implementation evidence; the
+remaining operator deletion is the final adoption condition.
+
 ### Slice 3 - Recovery And Live Validation
 
-Status: Queued behind Slice 2. The portable matrix may be specified earlier,
-but storage-bound fixtures target only the final project-state owner.
+Status: Ready; Slice 2 completed the final project-state owner consumed by this
+work. Live entrypoints remain separately authorized from portable deterministic
+fixtures.
 
 Complete [issue #97](https://github.com/sequelcore/kiln/issues/97): deterministic
 crash, restart, replay, cancellation, settlement, stale-evidence, and corrupt-

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GuiGatewayClient } from "../src/api/client.js";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
 
@@ -49,8 +50,9 @@ vi.mock("../src/api/client.js", () => ({
       return useSessionStore.getState().sessionList;
     }
 
-    async loadDashboard() {
+    async loadDashboard(): ReturnType<GuiGatewayClient["loadDashboard"]> {
       return {
+        executionRouteCatalog: { routes: [] },
         providers: [],
         telemetry: {
           status: "idle",
@@ -291,8 +293,6 @@ function resetStore(): void {
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
-    activeProvider: "claude",
-    activeModel: "claude-sonnet-4-6",
     sessionList: [
       {
         sessionId: "session-1",
@@ -318,12 +318,9 @@ function resetStore(): void {
     currentTurnTrackedInputTokens: 0,
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
-    providerSwitching: false,
-    providerExplicitSelection: false,
     authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
-    providerSwitchTimeoutId: null,
     activityPhase: "idle",
   });
 }

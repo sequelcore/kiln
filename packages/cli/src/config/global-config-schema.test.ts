@@ -37,6 +37,25 @@ describe("global configuration schema", () => {
       identity: "/modelGateway",
       authorityImpact: "authority-bearing",
     }));
+    expect(GLOBAL_CONFIG_FIELD_DESCRIPTORS).toContainEqual(expect.objectContaining({
+      identity: "/interactiveUse",
+      semanticOwner: "interactive-use",
+      scope: "global",
+      authorityImpact: "authority-bearing",
+    }));
+  });
+
+  it("owns physical interactive-use providers globally", () => {
+    expect(parseGlobalConfigStructure({
+      version: "4",
+      interactiveUse: {
+        enabled: true,
+        browserProvider: "playwright",
+        allowedDomains: ["docs.example.com"],
+      },
+    }, "fixtures/config.yaml")).toMatchObject({
+      interactiveUse: { browserProvider: "playwright" },
+    });
   });
 
   it("keeps committed editor-schema and descriptor projections current", () => {

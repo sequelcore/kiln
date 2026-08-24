@@ -2,9 +2,26 @@
 
 Kiln treats `~/.kiln/config.yaml` as the global source of truth for providers,
 models, execution targets, reusable authority profiles, economics, and local
-harness configuration. Project `kiln.yaml` may only add repository context and
-narrow global limits for that workspace. It cannot redefine those global
+harness configuration. Each project has one operator-private state namespace
+under `~/.kiln/projects/<krp_sha256>/`; its canonical project document is
+`config.yaml` in that namespace. Project config may only add repository context
+and narrow global limits for that workspace. It cannot redefine those global
 catalogs. Native harness files are projected artifacts, not source state.
+
+The project identity is derived from the canonical physical project root and is
+represented by an opaque `krp_<sha256>` id. `adoption.json` is an identity-only,
+canonical manifest in that private namespace. It binds the private state to the
+exact project identity; it contains no copied configuration, credentials, or
+operator paths. A missing, malformed, copied, or unsafe manifest is an
+unadopted project and fails closed. Relocating a project produces a new identity
+and requires explicit re-adoption; Kiln does not migrate or alias the old state.
+
+The private namespace also owns project context, agents, instruction profiles,
+skills, runtime state, sessions, caches, evidence, backups, mutations,
+projections, domains, memory, feedback, benchmarks, and temporary files. The
+repository contains only source files and deliberate native guidance
+projections such as `AGENTS.md` and `CLAUDE.md`; it is never a mutable project
+state root.
 
 Supported native projection targets are Claude Code, Codex, and OpenCode.
 
@@ -39,7 +56,7 @@ The config projection boundary is owned by the CLI config layer.
   It delegates writes and settlement to the existing mutation authority.
 - `packages/cli/src/config/project-config-schema.ts` owns the strict runtime
   schema, inferred admitted type, stable structural diagnostics, editor schema,
-  and field descriptors for project `.kiln/kiln.yaml`. The committed JSON
+  and field descriptors for the private project `config.yaml`. The committed JSON
   artifacts under `packages/cli/schemas` are generated projections and never
   runtime authority.
 - `packages/cli/src/config/harness-integration-capabilities.ts` owns harness
@@ -121,8 +138,9 @@ native projection.
 
 Instruction profiles, agents, and skills are canonical filesystem config, not
 inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
-`~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under
-`.kiln/instructions/`, `.kiln/agents/`, and `.kiln/skills/`. Native harness
+`~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under the
+bound private namespace's `instructions/`, `agents/`, and `skills/` directories.
+Native harness
 agent, skill, and global instruction files remain generated projections.
 Repo-local `AGENTS.md` and `CLAUDE.md` may reference active instruction profile
 ids and canonical file paths for project startup, but they must not duplicate
@@ -173,8 +191,10 @@ back. It reports all observed target errors and exits non-zero on any target
 operational failure. Protected managed drift is reported inline as `BLOCKED`
 and does not make the command fail because the refusal preserves operator state.
 
-Before overwriting an existing native projection file, Kiln writes an append-only
-backup under `.kiln/backups/<target-id>/`. New files are not backed up.
+Before overwriting an existing native projection file, Kiln writes a retained
+backup under the state namespace owned by that projection. Project-scoped
+targets use the bound private project namespace; user-scoped targets use the
+global native-projection namespace. New files are not backed up.
 
 If global config marks a known harness engine as `enabled: false`, sync first
 uninstalls recorded managed projections for that harness and excludes that
@@ -243,8 +263,8 @@ shared install-state contract:
 The canonical gateway value comes only from resolved global config. Command and
 application boundaries read global and project config once, derive effective
 project policy, and pass the same global `modelGateway` value into native
-projection. Projection code does not read `.kiln/gateway.yaml` or another
-project-local gateway authority.
+projection. Projection code does not read a project-local gateway authority or
+any repository `.kiln` path.
 
 - Codex composite lifecycle owns only `model_provider`,
   `model_providers.kiln`, `model_catalog_json`, and its generated catalog. It
@@ -412,18 +432,18 @@ Repo shims write into a specific project root, such as generated `AGENTS.md` and
 generated `CLAUDE.md`. They are scoped project entrypoints for harnesses that
 load repository guidance before Kiln runtime exists. Repo shims must be derived
 from the merged canonical config for that project: global config, active
-instruction profile references, project `kiln.yaml`, project context, and
-project `.kiln/instructions|agents|skills`. Global doctrine and global agent
-rosters belong to global native projections, not repo-local shim bodies.
+instruction profile references, private project `config.yaml`, private project
+context, and private project `instructions|agents|skills`. Global doctrine and
+global agent rosters belong to global native projections, not repo-local shim
+bodies.
 
 Repo-shim projection must resolve the project root before writing. The durable
 resolution order is:
 
 1. explicit CLI path such as `--project` or `--cwd`
-2. nearest ancestor containing `.kiln/kiln.yaml`
-3. nearest repository root when it can be treated as a Kiln project root
+2. nearest repository root when it can be treated as a Kiln project root
 
-The ancestor search for steps 2 and 3 is bounded by the user home directory.
+The ancestor search for step 2 is bounded by the user home directory.
 The home directory and everything above it hold shared operator state, never a
 single project, so no marker found there may be adopted while walking upward: a
 git-tracked home directory would otherwise capture every nested directory,
@@ -452,18 +472,18 @@ and script detection, generated-file signatures, install-state records, drift
 detection, backups, and projection writes.
 
 `kiln project scout` exposes deterministic repository evidence. `kiln project
-adopt` writes `.kiln/project-context.md` as canonical project context and blocks
-when existing context differs unless the operator explicitly forces replacement.
-Generated repo shims may project `.kiln/project-context.md`, but they must not
-own its content. Project context, project instruction profiles, project agents,
-and project skills are canonical repo config and should be versionable; runtime
-state under `.kiln/` remains ignored.
+adopt` writes the private namespace's `context` file as canonical project
+context and blocks when existing context differs unless the operator explicitly
+forces replacement. Generated repo shims may summarize private context, but they
+must not own its content. Project context, project instruction profiles, project
+agents, and project skills are operator-private canonical state and are not
+versioned in the repository.
 
 Generated repo shims must contain a stable Kiln signature and projection
 metadata: target kind, project root identity, source profile ids, generator
 version, and content hash. Sync uses that metadata to block unmanaged files and
 drifted managed files unless `--force` is explicit; forced overwrites are backed
-up under `.kiln/backups/repo-shims/`. Config/status surfaces use the same
+up under the private namespace's `backups/repo-shims/`. Config/status surfaces use the same
 metadata to classify each repo guidance file as current managed projection,
 stale managed projection, managed file with drift, unmanaged existing guidance,
 missing projection, or blocked by ambiguous root. Unmanaged files are never
@@ -476,8 +496,8 @@ The canonical snapshot is built from deterministic project context, resolved
 work-governance config, static workflow profiles, active instruction profiles,
 authority posture, and model policy guidance. Sync writes:
 
-- `.kiln/projections/workflow-snapshot.md` as a readable generated projection.
-- `.kiln/projections/workflow-snapshot-manifest.json` as the manifest containing
+- private `projections/workflow-snapshot.md` as a readable generated projection.
+- private `projections/workflow-snapshot-manifest.json` as the manifest containing
   generator id, generation timestamp, source ids, generated file list, and the
   canonical snapshot hash.
 
@@ -697,7 +717,8 @@ such as `write` and `bash` are allowed only as explicit proposal data with
 closed.
 
 Config proposals are durable runtime state, not prompt text. Kiln stores
-proposals, approvals, and settlements under `.kiln/mutations/config/` with the
+proposals, approvals, and settlements under the private namespace's
+`mutations/config/` with the
 proposal hash, canonical target paths, desired content, and the exact prior
 bytes rollback would restore. Approval is also durable: `kiln config approve
 <proposalId>` creates a proposal-bound `approvalId`. Apply loads both records
@@ -705,8 +726,8 @@ and verifies that the approval points to the same proposal hash before it
 writes anything. The model cannot self-approve by repeating an approval id in
 natural language.
 
-Project applies write only canonical project config files under `.kiln/agents/`,
-`.kiln/skills/`, and `.kiln/kiln.yaml`. Global applies write only the canonical
+Project applies write only canonical project config files under the private
+namespace's `agents/`, `skills/`, and `config.yaml`. Global applies write only the canonical
 global configuration file, delegating to the global configuration owner so the
 same lock, revision fence, validation, and atomic replacement apply. Global
 content is produced by editing the YAML document tree, so operator comments,
@@ -789,7 +810,7 @@ without rewriting the session boundary. Revision evidence identifies the
 configuration used by an execution; it does not duplicate configuration values
 or become a second effective-config authority. Activation lineage carries only
 portable logical configuration identifiers such as `config.yaml` and
-`.kiln/kiln.yaml`; absolute operator paths remain forbidden in admission and
+`context`; absolute operator paths remain forbidden in admission and
 session-facet evidence.
 
 Operator route admission captures the effective execution catalog and that
@@ -840,18 +861,20 @@ operator-event presentation contract rather than local string parsing.
 
 ## Install State And Drift
 
-`.kiln/install-state.json` records each managed projection target. Document
-targets track managed field paths and field hashes. File targets track the
-whole-file `$file` hash.
+Each projection owner records managed targets in its own install-state. Project-
+scoped targets use the bound private project's `projections/install-state.json`;
+user-scoped targets use `<Kiln home>/runtime/native-projections/install-state.json`.
+Document targets track managed field paths and field hashes. File targets track
+the whole-file `$file` hash.
 
 On sync, Kiln compares current native content against install-state before
 writing. Drift on managed fields or managed files aborts that target unless the
 operator confirms `--force`. Unmanaged native keys remain outside the drift
 contract and are preserved by document-field projection.
 
-Global communication projection uses the global native-projection state under
-`~/.kiln/runtime/native-projections`, so different repositories do not compete
-for ownership of the same user-scoped Claude setting.
+Global instruction and communication projections use the global state under
+`<Kiln home>/runtime/native-projections`, so different repositories do not
+compete for ownership of the same user-scoped native harness files or settings.
 
 `kiln import-native <target>` is the explicit path to absorb selected native
 settings into Kiln config. It is not reverse sync. It supports Codex and
@@ -957,7 +980,8 @@ tool behavior or write authority.
   operator surfaces consume their exact references instead of inferring target
   or authority from provider, model, persona, or admission class.
 - Instruction profile, agent, and skill definitions are canonical only under
-  Kiln-owned directories, never in native harness folders.
+  the global `~/.kiln` directories or the bound private project namespace,
+  never in native harness folders or the repository.
 - Native harness-local skills are setup diagnostics until explicitly adopted or
   imported into Kiln canonical config; they are never admitted into managed
   invocation by their native presence alone.

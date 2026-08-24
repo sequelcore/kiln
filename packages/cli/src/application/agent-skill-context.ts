@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import type { ContextCandidate, ModelTaskSuitabilityTask } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import type { KilnAgentDefinition } from "./agent-loader.js";
@@ -25,7 +24,7 @@ export function withContextCandidates(
 export function resolveAgentSkillContextCandidates(
   agent: KilnAgentDefinition | undefined,
   projectPath: string,
-  userHome = homedir(),
+  userHome: string | undefined = undefined,
   skillConfig?: KilnYamlSkillsConfig | null,
   taskSelection?: {
     readonly task?: ModelTaskSuitabilityTask;
@@ -40,7 +39,7 @@ export function resolveAgentSkillContextCandidates(
   return resolveTaskSkillSelection({
     explicitSkills: agent?.skills,
     projectPath,
-    userHome,
+    ...(userHome ? { userHome } : {}),
     skillConfig,
     selection: skillConfig?.selection,
     task: taskSelection?.task,

@@ -188,8 +188,8 @@ When a direct provider directory has no files, Kiln may fall back to a single
 environment credential for that provider. This is the recommended local setup
 for single-account API-key gateways such as OpenRouter: keep the key in the
 operator's environment and keep routing, models, and managed-agent policy in
-Kiln config. Do not put API keys in `~/.kiln/config.yaml` or project
-`.kiln/kiln.yaml`.
+Kiln config. Do not put API keys in `~/.kiln/config.yaml` or the private
+project `config.yaml`.
 
 On Windows, persist an OpenRouter key for new terminals with:
 

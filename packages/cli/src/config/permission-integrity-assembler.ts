@@ -15,6 +15,8 @@ export function assembleRuntimePermissionIntegrity(input: {
   readonly projectionDigest: string;
   readonly projectPath?: string;
   readonly limitationAcceptanceReader?: typeof readTrustedExecutionSemanticLimitationAcceptance;
+  /** Explicit semantic-limitation store selected by the established project binding. */
+  readonly limitationAcceptanceBaseDir?: string;
   readonly now?: Date;
   readonly ttlMs?: number;
 }): TrustedExecutionIntegrity {
@@ -66,6 +68,7 @@ export function assembleRuntimePermissionIntegrity(input: {
       projectPath,
       limitation as TrustedExecutionSemanticLimitation,
       now.toISOString(),
+      input.limitationAcceptanceBaseDir,
     );
     return acceptance ? [acceptance] : [];
   });

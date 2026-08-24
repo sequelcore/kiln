@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DomainRegistry } from "@kilnai/core/domain";
 import type { KilnAppConfig } from "../../src/config.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 // Mock the process.exit to prevent test runner from dying
 const mockExit = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
@@ -29,6 +30,7 @@ Follow best practices when reviewing code.
 
 describe("skillCommand", () => {
   let tmpDir: string;
+  let projectStateBinding: ProjectStateBinding;
   let originalCwd: string;
   let originalXdgConfigHome: string | undefined;
 
@@ -38,6 +40,7 @@ describe("skillCommand", () => {
     originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = join(tmpDir, "config");
     process.chdir(tmpDir);
+    projectStateBinding = resolveProjectStateBinding(tmpDir);
     mockExit.mockClear();
   });
 
@@ -85,7 +88,7 @@ describe("skillCommand", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "install", [skillPath]);
 
-      const installed = join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md");
+      const installed = join(projectStateBinding.skillsPath, "test-skill", "SKILL.md");
       expect(existsSync(installed)).toBe(true);
       consoleSpy.mockRestore();
     });
@@ -111,6 +114,24 @@ describe("skillCommand", () => {
   });
 
   describe("governed package lifecycle", () => {
+    it("fails closed when the private skills owner is redirected by a junction", async () => {
+      const source = join(tmpDir, "source", "test-skill");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD, "utf8");
+      const outside = join(tmpDir, "redirect-target");
+      mkdirSync(outside, { recursive: true });
+      mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
+      try {
+        symlinkSync(outside, projectStateBinding.skillsPath, "junction");
+      } catch {
+        return;
+      }
+
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      await expect(skillCommand(TEST_CONFIG, "install", [source])).rejects.toThrow(/unsafe/iu);
+      expect(existsSync(join(outside, "test-skill"))).toBe(false);
+    });
+
     it("installs a complete directory package and records immutable evidence", async () => {
       const packagePath = join(tmpDir, "source", "test-skill");
       mkdirSync(join(packagePath, "references"), { recursive: true });
@@ -121,8 +142,8 @@ describe("skillCommand", () => {
 
       await skillCommand(TEST_CONFIG, "install", [packagePath]);
 
-      expect(existsSync(join(tmpDir, ".kiln", "skills", "test-skill", "references", "guide.md"))).toBe(true);
-      const state = JSON.parse(readFileSync(join(tmpDir, ".kiln", "skill-install-state.json"), "utf8"));
+      expect(existsSync(join(projectStateBinding.skillsPath, "test-skill", "references", "guide.md"))).toBe(true);
+      const state = JSON.parse(readFileSync(join(projectStateBinding.projectStateRoot, "skill-install-state.json"), "utf8"));
       expect(state.packages["test-skill"]).toMatchObject({ sourcePath: packagePath });
       expect(state.packages["test-skill"].packageDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       spy.mockRestore();
@@ -141,8 +162,8 @@ describe("skillCommand", () => {
       mockExit.mockClear();
       writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD.replace("Follow best practices", "Follow governed practices"), "utf8");
       await skillCommand(TEST_CONFIG, "update", ["test-skill", source]);
-      expect(readFileSync(join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md"), "utf8")).toContain("governed practices");
-      expect(existsSync(join(tmpDir, ".kiln", "backups", "skills", "test-skill"))).toBe(true);
+      expect(readFileSync(join(projectStateBinding.skillsPath, "test-skill", "SKILL.md"), "utf8")).toContain("governed practices");
+      expect(existsSync(join(projectStateBinding.backupsPath, "skills", "test-skill"))).toBe(true);
       log.mockRestore(); error.mockRestore();
     });
 
@@ -153,7 +174,7 @@ describe("skillCommand", () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "install", [source]);
-      const installed = join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md");
+      const installed = join(projectStateBinding.skillsPath, "test-skill", "SKILL.md");
       writeFileSync(installed, VALID_SKILL_MD.replace("best", "locally modified"), "utf8");
       await skillCommand(TEST_CONFIG, "remove", ["test-skill"]);
       expect(mockExit).toHaveBeenCalledWith(1);
@@ -161,7 +182,7 @@ describe("skillCommand", () => {
       mockExit.mockClear();
       await skillCommand(TEST_CONFIG, "remove", ["test-skill", "--force"]);
       expect(existsSync(installed)).toBe(false);
-      expect(existsSync(join(tmpDir, ".kiln", "backups", "skills", "test-skill"))).toBe(true);
+      expect(existsSync(join(projectStateBinding.backupsPath, "skills", "test-skill"))).toBe(true);
       log.mockRestore(); error.mockRestore();
     });
 
@@ -171,17 +192,17 @@ describe("skillCommand", () => {
       const { skillCommand } = await import("../../src/commands/skill.js");
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "install", [source]);
-      writeFileSync(join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md"), VALID_SKILL_MD.replace("best", "local"), "utf8");
+      writeFileSync(join(projectStateBinding.skillsPath, "test-skill", "SKILL.md"), VALID_SKILL_MD.replace("best", "local"), "utf8");
       writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD.replace("best", "upstream"), "utf8");
 
       await skillCommand(TEST_CONFIG, "update", ["test-skill", "--force", source]);
 
-      expect(readFileSync(join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md"), "utf8")).toContain("upstream practices");
+      expect(readFileSync(join(projectStateBinding.skillsPath, "test-skill", "SKILL.md"), "utf8")).toContain("upstream practices");
       log.mockRestore();
     });
 
     it("rejects tampered lifecycle state before resolving any package path", async () => {
-      const stateDir = join(tmpDir, ".kiln");
+      const stateDir = projectStateBinding.projectStateRoot;
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(join(stateDir, "skill-install-state.json"), JSON.stringify({
         version: 1,
@@ -206,7 +227,7 @@ describe("skillCommand", () => {
     });
 
     it("rejects an otherwise valid operation when any persisted package key is unsafe", async () => {
-      const stateDir = join(tmpDir, ".kiln");
+      const stateDir = projectStateBinding.projectStateRoot;
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(join(stateDir, "skill-install-state.json"), JSON.stringify({
         version: 1,

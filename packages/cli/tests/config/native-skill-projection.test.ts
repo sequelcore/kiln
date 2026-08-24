@@ -42,7 +42,12 @@ import {
 } from "../../src/config/native-skill-projection.js";
 import { canonicalSkillKey } from "../../src/config/native-projection-paths.js";
 
-const SKILLS_DISABLED = { skillConfig: { builtin: { enabled: false } } } as const;
+const PRIVATE_PROJECT_SKILLS = join("/home/tester", ".kiln", "projects", "test-project", "skills");
+const GLOBAL_NATIVE_PROJECTION_STATE = join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json");
+const SKILLS_DISABLED = {
+  skillConfig: { builtin: { enabled: false } },
+  projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
+} as const;
 const PLANNER_SKILL = "---\nname: planner\ndescription: Plan work.\n---\n";
 
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
@@ -116,7 +121,7 @@ describe("native-skill-projection", () => {
   it("renders explicit-only visibility per harness and fails closed for unsupported OpenCode", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
@@ -129,6 +134,7 @@ describe("native-skill-projection", () => {
     fsMocks.files.set(join(skillSourceDir, "agents", "openai.yaml"), "interface:\n  display_name: Planner\n");
 
     const result = await syncNativeSkillProjections(projectPath, {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: {
         builtin: { enabled: false },
         visibility: { overrides: { planner: "explicit-only" } },
@@ -175,6 +181,7 @@ describe("native-skill-projection", () => {
     );
 
     await syncNativeSkillProjections(projectPath, {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: { builtin: { enabled: false }, visibility: { overrides: { planner: "implicit" } } },
     });
 
@@ -198,6 +205,7 @@ describe("native-skill-projection", () => {
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
     const result = await syncNativeSkillProjections(projectPath, {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: {
         builtin: { enabled: false },
         visibility: { overrides: { planner: "disabled" } },
@@ -224,6 +232,7 @@ describe("native-skill-projection", () => {
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
 
     const result = await syncNativeSkillProjections(projectPath, {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: {
         builtin: { enabled: false },
         visibility: { overrides: { planner: "disabled" } },
@@ -237,7 +246,7 @@ describe("native-skill-projection", () => {
     ]));
     expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner"))))
       .toBe(false);
-    const state = JSON.parse(fsMocks.files.get(join(projectPath, ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(GLOBAL_NATIVE_PROJECTION_STATE) ?? "{}") as {
       targets?: Record<string, unknown>;
     };
     expect(Object.keys(state.targets ?? {}).some((targetId) => targetId.includes("skill:planner/"))).toBe(false);
@@ -246,7 +255,7 @@ describe("native-skill-projection", () => {
   it("reports a failed outcome when a harness skill directory cannot be created", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
     const codexSkillsDir = join("/home/tester", ".codex", "skills");
     readdirSyncMock.mockImplementation((targetPath: string) => {
@@ -275,7 +284,7 @@ describe("native-skill-projection", () => {
   it("discoverSkillDirs() returns global skills when no project dir", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) {
@@ -290,7 +299,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const dirs = discoverSkillDirs(projectPath);
+    const dirs = discoverSkillDirs(projectPath, "/home/tester", PRIVATE_PROJECT_SKILLS);
 
     expect([...dirs.entries()]).toEqual([
       ["planner", join(globalDir, "planner")],
@@ -300,7 +309,7 @@ describe("native-skill-projection", () => {
   it("discoverSkillDirs() project overrides global skill with same name", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) {
@@ -318,7 +327,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const dirs = discoverSkillDirs(projectPath);
+    const dirs = discoverSkillDirs(projectPath, "/home/tester", PRIVATE_PROJECT_SKILLS);
 
     expect(dirs.get("planner")).toBe(join(projectDir, "planner"));
   });
@@ -326,7 +335,7 @@ describe("native-skill-projection", () => {
   it("discoverSkillDirs() merges distinct skills from both dirs", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) {
@@ -344,7 +353,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const dirs = discoverSkillDirs(projectPath);
+    const dirs = discoverSkillDirs(projectPath, "/home/tester", PRIVATE_PROJECT_SKILLS);
 
     expect([...dirs.entries()]).toEqual([
       ["planner", join(globalDir, "planner")],
@@ -355,7 +364,7 @@ describe("native-skill-projection", () => {
   it("discoverSkillDirs() ignores empty directories so builtins are not shadowed", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) {
@@ -370,7 +379,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const dirs = discoverSkillDirs(projectPath);
+    const dirs = discoverSkillDirs(projectPath, "/home/tester", PRIVATE_PROJECT_SKILLS);
 
     expect(dirs.has("repo-context-review")).toBe(false);
   });
@@ -378,7 +387,7 @@ describe("native-skill-projection", () => {
   it("admits safe flat skills and lets project flat files override user flat duplicates", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const userFile = join(globalDir, "user.md");
     const invalidFile = join(globalDir, "invalid.md");
     const projectFile = join(projectDir, "project.md");
@@ -394,7 +403,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig);
+    const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS);
     expect(sources.get(canonicalSkillKey("buildtools"))).toMatchObject({
       skillName: "buildtools",
       sourceIdentity: "project:buildtools",
@@ -406,7 +415,7 @@ describe("native-skill-projection", () => {
   it("lets a project flat skill override a user canonical directory", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const userSkillDir = join(globalDir, "planner");
     const projectFile = join(projectDir, "planner.md");
     fsMocks.files.set(join(userSkillDir, "SKILL.md"), PLANNER_SKILL);
@@ -418,7 +427,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
+    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS).get("planner");
 
     expect(source).toMatchObject({
       sourceIdentity: "project:planner",
@@ -429,7 +438,7 @@ describe("native-skill-projection", () => {
   it("lets a project canonical directory override a user flat skill", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const userFile = join(globalDir, "planner.md");
     const projectSkillDir = join(projectDir, "planner");
     fsMocks.files.set(userFile, "---\nname: planner\ndescription: user flat\n---\n");
@@ -441,7 +450,7 @@ describe("native-skill-projection", () => {
       return readdirFallback(targetPath);
     });
 
-    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
+    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS).get("planner");
 
     expect(source).toMatchObject({
       sourceIdentity: "project:planner",
@@ -461,7 +470,7 @@ describe("native-skill-projection", () => {
       return readdirMissing(targetPath);
     });
 
-    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
+    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig, "/home/tester", PRIVATE_PROJECT_SKILLS).get("planner");
 
     expect(source).toMatchObject({ sourceIdentity: "user:planner", sourceDir: skillDir });
   });
@@ -510,7 +519,7 @@ describe("native-skill-projection", () => {
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
-    const statePath = join(projectPath, ".kiln", "install-state.json");
+    const statePath = GLOBAL_NATIVE_PROJECTION_STATE;
     const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
       targets: Record<string, Record<string, unknown>>;
     };
@@ -551,7 +560,7 @@ describe("native-skill-projection", () => {
     expect(forced.codex).toBe(true);
     expect(fsMocks.files.get(codexSkillPath)).toBe(PLANNER_SKILL);
 
-    fsMocks.files.delete(join(projectPath, ".kiln", "install-state.json"));
+    fsMocks.files.delete(GLOBAL_NATIVE_PROJECTION_STATE);
     writeFileSyncMock.mockClear();
     const adoptionPlan = await syncNativeSkillProjections(projectPath, { ...SKILLS_DISABLED, dryRun: true });
     expect(adoptionPlan.outcomes).toContainEqual(expect.objectContaining({
@@ -559,7 +568,7 @@ describe("native-skill-projection", () => {
       status: "planned",
       reason: "adopted byte-identical unmanaged skill file",
     }));
-    expect(fsMocks.files.has(join(projectPath, ".kiln", "install-state.json"))).toBe(false);
+    expect(fsMocks.files.has(GLOBAL_NATIVE_PROJECTION_STATE)).toBe(false);
 
     const adopted = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
     expect(adopted.codex).toBe(true);
@@ -582,7 +591,7 @@ describe("native-skill-projection", () => {
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
-    const statePath = join(projectPath, ".kiln", "install-state.json");
+    const statePath = GLOBAL_NATIVE_PROJECTION_STATE;
     const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
       targets: Record<string, Record<string, unknown>>;
     };
@@ -618,6 +627,7 @@ describe("native-skill-projection", () => {
     });
 
     const result = await syncNativeSkillProjections("/workspace/project", {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: {
         builtin: {
           include: ["tdd-workflow"],
@@ -641,6 +651,7 @@ describe("native-skill-projection", () => {
 
     const result = await syncNativeSkillProjections("/workspace/project", {
       dryRun: true,
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: { builtin: { include: ["tdd-workflow"] } },
     });
 
@@ -658,6 +669,7 @@ describe("native-skill-projection", () => {
     const result = await syncNativeSkillProjections("/workspace/project", {
       dryRun: true,
       disabledHarnesses: ["codex"],
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
       skillConfig: { builtin: { include: ["tdd-workflow"] } },
     });
 
@@ -676,7 +688,7 @@ describe("native-skill-projection", () => {
   it("skill files are copied to all three target directories", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
@@ -729,7 +741,7 @@ describe("native-skill-projection", () => {
   it("write failure marks correct target as false and captures error", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
@@ -764,7 +776,7 @@ describe("native-skill-projection", () => {
   it("records install state for each projected skill file", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
@@ -785,7 +797,7 @@ describe("native-skill-projection", () => {
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
 
     expect(result.errors).toHaveLength(0);
-    const state = JSON.parse(fsMocks.files.get(join(projectPath, ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(GLOBAL_NATIVE_PROJECTION_STATE) ?? "{}") as {
       targets: Record<string, { projectionKind?: string; managedFields: string[]; harness?: string; sourceIdentity?: string }>;
     };
     expect(Object.keys(state.targets).sort()).toEqual([
@@ -814,9 +826,9 @@ describe("native-skill-projection", () => {
   it("reconciles stale fully-owned skill snapshots without rewriting canonical files", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
-    const statePath = join(projectPath, ".kiln", "install-state.json");
+    const statePath = GLOBAL_NATIVE_PROJECTION_STATE;
     const targetFiles = [
       { target: "claude", path: join("/home/tester", ".claude", "skills", "planner", "SKILL.md") },
       { target: "codex", path: join("/home/tester", ".codex", "skills", "planner", "SKILL.md") },
@@ -866,9 +878,9 @@ describe("native-skill-projection", () => {
   it("reports stale snapshot reconciliation in dry-run without mutating files or state", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
-    const statePath = join(projectPath, ".kiln", "install-state.json");
+    const statePath = GLOBAL_NATIVE_PROJECTION_STATE;
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
@@ -901,7 +913,7 @@ describe("native-skill-projection", () => {
   it("projects nested skill resources and records their relative paths", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
     const referenceDir = join(skillSourceDir, "references");
 
@@ -925,7 +937,7 @@ describe("native-skill-projection", () => {
       "# Workflow\n",
       "utf-8",
     );
-    const state = JSON.parse(fsMocks.files.get(join(projectPath, ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(GLOBAL_NATIVE_PROJECTION_STATE) ?? "{}") as {
       targets: Record<string, unknown>;
     };
     expect(state.targets).toHaveProperty("codex-skill:planner/references/workflow.md");
@@ -934,7 +946,7 @@ describe("native-skill-projection", () => {
   it("aborts only drifted projected skill files unless force is set", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
     const codexSkillPath = join("/home/tester", ".codex", "skills", "planner", "SKILL.md");
 
@@ -975,7 +987,7 @@ describe("native-skill-projection", () => {
 
   it("removes managed files for skills removed from the canonical catalog", async () => {
     const projectPath = "/workspace/project";
-    const kilnDir = join(projectPath, ".kiln");
+    const kilnDir = dirname(GLOBAL_NATIVE_PROJECTION_STATE);
     const removedPath = join("/home/tester", ".codex", "skills", "removed", "SKILL.md");
     fsMocks.files.set(removedPath, "removed\n");
     fsMocks.files.set(join(kilnDir, "install-state.json"), JSON.stringify({
@@ -988,7 +1000,7 @@ describe("native-skill-projection", () => {
           contentHash: "ignored",
           managedFields: ["$file"],
           managedFieldHashes: {
-            "$file": "bc772298e9274d658105f8298b3e35d8c88142ec543e168dade9ea8fa1e0294d",
+            "$file": "6b95743f7339e0aff16c1d1b9f453711ffcdc3fed9b6787af264f9601c4e2961",
           },
           updatedAt: "2026-07-22T00:00:00.000Z",
         },
@@ -1010,9 +1022,9 @@ describe("native-skill-projection", () => {
 
   it("drops stale case-only install state without deleting the current skill file", async () => {
     const projectPath = "/workspace/project";
-    const kilnDir = join(projectPath, ".kiln");
+    const kilnDir = dirname(GLOBAL_NATIVE_PROJECTION_STATE);
     const globalDir = join("/home/tester", ".kiln", "skills");
-    const projectDir = join(projectPath, ".kiln", "skills");
+    const projectDir = PRIVATE_PROJECT_SKILLS;
     const skillSourceDir = join(globalDir, "planner");
     const codexSkillPath = join("/home/tester", ".codex", "skills", "planner", "SKILL.md");
     fsMocks.files.set(codexSkillPath, PLANNER_SKILL);

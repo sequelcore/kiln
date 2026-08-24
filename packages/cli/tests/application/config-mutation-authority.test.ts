@@ -9,7 +9,7 @@ import {
   approveConfigMutation,
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
-import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
+import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
 import { captureCanonicalReconciliationGeneration } from "../../src/application/config-reconciliation-generation.js";
 import { defaultGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
@@ -19,9 +19,11 @@ import {
 } from "../../src/config/execution-target-evidence-store.js";
 import { syntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
 import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-v4-fixture.js";
+import { type ProjectStateBinding, resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 let tempDir: string;
 let globalHome: string;
+let projectStateBinding!: ProjectStateBinding;
 let previousXdgConfigHome: string | undefined;
 
 /** Reconciliation is exercised separately; these specs assert lifecycle behavior. */
@@ -33,6 +35,13 @@ function isDigest(value: string): value is `sha256:${string}` {
 
 function globalConfigPath(): string {
   return join(globalHome, "kiln", "config.yaml");
+}
+
+function mutationStore(): ConfigMutationStore {
+  return new ConfigMutationStore(tempDir, {
+    root: projectStateBinding.mutationsPath,
+    globalConfigPath: globalConfigPath(),
+  });
 }
 
 function seedGlobalConfig(): void {
@@ -75,8 +84,14 @@ function targetWithRevision(current: ExecutionTargetCatalogIntent, targetId: str
 }
 
 function propose(operation: Parameters<typeof proposeConfigMutation>[0]["operation"], payload: unknown) {
-  const record = proposeConfigMutation({ projectPath: tempDir, operation, payload });
-  new ConfigMutationStore(tempDir).saveProposal(record);
+  const record = proposeConfigMutation({
+    projectPath: tempDir,
+    projectStateBinding,
+    globalConfigPath: globalConfigPath(),
+    operation,
+    payload,
+  });
+  mutationStore().saveProposal(record);
   return record;
 }
 
@@ -92,9 +107,10 @@ describe("config mutation authority", () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-config-authority-"));
     globalHome = mkdtempSync(join(tmpdir(), "kiln-config-home-"));
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    mkdirSync(join(tempDir, ".git"), { recursive: true });
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = globalHome;
+    projectStateBinding = resolveProjectStateBinding(tempDir);
     reconcileOk.mockClear();
   });
 
@@ -108,8 +124,8 @@ describe("config mutation authority", () => {
     rmSync(globalHome, { recursive: true, force: true });
   });
 
-  it("read-normalizes a pre-Slice-8 settlement without claiming activation", () => {
-    const store = new ConfigMutationStore(tempDir);
+  it("fails closed for a settlement without current activation evidence", () => {
+    const store = mutationStore();
     const historical = {
       proposalId: "historical-proposal",
       approvalId: null,
@@ -125,20 +141,23 @@ describe("config mutation authority", () => {
       rollbackToken: null,
       activation: "next-session",
       restore: [],
-    } as unknown as StoredConfigMutationSettlement;
+    };
 
-    // This deliberately writes the old wire shape: no activationObservation.
-    store.settle(historical);
+    expect(() => store.settle(historical as unknown as Parameters<typeof store.settle>[0]))
+      .toThrow(/invalid activation observation evidence/iu);
 
-    const replayed = store.readLatestSettlement("project.adopt");
-    expect(replayed?.activationObservation).toEqual({
-      state: "unsupported",
-      boundary: "next-session",
-      committedRevision: `sha256:${"a".repeat(64)}`,
-      activeRevision: null,
-      summary: "Historical settlement lacks activation evidence; activation is unproven.",
-    });
-    expect(replayed?.activationObservation.state).not.toBe("active");
+    // A pre-cutover record must not become executable evidence through a raw
+    // file write either. The current parser simply ignores it.
+    const settlementPath = join(
+      projectStateBinding.mutationsPath,
+      store.projectIdentity,
+      "settlements",
+      "historical-proposal.json",
+    );
+    mkdirSync(join(projectStateBinding.mutationsPath, store.projectIdentity, "settlements"), { recursive: true });
+    writeFileSync(settlementPath, JSON.stringify(historical), "utf-8");
+    expect(store.readSettlement("historical-proposal")).toBeNull();
+    expect(store.readLatestSettlement("project.adopt")).toBeNull();
   });
 
   it("commits a non-authority-expanding change without an approval", async () => {
@@ -168,7 +187,7 @@ describe("config mutation authority", () => {
       activeRevision: result.settlement.committedRevision,
       summary: "Owned projections converged on the committed revision.",
     });
-    expect(existsSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"))).toBe(true);
   });
 
   it("refuses to commit an authority-expanding change without a matching approval", async () => {
@@ -185,7 +204,7 @@ describe("config mutation authority", () => {
     });
 
     expect(rejectedResult.settlement.outcome).toBe("rejected");
-    expect(existsSync(join(tempDir, ".kiln", "agents", "reviewer.md"))).toBe(false);
+    expect(existsSync(join(projectStateBinding.agentsPath, "reviewer.md"))).toBe(false);
 
     const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
     const committed = await applyConfigMutation({
@@ -198,7 +217,7 @@ describe("config mutation authority", () => {
     });
 
     expect(committed.settlement.outcome).toBe("committed");
-    expect(readFileSync(join(tempDir, ".kiln", "agents", "reviewer.md"), "utf-8")).toContain("bash");
+    expect(readFileSync(join(projectStateBinding.agentsPath, "reviewer.md"), "utf-8")).toContain("bash");
   });
 
   it("treats authority as a delta, so restating existing tools needs no approval", async () => {
@@ -230,8 +249,8 @@ describe("config mutation authority", () => {
       instructions: "Original instructions.",
     });
 
-    const path = join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md");
-    mkdirSync(join(tempDir, ".kiln", "skills", "repo-review"), { recursive: true });
+    const path = join(projectStateBinding.skillsPath, "repo-review", "SKILL.md");
+    mkdirSync(join(projectStateBinding.skillsPath, "repo-review"), { recursive: true });
     writeFileSync(path, "---\nname: repo-review\n---\n\nEdited outside the authority.\n", "utf-8");
 
     const result = await applyConfigMutation({
@@ -280,7 +299,7 @@ describe("config mutation authority", () => {
       payload: { scope: "project", posture: "read-only" },
       now: new Date("2026-01-01T00:00:00.000Z"),
     });
-    const store = new ConfigMutationStore(tempDir);
+    const store = mutationStore();
     store.saveProposal(initial);
     const first = await applyConfigMutation({
       projectPath: tempDir,
@@ -366,7 +385,7 @@ describe("config mutation authority", () => {
       operation: "project.adopt",
       payload: { scope: "project", posture: "read-only" },
     });
-    const store = new ConfigMutationStore(tempDir);
+    const store = mutationStore();
     store.saveProposal(interrupted);
     const interruptedWrite = interrupted.writes[0]!;
     store.writeProgressMarker({
@@ -492,7 +511,7 @@ describe("config mutation authority", () => {
       committedRevision: result.settlement.committedRevision,
       activeRevision: null,
     });
-    expect(existsSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"))).toBe(true);
     expect(result.settlement.diagnostics.map((entry) => entry.message)).toContain("harness unavailable");
   });
 
@@ -541,8 +560,8 @@ describe("config mutation authority", () => {
         const captured = captureCanonicalReconciliationGeneration(tempDir, "native-skills");
         if (!isDigest(captured)) throw new Error("fixture generation was malformed");
         fencedGeneration = captured;
-        const competitor = join(tempDir, ".kiln", "skills", "competitor", "SKILL.md");
-        mkdirSync(join(tempDir, ".kiln", "skills", "competitor"), { recursive: true });
+        const competitor = join(projectStateBinding.skillsPath, "competitor", "SKILL.md");
+        mkdirSync(join(projectStateBinding.skillsPath, "competitor"), { recursive: true });
         writeFileSync(competitor, "---\nname: competitor\ndescription: changed\n---\n", "utf8");
         return [{
           target: "native-skills" as const,
@@ -555,14 +574,14 @@ describe("config mutation authority", () => {
     });
 
     expect(captureCanonicalReconciliationGeneration(tempDir, "native-skills")).not.toBe(fencedGeneration);
-    expect(new ConfigMutationStore(tempDir).readSettlement(record.proposal.proposalId)?.reconciliationGenerations)
+    expect(mutationStore().readSettlement(record.proposal.proposalId)?.reconciliationGenerations)
       .toEqual([{ target: "native-skills", generation: fencedGeneration }]);
   });
 
   it("restores the exact prior bytes through a governed rollback", async () => {
-    const path = join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md");
+    const path = join(projectStateBinding.skillsPath, "repo-review", "SKILL.md");
     const original = "---\nname: repo-review\ndescription: Original\n---\n\nOriginal instructions.\n";
-    mkdirSync(join(tempDir, ".kiln", "skills", "repo-review"), { recursive: true });
+    mkdirSync(join(projectStateBinding.skillsPath, "repo-review"), { recursive: true });
     writeFileSync(path, original, "utf-8");
 
     const change = propose("skill.upsert", {
@@ -592,7 +611,7 @@ describe("config mutation authority", () => {
     expect(readFileSync(path, "utf-8")).toBe(original);
     expect(restored.settlement.committedRevision).toBe(`sha256:${createHash("sha256").update(original).digest("hex")}`);
     expect(restored.settlement.committedRevision).not.toBe(committed.settlement.committedRevision);
-    expect(new ConfigMutationStore(tempDir).readLatestSettlementForPath(
+    expect(mutationStore().readLatestSettlementForPath(
       path,
       restored.settlement.committedRevision ?? undefined,
     )?.proposalId).toBe(rollback.proposal.proposalId);
@@ -701,7 +720,7 @@ describe("config mutation authority", () => {
 
     expect(modelApply.settlement.outcome).toBe("rejected");
     expect(modelApply.settlement.diagnostics[0]?.message).toContain("Model-called");
-    expect(existsSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"))).toBe(false);
+    expect(existsSync(join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"))).toBe(false);
 
     const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
     const approved = await applyConfigMutation({
@@ -732,10 +751,8 @@ describe("config mutation authority", () => {
 
     // A model holding workspace write authority must not be able to reach
     // proposals, approvals, or settlements in order to forge one.
-    expect(existsSync(join(tempDir, ".kiln", "mutations"))).toBe(false);
-    const namespaces = readdirSync(join(globalHome, "kiln", "mutations", "config"));
-    expect(namespaces).toHaveLength(1);
-    expect(existsSync(join(globalHome, "kiln", "mutations", "config", namespaces[0]!, "settlements"))).toBe(true);
+    expect(existsSync(projectStateBinding.mutationsPath)).toBe(true);
+    expect(existsSync(join(projectStateBinding.mutationsPath, mutationStore().projectIdentity, "settlements"))).toBe(true);
   });
 
   it("does not expose one project's proposal to another project", () => {
@@ -759,7 +776,7 @@ describe("config mutation authority", () => {
   });
 
   it("removes a created file when rolling back, restoring real non-existence", async () => {
-    const path = join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md");
+    const path = join(projectStateBinding.skillsPath, "repo-review", "SKILL.md");
     const created = propose("skill.upsert", {
       name: "repo-review",
       description: "Review the repository",
@@ -824,7 +841,7 @@ describe("config mutation authority", () => {
       readEffectiveState: async () => undefined,
     });
     expect(unapproved.settlement.outcome).toBe("rejected");
-    expect(readFileSync(join(tempDir, ".kiln", "agents", "reviewer.md"), "utf-8")).not.toContain("bash");
+    expect(readFileSync(join(projectStateBinding.agentsPath, "reviewer.md"), "utf-8")).not.toContain("bash");
   });
 
   it("preserves the complete admitted skill shape and supports user-global ownership", async () => {
@@ -1093,15 +1110,15 @@ describe("config mutation authority", () => {
       description: "Review the repository",
       instructions: "Read the diff.",
     });
-    const path = join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md");
+    const path = join(projectStateBinding.skillsPath, "repo-review", "SKILL.md");
     const write = record.writes[0]!;
     const intended = write.nextContent;
 
     // Simulate a crash after the canonical rename but before settlement: the
     // marker this proposal wrote on entering its commit window is still there.
-    mkdirSync(join(tempDir, ".kiln", "skills", "repo-review"), { recursive: true });
+    mkdirSync(join(projectStateBinding.skillsPath, "repo-review"), { recursive: true });
     writeFileSync(path, intended, "utf-8");
-    new ConfigMutationStore(tempDir).writeProgressMarker({
+    mutationStore().writeProgressMarker({
       proposalId: record.proposal.proposalId,
       path: write.path,
       intendedRevision: `sha256:${createHash("sha256").update(intended).digest("hex")}`,
@@ -1127,12 +1144,12 @@ describe("config mutation authority", () => {
       description: "Review the repository",
       instructions: "Read the diff.",
     });
-    const path = join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md");
+    const path = join(projectStateBinding.skillsPath, "repo-review", "SKILL.md");
 
     // Another writer produced byte-identical content. Without this proposal's
     // own marker there is no evidence it ever entered its commit window, so
     // recovery must not adopt someone else's write as its own.
-    mkdirSync(join(tempDir, ".kiln", "skills", "repo-review"), { recursive: true });
+    mkdirSync(join(projectStateBinding.skillsPath, "repo-review"), { recursive: true });
     writeFileSync(path, record.writes[0]!.nextContent, "utf-8");
 
     const result = await applyConfigMutation({
@@ -1148,8 +1165,8 @@ describe("config mutation authority", () => {
   });
 
   it("preserves every admitted agent field when attaching a skill", async () => {
-    const agentPath = join(tempDir, ".kiln", "agents", "reviewer.md");
-    mkdirSync(join(tempDir, ".kiln", "agents"), { recursive: true });
+    const agentPath = join(projectStateBinding.agentsPath, "reviewer.md");
+    mkdirSync(projectStateBinding.agentsPath, { recursive: true });
     writeFileSync(agentPath, [
       "---",
       "name: reviewer",
@@ -1233,8 +1250,13 @@ describe("config mutation authority", () => {
     });
     expect(record.proposal.status).toBe("valid");
 
+    const nestedProject = join(tempDir, "nested");
+    mkdirSync(join(nestedProject, ".git"), { recursive: true });
+    const nestedBinding = resolveProjectStateBinding(nestedProject);
     const escaped = proposeConfigMutation({
-      projectPath: join(tempDir, "nested"),
+      projectPath: nestedProject,
+      projectStateBinding: nestedBinding,
+      globalConfigPath: globalConfigPath(),
       operation: "skill.upsert",
       payload: {
         name: "repo-review",
@@ -1242,7 +1264,13 @@ describe("config mutation authority", () => {
         instructions: "Read.",
       },
     });
-    // A proposal built against a different root must not write into this project.
-    expect(escaped.proposal.affectedCanonicalPaths[0]).toContain(join("nested", ".kiln"));
+    // A proposal built against a different synthetic root must not write into
+    // this project's private state namespace.
+    expect(escaped.proposal.affectedCanonicalPaths[0]).toBe(
+      join(nestedBinding.skillsPath, "repo-review", "SKILL.md"),
+    );
+    expect(escaped.proposal.affectedCanonicalPaths[0]).not.toBe(
+      join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"),
+    );
   });
 });

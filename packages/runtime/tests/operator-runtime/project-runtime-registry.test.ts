@@ -14,9 +14,9 @@ import {
 
 const PROJECT_A_ID = `krp_${"a".repeat(64)}`;
 const PROJECT_B_ID = `krp_${"b".repeat(64)}`;
-const MARKER_1 = `sha256:${"1".repeat(64)}`;
-const MARKER_2 = `sha256:${"2".repeat(64)}`;
-const MARKER_3 = `sha256:${"3".repeat(64)}`;
+const REVISION_1 = `sha256:${"1".repeat(64)}`;
+const REVISION_2 = `sha256:${"2".repeat(64)}`;
+const REVISION_3 = `sha256:${"3".repeat(64)}`;
 
 interface TestRuntime {
   readonly name: string;
@@ -25,12 +25,12 @@ interface TestRuntime {
 
 function descriptor(
   projectRuntimeId = PROJECT_A_ID,
-  markerDigest = MARKER_1,
+  compositionRevision = REVISION_1,
   canonicalRoot = "canonical-project-a",
 ): ProjectRuntimeRegistryDescriptor {
   return {
     canonicalRoot,
-    binding: { projectRuntimeId, markerDigest },
+    binding: { projectRuntimeId, compositionRevision },
   };
 }
 
@@ -87,7 +87,7 @@ describe("ProjectRuntimeRegistry", () => {
     );
     const registry = new ProjectRuntimeRegistry(factory);
     const projectA = descriptor();
-    const projectB = descriptor(PROJECT_B_ID, MARKER_1, "canonical-project-b");
+    const projectB = descriptor(PROJECT_B_ID, REVISION_1, "canonical-project-b");
 
     const [runtimeA, runtimeB] = await Promise.all([
       registry.ensure(projectA),
@@ -108,7 +108,7 @@ describe("ProjectRuntimeRegistry", () => {
     await registry.ensure(descriptor());
 
     const attempt = registry.ensure(
-      descriptor(PROJECT_A_ID, MARKER_1, "sensitive-other-root"),
+      descriptor(PROJECT_A_ID, REVISION_1, "sensitive-other-root"),
     );
 
     await expect(attempt).rejects.toMatchObject({
@@ -129,7 +129,7 @@ describe("ProjectRuntimeRegistry", () => {
       .mockResolvedValueOnce(secondRuntime);
     const registry = new ProjectRuntimeRegistry(factory);
     const initial = descriptor();
-    const advanced = descriptor(PROJECT_A_ID, MARKER_2);
+    const advanced = descriptor(PROJECT_A_ID, REVISION_2);
     await registry.ensure(initial);
 
     const replacement = registry.ensure(advanced);
@@ -171,8 +171,8 @@ describe("ProjectRuntimeRegistry", () => {
     const registry = new ProjectRuntimeRegistry(factory);
     await registry.ensure(descriptor());
 
-    const first = registry.ensure(descriptor(PROJECT_A_ID, MARKER_2));
-    const second = registry.ensure(descriptor(PROJECT_A_ID, MARKER_2));
+    const first = registry.ensure(descriptor(PROJECT_A_ID, REVISION_2));
+    const second = registry.ensure(descriptor(PROJECT_A_ID, REVISION_2));
     closing.resolve();
     replacementCreation.resolve(secondRuntime);
     await expect(Promise.all([first, second])).resolves.toEqual([
@@ -195,7 +195,7 @@ describe("ProjectRuntimeRegistry", () => {
     const registry = new ProjectRuntimeRegistry(factory);
 
     const initial = registry.ensure(descriptor());
-    const replacement = registry.ensure(descriptor(PROJECT_A_ID, MARKER_2));
+    const replacement = registry.ensure(descriptor(PROJECT_A_ID, REVISION_2));
     expect(factory).toHaveBeenCalledTimes(1);
     firstCreation.resolve(firstRuntime);
     await expect(initial).resolves.toBe(firstRuntime);
@@ -222,8 +222,8 @@ describe("ProjectRuntimeRegistry", () => {
     const registry = new ProjectRuntimeRegistry(factory);
     await registry.ensure(descriptor());
 
-    const second = registry.ensure(descriptor(PROJECT_A_ID, MARKER_2));
-    const third = registry.ensure(descriptor(PROJECT_A_ID, MARKER_3));
+    const second = registry.ensure(descriptor(PROJECT_A_ID, REVISION_2));
+    const third = registry.ensure(descriptor(PROJECT_A_ID, REVISION_3));
     expect(factory).toHaveBeenCalledTimes(1);
     firstClosing.resolve();
 
@@ -237,7 +237,7 @@ describe("ProjectRuntimeRegistry", () => {
     expect(secondRuntime.close.mock.invocationCallOrder[0]).toBeLessThan(
       factory.mock.invocationCallOrder[2]!,
     );
-    expect(registry.lookup(descriptor(PROJECT_A_ID, MARKER_3).binding)).toBe(thirdRuntime);
+    expect(registry.lookup(descriptor(PROJECT_A_ID, REVISION_3).binding)).toBe(thirdRuntime);
   });
 
   it("removes a failed creation so a later ensure can retry", async () => {
@@ -290,11 +290,11 @@ describe("ProjectRuntimeRegistry", () => {
       vi.fn().mockResolvedValueOnce(firstRuntime).mockResolvedValueOnce(secondRuntime),
     );
     const initial = descriptor();
-    const advanced = descriptor(PROJECT_A_ID, MARKER_2);
+    const advanced = descriptor(PROJECT_A_ID, REVISION_2);
     await registry.ensure(initial);
     await registry.ensure(advanced);
 
-    await expect(registry.close(PROJECT_A_ID, MARKER_1)).resolves.toBeUndefined();
+    await expect(registry.close(PROJECT_A_ID, REVISION_1)).resolves.toBeUndefined();
 
     expect(secondRuntime.close).not.toHaveBeenCalled();
     expect(registry.lookup(advanced.binding)).toBe(secondRuntime);
@@ -339,7 +339,7 @@ describe("ProjectRuntimeRegistry", () => {
     }));
     await registry.ensure(descriptor());
     await registry.ensure(
-      descriptor(PROJECT_B_ID, MARKER_1, "canonical-project-b"),
+      descriptor(PROJECT_B_ID, REVISION_1, "canonical-project-b"),
     );
 
     const close = registry.closeAll();
@@ -374,7 +374,7 @@ describe("ProjectRuntimeRegistry", () => {
     );
     const input = descriptor(
       PROJECT_A_ID,
-      MARKER_1,
+      REVISION_1,
       "sensitive-canonical-root",
     );
     const creation = registry.ensure(input);

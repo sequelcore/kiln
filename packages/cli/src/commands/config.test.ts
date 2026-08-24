@@ -3,8 +3,9 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { configCommand } from "./config.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { defaultGlobalConfig, readGlobalConfig, resolveGlobalConfigPath } from "../config/global-config.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { stringify } from "yaml";
 
 const tempRoots: string[] = [];
@@ -21,9 +22,10 @@ function seedGlobalConfig(root: string): void {
 }
 
 function writeProjectConfig(root: string): void {
-  const kilnDir = join(root, ".kiln");
-  mkdirSync(kilnDir, { recursive: true });
-  writeFileSync(join(kilnDir, "kiln.yaml"), "version: \"1\"\n", "utf-8");
+  mkdirSync(join(root, ".git"), { recursive: true });
+  const binding = resolveProjectStateBinding(root);
+  mkdirSync(binding.projectStateRoot, { recursive: true });
+  writeFileSync(binding.configPath, "version: \"1\"\n", "utf-8");
 }
 
 describe("config command", () => {
@@ -49,6 +51,8 @@ describe("config command", () => {
 
   it("sets project instruction profiles and work governance keys", async () => {
     const root = createTempRoot();
+    process.env.XDG_CONFIG_HOME = join(root, "xdg");
+    seedGlobalConfig(root);
     writeProjectConfig(root);
 
     await configCommand({} as never, "set", ["activeInstructionProfiles", "sequel-engineering,project-standards"], root);
@@ -57,7 +61,7 @@ describe("config command", () => {
     await configCommand({} as never, "set", ["workGovernance.requiredEvidence", "surface-map,plan,tests", "--approve"], root);
     await configCommand({} as never, "set", ["skills.selection.mode", "auto", "--approve"], root);
 
-    expect(readKilnYaml(join(root, ".kiln"))).toMatchObject({
+    expect(readKilnYamlFile(resolveProjectStateBinding(root).configPath)).toMatchObject({
       activeInstructionProfiles: ["sequel-engineering", "project-standards"],
       workGovernance: {
         defaultPosture: "orchestrate",

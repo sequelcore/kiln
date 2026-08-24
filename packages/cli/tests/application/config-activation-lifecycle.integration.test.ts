@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
@@ -24,6 +24,8 @@ import {
   readConfigStatusView,
 } from "../../src/application/config-status.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application/authority-admission-evidence-store.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 import { readRuntimeConfigurationRevision } from "../../src/application/runtime-configuration-revision.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
@@ -47,13 +49,15 @@ const READ_EFFECT: ActionEffectEnvelope = {
 const emptyPluginProvider = () => ({ roots: [], diagnostics: [] });
 
 let projectPath: string;
+let projectStateBinding: ProjectStateBinding;
 
 beforeEach(() => {
   projectPath = mkdtempSync(join(tmpdir(), "kiln-activation-lifecycle-"));
   vi.stubEnv("XDG_CONFIG_HOME", join(projectPath, "xdg"));
-  mkdirSync(join(projectPath, ".kiln"), { recursive: true });
   writeFileSync(join(projectPath, "package.json"), JSON.stringify({ name: "activation-fixture" }), "utf8");
-  writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), [
+  projectStateBinding = resolveProjectStateBinding(projectPath);
+  bootstrapProjectAdoption(projectStateBinding);
+  writeFileSync(projectStateBinding.configPath, [
     'version: "1"',
     "permissions:",
     "  approval: on-request",
@@ -179,8 +183,8 @@ describe("configuration activation lifecycle", () => {
 });
 
 async function readSettings(): Promise<KilnSettingsSnapshot> {
-  const snapshot = await readConfigStatusSnapshot({ projectPath, view: "settings", pluginProvider: emptyPluginProvider });
-  const view = await readConfigStatusView(snapshot, "settings", { pluginProvider: emptyPluginProvider });
+  const snapshot = await readConfigStatusSnapshot({ projectPath, view: "settings", pluginProvider: emptyPluginProvider, projectStateBinding });
+  const view = await readConfigStatusView(snapshot, "settings", { pluginProvider: emptyPluginProvider, projectStateBinding });
   return view.value as KilnSettingsSnapshot;
 }
 
@@ -204,15 +208,16 @@ async function applyStoredMutation(
   payload: Record<string, unknown>,
   reconciliation: ReconciliationOutcome,
 ) {
-  const record = proposeConfigMutation({ projectPath, operation, payload });
+  const record = proposeConfigMutation({ projectPath, projectStateBinding, operation, payload });
   expect(record.proposal.status).toBe("valid");
-  const store = new ConfigMutationStore(projectPath);
+  const store = new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath });
   store.saveProposal(record);
   const approval = record.proposal.approvalRequired
     ? approveConfigMutation({ projectPath, proposalId: record.proposal.proposalId })
     : undefined;
   const result = await applyConfigMutation({
     projectPath,
+    projectStateBinding,
     proposalId: record.proposal.proposalId,
     requester: "operator",
     ...(approval === undefined ? {} : { approvalId: approval.approvalId }),

@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type {
   KilnConfigSetupAction,
   KilnConfigSetupActionResult,
@@ -16,16 +15,22 @@ import { writeRepoShimProjections } from "./repo-shim-projection.js";
 import { syncGlobalInstructionShimProjections } from "./global-instruction-shim-projection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import { syncGlobalControlPlaneMcpProjections } from "../config/global-control-plane-mcp-projection.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { configuredCommunicationCandidates } from "../config/communication-policy.js";
 import { resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
 import { runConfigReconciliationTarget } from "./config-reconciliation-target.js";
+import {
+  type ProjectStateBinding,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
 
 export interface ExecuteConfigSetupActionInput {
   readonly projectPath: string;
   readonly action: KilnConfigSetupAction;
   readonly userHome?: string;
+  readonly kilnHome?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export async function executeConfigSetupAction(
@@ -33,27 +38,28 @@ export async function executeConfigSetupAction(
 ): Promise<KilnConfigSetupActionResult> {
   const root = resolveProjectRoot({ explicitPath: input.projectPath });
   const projectPath = root.rootPath;
+  const binding = input.projectStateBinding ?? resolveProjectStateBinding(projectPath, input);
 
   try {
     switch (input.action) {
       case "none":
         return await result(input.action, "noop", "No setup action is required.", [], projectPath);
       case "adopt-project-context":
-        return await adoptProjectContext(projectPath, input.action);
+        return await adoptProjectContext(projectPath, input.action, binding);
       case "sync-repo-shims":
-        return await syncRepoShims(projectPath, input.action);
+        return await syncRepoShims(projectPath, input.action, binding);
       case "sync-native-projections":
-        return await syncNativeProjections(projectPath, input.action, input.userHome);
+        return await syncNativeProjections(projectPath, input.action, input.userHome, binding);
       case "sync-global-instruction-shims":
-        return await syncGlobalInstructionShims(projectPath, input.action, input.userHome);
+        return await syncGlobalInstructionShims(projectPath, input.action, input.userHome, binding);
       case "review-project-context":
         return await result(input.action, "blocked", "Review the project context before replacing it.", [], projectPath);
       case "review-and-force-sync-repo-shims":
         return await result(input.action, "blocked", "Review repo-shim drift before running a force sync.", [], projectPath);
       case "adopt-or-back-up-native-guidance":
-        return await adoptNativeGuidance(projectPath, input.action, input.userHome);
+        return await adoptNativeGuidance(projectPath, input.action, input.userHome, binding);
       case "adopt-or-back-up-global-instructions":
-        return await adoptGlobalInstructions(projectPath, input.action, input.userHome);
+        return await adoptGlobalInstructions(projectPath, input.action, input.userHome, binding);
       case "review-native-projection-drift":
         return await result(input.action, "blocked", "Review native projection drift before overwriting managed fields.", [], projectPath);
       case "review-global-instruction-drift":
@@ -67,8 +73,9 @@ export async function executeConfigSetupAction(
 async function adoptProjectContext(
   projectPath: string,
   action: KilnConfigSetupAction,
+  binding: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
-  const adoption = writeProjectContextAdoption(projectPath);
+  const adoption = writeProjectContextAdoption(projectPath, { projectStateBinding: binding });
   if (adoption.errors.length > 0) {
     return result(action, "blocked", adoption.errors[0] ?? "Project context adoption was blocked.", adoption.errors, projectPath);
   }
@@ -84,6 +91,7 @@ async function adoptProjectContext(
 async function syncRepoShims(
   projectPath: string,
   action: KilnConfigSetupAction,
+  _binding: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
   const sync = await requireCurrentProjection(projectPath, "repo-shims", () => writeRepoShimProjections(projectPath));
   if (sync.errors.length > 0) {
@@ -102,9 +110,11 @@ async function syncGlobalInstructionShims(
   projectPath: string,
   action: KilnConfigSetupAction,
   userHome?: string,
+  binding?: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
   const sync = await syncGlobalInstructionShimProjections(projectPath, {
     userHome,
+    projectStateBinding: binding,
     disabledHarnesses: [],
   });
   if (sync.errors.length > 0) {
@@ -124,10 +134,12 @@ async function syncNativeProjections(
   projectPath: string,
   action: KilnConfigSetupAction,
   userHome?: string,
+  binding?: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
-  const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(projectPath);
+  const state = binding ?? resolveProjectStateBinding(projectPath);
+  const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(projectPath, { projectStateBinding: state });
   if (!kilnYaml) {
-    return result(action, "failed", "No kiln.yaml found in the project .kiln directory.", ["No kiln.yaml found."], projectPath, userHome);
+    return result(action, "failed", "No private project configuration found.", ["No project configuration found."], projectPath, userHome);
   }
 
   const disabledHarnesses = [] as const;
@@ -135,14 +147,19 @@ async function syncNativeProjections(
     disabledHarnesses,
     userHome,
     modelGateway: globalConfig?.modelGateway,
+    projectStateBinding: state,
   }));
-  const hookResult = await syncNativeHookProjections(projectPath, join(projectPath, ".kiln"), { disabledHarnesses });
+  const hookResult = await syncNativeHookProjections(projectPath, state.projectStateRoot, {
+    disabledHarnesses,
+    privateStateRoot: state.projectStateRoot,
+  });
   const agentResult = await requireCurrentProjection(projectPath, "native-agents", () => syncNativeAgentProjections(projectPath, {
     disabledHarnesses,
+    projectStateBinding: state,
     userHome,
     communicationCandidates: configuredCommunicationCandidates({
       global: globalConfig?.communication,
-      project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
+      project: readKilnYamlFile(state.configPath)?.communication,
     }),
   }));
   const communicationResult = syncGlobalCommunicationProjection({
@@ -151,6 +168,7 @@ async function syncNativeProjections(
   });
   const skillResult = await requireCurrentProjection(projectPath, "native-skills", () => syncNativeSkillProjections(projectPath, {
     disabledHarnesses,
+    projectStateBinding: state,
     skillConfig: kilnYaml.skills,
     userHome,
   }));
@@ -160,8 +178,9 @@ async function syncNativeProjections(
     userHome,
   });
   const mcpResult = await syncNativeMcpProjections(
-    loadResolvedKilnMcpConfiguration(projectPath),
+    loadResolvedKilnMcpConfiguration(projectPath, { projectStateBinding: state }),
     projectPath,
+    { projectStateBinding: state },
   );
   const mcpErrors = mcpResult.targets.flatMap((target) =>
     target.status === "current"
@@ -201,9 +220,11 @@ async function adoptGlobalInstructions(
   projectPath: string,
   action: KilnConfigSetupAction,
   userHome?: string,
+  binding?: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
   const sync = await syncGlobalInstructionShimProjections(projectPath, {
     userHome,
+    projectStateBinding: binding,
     disabledHarnesses: [],
     adoptUnmanaged: true,
   });
@@ -224,10 +245,12 @@ async function adoptNativeGuidance(
   projectPath: string,
   action: KilnConfigSetupAction,
   userHome?: string,
+  binding?: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
-  const kilnYaml = await loadKilnConfig(projectPath);
+  const state = binding ?? resolveProjectStateBinding(projectPath);
+  const kilnYaml = await loadKilnConfig(projectPath, { projectStateBinding: state });
   if (!kilnYaml) {
-    return result(action, "failed", "No kiln.yaml found in the project .kiln directory.", ["No kiln.yaml found."], projectPath, userHome);
+    return result(action, "failed", "No private project configuration found.", ["No project configuration found."], projectPath, userHome);
   }
 
   const adoption = adoptNativeHarnessSkills({
@@ -251,7 +274,7 @@ async function adoptNativeGuidance(
     return result(action, "noop", "No unmanaged native skills need adoption.", [], projectPath, userHome);
   }
 
-  const sync = await syncNativeProjections(projectPath, action, userHome);
+  const sync = await syncNativeProjections(projectPath, action, userHome, state);
   if (sync.status === "failed") {
     return sync;
   }

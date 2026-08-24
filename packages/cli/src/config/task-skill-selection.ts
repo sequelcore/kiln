@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import { dirname } from "node:path";
@@ -26,6 +25,8 @@ const SKILL_CONTEXT_SCORE = 0.95;
 export interface TaskSkillSelectionInput {
   readonly explicitSkills?: readonly string[];
   readonly projectPath: string;
+  /** Explicit private project catalog directory supplied by CLI composition. */
+  readonly projectSkillsDirectory?: string;
   readonly userHome?: string;
   readonly skillConfig?: KilnYamlSkillsConfig | null;
   readonly selection?: KilnYamlSkillSelectionConfig | null;
@@ -76,7 +77,8 @@ export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskS
   const autoRecommendedSkillNames = resolveAutoRecommendedSkills(input);
   const registry = createConfiguredSkillRegistry({
     projectPath: input.projectPath,
-    userHome: input.userHome ?? homedir(),
+    ...(input.projectSkillsDirectory ? { projectSkillsDirectory: input.projectSkillsDirectory } : {}),
+    ...(input.userHome ? { userHome: input.userHome } : {}),
     skillConfig: input.skillConfig,
   });
 

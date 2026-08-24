@@ -158,7 +158,7 @@ export type {
 } from "./session-registry.js";
 
 export { SessionStore } from "./session-store.js";
-export type { SessionRecord } from "./session-store.js";
+export type { SessionRecord, SessionStoreLocation, SessionStoreSource } from "./session-store.js";
 export { createPermissionEvaluator, resolveEffectivePermissionPolicy } from "./permission-evaluator.js";
 export type {
   PermissionEvaluator,

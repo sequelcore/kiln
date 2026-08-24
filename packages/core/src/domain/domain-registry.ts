@@ -21,16 +21,16 @@ const GENERIC_FALLBACK: DomainConfig = {
 export interface DomainRegistryOptions {
   /** Pre-registered domain configs (replaces hardcoded builtins) */
   readonly builtinConfigs?: readonly DomainConfig[];
-  /** Relative path from project root for installed domains (default: ".kiln/domains") */
+  /** Explicit installed-domain catalog directory supplied by composition. */
   readonly domainsDir?: string;
 }
 
 export class DomainRegistry {
   private readonly configs = new Map<string, DomainConfig>();
-  private readonly domainsDir: string;
+  private readonly domainsDir?: string;
 
   constructor(options?: DomainRegistryOptions) {
-    this.domainsDir = options?.domainsDir ?? join(".kiln", "domains");
+    this.domainsDir = options?.domainsDir;
     if (options?.builtinConfigs) {
       for (const config of options.builtinConfigs) {
         this.register(config);
@@ -66,9 +66,9 @@ export class DomainRegistry {
     return mergeDomainConfigs(detected);
   }
 
-  /** Load installed domain packages from the configured domains directory and register them */
-  loadInstalledDomains(projectPath: string): number {
-    const domainsDir = join(projectPath, this.domainsDir);
+  /** Load installed domain YAML files from an explicit catalog directory. */
+  loadInstalledDomains(domainsDir = this.domainsDir): number {
+    if (!domainsDir) return 0;
     if (!existsSync(domainsDir)) return 0;
 
     const files = readdirSync(domainsDir).filter(
@@ -90,9 +90,9 @@ export class DomainRegistry {
     return loaded;
   }
 
-  /** Load installed domain packages and return full manifests */
-  loadInstalledPackages(projectPath: string): DomainPackageManifest[] {
-    const domainsDir = join(projectPath, this.domainsDir);
+  /** Load installed domain packages from an explicit catalog directory. */
+  loadInstalledPackages(domainsDir = this.domainsDir): DomainPackageManifest[] {
+    if (!domainsDir) return [];
     if (!existsSync(domainsDir)) return [];
 
     const files = readdirSync(domainsDir).filter(

@@ -11,7 +11,13 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
-import { type ModelGatewayConfig, parseGatewayYaml } from "@kilnai/core/engine";
+import {
+  type ModelGatewayConfig,
+  parseGatewayYaml,
+} from "@kilnai/core/engine";
+import {
+  writeTrustedExecutionAuthorization,
+} from "@kilnai/core/security";
 
 const syncMocks = vi.hoisted(() => ({
   mockedHomedir: "",
@@ -34,12 +40,17 @@ import { syncNativePermissionProjections as syncNativePermissionProjectionsRaw, 
 import { uninstallNativeTargets } from "../../src/commands/uninstall.js";
 import * as nativeProjectionState from "../../src/config/native-projection-state.js";
 import { readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 interface TestPaths {
   rootPath: string;
   projectPath: string;
   homePath: string;
+  projectStateBinding: ProjectStateBinding;
 }
+
+let activePaths: TestPaths;
+let paths: TestPaths;
 
 const granularPermissions: NonNullable<ResolvedKilnConfig["permissions"]> = {
   approval: "on-request",
@@ -116,11 +127,12 @@ function syncNativePermissionProjections(
   return syncNativePermissionProjectionsRaw(kilnYaml, projectPath, {
     ...options,
     modelGateway: options.modelGateway ?? selectedModelGateway,
+    projectStateBinding: options.projectStateBinding ?? activePaths.projectStateBinding,
   });
 }
 
 describe("syncNativePermissionProjections", () => {
-  let paths: TestPaths;
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
   beforeEach(() => {
     const rootPath = mkdtempSync(join(tmpdir(), "kiln-native-permission-projection-"));
@@ -128,13 +140,21 @@ describe("syncNativePermissionProjections", () => {
     const homePath = join(rootPath, "home");
     mkdirSync(projectPath, { recursive: true });
     mkdirSync(homePath, { recursive: true });
-    paths = { rootPath, projectPath, homePath };
+    paths = {
+      rootPath,
+      projectPath,
+      homePath,
+      projectStateBinding: resolveProjectStateBinding(projectPath, { kilnHome: join(rootPath, "kiln-home") }),
+    };
+    activePaths = paths;
     syncMocks.mockedHomedir = homePath;
     selectedModelGateway = undefined;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     syncMocks.mockedHomedir = "";
     try {
       rmSync(paths.rootPath, { recursive: true, force: true });
@@ -159,6 +179,58 @@ describe("syncNativePermissionProjections", () => {
     expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
   });
 
+  it("reads trusted authorization from the established binding home instead of ambient XDG state", async () => {
+    const ambientXdgConfigHome = join(paths.rootPath, "ambient-xdg-config");
+    const ambientTrustDir = join(ambientXdgConfigHome, "kiln", "trust");
+    const bindingTrustDir = join(paths.projectStateBinding.kilnHome, "trust");
+    const trustedYaml: ResolvedKilnConfig = {
+      ...buildKilnYaml(),
+      permissions: { approval: "never", sandbox: "danger-full-access" },
+    };
+    const ambientRecord = {
+      profile: "trusted-full-access" as const,
+      authorization: {
+        status: "authorized" as const,
+        scope: "operator-local" as const,
+        revocable: true,
+        authorizedBy: "ambient-home",
+        authorizedAt: "2026-08-23T00:00:00.000Z",
+      },
+    };
+    const bindingRecord = {
+      ...ambientRecord,
+      authorization: { ...ambientRecord.authorization, authorizedBy: "binding-home" },
+    };
+
+    process.env.XDG_CONFIG_HOME = ambientXdgConfigHome;
+    writeTrustedExecutionAuthorization("codex", paths.projectPath, ambientRecord, ambientTrustDir);
+
+    const ambientOnly = await syncNativePermissionProjections(trustedYaml, paths.projectPath, {
+      userHome: paths.homePath,
+      disabledHarnesses: ["claude", "opencode"],
+    });
+    expect(ambientOnly.errors).toEqual([]);
+    const ambientOnlyState = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
+    const ambientOnlyIntegrity = asRecord(asRecord(asRecord(ambientOnlyState.targets)["codex-config"]).permissionIntegrity);
+    expect(ambientOnlyIntegrity.authorization).toMatchObject({
+      status: "unavailable",
+      reason: "operator-local-trusted-authorization-not-attached-to-native-projection",
+    });
+
+    writeTrustedExecutionAuthorization("codex", paths.projectPath, bindingRecord, bindingTrustDir);
+    const bound = await syncNativePermissionProjections(trustedYaml, paths.projectPath, {
+      userHome: paths.homePath,
+      disabledHarnesses: ["claude", "opencode"],
+    });
+    expect(bound.errors).toEqual([]);
+    const boundState = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
+    const boundIntegrity = asRecord(asRecord(asRecord(boundState.targets)["codex-config"]).permissionIntegrity);
+    expect(boundIntegrity.authorization).toMatchObject({
+      status: "authorized",
+      authorizedBy: "binding-home",
+    });
+  });
+
   it("denies canonical explicit-only skills rediscovered from Claude without rewriting unrelated OpenCode permissions", async () => {
     const source = join(paths.homePath, ".kiln", "skills", "planner");
     mkdirSync(source, { recursive: true });
@@ -175,7 +247,7 @@ describe("syncNativePermissionProjections", () => {
     });
     expect(readJson(join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json")).targets)
       .toHaveProperty("opencode-skill-visibility");
-    expect(existsSync(join(paths.projectPath, ".kiln", "install-state.json"))).toBe(false);
+    expect(existsSync(join(paths.projectStateBinding.projectionsPath, "install-state.json"))).toBe(false);
     const converged = await syncOpenCodeSkillVisibilityProjection({
       ...buildKilnYaml(), skills: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" } } },
     }, paths.projectPath, { userHome: paths.homePath, dryRun: true });
@@ -217,6 +289,7 @@ describe("syncNativePermissionProjections", () => {
     const claudeSkill = join(paths.homePath, ".claude", "skills", "planner");
     mkdirSync(claudeSkill, { recursive: true });
     writeFileSync(join(claudeSkill, "SKILL.md"), "---\nname: planner\ndescription: plan\ndisable-model-invocation: true\n---\n", "utf8");
+    mkdirSync(join(paths.rootPath, "project-b"), { recursive: true });
     const yaml = { ...buildKilnYaml(), skills: { builtin: { enabled: false } } };
     expect((await syncOpenCodeSkillVisibilityProjection(yaml, join(paths.rootPath, "project-b"), { userHome: paths.homePath })).errors).toEqual([]);
     const target = join(paths.homePath, ".config", "opencode", "opencode.json");
@@ -360,7 +433,7 @@ describe("syncNativePermissionProjections", () => {
 
     expect(result.errors).toHaveLength(0);
     expect(result.codex).toBe(true);
-    const backupDir = join(paths.projectPath, ".kiln", "backups", "codex-config");
+    const backupDir = join(paths.projectStateBinding.backupsPath, "codex-config");
     const backupFiles = readdirSync(backupDir);
     expect(backupFiles).toHaveLength(1);
     expect(readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("service_tier = \"default\"");
@@ -375,12 +448,12 @@ describe("syncNativePermissionProjections", () => {
     const kiln = asRecord(config.kiln);
     expect(kiln.legacy).toBe("keep");
     expect(kiln.permission_sync).toBeUndefined();
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     const integrity = asRecord(asRecord(asRecord(state.targets)["codex-config"]).permissionIntegrity);
     expect((integrity.semanticLoss as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it("merges OpenCode JSON without writing schema-invalid Kiln metadata", async () => {
+  it("merges OpenCode JSON while preserving unmanaged top-level metadata", async () => {
     const opencodeConfigPath = join(paths.homePath, ".config", "opencode", "opencode.json");
     mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
     writeFileSync(
@@ -408,7 +481,7 @@ describe("syncNativePermissionProjections", () => {
       read: expect.objectContaining({ "*": "allow", "**/.env": "deny" }),
       edit: expect.objectContaining({ "*": "ask", "**/.env": "deny" }),
     });
-    expect(config.kiln).toBeUndefined();
+    expect(config.kiln).toEqual({ legacyFlag: true });
   });
 
   it("writes non-empty translation evidence without extending native Codex schema", async () => {
@@ -426,7 +499,7 @@ describe("syncNativePermissionProjections", () => {
 
     const codexConfig = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(asRecord(codexConfig.kiln).permission_sync).toBeUndefined();
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     const codexIntegrity = asRecord(asRecord(asRecord(state.targets)["codex-config"]).permissionIntegrity);
     expect((codexIntegrity.semanticLoss as unknown[]).length).toBeGreaterThan(0);
 
@@ -449,7 +522,7 @@ describe("syncNativePermissionProjections", () => {
     const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     expect(state.version).toBe(1);
     const targets = asRecord(state.targets);
     expect(Object.keys(targets).sort()).toEqual([
@@ -507,7 +580,7 @@ describe("syncNativePermissionProjections", () => {
     });
     expect(asRecord(codex.model_providers).operator).toEqual({ base_url: "https://operator.example/v1" });
     expect(asRecord(codex.model_providers).kiln).toBeUndefined();
-    expect(existsSync(join(paths.projectPath, ".kiln", "projections", "codex-model-catalog.json"))).toBe(false);
+    expect(existsSync(join(paths.projectStateBinding.projectionsPath, "codex-model-catalog.json"))).toBe(false);
     expect(readFileSync(codexPath, "utf8")).not.toContain("Bearer");
 
     const opencode = readJson(opencodePath);
@@ -525,7 +598,7 @@ describe("syncNativePermissionProjections", () => {
     expect(claude).not.toHaveProperty("env");
     expect(JSON.stringify(claude)).not.toContain("ANTHROPIC_AUTH_TOKEN");
     expect(asRecord(claude.env).OPERATOR_VALUE).toBeUndefined();
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     expect(Object.keys(asRecord(state.targets))).not.toContain("codex-model-catalog");
     expect(asRecord(asRecord(state.targets)["claude-settings"]).managedFields).toEqual(expect.arrayContaining([
       "permissions",
@@ -553,8 +626,8 @@ describe("syncNativePermissionProjections", () => {
     }), "utf8");
 
     expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
-    expect(uninstallNativeTargets(paths.projectPath, { target: "codex" }).errors).toEqual([]);
-    expect(uninstallNativeTargets(paths.projectPath, { target: "opencode" }).errors).toEqual([]);
+    expect(uninstallNativeTargets(paths.projectPath, { target: "codex", projectStateBinding: paths.projectStateBinding }).errors).toEqual([]);
+    expect(uninstallNativeTargets(paths.projectPath, { target: "opencode", projectStateBinding: paths.projectStateBinding }).errors).toEqual([]);
 
     const codex = parseToml(readFileSync(codexPath, "utf8")) as Record<string, unknown>;
     expect(codex).toMatchObject({
@@ -597,7 +670,7 @@ describe("syncNativePermissionProjections", () => {
     expect(resynced.errors).toEqual([]);
     expect(asRecord(readJson(claudePath).env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9999");
 
-    const uninstall = uninstallNativeTargets(paths.projectPath, { target: "claude" });
+    const uninstall = uninstallNativeTargets(paths.projectPath, { target: "claude", projectStateBinding: paths.projectStateBinding });
     expect(uninstall.errors).toEqual([]);
     const after = readJson(claudePath);
     expect(asRecord(after.env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9999");
@@ -649,7 +722,7 @@ describe("syncNativePermissionProjections", () => {
     const claudePath = join(paths.projectPath, ".claude", "settings.json");
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
-    const installStatePath = join(paths.projectPath, ".kiln", "install-state.json");
+    const installStatePath = join(paths.projectStateBinding.projectionsPath, "install-state.json");
     const before = new Map([claudePath, codexPath, opencodePath, installStatePath].map((path) => [path, readFileSync(path, "utf8")]));
     selectedModelGateway = modelGatewayConfig((yaml) => yaml
       .replace("port: 4910", "port: 4911")
@@ -674,7 +747,7 @@ describe("syncNativePermissionProjections", () => {
     const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBe("gpt-5.4-mini");
 
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     const target = asRecord(asRecord(state.targets)["codex-config"]);
     expect(target.managedFields).toEqual([
       "approval_policy",
@@ -714,7 +787,7 @@ describe("syncNativePermissionProjections", () => {
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
     const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBeUndefined();
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     const target = asRecord(asRecord(state.targets)["codex-config"]);
     expect(target.managedFields).toEqual([
       "approval_policy",
@@ -736,7 +809,7 @@ describe("syncNativePermissionProjections", () => {
     expect(result.errors).toHaveLength(0);
     const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBe("gpt-5.4");
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     const target = asRecord(asRecord(state.targets)["codex-config"]);
     expect(target.managedFields).toEqual([
       "approval_policy",
@@ -783,7 +856,7 @@ describe("syncNativePermissionProjections", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.codex).toBe(true);
     expect(readFileSync(codexConfigPath, "utf-8")).toBe("model = \"gpt-5.4\"\n");
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     expect(Object.keys(asRecord(state.targets))).not.toContain("codex-config");
   });
 
@@ -846,7 +919,7 @@ describe("syncNativePermissionProjections", () => {
     expect(after.sandbox_mode).toBe("workspace-write");
     expect(asRecord(after.kiln).legacy).toBe("keep");
 
-    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const state = readJson(join(paths.projectStateBinding.projectionsPath, "install-state.json"));
     const codexTarget = asRecord(asRecord(state.targets)["codex-config"]);
     expect(codexTarget.managedFields).toEqual([
       "approval_policy",

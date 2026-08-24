@@ -15,6 +15,8 @@ export interface SqliteActionClaimStoreOwnerOptions {
   readonly database: Database;
   readonly storeName: string;
   readonly now: () => string;
+  /** Re-check the private file boundary immediately before each store write. */
+  readonly assertWritablePath?: () => void;
   readonly ownerId?: string;
   readonly ownerStaleMs?: number;
 }
@@ -31,6 +33,7 @@ export class SqliteActionClaimStoreOwner {
   readonly #db: Database;
   readonly #storeName: string;
   readonly #now: () => string;
+  readonly #assertWritablePath: (() => void) | undefined;
   readonly #ownerId: string;
   readonly #ownerGeneration = randomUUID();
   readonly #ownerStaleMs: number;
@@ -42,6 +45,7 @@ export class SqliteActionClaimStoreOwner {
     this.#db = options.database;
     this.#storeName = options.storeName;
     this.#now = options.now;
+    this.#assertWritablePath = options.assertWritablePath;
     this.#ownerId = options.ownerId ?? randomUUID();
     this.#ownerStaleMs = options.ownerStaleMs ?? DEFAULT_OWNER_STALE_MS;
   }
@@ -49,6 +53,7 @@ export class SqliteActionClaimStoreOwner {
   /** Claims the fixed-path owner and runs startup recovery under that claim. */
   claimAndRunStartupRecovery(recover: () => void): void {
     this.#validateOptions();
+    this.#assertWritablePath?.();
     this.#db.exec(`
       CREATE TABLE IF NOT EXISTS ${OWNER_TABLE} (
         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
@@ -59,6 +64,7 @@ export class SqliteActionClaimStoreOwner {
     `);
     this.#transaction(() => {
       this.#claimOwner();
+      this.#assertWritablePath?.();
       recover();
     });
     this.#heartbeatTimer = setInterval(
@@ -80,7 +86,9 @@ export class SqliteActionClaimStoreOwner {
   runOwned<T>(operation: () => T): T {
     if (this.#closed) throw new Error(`${this.#storeName} store owner is closed.`);
     return this.#transaction(() => {
+      this.#assertWritablePath?.();
       this.#assertOwned();
+      this.#assertWritablePath?.();
       return operation();
     });
   }

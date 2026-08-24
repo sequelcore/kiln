@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1101,6 +1101,28 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       });
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed before private task writes when a junction redirects the task root", async () => {
+    const container = await mkdtemp(join(tmpdir(), "kiln-agent-task-private-root-"));
+    try {
+      const privateRoot = join(container, "private");
+      const redirected = join(container, "redirected");
+      const taskRoot = join(privateRoot, "runtime", "agent-tasks");
+      await mkdir(join(privateRoot, "runtime"), { recursive: true });
+      await mkdir(redirected, { recursive: true });
+      try {
+        await symlink(redirected, taskRoot, "junction");
+      } catch {
+        return;
+      }
+
+      const store = new FilesystemAgentTaskStore(taskRoot, 60_000, privateRoot);
+      await expect(store.get("missing-job")).rejects.toThrow(/unsafe/iu);
+      await expect(readdir(redirected)).resolves.toEqual([]);
+    } finally {
+      await rm(container, { recursive: true, force: true });
     }
   });
 

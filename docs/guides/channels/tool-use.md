@@ -721,7 +721,7 @@ submitted field names. Submitted values are never written to metadata.
 Web tools are fail-closed unless `KilnYaml.web` enables them:
 
 ```yaml
-# .kiln/kiln.yaml
+# private project config.yaml
 web:
   enabled: true
   netPolicy: documentation
@@ -751,7 +751,7 @@ include `url` and extracted `text`; optional fields include `normalizedUrl`,
 First-party search provider adapters are also available:
 
 ```yaml
-# .kiln/kiln.yaml
+# private project config.yaml
 web:
   enabled: true
   netPolicy: documentation
@@ -769,7 +769,7 @@ web:
 
 Supported `searchProvider.type` values are `none`, `http`, `searxng`, `brave`,
 `tavily`, and `exa`. Providers that need credentials use `apiKeyEnv` so secrets
-stay in the environment rather than `kiln.yaml`.
+stay in the environment rather than canonical `config.yaml`.
 
 `searchFallbackProviders` uses the same provider shape in priority order. Kiln
 selects only providers whose declared capabilities satisfy the neutral request
@@ -811,7 +811,8 @@ web:
 Global web config only supplies adapters, fallback order, and credential environment variable
 names. It cannot enable web access or set network policy. Each project still
 has to declare `web.enabled`, `web.netPolicy`, and optional `allowedDomains` in
-`.kiln/kiln.yaml`; otherwise the effective tool surface remains fail-closed.
+the private project `config.yaml`; otherwise the effective tool surface remains
+fail-closed.
 
 Run `kiln status` to inspect web configuration without making network calls. It
 prints whether web access is enabled, the network policy, allowed domains, the
@@ -841,7 +842,7 @@ Project-scoped interactive authority is configured under
 `interactiveUse`:
 
 ```yaml
-# .kiln/kiln.yaml
+# private project config.yaml
 interactiveUse:
   enabled: true
   browserProvider: playwright

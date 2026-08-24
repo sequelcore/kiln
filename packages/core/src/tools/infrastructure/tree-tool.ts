@@ -20,7 +20,6 @@ const MAX_ENTRIES = 500;
 const SUMMARY_LINE_LIMIT = 40;
 const IGNORED_DIRECTORIES = [
   ".git",
-  ".kiln-worktrees",
   "build",
   "coverage",
   "dist",

@@ -28,7 +28,7 @@ function desired(lineage: {
     activationLineage: [{
       proposalId: lineage.proposalId,
       scope: "project" as const,
-      path: ".kiln/kiln.yaml",
+      path: "config.yaml",
       committedRevision: lineage.committedRevision,
       reconciliationGenerations: lineage.generation === undefined
         ? []
@@ -58,7 +58,7 @@ function settlement(input: {
     outcome: input.observation?.state === "failed" ? "committed-reconciliation-failed" : "committed",
     baseRevision: revision("b"),
     committedRevision,
-    appliedWrites: [{ path: input.path ?? "C:/project/.kiln/kiln.yaml", previousHash: null, nextHash: committedRevision }],
+    appliedWrites: [{ path: input.path ?? "C:/operator-kiln/projects/krp_test/config.yaml", previousHash: null, nextHash: committedRevision }],
     reconciliationEffects: [],
     diagnostics: [],
     rollbackToken: input.proposalId,
@@ -216,7 +216,7 @@ describe("projectActivationStatus", () => {
         {
           proposalId: "cfg-active",
           scope: "project" as const,
-          path: ".kiln/kiln.yaml",
+          path: "config.yaml",
           committedRevision: activeRevision,
           reconciliationGenerations: [{ target: "native-skills" as const, generation }],
         },
@@ -277,7 +277,7 @@ describe("projectActivationStatus", () => {
     const pending = projectActivationStatus({
       ...base,
       settlements: [],
-      progress: [{ proposalId: "cfg-next-turn", path: "C:/project/.kiln/kiln.yaml", intendedRevision: committed, startedAt: "2026-08-22T00:00:01.000Z" }],
+      progress: [{ proposalId: "cfg-next-turn", path: "C:/operator-kiln/projects/krp_test/config.yaml", intendedRevision: committed, startedAt: "2026-08-22T00:00:01.000Z" }],
     });
     expect(pending).toMatchObject({ state: "pending", entries: [{ evidence: "progress" }] });
 
@@ -300,7 +300,7 @@ describe("projectActivationStatus", () => {
     const base = input({
       progress: [{
         proposalId: "cfg-in-flight",
-        path: "C:/project/.kiln/kiln.yaml",
+        path: "C:/operator-kiln/projects/krp_test/config.yaml",
         intendedRevision: revision("n"),
         startedAt: "2026-08-22T00:00:02.000Z",
       }],
@@ -315,7 +315,7 @@ describe("projectActivationStatus", () => {
           baseRevision: revision("p"),
           normalizedPayload: {},
           affectedOwners: [],
-          affectedCanonicalPaths: ["C:/project/.kiln/kiln.yaml"],
+          affectedCanonicalPaths: ["C:/operator-kiln/projects/krp_test/config.yaml"],
           reconciliationTargets: [],
           authorityImpact: "none",
           approvalRequired: false,
@@ -332,7 +332,7 @@ describe("projectActivationStatus", () => {
     expect(projected.state).toBe("pending");
     expect(projected.entries).toContainEqual(expect.objectContaining({
       proposalId: "cfg-in-flight",
-      path: ".kiln/kiln.yaml",
+      path: "config.yaml",
       evidence: "progress",
       state: "pending",
     }));

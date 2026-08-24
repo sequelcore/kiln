@@ -348,7 +348,7 @@ Providers that require credentials reference environment variable names through
 defaults. It cannot define
 `web.enabled`, `web.netPolicy`, or `web.allowedDomains`. Effective config may
 inherit those providers, but a project must still grant web authority in
-`.kiln/kiln.yaml`.
+the bound private project's `config.yaml`.
 
 `kiln status` projects web diagnostics without executing network calls. Those
 diagnostics are observability evidence only; they do not grant authority or

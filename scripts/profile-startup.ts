@@ -1,6 +1,8 @@
 import { existsSync, rmSync } from "node:fs";
 import { arch, platform, release } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { resolveProjectRoot } from "../packages/cli/src/application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../packages/cli/src/application/project-state-root.js";
 
 type Surface = "gui" | "tui";
 type GuiMode = "dev" | "prod";
@@ -28,6 +30,7 @@ interface StartupMilestone {
 const repoRoot = resolve(import.meta.dir, "..");
 
 const options = parseArgs(process.argv.slice(2));
+const projectState = resolveProjectStateBinding(resolveProjectRoot({ cwd: options.cwd }).rootPath);
 const startedAt = performance.now();
 const milestones: StartupMilestone[] = [];
 const phaseMarkers: Array<Record<string, unknown>> = [];
@@ -159,7 +162,7 @@ const result = {
     react: await readPackageVersion("packages/gui/package.json", "react"),
   },
   cache: {
-    providerDiscovery: existsSync(join(options.cwd, ".kiln", "cache", "provider-discovery.json")) ? "present" : "missing",
+    providerDiscovery: existsSync(join(projectState.cachePath, "provider-discovery.json")) ? "present" : "missing",
     viteDeps: existsSync(join(repoRoot, "packages", "gui", "node_modules", ".vite")) ? "present" : "missing",
     clearViteCache: options.clearViteCache,
   },

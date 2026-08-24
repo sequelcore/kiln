@@ -132,19 +132,18 @@ export class SkillRegistry {
   }
 
   /**
-   * Discover skills from 3-tier hierarchy:
-   * 1. workspace: projectPath/.kiln/skills/
-   * 2. user: userHome/.kiln/skills/
-   * 3. builtin (passed via constructor)
-   * Earlier tiers win (workspace > user > builtin).
+   * Discover skills from the explicit project and user catalog directories.
+   * Builtins are supplied to the constructor and are the lowest-precedence
+   * tier. Earlier directories win (project > user > builtin).
+   *
+   * The core registry deliberately does not derive either directory from a
+   * project root or home directory. The CLI owns project-state binding and
+   * supplies the private project directory at this boundary.
    */
-  discoverAll(projectPath: string, userHome: string): number {
-    const workspaceDir = join(projectPath, ".kiln", "skills");
-    const userDir = join(userHome, ".kiln", "skills");
-
+  discoverAll(projectSkillsDir?: string, userSkillsDir?: string): number {
     let total = 0;
-    total += this.discoverFrom(workspaceDir);
-    total += this.discoverFrom(userDir);
+    if (projectSkillsDir) total += this.discoverFrom(projectSkillsDir);
+    if (userSkillsDir) total += this.discoverFrom(userSkillsDir);
     return total;
   }
 

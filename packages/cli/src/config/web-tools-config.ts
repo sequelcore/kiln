@@ -23,7 +23,7 @@ import {
   type WebSourceMetadata,
   type MemoryScope,
 } from "@kilnai/core";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { loadKilnConfig } from "./config-merger.js";
@@ -41,6 +41,12 @@ import type {
   KilnYamlWebSearchProvider,
 } from "../kiln-yaml-types.js";
 import type { KilnGlobalWebConfig } from "./global-config.js";
+import type { KilnProjectConfig } from "./project-config-schema.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { resolveCliMemoryStorage } from "../application/cli-memory-storage.js";
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -110,7 +116,7 @@ class WebProviderUnavailableError extends KilnYamlError {
 
 export interface WebToolConfigurationSourceInput {
   readonly globalWeb?: KilnGlobalWebConfig | null;
-  readonly projectWeb?: KilnYamlWebConfig | null;
+  readonly projectWeb?: KilnProjectConfig["web"] | null;
 }
 
 export async function loadConfiguredWebToolSurfaceOptions(
@@ -206,7 +212,6 @@ export function describeWebToolConfiguration(
   const searchProviderSource = resolveProviderSource({
     effectiveProvider: providerConfig,
     globalProvider: sources.globalWeb?.searchProvider,
-    projectProvider: sources.projectWeb?.searchProvider,
   });
   if (searchProviderEnvIssue) {
     issues.push(searchProviderEnvIssue);
@@ -230,7 +235,7 @@ export function describeWebToolConfiguration(
   const searchFallbackProviderSource = resolveOptionalConfigSource({
     effective: webConfig?.searchFallbackProviders,
     global: sources.globalWeb?.searchFallbackProviders,
-    project: sources.projectWeb?.searchFallbackProviders,
+    project: undefined,
   });
   issues.push(...new Set(fallbackEnvIssues));
 
@@ -249,7 +254,6 @@ export function describeWebToolConfiguration(
   const extractProviderSource = resolveProviderSource({
     effectiveProvider: extractProviderConfig,
     globalProvider: sources.globalWeb?.extractProvider,
-    projectProvider: sources.projectWeb?.extractProvider,
   });
   if (extractProviderEnvIssue) {
     issues.push(extractProviderEnvIssue);
@@ -286,7 +290,7 @@ function resolveOptionalConfigSource(input: {
 function resolveProviderSource(input: {
   readonly effectiveProvider: KilnYamlWebSearchProvider | KilnYamlWebExtractProvider | undefined;
   readonly globalProvider: KilnYamlWebSearchProvider | KilnYamlWebExtractProvider | undefined;
-  readonly projectProvider: KilnYamlWebSearchProvider | KilnYamlWebExtractProvider | undefined;
+  readonly projectProvider?: KilnYamlWebSearchProvider | KilnYamlWebExtractProvider | undefined;
 }): WebToolConfigurationSource {
   if (input.projectProvider !== undefined) {
     return "project";
@@ -316,7 +320,9 @@ function createProjectMemoryResources(
   }
 
   const memoryStorage = resolveCliMemoryStorage(projectPath);
-  mkdirSync(memoryStorage.stateDir, { recursive: true });
+  const binding = resolveProjectStateBinding(projectPath);
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, memoryStorage.stateDir);
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, memoryStorage.memoryDbPath);
   return {
     repository: new SqliteMemoryRepository({ dbPath: memoryStorage.memoryDbPath }),
     authority: governedMemoryAuthority(authority),

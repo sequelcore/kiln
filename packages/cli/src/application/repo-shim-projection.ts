@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   findInstructionProfile,
   loadInstructionProfiles,
@@ -20,6 +20,17 @@ import {
   type WorkflowSnapshotExport,
 } from "./workflow-snapshot-export.js";
 import type { ProjectionOutcome } from "../config/native-projection-policy.js";
+import {
+  assertPrivateStateFileTargetSync,
+  assertPrivateStateDirectoryTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
+import { resolveProjectRoot } from "./project-root-resolver.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+} from "./project-state-root.js";
 
 const GENERATOR_VERSION = "repo-shims-v1";
 const SIGNATURE = "kiln:repo-shim:v1";
@@ -74,10 +85,16 @@ export interface RepoShimProjectionStatus {
   readonly status: "missing" | "current" | "stale" | "drifted" | "unmanaged";
 }
 
-export interface RepoShimProjectionOptions {
+export interface RepoShimProjectionOptions extends ProjectStateRootOptions {
   readonly force?: boolean;
   readonly dryRun?: boolean;
+  readonly projectStateBinding?: ProjectStateBinding;
 }
+
+export type RepoShimProjectionReadOptions = Pick<
+  RepoShimProjectionOptions,
+  "kilnHome" | "platform" | "projectStateBinding"
+>;
 
 interface ProjectionMetadata {
   readonly target: string;
@@ -91,6 +108,7 @@ interface SignedProjection {
 
 interface RepoShimProjectionContext {
   readonly projectPath: string;
+  readonly projectStateBinding: ProjectStateBinding;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
@@ -111,7 +129,7 @@ const TARGETS: readonly RepoShimTarget[] = [
     audience: "Claude Code",
   },
 ];
-const WORKFLOW_SNAPSHOT_MARKDOWN_FILE = ".kiln/projections/workflow-snapshot.md";
+const WORKFLOW_SNAPSHOT_MARKDOWN_FILE = "private:projections/workflow-snapshot.md";
 
 export async function writeRepoShimProjections(
   projectPath: string,
@@ -124,7 +142,7 @@ export async function writeRepoShimProjections(
   let workflowSnapshotManifest: WorkflowSnapshotManifestResult | undefined;
 
   try {
-    context = await loadRepoShimProjectionContext(projectPath);
+    context = await loadRepoShimProjectionContext(projectPath, options);
     workflowSnapshot = buildWorkflowSnapshot(context, new Date().toISOString());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -146,19 +164,24 @@ export async function writeRepoShimProjections(
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      results.push(repoShimTargetResult(target, join(projectPath, target.filename), "failed", [message]));
+      results.push(repoShimTargetResult(
+        target,
+        join(context.projectStateBinding.canonicalRoot, target.filename),
+        "failed",
+        [message],
+      ));
     }
   }
 
   const shimErrors = results.flatMap((result) => [...result.errors]);
   if (shimErrors.length === 0) {
     workflowSnapshotProjection = captureWorkflowSnapshotWrite(
-      workflowSnapshotMarkdownPath(projectPath),
-      () => writeWorkflowSnapshotProjection(projectPath, workflowSnapshot, options.dryRun ?? false),
+      workflowSnapshotMarkdownPath(context.projectPath, context.projectStateBinding),
+      () => writeWorkflowSnapshotProjection(context.projectStateBinding, workflowSnapshot, options.dryRun ?? false),
     );
     workflowSnapshotManifest = captureWorkflowSnapshotWrite(
-      workflowSnapshotManifestPath(projectPath),
-      () => writeWorkflowSnapshotManifest(projectPath, workflowSnapshot, options.dryRun ?? false),
+      workflowSnapshotManifestPath(context.projectPath, context.projectStateBinding),
+      () => writeWorkflowSnapshotManifest(context.projectStateBinding, workflowSnapshot, options.dryRun ?? false),
     );
   }
   const errors = [
@@ -180,7 +203,7 @@ export async function writeRepoShimProjections(
       ...(workflowSnapshotProjection.errors[0] ? { reason: workflowSnapshotProjection.errors[0] } : {}),
     } satisfies ProjectionOutcome] : [{
       targetId: "workflow-snapshot",
-      path: workflowSnapshotMarkdownPath(projectPath),
+      path: workflowSnapshotMarkdownPath(projectPath, options.projectStateBinding),
       status: "skipped",
       reason: `repo shim projection did not complete: ${shimErrors[0]}`,
     } satisfies ProjectionOutcome]),
@@ -191,7 +214,7 @@ export async function writeRepoShimProjections(
       ...(workflowSnapshotManifest.errors[0] ? { reason: workflowSnapshotManifest.errors[0] } : {}),
     } satisfies ProjectionOutcome] : [{
       targetId: "workflow-snapshot-manifest",
-      path: workflowSnapshotManifestPath(projectPath),
+      path: workflowSnapshotManifestPath(projectPath, options.projectStateBinding),
       status: "skipped",
       reason: `repo shim projection did not complete: ${shimErrors[0]}`,
     } satisfies ProjectionOutcome]),
@@ -211,23 +234,31 @@ export async function writeRepoShimProjections(
   };
 }
 
-export async function readRepoShimProjectionStatuses(projectPath: string): Promise<readonly RepoShimProjectionStatus[]> {
-  const context = await loadRepoShimProjectionContext(projectPath);
+export async function readRepoShimProjectionStatuses(
+  projectPath: string,
+  options: RepoShimProjectionReadOptions = {},
+): Promise<readonly RepoShimProjectionStatus[]> {
+  const context = await loadRepoShimProjectionContext(projectPath, options);
 
   return TARGETS.map((target) => {
-    const path = join(projectPath, target.filename);
+    const path = join(context.projectStateBinding.canonicalRoot, target.filename);
     const expected = renderSignedRepoShimProjection({ ...context, target });
+    assertRepoShimTargetSync(context.projectStateBinding, path);
 
-    if (!existsSync(path)) {
+    const targetExists = existsSync(path);
+    if (!targetExists) {
       return { target: target.kind, path, status: "missing" };
     }
 
+    assertRepoShimTargetSync(context.projectStateBinding, path);
     const existing = readFileSync(path, "utf-8");
+    assertRepoShimTargetSync(context.projectStateBinding, path);
     const existingState = classifyExistingProjection(existing, target.kind);
     if (existingState === "unmanaged" || existingState === "drifted") {
       return { target: target.kind, path, status: existingState };
     }
 
+    assertRepoShimTargetSync(context.projectStateBinding, path);
     return {
       target: target.kind,
       path,
@@ -236,13 +267,17 @@ export async function readRepoShimProjectionStatuses(projectPath: string): Promi
   });
 }
 
-export async function readWorkflowSnapshotManifestStatus(projectPath: string): Promise<WorkflowSnapshotManifestStatus> {
-  const manifestPath = workflowSnapshotManifestPath(projectPath);
-  if (!existsSync(manifestPath)) {
+export async function readWorkflowSnapshotManifestStatus(
+  projectPath: string,
+  options: RepoShimProjectionReadOptions = {},
+): Promise<WorkflowSnapshotManifestStatus> {
+  const binding = projectBinding(projectPath, options);
+  const manifestPath = workflowSnapshotManifestPath(projectPath, binding);
+  const content = readPrivateStateFileIfPresent(binding, manifestPath);
+  if (content === null) {
     return { path: manifestPath, status: "missing" };
   }
 
-  const content = readFileSync(manifestPath, "utf-8");
   const currentHash = readManifestHash(content);
   if (!currentHash) {
     return {
@@ -252,7 +287,7 @@ export async function readWorkflowSnapshotManifestStatus(projectPath: string): P
     };
   }
 
-  const expected = await buildCurrentWorkflowSnapshot(projectPath);
+  const expected = await buildCurrentWorkflowSnapshot(projectPath, binding);
   const expectedHash = expected.manifest.hash;
   if (currentHash !== expectedHash) {
     return {
@@ -272,27 +307,31 @@ export async function readWorkflowSnapshotManifestStatus(projectPath: string): P
   };
 }
 
-async function loadRepoShimProjectionContext(projectPath: string): Promise<RepoShimProjectionContext> {
-  const instructionProfiles = loadInstructionProfiles(projectPath);
-  const kilnYaml = await loadKilnConfig(projectPath);
-  const repoContext = collectProjectContextEvidence(projectPath);
+async function loadRepoShimProjectionContext(
+  projectPath: string,
+  options: RepoShimProjectionReadOptions = {},
+): Promise<RepoShimProjectionContext> {
+  const projectStateBinding = projectBinding(projectPath, options);
+  assertRepoShimRepositoryRootSync(projectStateBinding);
+  const rootPath = projectStateBinding.canonicalRoot;
+  const instructionProfiles = loadInstructionProfiles(rootPath, undefined, { projectStateBinding });
+  const kilnYaml = await loadKilnConfig(rootPath, { projectStateBinding });
+  const repoContext = collectProjectContextEvidence(rootPath);
   return {
-    projectPath,
+    projectPath: rootPath,
+    projectStateBinding,
     instructionProfiles,
     kilnYaml,
     repoContext,
-    adoptedProjectContext: readProjectContextAdoption(projectPath),
+    adoptedProjectContext: readProjectContextAdoption(rootPath, { projectStateBinding }),
     sourceProfiles: kilnYaml?.activeInstructionProfiles ?? [],
-    projectRootId: repoRootIdentity(repoContext),
+    projectRootId: projectStateBinding.projectRuntimeId,
   };
-}
-
-function repoRootIdentity(repoContext: ProjectContextEvidence): string {
-  return hashText(repoContext.projectName.toLowerCase()).slice(0, 16);
 }
 
 function writeRepoShimTarget(input: {
   readonly projectPath: string;
+  readonly projectStateBinding: ProjectStateBinding;
   readonly target: RepoShimTarget;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: ResolvedKilnConfig | null;
@@ -303,9 +342,15 @@ function writeRepoShimTarget(input: {
   readonly force: boolean;
   readonly dryRun: boolean;
 }): RepoShimProjectionTargetResult {
-  const targetPath = join(input.projectPath, input.target.filename);
+  const targetPath = join(input.projectStateBinding.canonicalRoot, input.target.filename);
   const content = renderSignedRepoShimProjection(input);
-  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf-8") : null;
+  assertRepoShimTargetSync(input.projectStateBinding, targetPath);
+  const targetExists = existsSync(targetPath);
+  const existing = targetExists ? (() => {
+    assertRepoShimTargetSync(input.projectStateBinding, targetPath);
+    return readFileSync(targetPath, "utf-8");
+  })() : null;
+  assertRepoShimTargetSync(input.projectStateBinding, targetPath);
   const existingState = existing ? classifyExistingProjection(existing, input.target.kind) : "missing";
 
   if (existingState === "unmanaged" && !input.force) {
@@ -320,6 +365,7 @@ function writeRepoShimTarget(input: {
     ]);
   }
 
+  assertRepoShimTargetSync(input.projectStateBinding, targetPath);
   if (existing === content) {
     return repoShimTargetResult(input.target, targetPath, "unchanged");
   }
@@ -329,11 +375,67 @@ function writeRepoShimTarget(input: {
   }
 
   if (existing && input.force) {
-    backupExistingShim(input.projectPath, input.target.filename, existing);
+    backupExistingShim(input.projectStateBinding, input.target.filename, existing);
   }
 
+  assertRepoShimTargetSync(input.projectStateBinding, targetPath);
   writeFileSync(targetPath, content, "utf-8");
   return repoShimTargetResult(input.target, targetPath, "written");
+}
+
+function assertRepoShimTargetSync(binding: ProjectStateBinding, targetPath: string): void {
+  const canonicalRoot = assertRepoShimRepositoryRootSync(binding);
+  const target = resolve(targetPath);
+  const path = relative(canonicalRoot, target);
+  if (
+    path.length === 0
+    || path === ".."
+    || path.startsWith(`..${sep}`)
+    || isAbsolute(path)
+  ) {
+    throw new Error("Repository projection target escapes its canonical root.");
+  }
+
+  try {
+    const stat = lstatSync(target);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error("Repository projection target is not a regular file.");
+    }
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error;
+  }
+}
+
+function assertRepoShimRepositoryRootSync(binding: ProjectStateBinding): string {
+  const canonicalRoot = resolve(binding.canonicalRoot);
+  let rootStat;
+  try {
+    rootStat = lstatSync(canonicalRoot);
+  } catch (error) {
+    throw new Error(`Repository projection root cannot be inspected: ${canonicalRoot}`, { cause: error });
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error("Repository projection root is not a canonical directory.");
+  }
+
+  let observedRoot: string;
+  try {
+    observedRoot = realpathSync(canonicalRoot);
+  } catch (error) {
+    throw new Error(`Repository projection root cannot be canonicalized: ${canonicalRoot}`, { cause: error });
+  }
+  if (!sameRepositoryPath(observedRoot, canonicalRoot)) {
+    throw new Error("Repository projection root changed from its established canonical path.");
+  }
+  return canonicalRoot;
+}
+
+function sameRepositoryPath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left);
+  const normalizedRight = resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
 }
 
 function renderSignedRepoShimProjection(input: RepoShimProjectionContext & { readonly target: RepoShimTarget }): string {
@@ -446,7 +548,7 @@ function renderAdoptedProjectContextSection(adoptedProjectContext: ProjectContex
   return [
     "## Adopted Project Context",
     "",
-    "Canonical source: `.kiln/project-context.md`.",
+    "Canonical source: private project state `context`.",
     "",
     adoptedProjectContext.reviewNotes,
     "",
@@ -613,20 +715,22 @@ function projectionBody(content: string): string {
   return content.slice(content.indexOf("-->") + 3).replace(/^\r?\n/, "");
 }
 
-function backupExistingShim(projectPath: string, filename: string, content: string): void {
-  const backupDir = join(projectPath, ".kiln", "backups", "repo-shims");
-  mkdirSync(backupDir, { recursive: true });
+function backupExistingShim(binding: ProjectStateBinding, filename: string, content: string): void {
+  const backupDir = join(binding.backupsPath, "repo-shims");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  writeFileSync(join(backupDir, `${filename}.${timestamp}.bak`), content, "utf-8");
+  const backupPath = join(backupDir, `${filename}.${timestamp}.bak`);
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, backupDir);
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, backupPath);
+  writeFileSync(backupPath, content, "utf-8");
 }
 
 function writeWorkflowSnapshotManifest(
-  projectPath: string,
+  binding: ProjectStateBinding,
   workflowSnapshot: WorkflowSnapshotExport,
   dryRun: boolean,
 ): WorkflowSnapshotManifestResult {
-  const manifestPath = workflowSnapshotManifestPath(projectPath);
-  const existing = existsSync(manifestPath) ? readFileSync(manifestPath, "utf-8") : null;
+  const manifestPath = join(binding.projectionsPath, "workflow-snapshot-manifest.json");
+  const existing = readPrivateStateFileIfPresent(binding, manifestPath);
   const existingHash = existing ? readManifestHash(existing) : null;
 
   if (existingHash === workflowSnapshot.manifest.hash) {
@@ -635,13 +739,17 @@ function writeWorkflowSnapshotManifest(
 
   if (dryRun) return workflowSnapshotResult(manifestPath, false, true);
 
-  ensureWorkflowProjectionDir(projectPath);
+  ensureWorkflowProjectionDir(binding);
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, manifestPath);
   writeFileSync(manifestPath, `${JSON.stringify(workflowSnapshot.manifest, null, 2)}\n`, "utf-8");
   return workflowSnapshotResult(manifestPath, true);
 }
 
-function workflowSnapshotManifestPath(projectPath: string): string {
-  return join(projectPath, ".kiln", "projections", "workflow-snapshot-manifest.json");
+function workflowSnapshotManifestPath(
+  projectPath: string,
+  binding?: ProjectStateBinding,
+): string {
+  return join((binding ?? projectBinding(projectPath)).projectionsPath, "workflow-snapshot-manifest.json");
 }
 
 function readManifestHash(content: string): string | null {
@@ -653,8 +761,11 @@ function readManifestHash(content: string): string | null {
   }
 }
 
-async function buildCurrentWorkflowSnapshot(projectPath: string): Promise<WorkflowSnapshotExport> {
-  const context = await loadRepoShimProjectionContext(projectPath);
+async function buildCurrentWorkflowSnapshot(
+  projectPath: string,
+  binding?: ProjectStateBinding,
+): Promise<WorkflowSnapshotExport> {
+  const context = await loadRepoShimProjectionContext(projectPath, binding ? { projectStateBinding: binding } : {});
   return buildWorkflowSnapshot(context, new Date().toISOString());
 }
 
@@ -679,13 +790,13 @@ function workflowSnapshotGeneratedFiles(): readonly string[] {
 }
 
 function writeWorkflowSnapshotProjection(
-  projectPath: string,
+  binding: ProjectStateBinding,
   workflowSnapshot: WorkflowSnapshotExport,
   dryRun: boolean,
 ): WorkflowSnapshotProjectionResult {
-  const snapshotPath = workflowSnapshotMarkdownPath(projectPath);
+  const snapshotPath = join(binding.projectionsPath, "workflow-snapshot.md");
   const content = renderWorkflowSnapshotMarkdown(workflowSnapshot);
-  const existing = existsSync(snapshotPath) ? readFileSync(snapshotPath, "utf-8") : null;
+  const existing = readPrivateStateFileIfPresent(binding, snapshotPath);
 
   if (existing === content) {
     return workflowSnapshotResult(snapshotPath, false);
@@ -693,17 +804,60 @@ function writeWorkflowSnapshotProjection(
 
   if (dryRun) return workflowSnapshotResult(snapshotPath, false, true);
 
-  ensureWorkflowProjectionDir(projectPath);
+  ensureWorkflowProjectionDir(binding);
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, snapshotPath);
   writeFileSync(snapshotPath, content, "utf-8");
   return workflowSnapshotResult(snapshotPath, true);
 }
 
-function workflowSnapshotMarkdownPath(projectPath: string): string {
-  return join(projectPath, WORKFLOW_SNAPSHOT_MARKDOWN_FILE);
+function workflowSnapshotMarkdownPath(
+  projectPath: string,
+  binding?: ProjectStateBinding,
+): string {
+  return join((binding ?? projectBinding(projectPath)).projectionsPath, "workflow-snapshot.md");
 }
 
-function ensureWorkflowProjectionDir(projectPath: string): void {
-  mkdirSync(join(projectPath, ".kiln", "projections"), { recursive: true });
+function ensureWorkflowProjectionDir(binding: ProjectStateBinding): void {
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, binding.projectionsPath);
+}
+
+/**
+ * Read-only effect-time validation for a private projection file. The shared
+ * write guard is intentionally allowed to create missing directories, so
+ * status/current decisions use this non-mutating path first.
+ */
+function readPrivateStateFileIfPresent(
+  binding: ProjectStateBinding,
+  filePath: string,
+): string | null {
+  if (!assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, dirname(filePath))) {
+    return null;
+  }
+  try {
+    const stat = lstatSync(filePath);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error("Private project state file target is not a regular file.");
+    }
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  }
+  return readFileSync(filePath, "utf-8");
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error
+    && "code" in error
+    && ((error as NodeJS.ErrnoException).code === "ENOENT"
+      || (error as NodeJS.ErrnoException).code === "ENOTDIR");
+}
+
+function projectBinding(
+  projectPath: string,
+  options: RepoShimProjectionReadOptions = {},
+): ProjectStateBinding {
+  return options.projectStateBinding
+    ?? resolveProjectStateBinding(resolveProjectRoot({ explicitPath: projectPath }).rootPath, options);
 }
 
 function captureWorkflowSnapshotWrite(

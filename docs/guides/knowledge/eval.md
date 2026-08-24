@@ -240,11 +240,11 @@ The CLI exposes the same read-only contract:
 kiln benchmark profiles
 kiln benchmark tracks
 kiln benchmark readiness --baseline ./evals/kiln-baseline.json
-kiln benchmark report --baseline ./evals/kiln-baseline.json --output ./.kiln/benchmarks/report.md
-kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
-kiln benchmark project-bfcl --input ./bfcl.json --output ./.kiln/benchmarks/bfcl.jsonl
-kiln benchmark project-agentdojo --input ./agentdojo.json --output ./.kiln/benchmarks/agentdojo.jsonl
-kiln benchmark project-tau --input ./tau.json --output ./.kiln/benchmarks/tau.jsonl
+kiln benchmark report --baseline ./evals/kiln-baseline.json --output ~/.kiln/projects/<krp_sha256>/benchmarks/report.md
+kiln benchmark run-internal --profile kiln-tool-agent --output ~/.kiln/projects/<krp_sha256>/benchmarks/tool.json
+kiln benchmark project-bfcl --input ./bfcl.json --output ~/.kiln/projects/<krp_sha256>/benchmarks/bfcl.jsonl
+kiln benchmark project-agentdojo --input ./agentdojo.json --output ~/.kiln/projects/<krp_sha256>/benchmarks/agentdojo.jsonl
+kiln benchmark project-tau --input ./tau.json --output ~/.kiln/projects/<krp_sha256>/benchmarks/tau.jsonl
 ```
 
 The baseline file may be an array of `BenchmarkBaselineResult` records or an

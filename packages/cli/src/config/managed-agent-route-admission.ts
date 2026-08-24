@@ -6,6 +6,7 @@ import type {
   RouteAdmissionRejection,
 } from "@kilnai/core";
 import { loadKilnConfig } from "./config-merger.js";
+import { resolveKilnHomePath } from "./global-config/path.js";
 import { discoverManagedAgentProviderModels } from "./managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "./managed-agent-routes.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
@@ -36,7 +37,7 @@ export async function createManagedAgentRouteAdmissionResolver(
   options: CreateManagedAgentRouteAdmissionResolverOptions = {},
 ): Promise<ManagedAgentRouteAdmissionResolver> {
   const loadConfig = options.loadConfig ?? loadKilnConfig;
-  const createRegistry = options.createRegistry ?? (() => createDefaultRegistry());
+  const createRegistry = options.createRegistry ?? (() => createDefaultRegistry({ kilnHome: resolveKilnHomePath() }));
   const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
   const resolveRoutes = options.resolveRoutes ?? resolveManagedInvocationToolOptions;
   try {

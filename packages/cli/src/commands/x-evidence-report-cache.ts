@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExternalEvidenceReport, XEvidenceQuery } from "@kilnai/core";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 
 const X_EVIDENCE_REPORT_CACHE_VERSION = 1;
 
@@ -10,8 +14,16 @@ export interface XEvidenceReportCache {
   write(report: ExternalEvidenceReport): void;
 }
 
+export interface FileXEvidenceReportCacheOptions {
+  /** Canonical private root when this cache is an operator-private artifact. */
+  readonly privateStateRoot?: string;
+}
+
 export class FileXEvidenceReportCache implements XEvidenceReportCache {
-  constructor(private readonly cacheDir: string) {}
+  constructor(
+    private readonly cacheDir: string,
+    private readonly options: FileXEvidenceReportCacheOptions = {},
+  ) {}
 
   read(query: XEvidenceQuery): ExternalEvidenceReport | undefined {
     const path = this.cachePath(query);
@@ -30,17 +42,26 @@ export class FileXEvidenceReportCache implements XEvidenceReportCache {
   }
 
   write(report: ExternalEvidenceReport): void {
+    const path = this.cachePath(report.query);
+    this.guardPrivateWrite(path);
     mkdirSync(this.cacheDir, { recursive: true });
     const payload: XEvidenceReportCacheFile = {
       version: X_EVIDENCE_REPORT_CACHE_VERSION,
       cachedAt: new Date().toISOString(),
       report,
     };
-    writeFileSync(this.cachePath(report.query), `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
+    this.guardPrivateWrite(path);
+    writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
   }
 
   private cachePath(query: XEvidenceQuery): string {
     return join(this.cacheDir, `${buildXEvidenceReportCacheKey(query)}.json`);
+  }
+
+  private guardPrivateWrite(path: string): void {
+    if (!this.options.privateStateRoot) return;
+    ensurePrivateStateDirectorySync(this.options.privateStateRoot, this.cacheDir);
+    assertPrivateStateFileTargetSync(this.options.privateStateRoot, path);
   }
 }
 

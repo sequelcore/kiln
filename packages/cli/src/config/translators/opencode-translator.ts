@@ -74,15 +74,16 @@ export function translateOpenCodePermissionProjection(input: {
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "opencode");
   const cfg = translated.config as { permissionDefault: string };
-  const { kiln: _legacyKilnMetadata, ...rawExistingDocument } = input.existingDocument;
-  const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) => field === "provider.kiln");
-  const existingSkillPermission = typeof rawExistingDocument.permission === "object"
-    && rawExistingDocument.permission !== null && !Array.isArray(rawExistingDocument.permission)
-    ? (rawExistingDocument.permission as Record<string, unknown>).skill
+  const staleManagedFields = (input.previousManagedFields ?? []).filter(
+    (field) => field === "provider.kiln" || field === "kiln.permissionSync",
+  );
+  const existingSkillPermission = typeof input.existingDocument.permission === "object"
+    && input.existingDocument.permission !== null && !Array.isArray(input.existingDocument.permission)
+    ? (input.existingDocument.permission as Record<string, unknown>).skill
     : undefined;
   const existingDocument = stripManagedFields({
-    currentDocument: rawExistingDocument,
-    managedFields: staleGatewayFields,
+    currentDocument: input.existingDocument,
+    managedFields: staleManagedFields,
   });
   const defaultRoute =
     !input.gatewayProjection && input.kilnYaml

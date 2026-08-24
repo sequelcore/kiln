@@ -18,7 +18,7 @@ const otherSecret = Buffer.from("b".repeat(64), "utf8");
 const now = 1_700_000_000;
 const binding = {
   projectRuntimeId: `krp_${"a".repeat(64)}`,
-  markerDigest: `sha256:${"b".repeat(64)}`,
+  compositionRevision: `sha256:${"b".repeat(64)}`,
 } as const;
 const claims: OperatorSessionClaims = {
   protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
@@ -47,8 +47,8 @@ function expectCredentialError(action: () => unknown, code: OperatorSessionCrede
 
 function signRaw(payload: unknown): string {
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const signature = createHmac("sha256", secret).update(`v2.${encodedPayload}`, "ascii").digest("base64url");
-  return `v2.${encodedPayload}.${signature}`;
+  const signature = createHmac("sha256", secret).update(`v3.${encodedPayload}`, "ascii").digest("base64url");
+  return `v3.${encodedPayload}.${signature}`;
 }
 
 describe("operator session credentials", () => {
@@ -93,7 +93,7 @@ describe("operator session credentials", () => {
       issuedAt: claims.issuedAt,
       sessionId: claims.sessionId,
       principal: claims.principal,
-      markerDigest: claims.markerDigest,
+      compositionRevision: claims.compositionRevision,
       projectRuntimeId: claims.projectRuntimeId,
       audience: claims.audience,
       protocolVersion: claims.protocolVersion,
@@ -166,12 +166,24 @@ describe("operator session credentials", () => {
     ["principal kind", { ...expected, principal: { kind: "operator-surface", surface: "gui" } }],
     ["session", { ...expected, sessionId: "session-02" }],
     ["project", { ...expected, projectRuntimeId: `krp_${"c".repeat(64)}` }],
-    ["binding", { ...expected, markerDigest: `sha256:${"d".repeat(64)}` }],
+    ["binding", { ...expected, compositionRevision: `sha256:${"d".repeat(64)}` }],
   ] as const)("rejects an expected %s mismatch", (_label, wrongExpected) => {
     const credential = signOperatorSessionCredential(claims, secret);
     expectCredentialError(
       () => verifyOperatorSessionCredential(credential, secret, wrongExpected, { nowEpochSeconds: now }),
       "binding_mismatch",
+    );
+  });
+
+  it("rejects a signed credential carrying the retired marker field", () => {
+    const retired = signRaw({
+      ...claims,
+      compositionRevision: undefined,
+      markerDigest: binding.compositionRevision,
+    });
+    expectCredentialError(
+      () => verifyOperatorSessionCredential(retired, secret, expected, { nowEpochSeconds: now }),
+      "invalid_claims",
     );
   });
 

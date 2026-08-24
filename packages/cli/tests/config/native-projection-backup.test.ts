@@ -10,7 +10,7 @@ import {
 describe("backupNativeProjectionFile", () => {
   it("backs up an existing native projection file under the project kiln directory", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const nativePath = join(root, "home", ".codex", "skills", "planner", "SKILL.md");
 
     try {
@@ -37,7 +37,7 @@ describe("backupNativeProjectionFile", () => {
 
   it("does not create a backup when the native projection file does not exist", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-missing-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
 
     try {
       const backupPath = backupNativeProjectionFile({
@@ -56,7 +56,7 @@ describe("backupNativeProjectionFile", () => {
 
   it("prunes to the default retention so a caller cannot grow backups without bound", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-retain-default-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const nativePath = join(root, "home", ".codex", "config.toml");
 
     try {
@@ -83,7 +83,7 @@ describe("backupNativeProjectionFile", () => {
 
   it("rejects a retention that would discard the backup it was asked to write", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-retain-invalid-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const nativePath = join(root, "home", ".codex", "config.toml");
 
     try {
@@ -105,7 +105,7 @@ describe("backupNativeProjectionFile", () => {
 
   it("prunes oldest backups beyond the retention limit, keeping the newest", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-retain-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const nativePath = join(root, "home", ".codex", "auth.json");
 
     try {
@@ -131,7 +131,7 @@ describe("backupNativeProjectionFile", () => {
 
   it("scopes pruning per source file so unrelated backups in one target never prune each other", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-scope-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const authPath = join(root, "home", ".codex", "auth.json");
     const configPath = join(root, "home", ".codex", "config.toml");
 
@@ -160,7 +160,7 @@ describe("backupNativeProjectionFile", () => {
   // user-profile ACL instead. CI runs Linux, so the invariant is enforced there.
   it.skipIf(process.platform === "win32")("writes secret-bearing backups owner-only", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-mode-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const nativePath = join(root, "home", ".codex", "auth.json");
 
     try {
@@ -182,7 +182,7 @@ describe("backupNativeProjectionFile", () => {
 
   it("preserves binary projection content", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-binary-"));
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = join(root, "private-project-state");
     const nativePath = join(root, "home", ".codex", "skills", "visual", "assets", "icon.png");
     const content = Uint8Array.from([0, 255, 17, 34]);
 

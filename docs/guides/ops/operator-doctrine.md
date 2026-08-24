@@ -8,14 +8,19 @@ Kiln separates operator behavior into five contracts:
 | Contract | Owns | Canonical location |
 |---|---|---|
 | Identity | Operator metadata such as name and timezone. | `~/.kiln/config.yaml#identity` |
-| Instruction profiles | Durable standards, style, workflow, and review doctrine. | `~/.kiln/instructions/*.md`, `.kiln/instructions/*.md` |
+| Instruction profiles | Durable standards, style, workflow, and review doctrine. | `~/.kiln/instructions/*.md`, private project `instructions/*.md` |
 | Work governance | Direct-vs-orchestrated posture and evidence expectations. | `workGovernance` in global or project config |
-| Agent profiles | Executable roles and default profile-specific skills. | `~/.kiln/agents/*.md`, `.kiln/agents/*.md` |
-| Skills | Reusable procedures and task-specific context. | `~/.kiln/skills/**`, `.kiln/skills/**`, built-ins |
+| Agent profiles | Executable roles and default profile-specific skills. | `~/.kiln/agents/*.md`, private project `agents/*.md` |
+| Skills | Reusable procedures and task-specific context. | `~/.kiln/skills/**`, private project `skills/**`, built-ins |
 
 Do not put durable doctrine directly in `AGENTS.md`, `CLAUDE.md`, native Codex
 files, or OpenCode files. Those are projections. Edit Kiln config and
 instruction profiles, then run `kiln sync` when native harnesses need updates.
+
+Project profiles and project config are resolved through the canonical private
+binding at `~/.kiln/projects/<krp_sha256>/`. The repository is not a source for
+project doctrine or mutable Kiln state; a relocated project receives a new
+identity and must be explicitly re-adopted.
 
 ## Fast Setup
 
@@ -91,7 +96,8 @@ kiln config set workGovernance.defaultPosture direct --approve
 kiln config set skills.selection.mode advisory --approve
 ```
 
-Project-specific doctrine belongs in `.kiln/instructions/<profile>.md`.
+Project-specific doctrine belongs in the bound private project's
+`instructions/<profile>.md`.
 Personal habits, language preferences, and private standards belong in
 `~/.kiln/instructions/<profile>.md`.
 
@@ -115,5 +121,5 @@ kiln sync --all
 The expected result is one source of truth:
 
 - global operator doctrine in `~/.kiln/config.yaml` and `~/.kiln/instructions`
-- repo doctrine in `.kiln/kiln.yaml` and `.kiln/instructions`
+- project doctrine in the private project's `config.yaml` and `instructions`
 - generated shims and native harness files as projections only

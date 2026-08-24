@@ -181,6 +181,16 @@ describe("CodexOAuthCredentialPoolService", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("stores credentials below the explicit global Kiln home", async () => {
+    const kilnHome = join(rootDir, "xdg", "kiln");
+    const service = new CodexOAuthCredentialPoolService({ kilnHome });
+
+    await service.linkCredential({ id: "selected", tokenFile: accountToken("account-a") });
+
+    expect(await readFile(join(kilnHome, "auth", "codex-oauth", "selected.json"), "utf8"))
+      .toContain("access");
+  });
+
   it("rejects a post-admission near-expiry credential without refreshing or mutating it", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "soon", tokenFile: accountToken("account-a", { expires_at: new Date(Date.now() + 60_000).toISOString() }) });

@@ -42,7 +42,7 @@ import {
   createKilnRuntimeManagedInvocationAttachment,
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import {
   MODEL_FACING_DEFAULT_PERMISSION_POLICY,
@@ -154,6 +154,11 @@ import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import {
   captureOperatorExecutionCatalogSnapshot,
   createOperatorTurnDispatchComposition,
   resolveOperatorContinuationBinding,
@@ -176,6 +181,7 @@ type TuiStartupTransport = "gateway" | "direct";
 interface TuiBootstrapOptions {
   readonly flags: TuiFlags;
   readonly cwd: string;
+  readonly kilnHome: string;
   readonly sessionManager: MultiProviderSessionManager;
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
@@ -1100,6 +1106,7 @@ async function bootstrapGatewaySession(
   options.startupProfiler?.mark("gateway-start-requested");
   const gateway = await startTuiGateway({
     sessionManager,
+    kilnHome: options.kilnHome,
     runtimeConfigurationRevisionProvider: () => readRuntimeConfigurationRevision(options.cwd),
     port: flags.port,
     systemPrompt,
@@ -1311,7 +1318,11 @@ async function bootstrapDirectSession(
   const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = { current: null };
   const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = { current: null };
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
-    () => resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(options.registry)),
+    () => resolveGuiOperatorDiscoveryResults(
+      getRuntimeProviderAvailability(options.registry),
+      undefined,
+      options.kilnHome,
+    ),
     [],
     {
       initialDiscovery: options.initialProviderDiscovery
@@ -1467,18 +1478,25 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupProfiler = createStartupProfiler("tui");
   startupProfiler.mark("command-entered");
   const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
+  const projectStateBinding = resolveProjectStateBinding(cwd);
   const globalConfig = readGlobalConfig();
-  const projectConfig = readKilnYaml(join(cwd, ".kiln"));
-  const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const projectConfig = readKilnYamlFile(projectStateBinding.configPath);
+  const resolvedKilnConfig = await loadKilnConfig(cwd, { projectStateBinding });
   const permissionPolicy = resolveModelFacingPermissionPolicy(resolvedKilnConfig?.permissions);
-  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
+  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd, { projectStateBinding });
   const admittedMcpServers = mcpResolution.diagnostics.length === 0
     ? Object.values(mcpResolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted")
     : [];
+  const worktreeBaseDir = join(projectStateBinding.tmpPath, "worktrees");
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, worktreeBaseDir);
   const { registry } = createDefaultRegistry({
+    kilnHome: projectStateBinding.kilnHome,
     canonicalMcpServers: admittedMcpServers,
     canonicalMcpProjectPath: cwd,
     runtimePermissionObservationProjectPath: cwd,
+    worktreeRepoRoot: cwd,
+    worktreeBaseDir,
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const providerDisplayInfo = getProviderDisplayInfo(registry);
   const providerIds = providerDisplayInfo.map((entry) => entry.id);
@@ -1502,14 +1520,23 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
-  const sessionStore = new SessionStore(cwd);
-  const transcriptStore = new TranscriptStore(cwd);
+  const sessionStore = new SessionStore(projectStateBinding);
+  const transcriptStore = new TranscriptStore(projectStateBinding);
   const operatorAdmissionEvidenceStore = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.runtimePath);
+  for (const fileName of [
+    "managed-direct-model-round-action-claims.sqlite",
+    "managed-direct-tool-action-claims.sqlite",
+  ]) {
+    assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, join(projectStateBinding.runtimePath, fileName));
+  }
   const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-    path: join(cwd, ".kiln", "runtime", "managed-direct-model-round-action-claims.sqlite"),
+    path: join(projectStateBinding.runtimePath, "managed-direct-model-round-action-claims.sqlite"),
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
-    path: join(cwd, ".kiln", "runtime", "managed-direct-tool-action-claims.sqlite"),
+    path: join(projectStateBinding.runtimePath, "managed-direct-tool-action-claims.sqlite"),
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
   await recoverStaleOpenTranscriptSessions({
     transcriptStore,
@@ -1521,7 +1548,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     createCliTranscriptSessionTokenUsageReader(transcriptStore),
   );
   const startupProviderIds = providerIds;
-  const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  const contextArtifactCachePath = join(projectStateBinding.cachePath, "context-artifacts.json");
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.cachePath);
+  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, contextArtifactCachePath);
+  const contextArtifactCache = await getProjectContextArtifactCache(
+    contextArtifactCachePath,
+    projectStateBinding.projectStateRoot,
+  );
   startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
     globalConfig,
@@ -1533,6 +1566,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   });
   startupProfiler.mark("builtin-tool-options-loaded");
   const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+    projectStateBinding,
     formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
   });
   let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
@@ -1566,11 +1600,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(managedRouteGlobalConfig, {
       cwd,
+      projectStateBinding,
+      runtimeStateRoot: projectStateBinding.runtimePath,
       registry,
       surface: "tui",
       maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
       isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        kilnHome: projectStateBinding.kilnHome,
         builtinToolOptions: () => builtinToolOptions,
         canonicalMcpServers: admittedMcpServers,
         runtimeToolActionClaims: managedDirectToolActionClaims,
@@ -1663,7 +1700,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   }
   const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
 
-  const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
+  const initialProviderDiscovery = readProviderDiscoveryCache(cwd, { projectStateBinding });
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>({
     initialCatalog: operatorExecutionCatalog,
     captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
@@ -1672,6 +1709,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       readConfigurationRevision: readRuntimeConfigurationRevision,
     }),
     cwd,
+    projectStateBinding,
   });
   const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
     readConfigSnapshot: () => {
@@ -1683,6 +1721,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const bootstrap = await bootstrapTuiSession({
     flags,
     cwd,
+    kilnHome: projectStateBinding.kilnHome,
     sessionManager,
     registry,
     executionRouteSelection,
@@ -1702,7 +1741,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     resumeSessionHydrator,
     operatorVoice,
     initialProviderDiscovery,
-    onProviderDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
+    onProviderDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery, { projectStateBinding }),
     startupProfiler,
     operatorTurnDispatcher: operatorTurnComposition.dispatcher,
     operatorTurnExecutionBridge: operatorTurnComposition.bridge,

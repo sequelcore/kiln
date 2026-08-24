@@ -17,6 +17,8 @@ import {
 } from "../application/resume-strategy-policy.js";
 import type { SessionLedger } from "../application/session-ledger.js";
 import { renderSessionLedger } from "../application/session-ledger.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import type { PersistedSessionMeta } from "./session-store.js";
 import type { ProviderId } from "./session-registry.js";
 import type { WorktreeManager } from "./worktree-manager.js";
@@ -214,9 +216,14 @@ export class SessionManager {
     preferredProvider?: ProviderId,
     resumeStrategyFeedback?: ResumeFeedback,
   ): Promise<SessionContext> {
+    // Project state is keyed by the canonical project root. Resolve ancestry
+    // before deriving the private binding so nested invocations cannot create a
+    // second domains catalog for the same repository.
+    const canonicalProjectPath = resolveProjectRoot({ explicitPath: projectPath }).rootPath;
+    const projectStateBinding = resolveProjectStateBinding(canonicalProjectPath);
     const registry = this.appConfig.createRegistry();
-    registry.loadInstalledDomains(projectPath);
-    this.domain = registry.detectAndMerge(projectPath);
+    registry.loadInstalledDomains(projectStateBinding.domainsPath);
+    this.domain = registry.detectAndMerge(canonicalProjectPath);
 
     const mcpServerEntryPath = join(
       dirname(fileURLToPath(import.meta.url)),
@@ -226,7 +233,7 @@ export class SessionManager {
     this.task = task;
     this.sessionStartTime = Date.now();
 
-    let workingDirectory = projectPath;
+    let workingDirectory = canonicalProjectPath;
     let worktreePath: string | undefined;
 
     if (isolate && this.worktreeManager) {
@@ -242,7 +249,7 @@ export class SessionManager {
       ? extractTouchedFilePaths(continuedMeta?.exactArtifacts ?? [])
       : [];
     const moduleArtifactKeys = (
-      await Promise.all(touchedFiles.slice(0, 5).map((filePath) => buildModuleArtifactKey(projectPath, filePath)))
+      await Promise.all(touchedFiles.slice(0, 5).map((filePath) => buildModuleArtifactKey(canonicalProjectPath, filePath)))
     ).filter((key): key is string => key !== undefined);
     const {
       resumeStrategy,
@@ -252,7 +259,7 @@ export class SessionManager {
       shouldUseProviderNativeResume,
     } = buildResumeProjectionState({
       cache: this.contextArtifactCache,
-      projectPath,
+      projectPath: canonicalProjectPath,
       task,
       worktreePath,
       continuationSessionId,
@@ -268,7 +275,7 @@ export class SessionManager {
       useCache: governancePolicy.useCache,
       artifactCache: this.contextArtifactCache,
       moduleArtifactKeys,
-      projectPath,
+      projectPath: canonicalProjectPath,
       task,
       continuationSessionId,
     });
@@ -299,7 +306,7 @@ export class SessionManager {
       task,
       domain: this.domain,
       projectedContext,
-      projectPath,
+      projectPath: canonicalProjectPath,
     });
 
     return {

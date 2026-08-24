@@ -1,7 +1,6 @@
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   CodexOAuthAdapter,
@@ -20,10 +19,13 @@ import { FileProviderUsageStore, type ProviderUsageStore } from "../provider-usa
 import { CredentialHealthStore } from "./credential-health-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
+import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export const CODEX_OAUTH_POOL_PROVIDER_ID = "codex-oauth";
 
 export interface CodexOAuthCredentialPoolServiceConfig {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
   readonly watcher?: CredentialWatcher;
@@ -107,7 +109,7 @@ export class CodexOAuthCredentialPoolService {
   private catalogLock: Promise<void> = Promise.resolve();
 
   constructor(config: CodexOAuthCredentialPoolServiceConfig = {}) {
-    this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
+    this.rootDir = resolveRuntimeStoreRoot(config, "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.watcher = config.watcher;
     this.observability = config.observability;

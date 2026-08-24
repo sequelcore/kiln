@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
+import type { ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const fsMocks = vi.hoisted(() => ({
   files: new Map<string, string>(),
@@ -62,6 +63,47 @@ const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
 const loadAgentDefinitionsMock = loadAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
 
+const SYNTHETIC_PROJECT_PATH = join("C:", "synthetic", "kiln-project");
+const SYNTHETIC_PROJECT_STATE_ROOT = join("C:", "synthetic", "kiln-private-state");
+const SYNTHETIC_PROJECT_BINDING: ProjectStateBinding = {
+  canonicalRoot: SYNTHETIC_PROJECT_PATH,
+  kilnHome: join("C:", "synthetic", "kiln-home"),
+  projectRuntimeId: `krp_${"a".repeat(64)}`,
+  projectStateRoot: SYNTHETIC_PROJECT_STATE_ROOT,
+  adoptionManifestPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "adoption.json"),
+  configPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "config.yaml"),
+  contextPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "context"),
+  agentsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "agents"),
+  instructionsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "instructions"),
+  skillsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "skills"),
+  runtimePath: join(SYNTHETIC_PROJECT_STATE_ROOT, "runtime"),
+  sessionsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "sessions"),
+  cachePath: join(SYNTHETIC_PROJECT_STATE_ROOT, "cache"),
+  backupsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "backups"),
+  mutationsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "mutations"),
+  projectionsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "projections"),
+  domainsPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "domains"),
+  evidencePath: join(SYNTHETIC_PROJECT_STATE_ROOT, "evidence"),
+  memoryPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "memory"),
+  feedbackPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "feedback"),
+  benchmarksPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "benchmarks"),
+  tmpPath: join(SYNTHETIC_PROJECT_STATE_ROOT, "tmp"),
+};
+
+const unresolvedRouteAdmission = () => ({
+  status: "unresolved" as const,
+  routeId: "synthetic-unresolved-route",
+  reasons: [{ code: "proof-unknown" as const }],
+});
+
+function syncAgents(options: Parameters<typeof syncNativeAgentProjections>[1] = {}) {
+  return syncNativeAgentProjections(SYNTHETIC_PROJECT_PATH, {
+    projectStateBinding: SYNTHETIC_PROJECT_BINDING,
+    resolveRouteAdmission: unresolvedRouteAdmission,
+    ...options,
+  });
+}
+
 describe("native-agent-projection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -89,7 +131,7 @@ describe("native-agent-projection", () => {
   it("returns synced:0 and all true when no agents defined", async () => {
     loadAgentDefinitionsMock.mockResolvedValue([]);
 
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result).toMatchObject({
       claude: true,
@@ -99,7 +141,10 @@ describe("native-agent-projection", () => {
       errors: [],
       outcomes: [],
     });
-    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project", {});
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith(
+      SYNTHETIC_PROJECT_PATH,
+      { projectStateBinding: SYNTHETIC_PROJECT_BINDING },
+    );
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
@@ -146,7 +191,7 @@ describe("native-agent-projection", () => {
       communication: { requiredContent: ["finding"] },
     }]);
 
-    const result = await syncNativeAgentProjections("/workspace/project", {
+    const result = await syncAgents({
       communicationCandidates: [
         { source: "global", intent: { locale: "en-US" } },
         { source: "project", intent: { locale: "es-MX", requiredContent: ["verification"] } },
@@ -174,11 +219,11 @@ describe("native-agent-projection", () => {
     }, "claude-opus-4-1")).toThrow("cannot exactly project");
   });
 
-  it("passes an explicit userHome to the agent loader and never falls back to the OS home", async () => {
+  it("passes explicit userHome and private project binding without falling back to the OS home", async () => {
     const userHome = "/synthetic/user-home";
     loadAgentDefinitionsMock.mockImplementation(async (projectPath: string, options: { userHome?: string }) => {
-      expect(projectPath).toBe("/workspace/project");
-      expect(options).toEqual({ userHome });
+      expect(projectPath).toBe(SYNTHETIC_PROJECT_PATH);
+      expect(options).toEqual({ userHome, projectStateBinding: SYNTHETIC_PROJECT_BINDING });
       return [{
         name: "synthetic-agent",
         role: "Synthetic agent",
@@ -189,10 +234,13 @@ describe("native-agent-projection", () => {
       }];
     });
 
-    const result = await syncNativeAgentProjections("/workspace/project", { userHome });
+    const result = await syncAgents({ userHome });
 
     expect(result.errors).toEqual([]);
-    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project", { userHome });
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith(
+      SYNTHETIC_PROJECT_PATH,
+      { userHome, projectStateBinding: SYNTHETIC_PROJECT_BINDING },
+    );
     expect(homedirMock).not.toHaveBeenCalled();
     expect(fsMocks.files.has(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "synthetic-agent.toml"))).toBe(false);
@@ -315,7 +363,7 @@ describe("native-agent-projection", () => {
       },
     ]);
 
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result).toMatchObject({
       claude: true,
@@ -341,7 +389,7 @@ describe("native-agent-projection", () => {
       scope: "project",
     }]);
 
-    const result = await syncNativeAgentProjections("/workspace/project", { dryRun: true });
+    const result = await syncAgents({ dryRun: true });
 
     expect(mkdirSyncMock).not.toHaveBeenCalled();
     expect(writeFileSyncMock).not.toHaveBeenCalled();
@@ -364,7 +412,7 @@ describe("native-agent-projection", () => {
       },
     ]);
 
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result.errors).toHaveLength(0);
     expect(result.synced).toBe(0);
@@ -383,7 +431,7 @@ describe("native-agent-projection", () => {
         scope: "project",
       },
     ]);
-    const first = await syncNativeAgentProjections("/workspace/project");
+    const first = await syncAgents();
     expect(first.errors).toHaveLength(0);
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(true);
 
@@ -400,7 +448,7 @@ describe("native-agent-projection", () => {
       },
     ]);
 
-    const second = await syncNativeAgentProjections("/workspace/project");
+    const second = await syncAgents();
 
     expect(second.errors).toHaveLength(0);
     expect(second.synced).toBe(0);
@@ -428,7 +476,7 @@ describe("native-agent-projection", () => {
       scope: "project" as const,
     };
     loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
-    await syncNativeAgentProjections("/workspace/project");
+    await syncAgents();
 
     const codexPath = join("/home/tester", ".codex", "agents", "planner.toml");
     fsMocks.files.set(codexPath, "operator drift\n");
@@ -438,7 +486,7 @@ describe("native-agent-projection", () => {
       authorityProfileId: "foundation-readonly-plan",
     }]);
 
-    const result = await syncNativeAgentProjections("/workspace/project", { force: true });
+    const result = await syncAgents({ force: true });
 
     expect(result.codex).toBe(false);
     expect(result.errors).toContain(
@@ -462,7 +510,7 @@ describe("native-agent-projection", () => {
       scope: "project" as const,
     }]);
 
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result.errors).toHaveLength(0);
     expect(unlinkSyncMock).not.toHaveBeenCalled();
@@ -479,7 +527,7 @@ describe("native-agent-projection", () => {
       scope: "project" as const,
     };
     loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
-    await syncNativeAgentProjections("/workspace/project");
+    await syncAgents();
     const statePath = join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json");
     const before = fsMocks.files.get(statePath);
     vi.clearAllMocks();
@@ -492,7 +540,7 @@ describe("native-agent-projection", () => {
       authorityProfileId: "foundation-readonly-plan",
     }]);
 
-    const result = await syncNativeAgentProjections("/workspace/project", { dryRun: true });
+    const result = await syncAgents({ dryRun: true });
 
     expect(result.outcomes).toEqual(expect.arrayContaining([
       expect.objectContaining({ targetId: "codex-agent:planner", status: "planned" }),
@@ -510,10 +558,10 @@ describe("native-agent-projection", () => {
       instructions: "Retired.",
       scope: "project" as const,
     }]);
-    await syncNativeAgentProjections("/workspace/project");
+    await syncAgents();
 
     loadAgentDefinitionsMock.mockResolvedValueOnce([]);
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result.errors).toHaveLength(0);
     expect(unlinkSyncMock).toHaveBeenCalledTimes(3);
@@ -545,7 +593,7 @@ describe("native-agent-projection", () => {
       fsMocks.files.set(targetPath, content);
     });
 
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result.claude).toBe(true);
     expect(result.codex).toBe(false);
@@ -566,7 +614,7 @@ describe("native-agent-projection", () => {
       },
     ]);
 
-    const result = await syncNativeAgentProjections("/workspace/project");
+    const result = await syncAgents();
 
     expect(result.errors).toHaveLength(0);
     const state = JSON.parse(fsMocks.files.get(join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json")) ?? "{}") as {
@@ -596,13 +644,13 @@ describe("native-agent-projection", () => {
         scope: "project",
       },
     ]);
-    const first = await syncNativeAgentProjections("/workspace/project");
+    const first = await syncAgents();
     expect(first.errors).toHaveLength(0);
 
     const codexAgentPath = join("/home/tester", ".codex", "agents", "planner.toml");
     fsMocks.files.set(codexAgentPath, "user drift\n");
 
-    const second = await syncNativeAgentProjections("/workspace/project");
+    const second = await syncAgents();
 
     expect(second.claude).toBe(true);
     expect(second.codex).toBe(false);
@@ -612,7 +660,7 @@ describe("native-agent-projection", () => {
     ]);
     expect(fsMocks.files.get(codexAgentPath)).toBe("user drift\n");
 
-    const forced = await syncNativeAgentProjections("/workspace/project", { force: true });
+    const forced = await syncAgents({ force: true });
 
     expect(forced.codex).toBe(true);
     expect(forced.errors).toHaveLength(0);
@@ -647,7 +695,7 @@ describe("native-agent-projection", () => {
         },
       ]);
 
-      const result = await syncNativeAgentProjections("/workspace/project");
+      const result = await syncAgents();
 
       expect(result.errors).toHaveLength(0);
       expect(fsMocks.files.has(join("/scratch/codex-home", "agents", "scout.toml"))).toBe(true);

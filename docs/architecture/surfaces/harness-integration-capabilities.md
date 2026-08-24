@@ -112,7 +112,8 @@ harness owns discovery, trust, and the lifecycle of its short-lived stdio
 bridge. The installed `kiln native-harness control-plane-mcp --harness
 <harness>` command owns only protocol translation. It derives project identity
 from the child process working directory, resolves the canonical adopted root,
-and validates its `.kiln/kiln.yaml`; neither MCP tools nor command arguments may
+and validates the private project's `config.yaml` and identity-only
+`adoption.json`; neither MCP tools nor command arguments may
 select a project. The runtime maps no-argument read-only operations to the
 CLI application's canonical status, resolved-governance, and harness
 capability query owners. It also exposes Agent Task submit, status, result,
@@ -180,8 +181,8 @@ operator when the harness requires it. Governed MCP sync installs the global
 user-scoped declaration for each harness and records owned fields and drift
 state under Kiln's global runtime directory. Each harness starts its own stdio
 bridge; that bridge ensures the global Operator Runtime independently of the
-HTTP Model Gateway process. Legacy project-local declarations are migration
-input only and are removed only when Kiln can prove ownership. Generated native
+HTTP Model Gateway process. Repository-local legacy declarations are not read,
+migrated, or treated as authority. Generated native
 MCP files are projection state and are not committed as doctrine. Codex App's MCP lifecycle and
 tool calls are documented by the [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
 The [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)

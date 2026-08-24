@@ -1,7 +1,13 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { parse } from "yaml";
+import {
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
+import { resolveProjectRoot } from "./project-root-resolver.js";
+import { resolveKilnHomePath } from "../config/global-config/path.js";
 import {
   defineWorkClassification,
   type AgentTier,
@@ -275,14 +281,21 @@ function readDefinitionsFromDirectory(
   return definitions;
 }
 
-export interface LoadAgentDefinitionsOptions {
+export interface LoadAgentDefinitionsOptions extends ProjectStateRootOptions {
   readonly userHome?: string;
+  /** Explicit global catalog directory; defaults to the canonical Kiln home. */
+  readonly globalAgentsDirectory?: string;
+  /** Explicit private project catalog directory supplied by composition. */
+  readonly projectAgentsDirectory?: string;
+  /** Already-established private project binding. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export async function loadGlobalAgentDefinitions(
   options: LoadAgentDefinitionsOptions = {},
 ): Promise<KilnAgentDefinition[]> {
-  const globalDirectory = join(options.userHome ?? homedir(), ".kiln", "agents");
+  const globalDirectory = options.globalAgentsDirectory
+    ?? join(resolveConfiguredKilnHome(options), "agents");
   return readDefinitionsFromDirectory(globalDirectory, "global");
 }
 
@@ -290,7 +303,9 @@ export async function loadAgentDefinitions(
   projectPath: string,
   options: LoadAgentDefinitionsOptions = {},
 ): Promise<KilnAgentDefinition[]> {
-  const projectDirectory = join(projectPath, ".kiln", "agents");
+  const projectDirectory = options.projectAgentsDirectory
+    ?? options.projectStateBinding?.agentsPath
+    ?? resolvePrivateProjectAgentsDirectory(projectPath, options);
 
   const merged = new Map<string, KilnAgentDefinition>();
 
@@ -303,6 +318,29 @@ export async function loadAgentDefinitions(
   }
 
   return [...merged.values()];
+}
+
+function resolvePrivateProjectAgentsDirectory(
+  projectPath: string,
+  options: LoadAgentDefinitionsOptions,
+): string {
+  const projectRoot = resolveProjectRoot({
+    explicitPath: projectPath,
+    ...(options.userHome ? { userHome: options.userHome } : {}),
+  }).rootPath;
+  const kilnHome = options.kilnHome
+    ?? (options.userHome ? join(options.userHome, ".kiln") : undefined);
+  const binding = resolveProjectStateBinding(projectRoot, {
+    ...(kilnHome ? { kilnHome } : {}),
+    ...(options.platform ? { platform: options.platform } : {}),
+  });
+  return binding.agentsPath;
+}
+
+function resolveConfiguredKilnHome(options: LoadAgentDefinitionsOptions): string {
+  if (options.kilnHome) return options.kilnHome;
+  if (options.userHome) return join(options.userHome, ".kiln");
+  return resolveKilnHomePath();
 }
 
 export function findAgent(

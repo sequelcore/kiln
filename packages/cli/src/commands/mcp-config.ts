@@ -8,6 +8,8 @@ import {
   syncGlobalControlPlaneMcpProjections,
   type GlobalControlPlaneMcpProjectionTargetResult,
 } from "../config/global-control-plane-mcp-projection.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 export interface McpConfigFlags {
   readonly client?: string;
@@ -47,10 +49,13 @@ export async function mcpConfigCommand(
     importCredential(flags.credential, flags.fromEnv);
     return;
   }
+  const projectPath = resolveProjectRoot({ cwd: process.cwd() }).rootPath;
+  const projectStateBinding = resolveProjectStateBinding(projectPath);
   const harnesses = parseHarnesses(flags.client);
   if (flags.uninstall) {
-    const nativeResult = await uninstallNativeMcpProjections(process.cwd(), {
+    const nativeResult = await uninstallNativeMcpProjections(projectPath, {
       harnesses,
+      projectStateBinding,
       ...(flags.repair ? { force: true } : {}),
     });
     const globalResult = await syncGlobalControlPlaneMcpProjections({
@@ -67,7 +72,7 @@ export async function mcpConfigCommand(
     if (blocked.length > 0) throw new Error(`MCP projection uninstall did not complete for: ${blocked.map((target) => target.harness).join(", ")}`);
     return;
   }
-  const resolution = loadResolvedKilnMcpConfiguration(process.cwd());
+  const resolution = loadResolvedKilnMcpConfiguration(projectPath, { projectStateBinding });
   if (resolution.diagnostics.length > 0) {
     throw new Error(`Canonical MCP configuration is invalid: ${resolution.diagnostics.map((item) => item.code).join(", ")}`);
   }
@@ -89,9 +94,10 @@ export async function mcpConfigCommand(
   }
   const result = await syncNativeMcpProjections(
     resolution,
-    process.cwd(),
+    projectPath,
     {
       harnesses,
+      projectStateBinding,
       ...(flags.repair ? { force: true } : {}),
     },
   );

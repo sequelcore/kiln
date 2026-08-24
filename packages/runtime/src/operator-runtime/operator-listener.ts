@@ -26,7 +26,7 @@ export const OPERATOR_RUNTIME_INSPECTION_MAX_TIMEOUT_MS = 5_000;
 
 export const OPERATOR_RUNTIME_BINDING_HEADERS = {
   projectRuntimeId: "x-kiln-project-runtime-id",
-  markerDigest: "x-kiln-marker-digest",
+  compositionRevision: "x-kiln-composition-revision",
   principalKind: "x-kiln-principal-kind",
   principalId: "x-kiln-principal-id",
   sessionId: "x-kiln-session-id",
@@ -51,11 +51,11 @@ export interface OperatorRuntimeApplicationCommand {
 }
 
 export interface OperatorRuntimeSessionOpenInput {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly canonicalRoot: string;
   readonly binding: {
     readonly projectRuntimeId: string;
-    readonly markerDigest: string;
+    readonly compositionRevision: string;
   };
   readonly principal: OperatorRuntimePrincipal;
   readonly sessionId: string;
@@ -358,16 +358,16 @@ function validateLoopbackBoundary(request: Request, port: number): Response | un
 
 function readExpectedBinding(headers: Headers): {
   readonly projectRuntimeId: string;
-  readonly markerDigest: string;
+  readonly compositionRevision: string;
   readonly principal: OperatorRuntimePrincipal;
   readonly sessionId: string;
 } | undefined {
   const projectRuntimeId = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId);
-  const markerDigest = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest);
+  const compositionRevision = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.compositionRevision);
   const principalKind = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalKind);
   const principalId = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalId);
   const sessionId = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.sessionId);
-  const projectBinding = OperatorProjectBindingSchema.safeParse({ projectRuntimeId, markerDigest });
+  const projectBinding = OperatorProjectBindingSchema.safeParse({ projectRuntimeId, compositionRevision });
   const principal = OperatorRuntimePrincipalSchema.safeParse(
     principalKind === "native-harness"
       ? { kind: principalKind, harness: principalId }
@@ -447,7 +447,7 @@ function parseSessionOpenInput(body: Uint8Array): OperatorRuntimeSessionOpenInpu
   if (!isPlainRecord(value)) return undefined;
   const expectedKeys = ["binding", "canonicalRoot", "principal", "schemaVersion", "sessionId"];
   if (!hasExactKeys(value, expectedKeys)) return undefined;
-  if (value.schemaVersion !== 2) return undefined;
+  if (value.schemaVersion !== 3) return undefined;
   if (
     typeof value.canonicalRoot !== "string" ||
     value.canonicalRoot.length < 1 ||
@@ -468,7 +468,7 @@ function parseSessionOpenInput(body: Uint8Array): OperatorRuntimeSessionOpenInpu
     return undefined;
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     canonicalRoot: value.canonicalRoot,
     binding: binding.data,
     principal: principal.data,
@@ -481,7 +481,7 @@ function parseSessionOpenResult(value: unknown): OperatorRuntimeSessionOpenResul
   if (
     typeof value.credential !== "string" ||
     value.credential.length > 2_048 ||
-    !/^v2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential) ||
+    !/^v3\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential) ||
     typeof value.expiresAt !== "number" ||
     !Number.isSafeInteger(value.expiresAt) ||
     value.expiresAt < 0

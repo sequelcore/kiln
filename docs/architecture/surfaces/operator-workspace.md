@@ -140,9 +140,10 @@ It should consume shared resource summaries and resource-read contracts for:
 - memory graph resources
 - external evidence bundles
 
-Configured builtin tool surfaces expose workspace external-engagement artifacts
-under `kiln://external-engagement/...` when `.kiln/external-engagement`
-contains generated reports. The first resource set includes an artifact index,
+Configured builtin tool surfaces expose private project external-engagement
+artifacts under `kiln://external-engagement/...` when the bound private
+project's `evidence/external-engagement` directory contains generated reports.
+The first resource set includes an artifact index,
 file-backed artifact reads, and evidence-artifact reads by provider artifact
 id. The artifact index derives report kind from content when possible and
 projects aggregate evidence, signal, candidate, review, decision, and proposal

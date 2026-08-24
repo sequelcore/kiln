@@ -1,10 +1,11 @@
-import { homedir } from "node:os";
+import { resolveCoreKilnHome } from "@kilnai/core";
 import { join } from "node:path";
 
 export function resolveGlobalConfigPath(): string {
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
-  if (xdgConfigHome) {
-    return join(xdgConfigHome, "kiln", "config.yaml");
-  }
-  return join(homedir(), ".kiln", "config.yaml");
+  return join(resolveKilnHomePath(), "config.yaml");
+}
+
+/** Canonical operator Kiln home shared by global and private-project state. */
+export function resolveKilnHomePath(): string {
+  return resolveCoreKilnHome();
 }

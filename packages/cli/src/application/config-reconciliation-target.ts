@@ -1,6 +1,7 @@
 import type { KilnConfigReconciliationTarget } from "@kilnai/gateway-contracts";
 import { captureCanonicalReconciliationGeneration } from "./config-reconciliation-generation.js";
 import { withConfigReconciliationTargetLock } from "./config-reconciliation-lock.js";
+import type { ConfigReconciliationGenerationOptions } from "./config-reconciliation-generation.js";
 
 export type ConfigReconciliationTargetResult<T> =
   | { readonly status: "completed"; readonly generation: string; readonly value: T }
@@ -11,13 +12,14 @@ export function runConfigReconciliationTarget<T>(
   projectPath: string,
   target: KilnConfigReconciliationTarget,
   run: () => T | Promise<T>,
+  options: ConfigReconciliationGenerationOptions = {},
 ): Promise<ConfigReconciliationTargetResult<T>> {
   return withConfigReconciliationTargetLock(projectPath, target, async () => {
-    const admittedGeneration = captureCanonicalReconciliationGeneration(projectPath, target);
+    const admittedGeneration = captureCanonicalReconciliationGeneration(projectPath, target, options);
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const generation = captureCanonicalReconciliationGeneration(projectPath, target);
+      const generation = captureCanonicalReconciliationGeneration(projectPath, target, options);
       const value = await run();
-      if (captureCanonicalReconciliationGeneration(projectPath, target) === generation) {
+      if (captureCanonicalReconciliationGeneration(projectPath, target, options) === generation) {
         return generation === admittedGeneration
           ? { status: "completed", generation, value }
           : { status: "superseded", generation: admittedGeneration };

@@ -1,26 +1,49 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   listGlobalInstructionShimTargets,
-  readGlobalInstructionShimProjectionSnapshots,
-  syncGlobalInstructionShimProjections,
+  readGlobalInstructionShimProjectionSnapshots as readGlobalInstructionShimProjectionSnapshotsRaw,
+  syncGlobalInstructionShimProjections as syncGlobalInstructionShimProjectionsRaw,
+  type GlobalInstructionShimProjectionOptions,
 } from "../../src/application/global-instruction-shim-projection.js";
-import { readNativeProjectionInstallState } from "../../src/config/native-projection-state.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
+import {
+  readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
+} from "../../src/config/native-projection-state.js";
 
-const FIXTURE_ROOT = join(process.cwd(), ".kiln", "tmp", "global-instruction-shim-projection-test");
+const FIXTURE_ROOT = mkdtempSync(join(tmpdir(), "kiln-global-instruction-shim-projection-"));
 const PROJECT_PATH = join(FIXTURE_ROOT, "project");
 const USER_HOME = join(FIXTURE_ROOT, "home");
+const KILN_HOME = join(USER_HOME, ".kiln");
+const GLOBAL_PROJECTION_STATE_DIR = resolveGlobalNativeProjectionStateDir(USER_HOME);
+const PROJECT_STATE_BINDING = (() => {
+  mkdirSync(PROJECT_PATH, { recursive: true });
+  return resolveProjectStateBinding(PROJECT_PATH, { kilnHome: KILN_HOME });
+})();
 const FIXED_TIMESTAMP = "2026-07-04T00:00:00.000Z";
 const ORIGINAL_XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
 
 function resetFixture(): void {
-  rmSync(FIXTURE_ROOT, { recursive: true, force: true });
-  mkdirSync(join(PROJECT_PATH, ".kiln"), { recursive: true });
-  mkdirSync(join(USER_HOME, ".kiln", "instructions"), { recursive: true });
+  rmSync(PROJECT_PATH, { recursive: true, force: true });
+  rmSync(USER_HOME, { recursive: true, force: true });
+  rmSync(join(FIXTURE_ROOT, "xdg-config"), { recursive: true, force: true });
+  rmSync(PROJECT_STATE_BINDING.projectStateRoot, { recursive: true, force: true });
+  mkdirSync(PROJECT_PATH, { recursive: true });
+  mkdirSync(PROJECT_STATE_BINDING.projectStateRoot, { recursive: true });
+  mkdirSync(join(KILN_HOME, "instructions"), { recursive: true });
+  mkdirSync(join(FIXTURE_ROOT, "xdg-config", "kiln"), { recursive: true });
+  writeFileSync(join(KILN_HOME, "config.yaml"), [
+    "version: '4'",
+    "activeInstructionProfiles:",
+    "  - sequel-engineering",
+    "",
+  ].join("\n"), "utf-8");
   writeFileSync(join(PROJECT_PATH, "package.json"), JSON.stringify({ name: "shim-project" }), "utf-8");
-  writeFileSync(join(PROJECT_PATH, ".kiln", "kiln.yaml"), [
+  writeFileSync(PROJECT_STATE_BINDING.configPath, [
     "version: \"1\"",
     "activeInstructionProfiles:",
     "  - sequel-engineering",
@@ -29,8 +52,34 @@ function resetFixture(): void {
   writeGlobalProfile("No dead code.\n\nCodex OAuth, OpenCode Go, and OpenCode Zen are Kiln direct providers.");
 }
 
-function writeGlobalProfile(instructions: string): void {
-  writeFileSync(join(USER_HOME, ".kiln", "instructions", "sequel-engineering.md"), [
+function projectionOptions(options: GlobalInstructionShimProjectionOptions = {}): GlobalInstructionShimProjectionOptions {
+  return {
+    ...options,
+    userHome: options.userHome ?? USER_HOME,
+    projectStateBinding: options.projectStateBinding ?? PROJECT_STATE_BINDING,
+  };
+}
+
+function syncGlobalInstructionShimProjections(
+  projectPath: string,
+  options: GlobalInstructionShimProjectionOptions = {},
+): ReturnType<typeof syncGlobalInstructionShimProjectionsRaw> {
+  return syncGlobalInstructionShimProjectionsRaw(projectPath, projectionOptions(options));
+}
+
+function readGlobalInstructionShimProjectionSnapshots(
+  projectPath: string,
+  options: GlobalInstructionShimProjectionOptions = {},
+): ReturnType<typeof readGlobalInstructionShimProjectionSnapshotsRaw> {
+  return readGlobalInstructionShimProjectionSnapshotsRaw(projectPath, projectionOptions(options));
+}
+
+function writeGlobalProfile(
+  instructions: string,
+  instructionsRoot = join(KILN_HOME, "instructions"),
+): void {
+  mkdirSync(instructionsRoot, { recursive: true });
+  writeFileSync(join(instructionsRoot, "sequel-engineering.md"), [
     "---",
     "name: sequel-engineering",
     "displayName: Sequel Engineering",
@@ -66,6 +115,7 @@ describe("global instruction shim projection", () => {
 
   afterAll(() => {
     process.env.XDG_CONFIG_HOME = ORIGINAL_XDG_CONFIG_HOME;
+    rmSync(FIXTURE_ROOT, { recursive: true, force: true });
   });
 
   beforeEach(() => {
@@ -126,12 +176,71 @@ describe("global instruction shim projection", () => {
     expect(claude).toContain("target: claude");
     expect(opencode).toContain("target: opencode");
 
-    const state = readNativeProjectionInstallState(join(PROJECT_PATH, ".kiln"));
+    const state = readNativeProjectionInstallState(GLOBAL_PROJECTION_STATE_DIR);
     expect(Object.keys(state.targets).sort()).toEqual([
       "claude-global-instructions",
       "codex-global-instructions",
       "opencode-global-instructions",
     ]);
+  });
+
+  it("shares install and drift evidence across distinct project bindings", async () => {
+    const secondProjectPath = join(FIXTURE_ROOT, "second-project");
+    mkdirSync(secondProjectPath, { recursive: true });
+    const secondBinding = resolveProjectStateBinding(secondProjectPath, {
+      kilnHome: KILN_HOME,
+    });
+    mkdirSync(secondBinding.projectStateRoot, { recursive: true });
+    writeFileSync(join(secondProjectPath, "package.json"), JSON.stringify({ name: "second-shim-project" }), "utf-8");
+    writeFileSync(secondBinding.configPath, [
+      "version: \"1\"",
+      "activeInstructionProfiles:",
+      "  - sequel-engineering",
+      "",
+    ].join("\n"), "utf-8");
+
+    const first = await syncGlobalInstructionShimProjections(PROJECT_PATH, {
+      userHome: USER_HOME,
+      timestamp: FIXED_TIMESTAMP,
+    });
+    expect(first.errors).toEqual([]);
+    expect(readNativeProjectionInstallState(GLOBAL_PROJECTION_STATE_DIR).targets["codex-global-instructions"])
+      .toBeDefined();
+    expect(existsSync(join(PROJECT_STATE_BINDING.projectionsPath, "install-state.json"))).toBe(false);
+
+    const second = await syncGlobalInstructionShimProjectionsRaw(secondProjectPath, {
+      userHome: USER_HOME,
+      projectStateBinding: secondBinding,
+      timestamp: "2026-07-04T01:00:00.000Z",
+    });
+    expect(second.errors).toEqual([]);
+    expect(second.targets.every((target) => target.status === "unchanged")).toBe(true);
+    expect(existsSync(join(secondBinding.projectionsPath, "install-state.json"))).toBe(false);
+
+    writeFileSync(targetPath("codex-global-instructions"), "# drifted shared global shim", "utf-8");
+    const secondSnapshot = await readGlobalInstructionShimProjectionSnapshotsRaw(secondProjectPath, {
+      userHome: USER_HOME,
+      projectStateBinding: secondBinding,
+    });
+    expect(secondSnapshot).toContainEqual(expect.objectContaining({
+      targetId: "codex-global-instructions",
+      status: "drifted",
+    }));
+  });
+
+  it("keeps production projection lifecycle state in the canonical XDG Kiln home", async () => {
+    const canonicalKilnHome = join(FIXTURE_ROOT, "xdg-config", "kiln");
+    writeGlobalProfile("Canonical XDG doctrine.", join(canonicalKilnHome, "instructions"));
+
+    const result = await syncGlobalInstructionShimProjectionsRaw(PROJECT_PATH, {
+      projectStateBinding: PROJECT_STATE_BINDING,
+      timestamp: FIXED_TIMESTAMP,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(readNativeProjectionInstallState(join(canonicalKilnHome, "runtime", "native-projections"))
+      .targets["codex-global-instructions"]).toBeDefined();
+    expect(existsSync(join(homedir(), ".kiln", "runtime", "native-projections", "install-state.json"))).toBe(false);
   });
 
   it("plans all global shims without writing targets, backups, or install state", async () => {
@@ -144,8 +253,10 @@ describe("global instruction shim projection", () => {
     expect(result.outcomes).toHaveLength(3);
     expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
     expect(listGlobalInstructionShimTargets(USER_HOME).every((target) => !existsSync(target.filePath))).toBe(true);
-    expect(existsSync(join(PROJECT_PATH, ".kiln", "install-state.json"))).toBe(false);
-    expect(existsSync(join(PROJECT_PATH, ".kiln", "backups"))).toBe(false);
+    expect(existsSync(join(GLOBAL_PROJECTION_STATE_DIR, "install-state.json"))).toBe(false);
+    expect(existsSync(join(GLOBAL_PROJECTION_STATE_DIR, "backups"))).toBe(false);
+    expect(existsSync(join(PROJECT_STATE_BINDING.projectionsPath, "install-state.json"))).toBe(false);
+    expect(existsSync(PROJECT_STATE_BINDING.backupsPath)).toBe(false);
   });
 
   it("is idempotent when managed global shims are unchanged", async () => {
@@ -189,9 +300,9 @@ describe("global instruction shim projection", () => {
 
     expect(adopted.errors).toEqual([]);
     expect(readFileSync(targetPath("codex-global-instructions"), "utf-8")).toContain("kiln:global-instruction-shim:v1");
-    const backups = readdirSync(join(PROJECT_PATH, ".kiln", "backups", "codex-global-instructions"));
+    const backups = readdirSync(join(GLOBAL_PROJECTION_STATE_DIR, "backups", "codex-global-instructions"));
     expect(backups).toHaveLength(1);
-    expect(readFileSync(join(PROJECT_PATH, ".kiln", "backups", "codex-global-instructions", backups[0]!), "utf-8"))
+    expect(readFileSync(join(GLOBAL_PROJECTION_STATE_DIR, "backups", "codex-global-instructions", backups[0]!), "utf-8"))
       .toBe("# Hand-written Codex guidance");
   });
 

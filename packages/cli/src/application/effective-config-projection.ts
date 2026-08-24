@@ -32,8 +32,6 @@ const EFFECTIVE_FIELD_METADATA = {
   workGovernance: { mode: "compose", activation: "next-turn" },
   domain: { mode: "project" },
   channels: { mode: "project" },
-  teamMode: { mode: "project" },
-  requireApproval: { mode: "project" },
   maxDepth: { mode: "project" },
   parallelWorkers: { mode: "project" },
   mcp: { mode: "compose", sensitivity: "secret-reference" },
@@ -42,7 +40,6 @@ const EFFECTIVE_FIELD_METADATA = {
   web: { mode: "compose", sensitivity: "secret-reference" },
   interactiveUse: { mode: "compose" },
   skills: { mode: "compose" },
-  qualityGates: { mode: "project" },
   contextGovernance: { mode: "project" },
   provider: { mode: "global" },
   model: { mode: "global" },
@@ -79,8 +76,9 @@ export interface ProjectEffectiveConfigInput {
  */
 export function projectEffectiveConfig(input: ProjectEffectiveConfigInput): KilnEffectiveConfigSnapshot {
   const health = effectiveProjectionHealth(input.projections, input.permissionIntegrity);
-  const fields = Object.entries(input.effectiveConfig)
-    .filter((entry): entry is [EffectiveRoot, ResolvedKilnConfig[EffectiveRoot]] => entry[1] !== undefined)
+  const entries = Object.entries(input.effectiveConfig) as [EffectiveRoot, ResolvedKilnConfig[EffectiveRoot]][];
+  const fields = entries
+    .filter((entry) => entry[1] !== undefined)
     .map(([name, value]) => projectField(name, value, input, health))
     .sort((left, right) => left.identity.localeCompare(right.identity));
   return {

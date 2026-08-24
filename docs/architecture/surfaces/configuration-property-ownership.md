@@ -24,11 +24,20 @@ explicit without repeating them hundreds of times.
 | `GP` | CLI permission shape | CLI configured admission; Core owns effects | `readGlobalConfig` | configuration mutation authority | every model-facing surface | global bound/default |
 | `GM` | Core MCP shape, CLI boundary validator | Core MCP admission | `readMcpConfigurationSource` | configuration mutation authority | MCP resolution and native projection | global; project may narrow/override server fields |
 | `GC` | Core contract persisted by CLI | named Core communication/voice/gateway owner | `readGlobalConfig` | configuration mutation authority | policy resolver or Runtime ingress | global only unless the row says project precedence |
-| `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYaml` | configuration mutation authority, including `project.adopt` | run, status, GUI/TUI, Tools MCP | `.kiln/kiln.yaml`; project |
-| `PP` | shared CLI permission shape | CLI configured admission | `readKilnYaml` | project mutation paths | every model-facing surface | project; attenuation only |
+| `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYamlFile` through the resolved project binding | configuration mutation authority, including `project.adopt` | run, status, GUI/TUI, Tools MCP | `~/.kiln/projects/<krp_sha256>/config.yaml`; operator-private project |
+| `PP` | shared CLI permission shape | CLI configured admission | `readKilnYamlFile` through the resolved project binding | project mutation paths | every model-facing surface | private project namespace; attenuation only |
 | `A` | Core App TypeBox schema and `AppLoader` | Core app and named runtime domains | `parseAppYaml` | Core app trigger AST mutation used by CLI cron | App Gateway and Core validators | `app.yaml`; deployable app |
 | `W` | Core gateway TypeBox schema | named Core gateway domains | `parseGatewayYaml` | no shared writer; explicit file authoring | Runtime App/Model Gateway | `gateway.yaml`; deployment |
 | `D` | `ResolvedKilnConfig` only | projection owner | global/project composition | none | status/runtime if reachable | derived; never canonical state |
+
+Project scope is bound by `resolveProjectStateBinding` to the canonical physical
+repository root. The binding derives an opaque `krp_<sha256>` identity and
+stores all mutable project state under `~/.kiln/projects/<krp_sha256>/`. The
+identity-only `adoption.json` manifest is the sole durable binding record; it
+contains only `{ "version": 1, "projectRuntimeId": "krp_<sha256>" }`. A copied,
+malformed, non-canonical, or missing manifest is unadopted and fails closed.
+Relocation intentionally derives a new identity and requires explicit
+re-adoption; no compatibility alias or migration reader exists.
 
 Plane is `I` desired intent, `E` managed evidence, or `P` derived projection.
 Sensitivity/authority is `L` low, `M` material, `H` high, or `C` critical;
@@ -348,27 +357,27 @@ fields reject at the project boundary.
 | Canonical property | Profile | Plane | Sensitivity / authority | Merge or default | Activation | Disposition / transfer |
 | --- | --- | --- | --- | --- | --- | --- |
 | `version` | P | I | L | required `1` | session | supported |
-| `activeInstructionProfiles[]` | P | I | M | append/deduplicate | reconcile | supported |
+| `activeInstructionProfiles[]` | PP | I | M | project subset of global profiles | reconcile | supported |
 | `workGovernance.defaultPosture` | P | I | H | project may narrow | turn | supported |
 | `workGovernance.requireDelegationFor[]` | P | I | H | union/deduplicate | turn | supported |
 | `workGovernance.requiredEvidence[]` | P | I | H | union/deduplicate | turn | supported |
-| `workGovernance.boundedWorkCeiling.*` | P | I | C | global-only; rejects | turn | obsolete from project schema in Slice 1 |
+| `workGovernance.boundedWorkCeiling.*` | GC | I | C | global-only; rejects | turn | absent from project schema |
 | `domain` | P | I | L | project scalar | session | supported |
 | `channels[]` | P | I | M | project scalar list | session | supported |
-| `teamMode` | P | I | M | project scalar | session | supported |
-| `requireApproval` | P | I | H | project scalar | session | supported |
-| `maxDepth` | P | I | H | project scalar | session | supported |
-| `parallelWorkers` | P | I | H | project scalar | session | supported |
+| `teamMode` | P | I | M | rejected | session | absent from project schema |
+| `requireApproval` | P | I | H | rejected | session | absent from project schema |
+| `maxDepth` | PP | I | H | cannot exceed global bounded-work ceiling | session | supported |
+| `parallelWorkers` | PP | I | H | cannot exceed global bounded-work ceiling | session | supported |
 | `permissions.approval` | PP | I | C | may only narrow global | session | supported; vocabulary replaced Slice 1 |
 | `permissions.sandbox` | PP | I | C | may only narrow global | session | supported |
-| `permissions.safeDefaults` | PP | I | C | cannot disable global baseline | session | supported |
-| `permissions.auditLog` | PP | I | H | cannot disable parent audit | session | supported |
-| `permissions.tools[]` | PP | I | C | restrictive meet | session | supported |
-| `permissions.commands[]` | PP | I | C | restrictive meet | session | supported |
-| `permissions.fileGovernance` | PP | I | C | restrictive meet | session | supported |
-| `permissions.memory` | PP | I | C | grant intersection | session | supported |
-| `permissions.dataFirewall[]` | PP | I | C | restrictive meet | session | supported |
-| `permissions.agentScopes[]` | PP | I | C | attenuation only | session | supported |
+| `permissions.safeDefaults` | PP | I | C | rejected | session | absent from project schema |
+| `permissions.auditLog` | PP | I | H | rejected | session | absent from project schema |
+| `permissions.tools[]` | PP | I | C | rejected | session | absent from project schema |
+| `permissions.commands[]` | PP | I | C | rejected | session | absent from project schema |
+| `permissions.fileGovernance` | PP | I | C | rejected | session | absent from project schema |
+| `permissions.memory` | PP | I | C | rejected | session | absent from project schema |
+| `permissions.dataFirewall[]` | PP | I | C | rejected | session | absent from project schema |
+| `permissions.agentScopes[]` | PP | I | C | rejected | session | absent from project schema |
 | `mcp.servers.<id>.*` | GM | I | C ref | per-field override with narrowing admission | reconcile | supported |
 | `communication.responseDetail` | GC | I | L | project precedes global | turn | supported |
 | `communication.interactionProfile` | GC | I/E | M | project precedes global | turn | supported |
@@ -377,31 +386,20 @@ fields reject at the project boundary.
 | `communication.artifactContract` | GC | I/E | M | exact reference | turn | supported |
 | `communication.responseSkills[]` | GC | I/E | M | exact references | turn | supported |
 | `communication.onUnsupported` | GC | I | H | deny or omit | turn | supported |
-| `web.enabled` | P | I | H | project authority | session | supported |
-| `web.netPolicy` | P | I | C | project authority | session | supported |
-| `web.allowedDomains[]` | P | I | C | project allow set | session | supported |
-| `web.searchProvider` | P | I | H ref | overrides global provider | session | supported |
-| `web.searchFallbackProviders[]` | P | I | H ref | ordered fallback | session | supported |
-| `web.extractProvider` | P | I | H ref | overrides global provider | session | supported |
-| `interactiveUse.enabled` | P | I | H | project authority | session | supported |
-| `interactiveUse.allowedDomains[]` | P | I | C | allow set | session | supported |
-| `interactiveUse.allowedApplications[]` | P | I | C | allow set | session | supported |
-| `interactiveUse.applicationAliases.<id>[]` | P | I | H | alias set | session | supported |
-| `interactiveUse.allowExternalBrowser` | P | I | C | explicit grant | session | supported |
-| `interactiveUse.allowComputer` | P | I | C | explicit grant | session | supported |
-| `interactiveUse.browserProvider` | P | I | H | explicit provider | session | supported |
-| `interactiveUse.computerProvider` | P | I | H | explicit provider | session | supported |
-| `interactiveUse.browserEnvironment` | P | I | H | explicit environment | session | supported |
-| `interactiveUse.computerEnvironment` | P | I | H | explicit environment | session | supported |
+| `web.enabled` | PP | I | H | project may only disable global capability | session | supported |
+| `web.netPolicy` | PP | I | C | project may narrow global network policy | session | supported |
+| `web.allowedDomains[]` | PP | I | C | project subset of global domain ceiling | session | supported |
+| `web.searchProvider` | GC | I | H ref | global-only; rejects | session | absent from project schema |
+| `web.searchFallbackProviders[]` | GC | I | H ref | global-only; rejects | session | absent from project schema |
+| `web.extractProvider` | GC | I | H ref | global-only; rejects | session | absent from project schema |
+| `interactiveUse.*` | GC | I | C | global-only; rejects | session | absent from project schema |
 | `skills.builtin.enabled` | P | I | M | project selection; cannot disable product authority rules | reconcile | supported |
-| `skills.builtin.include[]` | P | I | M | merge/deduplicate | reconcile | supported |
+| `skills.builtin.include[]` | PP | I | M | project subset replaces global include ceiling | reconcile | supported |
 | `skills.builtin.exclude[]` | P | I | M | merge/deduplicate | reconcile | supported |
 | `skills.selection.mode` | P | I | M | project override | session | supported |
 | `skills.visibility.*` | P | I | H | global-only; rejects | reconcile | obsolete from project schema in Slice 1 |
 | `skills.externalCatalog.*` | P | I/E | H | global-only; rejects | reconcile | obsolete from project schema in Slice 1 |
-| `qualityGates[].name` | P | I | M | required | session | supported |
-| `qualityGates[].command` | P | I | H | required command | session | supported |
-| `qualityGates[].required` | P | I | H | default true in run admission | session | supported |
+| `qualityGates[]` | P | I | H | rejected | session | absent from project schema |
 | `contextGovernance.turnBudget` | P | I | H | project only | turn | supported |
 | `contextGovernance.allocationMode` | P | I | H | project only | turn | supported |
 | `contextGovernance.previewBeforeApply` | P | I | H | project only | turn | supported |
@@ -417,8 +415,8 @@ fields reject at the project boundary.
 | `contextGovernance.adaptation.rollback.policyId` | P | I | H | rollback intent | turn | supported |
 | `contextGovernance.adaptation.rollback.configurationHash` | P | E | H | exact evidence | turn | managed-evidence |
 | `contextGovernance.adaptation.rollback.allocationMode` | P | I | H | rollback intent | turn | supported |
-| `contextGovernance.adaptation.candidateRecordHash` | P | E | M | evidence reference | turn | supported |
-| `contextGovernance.adaptation.evaluationEvidenceHash` | P | E | M | evidence reference | turn | supported |
+| `contextGovernance.adaptation.candidateRecordHash` | P | E | M | rejected | turn | absent from project schema |
+| `contextGovernance.adaptation.evaluationEvidenceHash` | P | E | M | rejected | turn | absent from project schema |
 
 ## App Configuration
 

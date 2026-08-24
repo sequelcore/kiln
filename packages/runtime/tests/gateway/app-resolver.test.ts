@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveApps } from "../../src/gateway/app-resolver.js";
 import { readGatewayConfigurationSource } from "../../src/gateway/gateway-configuration-source.js";
@@ -25,10 +24,11 @@ describe("resolveApps", () => {
     expect(resolved[1]!.app.name).toBe("test-app-b");
   });
 
-  it("computes memory base paths with app name prefix", () => {
-    const resolved = resolveApps(loadGatewaySource());
+  it("computes memory base paths below the explicit global Kiln home", () => {
+    const kilnHome = join("C:\\synthetic", "xdg", "kiln");
+    const resolved = resolveApps(loadGatewaySource(), { kilnHome });
 
-    const expectedBase = join(homedir(), ".kiln", "gateway");
+    const expectedBase = join(kilnHome, "gateway");
     expect(resolved[0]!.memoryBasePath).toBe(join(expectedBase, "test-app-a"));
     expect(resolved[1]!.memoryBasePath).toBe(join(expectedBase, "test-app-b"));
   });

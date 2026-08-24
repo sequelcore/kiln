@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CircleAlert, Download, FileCode2, LoaderCircle, RotateCcw, Save, Search, Upload } from "lucide-react";
+import { CircleAlert, Download, LoaderCircle, RotateCcw, Save, Search, Upload } from "lucide-react";
 import type {
   KilnConfigActivationStatus,
   KilnConfigMutationScope,
@@ -39,7 +39,6 @@ interface SettingsPageProps {
   readonly onApply: (request: KilnSettingsApplyRequest) => Promise<KilnSettingsMutationResult>;
   readonly leadingContent?: ReactNode;
   readonly trailingContent?: ReactNode;
-  readonly onOpenYaml?: () => void;
   /** Runtime-owned, secret-free managed economic evidence from the shared cockpit projection. */
   readonly economicAttempts?: readonly OperatorCockpitEconomicAttemptProjection[];
 }
@@ -211,7 +210,7 @@ export function SettingsPage(props: SettingsPageProps) {
       ) : null}
 
       {props.section === "advanced" && props.snapshot ? (
-        <AdvancedSettingsActions snapshot={props.snapshot} onOpenYaml={props.onOpenYaml} />
+        <AdvancedSettingsActions snapshot={props.snapshot} />
       ) : null}
 
       {props.section === "advanced" ? (
@@ -299,7 +298,6 @@ export function SettingsPage(props: SettingsPageProps) {
 
 function AdvancedSettingsActions(props: {
   readonly snapshot: KilnSettingsSnapshot;
-  readonly onOpenYaml?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
@@ -330,16 +328,12 @@ function AdvancedSettingsActions(props: {
     <section aria-labelledby="advanced-files-heading" className="mb-5 border-y border-border/70 py-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="max-w-2xl">
-          <h3 id="advanced-files-heading" className="text-sm font-medium text-foreground">YAML and portable inspection</h3>
+          <h3 id="advanced-files-heading" className="text-sm font-medium text-foreground">Portable inspection</h3>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            Open canonical YAML, export the secret-free read model, or validate an export. Imports never bypass typed mutation authority.
+            Export the secret-free read model or validate an export. Imports never bypass typed mutation authority.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={props.onOpenYaml} disabled={!props.onOpenYaml}>
-            <FileCode2 aria-hidden="true" />
-            Open project YAML
-          </Button>
           <Button type="button" variant="outline" size="sm" onClick={exportSnapshot}>
             <Download aria-hidden="true" />
             Export settings

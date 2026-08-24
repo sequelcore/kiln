@@ -33,10 +33,23 @@ vi.mock("../src/components/app-shell.js", () => ({
 
 import { routeTree } from "../src/routeTree.gen.js";
 
+function routePath(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object" || !("options" in value)) return undefined;
+  const options = value.options;
+  if (options === null || typeof options !== "object" || !("path" in options)) return undefined;
+  return typeof options.path === "string" ? options.path : undefined;
+}
+
+function routeChildren(value: unknown): readonly unknown[] {
+  if (value === null || typeof value !== "object" || !("children" in value)) return [];
+  const children = value.children;
+  return children !== null && typeof children === "object" ? Object.values(children) : [];
+}
+
 describe("routed application shell", () => {
   it("generates only the replacement settings routes", () => {
-    const settingsRoute = routeTree.children?.find((route) => route.options.path === "/settings");
-    expect(settingsRoute?.children?.map((route) => route.options.path)).toEqual([
+    const settingsRoute = routeChildren(routeTree).find((route) => routePath(route) === "/settings");
+    expect(routeChildren(settingsRoute).map(routePath)).toEqual([
       "/advanced",
       "/agents",
       "/general",

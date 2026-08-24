@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import type { ManagedAgentRuntimeInvocationInput } from "@kilnai/runtime";
+import { assertPrivateStateFileTargetSync } from "./private-project-state-filesystem.js";
 import { SqliteActionClaimStoreOwner } from "./sqlite-action-claim-store-owner.js";
 
 type ExternalClaimContext = NonNullable<ManagedAgentRuntimeInvocationInput["externalActionClaim"]>;
@@ -15,6 +16,8 @@ const CANONICAL_SHA256_ID = /^sha256:[a-f0-9]{64}$/u;
 
 export interface ManagedExternalInvocationActionClaimStoreOptions {
   readonly path: string;
+  /** Canonical project-private root when this store is project-owned. */
+  readonly privateStateRoot?: string;
   readonly now?: () => string;
   readonly idGenerator?: () => string;
   readonly ownerId?: string;
@@ -64,6 +67,10 @@ export class SqliteManagedExternalInvocationActionClaimStore implements External
 
   constructor(options: ManagedExternalInvocationActionClaimStoreOptions) {
     if (!options.path.trim()) throw new TypeError("Managed external action claim database path is required.");
+    const assertWritablePath = options.privateStateRoot === undefined
+      ? undefined
+      : () => assertPrivateStateFileTargetSync(options.privateStateRoot!, options.path);
+    assertWritablePath?.();
     mkdirSync(dirname(options.path), { recursive: true, mode: 0o700 });
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#idGenerator = options.idGenerator ?? randomUUID;
@@ -72,10 +79,12 @@ export class SqliteManagedExternalInvocationActionClaimStore implements External
       database: this.#db,
       storeName: "Managed external invocation action-claim",
       now: this.#now,
+      ...(assertWritablePath ? { assertWritablePath } : {}),
       ...(options.ownerId !== undefined ? { ownerId: options.ownerId } : {}),
       ...(options.ownerStaleMs !== undefined ? { ownerStaleMs: options.ownerStaleMs } : {}),
     });
     try {
+      assertWritablePath?.();
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
       this.#db.exec(`
         CREATE TABLE IF NOT EXISTS managed_external_invocation_action_claims (

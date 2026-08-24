@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
+import type { CommandPaletteItem } from "../src/components/command-palette.js";
+import type { ExecutionRouteCatalog, GuiDashboardSnapshot } from "@kilnai/gateway-contracts";
 
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
@@ -17,7 +19,24 @@ const executionRoutePickerPropsLog: Array<{
   onOpenChange: (open: boolean) => void;
 }> = [];
 const dashboardRefetchMock = vi.fn();
-const dashboardData = {
+const canonicalExecutionRouteCatalog = {
+  routes: [{
+    routeId: "codex-default",
+    label: "GPT 5.6",
+    providerId: "codex-oauth",
+    providerModelId: "gpt-5.6",
+    availability: "available",
+    reasonCodes: ["configured"],
+    repairActions: [],
+    accountSelection: {
+      mode: "automatic",
+      eligibleAccountCount: 1,
+      allowOperatorOverride: true,
+    },
+  }],
+} satisfies ExecutionRouteCatalog;
+const dashboardData: GuiDashboardSnapshot = {
+  executionRouteCatalog: canonicalExecutionRouteCatalog,
   providers: [],
   telemetry: {
     status: "idle" as const,
@@ -137,18 +156,7 @@ vi.mock("../src/api/client.js", () => ({
     }
 
     async loadDashboard() {
-      return {
-        providers: [],
-        telemetry: {
-          status: "idle",
-          dominantRegions: [],
-          saturation: 0,
-          entropy: 0,
-        },
-        continuationInfoByProvider: {},
-        workingDirectory: "C:/workspace/kiln",
-        domainLabel: "Kiln",
-      };
+      return dashboardData;
     }
 
     async saveThemePreference() {}
@@ -193,7 +201,7 @@ vi.mock("../src/components/composer.js", () => ({
   }: {
     commandMenu: {
       onOpenChange: (open: boolean) => void;
-      onExecute: (command: { readonly id: string; readonly label: string }) => void;
+      onExecute: (command: CommandPaletteItem) => void;
     };
     onSubmit: (submission: { readonly text: string }) => boolean;
     onTogglePlanMode: (enabled: boolean) => void;
@@ -206,7 +214,7 @@ vi.mock("../src/components/composer.js", () => ({
         Open composer commands
       </button>
       <div data-slot="command">
-        <button type="button" onClick={() => commandMenu.onExecute({ id: "target", label: "Execution target" })}>
+        <button type="button" onClick={() => commandMenu.onExecute({ id: "target", trigger: "target", title: "Execution target" })}>
           Run execution-target command
         </button>
       </div>
@@ -284,8 +292,9 @@ function resetStore(): void {
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
-    activeProvider: "claude",
-    activeModel: "claude-sonnet-4-6",
+    executionRouteCatalog: canonicalExecutionRouteCatalog,
+    activeRouteId: "codex-default",
+    activeAccountOverrideId: null,
     sessionList: [],
     selectedSessionId: null,
     continuationTargetId: null,
@@ -301,12 +310,11 @@ function resetStore(): void {
     currentTurnTrackedInputTokens: 0,
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
-    providerSwitching: false,
-    providerExplicitSelection: false,
     authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
-    providerSwitchTimeoutId: null,
+    executionRouteSelectionTimeoutId: null,
+    providerAuthTimeoutId: null,
     activityPhase: "idle",
   });
 }
@@ -875,8 +883,9 @@ describe("AppShell command palette and telemetry regressions", () => {
       providerCatalogStatus: "pending",
       providerCatalogError: null,
       providers: [],
-      activeProvider: null,
-      activeModel: null,
+      executionRouteCatalog: { routes: [] },
+      activeRouteId: null,
+      activeAccountOverrideId: null,
     });
 
     render(<AppShell />);
@@ -897,8 +906,9 @@ describe("AppShell command palette and telemetry regressions", () => {
       providerCatalogStatus: "error",
       providerCatalogError: "Could not load provider discovery.",
       providers: [],
-      activeProvider: null,
-      activeModel: null,
+      executionRouteCatalog: { routes: [] },
+      activeRouteId: null,
+      activeAccountOverrideId: null,
     });
 
     render(<AppShell />);

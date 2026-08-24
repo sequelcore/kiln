@@ -28,6 +28,7 @@ import {
   type NativeProjectionTargetState,
   nativeProjectionFileMatchesDesired,
   readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
 } from "./native-projection-state.js";
 import { NATIVE_SKILL_TARGETS } from "./native-skill-targets.js";
 import {
@@ -45,11 +46,18 @@ import {
   type SkillPluginProvider,
 } from "./skill-source-inventory.js";
 import { compileCodexExternalSkillExposure, computeCodexExternalInventoryFingerprint } from "./external-skill-exposure.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
+import { resolveKilnHomePath } from "./global-config/path.js";
 
 export interface ReadSkillCatalogStatusOptions {
   readonly projectPath: string;
   readonly userHome?: string;
   readonly skillConfig?: KilnYamlSkillsConfig | null;
+  /** Explicit private project skills directory supplied by composition. */
+  readonly projectSkillsDirectory?: string;
+  /** Already-established private project binding. */
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly pluginProvider?: SkillPluginProvider;
   readonly commandRunner?: SkillInventoryCommandRunner;
   readonly cwd?: string;
@@ -88,13 +96,17 @@ export function readSkillCatalogStatus(
   options: ReadSkillCatalogStatusOptions,
 ): KilnSkillCatalogSnapshot {
   const userHome = options.userHome ?? homedir();
+  const kilnSkillsDirectory = join(resolveConfiguredKilnHome(options.userHome), "skills");
+  const projectSkillsDirectory = options.projectSkillsDirectory
+    ?? options.projectStateBinding?.skillsPath
+    ?? resolvePrivateProjectSkillsDirectory(options.projectPath, options.userHome);
   const configured = discoverConfiguredSkills({
-    projectPath: options.projectPath,
-    userHome,
+    projectSkillsDirectory,
+    kilnSkillsDirectory,
     skillConfig: options.skillConfig,
   });
   const configuredNames = new Set(configured.map((entry) => canonicalSkillKey(entry.index.name)));
-  const installState = readNativeProjectionInstallState(join(options.projectPath, ".kiln"));
+  const installState = readNativeProjectionInstallState(resolveGlobalNativeProjectionStateDir(options.userHome));
   const entries: KilnSkillCatalogSnapshotEntry[] = [
     ...configured.map((entry) => projectConfiguredSkill(entry, userHome, installState, options.projectPath)),
     ...discoverUnmanagedNativeSkills(userHome, configuredNames),
@@ -137,8 +149,8 @@ export function readSkillCatalogStatus(
   const absolutePathBySourceId = new Map<string, string>();
   const collectedInventory = collectSkillSourceInventory({
     roots: [
-      { id: "kiln-user", sourceKind: "kiln-user", root: join(userHome, ".kiln", "skills"), relationship: "canonical" },
-      { id: "kiln-project", sourceKind: "kiln-project", root: join(options.projectPath, ".kiln", "skills"), relationship: "canonical" },
+      { id: "kiln-user", sourceKind: "kiln-user", root: kilnSkillsDirectory, relationship: "canonical" },
+      { id: "kiln-project", sourceKind: "kiln-project", root: projectSkillsDirectory, relationship: "canonical" },
       { id: "shared-agents:user", sourceKind: "shared-agents", root: join(userHome, ".agents", "skills"), relationship: "external", applicableHarnesses: ["codex", "opencode"] },
       ...codexProjectAgentRoots.map((root, index) => ({ id: `shared-agents:project:${index}`, sourceKind: "shared-agents" as const, root, relationship: "external" as const, exposureScope: "project" as const, applicableHarnesses: ["codex", "opencode"] as const })),
       { id: "system:codex", sourceKind: "system", root: join(userHome, ".codex", "skills", ".system"), relationship: "external" },
@@ -149,8 +161,8 @@ export function readSkillCatalogStatus(
     pluginProvider,
     virtualCandidates: builtinCandidates,
     trustedRealRoots: [
-      join(userHome, ".kiln", "skills"),
-      join(options.projectPath, ".kiln", "skills"),
+      kilnSkillsDirectory,
+      projectSkillsDirectory,
       join(userHome, ".agents", "skills"),
       ...codexProjectAgentRoots,
     ],
@@ -319,13 +331,13 @@ function discoverAgentsAncestry(cwd: string, projectRoot: string): readonly stri
 }
 
 function discoverConfiguredSkills(input: {
-  readonly projectPath: string;
-  readonly userHome: string;
+  readonly projectSkillsDirectory: string;
+  readonly kilnSkillsDirectory: string;
   readonly skillConfig?: KilnYamlSkillsConfig | null;
 }): readonly SkillSourceEntry[] {
   const discovered = new Map<string, SkillSourceEntry>();
-  addSkillDirectory(discovered, join(input.userHome, ".kiln", "skills"), "user", input.skillConfig);
-  addSkillDirectory(discovered, join(input.projectPath, ".kiln", "skills"), "project", input.skillConfig);
+  addSkillDirectory(discovered, input.kilnSkillsDirectory, "user", input.skillConfig);
+  addSkillDirectory(discovered, input.projectSkillsDirectory, "project", input.skillConfig);
 
   for (const skill of resolveKilnCoreBuiltinSkills(input.skillConfig?.builtin)) {
     if (!isSafeProjectionPathComponent(skill.name)) continue;
@@ -341,6 +353,18 @@ function discoverConfiguredSkills(input: {
   }
 
   return [...discovered.values()];
+}
+
+function resolvePrivateProjectSkillsDirectory(projectPath: string, userHome: string | undefined): string {
+  const projectRoot = resolveProjectRoot({
+    explicitPath: projectPath,
+    ...(userHome ? { userHome } : {}),
+  }).rootPath;
+  return resolveProjectStateBinding(projectRoot, userHome ? { kilnHome: join(userHome, ".kiln") } : {}).skillsPath;
+}
+
+function resolveConfiguredKilnHome(userHome: string | undefined): string {
+  return userHome ? join(userHome, ".kiln") : resolveKilnHomePath();
 }
 
 function addSkillDirectory(

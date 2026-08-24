@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   createNativeProjectionFileSnapshot,
   emptyNativeProjectionInstallState,
@@ -10,10 +11,16 @@ import {
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
 
+function createProjectPath(root: string): string {
+  const projectPath = join(root, "project");
+  mkdirSync(projectPath, { recursive: true });
+  return projectPath;
+}
+
 describe("skill catalog status path safety", () => {
   it("reports a complete current Codex fingerprint before external policy is configured", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const userHome = join(root, "user");
     mkdirSync(join(userHome, ".agents", "skills", "one"), { recursive: true });
     writeFileSync(join(userHome, ".agents", "skills", "one", "SKILL.md"), "---\nname: one\ndescription: one\n---\n", "utf8");
     const codex = readSkillCatalogStatus({ projectPath, userHome, skillConfig: { builtin: { enabled: false } },
@@ -23,7 +30,7 @@ describe("skill catalog status path safety", () => {
   });
   it("reports shared-agent skills for Codex and OpenCode implicit catalogs", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills"); const shared = join(userHome, ".agents", "skills");
     mkdirSync(join(canonical, "implicit"), { recursive: true }); mkdirSync(join(canonical, "explicit"), { recursive: true }); mkdirSync(join(shared, "shared"), { recursive: true });
     writeFileSync(join(canonical, "implicit", "SKILL.md"), "---\nname: implicit\ndescription: abc\n---\n", "utf8");
@@ -52,7 +59,7 @@ describe("skill catalog status path safety", () => {
 
   it("counts an implicit plugin copy even when the same canonical skill is explicit-only", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills", "pdf");
     const pluginSkills = join(root, "plugin", "skills");
     mkdirSync(canonical, { recursive: true }); mkdirSync(join(pluginSkills, "pdf"), { recursive: true });
@@ -79,7 +86,7 @@ describe("skill catalog status path safety", () => {
 
   it("excludes unmanaged native skills whose harness metadata proves explicit-only visibility", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const userHome = join(root, "user");
     const native = join(userHome, ".codex", "skills", "manual", "agents");
     mkdirSync(native, { recursive: true });
     writeFileSync(join(dirname(native), "SKILL.md"), "---\nname: manual\ndescription: hidden\n---\n", "utf8");
@@ -99,7 +106,7 @@ describe("skill catalog status path safety", () => {
 
   it("discovers Codex .agents ancestry from project root through cwd", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const cwd = join(projectPath, "packages", "app"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const cwd = join(projectPath, "packages", "app"); const userHome = join(root, "user");
     const nested = join(cwd, ".agents", "skills", "nested"); mkdirSync(nested, { recursive: true });
     writeFileSync(join(nested, "SKILL.md"), "---\nname: nested\ndescription: nested\n---\n", "utf8");
     const snapshot = readSkillCatalogStatus({ projectPath, cwd, userHome, skillConfig: { builtin: { enabled: false } }, pluginProvider: () => ({ roots: [], diagnostics: [] }) });
@@ -108,7 +115,7 @@ describe("skill catalog status path safety", () => {
 
   it("adds diagnostic external inventory without changing resolved entries", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills", "planner");
     const shared = join(userHome, ".agents", "skills", "planner");
@@ -130,7 +137,7 @@ describe("skill catalog status path safety", () => {
 
   it("relates install-state-owned native copies instead of reporting independent collisions", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills", "planner");
     const native = join(userHome, ".codex", "skills", "planner");
@@ -139,7 +146,7 @@ describe("skill catalog status path safety", () => {
     mkdirSync(native, { recursive: true });
     writeFileSync(join(canonical, "SKILL.md"), content, "utf8");
     writeFileSync(join(native, "SKILL.md"), content, "utf8");
-    writeNativeProjectionInstallState(join(projectPath, ".kiln"), upsertNativeProjectionTargetState(
+    writeNativeProjectionInstallState(join(userHome, ".kiln", "runtime", "native-projections"), upsertNativeProjectionTargetState(
       emptyNativeProjectionInstallState(),
       createNativeProjectionFileSnapshot({
         targetId: "codex-skill:planner/SKILL.md",
@@ -163,13 +170,13 @@ describe("skill catalog status path safety", () => {
 
   it("does not relate a same-name native copy owned by another harness or source identity", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills", "planner");
     const native = join(userHome, ".codex", "skills", "planner");
     mkdirSync(canonical, { recursive: true }); mkdirSync(native, { recursive: true });
     writeFileSync(join(canonical, "SKILL.md"), "---\nname: planner\ndescription: canonical\n---\n", "utf8");
     writeFileSync(join(native, "SKILL.md"), "---\nname: planner\ndescription: divergent\n---\n", "utf8");
-    writeNativeProjectionInstallState(join(projectPath, ".kiln"), upsertNativeProjectionTargetState(
+    writeNativeProjectionInstallState(join(userHome, ".kiln", "runtime", "native-projections"), upsertNativeProjectionTargetState(
       emptyNativeProjectionInstallState(),
       createNativeProjectionFileSnapshot({
         targetId: "codex-skill:planner/SKILL.md", filePath: join(native, "SKILL.md"),
@@ -190,7 +197,7 @@ describe("skill catalog status path safety", () => {
     ["unexpected native path", (state: Record<string, unknown>, root: string) => ({ ...state, filePath: join(root, "elsewhere", "SKILL.md") })],
   ])("does not relate native copies with %s", (_label, mutate) => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    const projectPath = createProjectPath(root); const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills", "planner");
     const native = join(userHome, ".codex", "skills", "planner");
     const content = "---\nname: planner\ndescription: canonical\n---\n";
@@ -200,7 +207,7 @@ describe("skill catalog status path safety", () => {
       targetId: "codex-skill:planner/SKILL.md", filePath: join(native, "SKILL.md"), content,
       harness: "codex", sourceIdentity: "user:planner/SKILL.md",
     });
-    writeNativeProjectionInstallState(join(projectPath, ".kiln"), {
+    writeNativeProjectionInstallState(join(userHome, ".kiln", "runtime", "native-projections"), {
       version: 1,
       targets: { "codex-skill:planner/SKILL.md": mutate(state as unknown as Record<string, unknown>, root) as never },
     });
@@ -217,7 +224,7 @@ describe("skill catalog status path safety", () => {
   it("reports explicit-only builtin visibility as unrealized before native sync", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
     const snapshot = readSkillCatalogStatus({
-      projectPath: join(root, "project"),
+      projectPath: createProjectPath(root),
       userHome: join(root, "user"),
       skillConfig: {
         builtin: { enabled: true, include: ["tdd-workflow"] },
@@ -239,7 +246,7 @@ describe("skill catalog status path safety", () => {
 
   it("reports desired and effective visibility without claiming unsupported OpenCode semantics", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const sourceDir = join(userHome, ".kiln", "skills", "planner");
     const codexDir = join(userHome, ".codex", "skills", "planner");
@@ -285,7 +292,7 @@ describe("skill catalog status path safety", () => {
 
   it("treats absent disabled projections as current policy and blocks admission", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const sourceDir = join(userHome, ".kiln", "skills", "planner");
     mkdirSync(sourceDir, { recursive: true });
@@ -313,7 +320,7 @@ describe("skill catalog status path safety", () => {
 
   it("reports a disabled skill as drifted while generated managed metadata remains", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const sourceDir = join(userHome, ".kiln", "skills", "planner");
     const metadataPath = join(userHome, ".codex", "skills", "planner", "agents", "openai.yaml");
@@ -329,7 +336,7 @@ describe("skill catalog status path safety", () => {
       sourceIdentity: "user:planner/agents/openai.yaml",
     });
     writeNativeProjectionInstallState(
-      join(projectPath, ".kiln"),
+      join(userHome, ".kiln", "runtime", "native-projections"),
       upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target),
     );
 
@@ -350,7 +357,7 @@ describe("skill catalog status path safety", () => {
 
   it("does not claim disabled visibility while an unmanaged native skill remains loadable", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const sourceDir = join(userHome, ".kiln", "skills", "planner");
     const nativeDir = join(userHome, ".codex", "skills", "planner");
@@ -382,13 +389,15 @@ describe("skill catalog status path safety", () => {
 
   it("does not admit an unsafe flat skill name", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectSkills = join(root, "project", ".kiln", "skills");
+    const projectPath = createProjectPath(root);
+    const userHome = join(root, "user");
+    const projectSkills = resolveProjectStateBinding(projectPath, { kilnHome: join(userHome, ".kiln") }).skillsPath;
     mkdirSync(projectSkills, { recursive: true });
     writeFileSync(join(projectSkills, "unsafe.md"), "---\nname: ../escape\ndescription: invalid\n---\n", { encoding: "utf8", flag: "w" });
 
     const snapshot = readSkillCatalogStatus({
-      projectPath: join(root, "project"),
-      userHome: join(root, "user"),
+      projectPath,
+      userHome,
       skillConfig: { builtin: { enabled: false } },
     });
 
@@ -397,7 +406,7 @@ describe("skill catalog status path safety", () => {
 
   it("reports identity mismatch as drift instead of blessing canonical bytes", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
+    const projectPath = createProjectPath(root);
     const userHome = join(root, "user");
     const sourceDir = join(userHome, ".kiln", "skills", "planner");
     const targetPath = join(userHome, ".codex", "skills", "planner", "SKILL.md");
@@ -414,7 +423,7 @@ describe("skill catalog status path safety", () => {
       sourceIdentity: "skill:planner/SKILL.md",
     });
     writeNativeProjectionInstallState(
-      join(projectPath, ".kiln"),
+      join(userHome, ".kiln", "runtime", "native-projections"),
       upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target),
     );
 

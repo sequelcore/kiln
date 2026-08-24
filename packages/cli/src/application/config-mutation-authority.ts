@@ -40,6 +40,15 @@ import {
 } from "./config-mutation-store.js";
 import { reconcileConfigMutation } from "./config-mutation-reconciliation.js";
 import { ConfigMutationLockUnavailableError, withConfigMutationLock } from "./config-mutation-lock.js";
+import {
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+  resolveProjectStateBinding,
+} from "./project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 
 /** Reads effective state after a commit. Injected so tests do not need real harness projections. */
 export interface EffectiveStateReadBackPort {
@@ -51,6 +60,8 @@ export interface ProposeConfigMutationInput {
   readonly operation: KilnConfigMutationOperation;
   readonly payload: unknown;
   readonly globalConfigPath?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly kilnHome?: string;
   readonly now?: Date;
 }
 
@@ -59,6 +70,8 @@ export interface ApproveConfigMutationInput {
   readonly proposalId: string;
   readonly approvedBy?: string;
   readonly surface?: KilnConfigMutationApproval["surface"];
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly kilnHome?: string;
   readonly now?: Date;
 }
 
@@ -76,6 +89,8 @@ export interface ApplyConfigMutationInput {
   /** Mandatory: an omitted requester must never silently mean operator authority. */
   readonly requester: ConfigMutationRequester;
   readonly globalConfigPath?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly kilnHome?: string;
   readonly now?: Date;
   readonly readEffectiveState?: EffectiveStateReadBackPort;
   readonly reconcile?: typeof reconcileConfigMutation;
@@ -91,20 +106,27 @@ export interface ApplyConfigMutationInput {
  */
 export function proposeConfigMutation(input: ProposeConfigMutationInput): ConfigMutationProposalRecord {
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
+  const projectStateBinding = resolveMutationBinding(input.projectPath, input);
   const createdAt = (input.now ?? new Date()).toISOString();
 
   const resolution = input.operation === "mutation.rollback"
-    ? resolveRollbackMutation(input.projectPath, input.payload, globalConfigPath)
-    : { normalized: normalizeConfigMutation(input.operation, { projectPath: input.projectPath, globalConfigPath }, input.payload) };
+    ? resolveRollbackMutation(input.projectPath, input.payload, globalConfigPath, projectStateBinding)
+    : {
+        normalized: normalizeConfigMutation(
+          input.operation,
+          { projectPath: input.projectPath, globalConfigPath, projectStateBinding },
+          input.payload,
+        ),
+      };
 
   const normalized = resolution.normalized;
   const diagnostics: KilnConfigValidationDiagnostic[] = [...normalized.diagnostics];
   diagnostics.push(...validateWritePath({
-    projectPath: input.projectPath,
     globalConfigPath,
     scope: normalized.scope,
     operation: input.operation,
     path: normalized.path,
+    projectStateRoot: projectStateBinding.projectStateRoot,
   }));
 
   const previousContent = existsSync(normalized.path) ? readFileSync(normalized.path, "utf-8") : null;
@@ -193,13 +215,11 @@ function expectedRevisionFromPayload(payload: unknown):
  * the proposal hash, so an edited proposal can never reuse it.
  */
 export function approveConfigMutation(input: ApproveConfigMutationInput): KilnConfigMutationApproval {
-  const store = new ConfigMutationStore(input.projectPath);
+  const binding = resolveMutationBinding(input.projectPath, input);
+  const store = mutationStore(input.projectPath, binding);
   const record = store.readProposal(input.proposalId);
   if (!record) {
     throw new Error(`Config proposal not found: ${input.proposalId}`);
-  }
-  if (record.recordVersion !== 2) {
-    throw new Error(`Legacy config proposal is retired: ${input.proposalId}`);
   }
   if (record.proposal.status !== "valid") {
     throw new Error(`Config proposal is not valid: ${input.proposalId}`);
@@ -235,7 +255,8 @@ export function approveConfigMutation(input: ApproveConfigMutationInput): KilnCo
 export async function applyConfigMutation(input: ApplyConfigMutationInput): Promise<KilnConfigMutationResult> {
   const attemptedAt = (input.now ?? new Date()).toISOString();
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
-  const store = new ConfigMutationStore(input.projectPath, { globalConfigPath });
+  const projectStateBinding = resolveMutationBinding(input.projectPath, input);
+  const store = mutationStore(input.projectPath, projectStateBinding, globalConfigPath);
 
   const record = store.readProposal(input.proposalId);
   if (!record) {
@@ -271,11 +292,11 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
   }
 
   const pathDiagnostics = validateWritePath({
-    projectPath: input.projectPath,
     globalConfigPath,
     scope: proposal.scope,
     operation: proposal.operation,
     path: record.writes[0]?.path ?? "",
+    projectStateRoot: projectStateBinding.projectStateRoot,
   });
   if (pathDiagnostics.length > 0) {
     return rejected(input, attemptedAt, proposal.scope, pathDiagnostics, proposal);
@@ -290,7 +311,8 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
     // The existing path lock owns the complete commit/reconcile/settle window.
     // A second recovery attempt fails closed instead of publishing a competing
     // reconciliation result for the same canonical revision.
-    return await withConfigMutationLock(store.lockPathFor(write.path), async () => {
+    const lockPath = store.lockPathFor(write.path);
+    return await withConfigMutationLock(lockPath, async () => {
       let commitOutcome: CommitOutcome;
       try {
         const currentContent = existsSync(write.path) ? readFileSync(write.path, "utf-8") : null;
@@ -307,16 +329,6 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         const interrupted = marker !== null
           && marker.path === write.path
           && currentRevision === marker.intendedRevision;
-
-        const retiredProposal = record.recordVersion !== 2
-          || (proposal.operation === "setting.reset" && typeof proposal.normalizedPayload.key !== "string");
-        if (retiredProposal && !interrupted) {
-          store.clearProgressMarker(proposal.proposalId);
-          return rejected(input, attemptedAt, proposal.scope, [diagnostic(
-            "proposal",
-            "Legacy configuration proposals are retired; create a new keyed settings proposal.",
-          )], proposal);
-        }
 
         if (interrupted) {
           // This exact proposal entered its commit window and the canonical path
@@ -337,7 +349,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
           });
           commitOutcome = proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
             ? commitGlobalWrite(record.writes, proposal.baseRevision)
-            : commitProjectWrites(record.writes);
+            : commitProjectWrites(record.writes, projectStateBinding.projectStateRoot);
         }
       } catch (error) {
         return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
@@ -347,7 +359,9 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
       const recoveryDiagnostics: readonly KilnConfigValidationDiagnostic[] = commitOutcome.invalidBackupPath
         ? [diagnostic("configuration", `Previous invalid configuration backed up to ${commitOutcome.invalidBackupPath}`, "warning")]
         : [];
-      const reconcile = input.reconcile ?? reconcileConfigMutation;
+      const reconcile = input.reconcile
+        ?? ((projectPath: string, targets: readonly KilnConfigReconciliationTarget[]) =>
+          reconcileConfigMutation(projectPath, targets, { projectStateBinding }));
       const reconciliationOutcomes = await reconcile(input.projectPath, proposal.reconciliationTargets);
       const reconciliationEffects = reconciliationOutcomes.map(({ generation: _generation, ...effect }) => effect);
       const reconciliationGenerations = reconciliationOutcomes.flatMap((effect) =>
@@ -403,7 +417,9 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
       }
       store.clearProgressMarker(proposal.proposalId);
       return withReadBackSnapshot(settlement, false, readBackSnapshot);
-    });
+    }, proposal.scope === "project"
+      ? { privateStateRoot: projectStateBinding.projectStateRoot }
+      : undefined);
   } catch (error) {
     if (error instanceof ConfigMutationLockUnavailableError) {
       return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
@@ -417,6 +433,28 @@ interface CommitOutcome {
   readonly committedRevision: string;
   /** Set when an unreadable configuration was retained before being replaced. */
   readonly invalidBackupPath?: string;
+}
+
+type MutationBindingInput = ProjectStateRootOptions & {
+  readonly projectStateBinding?: ProjectStateBinding;
+};
+
+function resolveMutationBinding(
+  projectPath: string,
+  input: MutationBindingInput,
+): ProjectStateBinding {
+  return input.projectStateBinding ?? resolveProjectStateBinding(projectPath, input);
+}
+
+function mutationStore(
+  projectPath: string,
+  binding: ProjectStateBinding,
+  globalConfigPath = resolveGlobalConfigPath(),
+): ConfigMutationStore {
+  return new ConfigMutationStore(projectPath, {
+    root: binding.mutationsPath,
+    globalConfigPath,
+  });
 }
 
 /** Keeps operation settlements totally ordered even when a deterministic test clock is reused. */
@@ -446,6 +484,7 @@ function resolveRollbackMutation(
   projectPath: string,
   payload: unknown,
   globalConfigPath: string,
+  binding: ProjectStateBinding,
 ): { readonly normalized: NormalizedConfigMutation; readonly removesPath?: boolean } {
   const token = typeof payload === "object" && payload !== null
     ? (payload as Record<string, unknown>).token
@@ -456,7 +495,7 @@ function resolveRollbackMutation(
     return { normalized: invalidRollback(globalConfigPath, diagnostics) };
   }
 
-  const settlement = new ConfigMutationStore(projectPath).readSettlement(token.trim());
+  const settlement = mutationStore(projectPath, binding, globalConfigPath).readSettlement(token.trim());
   if (!settlement) {
     diagnostics.push(diagnostic("token", `No committed mutation settlement found for token: ${token}`));
     return { normalized: invalidRollback(globalConfigPath, diagnostics) };
@@ -554,14 +593,21 @@ function checkReplayAuthorization(
 }
 
 /** Project writes replace canonical files through a temporary file so a failure cannot leave a partial file. */
-function commitProjectWrites(writes: readonly ConfigMutationWrite[]): {
+function commitProjectWrites(
+  writes: readonly ConfigMutationWrite[],
+  projectStateRoot: string,
+): {
   readonly appliedWrites: readonly KilnConfigAppliedWrite[];
   readonly committedRevision: string;
 } {
   const appliedWrites: KilnConfigAppliedWrite[] = [];
   let committedRevision = "absent";
   for (const write of writes) {
+    const isPrivateStateWrite = isInside(resolve(projectStateRoot), resolve(write.path));
     if (write.action === "delete") {
+      if (isPrivateStateWrite) {
+        assertPrivateStateFileTargetSync(projectStateRoot, write.path);
+      }
       if (existsSync(write.path)) {
         unlinkSync(write.path);
       }
@@ -569,9 +615,17 @@ function commitProjectWrites(writes: readonly ConfigMutationWrite[]): {
       committedRevision = "absent";
       continue;
     }
-    mkdirSync(dirname(write.path), { recursive: true });
+    if (isPrivateStateWrite) {
+      ensurePrivateStateDirectorySync(projectStateRoot, dirname(write.path));
+    } else {
+      mkdirSync(dirname(write.path), { recursive: true });
+    }
     const temporaryPath = `${write.path}.${process.pid}.tmp`;
     try {
+      if (isPrivateStateWrite) {
+        assertPrivateStateFileTargetSync(projectStateRoot, write.path);
+        assertPrivateStateFileTargetSync(projectStateRoot, temporaryPath);
+      }
       writeFileSync(temporaryPath, write.nextContent, "utf-8");
       renameSync(temporaryPath, write.path);
     } finally {
@@ -780,8 +834,8 @@ function observeActivation(
 }
 
 function validateWritePath(input: {
-  readonly projectPath: string;
   readonly globalConfigPath: string;
+  readonly projectStateRoot: string;
   readonly scope: KilnConfigMutationScope;
   readonly operation: KilnConfigMutationOperation | null;
   readonly path: string;
@@ -801,26 +855,22 @@ function validateWritePath(input: {
     return [diagnostic(input.path, "Global mutations may only write the canonical global configuration file or user-owned skills.")];
   }
 
-  const projectRoot = resolve(input.projectPath);
+  const projectRoot = resolve(input.projectStateRoot);
   const canonicalRoots = [
-    resolve(join(projectRoot, ".kiln", "agents")),
-    resolve(join(projectRoot, ".kiln", "skills")),
+    resolve(join(projectRoot, "agents")),
+    resolve(join(projectRoot, "skills")),
   ];
-  const canonicalFiles = new Set([resolve(join(projectRoot, ".kiln", "kiln.yaml"))]);
+  const canonicalFiles = new Set([resolve(join(projectRoot, "config.yaml"))]);
   if (!canonicalFiles.has(resolvedPath) && !canonicalRoots.some((root) => isInside(root, resolvedPath))) {
     return [diagnostic(
       input.path,
-      "Project mutations may only write .kiln/agents, .kiln/skills, or .kiln/kiln.yaml canonical configuration.",
+      "Project mutations may only write private agents, skills, or config.yaml canonical state.",
     )];
   }
-  if (!isPhysicallyInsideProject(projectRoot, resolvedPath)) {
-    return [diagnostic(input.path, "Refused a canonical path whose physical target escapes the project root.")];
+  if (!isPhysicallyInsideRoot(projectRoot, resolvedPath)) {
+    return [diagnostic(input.path, "Refused a canonical path whose physical target escapes private project state.")];
   }
   return [];
-}
-
-function isPhysicallyInsideProject(projectRoot: string, candidate: string): boolean {
-  return isPhysicallyInsideRoot(projectRoot, candidate);
 }
 
 function isPhysicallyInsideRoot(projectRoot: string, candidate: string): boolean {
@@ -867,7 +917,7 @@ function intendedRevision(write: ConfigMutationWrite): string {
  * re-grants it. The evaluator is chosen by the operation whose state is being
  * restored, because that operation defines what the restored bytes govern.
  * Anything without a complete evaluator fails closed as `unknown`, which
- * requires approval - a whole-file restore of `.kiln/kiln.yaml` can revert
+ * requires approval - a whole-file restore of private project config can revert
  * permission material an unrelated change made afterwards.
  */
 function restoredAuthorityImpact(

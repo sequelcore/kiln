@@ -10,7 +10,7 @@ export default defineConfig({
     testTimeout: 20_000,
     hookTimeout: 10_000,
     teardownTimeout: 10_000,
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.kiln-worktrees/**", "tests/**/*.live.test.ts"],
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/**/*.live.test.ts"],
     maxWorkers: 1,
   },
 });

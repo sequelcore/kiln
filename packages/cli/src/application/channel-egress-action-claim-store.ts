@@ -11,10 +11,13 @@ import {
   type ChannelEgressActionClaimSettlement,
   type ChannelEgressActionClaimStore,
 } from "@kilnai/runtime";
+import { assertPrivateStateFileTargetSync } from "./private-project-state-filesystem.js";
 import { SqliteActionClaimStoreOwner } from "./sqlite-action-claim-store-owner.js";
 
 export interface ChannelEgressActionClaimStoreOptions {
   readonly path: string;
+  /** Canonical project-private root when this store is project-owned. */
+  readonly privateStateRoot?: string;
   readonly now?: () => string;
   readonly idGenerator?: () => string;
   readonly ownerId?: string;
@@ -60,6 +63,10 @@ export class SqliteChannelEgressActionClaimStore implements ChannelEgressActionC
 
   constructor(options: ChannelEgressActionClaimStoreOptions) {
     if (!options.path.trim()) throw new TypeError("Channel egress action claim database path is required.");
+    const assertWritablePath = options.privateStateRoot === undefined
+      ? undefined
+      : () => assertPrivateStateFileTargetSync(options.privateStateRoot!, options.path);
+    assertWritablePath?.();
     mkdirSync(dirname(options.path), { recursive: true, mode: 0o700 });
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#idGenerator = options.idGenerator ?? randomUUID;
@@ -68,10 +75,12 @@ export class SqliteChannelEgressActionClaimStore implements ChannelEgressActionC
       database: this.#db,
       storeName: "Channel egress",
       now: this.#now,
+      ...(assertWritablePath ? { assertWritablePath } : {}),
       ...(options.ownerId !== undefined ? { ownerId: options.ownerId } : {}),
       ...(options.ownerStaleMs !== undefined ? { ownerStaleMs: options.ownerStaleMs } : {}),
     });
     try {
+      assertWritablePath?.();
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
       this.#db.exec(`
         CREATE TABLE IF NOT EXISTS channel_egress_action_claims (

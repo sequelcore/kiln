@@ -4,10 +4,11 @@ import {
   SessionStore,
   TranscriptStore,
 } from "../../src/wrapper/session-store.js";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionRecord } from "../../src/wrapper/session-store.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -21,13 +22,28 @@ function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   };
 }
 
+async function createDirectoryLink(target: string, linkPath: string): Promise<boolean> {
+  try {
+    await symlink(target, linkPath, process.platform === "win32" ? "junction" : "dir");
+    return true;
+  } catch (error) {
+    const code = error instanceof Error && "code" in error
+      ? (error as NodeJS.ErrnoException).code
+      : undefined;
+    if (code === "EACCES" || code === "EPERM" || code === "ENOTSUP") return false;
+    throw error;
+  }
+}
+
 describe("SessionStore continuation targets", () => {
   let tmpDir: string;
+  let state: ProjectStateBinding;
   let store: SessionStore;
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "kiln-store-clear-"));
-    store = new SessionStore(tmpDir);
+    state = resolveProjectStateBinding(tmpDir, { kilnHome: join(tmpDir, "kiln-home") });
+    store = new SessionStore(state);
   });
 
   afterEach(async () => {
@@ -96,7 +112,7 @@ describe("SessionStore continuation targets", () => {
       providerThread: { provider: "codex", nativeSessionId: "thread-1" },
     }));
 
-    const raw = await readFile(join(tmpDir, ".kiln", "sessions.jsonl"), "utf-8");
+    const raw = await readFile(join(state.sessionsPath, "sessions.jsonl"), "utf-8");
     const parsed = JSON.parse(raw.trim()) as Record<string, unknown>;
 
     expect(parsed.providerThread).toEqual({
@@ -162,15 +178,32 @@ describe("SessionStore continuation targets", () => {
     expect((await store.find("same-turn"))?.cost).toBe(0.25);
     expect(await store.list()).toHaveLength(1);
   });
+
+  it("fails closed when the private sessions root is a symlink or junction", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "kiln-session-store-outside-"));
+    try {
+      await mkdir(state.projectStateRoot, { recursive: true });
+      if (!await createDirectoryLink(outsideDir, state.sessionsPath)) return;
+
+      await store.append(makeRecord({ sessionId: "unsafe-root" }));
+
+      await expect(readFile(join(outsideDir, "sessions.jsonl"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(outsideDir, "continuation-targets.json"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("TranscriptStore", () => {
   let tmpDir: string;
+  let state: ProjectStateBinding;
   let store: TranscriptStore;
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "kiln-transcript-store-"));
-    store = new TranscriptStore(tmpDir);
+    state = resolveProjectStateBinding(tmpDir, { kilnHome: join(tmpDir, "kiln-home") });
+    store = new TranscriptStore(state);
   });
 
   afterEach(async () => {
@@ -197,9 +230,7 @@ describe("TranscriptStore", () => {
     });
 
     const transcriptPath = join(
-      tmpDir,
-      ".kiln",
-      "sessions",
+      state.sessionsPath,
       encodeURIComponent(sessionId),
       "transcript.jsonl",
     );
@@ -207,7 +238,7 @@ describe("TranscriptStore", () => {
     const listed = await store.listSessions();
     const meta = await store.readMeta(sessionId);
     const transcript = await store.readTranscript(sessionId);
-    const dirs = await readdir(join(tmpDir, ".kiln", "sessions"));
+    const dirs = await readdir(state.sessionsPath);
 
     expect(persisted).toMatchObject({
       eventId: "evt-1",
@@ -338,9 +369,7 @@ describe("TranscriptStore", () => {
     });
 
     const transcriptPath = join(
-      tmpDir,
-      ".kiln",
-      "sessions",
+      state.sessionsPath,
       encodeURIComponent(sessionId),
       "transcript.jsonl",
     );
@@ -357,5 +386,44 @@ describe("TranscriptStore", () => {
     await expect(store.readTranscript(sessionId)).rejects.toBeInstanceOf(
       IncompatibleTranscriptError,
     );
+  });
+
+  it("fails closed when the private sessions root is a symlink or junction", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "kiln-transcript-store-outside-"));
+    try {
+      await mkdir(state.projectStateRoot, { recursive: true });
+      if (!await createDirectoryLink(outsideDir, state.sessionsPath)) return;
+
+      await store.init("unsafe-root", {
+        kilnSessionId: "unsafe-root",
+        provider: "codex-oauth",
+        task: "unsafe path test",
+        startedAt: new Date().toISOString(),
+      });
+
+      await expect(readFile(join(outsideDir, "unsafe-root", "meta.json"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when a session directory is replaced by a symlink or junction", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "kiln-transcript-session-outside-"));
+    const sessionId = "unsafe-descendant";
+    try {
+      await mkdir(state.sessionsPath, { recursive: true });
+      if (!await createDirectoryLink(outsideDir, join(state.sessionsPath, encodeURIComponent(sessionId)))) return;
+
+      await store.init(sessionId, {
+        kilnSessionId: sessionId,
+        provider: "codex-oauth",
+        task: "unsafe path test",
+        startedAt: new Date().toISOString(),
+      });
+
+      await expect(readFile(join(outsideDir, "meta.json"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });

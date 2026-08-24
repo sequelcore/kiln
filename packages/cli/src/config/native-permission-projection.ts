@@ -5,6 +5,10 @@ import { parse as parseYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "../application/project-state-root.js";
 import { stripJsonComments } from "./json-comments.js";
 import {
   buildOpenCodeResponsesProjection,
@@ -47,6 +51,8 @@ export interface NativePermissionProjectionResult {
 
 export interface NativePermissionProjectionOptions extends NativeProjectionSyncOptions {
   readonly modelGateway?: ModelGatewayConfig;
+  /** Established private state binding for this project. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 interface PermissionTargetResult {
@@ -207,9 +213,14 @@ export async function syncNativePermissionProjections(
   const errors: string[] = [];
   const outcomes: ProjectionOutcome[] = [];
   const policy = resolveModelFacingPermissionPolicy(kilnYaml.permissions);
-  const kilnDir = join(projectPath, ".kiln");
+  const stateBinding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath, options.userHome === undefined
+    ? {}
+    : { kilnHome: join(options.userHome, ".kiln") });
+  const trustDir = join(stateBinding.kilnHome, "trust");
+  const projectionStateDir = stateBinding.projectionsPath;
+  const backupStateRoot = stateBinding.projectStateRoot;
   const modelGateway = options.modelGateway;
-  let installState = readNativeProjectionInstallState(kilnDir);
+  let installState = readNativeProjectionInstallState(projectionStateDir);
   let claudeResult: PermissionTargetResult = skippedPermissionTarget();
   let codexResult: PermissionTargetResult = skippedPermissionTarget();
   let opencodeResult: PermissionTargetResult = skippedPermissionTarget();
@@ -217,7 +228,7 @@ export async function syncNativePermissionProjections(
   try {
     claudeResult = isNativeProjectionHarnessDisabled(options, "claude")
       ? skippedPermissionTarget(PERMISSION_PROJECTION_TARGET_IDS.claude, join(projectPath, ".claude", "settings.json"))
-      : await syncClaudePermissions(policy, projectPath, installState, options);
+      : await syncClaudePermissions(policy, projectPath, trustDir, backupStateRoot, installState, options);
     outcomes.push(...claudeResult.outcomes);
     if (claudeResult.rollback) rollbacks.push(claudeResult.rollback);
     if (claudeResult.snapshot) installState = upsertNativeProjectionTargetState(installState, claudeResult.snapshot);
@@ -228,7 +239,7 @@ export async function syncNativePermissionProjections(
           PERMISSION_PROJECTION_TARGET_IDS.codex,
           join(resolveNativeHarnessDir("codex", options.userHome), "config.toml"),
         )
-      : await syncCodexPermissions(kilnYaml, policy, projectPath, kilnDir, installState, options, modelGateway);
+      : await syncCodexPermissions(kilnYaml, policy, projectPath, trustDir, backupStateRoot, installState, options, modelGateway);
     outcomes.push(...codexResult.outcomes);
     if (codexResult.rollback) rollbacks.push(codexResult.rollback);
     if (codexResult.snapshot) installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
@@ -241,14 +252,14 @@ export async function syncNativePermissionProjections(
           PERMISSION_PROJECTION_TARGET_IDS.opencode,
           join(resolveNativeHarnessDir("opencode", options.userHome), "opencode.json"),
         )
-      : await syncOpenCodePermissions(kilnYaml, policy, projectPath, kilnDir, installState, options, modelGateway);
+      : await syncOpenCodePermissions(kilnYaml, policy, projectPath, trustDir, backupStateRoot, installState, options, modelGateway);
     outcomes.push(...opencodeResult.outcomes);
     if (opencodeResult.rollback) rollbacks.push(opencodeResult.rollback);
     if (opencodeResult.snapshot)
       installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
     if (opencodeResult.error) errors.push(`OpenCode: ${opencodeResult.error}`);
     if (!options.dryRun) {
-      writeNativeProjectionInstallState(kilnDir, installState);
+      writeNativeProjectionInstallState(projectionStateDir, installState, backupStateRoot);
     }
   } catch (error) {
     rollbackNativeProjectionChanges(rollbacks, error);
@@ -270,6 +281,8 @@ function skippedPermissionTarget(targetId = "permission-target", path = ""): Per
 async function syncClaudePermissions(
   policy: KilnPermissionPolicy,
   projectPath: string,
+  trustDir: string,
+  backupStateRoot: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
 ): Promise<PermissionTargetResult> {
@@ -304,7 +317,7 @@ async function syncClaudePermissions(
     policy,
     existingDocument: existing,
     previousManagedFields: installState.targets[targetId]?.managedFields,
-    storedAuthorization: readTrustedExecutionAuthorization("claude-code", projectPath),
+    storedAuthorization: readTrustedExecutionAuthorization("claude-code", projectPath, trustDir),
   });
   const snapshot = createNativeProjectionSnapshot({
     targetId: projection.targetId,
@@ -320,7 +333,12 @@ async function syncClaudePermissions(
     };
   }
   ensureDir(dirname(target));
-  backupNativeProjectionFile({ kilnDir: join(projectPath, ".kiln"), targetId, filePath: target });
+  backupNativeProjectionFile({
+    kilnDir: backupStateRoot,
+    privateStateRoot: backupStateRoot,
+    targetId,
+    filePath: target,
+  });
   const rollback = () => restoreFile(target, originalContent);
   try {
     writeFileAtomically(target, JSON.stringify(projection.document, null, 2) + "\n");
@@ -339,6 +357,7 @@ async function syncCodexPermissions(
   kilnYaml: ResolvedKilnConfig,
   policy: KilnPermissionPolicy,
   projectPath: string,
+  trustDir: string,
   kilnDir: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
@@ -381,7 +400,7 @@ async function syncCodexPermissions(
       (principal) => principal.ingress === "openai-responses" && principal.nativeHarness === "codex",
     ) === true,
     previousManagedFields,
-    storedAuthorization: readTrustedExecutionAuthorization("codex", projectPath),
+    storedAuthorization: readTrustedExecutionAuthorization("codex", projectPath, trustDir),
   });
   const snapshot = createNativeProjectionSnapshot({
     targetId: projection.targetId,
@@ -397,7 +416,7 @@ async function syncCodexPermissions(
     };
   }
   ensureDir(dirname(target));
-  backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
+  backupNativeProjectionFile({ kilnDir, privateStateRoot: kilnDir, targetId, filePath: target });
   const rollback = () => {
     restoreFile(target, originalConfigContent);
   };
@@ -418,6 +437,7 @@ async function syncOpenCodePermissions(
   kilnYaml: ResolvedKilnConfig,
   policy: KilnPermissionPolicy,
   projectPath: string,
+  trustDir: string,
   kilnDir: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
@@ -459,7 +479,7 @@ async function syncOpenCodePermissions(
     ownsManagedDefault: installState.targets[targetId]?.managedFields.includes("model") === true,
     gatewayProjection,
     previousManagedFields: installState.targets[targetId]?.managedFields,
-    storedAuthorization: readTrustedExecutionAuthorization("opencode", projectPath),
+    storedAuthorization: readTrustedExecutionAuthorization("opencode", projectPath, trustDir),
   });
   const snapshot = createNativeProjectionSnapshot({
     targetId: projection.targetId,
@@ -478,7 +498,7 @@ async function syncOpenCodePermissions(
     };
   }
   ensureDir(dirname(target));
-  backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
+  backupNativeProjectionFile({ kilnDir, privateStateRoot: kilnDir, targetId, filePath: target });
   const rollback = () => restoreFile(target, originalContent);
   try {
     writeFileAtomically(target, JSON.stringify(projection.document, null, 2) + "\n");

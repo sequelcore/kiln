@@ -1,8 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { readConfigStatusSnapshot, readResolvedConfigDetail } from "../application/config-status.js";
 import { effectiveConfigField } from "../application/effective-config-projection.js";
 import type { SkillPluginProvider } from "../config/skill-source-inventory.js";
@@ -22,10 +21,16 @@ import {
 } from "../engines/engine-registry.js";
 import type { KilnAppConfig } from "../config.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import {
+  type ProjectStateBinding,
+  resolveProjectStateBinding,
+} from "../application/project-state-root.js";
 
 export interface StatusCommandOptions extends EngineRouteContext {
   readonly engineRegistry?: Pick<EngineRegistry, "probeAll">;
   readonly pluginProvider?: SkillPluginProvider;
+  readonly kilnHome?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export async function statusCommand(
@@ -35,10 +40,13 @@ export async function statusCommand(
 ): Promise<void> {
   const snapshot = await readConfigStatusSnapshot({
     projectPath: projectPath ?? process.cwd(),
+    ...(options.kilnHome === undefined ? {} : { kilnHome: options.kilnHome }),
+    ...(options.projectStateBinding === undefined ? {} : { projectStateBinding: options.projectStateBinding }),
     ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
   });
   const root = snapshot.project.rootPath;
-  const kilnDir = join(root, ".kiln");
+  const binding = options.projectStateBinding
+    ?? resolveProjectStateBinding(root, options);
 
   if (!snapshot.effectiveConfig) {
     console.log(`Not initialized. Run 'kiln init' first.`);
@@ -60,7 +68,7 @@ export async function statusCommand(
 
   const globalConfig = readGlobalConfig();
   const projectConfig = snapshot.project.kilnYaml.status === "valid"
-    ? readKilnYaml(kilnDir)
+    ? readKilnYamlFile(binding.configPath)
     : null;
   printWebStatus(config, {
     globalWeb: globalConfig?.web,
@@ -80,7 +88,7 @@ export async function statusCommand(
     printEngineStatus(engineHealth, route.worker, route.reason);
   }
 
-  const { registry } = createDefaultRegistry();
+  const { registry } = createDefaultRegistry({ kilnHome: binding.kilnHome });
   const builtinToolOptions = createSessionBuiltinToolOptions();
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationConfig = globalConfig
@@ -133,7 +141,7 @@ export async function statusCommand(
     }
   }
 
-  const memoryDir = join(kilnDir, "memory");
+  const memoryDir = binding.memoryPath;
   if (existsSync(memoryDir)) {
     const files = readdirSync(memoryDir);
     console.log(`\n  Memory files:     ${files.length}`);

@@ -138,6 +138,21 @@ describe("native projection install state", () => {
     })).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
   });
 
+  it("does not collapse distinct invalid UTF-8 bytes into one projection hash", () => {
+    const target = createNativeProjectionFileSnapshot({
+      targetId: "codex-skill:visual/assets/raw.bin",
+      filePath: "C:/Users/test/.codex/skills/visual/assets/raw.bin",
+      content: Uint8Array.from([0x80]),
+    });
+    const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
+
+    expect(detectNativeProjectionFileDrift({
+      targetId: target.targetId,
+      state,
+      currentContent: Uint8Array.from([0x81]),
+    })).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
+  });
+
   it("recognizes canonical bytes for a fully-owned file despite a stale snapshot", () => {
     const target = createNativeProjectionFileSnapshot({
       targetId: "codex-skill:planner/SKILL.md",
@@ -360,9 +375,9 @@ describe("native projection install state", () => {
     });
   });
 
-  it("round-trips install state under .kiln/install-state.json", () => {
+  it("round-trips install state under the private projection state directory", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-state-"));
-    const kilnDir = join(root, ".kiln");
+    const kilnDir = join(root, "kiln-home", "projects", "krp_fixture", "projections");
     const state = upsertNativeProjectionTargetState(
       emptyNativeProjectionInstallState(),
       createNativeProjectionSnapshot({

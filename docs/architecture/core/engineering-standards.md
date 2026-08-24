@@ -31,12 +31,14 @@ everywhere in this repository:
   "for safety", or dual-path support for hypothetical callers.
 - A published version number is not a reason to preserve anything.
 
-One boundary survives: the operator's durable local state under `.kiln/` and
-`~/.kiln/` — Agent Task records, SQLite authorities, credentials, and config.
-That data exists on a real machine, so a schema change needs either a forward
-migration or an explicit recorded decision to discard it. That is data
-migration, and it is decided per change by the operator; it is never a reason to
-retain an API compatibility layer.
+One boundary survives: the operator's durable local state under `~/.kiln/` —
+global config, private project bindings, Agent Task records, SQLite authorities,
+credentials, and projections. Project state lives under
+`~/.kiln/projects/<krp_sha256>/`; a repository-local `.kiln/` tree is not a
+supported state owner. That data exists on a real machine, so a schema change
+needs either a forward migration or an explicit recorded decision to discard
+it. That is data migration, and it is decided per change by the operator; it is
+never a reason to retain an API compatibility layer.
 
 Reset is an admitted outcome. When local state has no future-useful evidence,
 discarding it is preferred over carrying readers that exist only to parse it.

@@ -118,11 +118,15 @@ test.describe("parity category 5 - theming and visual behavior", () => {
           (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop = top;
         },
       });
-      viewport.scrollTo = (optionsOrX: ScrollToOptions | number, y?: number) => {
-        const top = typeof optionsOrX === "number" ? y ?? 0 : optionsOrX.top ?? 0;
+      function patchedScrollTo(): void;
+      function patchedScrollTo(options: ScrollToOptions): void;
+      function patchedScrollTo(x: number, y: number): void;
+      function patchedScrollTo(optionsOrX?: ScrollToOptions | number, y?: number): void {
+        const top = typeof optionsOrX === "number" ? y ?? 0 : optionsOrX?.top ?? 0;
         (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop = top;
         viewport.scrollTop = top;
-      };
+      }
+      viewport.scrollTo = patchedScrollTo;
     });
     const firstTurn = rail.getByRole("button", { name: "Jump to user turn 1" });
     const distantTurn = rail.getByRole("button", { name: "Jump to assistant reply 4" });

@@ -36,7 +36,6 @@ describe("projectCommand", () => {
     projectMocks.resolveProjectRoot.mockReturnValue({
       rootPath: "C:/project",
       source: "git",
-      hasKilnYaml: false,
       hasGitRoot: true,
       projectName: "project",
     });
@@ -91,7 +90,6 @@ describe("projectCommand", () => {
     projectMocks.resolveProjectRoot.mockReturnValue({
       rootPath: "C:/loose",
       source: "cwd",
-      hasKilnYaml: false,
       hasGitRoot: false,
       projectName: "loose",
     });

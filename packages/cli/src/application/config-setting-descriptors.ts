@@ -8,6 +8,7 @@ import type {
 import { isOperatorThemeName } from "@kilnai/gateway-contracts";
 import {
   PROJECT_CONFIG_FIELD_DESCRIPTORS,
+  type ProjectConfigAdmission,
   type ProjectConfigFieldDescriptor,
 } from "../config/project-config-schema.js";
 import {
@@ -44,6 +45,8 @@ export interface ConfigSettingGovernance {
   readonly authorityBearing: boolean;
   readonly activation: KilnConfigActivationClass;
   readonly owners: readonly string[];
+  readonly projectAdmission?: ProjectConfigAdmission;
+  readonly comparator?: string;
 }
 
 /**
@@ -65,6 +68,12 @@ export function configSettingGovernance(
     authorityBearing: field.authorityImpact === "authority-bearing",
     activation: field.activation as KilnConfigActivationClass,
     owners: [field.semanticOwner],
+    ...(scope === "project" ? {
+      projectAdmission: (field as ProjectConfigFieldDescriptor).projectAdmission,
+      ...((field as ProjectConfigFieldDescriptor).comparator === undefined
+        ? {}
+        : { comparator: (field as ProjectConfigFieldDescriptor).comparator }),
+    } : {}),
   };
 }
 
@@ -317,20 +326,6 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     reconciliationTargets: [],
   }),
   descriptor({
-    key: "teamMode",
-    path: ["teamMode"],
-    scopes: PROJECT,
-    value: { kind: "text" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "requireApproval",
-    path: ["requireApproval"],
-    scopes: PROJECT,
-    value: { kind: "boolean" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
     key: "maxDepth",
     path: ["maxDepth"],
     scopes: PROJECT,
@@ -360,132 +355,5 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     scopes: PROJECT,
     value: { kind: "enum", allowed: ["read-only", "workspace-write", "danger-full-access"] },
     reconciliationTargets: ["repo-shims"],
-  }),
-  descriptor({
-    key: "permissions.safeDefaults",
-    path: ["permissions", "safeDefaults"],
-    scopes: PROJECT,
-    value: { kind: "boolean" },
-    reconciliationTargets: ["repo-shims"],
-  }),
-  descriptor({
-    key: "permissions.auditLog",
-    path: ["permissions", "auditLog"],
-    scopes: PROJECT,
-    value: { kind: "boolean" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "permissions.tools",
-    path: ["permissions", "tools"],
-    scopes: PROJECT,
-    value: { kind: "json" },
-    section: "advanced",
-    reconciliationTargets: ["repo-shims"],
-  }),
-  descriptor({
-    key: "permissions.commands",
-    path: ["permissions", "commands"],
-    scopes: PROJECT,
-    value: { kind: "json" },
-    section: "advanced",
-    reconciliationTargets: ["repo-shims"],
-  }),
-  descriptor({
-    key: "permissions.fileGovernance",
-    path: ["permissions", "fileGovernance"],
-    scopes: PROJECT,
-    value: { kind: "json" },
-    section: "advanced",
-    reconciliationTargets: ["repo-shims"],
-  }),
-  descriptor({
-    key: "permissions.dataFirewall",
-    path: ["permissions", "dataFirewall"],
-    scopes: PROJECT,
-    value: { kind: "json" },
-    section: "advanced",
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "permissions.agentScopes",
-    path: ["permissions", "agentScopes"],
-    scopes: PROJECT,
-    value: { kind: "json" },
-    section: "advanced",
-    reconciliationTargets: [],
-  }),
-
-  // Interactive use grants reach outside the workspace.
-  descriptor({
-    key: "interactiveUse.enabled",
-    path: ["interactiveUse", "enabled"],
-    scopes: PROJECT,
-    value: { kind: "boolean" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.allowedDomains",
-    path: ["interactiveUse", "allowedDomains"],
-    scopes: PROJECT,
-    value: { kind: "string-list" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.allowedApplications",
-    path: ["interactiveUse", "allowedApplications"],
-    scopes: PROJECT,
-    value: { kind: "string-list" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.applicationAliases",
-    path: ["interactiveUse", "applicationAliases"],
-    scopes: PROJECT,
-    value: { kind: "string-list-record" },
-    section: "advanced",
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.allowExternalBrowser",
-    path: ["interactiveUse", "allowExternalBrowser"],
-    scopes: PROJECT,
-    value: { kind: "boolean" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.allowComputer",
-    path: ["interactiveUse", "allowComputer"],
-    scopes: PROJECT,
-    value: { kind: "boolean" },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.browserProvider",
-    path: ["interactiveUse", "browserProvider"],
-    scopes: PROJECT,
-    value: { kind: "enum", allowed: ["none", "playwright"] },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.computerProvider",
-    path: ["interactiveUse", "computerProvider"],
-    scopes: PROJECT,
-    value: { kind: "enum", allowed: ["none", "windows", "windows-uia"] },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.browserEnvironment",
-    path: ["interactiveUse", "browserEnvironment"],
-    scopes: PROJECT,
-    value: { kind: "enum", allowed: ["isolated-headless", "isolated-headed"] },
-    reconciliationTargets: [],
-  }),
-  descriptor({
-    key: "interactiveUse.computerEnvironment",
-    path: ["interactiveUse", "computerEnvironment"],
-    scopes: PROJECT,
-    value: { kind: "enum", allowed: ["local-active-desktop"] },
-    reconciliationTargets: [],
   }),
 ]);

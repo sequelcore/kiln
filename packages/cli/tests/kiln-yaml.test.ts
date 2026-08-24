@@ -3,25 +3,26 @@ import {
   mkdtempSync,
   rmSync,
   writeFileSync,
-  mkdirSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  readKilnYaml,
+  readKilnYamlFile,
   mergeKilnYaml,
   defaultKilnYaml,
   KilnYamlError,
   type ResolvedKilnConfig,
   type KilnProjectConfig,
+  type KilnYamlWebConfig,
 } from "../src/kiln-yaml.js";
 
-describe("readKilnYaml", () => {
+describe("readKilnYamlFile", () => {
   let tempDir: string;
+  let configPath: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-yaml-read-"));
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    configPath = join(tempDir, "config.yaml");
   });
 
   afterEach(() => {
@@ -29,15 +30,15 @@ describe("readKilnYaml", () => {
   });
 
   it("returns null when file does not exist", () => {
-    expect(readKilnYaml(join(tempDir, ".kiln"))).toBeNull();
+    expect(readKilnYamlFile(configPath)).toBeNull();
   });
 
   it("parses valid kiln.yaml", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       "version: '1'\ndomain: python\nmaxDepth: 2\n",
     );
-    const result = readKilnYaml(join(tempDir, ".kiln"));
+    const result = readKilnYamlFile(configPath);
     expect(result).not.toBeNull();
     expect(result!.version).toBe("1");
     expect(result!.domain).toBe("python");
@@ -45,28 +46,28 @@ describe("readKilnYaml", () => {
   });
 
   it("throws KilnYamlError when file is not an object", () => {
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), "just a string");
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(KilnYamlError);
+    writeFileSync(configPath, "just a string");
+    expect(() => readKilnYamlFile(configPath)).toThrow(KilnYamlError);
   });
 
   it("throws KilnYamlError on parse failure", () => {
-    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), "invalid: yaml: [");
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(KilnYamlError);
+    writeFileSync(configPath, "invalid: yaml: [");
+    expect(() => readKilnYamlFile(configPath)).toThrow(KilnYamlError);
   });
 
   it("rejects project skill visibility while native projections are user-global", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       "version: '1'\nskills:\n  visibility:\n    overrides:\n      planner: disabled\n",
     );
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
-      "skills.visibility is global-only because native skill targets are user-global",
+    expect(() => readKilnYamlFile(configPath)).toThrow(
+      /Invalid project config at \/skills\/visibility: unknown field/u,
     );
   });
 
   it("rejects the global-only bounded work ceiling from project config", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       [
         "version: '1'",
         "workGovernance:",
@@ -80,14 +81,14 @@ describe("readKilnYaml", () => {
       ].join("\n"),
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+    expect(() => readKilnYamlFile(configPath)).toThrow(
       "workGovernance.boundedWorkCeiling is global-only",
     );
   });
 
   it("rejects agent inherit:false at the project configuration boundary", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       [
         "version: '1'",
         "permissions:",
@@ -97,14 +98,14 @@ describe("readKilnYaml", () => {
       ].join("\n"),
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
-      "permissions.agentScopes[0].inherit:false is unsupported",
+    expect(() => readKilnYamlFile(configPath)).toThrow(
+      /Invalid project config at \/permissions\/agentScopes: unknown field/u,
     );
   });
 
   it("rejects unsupported per-gate fields", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       [
         "version: '1'",
         "qualityGates:",
@@ -114,14 +115,14 @@ describe("readKilnYaml", () => {
       ].join("\n"),
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
-      /\/qualityGates\/0\/coverageThreshold: unknown field/u,
+    expect(() => readKilnYamlFile(configPath)).toThrow(
+      /qualityGates is global-only or is not a supported project configuration field/u,
     );
   });
 
   it("rejects malformed nested values with a stable field path", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       [
         "version: '1'",
         "permissions:",
@@ -131,24 +132,24 @@ describe("readKilnYaml", () => {
       ].join("\n"),
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
-      /Invalid project config at \/permissions\/tools\/0\/action/u,
+    expect(() => readKilnYamlFile(configPath)).toThrow(
+      /Invalid project config at \/permissions\/tools: unknown field/u,
     );
   });
 
   it("rejects the deleted knowledge context source", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       "version: '1'\ncontextGovernance:\n  preferredSources: [knowledge]\n",
     );
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+    expect(() => readKilnYamlFile(configPath)).toThrow(
       /Invalid project config at \/contextGovernance\/preferredSources\/0/u,
     );
   });
 
   it("rejects whitespace-only quality-gate names at the structural boundary", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       [
         "version: '1'",
         "qualityGates:",
@@ -157,14 +158,14 @@ describe("readKilnYaml", () => {
       ].join("\n"),
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
-      /Invalid project config at \/qualityGates\/0\/name/u,
+    expect(() => readKilnYamlFile(configPath)).toThrow(
+      /qualityGates is global-only or is not a supported project configuration field/u,
     );
   });
 
   it("rejects unknown nested fields with the running build identity", () => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
+      configPath,
       [
         "version: '1'",
         "permissions:",
@@ -173,7 +174,7 @@ describe("readKilnYaml", () => {
       ].join("\n"),
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+    expect(() => readKilnYamlFile(configPath)).toThrow(
       /Invalid project config at \/permissions\/mystery: unknown field\. Validated by kiln .+ at .+;/u,
     );
   });
@@ -188,15 +189,35 @@ describe("readKilnYaml", () => {
     ["deliberation policy", "deliberationPolicy:\n  default:\n    mode: adaptive\n    target: balanced"],
   ])("rejects global-only %s from project config", (_label, fieldYaml) => {
     writeFileSync(
-      join(tempDir, ".kiln", "kiln.yaml"),
-      `version: '2'\n${fieldYaml}\n`,
+      configPath,
+      `version: '1'\n${fieldYaml}\n`,
     );
 
-    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(KilnYamlError);
+    expect(() => readKilnYamlFile(configPath)).toThrow(
+      /is global-only or is not a supported project configuration field/u,
+    );
   });
 });
 
 describe("mergeKilnYaml", () => {
+  it("preserves an explicit project narrowing of active instruction profiles", () => {
+    const result = mergeKilnYaml(
+      { version: "1", activeInstructionProfiles: ["sequel-engineering", "operator-communication"] },
+      { version: "1", activeInstructionProfiles: ["sequel-engineering"] },
+    );
+
+    expect(result.activeInstructionProfiles).toEqual(["sequel-engineering"]);
+  });
+
+  it("inherits global instruction profiles when the project omits them", () => {
+    const result = mergeKilnYaml(
+      { version: "1", activeInstructionProfiles: ["sequel-engineering", "operator-communication"] },
+      { version: "1" },
+    );
+
+    expect(result.activeInstructionProfiles).toEqual(["sequel-engineering", "operator-communication"]);
+  });
+
   it("preserves omitted global permission dimensions in a partial project overlay", () => {
     const result = mergeKilnYaml(
       {
@@ -207,7 +228,7 @@ describe("mergeKilnYaml", () => {
           tools: [{ tool: "bash", action: "deny" }],
           commands: [{ pattern: "rm *", action: "deny" }],
         },
-      },
+      } as ResolvedKilnConfig,
       {
         version: "1",
         permissions: { approval: "untrusted", sandbox: "read-only" },
@@ -228,7 +249,7 @@ describe("mergeKilnYaml", () => {
       harnesses: { codex: { expectedFingerprint: `sha256:${"a".repeat(64)}`, keepImplicit: [] } },
     };
     const result = mergeKilnYaml(
-      { version: "1", skills: { externalCatalog, visibility: { default: "explicit-only" } } },
+      { version: "1", skills: { externalCatalog, visibility: { default: "explicit-only" } } } as ResolvedKilnConfig,
       { version: "1", skills: { selection: { mode: "auto" } } },
     );
     expect(result.skills).toMatchObject({ externalCatalog, selection: { mode: "auto" }, visibility: { default: "explicit-only" } });
@@ -248,19 +269,19 @@ describe("mergeKilnYaml", () => {
   });
 
   it("merges mcp.servers by server name", () => {
-    const base: ResolvedKilnConfig = {
+    const base = {
       version: "1",
       mcp: {
         servers: {
           kiln: { transport: "stdio", command: "kiln-mcp" },
         },
       },
-    };
+    } as unknown as ResolvedKilnConfig;
     const override: KilnProjectConfig = {
       version: "1",
       mcp: {
         servers: {
-          kiln: { enabled: true },
+          kiln: { enabled: false },
         },
       },
     };
@@ -268,26 +289,39 @@ describe("mergeKilnYaml", () => {
     expect(result.mcp?.servers["kiln"]).toEqual({
       transport: "stdio",
       command: "kiln-mcp",
-      enabled: true,
+      enabled: false,
     });
   });
 
-  it("adds new mcp server from override", () => {
-    const base: ResolvedKilnConfig = {
+  it("rejects a project-only mcp server from override", () => {
+    const base = {
       version: "1",
       mcp: { servers: { kiln: { transport: "stdio", command: "kiln-mcp" } } },
-    };
+    } as unknown as ResolvedKilnConfig;
     const override: KilnProjectConfig = {
       version: "1",
       mcp: {
         servers: {
-          custom: { transport: "streamable-http", url: "http://localhost:3001/mcp" },
+          custom: { enabled: false },
         },
       },
     };
-    const result = mergeKilnYaml(base, override);
-    expect(result.mcp?.servers["kiln"]).toBeDefined();
-    expect(result.mcp?.servers["custom"]).toBeDefined();
+    expect(() => mergeKilnYaml(base, override)).toThrow(
+      "Project-only MCP server 'custom' is not admitted by global configuration.",
+    );
+  });
+
+  it("rejects a project MCP catalog limit without a matching global bound", () => {
+    expect(() => mergeKilnYaml(
+      {
+        version: "1",
+        mcp: { servers: { kiln: { transport: "stdio", command: "kiln-mcp" } } },
+      } as unknown as ResolvedKilnConfig,
+      {
+        version: "1",
+        mcp: { servers: { kiln: { maxCapabilities: 10 } } },
+      },
+    )).toThrow("Project MCP maxCapabilities for 'kiln' has no global catalog limit.");
   });
 
   it("does not let project config replace global model suitability", () => {
@@ -328,13 +362,13 @@ describe("mergeKilnYaml", () => {
     }]);
   });
 
-  it("merges builtin skill policy additively", () => {
+  it("narrows builtin skill inclusion while accumulating project exclusions", () => {
     const base: ResolvedKilnConfig = {
       version: "1",
       skills: {
         builtin: {
           enabled: true,
-          include: ["tdd-workflow"],
+          include: ["tdd-workflow", "code-review-findings"],
           exclude: ["frontend-ux-review"],
         },
       },
@@ -354,7 +388,7 @@ describe("mergeKilnYaml", () => {
     expect(result.skills).toEqual({
       builtin: {
         enabled: true,
-        include: ["tdd-workflow", "code-review-findings"],
+        include: ["code-review-findings"],
         exclude: ["frontend-ux-review", "benchmark-readiness-review"],
       },
     });
@@ -371,7 +405,7 @@ describe("mergeKilnYaml", () => {
             overrides: { planner: "explicit-only", release: "disabled" },
           },
         },
-      },
+      } as ResolvedKilnConfig,
       {
         version: "1",
         skills: {
@@ -415,14 +449,18 @@ describe("mergeKilnYaml", () => {
     });
   });
 
-  it("preserves project quality gates during global/project composition", () => {
+  it("does not promote project quality gates during global/project composition", () => {
     const gates = [{ name: "test", command: "bun test", required: true }] as const;
+    const override = {
+      version: "1",
+      ...({ qualityGates: gates } as Record<string, unknown>),
+    } as KilnProjectConfig;
     const result = mergeKilnYaml(
       { version: "1", permissions: { approval: "on-request", sandbox: "read-only" } },
-      { version: "1", qualityGates: gates },
+      override,
     );
 
-    expect(result.qualityGates).toEqual(gates);
+    expect((result as unknown as Record<string, unknown>).qualityGates).toBeUndefined();
   });
 
   it("preserves the complete global bounded work ceiling during project composition", () => {
@@ -484,7 +522,7 @@ describe("mergeKilnYaml", () => {
   });
 
   it("inherits global web providers while project web policy grants authority", () => {
-    const base: ResolvedKilnConfig = {
+    const base = {
       version: "1",
       web: {
         searchProvider: {
@@ -496,7 +534,7 @@ describe("mergeKilnYaml", () => {
           apiKeyEnv: "FIRECRAWL_API_KEY",
         },
       },
-    };
+    } as unknown as ResolvedKilnConfig;
     const override: KilnProjectConfig = {
       version: "1",
       web: {
@@ -523,8 +561,8 @@ describe("mergeKilnYaml", () => {
     });
   });
 
-  it("lets project web config explicitly disable inherited providers", () => {
-    const base: ResolvedKilnConfig = {
+  it("keeps inherited web providers global-owned", () => {
+    const base = {
       version: "1",
       web: {
         searchProvider: {
@@ -536,21 +574,25 @@ describe("mergeKilnYaml", () => {
           apiKeyEnv: "FIRECRAWL_API_KEY",
         },
       },
-    };
+    } as unknown as ResolvedKilnConfig;
     const override: KilnProjectConfig = {
       version: "1",
       web: {
         enabled: true,
         netPolicy: "documentation",
-        searchProvider: { type: "none" },
-        extractProvider: { type: "none" },
       },
     };
 
     const result = mergeKilnYaml(base, override);
 
-    expect(result.web?.searchProvider).toEqual({ type: "none" });
-    expect(result.web?.extractProvider).toEqual({ type: "none" });
+    expect((result.web as unknown as KilnYamlWebConfig | undefined)?.searchProvider).toEqual({
+      type: "tavily",
+      apiKeyEnv: "TAVILY_API_KEY",
+    });
+    expect((result.web as unknown as KilnYamlWebConfig | undefined)?.extractProvider).toEqual({
+      type: "firecrawl",
+      apiKeyEnv: "FIRECRAWL_API_KEY",
+    });
   });
 
   it("ignores undefined override values", () => {

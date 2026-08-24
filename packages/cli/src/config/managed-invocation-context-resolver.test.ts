@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 
 const tempRoots: string[] = [];
@@ -12,8 +13,13 @@ function createTempRoot(): string {
   return root;
 }
 
-function writeAgent(root: string): void {
-  const agentDir = join(root, ".kiln", "agents");
+function projectBinding(root: string) {
+  return resolveProjectStateBinding(root, {
+    kilnHome: join(root, "synthetic-kiln-home"),
+  });
+}
+
+function writeAgent(agentDir: string): void {
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "architecture-reviewer.md"),
@@ -37,8 +43,7 @@ function writeAgent(root: string): void {
   );
 }
 
-function writeWritingAgent(root: string): void {
-  const agentDir = join(root, ".kiln", "agents");
+function writeWritingAgent(agentDir: string): void {
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "report-writer.md"),
@@ -68,8 +73,8 @@ function writeWritingAgent(root: string): void {
   );
 }
 
-function writeSkill(root: string): void {
-  const skillDir = join(root, ".kiln", "skills", "ddd-review");
+function writeSkill(skillsDirectory: string): void {
+  const skillDir = join(skillsDirectory, "ddd-review");
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.md"),
@@ -86,8 +91,8 @@ function writeSkill(root: string): void {
   );
 }
 
-function writeFrontendSkill(root: string): void {
-  const skillDir = join(root, ".kiln", "skills", "frontend-design");
+function writeFrontendSkill(skillsDirectory: string): void {
+  const skillDir = join(skillsDirectory, "frontend-design");
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.md"),
@@ -113,11 +118,14 @@ describe("managed invocation context resolver", () => {
 
   it("resolves requested agent profile and skills into a prompt prefix", async () => {
     const root = createTempRoot();
-    writeAgent(root);
-    writeSkill(root);
+    const binding = projectBinding(root);
+    writeAgent(binding.agentsPath);
+    writeSkill(binding.skillsPath);
     const resolver = createManagedInvocationContextResolver(root, root, {
       globalConfig: null,
       projectConfig: null,
+      projectAgentsDirectory: binding.agentsPath,
+      projectSkillsDirectory: binding.skillsPath,
     });
 
     const resolved = await resolver({
@@ -153,10 +161,12 @@ describe("managed invocation context resolver", () => {
 
   it("auto-admits selected route recommended skills when skill selection policy allows it", async () => {
     const root = createTempRoot();
-    writeFrontendSkill(root);
+    const binding = projectBinding(root);
+    writeFrontendSkill(binding.skillsPath);
     const resolver = createManagedInvocationContextResolver(root, root, {
       globalConfig: null,
       projectConfig: null,
+      projectSkillsDirectory: binding.skillsPath,
       skillConfig: {
         selection: {
           mode: "auto",
@@ -228,10 +238,12 @@ describe("managed invocation context resolver", () => {
 
   it("uses agent profile work classification when the invocation omits one", async () => {
     const root = createTempRoot();
-    writeWritingAgent(root);
+    const binding = projectBinding(root);
+    writeWritingAgent(binding.agentsPath);
     const resolver = createManagedInvocationContextResolver(root, root, {
       globalConfig: null,
       projectConfig: null,
+      projectAgentsDirectory: binding.agentsPath,
       skillConfig: {
         selection: {
           mode: "advisory",

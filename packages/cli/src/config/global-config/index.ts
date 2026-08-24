@@ -37,4 +37,4 @@ export {
 } from "./admission/execution-routing.js";
 export { validateGlobalConfig } from "./admission/index.js";
 export { resolveGlobalModelGatewayConfig } from "./admission/harness-settings.js";
-export { resolveGlobalConfigPath } from "./path.js";
+export { resolveGlobalConfigPath, resolveKilnHomePath } from "./path.js";

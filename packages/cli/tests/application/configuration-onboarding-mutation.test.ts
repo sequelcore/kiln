@@ -8,20 +8,28 @@ import {
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
 import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 describe("project.adopt mutation", () => {
   let projectPath: string;
   let globalHome: string;
+  let projectStateBinding: ProjectStateBinding;
   let previousXdgConfigHome: string | undefined;
 
   beforeEach(() => {
     projectPath = mkdtempSync(join(tmpdir(), "kiln-project-adopt-"));
     globalHome = mkdtempSync(join(tmpdir(), "kiln-project-adopt-global-"));
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
-    writeFileSync(join(globalHome, "kiln", "config.yaml"), "version: '4'\n", "utf8");
+    writeFileSync(join(globalHome, "kiln", "config.yaml"), [
+      "version: '4'",
+      "permissions:",
+      "  approval: on-request",
+      "  sandbox: read-only",
+      "",
+    ].join("\n"), "utf8");
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = globalHome;
-    mkdirSync(join(projectPath, ".kiln"), { recursive: true });
+    projectStateBinding = resolveProjectStateBinding(projectPath, { kilnHome: join(globalHome, "private-kiln-home") });
   });
 
   afterEach(() => {
@@ -34,17 +42,19 @@ describe("project.adopt mutation", () => {
   it("adopts the minimal read-only project document through the authority", async () => {
     const record = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "project.adopt",
       payload: { scope: "project", posture: "read-only" },
     });
     expect(record.proposal.status).toBe("valid");
     expect(record.proposal.scope).toBe("project");
-    expect(record.proposal.affectedCanonicalPaths).toEqual([join(projectPath, ".kiln", "kiln.yaml")]);
+    expect(record.proposal.affectedCanonicalPaths).toEqual([projectStateBinding.configPath]);
     expect(record.writes[0]?.nextContent).not.toMatch(/app\.yaml|gateway\.yaml|memory|provider|channels|teamMode/iu);
-    new ConfigMutationStore(projectPath).saveProposal(record);
+    new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath }).saveProposal(record);
 
     const result = await applyConfigMutation({
       projectPath,
+      projectStateBinding,
       proposalId: record.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -52,7 +62,7 @@ describe("project.adopt mutation", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed");
-    expect(parse(readFileSync(join(projectPath, ".kiln", "kiln.yaml"), "utf8"))).toEqual({
+    expect(parse(readFileSync(projectStateBinding.configPath, "utf8"))).toEqual({
       version: "1",
       permissions: { approval: "on-request", sandbox: "read-only" },
     });
@@ -61,16 +71,18 @@ describe("project.adopt mutation", () => {
   it("fails closed for an unsupported posture and writes nothing", () => {
     const record = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "project.adopt",
       payload: { scope: "project", posture: "danger-full-access" },
     });
     expect(record.proposal.status).toBe("invalid");
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(projectStateBinding.configPath)).toBe(false);
   });
 
   it("does not admit workspace-write through first-run adoption", () => {
     const record = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "project.adopt",
       payload: { scope: "project", posture: "workspace-write" },
     });
@@ -92,13 +104,15 @@ describe("project.adopt mutation", () => {
     ].join("\n"), "utf8");
     const record = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "project.adopt",
       payload: { scope: "project", posture: "read-only" },
     });
     expect(record.proposal.status).toBe("valid");
-    new ConfigMutationStore(projectPath).saveProposal(record);
+    new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath }).saveProposal(record);
     const result = await applyConfigMutation({
       projectPath,
+      projectStateBinding,
       proposalId: record.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -106,7 +120,7 @@ describe("project.adopt mutation", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed");
-    expect(parse(readFileSync(join(projectPath, ".kiln", "kiln.yaml"), "utf8"))).toEqual({
+    expect(parse(readFileSync(projectStateBinding.configPath, "utf8"))).toEqual({
       version: "1",
       permissions: { approval: "untrusted", sandbox: "read-only" },
     });
@@ -122,13 +136,15 @@ describe("project.adopt mutation", () => {
     ].join("\n"), "utf8");
     const record = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "project.adopt",
       payload: { scope: "project", posture: "read-only" },
     });
     expect(record.proposal.status).toBe("valid");
-    new ConfigMutationStore(projectPath).saveProposal(record);
+    new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath }).saveProposal(record);
     const result = await applyConfigMutation({
       projectPath,
+      projectStateBinding,
       proposalId: record.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -136,7 +152,7 @@ describe("project.adopt mutation", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed");
-    expect(parse(readFileSync(join(projectPath, ".kiln", "kiln.yaml"), "utf8"))).toEqual({
+    expect(parse(readFileSync(projectStateBinding.configPath, "utf8"))).toEqual({
       version: "1",
       permissions: { approval: "on-failure", sandbox: "read-only" },
     });

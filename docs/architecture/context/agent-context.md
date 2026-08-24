@@ -114,8 +114,8 @@ context sources that shape agent behavior across surfaces. They should be
 stored as scoped documents or references, not repeated inside every agent
 definition.
 
-Canonical instruction profiles live in `~/.kiln/instructions/*.md` and
-`.kiln/instructions/*.md`. The file format is markdown with YAML
+Canonical instruction profiles live in `~/.kiln/instructions/*.md` and in the
+bound private project namespace's `instructions/*.md`. The file format is markdown with YAML
 frontmatter:
 
 ```markdown
@@ -223,8 +223,9 @@ local semantics.
 ## Configured Agent Roster
 
 Kiln has no implicit executable agent roster. Global agents under
-`~/.kiln/agents/*.md` and project agents under `.kiln/agents/*.md` are the only
-agent-definition sources. Project definitions may shadow a global persona by
+`~/.kiln/agents/*.md` and project agents under the bound private namespace's
+`agents/*.md` are the only agent-definition sources. Project definitions may
+shadow a global persona by
 name for that repository, but they may only reference global targets and
 authority profiles; they cannot define provider, model, target, or authority
 inline.
@@ -397,7 +398,8 @@ single `SKILL.md` staged as a one-file package. It validates health, computes a
 complete-package digest, applies atomically, records source and ownership, and
 refuses an existing destination. `kiln skill update` and `kiln skill remove`
 refuse locally drifted content unless `--force` is provided after review. Both
-preserve recoverable backups under `.kiln/backups/skills/`. These local
+  preserve recoverable backups under the bound private namespace's
+  `backups/skills/` directory. These local
 operations do not establish a universal remote registry or infer trust from
 installability.
 

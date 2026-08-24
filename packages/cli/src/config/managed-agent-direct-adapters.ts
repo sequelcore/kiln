@@ -46,6 +46,8 @@ const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY: ManagedAgentAdapterWriteAuthorityDescr
 };
 
 export interface ManagedDirectProviderAdapterFactoryOptions {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly configEnv?: EnvMap;
   readonly runtimeEnv?: EnvMap;
@@ -108,6 +110,7 @@ export function createManagedDirectProviderAdapterFactory(
     const providerAdapter = await createProvider({
         provider,
         model: executionProfile.model,
+        kilnHome: options.kilnHome,
         credentialBinding,
         configEnv: options.configEnv,
         runtimeEnv: options.runtimeEnv,
@@ -120,7 +123,8 @@ export function createManagedDirectProviderAdapterFactory(
     const admittedMcpSelectors = new Set(
       profile.allowedToolNames.filter((name) => name.startsWith("mcp:")),
     );
-    const createMcpClient = options.createMcpClient ?? createCanonicalMcpClient;
+    const createMcpClient = options.createMcpClient
+      ?? ((server: ResolvedMcpServer) => createCanonicalMcpClient(server, options.kilnHome));
     const mcpClients = admittedMcpSelectors.size > 0
       ? (options.canonicalMcpServers ?? []).map(createMcpClient)
       : [];

@@ -1,11 +1,11 @@
 // Gateway: AppResolver -- resolves GatewayConfig app bindings to loaded App composites
 
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { parseAppYaml, KilnError } from "@kilnai/core";
 import type { App, RuntimeModeConfig } from "@kilnai/core";
 import type { GatewayAppBinding } from "@kilnai/core";
 import type { GatewayConfigurationSource } from "./gateway-configuration-source.js";
+import { resolveRuntimeStoreRoot } from "../kiln-home.js";
 
 export interface ResolvedApp {
   readonly name: string;
@@ -15,7 +15,16 @@ export interface ResolvedApp {
   readonly runtimeModeConfig?: RuntimeModeConfig;
 }
 
-export function resolveApps(source: GatewayConfigurationSource): ResolvedApp[] {
+export interface ResolveAppsOptions {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
+}
+
+export function resolveApps(
+  source: GatewayConfigurationSource,
+  options: ResolveAppsOptions = {},
+): ResolvedApp[] {
+  const gatewayMemoryRoot = resolveRuntimeStoreRoot(options, "gateway");
   return source.apps.map(({ binding, bytes: content, path: configPath }) => {
     let app: App;
     try {
@@ -28,7 +37,7 @@ export function resolveApps(source: GatewayConfigurationSource): ResolvedApp[] {
       );
     }
 
-    const memoryBasePath = join(homedir(), ".kiln", "gateway", binding.name);
+    const memoryBasePath = join(gatewayMemoryRoot, binding.name);
 
     return {
       name: binding.name,

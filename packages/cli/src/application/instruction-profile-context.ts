@@ -2,6 +2,7 @@ import type { ContextCandidate } from "@kilnai/core";
 import type { KilnGlobalConfig } from "../config/global-config.js";
 import type { KilnProjectConfig } from "../kiln-yaml-types.js";
 import type { KilnAgentDefinition } from "./agent-loader.js";
+import type { ProjectStateBinding } from "./project-state-root.js";
 import {
   findInstructionProfile,
   loadInstructionProfiles,
@@ -17,6 +18,7 @@ export interface ResolveInstructionProfileContextInput {
   readonly projectConfig?: KilnProjectConfig | null;
   readonly agent?: Pick<KilnAgentDefinition, "name" | "instructionProfiles">;
   readonly userHome?: string;
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export function resolveInstructionProfileContextCandidates(
@@ -27,7 +29,9 @@ export function resolveInstructionProfileContextCandidates(
     return [];
   }
 
-  const available = loadInstructionProfiles(input.projectPath, input.userHome);
+  const available = loadInstructionProfiles(input.projectPath, input.userHome, {
+    ...(input.projectStateBinding ? { projectStateBinding: input.projectStateBinding } : {}),
+  });
   const candidates: ContextCandidate[] = [];
   const missing: string[] = [];
 

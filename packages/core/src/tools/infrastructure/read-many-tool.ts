@@ -19,7 +19,7 @@ const DEFAULT_MAX_FILES = 50;
 const MAX_FILES = 200;
 const DEFAULT_MAX_BYTES = 256 * 1024;
 const MAX_BYTES = 2 * 1024 * 1024;
-const DEFAULT_EXCLUDED_DIRECTORIES = new Set([".git", ".kiln-worktrees", "build", "coverage", "dist", "node_modules"]);
+const DEFAULT_EXCLUDED_DIRECTORIES = new Set([".git", "build", "coverage", "dist", "node_modules"]);
 
 interface ReadManyFile {
   readonly path: string;

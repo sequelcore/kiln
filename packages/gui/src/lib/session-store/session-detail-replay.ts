@@ -588,8 +588,8 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     }
 
     if (event.kind === "approval_resolved") {
+      const approvalId = readString(payload.approvalId);
       const resolution = isObjectRecord(payload.resolution) ? payload.resolution : null;
-      const decision = readString(resolution?.decision) ?? "resolved";
       timelineEntries.push({
         id: `timeline:${event.eventId}`,
         type: "event",
@@ -597,9 +597,12 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         createdAt: event.timestamp,
         sequence: event.sequence,
         title: "Approval resolved",
-        summary: decision,
-        tone: decision === "approved" ? "success" : "error",
-        details: resolution ?? payload,
+        summary: readString(resolution?.decision) ?? undefined,
+        tone: resolution?.decision === "approved" ? "success" : "error",
+        details: {
+          approvalId: approvalId ?? undefined,
+          resolution: resolution ?? undefined,
+        },
         sessionId: detail.id,
       });
       continue;

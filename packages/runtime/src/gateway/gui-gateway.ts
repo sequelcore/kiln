@@ -179,6 +179,8 @@ async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
 
 export interface StartGuiGatewayOptions {
   readonly port?: number;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly guiDistPath?: string;
   readonly guiAssetMode?: "bundled" | "external";
   /** Exact loopback origin of an externally served local GUI, such as the Vite development surface. */
@@ -520,7 +522,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     ? createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
       () => options.discoverOperatorProviders
         ? options.discoverOperatorProviders()
-        : resolveOperatorDiscovery(options.getProviderAvailability),
+        : resolveOperatorDiscovery(options.getProviderAvailability, options.kilnHome),
       [],
       {
         initialDiscovery: initialOperatorDiscovery,
@@ -763,6 +765,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       runExecutionTargetWizard: options.runExecutionTargetWizard,
       operatorCapability,
       goalController: options.goalController,
+      kilnHome: options.kilnHome,
       onSocketOpen: () => {
         activeConnections += 1;
         updateConnectionCount(activeConnections);
@@ -856,11 +859,12 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
 
 async function resolveOperatorDiscovery(
   getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>,
+  kilnHome?: string,
 ): Promise<GuiProviderDiscoveryResult[]> {
   const providerAvailability = getProviderAvailability
     ? await Promise.resolve(getProviderAvailability()).catch(() => ({}))
     : {};
-  return resolveGuiOperatorDiscoveryResults(providerAvailability);
+  return resolveGuiOperatorDiscoveryResults(providerAvailability, undefined, kilnHome);
 }
 
 function wireOperatorTransport(
@@ -883,6 +887,7 @@ function wireOperatorTransport(
     onSocketClose?: () => void;
     operatorCapability?: string;
     goalController?: GuiGoalController;
+    kilnHome?: string;
   },
 ): () => void {
   const providerLabel = input.transport.sessionManager.getProvider();
@@ -1379,7 +1384,7 @@ function wireOperatorTransport(
                 provider: typeof frame.provider === "string" ? frame.provider : null,
                 requestId: typeof frame.requestId === "string" ? frame.requestId : null,
               });
-              const auth = await startProviderAuthRequest(frame);
+              const auth = await startProviderAuthRequest({ ...frame, kilnHome: input.kilnHome });
               if (!auth.ok) {
                 guiProviderAuthDebug("request rejected", {
                   provider: auth.provider,

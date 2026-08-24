@@ -81,6 +81,7 @@ describe("ManagedAgentCockpitPanel", () => {
           providerRoute: "codex-oauth/gpt-5.5",
           attentionState: "needs_review",
           dirtyWorkspaceReviewRequired: true,
+          worktreeConflictBlocked: false,
           transcriptUri: "kiln://managed-agents/child-review/transcript",
           resourceUris: [
             "kiln://managed-agents/child-review/handoff",
@@ -96,7 +97,7 @@ describe("ManagedAgentCockpitPanel", () => {
               timestamp: "2026-05-23T12:01:00.000Z",
               kind: "agent_invocation_completed",
               title: "Agent invocation completed",
-              summary: "Review required.",
+              compactText: "Review required.",
               tone: "success",
               target: {
                 instanceId: "local",
@@ -121,6 +122,7 @@ describe("ManagedAgentCockpitPanel", () => {
           providerRoute: "codex-oauth/gpt-5.5",
           attentionState: "active",
           dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
           resourceUris: [],
           latestEventId: "event-running",
           lifecycleTimeline: [
@@ -132,6 +134,7 @@ describe("ManagedAgentCockpitPanel", () => {
               timestamp: "2026-05-23T12:00:00.000Z",
               kind: "agent_invocation_started",
               title: "Agent invocation started",
+              compactText: "Agent invocation started",
               tone: "running",
               target: {
                 instanceId: "local",
@@ -237,8 +240,8 @@ describe("ManagedAgentCockpitPanel", () => {
               timestamp: "2026-05-24T12:00:00.000Z",
               kind: "agent_invocation_failed",
               title: "Agent invocation failed",
-              summary: "Managed child write conflict.",
-              tone: "danger",
+              compactText: "Managed child write conflict.",
+              tone: "error",
               target: {
                 instanceId: "local",
                 sessionId: "session-1",
@@ -362,8 +365,8 @@ describe("ManagedAgentCockpitPanel", () => {
               timestamp: "2026-05-24T12:00:00.000Z",
               kind: "agent_invocation_failed",
               title: "Agent invocation failed",
-              summary: "Managed child timed out.",
-              tone: "danger",
+              compactText: "Managed child timed out.",
+              tone: "error",
               target: {
                 instanceId: "local",
                 sessionId: "session-1",
@@ -422,8 +425,8 @@ describe("ManagedAgentCockpitPanel", () => {
               timestamp: "2026-05-24T12:00:00.000Z",
               kind: "agent_invocation_failed",
               title: "Agent invocation failed",
-              summary: "Managed invocation heartbeat expired.",
-              tone: "danger",
+              compactText: "Managed invocation heartbeat expired.",
+              tone: "error",
               target: {
                 instanceId: "local",
                 sessionId: "session-1",
@@ -539,6 +542,7 @@ describe("ManagedAgentCockpitPanel", () => {
           lifecycleState: "running",
           attentionState: "active",
           dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
           resourceUris: [],
           latestEventId: "event-running",
           lifecycleTimeline: [],
@@ -576,6 +580,7 @@ describe("ManagedAgentCockpitPanel", () => {
           lifecycleState: "running",
           attentionState: "active",
           dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
           resourceUris: [],
           latestEventId: "event-running",
           lifecycleTimeline: [],

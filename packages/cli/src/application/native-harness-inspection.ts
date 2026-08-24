@@ -70,7 +70,6 @@ export interface NativeHarnessStatusResult {
     readonly completeness: "complete" | "degraded" | "unresolved";
     readonly projectName: string;
     readonly hasGitRoot: boolean;
-    readonly hasKilnYaml: boolean;
     readonly globalConfigStatus: ObservableConfigStatus;
     readonly projectConfigStatus: ObservableConfigStatus;
     readonly projectContextStatus: ObservableConfigStatus;
@@ -182,7 +181,6 @@ export function createNativeHarnessInspectionService(
           completeness: diagnostics.length === 0 ? "complete" : "degraded",
           projectName: result.snapshot.project.projectName,
           hasGitRoot: result.snapshot.project.hasGitRoot,
-          hasKilnYaml: result.snapshot.project.hasKilnYaml,
           globalConfigStatus: result.snapshot.global.status,
           projectConfigStatus: result.snapshot.project.kilnYaml.status,
           projectContextStatus: result.snapshot.project.projectContext.status,
@@ -293,7 +291,6 @@ function unresolvedStatus(diagnostic: NativeHarnessDiagnostic, now: Date, harnes
       completeness: "unresolved",
       projectName: "unresolved",
       hasGitRoot: false,
-      hasKilnYaml: false,
       globalConfigStatus: "unresolved",
       projectConfigStatus: "unresolved",
       projectContextStatus: "unresolved",

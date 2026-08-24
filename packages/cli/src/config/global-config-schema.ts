@@ -16,9 +16,11 @@ import type {
   KilnTargetCatalogIntentConfig,
   KilnWorkGovernanceConfig,
   KilnExternalCatalogPolicy,
+  KilnYamlInteractiveUseConfig,
   KilnYamlMcp,
   KilnYamlPermissions,
   KilnYamlWebExtractProvider,
+  KilnYamlWebNetPolicy,
   KilnYamlWebSearchProvider,
 } from "../kiln-yaml-types.js";
 
@@ -85,6 +87,14 @@ const permissionCeiling = strictObject({
   sandbox: Type.ReadonlyOptional(Type.Unsafe<NonNullable<KilnYamlPermissions["sandbox"]>>(Type.Unknown())),
 });
 const web = strictObject({
+  enabled: Type.ReadonlyOptional(Type.Boolean()),
+  netPolicy: Type.ReadonlyOptional(Type.Unsafe<KilnYamlWebNetPolicy>(Type.Union([
+    Type.Literal("none"),
+    Type.Literal("documentation"),
+    Type.Literal("package-managers"),
+    Type.Literal("full"),
+  ]))),
+  allowedDomains: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
   searchProvider: Type.ReadonlyOptional(Type.Unsafe<KilnYamlWebSearchProvider>(Type.Unknown())),
   searchFallbackProviders: Type.ReadonlyOptional(Type.Array(Type.Unsafe<KilnYamlWebSearchProvider>(Type.Unknown()))),
   extractProvider: Type.ReadonlyOptional(Type.Unsafe<KilnYamlWebExtractProvider>(Type.Unknown())),
@@ -185,6 +195,9 @@ export const GLOBAL_CONFIG_SCHEMA = strictObject({
   deliberationPolicy: Type.ReadonlyOptional(governedExternal<KilnDeliberationPolicyConfig>("deliberation-policy")),
   communication: Type.ReadonlyOptional(governedExternal<CommunicationIntent>("communication-policy")),
   web: Type.ReadonlyOptional(web),
+  interactiveUse: Type.ReadonlyOptional(governedExternal<KilnYamlInteractiveUseConfig>("interactive-use", {
+    "x-kiln-activation": "next-session",
+  })),
   verification: Type.ReadonlyOptional(verification),
   ui: Type.ReadonlyOptional(ui),
   skills: Type.ReadonlyOptional(skills),

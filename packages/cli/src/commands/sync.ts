@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import readline from "node:readline";
 import { loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
 import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
@@ -12,9 +11,10 @@ import { runConfigReconciliationTarget } from "../application/config-reconciliat
 import { syncCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
 import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 import type { KilnAppConfig } from "../config.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
@@ -201,12 +201,13 @@ export async function syncCommand(
 
   const projectRoot = resolveProjectRoot({ explicitPath: flags.projectPath });
   const root = projectRoot.rootPath;
-  const kilnDir = join(root, ".kiln");
+  const projectStateBinding = resolveProjectStateBinding(root);
+  const kilnDir = projectStateBinding.projectionsPath;
   const disabledHarnesses = [] as const;
 
-  const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(root);
+  const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(root, { projectStateBinding });
   if (!kilnYaml) {
-    console.error("Error: No kiln.yaml found in .kiln directory");
+    console.error(`Error: No private project configuration found at ${projectStateBinding.configPath}`);
     process.exit(1);
   }
 
@@ -236,6 +237,7 @@ export async function syncCommand(
         dryRun: flags.dryRun,
         disabledHarnesses,
         modelGateway: globalConfig?.modelGateway,
+        projectStateBinding,
       })));
   }
 
@@ -245,6 +247,7 @@ export async function syncCommand(
         force: forceHookSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
+        privateStateRoot: projectStateBinding.projectStateRoot,
       }));
   }
 
@@ -254,31 +257,18 @@ export async function syncCommand(
         force: forceAgentSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
+        projectStateBinding,
         communicationCandidates: configuredCommunicationCandidates({
           global: globalConfig?.communication,
-          project: readKilnYaml(join(root, ".kiln"))?.communication,
+          project: readKilnYamlFile(projectStateBinding.configPath)?.communication,
         }),
       })));
   }
 
   if (isSyncTargetSelected(flags, "repo-shims")) {
-    if (!projectRoot.hasKilnYaml && !projectRoot.hasGitRoot) {
-      repoShimResult = {
-        written: false,
-        targets: [],
-        outcomes: [{
-          targetId: "repo-shims",
-          path: root,
-          status: "failed",
-          reason: `unable to resolve a Kiln project root from ${root}`,
-        }],
-        errors: [`repo-shims: unable to resolve a Kiln project root from ${root}`],
-      };
-    } else {
-      repoShimResult = await captureProjectionFailure(unexpectedOutcomes, "repo-shims", root, () =>
-        requireCurrentProjection(root, "repo-shims", () =>
-          writeRepoShimProjections(root, { force: forceRepoShimSync, dryRun: flags.dryRun })));
-    }
+    repoShimResult = await captureProjectionFailure(unexpectedOutcomes, "repo-shims", root, () =>
+      requireCurrentProjection(root, "repo-shims", () =>
+        writeRepoShimProjections(root, { force: forceRepoShimSync, dryRun: flags.dryRun })));
   }
 
   if (isSyncTargetSelected(flags, "global-instructions")) {
@@ -287,6 +277,7 @@ export async function syncCommand(
         force: forceGlobalInstructionSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
+        projectStateBinding,
       }));
     globalCommunicationResult = await captureProjectionFailure(
       unexpectedOutcomes,
@@ -307,7 +298,7 @@ export async function syncCommand(
       }));
     openCodeSkillVisibilityResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
       syncOpenCodeSkillVisibilityProjection(kilnYaml, root, {
-        force: forceSkillSync, dryRun: flags.dryRun, disabledHarnesses,
+        force: forceSkillSync, dryRun: flags.dryRun, disabledHarnesses, projectStateBinding,
       }));
     skillsResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
       requireCurrentProjection(root, "native-skills", () => syncNativeSkillProjections(root, {
@@ -315,6 +306,8 @@ export async function syncCommand(
         dryRun: flags.dryRun,
         disabledHarnesses,
         skillConfig: kilnYaml.skills,
+        projectStateBinding,
+        projectSkillsDirectory: projectStateBinding.skillsPath,
       })));
   }
 

@@ -42,7 +42,7 @@ function makeBundle(turnId = "turn-1", turnRevision = "r2", sessionRevision = "s
 describe("TranscriptAuthorityAdmissionEvidenceStore", () => {
   it("persists the complete secret-free bundle and is idempotent by turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-admission-"));
-    const transcriptStore = new TranscriptStore(root);
+    const transcriptStore = new TranscriptStore({ sessionsPath: join(root, "sessions") });
     const store = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
     const bundle = makeBundle();
     await store.persist(bundle);
@@ -59,14 +59,14 @@ describe("TranscriptAuthorityAdmissionEvidenceStore", () => {
     const records = await transcriptStore.readAuthorityAdmissions("session-1");
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ sessionId: "session-1", turnId: "turn-1", admissionId: bundle.admissionId, bundle });
-    const raw = await readFile(join(root, ".kiln", "sessions", encodeURIComponent("session-1"), "authority-admissions.jsonl"), "utf8");
+    const raw = await readFile(join(root, "sessions", encodeURIComponent("session-1"), "authority-admissions.jsonl"), "utf8");
     expect(raw).toContain("\"execution\":{\"status\":\"not-routed\"}");
     expect(raw).not.toMatch(/token|secret|password|workingDirectory/iu);
   });
 
   it("rejects a conflicting admission for an already admitted turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-admission-"));
-    const store = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(root));
+    const store = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore({ sessionsPath: join(root, "sessions") }));
     await store.persist(makeBundle());
     await expect(store.persist(makeBundle("turn-1"))).resolves.toBeUndefined();
     await expect(store.persist(makeBundle("turn-1", "r3"))).rejects.toThrow(/conflict|turn-1/iu);
@@ -74,24 +74,24 @@ describe("TranscriptAuthorityAdmissionEvidenceStore", () => {
 
   it("serializes concurrent adapters sharing one session lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-admission-"));
-    const first = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(root));
-    const second = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(root));
+    const first = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore({ sessionsPath: join(root, "sessions") }));
+    const second = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore({ sessionsPath: join(root, "sessions") }));
     const bundle = makeBundle("turn-concurrent");
     await expect(Promise.all([first.persist(bundle), second.persist(bundle)])).resolves.toEqual([undefined, undefined]);
-    expect(await new TranscriptStore(root).readAuthorityAdmissions("session-1")).toHaveLength(1);
+    expect(await new TranscriptStore({ sessionsPath: join(root, "sessions") }).readAuthorityAdmissions("session-1")).toHaveLength(1);
   });
 
   it("rejects conflicting logical-session facets across different turns", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-admission-"));
-    const store = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(root));
+    const store = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore({ sessionsPath: join(root, "sessions") }));
     await store.persist(makeBundle("turn-1"));
     await expect(store.persist(makeBundle("turn-2", "r3", "s2"))).rejects.toThrow(/conflicting session facets/iu);
   });
 
   it("fails closed when the transcript evidence file is malformed", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-admission-"));
-    const transcriptStore = new TranscriptStore(root);
-    const dir = join(root, ".kiln", "sessions", encodeURIComponent("session-1"));
+    const transcriptStore = new TranscriptStore({ sessionsPath: join(root, "sessions") });
+    const dir = join(root, "sessions", encodeURIComponent("session-1"));
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "authority-admissions.jsonl"), "not-json\n", "utf8");
     await expect(new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore).persist(makeBundle())).rejects.toThrow(/JSON|malformed|evidence/iu);

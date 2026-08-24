@@ -163,7 +163,9 @@ describe("createAppShellFrameHandler", () => {
       type: "execution_route_change_failed",
       requestId: "execution-route-change-1",
       routeId: "openai-gpt",
+      reasonCode: "route-health-unavailable",
       reason: "The selected route is unavailable.",
+      repairActions: ["refresh-route-catalog"],
     });
     handleFrame({
       type: "approval_response_result",

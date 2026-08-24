@@ -32,7 +32,7 @@ import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
 import { PooledHarnessSession } from "./pooled-harness-session.js";
 import { ProviderSession } from "./provider-session.js";
-import { WorktreeManager } from "./worktree-manager.js";
+import { WorktreeError, WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 import { nativeToolName } from "./tool-vocabulary.js";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
@@ -166,6 +166,8 @@ export interface ProviderCreateConfig {
   readonly mcpToolAllowlist?: ReadonlySet<string>;
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly credentialBinding?: DirectProviderCredentialBinding;
   readonly executionCredential?: import("@kilnai/runtime").ConfiguredExecutionCredential;
   readonly deliberationResolution?: DeliberationResolution;
@@ -201,13 +203,32 @@ export interface ProviderCreateConfig {
   readonly privatePlanArtifactCapability?: ClaudePrivatePlanArtifactCapability;
 }
 
-export interface CreateDefaultRegistryOptions {
+export interface CreateDefaultRegistryCommonOptions {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly canonicalMcpServers?: readonly import("@kilnai/core").ResolvedMcpServer[];
   /** Canonical project root that owns native MCP projection state. */
   readonly canonicalMcpProjectPath?: string;
   /** Canonical project root that owns path-free native runtime handoff evidence. */
   readonly runtimePermissionObservationProjectPath?: string;
 }
+
+export type CreateDefaultRegistryOptions = CreateDefaultRegistryCommonOptions & (
+  | {
+    /** No worktree manager is configured for this registry. */
+    readonly worktreeRepoRoot?: undefined;
+    readonly worktreeBaseDir?: undefined;
+    readonly privateStateRoot?: undefined;
+  }
+  | {
+    /** Canonical repository root used by explicitly configured isolated worktrees. */
+    readonly worktreeRepoRoot: string;
+    /** Operator-private worktree base directory; never derive this from the repository. */
+    readonly worktreeBaseDir: string;
+    /** Canonical private project-state root that owns worktreeBaseDir. */
+    readonly privateStateRoot: string;
+  }
+);
 
 export interface ClaudeBackendConfig {
   readonly permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan";
@@ -1059,11 +1080,12 @@ function createPooledHarnessSession(
   createSession: (auth: HarnessHomeAuth) => IKilnSession,
   createDefaultSession: () => IKilnSession,
   runtimeSessionId?: string,
+  kilnHome?: string,
 ): IKilnSession {
   return new PooledHarnessSession({
     ...(runtimeSessionId ? { runtimeSessionId } : {}),
     provider,
-    pool: new HarnessCredentialPoolService().createPool(provider),
+    pool: new HarnessCredentialPoolService({ kilnHome }).createPool(provider),
     createSession,
     createDefaultSession,
   });
@@ -1120,6 +1142,7 @@ function createDirectProviderSession(
 
   return new ProviderSession({
     provider,
+    ...(config.kilnHome ? { kilnHome: config.kilnHome } : {}),
     ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
     model: config.model,
     ...(config.credentialBinding ? { credentialBinding: config.credentialBinding } : {}),
@@ -1148,7 +1171,7 @@ function createDirectProviderSession(
     ...(config.authorityAdmissionContext ? {
       mcpClients: config.authorityAdmissionContext.mcpClients,
     } : config.canonicalMcpServers ? {
-      mcpClients: config.canonicalMcpServers.map(createCanonicalMcpClient),
+      mcpClients: config.canonicalMcpServers.map((server) => createCanonicalMcpClient(server, config.kilnHome)),
     } : {}),
     ...(config.mcpToolAllowlist ? { mcpToolAllowlist: config.mcpToolAllowlist } : {}),
   });
@@ -1158,6 +1181,7 @@ function createDirectProviderDescriptor(
   provider: DirectApiProviderId,
   isAvailable?: () => boolean,
   canonicalMcpServers?: readonly import("@kilnai/core").ResolvedMcpServer[],
+  kilnHome?: string,
 ): SessionProviderDescriptor {
   return {
     id: provider,
@@ -1169,6 +1193,7 @@ function createDirectProviderDescriptor(
     ...(isAvailable ? { isAvailable } : {}),
     create: (config) => createDirectProviderSession(provider, {
       ...config,
+      kilnHome: config.kilnHome ?? kilnHome,
       canonicalMcpServers: config.canonicalMcpServers ?? canonicalMcpServers,
     }),
   };
@@ -1178,24 +1203,46 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
   registry: SessionRegistry;
   worktreeManager: WorktreeManager;
 } {
-  const worktreeManager = new WorktreeManager(process.cwd());
+  const worktreeConfigured = options.worktreeRepoRoot !== undefined
+    || options.worktreeBaseDir !== undefined
+    || options.privateStateRoot !== undefined;
+  if (worktreeConfigured && (
+    typeof options.worktreeRepoRoot !== "string"
+    || options.worktreeRepoRoot.trim().length === 0
+    || typeof options.worktreeBaseDir !== "string"
+    || options.worktreeBaseDir.trim().length === 0
+    || typeof options.privateStateRoot !== "string"
+    || options.privateStateRoot.trim().length === 0
+  )) {
+    throw new WorktreeError(
+      "Configured private worktrees require worktreeRepoRoot, worktreeBaseDir, and canonical privateStateRoot.",
+    );
+  }
+  const worktreeManager = new WorktreeManager(
+    options.worktreeRepoRoot,
+    options.worktreeBaseDir,
+    undefined,
+    options.privateStateRoot,
+  );
   const runtimePermissionObservationSink = options.runtimePermissionObservationProjectPath
     ? createRuntimePermissionObservationStore({ projectPath: options.runtimePermissionObservationProjectPath })
     : undefined;
-  worktreeManager.pruneStale().catch((err: unknown) => {
-    debug("pruneStale error:", err instanceof Error ? err.message : String(err));
-  });
+  if (options.worktreeRepoRoot !== undefined && options.worktreeBaseDir !== undefined) {
+    worktreeManager.pruneStale().catch((err: unknown) => {
+      debug("pruneStale error:", err instanceof Error ? err.message : String(err));
+    });
+  }
 
-  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth", undefined, options.canonicalMcpServers);
-  const opencodeGoProvider = createDirectProviderDescriptor("opencode-go", undefined, options.canonicalMcpServers);
-  const opencodeZenProvider = createDirectProviderDescriptor("opencode-zen", undefined, options.canonicalMcpServers);
+  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth", undefined, options.canonicalMcpServers, options.kilnHome);
+  const opencodeGoProvider = createDirectProviderDescriptor("opencode-go", undefined, options.canonicalMcpServers, options.kilnHome);
+  const opencodeZenProvider = createDirectProviderDescriptor("opencode-zen", undefined, options.canonicalMcpServers, options.kilnHome);
   const directProviders: SessionProviderDescriptor[] = [
-    createDirectProviderDescriptor("anthropic", () => hasNonEmptyEnv("ANTHROPIC_API_KEY"), options.canonicalMcpServers),
-    createDirectProviderDescriptor("openai", () => hasNonEmptyEnv("OPENAI_API_KEY"), options.canonicalMcpServers),
-    createDirectProviderDescriptor("deepseek", () => hasNonEmptyEnv("DEEPSEEK_API_KEY"), options.canonicalMcpServers),
-    createDirectProviderDescriptor("openrouter", () => hasNonEmptyEnv("OPENROUTER_API_KEY"), options.canonicalMcpServers),
-    createDirectProviderDescriptor("ollama", undefined, options.canonicalMcpServers),
-    createDirectProviderDescriptor("lmstudio", undefined, options.canonicalMcpServers),
+    createDirectProviderDescriptor("anthropic", () => hasNonEmptyEnv("ANTHROPIC_API_KEY"), options.canonicalMcpServers, options.kilnHome),
+    createDirectProviderDescriptor("openai", () => hasNonEmptyEnv("OPENAI_API_KEY"), options.canonicalMcpServers, options.kilnHome),
+    createDirectProviderDescriptor("deepseek", () => hasNonEmptyEnv("DEEPSEEK_API_KEY"), options.canonicalMcpServers, options.kilnHome),
+    createDirectProviderDescriptor("openrouter", () => hasNonEmptyEnv("OPENROUTER_API_KEY"), options.canonicalMcpServers, options.kilnHome),
+    createDirectProviderDescriptor("ollama", undefined, options.canonicalMcpServers, options.kilnHome),
+    createDirectProviderDescriptor("lmstudio", undefined, options.canonicalMcpServers, options.kilnHome),
   ];
 
   const providers: SessionProviderDescriptor[] = [
@@ -1254,6 +1301,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           (auth) => createSession(withHarnessHomeEnv("claude-code", config.env, auth)),
           () => createSession(withDefaultHarnessHomeEnv("claude-code", config.env)),
           config.runtimeSessionId,
+          options.kilnHome,
         );
       },
     },
@@ -1314,6 +1362,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           (auth) => createSession(withHarnessHomeEnv("codex", config.env, auth)),
           () => createSession(config.env),
           config.runtimeSessionId,
+          options.kilnHome,
         );
       },
     },
@@ -1369,6 +1418,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           (auth) => createSession(withHarnessHomeEnv("opencode", config.env, auth)),
           () => createSession(config.env),
           config.runtimeSessionId,
+          options.kilnHome,
         );
       },
     },

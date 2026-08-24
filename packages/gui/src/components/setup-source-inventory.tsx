@@ -332,8 +332,8 @@ function canonicalSourceRows(snapshot: KilnConfigSetupSnapshot) {
     {
       id: "project-context",
       label: "Project Context",
-      location: ".kiln/project-context.md",
-      purpose: "Durable repository guidance inherited by every harness.",
+      location: "Private project state",
+      purpose: "Durable project guidance projected to every harness.",
       path: snapshot.projectContext.path,
       status: snapshot.projectContext.status,
     },

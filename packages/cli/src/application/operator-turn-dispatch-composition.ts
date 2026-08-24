@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
 import type {
   AdmittedExecutionRoute,
   ExecutionCatalog,
@@ -29,6 +28,14 @@ import {
 import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
 import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
 import { SqliteRuntimeMediaActionClaimStore } from "./runtime-media-action-claim-store.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "./project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 
 export interface OperatorTurnDispatchComposition<Payload, Result> {
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
@@ -54,23 +61,38 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
   readonly captureCatalogSnapshot: () => OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
   readonly cwd: string;
   readonly credentialRootDir?: string;
+  /** Test/embedding seam for the verified operator-private project state. */
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly readDispatchOutcome?: (result: Result) => "completed" | "unknown";
 }): OperatorTurnDispatchComposition<Payload, Result> {
-  mkdirSync(join(input.cwd, ".kiln", "runtime"), { recursive: true });
+  const binding = input.projectStateBinding ?? resolveProjectStateBinding(input.cwd);
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, binding.runtimePath);
+  for (const fileName of [
+    "operator-session-account-capacity.sqlite",
+    "operator-session-model-round-claims.sqlite",
+    "operator-session-tool-action-claims.sqlite",
+    "operator-session-media-action-claims.sqlite",
+  ]) {
+    assertPrivateStateFileTargetSync(binding.projectStateRoot, join(binding.runtimePath, fileName));
+  }
   const authority = createOperatorSessionAccountCapacityAuthority({
-    path: join(input.cwd, ".kiln", "runtime", "operator-session-account-capacity.sqlite"),
+    path: join(binding.runtimePath, "operator-session-account-capacity.sqlite"),
   });
   const modelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-    path: join(input.cwd, ".kiln", "runtime", "operator-session-model-round-claims.sqlite"),
+    path: join(binding.runtimePath, "operator-session-model-round-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const toolActionClaims = new SqliteRuntimeToolActionClaimStore({
-    path: join(input.cwd, ".kiln", "runtime", "operator-session-tool-action-claims.sqlite"),
+    path: join(binding.runtimePath, "operator-session-tool-action-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const mediaActionClaims = new SqliteRuntimeMediaActionClaimStore({
-    path: join(input.cwd, ".kiln", "runtime", "operator-session-media-action-claims.sqlite"),
+    path: join(binding.runtimePath, "operator-session-media-action-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
     catalog: input.initialCatalog,
+    kilnHome: binding.kilnHome,
     ...(input.credentialRootDir ? { credentialRootDir: input.credentialRootDir } : {}),
     observeOperatorSessionCapacity: (candidates) => authority.observeCandidateCapacity(candidates),
   });

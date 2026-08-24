@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ExecutionRouteCatalog } from "@kilnai/gateway-contracts";
 import {
   conciseExecutionRouteUnavailableReason,
   executionRouteBrands,
@@ -30,7 +31,7 @@ const catalog = {
       repairActions: ["authenticate-provider" as const],
     },
   ],
-};
+} satisfies ExecutionRouteCatalog;
 
 describe("execution target picker model", () => {
   it("projects automatic and exact account intents without turning display evidence into selection identity", () => {

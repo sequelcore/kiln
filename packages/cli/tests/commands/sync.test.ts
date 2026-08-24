@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const syncMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
@@ -86,7 +90,13 @@ const MOCK_APP_CONFIG = {
 };
 
 describe("syncCommand", () => {
+  let projectRootPath: string;
+  let projectStateBinding: ProjectStateBinding;
+
   beforeEach(() => {
+    projectRootPath = mkdtempSync(join(tmpdir(), "kiln-sync-project-"));
+    mkdirSync(join(projectRootPath, ".git"), { recursive: true });
+    projectStateBinding = resolveProjectStateBinding(projectRootPath);
     vi.clearAllMocks();
     syncMocks.loadKilnConfig.mockResolvedValue({ version: "1", domain: "typescript" });
     syncMocks.loadKilnConfigWithGlobalAuthority.mockResolvedValue({
@@ -99,9 +109,9 @@ describe("syncCommand", () => {
       codex: true,
       opencode: true,
       outcomes: [
-        { targetId: "claude-permissions", path: "C:/project/.claude/settings.json", status: "written" },
-        { targetId: "codex-permissions", path: "C:/Users/test/.codex/config.toml", status: "written" },
-        { targetId: "opencode-permissions", path: "C:/Users/test/.config/opencode/opencode.json", status: "written" },
+        { targetId: "claude-permissions", path: join(projectRootPath, ".claude", "settings.json"), status: "written" },
+        { targetId: "codex-permissions", path: join(projectRootPath, "native", "codex", "config.toml"), status: "written" },
+        { targetId: "opencode-permissions", path: join(projectRootPath, "native", "opencode", "opencode.json"), status: "written" },
       ],
       errors: [],
     });
@@ -115,11 +125,10 @@ describe("syncCommand", () => {
     });
     syncMocks.syncNativeAgentProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, outcomes: [], errors: [] });
     syncMocks.resolveProjectRoot.mockReturnValue({
-      rootPath: process.cwd(),
+      rootPath: projectRootPath,
       source: "git",
-      hasKilnYaml: false,
       hasGitRoot: true,
-      projectName: "kiln",
+      projectName: "sync-project",
     });
     syncMocks.writeRepoShimProjections.mockResolvedValue({
       written: true,
@@ -137,7 +146,7 @@ describe("syncCommand", () => {
           targetId: "codex-global-instructions",
           harness: "codex",
           displayName: "Codex global instructions",
-          filePath: "C:/Users/test/.codex/AGENTS.md",
+          filePath: join(projectRootPath, "global", "codex", "AGENTS.md"),
           status: "written",
           written: true,
           errors: [],
@@ -145,7 +154,7 @@ describe("syncCommand", () => {
       ],
       outcomes: [{
         targetId: "codex-global-instructions",
-        path: "C:/Users/test/.codex/AGENTS.md",
+        path: join(projectRootPath, "global", "codex", "AGENTS.md"),
         status: "written",
       }],
       errors: [],
@@ -153,13 +162,17 @@ describe("syncCommand", () => {
     syncMocks.syncGlobalCommunicationProjection.mockReturnValue({
       outcome: {
         targetId: "claude-global-output-style",
-        path: "C:/Users/test/.claude/settings.json",
+        path: join(projectRootPath, "global", "claude", "settings.json"),
         status: "written",
       },
       errors: [],
     });
     syncMocks.syncNativeSkillProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, synced: 0, outcomes: [], errors: [] });
     syncMocks.uninstallNativeTargets.mockReturnValue({ removed: [], skipped: [], errors: [] });
+  });
+
+  afterEach(() => {
+    rmSync(projectRootPath, { recursive: true, force: true });
   });
 
   it("is a function exported from commands/sync", () => {
@@ -310,8 +323,14 @@ describe("syncCommand", () => {
     expect(stdoutSpy).not.toHaveBeenCalled();
     expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
       { version: "1", domain: "typescript" },
-      process.cwd(),
-      { force: true, dryRun: true, disabledHarnesses: [] },
+      projectRootPath,
+      {
+        force: true,
+        dryRun: true,
+        disabledHarnesses: [],
+        modelGateway: undefined,
+        projectStateBinding,
+      },
     );
   });
 
@@ -330,8 +349,8 @@ describe("syncCommand", () => {
 
     expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
       { version: "1", domain: "typescript" },
-      process.cwd(),
-      expect.objectContaining({ modelGateway }),
+      projectRootPath,
+      expect.objectContaining({ modelGateway, projectStateBinding }),
     );
   });
 
@@ -347,7 +366,7 @@ describe("syncCommand", () => {
       opencode: true,
       outcomes: [{
         targetId: "codex-permissions",
-        path: "C:/Users/test/.codex/config.toml",
+         path: join(projectRootPath, "native", "codex", "config.toml"),
         status: "failed",
         reason: "native configuration could not be written",
       }],
@@ -373,7 +392,7 @@ describe("syncCommand", () => {
     try {
       await expect(syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions"])).rejects.toThrow("process.exit:1");
       const output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
-      expect(output).toContain(`${process.cwd()}: FAILED - install-state is unreadable`);
+      expect(output).toContain(`${projectRootPath}: FAILED - install-state is unreadable`);
     } finally {
       exitSpy.mockRestore();
       consoleLogSpy.mockRestore();
@@ -391,7 +410,7 @@ describe("syncCommand", () => {
       opencode: true,
       outcomes: [{
         targetId: "codex-permissions",
-        path: "C:/Users/test/.codex/config.toml",
+         path: join(projectRootPath, "native", "codex", "config.toml"),
         status: "blocked",
         reason: "managed field drift detected: sandbox_mode",
       }],
@@ -401,7 +420,7 @@ describe("syncCommand", () => {
     try {
       await syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions"]);
       const output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
-      expect(output).toContain("C:/Users/test/.codex/config.toml: BLOCKED - managed field drift detected: sandbox_mode");
+      expect(output).toContain(`${join(projectRootPath, "native", "codex", "config.toml")}: BLOCKED - managed field drift detected: sandbox_mode`);
       expect(exitSpy).not.toHaveBeenCalled();
     } finally {
       exitSpy.mockRestore();
@@ -425,54 +444,59 @@ describe("syncCommand", () => {
     expect(syncMocks.uninstallNativeTargets).not.toHaveBeenCalled();
     expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
       { version: "1", domain: "typescript" },
-      process.cwd(),
-      { force: false, dryRun: false, disabledHarnesses: [] },
+      projectRootPath,
+      {
+        force: false,
+        dryRun: false,
+        disabledHarnesses: [],
+        modelGateway: undefined,
+        projectStateBinding,
+      },
     );
   });
 
   it("uses resolved project root for repo-aware projections", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     syncMocks.resolveProjectRoot.mockReturnValue({
-      rootPath: "C:/resolved/project",
-      source: "kiln-yaml",
-      hasKilnYaml: true,
+      rootPath: projectRootPath,
+      source: "git",
       hasGitRoot: true,
-      projectName: "project",
+      projectName: "sync-project",
     });
 
     try {
-      await syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims", "--project", "C:/resolved/project/packages/api"]);
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims", "--project", join(projectRootPath, "packages", "api")]);
     } finally {
       consoleLogSpy.mockRestore();
     }
 
-    expect(syncMocks.resolveProjectRoot).toHaveBeenCalledWith({ explicitPath: "C:/resolved/project/packages/api" });
-    expect(syncMocks.loadKilnConfigWithGlobalAuthority).toHaveBeenCalledWith("C:/resolved/project");
-    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith("C:/resolved/project", { force: false, dryRun: false });
+    expect(syncMocks.resolveProjectRoot).toHaveBeenCalledWith({ explicitPath: join(projectRootPath, "packages", "api") });
+    expect(syncMocks.loadKilnConfigWithGlobalAuthority).toHaveBeenCalledWith(projectRootPath, { projectStateBinding });
+    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith(projectRootPath, { force: false, dryRun: false });
   });
 
   it("syncs global instruction shims as a separate native instruction target", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     syncMocks.resolveProjectRoot.mockReturnValue({
-      rootPath: "C:/resolved/project",
-      source: "kiln-yaml",
-      hasKilnYaml: true,
+      rootPath: projectRootPath,
+      source: "git",
       hasGitRoot: true,
-      projectName: "project",
+      projectName: "sync-project",
     });
     let output = "";
 
     try {
-      await syncCommand(MOCK_APP_CONFIG, undefined, ["--global-instructions", "--project", "C:/resolved/project"]);
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--global-instructions", "--project", projectRootPath]);
       output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
     } finally {
       consoleLogSpy.mockRestore();
     }
 
-    expect(syncMocks.syncGlobalInstructionShimProjections).toHaveBeenCalledWith("C:/resolved/project", {
+    expect(syncMocks.syncGlobalInstructionShimProjections).toHaveBeenCalledWith(projectRootPath, {
       force: false,
       dryRun: false,
       disabledHarnesses: [],
+      projectStateBinding,
     });
     expect(syncMocks.syncGlobalCommunicationProjection).toHaveBeenCalledWith(expect.objectContaining({
       force: false,
@@ -480,22 +504,22 @@ describe("syncCommand", () => {
       intent: expect.objectContaining({ intent: expect.objectContaining({ responseDetail: "provider-default" }) }),
     }));
     expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
-    expect(output).toContain("C:/Users/test/.codex/AGENTS.md: WRITTEN");
-    expect(output).toContain("C:/Users/test/.claude/settings.json: WRITTEN");
+    expect(output).toContain(`${join(projectRootPath, "global", "codex", "AGENTS.md")}: WRITTEN`);
+    expect(output).toContain(`${join(projectRootPath, "global", "claude", "settings.json")}: WRITTEN`);
   });
 
-  it("fails repo-shim sync when no project root can be resolved", async () => {
+  it("fails repo-shim sync when the projection operation fails", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code}`);
     }) as never);
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    syncMocks.writeRepoShimProjections.mockRejectedValue(new Error("repo-shim projection failed"));
     syncMocks.resolveProjectRoot.mockReturnValue({
-      rootPath: "C:/loose-folder",
-      source: "cwd",
-      hasKilnYaml: false,
-      hasGitRoot: false,
-      projectName: "loose-folder",
+      rootPath: projectRootPath,
+      source: "git",
+      hasGitRoot: true,
+      projectName: "sync-project",
     });
 
     try {
@@ -506,7 +530,7 @@ describe("syncCommand", () => {
       consoleErrorSpy.mockRestore();
     }
 
-    expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
+    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith(projectRootPath, { force: false, dryRun: false });
   });
 
   it("prints each skill projection outcome by path", async () => {
@@ -516,7 +540,7 @@ describe("syncCommand", () => {
       codex: true,
       opencode: true,
       synced: 120,
-      outcomes: [{ targetId: "codex-skill:planner/SKILL.md", path: "C:/Users/test/.codex/skills/planner/SKILL.md", status: "written" }],
+      outcomes: [{ targetId: "codex-skill:planner/SKILL.md", path: join(projectRootPath, "global", "codex", "skills", "planner", "SKILL.md"), status: "written" }],
       errors: [],
     });
     syncMocks.syncCodexExternalSkillExposure.mockResolvedValue({ outcomes: [], errors: [] });
@@ -529,7 +553,7 @@ describe("syncCommand", () => {
       consoleLogSpy.mockRestore();
     }
 
-    expect(output).toContain("C:/Users/test/.codex/skills/planner/SKILL.md: WRITTEN");
+    expect(output).toContain(`${join(projectRootPath, "global", "codex", "skills", "planner", "SKILL.md")}: WRITTEN`);
     expect(syncMocks.syncNativePermissionProjections).not.toHaveBeenCalled();
     expect(syncMocks.syncCodexExternalSkillExposure).toHaveBeenCalledTimes(1);
     expect(syncMocks.syncOpenCodeSkillVisibilityProjection).toHaveBeenCalledTimes(1);
@@ -543,11 +567,10 @@ describe("syncCommand", () => {
   });
 
   it("accepts appConfig, subcommand, and args parameters", async () => {
-    const { readKilnYaml } = await import("../../src/kiln-yaml.js");
-    const originalRead = readKilnYaml;
+    const { readKilnYamlFile } = await import("../../src/kiln-yaml.js");
 
     expect(() => {
-      originalRead("/nonexistent");
+      readKilnYamlFile("/nonexistent");
     }).toBeDefined();
   });
 });

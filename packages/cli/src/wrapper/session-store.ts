@@ -1,7 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
-import { appendFile, mkdir, readFile, writeFile, readdir, rename, rm } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
+import { appendFile, readFile, writeFile, readdir, rename, rm } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+} from '../application/project-state-root.js';
+import {
+  assertPrivateStateFileTarget,
+  ensurePrivateStateDirectory,
+} from '../application/private-project-state-filesystem.js';
 import type {
   CanonicalSessionEventKind,
   ExecutionSessionBindingEvidence,
@@ -41,6 +50,15 @@ export interface SessionRecord {
 export interface SessionRecordAppendOptions {
   readonly updateContinuationTarget?: boolean;
 }
+
+/** Explicit private location for session and transcript state. */
+export interface SessionStoreLocation {
+  readonly sessionsPath: string;
+  /** Canonical private root when this location comes from a project binding. */
+  readonly privateStateRoot?: string;
+}
+
+export type SessionStoreSource = string | SessionStoreLocation | ProjectStateBinding;
 
 interface ContinuationTargetsFile {
   readonly defaultSessionId?: string;
@@ -153,19 +171,46 @@ function mergeRepeatedSessionRecord(
   };
 }
 
+function resolveSessionStoreLocation(
+  source: SessionStoreSource,
+  options: ProjectStateRootOptions,
+): SessionStoreLocation {
+  if (typeof source === 'string') {
+    const binding = resolveProjectStateBinding(source, options);
+    return { sessionsPath: binding.sessionsPath, privateStateRoot: binding.projectStateRoot };
+  }
+  if ('projectStateRoot' in source && typeof source.projectStateRoot === 'string') {
+    return { sessionsPath: source.sessionsPath, privateStateRoot: source.projectStateRoot };
+  }
+  return source;
+}
+
+function resolveSessionDirectory(baseDir: string, sessionId: string): string {
+  const root = resolve(baseDir);
+  const segment = encodeSessionPathSegment(sessionId);
+  const candidate = resolve(root, segment);
+  if (candidate === root || !candidate.startsWith(`${root}${sep}`)) {
+    throw new Error('Session identifier escapes the private session state root.');
+  }
+  return candidate;
+}
+
 export class SessionStore {
+  private readonly baseDir: string;
   private readonly filePath: string;
   private readonly continuationTargetsPath: string;
 
-  constructor(projectPath: string) {
-    this.filePath = join(projectPath, '.kiln', 'sessions.jsonl');
-    this.continuationTargetsPath = join(projectPath, '.kiln', 'continuation-targets.json');
+  constructor(source: SessionStoreSource, options: ProjectStateRootOptions = {}) {
+    const location = resolveSessionStoreLocation(source, options);
+    this.baseDir = location.sessionsPath;
+    this.filePath = join(location.sessionsPath, 'sessions.jsonl');
+    this.continuationTargetsPath = join(location.sessionsPath, 'continuation-targets.json');
   }
 
   async append(record: SessionRecord, options: SessionRecordAppendOptions = {}): Promise<void> {
     try {
       const dir = join(this.filePath, '..');
-      await mkdir(dir, { recursive: true });
+      await ensurePrivateStateDirectory(this.baseDir, dir, true);
       const currentRecords = await this.readRecords();
       const previous = currentRecords.findLast((entry) => entry.sessionId === record.sessionId);
       const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
@@ -181,13 +226,16 @@ export class SessionStore {
 
   private async writeRecords(records: readonly SessionRecord[]): Promise<void> {
     const dir = join(this.filePath, '..');
-    await mkdir(dir, { recursive: true });
+    await ensurePrivateStateDirectory(this.baseDir, dir, true);
+    await assertPrivateStateFileTarget(this.baseDir, this.filePath);
     const content = records.map(serializeSessionRecord).join('\n');
     await writeFile(this.filePath, content ? `${content}\n` : '', 'utf-8');
   }
 
   private async readRecords(): Promise<SessionRecord[]> {
     try {
+      await ensurePrivateStateDirectory(this.baseDir, join(this.filePath, '..'), false);
+      await assertPrivateStateFileTarget(this.baseDir, this.filePath);
       const content = await readFile(this.filePath, 'utf-8');
       return content
         .split('\n')
@@ -218,6 +266,8 @@ export class SessionStore {
 
   private async readContinuationTargets(): Promise<ContinuationTargetsFile> {
     try {
+      await ensurePrivateStateDirectory(this.baseDir, join(this.continuationTargetsPath, '..'), false);
+      await assertPrivateStateFileTarget(this.baseDir, this.continuationTargetsPath);
       const parsed = JSON.parse(await readFile(this.continuationTargetsPath, 'utf-8')) as Partial<ContinuationTargetsFile>;
       const defaultSessionId = parseOptionalString(parsed.defaultSessionId);
       const providerSessionIds = parsed.providerSessionIds && typeof parsed.providerSessionIds === 'object'
@@ -243,7 +293,8 @@ export class SessionStore {
 
   private async writeContinuationTargets(targets: ContinuationTargetsFile): Promise<void> {
     const dir = join(this.continuationTargetsPath, '..');
-    await mkdir(dir, { recursive: true });
+    await ensurePrivateStateDirectory(this.baseDir, dir, true);
+    await assertPrivateStateFileTarget(this.baseDir, this.continuationTargetsPath);
     await writeFile(this.continuationTargetsPath, JSON.stringify(targets, null, 2), 'utf-8');
   }
 
@@ -614,14 +665,17 @@ function isMissingFileError(error: unknown): boolean {
 
 export class TranscriptStore {
   private readonly baseDir: string;
+  readonly privateStateRoot?: string;
   private readonly appendQueues = new Map<string, Promise<void>>();
 
-  constructor(projectPath: string) {
-    this.baseDir = join(projectPath, '.kiln', 'sessions');
+  constructor(source: SessionStoreSource, options: ProjectStateRootOptions = {}) {
+    const location = resolveSessionStoreLocation(source, options);
+    this.baseDir = location.sessionsPath;
+    this.privateStateRoot = location.privateStateRoot;
   }
 
   sessionDir(sessionId: string): string {
-    return join(this.baseDir, encodeSessionPathSegment(sessionId));
+    return resolveSessionDirectory(this.baseDir, sessionId);
   }
 
   authorityAdmissionEvidencePath(sessionId: string): string {
@@ -653,14 +707,17 @@ export class TranscriptStore {
         throw new IncompatibleTranscriptError(`Authority admission conflict for turn "${record.turnId}".`);
       }
       const dir = this.sessionDir(record.sessionId);
-      await mkdir(dir, { recursive: true });
+      await ensurePrivateStateDirectory(this.baseDir, dir, true);
       await writeAuthorityAdmissionRecords(this.authorityAdmissionEvidencePath(record.sessionId), [...existing, record]);
     });
   }
 
   async readAuthorityAdmissions(sessionId: string): Promise<PersistedAuthorityAdmissionRecord[]> {
     try {
-      const content = await readFile(this.authorityAdmissionEvidencePath(sessionId), 'utf-8');
+      await ensurePrivateStateDirectory(this.baseDir, this.sessionDir(sessionId), false);
+      const filePath = this.authorityAdmissionEvidencePath(sessionId);
+      await assertPrivateStateFileTarget(this.baseDir, filePath);
+      const content = await readFile(filePath, 'utf-8');
       const records = content.split('\n').filter((line) => line.trim() !== '').map((line, index) => {
         let parsed: unknown;
         try { parsed = JSON.parse(line) as unknown; } catch { throw new IncompatibleTranscriptError(`Authority admission evidence line ${index + 1} is not valid JSON.`); }
@@ -701,8 +758,10 @@ export class TranscriptStore {
   async init(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
     try {
       const dir = this.sessionDir(sessionId);
-      await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, 'meta.json'), serializePersistedMeta(meta), 'utf-8');
+      await ensurePrivateStateDirectory(this.baseDir, dir, true);
+      const filePath = join(dir, 'meta.json');
+      await assertPrivateStateFileTarget(this.baseDir, filePath);
+      await writeFile(filePath, serializePersistedMeta(meta), 'utf-8');
     } catch {
       // fail-open
     }
@@ -712,8 +771,10 @@ export class TranscriptStore {
     const existing = await this.readTranscript(sessionId);
     validateTranscriptToolIdentities([...existing, event]);
     const dir = this.sessionDir(sessionId);
-    await mkdir(dir, { recursive: true });
-    await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify(event) + '\n', 'utf-8');
+    await ensurePrivateStateDirectory(this.baseDir, dir, true);
+    const filePath = join(dir, 'transcript.jsonl');
+    await assertPrivateStateFileTarget(this.baseDir, filePath);
+    await appendFile(filePath, JSON.stringify(event) + '\n', 'utf-8');
   }
 
   async appendNext(sessionId: string, event: PersistedTranscriptEventDraft): Promise<PersistedTranscriptEvent | null> {
@@ -752,7 +813,7 @@ export class TranscriptStore {
     drafts: readonly PersistedTranscriptEventDraft[],
   ): Promise<readonly PersistedTranscriptEvent[]> {
     const dir = this.sessionDir(sessionId);
-    await mkdir(dir, { recursive: true });
+    await ensurePrivateStateDirectory(this.baseDir, dir, true);
     const existing = await this.readTranscript(sessionId);
     const existingEventIds = new Set(existing.map((event) => event.eventId));
     let sequence = existing.reduce((highest, event) => Math.max(highest, event.sequence), 0);
@@ -787,6 +848,8 @@ export class TranscriptStore {
       if (!existing) {
         return;
       }
+      await ensurePrivateStateDirectory(this.baseDir, dir, false);
+      await assertPrivateStateFileTarget(this.baseDir, filePath);
       await writeFile(
         filePath,
         serializePersistedMeta({
@@ -808,7 +871,10 @@ export class TranscriptStore {
 
   async readMeta(sessionId: string): Promise<PersistedSessionMeta | null> {
     try {
-      const content = await readFile(join(this.sessionDir(sessionId), 'meta.json'), 'utf-8');
+      await ensurePrivateStateDirectory(this.baseDir, this.sessionDir(sessionId), false);
+      const filePath = join(this.sessionDir(sessionId), 'meta.json');
+      await assertPrivateStateFileTarget(this.baseDir, filePath);
+      const content = await readFile(filePath, 'utf-8');
       return JSON.parse(content) as PersistedSessionMeta;
     } catch {
       return null;
@@ -817,7 +883,10 @@ export class TranscriptStore {
 
   async readTranscript(sessionId: string): Promise<PersistedTranscriptEvent[]> {
     try {
-      const content = await readFile(join(this.sessionDir(sessionId), 'transcript.jsonl'), 'utf-8');
+      await ensurePrivateStateDirectory(this.baseDir, this.sessionDir(sessionId), false);
+      const filePath = join(this.sessionDir(sessionId), 'transcript.jsonl');
+      await assertPrivateStateFileTarget(this.baseDir, filePath);
+      const content = await readFile(filePath, 'utf-8');
       const events = content
         .split('\n')
         .filter((line) => line.trim() !== '')
@@ -849,6 +918,7 @@ export class TranscriptStore {
 
   async listSessions(): Promise<string[]> {
     try {
+      await ensurePrivateStateDirectory(this.baseDir, this.baseDir, false);
       const entries = await readdir(this.baseDir, { withFileTypes: true });
       return entries
         .filter((entry) => entry.isDirectory())
@@ -866,7 +936,9 @@ async function writeTranscriptEvents(
   if (events.length === 0) {
     return;
   }
-  await appendFile(join(sessionDir, 'transcript.jsonl'), `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf-8');
+  const filePath = join(sessionDir, 'transcript.jsonl');
+  await assertPrivateStateFileTarget(sessionDir, filePath);
+  await appendFile(filePath, `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf-8');
 }
 
 function authorityFacetFromBundle(bundle: EffectiveAuthorityAdmissionBundle) {
@@ -896,6 +968,7 @@ async function writeAuthorityAdmissionRecords(
 ): Promise<void> {
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   try {
+    await assertPrivateStateFileTarget(dirname(filePath), filePath);
     await writeFile(temporaryPath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`, { encoding: 'utf8', flag: 'wx' });
     await rename(temporaryPath, filePath);
   } finally {

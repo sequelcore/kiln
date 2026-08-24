@@ -96,11 +96,13 @@ Skills are discovered through a 3-tier progressive disclosure model (`packages/c
 
 | Tier | Location | Priority | Use Case |
 |------|----------|----------|----------|
-| Project | `{project}/.kiln/skills/` | Highest | Project-specific skills |
+| Project | `~/.kiln/projects/<krp_sha256>/skills/` | Highest | Project-specific skills |
 | User | `~/.kiln/skills/` | Medium | Cross-project skills |
 | Builtin | Kiln core built-ins and domain packages | Lowest | Default skills |
 
 The registry resolves conflicts by tier priority: project > user > builtin.
+The project tier is selected only through the canonical private project binding;
+the repository is never searched for a Kiln skill directory.
 
 ## Kiln Core Built-Ins
 
@@ -156,7 +158,7 @@ skills:
 Built-ins are projected to supported native harness skill directories during
 `kiln sync --skills`, unless disabled by config. Generated native skill files
 remain projections; canonical user and project skills live under
-`~/.kiln/skills` and `.kiln/skills`.
+`~/.kiln/skills` and the bound private project's `skills` directory.
 
 `kiln-control-plane-workflow` is useful only when a session exposes the
 governed Kiln control-plane operations. It teaches discovery, inspection,
@@ -254,7 +256,7 @@ that context state.
 This distinction is deliberate. A local Codex skill such as `shadcn` may exist
 under `~/.codex/skills`, but Kiln treats that as `native-harness` and
 `unmanaged-native` until it is adopted or installed into `~/.kiln/skills` or
-`.kiln/skills`. Managed invocation does not silently import native harness
+the private project's `skills` directory. Managed invocation does not silently import native harness
 folders, because those folders may have different trust, policy, plugin, or
 route assumptions than the current Kiln session.
 
@@ -442,10 +444,10 @@ Use `kiln config read skills` when you need origin, projection, unmanaged
 native, or admission diagnostics. Use `kiln skill list` for the shorter
 operator-facing configured registry list.
 
-Installation records a complete-package digest and source path in
-`.kiln/skill-install-state.json`. Update and removal refuse locally modified
-content unless the operator explicitly uses `--force` after review. Backups are
-stored under `.kiln/backups/skills/<name>/`. These commands operate on local
+Installation records a complete-package digest and source path in the bound
+private project's `skill-install-state.json`. Update and removal refuse locally
+modified content unless the operator explicitly uses `--force` after review.
+Backups are stored under the private project's `backups/skills/<name>/`. These commands operate on local
 packages; Kiln does not infer trust from a marketplace listing.
 
 ## Event Triggers

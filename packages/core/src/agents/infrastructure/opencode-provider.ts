@@ -66,9 +66,11 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
 
   static async fromAuth(opts: {
     auth?: OpenCodeAuth;
+    /** Canonical operator Kiln home supplied by CLI/Runtime composition. */
+    kilnHome?: string;
     defaultModel: string;
   }): Promise<OpenCodeAdapter> {
-    const auth = opts.auth ?? new OpenCodeAuth();
+    const auth = opts.auth ?? new OpenCodeAuth({ kilnHome: opts.kilnHome });
     const file = await auth.loadAuthFile();
     if (!file) {
       throw new KilnError("PROVIDER_AUTH_FAILED", "OpenCode auth file not found", {

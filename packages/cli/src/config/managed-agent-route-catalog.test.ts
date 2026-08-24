@@ -23,6 +23,7 @@ import {
   resolveManagedInvocationToolOptions,
 } from "./managed-agent-routes.js";
 import type { ManagedAgentRouteConfigSource } from "./managed-agent-routes.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { SessionRegistry } from "../wrapper/session-registry.js";
 import type { ProviderCreateConfig, ProviderId, SessionProviderDescriptor } from "../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../wrapper/index.js";
@@ -108,6 +109,9 @@ function makeExecutionCatalog(
 
 function createTempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "kiln-managed-route-catalog-"));
+  // Project resolution is identity-first: a real fixture needs repository
+  // root evidence rather than the removed repository-local `.kiln` marker.
+  mkdirSync(join(root, ".git"), { recursive: true });
   tempRoots.push(root);
   return root;
 }
@@ -287,7 +291,9 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
   };
 }
 
-function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
+function makeIsolatedWorktreeWriteConfig(
+  worktreeRootPath = "managed-worktrees",
+): ManagedAgentRouteConfigSource {
   return {
     targetCatalog: {
       accounts: [],
@@ -318,7 +324,7 @@ function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
       defaultAuthorityProfileId: "approved-write",
       worktreeLease: {
         mode: "git",
-        rootPath: ".kiln/managed-worktrees",
+        rootPath: worktreeRootPath,
       },
     },
   };
@@ -344,7 +350,7 @@ function harnessDataPolicy(providerId: string, providerModelId: string) {
 describe("managed agent route catalog", () => {
   it("does not open a project-local authority when an operator-runtime authority is supplied", async () => {
     const cwd = createTempRoot();
-    const runtimeDirectory = join(cwd, ".kiln", "runtime");
+    const runtimeDirectory = resolveProjectStateBinding(cwd).runtimePath;
     mkdirSync(runtimeDirectory, { recursive: true });
     const existingOwner = new SqliteManagedAccountLeaseAuthority({
       path: join(runtimeDirectory, "managed-account-leases.sqlite"),
@@ -588,7 +594,7 @@ describe("managed agent route catalog", () => {
 
   it("does not admit agent definitions that use removed route/provider fields", async () => {
     const cwd = createTempRoot();
-    const agentsDirectory = join(cwd, ".kiln", "agents");
+    const agentsDirectory = resolveProjectStateBinding(cwd).agentsPath;
     mkdirSync(agentsDirectory, { recursive: true });
     writeFileSync(join(agentsDirectory, "contradictory.md"), [
       "---",
@@ -622,7 +628,8 @@ describe("managed agent route catalog", () => {
 
   it("projects isolated worktree routes with a shared runtime invocation service", async () => {
     const cwd = createTempRoot();
-    const resolution = await resolveManagedInvocationToolOptions(makeIsolatedWorktreeWriteConfig(), {
+    const worktreeRootPath = join(resolveProjectStateBinding(cwd).tmpPath, "managed-worktrees");
+    const resolution = await resolveManagedInvocationToolOptions(makeIsolatedWorktreeWriteConfig(worktreeRootPath), {
       cwd,
       registry: createRegistry("codex"),
       surface: "run",
@@ -636,20 +643,20 @@ describe("managed agent route catalog", () => {
     const profile = profileByAdmission(resolution.managedInvocation?.routes[0], "foundation-apply-approved-writes");
 
     expect(profile?.workingDirectory).toEqual({
-      path: join(cwd, ".kiln", "managed-worktrees"),
+      path: worktreeRootPath,
       mode: "isolated-worktree",
     });
     expect(profile?.workingDirectoryLease).toEqual({
       mode: "git-worktree",
       sourcePath: cwd,
-      rootPath: join(cwd, ".kiln", "managed-worktrees"),
+      rootPath: worktreeRootPath,
     });
     expect(resolution.managedInvocation?.invocationService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
   });
 
   it("fails closed when isolated worktree write scopes point outside the repository", async () => {
     const cwd = createTempRoot();
-    const config = makeIsolatedWorktreeWriteConfig();
+    const config = makeIsolatedWorktreeWriteConfig(join(resolveProjectStateBinding(cwd).tmpPath, "managed-worktrees"));
     const profile = config.authorityProfiles?.[0];
     if (!profile?.writeAuthority) {
       throw new Error("expected test authority profile write authority");
@@ -687,13 +694,14 @@ describe("managed agent route catalog", () => {
 
   it("keeps the managed invocation service stable and clears routes when refresh disables managed agents", async () => {
     const cwd = createTempRoot();
-    let currentConfig: ManagedAgentRouteConfigSource = makeIsolatedWorktreeWriteConfig();
+    let currentConfig: ManagedAgentRouteConfigSource = makeIsolatedWorktreeWriteConfig(
+      join(resolveProjectStateBinding(cwd).tmpPath, "managed-worktrees"),
+    );
     const catalog = await createStagedManagedInvocationRouteCatalog(currentConfig, {
       cwd,
       registry: createRegistry("codex"),
       surface: "gui",
       isProviderAvailable: () => true,
-      userHome: cwd,
     }, {
       reloadConfig: () => currentConfig,
       discoverProviderModels: async () => observedProviderModels({ codex: ["gpt-5.3-codex-spark"] }),
@@ -713,13 +721,15 @@ describe("managed agent route catalog", () => {
 
   it("replaces the managed invocation service when worktree lease configuration changes", async () => {
     const cwd = createTempRoot();
-    let currentConfig: ManagedAgentRouteConfigSource = makeIsolatedWorktreeWriteConfig();
+    const projectTmpPath = resolveProjectStateBinding(cwd).tmpPath;
+    let currentConfig: ManagedAgentRouteConfigSource = makeIsolatedWorktreeWriteConfig(
+      join(projectTmpPath, "managed-worktrees"),
+    );
     const catalog = await createStagedManagedInvocationRouteCatalog(currentConfig, {
       cwd,
       registry: createRegistry("codex"),
       surface: "gui",
       isProviderAvailable: () => true,
-      userHome: cwd,
     }, {
       reloadConfig: () => currentConfig,
       discoverProviderModels: async () => observedProviderModels({ codex: ["gpt-5.3-codex-spark"] }),
@@ -733,7 +743,7 @@ describe("managed agent route catalog", () => {
         ...currentConfig.managedAgents,
         worktreeLease: {
           mode: "git",
-          rootPath: ".kiln/alternate-managed-worktrees",
+          rootPath: join(projectTmpPath, "alternate-managed-worktrees"),
         },
       },
     };
@@ -743,11 +753,20 @@ describe("managed agent route catalog", () => {
     expect(initialService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
     expect(catalog.managedInvocation?.invocationService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
     expect(catalog.managedInvocation?.invocationService).not.toBe(initialService);
-    expect(profile?.workingDirectoryLease?.rootPath).toBe(join(cwd, ".kiln", "alternate-managed-worktrees"));
+    expect(profile?.workingDirectoryLease?.rootPath).toBe(join(projectTmpPath, "alternate-managed-worktrees"));
   });
 
   it("fails closed when isolated worktree absolute paths only match the repository by POSIX case folding", async () => {
-    const config = makeIsolatedWorktreeWriteConfig();
+    const actualRoot = createTempRoot();
+    const cwd = actualRoot
+      .replace(/^[A-Za-z]:[\\/]/u, "/")
+      .replaceAll("\\", "/");
+    // The POSIX spelling still resolves to the existing Windows fixture, but
+    // the declared paths differ only by case. A POSIX comparison must reject
+    // that as an outside-repository scope rather than inheriting Windows
+    // case-folding semantics.
+    const caseVariantRoot = cwd.replace("/kiln-managed-route-catalog-", "/KILN-managed-route-catalog-");
+    const config = makeIsolatedWorktreeWriteConfig(`${caseVariantRoot}/managed-worktrees`);
     const profile = config.authorityProfiles?.[0];
     if (!profile?.writeAuthority) {
       throw new Error("expected test authority profile write authority");
@@ -761,7 +780,7 @@ describe("managed agent route catalog", () => {
           workspace: {
             ...profile.writeAuthority.workspace,
             mode: "apply-approved",
-            allowedPaths: ["/Users/test/Repo/packages/runtime/src"],
+            allowedPaths: [`${caseVariantRoot}/packages/runtime/src`],
           },
         },
       }],
@@ -769,11 +788,11 @@ describe("managed agent route catalog", () => {
         ...config.managedAgents,
         worktreeLease: {
           mode: "git",
-          rootPath: "/Users/test/repo/.kiln/managed-worktrees",
+          rootPath: `${caseVariantRoot}/managed-worktrees`,
         },
       },
     }, {
-      cwd: "/Users/test/repo",
+      cwd,
       registry: createRegistry("codex"),
       surface: "run",
       isProviderAvailable: () => true,

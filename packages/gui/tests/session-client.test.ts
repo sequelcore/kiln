@@ -42,6 +42,15 @@ class MockWebSocket {
   }
 }
 
+function firstWebSocket(): MockWebSocket {
+  expect(wsInstances).not.toHaveLength(0);
+  const ws = wsInstances[0];
+  if (!ws) {
+    throw new Error("Expected a created WebSocket instance");
+  }
+  return ws;
+}
+
 function createClient(onFrame = vi.fn()): GuiSessionClient {
   return new GuiSessionClient({
     onFrame,
@@ -76,7 +85,7 @@ describe("GuiSessionClient execution target selection", () => {
     const client = createClient(onFrame);
     client.connect();
     vi.advanceTimersByTime(0);
-    const ws = wsInstances[0];
+    const ws = firstWebSocket();
     ws.simulateOpen();
 
     const promise = client.switchExecutionRoute("terra-other");
@@ -99,7 +108,7 @@ describe("GuiSessionClient execution target selection", () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
-    const ws = wsInstances[0];
+    const ws = firstWebSocket();
     ws.simulateOpen();
 
     const promise = client.switchExecutionRoute("terra");
@@ -117,7 +126,7 @@ describe("GuiSessionClient execution target selection", () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
-    const ws = wsInstances[0];
+    const ws = firstWebSocket();
     ws.simulateOpen();
 
     const promise = client.switchExecutionRoute("terra-work", "work");
@@ -139,7 +148,7 @@ describe("GuiSessionClient execution target selection", () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
-    const ws = wsInstances[0];
+    const ws = firstWebSocket();
     ws.simulateOpen();
 
     const firstPromise = client.switchExecutionRoute("previous");
@@ -167,7 +176,7 @@ describe("GuiSessionClient execution target selection", () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
-    const ws = wsInstances[0];
+    const ws = firstWebSocket();
     ws.simulateOpen();
 
     vi.advanceTimersByTime(30_000);
@@ -182,7 +191,7 @@ describe("GuiSessionClient execution target selection", () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
-    const ws = wsInstances[0];
+    const ws = firstWebSocket();
     ws.simulateOpen();
 
     vi.advanceTimersByTime(30_000);

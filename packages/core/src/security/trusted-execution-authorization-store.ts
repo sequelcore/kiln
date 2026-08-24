@@ -1,16 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TrustedExecutionAuthorization, TrustedExecutionProfile } from "./trusted-execution-integrity.js";
+import { resolveCoreKilnHome } from "../kiln-home.js";
 
-const DEFAULT_TRUST_DIR = join(homedir(), ".kiln", "trust");
 export type TrustedExecutionHarness = "codex" | "claude-code" | "opencode";
 export interface TrustedExecutionAuthorizationRecord {
   readonly profile: TrustedExecutionProfile;
   readonly authorization: TrustedExecutionAuthorization;
 }
 function pathFor(harness: TrustedExecutionHarness, baseDir?: string): string {
-  return join(baseDir ?? DEFAULT_TRUST_DIR, `${harness}.json`);
+  return join(baseDir ?? join(resolveCoreKilnHome(), "trust"), `${harness}.json`);
 }
 export function readTrustedExecutionAuthorization(
   harness: TrustedExecutionHarness,

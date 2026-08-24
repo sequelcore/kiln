@@ -6,7 +6,7 @@ import {
   OperatorSessionClaimsSchema,
 } from "@kilnai/gateway-contracts";
 
-export const OPERATOR_SESSION_CREDENTIAL_VERSION = "v2" as const;
+export const OPERATOR_SESSION_CREDENTIAL_VERSION = "v3" as const;
 export const OPERATOR_SESSION_MAX_LIFETIME_SECONDS = 300;
 export const OPERATOR_SESSION_CLOCK_SKEW_SECONDS = 5;
 export const OPERATOR_SESSION_MIN_SECRET_BYTES = 32;
@@ -79,7 +79,7 @@ export function verifyOperatorSessionCredential(
   }
   if (
     claims.projectRuntimeId !== expected.projectRuntimeId ||
-    claims.markerDigest !== expected.markerDigest ||
+    claims.compositionRevision !== expected.compositionRevision ||
     !samePrincipal(claims.principal, expected.principal) ||
     claims.sessionId !== expected.sessionId
   ) {
@@ -152,7 +152,7 @@ function encodeCanonicalClaims(claims: OperatorSessionClaims): string {
     protocolVersion: claims.protocolVersion,
     audience: claims.audience,
     projectRuntimeId: claims.projectRuntimeId,
-    markerDigest: claims.markerDigest,
+    compositionRevision: claims.compositionRevision,
     principal: claims.principal,
     sessionId: claims.sessionId,
     issuedAt: claims.issuedAt,

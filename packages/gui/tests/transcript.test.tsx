@@ -5,8 +5,14 @@ import type { Message, TimelineEntry } from "../src/lib/session-store/index.js";
 import {
   projectWorkflowActivity,
   type OperatorSessionEvent,
+  type ToolResultPresentation,
   type WorkflowActivityProjection,
 } from "@kilnai/gateway-contracts";
+
+const syntheticToolClassification = {
+  source: "fallback",
+  reason: "Synthetic fixture supplies canonical typed presentation evidence.",
+} satisfies ToolResultPresentation["classification"];
 
 function message(id: string, role: Message["role"], content: string, streaming = false): Message {
   return {
@@ -146,8 +152,12 @@ describe("Transcript", () => {
         status: "active" as const,
         workItemIds: [],
         evidenceRequirements: [],
+        evidence: [],
       },
+      status: "in_progress" as const,
       workItems: [],
+      toolCalls: [],
+      fileChanges: [],
       unscopedToolCalls: [],
       firstSequence: 1,
       lastSequence: 1,
@@ -724,6 +734,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "diff",
+              classification: syntheticToolClassification,
               title: "packages/gui/src/components/transcript.tsx",
               summary: "1 file changed, 18 additions, 6 removals",
               fields: [
@@ -770,6 +781,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "table",
+              classification: syntheticToolClassification,
               title: "Managed child comparison",
               summary: "3 child routes compared",
               fields: [{ label: "Intent", value: "comparison_table" }],
@@ -830,6 +842,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "table",
+              classification: syntheticToolClassification,
               title: "Managed child comparison",
               summary: "2 routes compared",
               fields: [{ label: "Intent", value: "comparison_table" }],
@@ -938,6 +951,7 @@ describe("Transcript", () => {
             tone: "error",
             toolPresentation: {
               outputKind: "table",
+              classification: syntheticToolClassification,
               title: "Managed child invocation",
               summary: "openrouter-readonly unavailable",
               fields: [{ label: "Intent", value: "comparison_table" }],
@@ -1049,6 +1063,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "table",
+              classification: syntheticToolClassification,
               title: "Managed child invocation",
               summary: "opencode-readonly denied",
               fields: [{ label: "Denied skills", value: "workspace-write" }],
@@ -1092,6 +1107,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "text",
+              classification: syntheticToolClassification,
               title: "Recorder edit timeline",
               summary: "4 edit tracks",
               fields: [{ label: "Intent", value: "timeline" }],
@@ -1176,6 +1192,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "text",
+              classification: syntheticToolClassification,
               title: "Recorder caption timeline",
               summary: "2 caption tracks",
               fields: [{ label: "Intent", value: "timeline" }],
@@ -1230,6 +1247,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "text",
+              classification: syntheticToolClassification,
               title: "Release plan timeline",
               summary: "2 milestones",
               fields: [{ label: "Intent", value: "timeline" }],
@@ -1280,6 +1298,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "resource_links",
+              classification: syntheticToolClassification,
               title: "read_many full output",
               summary: "24 files read, 109 skipped, 200000 bytes, truncated",
               fields: [
@@ -1326,6 +1345,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "resource_links",
+              classification: syntheticToolClassification,
               title: "Generated artifacts",
               summary: "2 resources",
               fields: [{ label: "Intent", value: "resource_bundle" }],
@@ -1383,6 +1403,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "image",
+              classification: syntheticToolClassification,
               title: "Browser screenshots",
               summary: "Capture 1: Example Domain",
               fields: [
@@ -1462,6 +1483,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "image",
+              classification: syntheticToolClassification,
               title: "Browser screenshots",
               summary: "Capture 1: Example Domain",
               fields: [
@@ -1522,6 +1544,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "markdown",
+              classification: syntheticToolClassification,
               title: "docs/architecture/session-model.md",
               summary: "# Session Model",
               fields: [{ label: "Path", value: "docs/architecture/session-model.md" }],
@@ -1545,6 +1568,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "tree",
+              classification: syntheticToolClassification,
               title: "C:\\workspace\\kiln",
               summary: "55 entries under C:\\workspace\\kiln",
               fields: [
@@ -1676,7 +1700,7 @@ describe("Transcript", () => {
             toolPresentation: {
               outputKind: "data",
               classification: {
-                source: "content",
+                source: "content-heuristic",
                 reason: "structured JSON output classified from content",
                 confidence: "medium",
               },
@@ -1715,6 +1739,7 @@ describe("Transcript", () => {
             tone: "success",
             toolPresentation: {
               outputKind: "tree",
+              classification: syntheticToolClassification,
               title: "C:\\workspace\\kiln",
               summary: "4 entries under C:\\workspace\\kiln",
               fields: [
@@ -1760,6 +1785,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "text",
+              classification: syntheticToolClassification,
               title: "C:\\workspace\\kiln\\im_alive.txt",
               summary: "file · 25 bytes",
               fields: [
@@ -1801,6 +1827,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "tree",
+              classification: syntheticToolClassification,
               title: "C:\\workspace\\kiln",
               summary: "20 entries under C:\\workspace\\kiln",
               fields: [{ label: "Entries", value: "20" }],
@@ -1834,6 +1861,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "code",
+              classification: syntheticToolClassification,
               title: "package.json",
               summary: "3 lines · 22 bytes",
               fields: [

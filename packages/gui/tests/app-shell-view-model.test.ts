@@ -40,12 +40,12 @@ describe("app shell view model", () => {
   });
 
   it("keeps theme command copy compatible with the command palette", () => {
-    expect(themeToPaletteItem("graphite", "Graphite")).toEqual({
-      id: "theme:graphite",
-      trigger: "theme graphite",
-      title: "Graphite",
-      description: "Apply graphite.",
-      keywords: ["theme", "graphite", "graphite"],
+    expect(themeToPaletteItem("vesper", "Vesper")).toEqual({
+      id: "theme:vesper",
+      trigger: "theme vesper",
+      title: "Vesper",
+      description: "Apply vesper.",
+      keywords: ["theme", "vesper", "vesper"],
     });
   });
 });

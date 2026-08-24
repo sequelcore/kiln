@@ -74,14 +74,15 @@ not carry raw tool outcomes into the model context.
 
 Session history and resume intent are separate persistence concerns.
 
-`.kiln/sessions.jsonl` is the canonical session index for completed Kiln
-session records. It is keyed by Kiln session id: later turns for the same
-session update the canonical row instead of creating duplicate rows in operator
-history. Clear/new-session operations must not delete the index and must not
-treat it as a disposable "last session" pointer.
+The bound private project's `sessions/sessions.jsonl` is the canonical session
+index for completed Kiln session records. It is keyed by Kiln session id: later
+turns for the same session update the canonical row instead of creating
+duplicate rows in operator history. Clear/new-session operations must not
+delete the index and must not treat it as a disposable "last session" pointer.
 
-`.kiln/continuation-targets.json` is an advisory operator cursor. Surfaces may use it
-to display continuation hints or support explicit continuation commands, but they must not
+The bound private project's `sessions/continuation-targets.json` is an advisory
+operator cursor. Surfaces may use it to display continuation hints or support
+explicit continuation commands, but they must not
 load it as hidden active continuation state at startup.
 Provider-specific cursors may record the last session used by a provider, but
 they are still references to canonical Kiln sessions, not provider-owned
@@ -423,7 +424,8 @@ operational state.
 The session ledger is not the transcript source of truth.
 
 GUI history must list only sessions that have canonical transcript metadata
-under `.kiln/sessions/<encoded-session-id>/meta.json`. This is intentional:
+under the bound private project's
+`sessions/<encoded-session-id>/meta.json`. This is intentional:
 ledger-only rows are not loadable conversations and must not appear in the
 operator history as compatibility fallbacks.
 

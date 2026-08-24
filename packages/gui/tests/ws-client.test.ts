@@ -3,11 +3,16 @@
  * @module @kilnai/gui
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { GuiInboundFrame, GuiOutboundFrame } from "@kilnai/gateway-contracts";
-import { GuiWsClient } from "../src/lib/ws-client";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import type {
+  ExecutionTargetWizardProposal,
+  GuiInboundFrame,
+  GuiOutboundFrame,
+  GuiProviderModelDiscoveryProjection,
+} from "@kilnai/gateway-contracts";
+import { GuiWsClient, type GuiConnectionState } from "../src/lib/ws-client";
 
-const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome" }>["providerModelDiscovery"] = {
+const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
   catalogEvidence: {
     status: "failed",
     source: {
@@ -29,7 +34,7 @@ const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome"
 };
 const EMPTY_EXECUTION_ROUTE_CATALOG = { routes: [] } as const;
 const EMPTY_AVAILABLE_MODELS = { observedAt: "2026-07-01T00:00:00.000Z", entries: [] } as const;
-const WIZARD_PROPOSAL = {
+const WIZARD_PROPOSAL: ExecutionTargetWizardProposal = {
   proposalId: "proposal-1",
   operation: "target.create",
   scope: "global",
@@ -44,7 +49,7 @@ const WIZARD_PROPOSAL = {
   diagnostics: [],
   rollback: { restorable: true, summary: "Remove the target." },
   target: { routeId: "target-route", label: "Target route", providerId: "provider", providerModelId: "model", accountSelectionMode: "automatic", dataClassification: "public", billingClass: "subscription", capabilityPosture: "kiln-executable", discoveryExpiresAt: "2026-09-01T00:00:00.000Z", evidenceExpiresAt: "2026-09-01T00:00:00.000Z" },
-} as const;
+};
 
 // Track created WebSocket instances for testing
 let wsInstances: MockWebSocket[] = [];
@@ -103,16 +108,25 @@ class MockWebSocket {
   }
 }
 
+function lastWebSocket(): MockWebSocket {
+  expect(wsInstances).not.toHaveLength(0);
+  const ws = wsInstances[wsInstances.length - 1];
+  if (!ws) {
+    throw new Error("Expected a created WebSocket instance");
+  }
+  return ws;
+}
+
 describe("GuiWsClient", () => {
-  let onFrame: ReturnType<typeof vi.fn>;
-  let onStateChange: ReturnType<typeof vi.fn>;
+  let onFrame: Mock<(frame: GuiInboundFrame) => void>;
+  let onStateChange: Mock<(state: GuiConnectionState) => void>;
   let client: GuiWsClient;
 
   beforeEach(() => {
     wsInstances = [];
     (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
-    onFrame = vi.fn();
-    onStateChange = vi.fn();
+    onFrame = vi.fn<(frame: GuiInboundFrame) => void>();
+    onStateChange = vi.fn<(state: GuiConnectionState) => void>();
   });
 
   afterEach(() => {
@@ -134,7 +148,7 @@ describe("GuiWsClient", () => {
       client.connect();
 
       // Get the last created WebSocket instance
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       expect(wsInstance.url).toContain("userId=user-456");
       expect(wsInstance.url).toContain("ws://localhost:3000/ws");
     });
@@ -144,7 +158,7 @@ describe("GuiWsClient", () => {
     it("requires and preserves the canonical outcome on done frames", () => {
       client = createClient();
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      const wsInstance = lastWebSocket();
 
       wsInstance.simulateMessage(JSON.stringify({
         type: "done",
@@ -173,7 +187,7 @@ describe("GuiWsClient", () => {
     it("accepts live context-usage evidence instead of dropping it during frame validation", () => {
       client = createClient();
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      const wsInstance = lastWebSocket();
       wsInstance.simulateMessage(JSON.stringify({
         type: "session_event",
         event: {
@@ -208,7 +222,7 @@ describe("GuiWsClient", () => {
     it("accepts managed_economic_lifecycle events instead of dropping them during frame validation", () => {
       client = createClient();
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      const wsInstance = lastWebSocket();
       wsInstance.simulateMessage(JSON.stringify({
         type: "session_event",
         event: {
@@ -258,7 +272,7 @@ describe("GuiWsClient", () => {
       client.connect();
 
       // Simulate connection open
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       // Advance time by 30s
@@ -284,7 +298,7 @@ describe("GuiWsClient", () => {
       client.connect();
 
       // Simulate connection open
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       // Send first ping (at 30s)
@@ -300,7 +314,7 @@ describe("GuiWsClient", () => {
       expect(onStateChange).toHaveBeenCalledWith("reconnecting");
 
       vi.advanceTimersByTime(1_000);
-      const newWsInstance = wsInstances[wsInstances.length - 1];
+      const newWsInstance = lastWebSocket();
       expect(newWsInstance).not.toBe(wsInstance);
 
       vi.useRealTimers();
@@ -311,7 +325,7 @@ describe("GuiWsClient", () => {
       client = createClient();
       client.connect();
 
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       vi.advanceTimersByTime(30_000);
@@ -337,7 +351,7 @@ describe("GuiWsClient", () => {
       client.connect();
 
       // Simulate connection open
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       // Simulate unexpected close (code != 1000)
@@ -350,7 +364,7 @@ describe("GuiWsClient", () => {
       vi.advanceTimersByTime(1_000);
 
       // Should have attempted reconnect - check WebSocket was created again
-      const newWsInstance = wsInstances[wsInstances.length - 1];
+      const newWsInstance = lastWebSocket();
       expect(newWsInstance).not.toBe(wsInstance);
       expect(newWsInstance.url).toContain("userId=reconnect-user");
 
@@ -363,7 +377,7 @@ describe("GuiWsClient", () => {
       client = createClient("single-reconnect-user");
       client.connect();
 
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       wsInstance.simulateError();
@@ -392,7 +406,7 @@ describe("GuiWsClient", () => {
 
       // Connect
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       // Now the frame should have been sent
@@ -413,7 +427,7 @@ describe("GuiWsClient", () => {
       })).toThrow("Cannot select execution target while WebSocket is not open");
 
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       expect(wsInstance.send).not.toHaveBeenCalledWith(
@@ -436,7 +450,7 @@ describe("GuiWsClient", () => {
       })).toThrow("Cannot send provider authentication while WebSocket is not open");
 
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       expect(wsInstance.send).not.toHaveBeenCalledWith(
@@ -456,7 +470,7 @@ describe("GuiWsClient", () => {
       client = createClient();
       client.connect();
 
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       // Send malformed JSON
@@ -486,7 +500,7 @@ describe("GuiWsClient", () => {
       client = createClient();
       client.connect();
 
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       wsInstance.simulateMessage(JSON.stringify({
@@ -513,7 +527,7 @@ describe("GuiWsClient", () => {
     it("serializes fresh session message intent frames", () => {
       client = createClient();
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       client.send({
@@ -542,7 +556,7 @@ describe("GuiWsClient", () => {
     it("serializes execution target wizard intents through the canonical request schema", () => {
       client = createClient();
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
       const frame: GuiOutboundFrame = {
         type: "execution_target_wizard",
@@ -607,7 +621,7 @@ describe("GuiWsClient", () => {
 
       const testClient = createClient();
       testClient.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       for (const frame of frames) {
@@ -624,7 +638,7 @@ describe("GuiWsClient", () => {
       const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       client = createClient();
       client.connect();
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       client.send({ type: "message", text: "legacy text" } as unknown as GuiOutboundFrame);
@@ -1264,12 +1278,32 @@ describe("GuiWsClient", () => {
         { json: { type: "error", message: "Something went wrong", code: "ERR_001" }, expected: { type: "error", message: "Something went wrong", code: "ERR_001" } },
         {
           json: {
+            type: "provider_auth_completed",
+            provider: "openai",
+            requestId: "provider-auth-3",
+            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
+            models: { openai: ["gpt-4"] },
+            providerDiscovery: [],
+            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
+            availableModels: EMPTY_AVAILABLE_MODELS,
+          },
+          expected: {
+            type: "provider_auth_completed",
+            provider: "openai",
+            requestId: "provider-auth-3",
+            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
+            models: { openai: ["gpt-4"] },
+            providerDiscovery: [],
+            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
+            availableModels: EMPTY_AVAILABLE_MODELS,
+          },
+        },
+        {
+          json: {
             type: "welcome",
             executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
             availableModels: EMPTY_AVAILABLE_MODELS,
-            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
-            models: { openai: ["gpt-4"] },
             executionMode: "execute",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           },
@@ -1277,9 +1311,7 @@ describe("GuiWsClient", () => {
             type: "welcome",
             executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
             availableModels: EMPTY_AVAILABLE_MODELS,
-            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
-            models: { openai: ["gpt-4"] },
             executionMode: "execute",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           },
@@ -1330,7 +1362,7 @@ describe("GuiWsClient", () => {
       client = createClient();
       client.connect();
 
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       for (const { json, expected } of frames) {
@@ -1344,7 +1376,7 @@ describe("GuiWsClient", () => {
       client = createClient();
       client.connect();
 
-      const wsInstance = wsInstances[wsInstances.length - 1];
+      const wsInstance = lastWebSocket();
       wsInstance.simulateOpen();
 
       wsInstance.simulateMessage(JSON.stringify({

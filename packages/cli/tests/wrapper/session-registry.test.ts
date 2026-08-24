@@ -6,6 +6,7 @@ const osMockState = vi.hoisted(() => ({
   mockedHomedir: `${(process.env.TEMP ?? process.cwd()).replace(/\\/g, "/")}/kiln-session-registry-home-${process.pid}-${Date.now()}`,
 }));
 const TEST_HOME_DIR = osMockState.mockedHomedir;
+const TEST_KILN_HOME = join(TEST_HOME_DIR, ".kiln");
 
 vi.mock("node:os", async () => {
   const actual = await vi.importActual<typeof import("node:os")>("node:os");
@@ -313,6 +314,23 @@ describe("SessionRegistry", () => {
       expect(registry).toBeInstanceOf(SessionRegistry);
     });
 
+    it("leaves worktree state unconfigured by default", async () => {
+      const { worktreeManager } = createDefaultRegistry();
+
+      await expect(worktreeManager.allocate("session-default"))
+        .rejects.toThrow("Private worktree state is not configured for this registry.");
+      await expect(worktreeManager.list()).resolves.toEqual([]);
+    });
+
+    it("rejects configured worktree options that omit canonical privateStateRoot", () => {
+      expect(() => createDefaultRegistry({
+        worktreeRepoRoot: "C:/repo",
+        worktreeBaseDir: "C:/private/worktrees",
+      } as unknown as Parameters<typeof createDefaultRegistry>[0])).toThrow(
+        "Configured private worktrees require worktreeRepoRoot, worktreeBaseDir, and canonical privateStateRoot.",
+      );
+    });
+
     it("list() returns all providers with healthy status", () => {
       const { registry } = createDefaultRegistry();
       const providers = registry.list();
@@ -368,7 +386,7 @@ describe("SessionRegistry", () => {
     );
 
     it("isolates pooled Claude credentials through CLAUDE_CONFIG_DIR", async () => {
-      const credentialDir = join(TEST_HOME_DIR, ".kiln", "auth", "claude-code");
+      const credentialDir = join(TEST_KILN_HOME, "auth", "claude-code");
       const isolatedConfigDir = join(TEST_HOME_DIR, "claude-account-a");
       mkdirSync(credentialDir, { recursive: true });
       const timestamp = new Date().toISOString();
@@ -383,7 +401,7 @@ describe("SessionRegistry", () => {
         updatedAt: timestamp,
       }), "utf8");
       claudeSdkMocks.lastQuery = undefined;
-      const { registry } = createDefaultRegistry();
+      const { registry } = createDefaultRegistry({ kilnHome: TEST_KILN_HOME });
       const session = registry.createSession("claude", {
         task: "test",
         permissionPolicy: CONSTRUCTION_ONLY_POLICY,
@@ -423,12 +441,12 @@ describe("SessionRegistry", () => {
     });
 
     it("binds the default Claude session to its native config home for private plan containment", async () => {
-      const credentialDir = join(TEST_HOME_DIR, ".kiln", "auth", "claude-code");
+      const credentialDir = join(TEST_KILN_HOME, "auth", "claude-code");
       rmSync(credentialDir, { recursive: true, force: true });
       const nativeConfigDir = join(TEST_HOME_DIR, ".claude");
       mkdirSync(join(nativeConfigDir, "plans"), { recursive: true });
       claudeSdkMocks.lastQuery = undefined;
-      const { registry } = createDefaultRegistry();
+      const { registry } = createDefaultRegistry({ kilnHome: TEST_KILN_HOME });
       const session = registry.createSession("claude", {
         task: "test",
         permissionPolicy: { approval: "untrusted", sandbox: "read-only" },

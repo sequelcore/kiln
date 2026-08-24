@@ -8,7 +8,7 @@ import { ExternalEngagementResourceProvider } from "../../src/config/external-en
 describe("ExternalEngagementResourceProvider", () => {
   it("lists governed external engagement artifacts from the workspace resource plane", async () => {
     const root = await externalEngagementWorkspace();
-    writeFileSync(join(root, ".kiln", "external-engagement", "research-output.json"), JSON.stringify({
+    writeFileSync(join(root, "research-output.json"), JSON.stringify({
       reportId: "candidate-report-1",
       generatedAt: "2026-06-24T00:00:00.000Z",
       sourceReportId: "source-report-1",
@@ -47,7 +47,7 @@ describe("ExternalEngagementResourceProvider", () => {
 
   it("reads an external engagement artifact file without broad filesystem access", async () => {
     const root = await externalEngagementWorkspace();
-    writeFileSync(join(root, ".kiln", "external-engagement", "x-review.md"), "# External Engagement Review\n", "utf-8");
+    writeFileSync(join(root, "x-review.md"), "# External Engagement Review\n", "utf-8");
     const provider = new ExternalEngagementResourceProvider(root);
 
     const result = await provider.read("kiln://external-engagement/artifacts/x-review.md");
@@ -67,7 +67,7 @@ describe("ExternalEngagementResourceProvider", () => {
 
   it("resolves source evidence artifacts by provider artifact id from evidence reports", async () => {
     const root = await externalEngagementWorkspace();
-    writeFileSync(join(root, ".kiln", "external-engagement", "x-report.json"), JSON.stringify({
+    writeFileSync(join(root, "x-report.json"), JSON.stringify({
       reportId: "source-report-1",
       generatedAt: "2026-06-24T00:00:00.000Z",
       source: "x",
@@ -116,7 +116,7 @@ describe("ExternalEngagementResourceProvider", () => {
 
   it("summarizes generated artifacts by content instead of filename conventions", async () => {
     const root = await externalEngagementWorkspace();
-    writeFileSync(join(root, ".kiln", "external-engagement", "community.json"), JSON.stringify({
+    writeFileSync(join(root, "community.json"), JSON.stringify({
       reportId: "source-report-1",
       generatedAt: "2026-06-24T00:00:00.000Z",
       source: "x",
@@ -151,8 +151,8 @@ describe("ExternalEngagementResourceProvider", () => {
         confidence: "medium",
       }],
     }), "utf-8");
-    writeFileSync(join(root, ".kiln", "external-engagement", "review-output.md"), "# External Engagement Review\n", "utf-8");
-    writeFileSync(join(root, ".kiln", "external-engagement", "next-step.json"), JSON.stringify({
+    writeFileSync(join(root, "review-output.md"), "# External Engagement Review\n", "utf-8");
+    writeFileSync(join(root, "next-step.json"), JSON.stringify({
       reportId: "intake-report-1",
       generatedAt: "2026-06-24T00:00:00.000Z",
       sourceDecisionReportId: "decision-report-1",
@@ -230,6 +230,6 @@ describe("ExternalEngagementResourceProvider", () => {
 
 async function externalEngagementWorkspace(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "kiln-external-engagement-resource-"));
-  mkdirSync(join(root, ".kiln", "external-engagement"), { recursive: true });
+  mkdirSync(root, { recursive: true });
   return root;
 }

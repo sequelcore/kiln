@@ -1,13 +1,12 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-export type ProjectRootSource = "kiln-yaml" | "git" | "explicit" | "cwd";
+export type ProjectRootSource = "git" | "explicit" | "cwd";
 
 export interface ProjectRootResolution {
   readonly rootPath: string;
   readonly source: ProjectRootSource;
-  readonly hasKilnYaml: boolean;
   readonly hasGitRoot: boolean;
   readonly projectName: string;
 }
@@ -18,94 +17,56 @@ export interface ResolveProjectRootOptions {
   readonly userHome?: string;
 }
 
+/**
+ * Resolve a project from explicit path, Git ancestry, or the process cwd.
+ *
+ * Repository-local `.kiln` state is deliberately not inspected. A Git
+ * worktree's `.git` file is a valid root marker; symlinked markers are not.
+ * Ancestor discovery stops at the operator home for projects below that home,
+ * so a dotfiles repository cannot silently capture every child directory.
+ */
 export function resolveProjectRoot(options: ResolveProjectRootOptions = {}): ProjectRootResolution {
-  const cwd = resolve(options.cwd ?? process.cwd());
-  const start = normalizeStartPath(resolve(cwd, options.explicitPath ?? "."));
-  const candidates = collectCandidateRoots(start, resolve(options.userHome ?? homedir()));
-  const kilnRoot = candidates.find(hasKilnMarker);
-
-  if (kilnRoot) {
-    return {
-      rootPath: kilnRoot,
-      source: "kiln-yaml",
-      hasKilnYaml: true,
-      hasGitRoot: hasGitMarker(kilnRoot),
-      projectName: readProjectName(kilnRoot),
-    };
-  }
-
+  const processCwd = resolveExistingDirectory(options.cwd ?? process.cwd(), "cwd");
+  const start =
+    options.explicitPath === undefined
+      ? processCwd
+      : resolveExistingDirectory(resolve(processCwd, options.explicitPath), "explicit project path");
+  const userHome = resolveOptionalCanonicalDirectory(options.userHome ?? homedir());
+  const candidates = collectCandidateRoots(start, userHome);
   const gitRoot = candidates.find(hasGitMarker);
-  if (gitRoot) {
-    return {
-      rootPath: gitRoot,
-      source: "git",
-      hasKilnYaml: false,
-      hasGitRoot: true,
-      projectName: readProjectName(gitRoot),
-    };
-  }
+  const rootPath = gitRoot ?? start;
 
   return {
-    rootPath: start,
-    source: options.explicitPath ? "explicit" : "cwd",
-    hasKilnYaml: false,
-    hasGitRoot: false,
-    projectName: readProjectName(start),
+    rootPath,
+    source: gitRoot === undefined ? (options.explicitPath === undefined ? "cwd" : "explicit") : "git",
+    hasGitRoot: gitRoot !== undefined,
+    projectName: readProjectName(rootPath),
   };
 }
 
-function normalizeStartPath(path: string): string {
-  if (!existsSync(path)) {
-    return path;
-  }
-  return statSync(path).isFile() ? dirname(path) : path;
-}
+function collectCandidateRoots(start: string, userHome: string): readonly string[] {
+  const candidates: string[] = [start];
+  if (samePath(start, userHome)) return candidates;
 
-/**
- * The directories eligible to be adopted as the project root, nearest first:
- * the starting directory, then each ancestor that stays below the user home.
- *
- * The user home and everything above it hold shared operator state, never a
- * single project. Without that boundary a git-tracked home — an ordinary
- * dotfiles setup — makes every directory nested under it resolve to the home
- * repository, so Kiln reads and writes `.kiln` state outside the workspace the
- * caller is actually in. The Windows temporary directory lives under the home
- * directory, which puts scratch and test runs in that position by default.
- *
- * The starting directory itself always stays eligible: a caller who names a
- * directory has already stated where the project is, and a home directory the
- * operator adopted deliberately still resolves when it is the starting point.
- */
-function collectCandidateRoots(start: string, userHome: string): string[] {
-  const candidates = [start];
+  const startIsInsideHome = isInside(userHome, start);
   let current = start;
   while (true) {
     const parent = dirname(current);
-    if (parent === current || contains(parent, userHome)) {
-      return candidates;
-    }
+    if (parent === current) break;
+    if (startIsInsideHome && samePath(parent, userHome)) break;
     candidates.push(parent);
     current = parent;
   }
-}
-
-function contains(ancestor: string, descendant: string): boolean {
-  const relativePath = relative(ancestor, descendant);
-  if (relativePath === "") {
-    return true;
-  }
-  if (isAbsolute(relativePath)) {
-    return false;
-  }
-  return relativePath !== ".." && !relativePath.startsWith(`..${sep}`);
-}
-
-function hasKilnMarker(candidate: string): boolean {
-  return existsSync(join(candidate, ".kiln", "kiln.yaml"));
+  return candidates;
 }
 
 function hasGitMarker(candidate: string): boolean {
-  return existsSync(join(candidate, ".git"));
+  try {
+    const marker = lstatSync(join(candidate, ".git"));
+    return marker.isDirectory() || marker.isFile();
+  } catch {
+    return false;
+  }
 }
 
 function readProjectName(projectPath: string): string {
@@ -113,12 +74,47 @@ function readProjectName(projectPath: string): string {
   if (existsSync(packageJsonPath)) {
     try {
       const parsed = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { name?: unknown };
-      if (typeof parsed.name === "string" && parsed.name.trim().length > 0) {
-        return parsed.name.trim();
-      }
+      if (typeof parsed.name === "string" && parsed.name.trim().length > 0) return parsed.name.trim();
     } catch {
-      return basename(projectPath);
+      // The directory name remains a safe display fallback for malformed manifests.
     }
   }
   return basename(projectPath);
+}
+
+function resolveExistingDirectory(path: string, label: string): string {
+  let canonicalPath: string;
+  try {
+    canonicalPath = realpathSync(path);
+  } catch {
+    throw new Error(`${label} does not exist: ${path}`);
+  }
+  try {
+    if (!lstatSync(canonicalPath).isDirectory()) throw new Error(`${label} is not a directory: ${path}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith(`${label} is not a directory:`)) throw error;
+    throw new Error(`${label} cannot be inspected: ${path}`);
+  }
+  return canonicalPath;
+}
+
+function resolveOptionalCanonicalDirectory(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function samePath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left);
+  const normalizedRight = resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function isInside(ancestor: string, descendant: string): boolean {
+  const path = relative(ancestor, descendant);
+  return path !== "" && !path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path);
 }

@@ -11,7 +11,7 @@ describe("Workbench side panels", () => {
     render(
       <WorkbenchInspectorPanel
         mode="approvals"
-        gatewayWorkingDirectory={null}
+        gatewayWorkingDirectory={undefined}
         workspaceTree={undefined}
         workspaceClient={undefined}
         worktreePath={null}

@@ -50,7 +50,8 @@ Workflow:
    direct executable or configuration evidence before documentation, then
    explain any remaining ambiguity. A document being named canonical does not
    make every claim inside it true.
-3. Compare those facts with .kiln/project-context.md. Verify that named commands
+3. Compare those facts with the canonical private project context reported by
+   Kiln status. Verify that named commands
    exist and are portable, but reject frontmatter/body disagreement and do not
    execute destructive or externally mutating commands merely to review them.
 4. Keep derived repository facts in their executable owners and projections;
@@ -76,7 +77,7 @@ Review Criteria:
 Output:
 - status: valid, needs_changes, or blocked.
 - evidence: concise references for each accepted fact, conflict, or unknown.
-- recommendedChanges: concrete edits for .kiln/project-context.md.
+- recommendedChanges: concrete edits for the canonical private project context.
 - projectionImpact: whether kiln sync --repo-shims should be rerun.
 `,
   }),

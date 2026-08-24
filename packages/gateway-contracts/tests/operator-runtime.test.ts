@@ -11,7 +11,7 @@ import {
 
 const projectBinding = {
   projectRuntimeId: `krp_${"a".repeat(64)}`,
-  markerDigest: `sha256:${"b".repeat(64)}`,
+  compositionRevision: `sha256:${"b".repeat(64)}`,
 } as const;
 
 const identity = {
@@ -84,8 +84,8 @@ describe("operator runtime contracts", () => {
   it.each([
     { ...projectBinding, projectRuntimeId: "C:/operator/private/project" },
     { ...projectBinding, projectRuntimeId: `krp_${"A".repeat(64)}` },
-    { ...projectBinding, markerDigest: "sha256:not-a-digest" },
-    { ...projectBinding, markerDigest: `sha256:${"B".repeat(64)}` },
+    { ...projectBinding, compositionRevision: "sha256:not-a-digest" },
+    { ...projectBinding, compositionRevision: `sha256:${"B".repeat(64)}` },
   ])("rejects non-opaque or malformed project binding evidence", (binding) => {
     expect(() => OperatorProjectBindingSchema.parse(binding)).toThrow();
   });
@@ -117,6 +117,13 @@ describe("operator runtime contracts", () => {
       sessionId: "session-01",
       issuedAt: 1_700_000_000,
       expiresAt: 1_700_000_300,
+    })).toThrow();
+  });
+
+  it("rejects the retired marker binding field", () => {
+    expect(() => OperatorProjectBindingSchema.parse({
+      projectRuntimeId: projectBinding.projectRuntimeId,
+      markerDigest: `sha256:${"b".repeat(64)}`,
     })).toThrow();
   });
 

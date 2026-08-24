@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kiln provides a hook system for executing custom logic at key lifecycle points during CLI wrapper session execution. Hooks are configured in kiln.yaml and executed by the wrapper layer.
+Kiln provides a hook system for executing custom logic at key lifecycle points during CLI wrapper session execution. Hooks are configured in canonical global `~/.kiln/config.yaml` or the bound private project `config.yaml` and executed by the wrapper layer.
 
 ## Hook Events
 
@@ -91,7 +91,7 @@ Runs a shell command. The command receives event context as environment variable
 
 Commands can be synchronous (blocking) or asynchronous (fire-and-forget). Use `async: true` for background tasks.
 
-Example hook configuration in kiln.yaml:
+Example hook configuration in canonical `config.yaml`:
 
 ```yaml
 hooks:

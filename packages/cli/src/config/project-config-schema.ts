@@ -5,10 +5,22 @@ import { KilnYamlError } from "../kiln-yaml-types.js";
 
 export const PROJECT_CONFIG_SCHEMA_REVISION = 1;
 export const PROJECT_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/project-config-v1.json";
+export const PROJECT_CONFIG_COMPARATORS = [
+  "global-instruction-profile-subset",
+  "global-work-governance-narrowing",
+  "global-limit-bound",
+  "global-mcp-admission-narrowing",
+  "global-permission-narrowing",
+  "global-web-capability-narrowing",
+  "global-skill-selection-narrowing",
+] as const satisfies readonly ProjectConfigComparator[];
 
 export type ProjectConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
 export type ProjectConfigSensitivity = "public" | "secret-reference";
 export type ProjectConfigAuthorityImpact = "none" | "authority-bearing";
+export type ProjectConfigAdmission = "project-owned" | "attenuation-only" | "forbidden";
+/** Named semantic comparator required for every project attenuation field. */
+export type ProjectConfigComparator = string;
 
 export interface ProjectConfigFieldDescriptor {
   readonly identity: string;
@@ -17,6 +29,8 @@ export interface ProjectConfigFieldDescriptor {
   readonly scope: "project";
   readonly sensitivity: ProjectConfigSensitivity;
   readonly authorityImpact: ProjectConfigAuthorityImpact;
+  readonly projectAdmission: ProjectConfigAdmission;
+  readonly comparator?: ProjectConfigComparator;
   readonly activation: ProjectConfigActivation;
   readonly defaultPosture: "omitted" | "required";
   readonly schemaRevision: number;
@@ -114,60 +128,12 @@ const workGovernance = strictObject({
   boundedWorkCeiling: Type.ReadonlyOptional(boundedWorkCeiling),
 }, {
   description: "Project work-governance intent and evidence requirements.",
+  "x-kiln-project-admission": "attenuation-only",
+  "x-kiln-project-comparator": "global-work-governance-narrowing",
   "x-kiln-semantic-owner": "work-governance",
   "x-kiln-authority-impact": "authority-bearing",
   "x-kiln-activation": "next-turn",
 });
-
-const actionEffectEnvelope = strictObject({
-  operation: Type.Readonly(Type.Union([Type.Literal("observe"), Type.Literal("mutate")])),
-  boundaries: Type.Readonly(Type.Array(Type.Union([
-    Type.Literal("process"),
-    Type.Literal("workspace"),
-    Type.Literal("machine"),
-    Type.Literal("network"),
-    Type.Literal("external-system"),
-  ]))),
-  reversibility: Type.Readonly(Type.Union([
-    Type.Literal("reversible"),
-    Type.Literal("compensatable"),
-    Type.Literal("irreversible"),
-    Type.Literal("unknown"),
-  ])),
-  dataEgress: Type.Readonly(Type.Union([
-    Type.Literal("none"),
-    Type.Literal("metadata"),
-    Type.Literal("project-data"),
-    Type.Literal("sensitive-data"),
-    Type.Literal("unknown"),
-  ])),
-  identityUse: Type.Readonly(Type.Union([
-    Type.Literal("none"),
-    Type.Literal("authenticated"),
-    Type.Literal("privileged"),
-    Type.Literal("unknown"),
-  ])),
-  consequences: Type.Readonly(Type.Array(Type.Union([
-    Type.Literal("local-state"),
-    Type.Literal("external-state"),
-    Type.Literal("financial"),
-    Type.Literal("legal"),
-    Type.Literal("security"),
-    Type.Literal("unknown"),
-  ]))),
-  idempotency: Type.Readonly(Type.Union([
-    Type.Literal("idempotent"),
-    Type.Literal("conditionally-idempotent"),
-    Type.Literal("non-idempotent"),
-    Type.Literal("unknown"),
-  ])),
-});
-
-const mcpValueReference = Type.Union([
-  strictObject({ value: Type.Readonly(nonEmptyString) }),
-  strictObject({ fromEnv: Type.Readonly(nonEmptyString) }),
-  strictObject({ fromCredential: Type.Readonly(nonEmptyString) }),
-]);
 
 const mcpCapabilityAdmission = strictObject({
   allow: Type.ReadonlyOptional(stringArray),
@@ -175,116 +141,31 @@ const mcpCapabilityAdmission = strictObject({
 });
 
 const mcpServer = strictObject({
+  // A project can disable an already globally-defined server, but cannot
+  // define or enable a connection. Connection identity, transport, command,
+  // URL, credentials, and lifecycle belong to global authority.
   enabled: Type.ReadonlyOptional(Type.Boolean()),
-  transport: Type.ReadonlyOptional(Type.Union([Type.Literal("stdio"), Type.Literal("streamable-http")])),
-  command: Type.ReadonlyOptional(Type.String()),
-  args: Type.ReadonlyOptional(stringArray),
-  cwd: Type.ReadonlyOptional(Type.String()),
-  env: Type.ReadonlyOptional(Type.Record(nonEmptyString, mcpValueReference)),
-  url: Type.ReadonlyOptional(Type.String()),
-  headers: Type.ReadonlyOptional(Type.Record(nonEmptyString, mcpValueReference)),
-  startupTimeoutMs: Type.ReadonlyOptional(Type.Number()),
-  requestTimeoutMs: Type.ReadonlyOptional(Type.Number()),
-  maxCapabilities: Type.ReadonlyOptional(Type.Number()),
-  reconnect: Type.ReadonlyOptional(strictObject({
-    maxAttempts: Type.Readonly(Type.Number()),
-    initialDelayMs: Type.ReadonlyOptional(Type.Number()),
-    maxDelayMs: Type.ReadonlyOptional(Type.Number()),
-  })),
+  maxCapabilities: Type.ReadonlyOptional(Type.Number({ minimum: 0 })),
   admission: Type.ReadonlyOptional(strictObject({
     state: Type.Readonly(Type.Union([Type.Literal("admitted"), Type.Literal("denied")])),
     tools: Type.ReadonlyOptional(mcpCapabilityAdmission),
     resources: Type.ReadonlyOptional(mcpCapabilityAdmission),
     prompts: Type.ReadonlyOptional(mcpCapabilityAdmission),
-    effects: Type.ReadonlyOptional(Type.Record(nonEmptyString, actionEffectEnvelope)),
   })),
-  trust: Type.ReadonlyOptional(Type.Union([
-    Type.Literal("untrusted"),
-    Type.Literal("local"),
-    Type.Literal("verified"),
-  ])),
+}, {
+  "x-kiln-project-admission": "attenuation-only",
+  "x-kiln-project-comparator": "global-mcp-admission-narrowing",
 });
 
 const mcp = strictObject({
   servers: Type.Readonly(Type.Record(nonEmptyString, mcpServer)),
 }, {
   description: "Project MCP server connection and capability admission intent.",
+  "x-kiln-project-admission": "attenuation-only",
+  "x-kiln-project-comparator": "global-mcp-admission-narrowing",
   "x-kiln-semantic-owner": "mcp-configuration",
   "x-kiln-sensitivity": "secret-reference",
   "x-kiln-authority-impact": "authority-bearing",
-});
-
-const toolRule = strictObject({
-  tool: Type.Readonly(nonEmptyString),
-  action: Type.Readonly(Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("deny")])),
-  reason: Type.ReadonlyOptional(Type.String()),
-});
-
-const commandRule = strictObject({
-  pattern: Type.Readonly(nonEmptyString),
-  action: Type.Readonly(Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("deny")])),
-  shell: Type.ReadonlyOptional(Type.Union([
-    Type.Literal("bash"),
-    Type.Literal("sh"),
-    Type.Literal("zsh"),
-    Type.Literal("any"),
-  ])),
-  reason: Type.ReadonlyOptional(Type.String()),
-});
-
-const fileGovernance = strictObject({
-  excludeFromContext: Type.ReadonlyOptional(Type.Boolean()),
-  denyGlobs: Type.ReadonlyOptional(stringArray),
-  askGlobs: Type.ReadonlyOptional(stringArray),
-  allowGlobs: Type.ReadonlyOptional(stringArray),
-});
-
-const memoryAuthorityRule = strictObject({
-  operations: Type.Readonly(Type.Array(Type.Union([
-    Type.Literal("save"),
-    Type.Literal("read"),
-    Type.Literal("revise"),
-    Type.Literal("relate"),
-    Type.Literal("delete"),
-    Type.Literal("forget"),
-    Type.Literal("compact"),
-    Type.Literal("promote"),
-  ]))),
-  scopeKinds: Type.ReadonlyOptional(Type.Array(Type.Union([
-    Type.Literal("user"),
-    Type.Literal("agent"),
-    Type.Literal("team"),
-    Type.Literal("project"),
-    Type.Literal("org"),
-    Type.Literal("app"),
-    Type.Literal("tenant"),
-    Type.Literal("session"),
-  ]))),
-  scopeIds: Type.ReadonlyOptional(stringArray),
-  layers: Type.ReadonlyOptional(Type.Array(Type.Union([
-    Type.Literal("working"),
-    Type.Literal("episodic"),
-    Type.Literal("semantic"),
-    Type.Literal("procedural"),
-    Type.Literal("coordination"),
-    Type.Literal("audit"),
-  ]))),
-  allowAuditWrite: Type.ReadonlyOptional(Type.Boolean()),
-});
-
-const memoryPermissions = strictObject({
-  read: Type.ReadonlyOptional(Type.Array(memoryAuthorityRule)),
-  write: Type.ReadonlyOptional(Type.Array(memoryAuthorityRule)),
-});
-
-const agentScope = strictObject({
-  agent: Type.Readonly(nonEmptyString),
-  inherit: Type.ReadonlyOptional(Type.Boolean()),
-  tools: Type.ReadonlyOptional(Type.Array(toolRule)),
-  commands: Type.ReadonlyOptional(Type.Array(commandRule)),
-  fileGovernance: Type.ReadonlyOptional(fileGovernance),
-  memory: Type.ReadonlyOptional(memoryPermissions),
-  mcpTools: Type.ReadonlyOptional(stringArray),
 });
 
 const permissions = strictObject({
@@ -299,21 +180,12 @@ const permissions = strictObject({
     Type.Literal("workspace-write"),
     Type.Literal("danger-full-access"),
   ])),
-  safeDefaults: Type.ReadonlyOptional(Type.Boolean()),
-  auditLog: Type.ReadonlyOptional(Type.Boolean()),
-  tools: Type.ReadonlyOptional(Type.Array(toolRule)),
-  commands: Type.ReadonlyOptional(Type.Array(commandRule)),
-  fileGovernance: Type.ReadonlyOptional(fileGovernance),
-  memory: Type.ReadonlyOptional(memoryPermissions),
-  dataFirewall: Type.ReadonlyOptional(Type.Array(strictObject({
-    destination: Type.Readonly(nonEmptyString),
-    action: Type.Readonly(Type.Union([Type.Literal("allow"), Type.Literal("redact"), Type.Literal("deny")])),
-    classifications: Type.ReadonlyOptional(stringArray),
-    reason: Type.ReadonlyOptional(Type.String()),
-  }))),
-  agentScopes: Type.ReadonlyOptional(Type.Array(agentScope)),
+  // Other execution-policy fields are deliberately global-only until a
+  // comparator can prove that their project form is a true subset.
 }, {
   description: "Project restrictions applied beneath global execution authority.",
+  "x-kiln-project-admission": "attenuation-only",
+  "x-kiln-project-comparator": "global-permission-narrowing",
   "x-kiln-semantic-owner": "model-facing-execution-authority",
   "x-kiln-authority-impact": "authority-bearing",
 });
@@ -359,37 +231,9 @@ const communication = strictObject({
   onUnsupported: Type.ReadonlyOptional(Type.Union([Type.Literal("deny"), Type.Literal("omit")])),
 }, {
   description: "Provider-neutral operator communication intent.",
+  "x-kiln-project-admission": "project-owned",
   "x-kiln-semantic-owner": "communication-policy",
 });
-
-const httpProvider = strictObject({
-  type: Type.Readonly(Type.Literal("http")),
-  url: Type.Readonly(nonEmptyString),
-  headers: Type.ReadonlyOptional(Type.Record(nonEmptyString, Type.String())),
-});
-const providerWithApiKey = <T extends "brave" | "tavily" | "exa" | "firecrawl">(type: T) => strictObject({
-  type: Type.Readonly(Type.Literal(type)),
-  apiKeyEnv: Type.Readonly(nonEmptyString),
-  url: Type.ReadonlyOptional(Type.String()),
-});
-const searchProvider = Type.Union([
-  strictObject({ type: Type.ReadonlyOptional(Type.Literal("none")) }),
-  httpProvider,
-  strictObject({
-    type: Type.Readonly(Type.Literal("searxng")),
-    url: Type.Readonly(nonEmptyString),
-    headers: Type.ReadonlyOptional(Type.Record(nonEmptyString, Type.String())),
-  }),
-  providerWithApiKey("brave"),
-  providerWithApiKey("tavily"),
-  providerWithApiKey("exa"),
-]);
-const extractProvider = Type.Union([
-  strictObject({ type: Type.ReadonlyOptional(Type.Literal("none")) }),
-  httpProvider,
-  providerWithApiKey("tavily"),
-  providerWithApiKey("firecrawl"),
-]);
 
 const web = strictObject({
   enabled: Type.ReadonlyOptional(Type.Boolean()),
@@ -400,77 +244,12 @@ const web = strictObject({
     Type.Literal("full"),
   ])),
   allowedDomains: Type.ReadonlyOptional(stringArray),
-  searchProvider: Type.ReadonlyOptional(searchProvider),
-  searchFallbackProviders: Type.ReadonlyOptional(Type.Array(searchProvider)),
-  extractProvider: Type.ReadonlyOptional(extractProvider),
 }, {
   description: "Project web capability configuration.",
+  "x-kiln-project-admission": "attenuation-only",
+  "x-kiln-project-comparator": "global-web-capability-narrowing",
   "x-kiln-semantic-owner": "web-tools-configuration",
   "x-kiln-sensitivity": "secret-reference",
-  "x-kiln-authority-impact": "authority-bearing",
-});
-
-const interactiveUse = strictObject({
-  enabled: Type.ReadonlyOptional(Type.Boolean()),
-  allowedDomains: Type.ReadonlyOptional(stringArray),
-  allowedApplications: Type.ReadonlyOptional(stringArray),
-  applicationAliases: Type.ReadonlyOptional(Type.Record(nonEmptyString, stringArray)),
-  allowExternalBrowser: Type.ReadonlyOptional(Type.Boolean()),
-  allowComputer: Type.ReadonlyOptional(Type.Boolean()),
-  browserProvider: Type.ReadonlyOptional(Type.Union([Type.Literal("none"), Type.Literal("playwright")])),
-  computerProvider: Type.ReadonlyOptional(Type.Union([
-    Type.Literal("none"),
-    Type.Literal("windows"),
-    Type.Literal("windows-uia"),
-  ])),
-  browserEnvironment: Type.ReadonlyOptional(Type.Union([
-    Type.Literal("isolated-headless"),
-    Type.Literal("isolated-headed"),
-  ])),
-  computerEnvironment: Type.ReadonlyOptional(Type.Literal("local-active-desktop")),
-}, {
-  description: "Project browser and computer-use intent.",
-  "x-kiln-semantic-owner": "interactive-use",
-  "x-kiln-authority-impact": "authority-bearing",
-});
-
-const externalCatalogDecision = strictObject({
-  sourceId: Type.Readonly(nonEmptyString),
-  packageDigest: Type.Readonly(nonEmptyString),
-});
-const externalHarnessPolicy = strictObject({
-  expectedFingerprint: Type.Readonly(nonEmptyString),
-  keepImplicit: Type.Readonly(Type.Array(externalCatalogDecision)),
-});
-const externalCatalog = strictObject({
-  version: Type.Readonly(Type.Literal(1)),
-  harnesses: Type.Readonly(strictObject({
-    codex: Type.ReadonlyOptional(externalHarnessPolicy),
-    claude: Type.ReadonlyOptional(externalHarnessPolicy),
-    opencode: Type.ReadonlyOptional(externalHarnessPolicy),
-  })),
-}, {
-  description: "Global external-skill exposure policy; project semantic admission forbids it.",
-  "x-kiln-project-admission": "forbidden",
-  "x-kiln-semantic-owner": "skill-catalog",
-  "x-kiln-authority-impact": "authority-bearing",
-});
-
-const skillVisibility = strictObject({
-  default: Type.ReadonlyOptional(Type.Union([
-    Type.Literal("implicit"),
-    Type.Literal("explicit-only"),
-    Type.Literal("disabled"),
-  ])),
-  overrides: Type.ReadonlyOptional(Type.Record(nonEmptyString, Type.Union([
-    Type.Literal("implicit"),
-    Type.Literal("explicit-only"),
-    Type.Literal("disabled"),
-  ]))),
-}, {
-  description: "Global native skill visibility; project semantic admission forbids it.",
-  "x-kiln-project-admission": "forbidden",
-  "x-kiln-semantic-owner": "skill-visibility",
   "x-kiln-authority-impact": "authority-bearing",
 });
 
@@ -483,10 +262,10 @@ const skills = strictObject({
   selection: Type.ReadonlyOptional(strictObject({
     mode: Type.ReadonlyOptional(Type.Union([Type.Literal("advisory"), Type.Literal("auto")])),
   })),
-  visibility: Type.ReadonlyOptional(skillVisibility),
-  externalCatalog: Type.ReadonlyOptional(externalCatalog),
 }, {
   description: "Project builtin-skill and selection intent.",
+  "x-kiln-project-admission": "attenuation-only",
+  "x-kiln-project-comparator": "global-skill-selection-narrowing",
   "x-kiln-semantic-owner": "skills-configuration",
   "x-kiln-authority-impact": "authority-bearing",
 });
@@ -511,6 +290,8 @@ const contextGovernance = strictObject({
     Type.Literal("high"),
   ])),
   cachePolicy: Type.ReadonlyOptional(Type.Union([Type.Literal("off"), Type.Literal("prefer")])),
+  // The selected policy is project intent. Candidate/evaluation evidence is
+  // runtime-owned mutable state and deliberately has no project schema path.
   adaptation: Type.ReadonlyOptional(strictObject({
     version: Type.Readonly(Type.Literal("policy-adaptation-selection-v1")),
     revision: Type.Readonly(Type.Number()),
@@ -527,47 +308,50 @@ const contextGovernance = strictObject({
         Type.Literal("retrieval-on-demand"),
       ])),
     })),
-    candidateRecordHash: Type.ReadonlyOptional(Type.String()),
-    evaluationEvidenceHash: Type.ReadonlyOptional(Type.String()),
   })),
 }, {
   description: "Project context allocation and adaptation intent.",
+  "x-kiln-project-admission": "project-owned",
   "x-kiln-semantic-owner": "context-governance",
-});
-
-const qualityGate = strictObject({
-  name: Type.Readonly(Type.String({ minLength: 1, pattern: "\\S" })),
-  command: Type.Readonly(Type.String({ minLength: 1, pattern: "\\S" })),
-  required: Type.ReadonlyOptional(Type.Boolean()),
 });
 
 export const PROJECT_CONFIG_SCHEMA = strictObject({
   version: Type.Readonly(Type.Literal("1", { description: "Breaking project configuration generation." })),
-  activeInstructionProfiles: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
+  activeInstructionProfiles: Type.ReadonlyOptional(Type.Array(nonEmptyString, {
+    "x-kiln-project-admission": "attenuation-only",
+    "x-kiln-project-comparator": "global-instruction-profile-subset",
+  })),
   workGovernance: Type.ReadonlyOptional(workGovernance),
   domain: Type.ReadonlyOptional(Type.String({ minLength: 1 })),
   channels: Type.ReadonlyOptional(stringArray),
-  teamMode: Type.ReadonlyOptional(Type.String()),
-  requireApproval: Type.ReadonlyOptional(Type.Boolean()),
-  maxDepth: Type.ReadonlyOptional(Type.Number()),
-  parallelWorkers: Type.ReadonlyOptional(Type.Number()),
+  maxDepth: Type.ReadonlyOptional(Type.Number({
+    minimum: 0,
+    "x-kiln-project-admission": "attenuation-only",
+    "x-kiln-project-comparator": "global-limit-bound",
+    "x-kiln-authority-impact": "authority-bearing",
+  })),
+  parallelWorkers: Type.ReadonlyOptional(Type.Number({
+    minimum: 0,
+    "x-kiln-project-admission": "attenuation-only",
+    "x-kiln-project-comparator": "global-limit-bound",
+    "x-kiln-authority-impact": "authority-bearing",
+  })),
   mcp: Type.ReadonlyOptional(mcp),
   permissions: Type.ReadonlyOptional(permissions),
   communication: Type.ReadonlyOptional(communication),
   web: Type.ReadonlyOptional(web),
-  interactiveUse: Type.ReadonlyOptional(interactiveUse),
   skills: Type.ReadonlyOptional(skills),
-  qualityGates: Type.ReadonlyOptional(Type.Array(qualityGate)),
   contextGovernance: Type.ReadonlyOptional(contextGovernance),
 }, {
   $id: PROJECT_CONFIG_SCHEMA_ID,
   $schema: "https://json-schema.org/draft/2020-12/schema",
   title: "Kiln project configuration",
-  description: "Canonical schema for .kiln/kiln.yaml.",
+  description: "Canonical schema for private project config.yaml.",
   "x-kiln-schema-revision": PROJECT_CONFIG_SCHEMA_REVISION,
   "x-kiln-structural-owner": "project-configuration",
   "x-kiln-semantic-owner": "project-configuration",
   "x-kiln-scope": "project",
+  "x-kiln-project-admission": "project-owned",
   "x-kiln-sensitivity": "public",
   "x-kiln-authority-impact": "none",
   "x-kiln-activation": "next-session",
@@ -581,7 +365,7 @@ type DeepReadonly<T> = T extends readonly unknown[]
     : T;
 
 export type KilnProjectConfig = DeepReadonly<Static<typeof PROJECT_CONFIG_SCHEMA>>;
-export type KilnYamlQualityGate = DeepReadonly<Static<typeof qualityGate>>;
+export type KilnYamlQualityGate = never;
 
 export function parseProjectConfigStructure(value: unknown, sourcePath: string): KilnProjectConfig {
   if (Value.Check(PROJECT_CONFIG_SCHEMA, value)) {
@@ -626,11 +410,39 @@ function deriveFieldDescriptors(): readonly ProjectConfigFieldDescriptor[] {
     scope: "project",
     sensitivity: "public",
     authorityImpact: "none",
+    projectAdmission: "project-owned",
     activation: "next-session",
     defaultPosture: "omitted",
   });
   walkChildren(PROJECT_CONFIG_SCHEMA, "", rootContext, descriptors);
-  return [...descriptors.values()].sort((left, right) => left.identity.localeCompare(right.identity));
+  const result = [...descriptors.values()].sort((left, right) => left.identity.localeCompare(right.identity));
+  assertProjectConfigDescriptorInvariants(result);
+  return result;
+}
+
+/** Fails closed if the schema and its generated admission ledger drift apart. */
+export function assertProjectConfigDescriptorInvariants(
+  descriptors: readonly ProjectConfigFieldDescriptor[] = PROJECT_CONFIG_FIELD_DESCRIPTORS,
+): void {
+  const comparators = new Set<string>(PROJECT_CONFIG_COMPARATORS);
+  for (const descriptor of descriptors) {
+    if (descriptor.projectAdmission === undefined) {
+      throw new Error(`Project config descriptor ${descriptor.identity} has no admission posture.`);
+    }
+    if (descriptor.authorityImpact === "authority-bearing" && descriptor.projectAdmission === "project-owned") {
+      throw new Error(`Authority-bearing project config descriptor ${descriptor.identity} cannot be project-owned.`);
+    }
+    if (descriptor.projectAdmission === "attenuation-only") {
+      if (descriptor.comparator === undefined || descriptor.comparator.trim().length === 0) {
+        throw new Error(`Project attenuation descriptor ${descriptor.identity} has no comparator.`);
+      }
+      if (!comparators.has(descriptor.comparator)) {
+        throw new Error(`Project attenuation comparator '${descriptor.comparator}' is not registered.`);
+      }
+    } else if (descriptor.comparator !== undefined) {
+      throw new Error(`Project descriptor ${descriptor.identity} names a comparator without attenuation admission.`);
+    }
+  }
 }
 
 interface DescriptorContext {
@@ -639,6 +451,8 @@ interface DescriptorContext {
   readonly scope: "project";
   readonly sensitivity: ProjectConfigSensitivity;
   readonly authorityImpact: ProjectConfigAuthorityImpact;
+  readonly projectAdmission: ProjectConfigAdmission;
+  readonly comparator?: ProjectConfigComparator;
   readonly activation: ProjectConfigActivation;
   readonly defaultPosture: "omitted" | "required";
 }
@@ -658,6 +472,8 @@ function walkSchema(
     scope: context.scope,
     sensitivity: context.sensitivity,
     authorityImpact: context.authorityImpact,
+    projectAdmission: context.projectAdmission,
+    ...(context.comparator === undefined ? {} : { comparator: context.comparator }),
     activation: context.activation,
     defaultPosture: context.defaultPosture,
     schemaRevision: PROJECT_CONFIG_SCHEMA_REVISION,
@@ -697,12 +513,16 @@ function walkChildren(
 }
 
 function descriptorContext(schema: TSchema, inherited: DescriptorContext): DescriptorContext {
+  const admission = projectAdmissionAnnotation(schema);
+  const comparator = comparatorAnnotation(schema);
   return {
     structuralOwner: annotation(schema, "x-kiln-structural-owner") ?? inherited.structuralOwner,
     semanticOwner: annotation(schema, "x-kiln-semantic-owner") ?? inherited.semanticOwner,
     scope: "project",
     sensitivity: sensitivityAnnotation(schema) ?? inherited.sensitivity,
     authorityImpact: authorityAnnotation(schema) ?? inherited.authorityImpact,
+    projectAdmission: admission ?? inherited.projectAdmission,
+    comparator: comparator ?? (admission === undefined || admission === "attenuation-only" ? inherited.comparator : undefined),
     activation: activationAnnotation(schema) ?? inherited.activation,
     defaultPosture: defaultPostureAnnotation(schema) ?? inherited.defaultPosture,
   };
@@ -721,6 +541,16 @@ function sensitivityAnnotation(schema: TSchema): ProjectConfigSensitivity | unde
 function authorityAnnotation(schema: TSchema): ProjectConfigAuthorityImpact | undefined {
   const value = annotation(schema, "x-kiln-authority-impact");
   return value === "none" || value === "authority-bearing" ? value : undefined;
+}
+
+function projectAdmissionAnnotation(schema: TSchema): ProjectConfigAdmission | undefined {
+  const value = annotation(schema, "x-kiln-project-admission");
+  return value === "project-owned" || value === "attenuation-only" || value === "forbidden" ? value : undefined;
+}
+
+function comparatorAnnotation(schema: TSchema): ProjectConfigComparator | undefined {
+  const value = annotation(schema, "x-kiln-project-comparator");
+  return value === undefined ? undefined : value;
 }
 
 function activationAnnotation(schema: TSchema): ProjectConfigActivation | undefined {

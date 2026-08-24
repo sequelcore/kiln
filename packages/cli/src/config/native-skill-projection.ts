@@ -18,6 +18,7 @@ import {
   type NativeProjectionTargetState,
   nativeProjectionFileMatchesDesired,
   readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
   removeNativeProjectionTargetState,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
@@ -30,6 +31,9 @@ import {
   resolveProjectionPathWithin,
 } from "./native-projection-paths.js";
 import { renderSkillVisibility, resolveSkillVisibility } from "./skill-visibility.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
+import { resolveKilnHomePath } from "./global-config/path.js";
 
 export interface NativeSkillProjectionResult {
   claude: boolean;
@@ -42,12 +46,20 @@ export interface NativeSkillProjectionResult {
 
 export interface NativeSkillProjectionOptions extends NativeProjectionSyncOptions {
   readonly skillConfig?: KilnYamlSkillsConfig | null;
+  /** Explicit private project skills directory supplied by composition. */
+  readonly projectSkillsDirectory?: string;
+  /** Already-established private project binding. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
-export function discoverSkillDirs(projectPath: string, userHome = os.homedir()): Map<string, string> {
+export function discoverSkillDirs(
+  projectPath: string,
+  userHome: string | undefined = undefined,
+  projectSkillsDirectory?: string,
+): Map<string, string> {
   const discovered = new Map<string, string>();
-  const globalSkillsDir = join(userHome, ".kiln", "skills");
-  const projectSkillsDir = join(projectPath, ".kiln", "skills");
+  const globalSkillsDir = join(resolveConfiguredKilnHome(userHome), "skills");
+  const projectSkillsDir = projectSkillsDirectory ?? resolvePrivateProjectSkillsDirectory(projectPath, userHome);
 
   try {
     for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -106,12 +118,13 @@ interface SkillProjectionSource {
 export function discoverSkillProjectionSources(
   projectPath: string,
   skillConfig?: KilnYamlSkillsConfig | null,
-  userHome = os.homedir(),
+  userHome: string | undefined = undefined,
+  projectSkillsDirectory?: string,
 ): Map<string, SkillProjectionSource> {
   const discovered = new Map<string, SkillProjectionSource>();
   const roots = [
-    { origin: "user" as const, dir: join(userHome, ".kiln", "skills") },
-    { origin: "project" as const, dir: join(projectPath, ".kiln", "skills") },
+    { origin: "user" as const, dir: join(resolveConfiguredKilnHome(userHome), "skills") },
+    { origin: "project" as const, dir: projectSkillsDirectory ?? resolvePrivateProjectSkillsDirectory(projectPath, userHome) },
   ];
 
   for (const { origin, dir } of roots) {
@@ -218,9 +231,10 @@ function discoverFlatSkillFiles(root: string): readonly [string, string][] {
 export function discoverOpenCodeDeniedSkillNames(
   projectPath: string,
   skillConfig?: KilnYamlSkillsConfig | null,
-  userHome = os.homedir(),
+  userHome: string | undefined = undefined,
+  projectSkillsDirectory?: string,
 ): readonly string[] {
-  return [...discoverSkillProjectionSources(projectPath, skillConfig, userHome).values()]
+  return [...discoverSkillProjectionSources(projectPath, skillConfig, userHome, projectSkillsDirectory).values()]
     .filter((source) => source.visibility === "explicit-only")
     .map((source) => source.skillName)
     .sort((left, right) => left.localeCompare(right));
@@ -234,6 +248,18 @@ function readSkillDirectoryName(sourceDir: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function resolvePrivateProjectSkillsDirectory(projectPath: string, userHome: string | undefined): string {
+  const projectRoot = resolveProjectRoot({
+    explicitPath: projectPath,
+    ...(userHome ? { userHome } : {}),
+  }).rootPath;
+  return resolveProjectStateBinding(projectRoot, userHome ? { kilnHome: join(userHome, ".kiln") } : {}).skillsPath;
+}
+
+function resolveConfiguredKilnHome(userHome: string | undefined): string {
+  return userHome ? join(userHome, ".kiln") : resolveKilnHomePath();
 }
 
 interface SkillFileSyncResult {
@@ -250,10 +276,14 @@ export async function syncNativeSkillProjections(
   const errors: string[] = [];
   const outcomes: ProjectionOutcome[] = [];
   let synced = 0;
-  const kilnDir = join(projectPath, ".kiln");
+  const userHome = options.userHome;
+  const harnessHome = userHome ?? os.homedir();
+  const projectSkillsDirectory = options.projectSkillsDirectory
+    ?? options.projectStateBinding?.skillsPath
+    ?? resolvePrivateProjectSkillsDirectory(projectPath, userHome);
+  const kilnDir = resolveGlobalNativeProjectionStateDir(userHome);
   let installState = readNativeProjectionInstallState(kilnDir);
-  const userHome = options.userHome ?? os.homedir();
-  const skillSources = discoverSkillProjectionSources(projectPath, options.skillConfig, userHome);
+  const skillSources = discoverSkillProjectionSources(projectPath, options.skillConfig, userHome, projectSkillsDirectory);
 
   const hasManagedSkillProjection = Object.keys(installState.targets)
     .some((targetId) => targetId.includes("-skill:"));
@@ -264,7 +294,7 @@ export async function syncNativeSkillProjections(
   const targets = NATIVE_SKILL_TARGETS.map((target) => ({
     key: target.target,
     name: target.displayName,
-    dir: target.dir(userHome),
+    dir: target.dir(harnessHome),
   }));
 
   let claude = true;

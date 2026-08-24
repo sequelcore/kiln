@@ -436,7 +436,6 @@ export interface KilnConfigProjectSnapshot {
   readonly rootPath: string;
   readonly projectName: string;
   readonly hasGitRoot: boolean;
-  readonly hasKilnYaml: boolean;
   readonly kilnYaml: KilnConfigSourceSnapshot;
   readonly projectContext: KilnConfigSourceSnapshot;
 }
@@ -1241,7 +1240,6 @@ export const KilnConfigStatusSnapshotSchema = z.object({
     rootPath: z.string(),
     projectName: z.string(),
     hasGitRoot: z.boolean(),
-    hasKilnYaml: z.boolean(),
     kilnYaml: KilnConfigSourceSnapshotSchema,
     projectContext: KilnConfigSourceSnapshotSchema,
   }),

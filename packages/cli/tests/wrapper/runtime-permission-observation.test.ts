@@ -1,7 +1,9 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import type { ProjectStateBinding } from "../../src/application/project-state-root.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   createRuntimePermissionObservationStore,
   deriveClaudeRuntimePermissionRequest,
@@ -11,16 +13,23 @@ import {
 
 const at = new Date("2026-08-13T18:00:00.000Z");
 const projectionDigest = "a".repeat(64);
+const fixtures: string[] = [];
 
-async function project(): Promise<string> {
+afterEach(async () => {
+  await Promise.all(fixtures.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+async function project(): Promise<{ readonly projectPath: string; readonly projectStateBinding: ProjectStateBinding }> {
   const projectPath = await mkdtemp(join(tmpdir(), "kiln-runtime-evidence-"));
-  await mkdir(join(projectPath, ".kiln"), { recursive: true });
-  await writeFile(join(projectPath, ".kiln", "install-state.json"), JSON.stringify({ version: 1, targets: {
+  fixtures.push(projectPath);
+  const binding = resolveProjectStateBinding(projectPath, { kilnHome: join(projectPath, "kiln-home") });
+  await mkdir(binding.projectionsPath, { recursive: true });
+  await writeFile(join(binding.projectionsPath, "install-state.json"), JSON.stringify({ version: 1, targets: {
     "codex-config": { targetId: "codex-config", filePath: "portable", contentHash: projectionDigest, managedFields: [], managedFieldHashes: {}, updatedAt: at.toISOString(), permissionIntegrity: { harness: "codex" } },
     "claude-settings": { targetId: "claude-settings", filePath: "portable", contentHash: "b".repeat(64), managedFields: [], managedFieldHashes: {}, updatedAt: at.toISOString(), permissionIntegrity: { harness: "claude-code" } },
     "opencode-config": { targetId: "opencode-config", filePath: "portable", contentHash: "c".repeat(64), managedFields: [], managedFieldHashes: {}, updatedAt: at.toISOString(), permissionIntegrity: { harness: "opencode" } },
   } }), "utf8");
-  return projectPath;
+  return { projectPath, projectStateBinding: binding };
 }
 
 describe("runtime permission evidence", () => {
@@ -31,7 +40,8 @@ describe("runtime permission evidence", () => {
   });
 
   it("keeps a newer startup request without observation from reusing older proof", async () => {
-    const store = createRuntimePermissionObservationStore({ projectPath: await project() });
+    const fixture = await project();
+    const store = createRuntimePermissionObservationStore(fixture);
     const first = await store.recordRequested(deriveCodexRuntimePermissionRequest({ sessionId: "first", approvalMode: "on-request", sandboxMode: "read-only", requestedAt: at }));
     await store.recordObserved(first, { observedAt: at, proof: "inferred" });
     await store.recordRequested(deriveCodexRuntimePermissionRequest({ sessionId: "failed-start", approvalMode: "on-request", sandboxMode: "read-only", requestedAt: new Date(at.getTime() + 1) }));
@@ -41,7 +51,8 @@ describe("runtime permission evidence", () => {
   });
 
   it("does not pair an observation from another session or projection", async () => {
-    const store = createRuntimePermissionObservationStore({ projectPath: await project() });
+    const fixture = await project();
+    const store = createRuntimePermissionObservationStore(fixture);
     const first = await store.recordRequested(deriveCodexRuntimePermissionRequest({ sessionId: "first", approvalMode: "on-request", sandboxMode: "read-only", requestedAt: at }));
     const second = await store.recordRequested(deriveCodexRuntimePermissionRequest({ sessionId: "second", approvalMode: "on-request", sandboxMode: "read-only", requestedAt: new Date(at.getTime() + 1) }));
     await store.recordObserved(first, { observedAt: new Date(at.getTime() + 2), proof: "proven" });
@@ -51,8 +62,9 @@ describe("runtime permission evidence", () => {
   });
 
   it("persists only digests and portable version evidence", async () => {
-    const projectPath = await project();
-    const store = createRuntimePermissionObservationStore({ projectPath });
+    const fixture = await project();
+    const { projectPath } = fixture;
+    const store = createRuntimePermissionObservationStore(fixture);
     const requested = await store.recordRequested(deriveCodexRuntimePermissionRequest({ sessionId: "raw-session-id", approvalMode: "on-request", sandboxMode: "read-only", requestedAt: at, runtimeVersion: { kind: "sdk", version: "0.147.0" } }));
     await store.recordObserved(requested, { observedAt: at, proof: "inferred" });
     const files = await readdir(join(store.evidenceDirectory, "codex"));
@@ -61,10 +73,16 @@ describe("runtime permission evidence", () => {
     expect(serialized).not.toContain("raw-session-id");
     expect(serialized).not.toContain("approvalMode");
     expect(serialized).toContain("0.147.0");
+    expect(store.evidenceDirectory).toBe(join(
+      fixture.projectStateBinding.evidencePath,
+      "runtime-permission-observations",
+    ));
+    expect(store.evidenceDirectory).not.toContain(join(projectPath, ".kiln"));
   });
 
   it("fails closed before effect when the exact projection is absent", async () => {
     const projectPath = await mkdtemp(join(tmpdir(), "kiln-runtime-evidence-"));
+    fixtures.push(projectPath);
     const store = createRuntimePermissionObservationStore({ projectPath });
     await expect(store.recordRequested(deriveCodexRuntimePermissionRequest({ sessionId: "s", approvalMode: "on-request", sandboxMode: "read-only", requestedAt: at }))).rejects.toThrow("exact native permission projection");
   });

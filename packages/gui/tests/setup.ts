@@ -32,38 +32,28 @@ if (!window.matchMedia) {
 
 HTMLElement.prototype.scrollIntoView = function scrollIntoView(): void {};
 
-HTMLElement.prototype.scrollTo = function scrollTo(
-  optionsOrX: ScrollToOptions | number,
-  y?: number,
-): void {
+function scrollTo(): void;
+function scrollTo(options: ScrollToOptions): void;
+function scrollTo(x: number, y: number): void;
+function scrollTo(this: HTMLElement, optionsOrX?: ScrollToOptions | number, y?: number): void {
   this.scrollTop = typeof optionsOrX === "number"
     ? y ?? 0
-    : optionsOrX.top ?? this.scrollTop;
-};
+    : optionsOrX?.top ?? this.scrollTop;
+}
+
+HTMLElement.prototype.scrollTo = scrollTo;
 
 HTMLElement.prototype.getAnimations = function getAnimations(): Animation[] {
   return [];
 };
 
-const canvasContext = {
-  canvas: null as HTMLCanvasElement | null,
-  arc: () => undefined,
-  arcTo: () => undefined,
-  beginPath: () => undefined,
-  clearRect: () => undefined,
-  closePath: () => undefined,
-  fill: () => undefined,
-  fillText: () => undefined,
-  lineTo: () => undefined,
-  measureText: (text: string) => ({ width: text.length * 7 }) as TextMetrics,
-  moveTo: () => undefined,
-  restore: () => undefined,
-  save: () => undefined,
-  setTransform: () => undefined,
-  stroke: () => undefined,
-};
+function getContext(this: HTMLCanvasElement, contextId: "2d", options?: CanvasRenderingContext2DSettings): CanvasRenderingContext2D | null;
+function getContext(this: HTMLCanvasElement, contextId: "bitmaprenderer", options?: ImageBitmapRenderingContextSettings): ImageBitmapRenderingContext | null;
+function getContext(this: HTMLCanvasElement, contextId: "webgl" | "experimental-webgl", options?: WebGLContextAttributes): WebGLRenderingContext | null;
+function getContext(this: HTMLCanvasElement, contextId: "webgl2", options?: WebGLContextAttributes): WebGL2RenderingContext | null;
+function getContext(this: HTMLCanvasElement, contextId: string, options?: unknown): RenderingContext | null;
+function getContext(this: HTMLCanvasElement, _contextId: string, _options?: unknown): RenderingContext | null {
+  return null;
+}
 
-HTMLCanvasElement.prototype.getContext = function getContext() {
-  canvasContext.canvas = this;
-  return canvasContext as unknown as CanvasRenderingContext2D;
-};
+HTMLCanvasElement.prototype.getContext = getContext;

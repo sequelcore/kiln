@@ -40,7 +40,7 @@ import {
 import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
 import { readGlobalConfig, readGlobalConfigSnapshot, readGlobalExecutionCatalog } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "./instruction-profile-context.js";
 import { withWorkGovernanceContext } from "./work-governance-context.js";
@@ -50,6 +50,11 @@ import {
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { resolveBenchmarkPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import { resolveProjectStateBinding } from "./project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createProjectBoundedWorkAuthority } from "./bounded-work-authority-composition.js";
 import {
@@ -165,6 +170,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const scheduledAccountOverrideId = accountOverrideCandidates[0];
     const formalScreeningArm = formalScreeningCase?.arm;
     const repositoryRoot = resolveProjectRoot().rootPath;
+    const projectStateBinding = resolveProjectStateBinding(repositoryRoot);
     const privateFormalScreeningLease = formalScreeningCase
       ? createPrivateFormalScreeningWorkspaceLease(formalScreeningCase)
       : undefined;
@@ -185,14 +191,19 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createBenchmarkAuthorityWorkspaceLease()
       : undefined;
     const cwd = writeLease?.rootPath ?? benchmarkWorkspace.rootPath;
-    const authorityStateRoot = authorityLease?.rootPath ?? repositoryRoot;
+    const authorityStateRoot = authorityLease?.rootPath ?? projectStateBinding.runtimePath;
     // Benchmark transcript/admission evidence belongs to the run artifact owner,
     // never to a synthetic fixture or a disposable workspace lease. The command
     // supplies this root beside its durable output artifacts; the authority lease
     // remains a fallback for direct executor callers that do not own a run output.
     const benchmarkEvidenceRoot = options.flags?.benchmarkEvidenceRoot
       ? resolve(options.flags.benchmarkEvidenceRoot)
-      : authorityStateRoot;
+      : authorityLease?.rootPath ?? join(projectStateBinding.benchmarksPath, "authority-evidence");
+    const usesPrivateBenchmarkEvidence = authorityLease === undefined
+      && options.flags?.benchmarkEvidenceRoot === undefined;
+    if (usesPrivateBenchmarkEvidence) {
+      ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, benchmarkEvidenceRoot);
+    }
     let closeAuthorityState = () => authorityLease?.cleanup();
     const workspaceFixtureHash = writeLease?.canonicalHash ?? (benchmarkWorkspace.kind === "synthetic-fixture"
       ? hashBenchmarkWorkspace(benchmarkWorkspace)
@@ -216,7 +227,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? { ...globalConfig, executionCatalog: directExecutionCatalog ?? undefined }
       : undefined;
     const projectConfig = benchmarkWorkspace.kind === "repository"
-      ? readKilnYaml(join(repositoryRoot, ".kiln"))
+      ? readKilnYamlFile(projectStateBinding.configPath)
       : undefined;
     const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
     const configuredRouteCandidates = resolveExecutionRouteCandidates({
@@ -278,29 +289,50 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       };
     }
     const { registry, worktreeManager } = createDefaultRegistry({
+      kilnHome: projectStateBinding.kilnHome,
       runtimePermissionObservationProjectPath: cwd,
+      worktreeRepoRoot: repositoryRoot,
+      worktreeBaseDir: (() => {
+        const worktreeBaseDir = join(projectStateBinding.tmpPath, "worktrees");
+        ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, worktreeBaseDir);
+        return worktreeBaseDir;
+      })(),
+      privateStateRoot: projectStateBinding.projectStateRoot,
     });
     const benchmarkCleanupRegistry = new CleanupRegistry();
     const sessionId = randomUUID();
-    const transcriptStore = new TranscriptStore(benchmarkEvidenceRoot);
+    const benchmarkSessionsPath = join(benchmarkEvidenceRoot, "sessions");
+    const benchmarkRuntimePath = join(benchmarkEvidenceRoot, "runtime");
+    const benchmarkCachePath = join(benchmarkEvidenceRoot, "cache", "context-artifacts.json");
+    if (usesPrivateBenchmarkEvidence) {
+      ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, benchmarkSessionsPath);
+      ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, benchmarkRuntimePath);
+      assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, benchmarkCachePath);
+    }
+    const transcriptStore = new TranscriptStore({
+      sessionsPath: benchmarkSessionsPath,
+      ...(usesPrivateBenchmarkEvidence ? { privateStateRoot: projectStateBinding.projectStateRoot } : {}),
+    });
     const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
+    const managedDirectModelRoundActionClaimsPath = join(
+      benchmarkRuntimePath,
+      `benchmark-${sessionId}-managed-direct-model-round-action-claims.sqlite`,
+    );
+    const managedDirectToolActionClaimsPath = join(
+      benchmarkRuntimePath,
+      `benchmark-${sessionId}-managed-direct-tool-action-claims.sqlite`,
+    );
+    if (usesPrivateBenchmarkEvidence) {
+      assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedDirectModelRoundActionClaimsPath);
+      assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, managedDirectToolActionClaimsPath);
+    }
     const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-      path: join(
-        benchmarkEvidenceRoot,
-        ".kiln",
-        "runtime",
-        `benchmark-${sessionId}-managed-direct-model-round-action-claims.sqlite`,
-      ),
+      path: managedDirectModelRoundActionClaimsPath,
     });
     let managedDirectToolActionClaims: SqliteRuntimeToolActionClaimStore;
     try {
       managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
-        path: join(
-          benchmarkEvidenceRoot,
-          ".kiln",
-          "runtime",
-          `benchmark-${sessionId}-managed-direct-tool-action-claims.sqlite`,
-        ),
+        path: managedDirectToolActionClaimsPath,
       });
     } catch (error) {
       managedDirectModelRoundActionClaims.close();
@@ -312,7 +344,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createOperatorSurfaceEconomicAuthority("benchmark", cwd)
       : undefined;
     benchmarkCleanupRegistry.register(async () => operatorEconomicAuthority?.close());
-    const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+    const contextArtifactCache = await getProjectContextArtifactCache(
+      benchmarkCachePath,
+      usesPrivateBenchmarkEvidence ? projectStateBinding.projectStateRoot : benchmarkEvidenceRoot,
+    );
     const manager = new SessionManager(wrapperConfig, runtimeAppConfig, contextArtifactCache, worktreeManager);
     const sessionContext = await manager.prepare(
       sessionInput,
@@ -359,6 +394,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const boundedWork = createProjectBoundedWorkAuthority(cwd, {
       authorityStateRoot,
       projectIdentityRoot: cwd,
+      projectStateBinding,
       ...(isFormalScreening ? {} : {
         formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
       }),
@@ -418,6 +454,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       const managedAgentProviderModels = await discoverManagedAgentProviderModels();
       managedInvocation = (await resolveManagedInvocationToolOptions(managedRouteConfig, {
         cwd,
+        projectStateBinding,
         registry,
         surface: "run",
         maxParallelChildren: benchmarkWorkspace.kind === "repository"
@@ -426,6 +463,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         isProviderAvailable: (providerId) => engineAvailability.get(providerId),
         providerModelEligibility: managedAgentProviderModels,
         directAdapterFactory: createManagedDirectProviderAdapterFactory({
+          kilnHome: projectStateBinding.kilnHome,
           builtinToolOptions: () => builtinToolOptions,
           runtimeEnv: env,
           executionEnvelope: isFormalScreening
@@ -555,10 +593,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               authorityStateRoot,
               executionId: `${sessionId}:account:${index}`,
               routeId: configuredRouteCandidate.routeId,
-              configurationRevision: readRuntimeConfigurationRevision(cwd),
+              configurationRevision: readRuntimeConfigurationRevision(repositoryRoot),
               authorityAdmissionEvidenceStore: managedDirectAdmissionEvidence,
               captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
-                projectPath: cwd,
+                projectPath: repositoryRoot,
                 readConfigSnapshot: readGlobalConfigSnapshot,
                 readConfigurationRevision: readRuntimeConfigurationRevision,
                 readExecutionCatalog: readGlobalExecutionCatalog,
@@ -618,7 +656,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       });
       workspaceChanges = observedVerification.changes;
     }
-    await recordDirectRouteHealth(configuredRouteCandidates, result.attempts, result.lastError);
+    await recordDirectRouteHealth(
+      configuredRouteCandidates,
+      result.attempts,
+      result.lastError,
+      projectStateBinding.kilnHome,
+    );
     const routeFailures = result.attempts.flatMap((attempt) => {
       if (attempt.succeeded || !attempt.error) return [];
       const routeIdentity = attempt.model
@@ -1033,11 +1076,12 @@ async function recordDirectRouteHealth(
   candidates: readonly { readonly provider: ProviderId; readonly model?: string }[],
   attempts: readonly { readonly providerId: ProviderId; readonly model?: string; readonly succeeded: boolean; readonly error: string | null }[],
   lastError: string | null,
+  kilnHome?: string,
 ): Promise<void> {
   if (!candidates.some((candidate) => isDirectApiProvider(candidate.provider))) {
     return;
   }
-  const routeHealthStore = new ProviderModelRouteHealthStore();
+  const routeHealthStore = new ProviderModelRouteHealthStore({ kilnHome });
   for (const attempt of attempts) {
     if (!isDirectApiProvider(attempt.providerId) || !attempt.model) {
       continue;

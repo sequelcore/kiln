@@ -3,21 +3,25 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { proposeConfigMutation } from "../../src/application/config-mutation-authority.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
-function withProject(test: (projectPath: string) => void): void {
+function withProject(test: (projectPath: string, projectStateBinding: ProjectStateBinding) => void): void {
   const projectPath = mkdtempSync(join(tmpdir(), "kiln-config-proposal-"));
   try {
-    mkdirSync(join(projectPath, ".kiln"), { recursive: true });
-    test(projectPath);
+    const projectStateBinding = resolveProjectStateBinding(projectPath, { kilnHome: join(projectPath, "kiln-home") });
+    bootstrapProjectAdoption(projectStateBinding);
+    test(projectPath, projectStateBinding);
   } finally {
     rmSync(projectPath, { recursive: true, force: true });
   }
 }
 
 describe("config proposals", () => {
-  it("creates a valid skill upsert proposal without writing files", () => withProject((projectPath) => {
+  it("creates a valid skill upsert proposal without writing files", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "skill.upsert",
       payload: {
         name: "repo-review",
@@ -31,13 +35,14 @@ describe("config proposals", () => {
 
     expect(proposal.status).toBe("valid");
     expect(proposal.createdAt).toBe("2026-05-07T12:00:00.000Z");
-    expect(proposal.affectedCanonicalPaths[0]).toContain(join(".kiln", "skills", "repo-review", "SKILL.md"));
+    expect(proposal.affectedCanonicalPaths[0]).toBe(join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"));
     expect(proposal.previewDiff).toContain("name: repo-review");
   }));
 
-  it("rejects invalid skill names", () => withProject((projectPath) => {
+  it("rejects invalid skill names", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "skill.upsert",
       payload: {
         name: "Bad Name",
@@ -52,9 +57,10 @@ describe("config proposals", () => {
     ]));
   }));
 
-  it("creates an agent upsert proposal and reports write authority expansion", () => withProject((projectPath) => {
+  it("creates an agent upsert proposal and reports write authority expansion", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "agent.upsert",
       payload: {
         name: "worker",
@@ -73,9 +79,10 @@ describe("config proposals", () => {
     expect(proposal.previewDiff).toContain("displayName: Reese");
   }));
 
-  it("fails closed for unsupported agent tools", () => withProject((projectPath) => {
+  it("fails closed for unsupported agent tools", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "agent.upsert",
       payload: {
         name: "worker",
@@ -95,9 +102,10 @@ describe("config proposals", () => {
     ]));
   }));
 
-  it("fails closed for duplicate agent aliases", () => withProject((projectPath) => {
+  it("fails closed for duplicate agent aliases", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "agent.upsert",
       payload: {
         name: "architect",
@@ -119,9 +127,10 @@ describe("config proposals", () => {
     ]));
   }));
 
-  it("fails closed for legacy top-level agent model", () => withProject((projectPath) => {
+  it("fails closed for legacy top-level agent model", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "agent.upsert",
       payload: {
         name: "worker",
@@ -141,8 +150,8 @@ describe("config proposals", () => {
     ]));
   }));
 
-  it("attaches skills only to an existing valid project agent", () => withProject((projectPath) => {
-    const agentsDir = join(projectPath, ".kiln", "agents");
+  it("attaches skills only to an existing valid project agent", () => withProject((projectPath, projectStateBinding) => {
+    const agentsDir = projectStateBinding.agentsPath;
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(join(agentsDir, "architect.md"), [
       "---",
@@ -161,6 +170,7 @@ describe("config proposals", () => {
 
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "agent.attach_skills",
       payload: {
         agent: "architect",
@@ -173,9 +183,10 @@ describe("config proposals", () => {
     expect(proposal.previewDiff).toContain("  - ddd-review");
   }));
 
-  it("fails closed when attaching skills to a missing project agent", () => withProject((projectPath) => {
+  it("fails closed when attaching skills to a missing project agent", () => withProject((projectPath, projectStateBinding) => {
     const proposal = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "agent.attach_skills",
       payload: {
         agent: "missing-agent",

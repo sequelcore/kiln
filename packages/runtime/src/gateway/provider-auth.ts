@@ -16,6 +16,8 @@ import type {
 } from "@kilnai/gateway-contracts";
 
 export interface ProviderAuthRequest {
+  /** Canonical operator Kiln home supplied by the owning CLI composition. */
+  readonly kilnHome?: string;
   readonly provider?: unknown;
   readonly requestId?: unknown;
   readonly apiKey?: unknown;
@@ -87,7 +89,7 @@ export async function startProviderAuthRequest(
     if (request.flow !== undefined && request.flow !== "browser" && request.flow !== "device_code") {
       return { ok: false, provider, requestId, error: `Invalid Codex OAuth flow '${String(request.flow)}'` };
     }
-    const auth = new CodexOAuthAuth();
+    const auth = new CodexOAuthAuth({ kilnHome: request.kilnHome });
     if (request.flow === "browser") {
       const authorization = await auth.startBrowserAuthorization();
       providerAuthDebug("browser auth started", {
@@ -109,7 +111,7 @@ export async function startProviderAuthRequest(
         },
         complete: async () => {
           const tokenFile = await authorization.complete();
-          await new CodexOAuthCredentialPoolService().linkCredential({ tokenFile });
+          await new CodexOAuthCredentialPoolService({ kilnHome: request.kilnHome }).linkCredential({ tokenFile });
           providerAuthDebug("browser auth completion saved token", {
             provider,
             requestId,
@@ -156,7 +158,7 @@ export async function startProviderAuthRequest(
           hasAccessToken: tokenFile.access_token.trim().length > 0,
           hasRefreshToken: tokenFile.refresh_token.trim().length > 0,
         });
-        await new CodexOAuthCredentialPoolService().linkCredential({ tokenFile });
+        await new CodexOAuthCredentialPoolService({ kilnHome: request.kilnHome }).linkCredential({ tokenFile });
         providerAuthDebug("device-code auth completion saved token", {
           provider,
           requestId,
@@ -187,7 +189,7 @@ export async function startProviderAuthRequest(
         requestId,
         tier,
       });
-      await new OpenCodeCredentialPoolService().linkCredential({
+      await new OpenCodeCredentialPoolService({ kilnHome: request.kilnHome }).linkCredential({
         ...(credentialId ? { id: credentialId } : {}),
         apiKey,
         tier,

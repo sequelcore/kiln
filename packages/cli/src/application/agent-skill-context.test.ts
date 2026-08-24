@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { KilnAppConfig } from "../config.js";
+import { resolveProjectStateBinding } from "./project-state-root.js";
 import {
   resolveAgentSkillContextCandidates,
   withContextCandidates,
@@ -17,7 +18,10 @@ function createTempRoot(): string {
 }
 
 function writeSkill(root: string, name: string): void {
-  const skillDir = join(root, ".kiln", "skills", name);
+  const skillDir = join(
+    resolveProjectStateBinding(root, { kilnHome: join(root, ".kiln") }).skillsPath,
+    name,
+  );
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.md"),

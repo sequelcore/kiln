@@ -93,7 +93,7 @@ describe("unknown-field diagnostics identify the running build", () => {
       ...baseConfig(),
       web: { notARealField: true },
     })).toThrow(
-      /Unknown global web field: notARealField\. Put web authority in project \.kiln\/kiln\.yaml\. Validated by kiln /u,
+      /Unknown global web field: notARealField\. Global config owns web capability ceilings and provider connections\. Validated by kiln /u,
     );
   });
 });

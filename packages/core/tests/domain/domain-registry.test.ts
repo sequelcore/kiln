@@ -108,6 +108,8 @@ vi.mock("node:fs", () => ({
 const mockExistsSync = vi.mocked(existsSync);
 const mockReaddirSync = vi.mocked(readdirSync);
 
+const PRIVATE_DOMAINS_DIR = "/private/project/domains";
+
 // Parse configs from YAML (no filesystem needed)
 const builtinConfigs = [
   parseDomainYaml(PYTHON_YAML),
@@ -279,24 +281,24 @@ describe("DomainRegistry", () => {
     it("returns 0 when domains directory does not exist", () => {
       mockExistsSync.mockReturnValue(false);
 
-      const loaded = registry.loadInstalledDomains("/project");
+      const loaded = registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
       expect(loaded).toBe(0);
       expect(registry.all()).toHaveLength(4);
     });
 
     it("returns 0 when domains directory is empty", () => {
       mockExistsSync.mockImplementation((p) => {
-        return String(p).includes(".kiln");
+        return String(p).includes(PRIVATE_DOMAINS_DIR);
       });
       mockReaddirSync.mockReturnValue([] as any);
 
-      const loaded = registry.loadInstalledDomains("/project");
+      const loaded = registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
       expect(loaded).toBe(0);
     });
 
     it("loads installed domain YAML files", () => {
       mockExistsSync.mockImplementation((p) => {
-        return String(p).includes(".kiln");
+        return String(p).includes(PRIVATE_DOMAINS_DIR);
       });
       mockReaddirSync.mockReturnValue(["rust.yaml"] as any);
       vi.mocked(readFileSync).mockImplementation((filePath: unknown) => {
@@ -305,7 +307,7 @@ describe("DomainRegistry", () => {
         throw new Error(`Unexpected readFileSync call: ${filePath}`);
       });
 
-      const loaded = registry.loadInstalledDomains("/project");
+      const loaded = registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
       expect(loaded).toBe(1);
       expect(registry.all()).toHaveLength(5);
       expect(registry.get("rust")).toBeDefined();
@@ -321,7 +323,7 @@ describe("DomainRegistry", () => {
         throw new Error(`Unexpected readFileSync call: ${filePath}`);
       });
 
-      const loaded = registry.loadInstalledDomains("/project");
+      const loaded = registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
       expect(loaded).toBe(0);
       expect(registry.all()).toHaveLength(4);
     });
@@ -336,7 +338,7 @@ describe("DomainRegistry", () => {
         throw new Error(`Unexpected readFileSync call: ${filePath}`);
       });
 
-      const loaded = registry.loadInstalledDomains("/project");
+      const loaded = registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
       expect(loaded).toBe(1);
       expect(registry.get("rust")).toBeDefined();
     });
@@ -350,7 +352,7 @@ describe("DomainRegistry", () => {
         throw new Error(`Unexpected readFileSync call: ${filePath}`);
       });
 
-      registry.loadInstalledDomains("/project");
+      registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
 
       mockExistsSync.mockImplementation((p) =>
         String(p).endsWith("Cargo.toml"),
@@ -370,7 +372,7 @@ describe("DomainRegistry", () => {
         throw new Error(`Unexpected readFileSync call: ${filePath}`);
       });
 
-      registry.loadInstalledDomains("/project");
+      registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
 
       mockExistsSync.mockImplementation((p) => {
         const path = String(p);
@@ -387,14 +389,14 @@ describe("DomainRegistry", () => {
       mockExistsSync.mockReturnValue(true);
       mockReaddirSync.mockReturnValue(["readme.md", "config.json"] as any);
 
-      const loaded = registry.loadInstalledDomains("/project");
+      const loaded = registry.loadInstalledDomains(PRIVATE_DOMAINS_DIR);
       expect(loaded).toBe(0);
     });
 
     it("uses configurable domains directory", () => {
       const customRegistry = new DomainRegistry({
         builtinConfigs,
-        domainsDir: "custom/domains",
+        domainsDir: "/private/custom/domains",
       });
       mockExistsSync.mockReturnValue(true);
       mockReaddirSync.mockReturnValue(["rust.yaml"] as any);
@@ -404,7 +406,7 @@ describe("DomainRegistry", () => {
         throw new Error(`Unexpected readFileSync call: ${filePath}`);
       });
 
-      const loaded = customRegistry.loadInstalledDomains("/project");
+      const loaded = customRegistry.loadInstalledDomains();
       expect(loaded).toBe(1);
       // Verify the custom path was used (existsSync called with custom path)
       expect(mockExistsSync).toHaveBeenCalledWith(

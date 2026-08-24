@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { reconcileConfigMutation } from "../../src/application/config-mutation-reconciliation.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const mocks = vi.hoisted(() => ({
   globalConfig: { version: "4", modelGateway: { enabled: true } } as Record<string, unknown> | null,
@@ -30,13 +34,28 @@ vi.mock("../../src/config/native-agent-projection.js", () => ({ syncNativeAgentP
 vi.mock("../../src/config/native-skill-projection.js", () => ({ syncNativeSkillProjections: vi.fn() }));
 vi.mock("../../src/application/repo-shim-projection.js", () => ({ writeRepoShimProjections: vi.fn() }));
 vi.mock("../../src/config/communication-policy.js", () => ({ configuredCommunicationCandidates: vi.fn() }));
-vi.mock("../../src/kiln-yaml.js", () => ({ readKilnYaml: vi.fn() }));
+vi.mock("../../src/kiln-yaml.js", () => ({ readKilnYamlFile: vi.fn() }));
 vi.mock("../../src/application/config-reconciliation-generation.js", () => ({
   captureCanonicalReconciliationGeneration: (_projectPath: string, target: string) => mocks.generations.get(target) ?? `sha256:${"a".repeat(64)}`,
 }));
 
 describe("configuration mutation reconciliation", () => {
+  let fixtureRoot: string;
+  let projectRoot: string;
+  let kilnHome: string;
+  const previousTemp = process.env.TEMP;
+  const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+
   beforeEach(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "kiln-reconciliation-"));
+    projectRoot = join(fixtureRoot, "project");
+    kilnHome = join(fixtureRoot, "kiln-home");
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    const binding = resolveProjectStateBinding(projectRoot, { kilnHome });
+    mkdirSync(binding.projectStateRoot, { recursive: true });
+    writeFileSync(binding.configPath, 'version: "1"\n', "utf-8");
+    process.env.TEMP = fixtureRoot;
+    process.env.XDG_CONFIG_HOME = join(fixtureRoot, "xdg");
     mocks.globalConfig = { version: "4", modelGateway: { enabled: true } };
     mocks.routeAuthority = { executionCatalog: { routes: [{ id: "terra" }] } };
     mocks.syncPermissions.mockReset().mockResolvedValue({ errors: [], outcomes: [] });
@@ -45,13 +64,21 @@ describe("configuration mutation reconciliation", () => {
     mocks.generations.clear();
   });
 
+  afterEach(() => {
+    if (previousTemp === undefined) delete process.env.TEMP;
+    else process.env.TEMP = previousTemp;
+    if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
   it("converges native permission projections from committed global intent", async () => {
-    const [effect] = await reconcileConfigMutation("C:/fixture/project", ["native-permissions"]);
+    const [effect] = await reconcileConfigMutation(projectRoot, ["native-permissions"], { kilnHome });
 
     expect(mocks.syncPermissions).toHaveBeenCalledWith(
       expect.objectContaining({ version: "1" }),
-      "C:/fixture/project",
-      { force: true, modelGateway: { enabled: true } },
+      projectRoot,
+      expect.objectContaining({ force: true, modelGateway: { enabled: true } }),
     );
     expect(effect).toMatchObject({ target: "native-permissions", status: "ok", generation: `sha256:${"a".repeat(64)}` });
   });
@@ -59,7 +86,7 @@ describe("configuration mutation reconciliation", () => {
   it("reports native projection errors as reconciliation failure after commit", async () => {
     mocks.syncPermissions.mockResolvedValue({ errors: ["Codex: managed field drift"], outcomes: [] });
 
-    const [effect] = await reconcileConfigMutation("C:/fixture/project", ["native-permissions"]);
+    const [effect] = await reconcileConfigMutation(projectRoot, ["native-permissions"], { kilnHome });
 
     expect(effect).toMatchObject({
       target: "native-permissions",
@@ -69,7 +96,7 @@ describe("configuration mutation reconciliation", () => {
   });
 
   it("reads the committed target intent with its exact evidence before reporting routes reconciled", async () => {
-    const [effect] = await reconcileConfigMutation("C:/fixture/project", ["execution-routes"]);
+    const [effect] = await reconcileConfigMutation(projectRoot, ["execution-routes"], { kilnHome });
 
     expect(effect).toEqual({
       target: "execution-routes",
@@ -98,11 +125,14 @@ describe("configuration mutation reconciliation", () => {
       return { errors: [], synced: 1 };
     });
 
-    const first = reconcileConfigMutation("C:/fixture/project", ["native-agents"]);
-    await firstDidStart;
+    const first = reconcileConfigMutation(projectRoot, ["native-agents"], { kilnHome });
+    await Promise.race([
+      firstDidStart,
+      first.then((result) => { throw new Error(`First reconciliation completed before its projection started: ${JSON.stringify(result)}`); }, (error) => { throw error; }),
+    ]);
     const newerGeneration = `sha256:${"b".repeat(64)}`;
     mocks.generations.set("native-agents", newerGeneration);
-    const second = reconcileConfigMutation("C:/fixture/project", ["native-agents"]);
+    const second = reconcileConfigMutation(projectRoot, ["native-agents"], { kilnHome });
 
     // The second canonical-path mutation cannot enter the shared projection
     // while the first reconciliation still owns this target.

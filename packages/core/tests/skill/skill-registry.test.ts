@@ -274,9 +274,9 @@ describe("SkillRegistry", () => {
       rmSync(userDir, { recursive: true, force: true });
     });
 
-    it("discovers from workspace and user .kiln/skills", () => {
-      const wsSkillDir = join(projectDir, ".kiln", "skills", "ws-skill");
-      const userSkillDir = join(userDir, ".kiln", "skills", "user-skill");
+    it("discovers from explicit private project and user skills directories", () => {
+      const wsSkillDir = join(projectDir, "ws-skill");
+      const userSkillDir = join(userDir, "user-skill");
       mkdirSync(wsSkillDir, { recursive: true });
       mkdirSync(userSkillDir, { recursive: true });
 
@@ -289,9 +289,9 @@ describe("SkillRegistry", () => {
       expect(registry.get("user-skill")).toBeDefined();
     });
 
-    it("workspace skill overrides user skill with same name", () => {
-      const wsSkillDir = join(projectDir, ".kiln", "skills", "shared");
-      const userSkillDir = join(userDir, ".kiln", "skills", "shared");
+    it("project skill overrides user skill with same name", () => {
+      const wsSkillDir = join(projectDir, "shared");
+      const userSkillDir = join(userDir, "shared");
       mkdirSync(wsSkillDir, { recursive: true });
       mkdirSync(userSkillDir, { recursive: true });
 

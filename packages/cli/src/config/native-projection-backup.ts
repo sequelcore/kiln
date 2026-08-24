@@ -1,5 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 
 /**
  * Backups kept per target/file pair when a caller does not choose a depth.
@@ -10,6 +14,8 @@ export const DEFAULT_NATIVE_PROJECTION_BACKUP_RETENTION = 3;
 
 export interface NativeProjectionBackupInput {
   readonly kilnDir: string;
+  /** Established private-state root when `kilnDir` is project-owned state. */
+  readonly privateStateRoot?: string;
   readonly targetId: string;
   readonly filePath: string;
   readonly timestamp?: string;
@@ -42,9 +48,14 @@ export function backupNativeProjectionFile(input: NativeProjectionBackupInput): 
   const sourceName = basename(input.filePath);
   const backupDir = join(input.kilnDir, "backups", sanitizeTargetId(input.targetId));
   const backupPath = join(backupDir, `${timestamp}-${sourceName}.bak`);
-  mkdirSync(backupDir, { recursive: true });
+  if (input.privateStateRoot === undefined) {
+    mkdirSync(backupDir, { recursive: true });
+  } else {
+    ensurePrivateStateDirectorySync(input.privateStateRoot, backupDir);
+    assertPrivateStateFileTargetSync(input.privateStateRoot, backupPath);
+  }
   writeFileSync(backupPath, readFileSync(input.filePath), input.mode === undefined ? undefined : { mode: input.mode });
-  pruneBackups(backupDir, sourceName, retain);
+  pruneBackups(backupDir, sourceName, retain, input.privateStateRoot);
   return backupPath;
 }
 
@@ -55,14 +66,21 @@ export function backupNativeProjectionFile(input: NativeProjectionBackupInput): 
  * Pruning is scoped by source name so unrelated files sharing a target
  * directory never prune each other.
  */
-function pruneBackups(backupDir: string, sourceName: string, retain: number): void {
+function pruneBackups(
+  backupDir: string,
+  sourceName: string,
+  retain: number,
+  privateStateRoot?: string,
+): void {
   const suffix = `-${sourceName}.bak`;
   const existing = readdirSync(backupDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
     .map((entry) => entry.name)
     .sort();
   for (const name of existing.slice(0, Math.max(0, existing.length - retain))) {
-    rmSync(join(backupDir, name), { force: true });
+    const backupPath = join(backupDir, name);
+    if (privateStateRoot !== undefined) assertPrivateStateFileTargetSync(privateStateRoot, backupPath);
+    rmSync(backupPath, { force: true });
   }
 }
 

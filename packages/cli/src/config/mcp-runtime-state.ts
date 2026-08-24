@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { McpDiscoverySnapshot } from "@kilnai/core";
+import {
+  assertPrivateStateFileTargetSync,
+  assertPrivateStateDirectoryTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+} from "../application/project-state-root.js";
 
 export interface McpRuntimeServerState {
   readonly testedAt: string;
@@ -21,10 +32,32 @@ export interface McpRuntimeState {
   readonly servers: Readonly<Record<string, McpRuntimeServerState>>;
 }
 
-export function readMcpRuntimeState(projectPath: string): McpRuntimeState {
-  const path = statePath(projectPath);
+export interface McpRuntimeStateOptions extends ProjectStateRootOptions {
+  /** Already-established private project-state binding. */
+  readonly projectStateBinding?: ProjectStateBinding;
+  /** Explicit state-file seam retained for read-only projections. */
+  readonly statePath?: string;
+  /** Deterministic observation timestamp seam for tests and callers that need one. */
+  readonly testedAt?: string;
+}
+
+export function readMcpRuntimeState(projectPath: string, options: McpRuntimeStateOptions = {}): McpRuntimeState {
+  const binding = options.statePath === undefined
+    ? resolveRuntimeBinding(projectPath, options)
+    : options.projectStateBinding;
+  const path = options.statePath ?? join(binding!.runtimePath, "mcp-state.json");
+  if (binding) {
+    if (!assertPrivateStateDirectoryTargetSync(binding.projectStateRoot, dirname(path))) {
+      return { version: 1, servers: {} };
+    }
+    assertPrivateStateFileTargetSync(binding.projectStateRoot, path);
+  }
   if (!existsSync(path)) return { version: 1, servers: {} };
   try {
+    if (binding) {
+      // existsSync is only a presence probe; validate again at the read effect.
+      assertPrivateStateFileTargetSync(binding.projectStateRoot, path);
+    }
     const value = JSON.parse(readFileSync(path, "utf-8")) as McpRuntimeState;
     return value.version === 1 && value.servers && typeof value.servers === "object" ? value : { version: 1, servers: {} };
   } catch {
@@ -32,8 +65,13 @@ export function readMcpRuntimeState(projectPath: string): McpRuntimeState {
   }
 }
 
-export function recordMcpDiscovery(projectPath: string, snapshot: McpDiscoverySnapshot, testedAt = new Date().toISOString()): McpRuntimeServerState {
-  const state = readMcpRuntimeState(projectPath);
+export function recordMcpDiscovery(
+  projectPath: string,
+  snapshot: McpDiscoverySnapshot,
+  options: McpRuntimeStateOptions = {},
+): McpRuntimeServerState {
+  const state = readMcpRuntimeState(projectPath, options);
+  const testedAt = options.testedAt ?? new Date().toISOString();
   const catalogHash = createHash("sha256").update(JSON.stringify({
     serverIdentity: snapshot.serverIdentity,
     tools: snapshot.tools.map((item) => item.selector).sort(),
@@ -56,12 +94,18 @@ export function recordMcpDiscovery(projectPath: string, snapshot: McpDiscoverySn
       ...snapshot.prompts.map((item) => ({ selector: item.selector, kind: "prompt" as const, name: item.descriptor.name, admitted: true })),
     ],
   };
-  writeState(projectPath, { version: 1, servers: { ...state.servers, [snapshot.serverId]: entry } });
+  writeState(projectPath, { version: 1, servers: { ...state.servers, [snapshot.serverId]: entry } }, options);
   return entry;
 }
 
-export function recordMcpFailure(projectPath: string, serverId: string, error: unknown, testedAt = new Date().toISOString()): void {
-  const state = readMcpRuntimeState(projectPath);
+export function recordMcpFailure(
+  projectPath: string,
+  serverId: string,
+  error: unknown,
+  options: McpRuntimeStateOptions = {},
+): void {
+  const state = readMcpRuntimeState(projectPath, options);
+  const testedAt = options.testedAt ?? new Date().toISOString();
   const previous = state.servers[serverId];
   const entry: McpRuntimeServerState = {
     testedAt,
@@ -75,19 +119,27 @@ export function recordMcpFailure(projectPath: string, serverId: string, error: u
     ...(previous?.capabilities ? { capabilities: previous.capabilities } : {}),
     lastFailure: redactFailure(error),
   };
-  writeState(projectPath, { version: 1, servers: { ...state.servers, [serverId]: entry } });
+  writeState(projectPath, { version: 1, servers: { ...state.servers, [serverId]: entry } }, options);
 }
 
-function writeState(projectPath: string, state: McpRuntimeState): void {
-  const path = statePath(projectPath);
-  mkdirSync(dirname(path), { recursive: true });
+function writeState(projectPath: string, state: McpRuntimeState, options: McpRuntimeStateOptions): void {
+  const binding = resolveRuntimeBinding(projectPath, options);
+  const path = options.statePath ?? join(binding.runtimePath, "mcp-state.json");
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, dirname(path));
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, path);
   const temp = `${path}.tmp`;
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, temp);
   writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
   renameSync(temp, path);
 }
 
-function statePath(projectPath: string): string {
-  return join(projectPath, ".kiln", "mcp-state.json");
+function resolveRuntimeBinding(
+  projectPath: string,
+  options: McpRuntimeStateOptions,
+): ProjectStateBinding {
+  if (options.projectStateBinding) return options.projectStateBinding;
+  const root = resolveProjectRoot({ explicitPath: projectPath }).rootPath;
+  return resolveProjectStateBinding(root, options);
 }
 
 function redactFailure(error: unknown): string {

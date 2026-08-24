@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeConfigSetupAction } from "../../src/application/config-setup-actions.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 
 let tempDir: string;
+let projectStateBinding: ProjectStateBinding;
 
 function writeProjectConfig(projectPath: string): void {
   mkdirSync(join(projectPath, ".kiln"), { recursive: true });
@@ -26,6 +28,15 @@ describe("config setup actions", () => {
       scripts: { test: "bun test" },
     }), "utf-8");
     writeProjectConfig(tempDir);
+    projectStateBinding = resolveProjectStateBinding(tempDir);
+    mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
+    writeFileSync(projectStateBinding.configPath, [
+      'version: "1"',
+      "permissions:",
+      "  approval: on-request",
+      "  sandbox: read-only",
+      "",
+    ].join("\n"), "utf-8");
   });
 
   afterEach(() => {
@@ -41,7 +52,7 @@ describe("config setup actions", () => {
 
     expect(result.status).toBe("applied");
     expect(result.message).toContain("Project context");
-    expect(existsSync(join(tempDir, ".kiln", "project-context.md"))).toBe(true);
+    expect(existsSync(projectStateBinding.contextPath)).toBe(true);
     expect(result.setup.projectContext.status).toBe("valid");
   });
 
@@ -73,8 +84,8 @@ describe("config setup actions", () => {
       "Use only the synthetic harness home.",
       "",
     ].join("\n"), "utf-8");
-    mkdirSync(join(tempDir, ".kiln", "agents"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "agents", "project-only-agent.md"), [
+    mkdirSync(projectStateBinding.agentsPath, { recursive: true });
+    writeFileSync(join(projectStateBinding.agentsPath, "project-only-agent.md"), [
       "---",
       "name: project-only-agent",
       "role: Project-only setup agent",

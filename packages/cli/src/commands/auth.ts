@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   CREDENTIAL_FILE_MODE,
@@ -16,6 +15,7 @@ import {
   startProviderAuthRequest,
 } from "@kilnai/runtime";
 import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
+import { resolveKilnHomePath } from "../config/global-config/path.js";
 import { backupNativeProjectionFile } from "../config/native-projection-backup.js";
 import {
   fromNativeCodexAuthFile,
@@ -24,8 +24,6 @@ import {
   type NativeCodexAuthFile,
 } from "../config/codex-native-account-sync.js";
 
-const KILN_DIR = join(homedir(), ".kiln");
-const AUTH_DIR = join(KILN_DIR, "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
 const NATIVE_CODEX_AUTH_BACKUP_TARGET_ID = "codex-native-auth";
 /** Enough history to recover across a few bad switches without retaining token material indefinitely. */
@@ -33,8 +31,22 @@ const NATIVE_CODEX_AUTH_BACKUP_RETENTION = 5;
 const POOLED_PROVIDER_AUTH_FILES = new Set(["opencode.json", "codex-oauth.json"]);
 const DIRECT_OPENCODE_AUTH_DIR = "opencode-api";
 
-export async function runAuth(args: string[]): Promise<void> {
+export interface AuthCommandOptions {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
+}
+
+function resolveAuthKilnHome(explicitKilnHome?: string): string {
+  return explicitKilnHome?.trim() || resolveKilnHomePath();
+}
+
+function resolveAuthDirectory(kilnHome?: string): string {
+  return join(resolveAuthKilnHome(kilnHome), "auth");
+}
+
+export async function runAuth(args: string[], options: AuthCommandOptions = {}): Promise<void> {
   const [subcommand, action] = args;
+  const kilnHome = resolveAuthKilnHome(options.kilnHome);
 
   try {
     if (!subcommand || subcommand === "help") {
@@ -43,16 +55,16 @@ export async function runAuth(args: string[]): Promise<void> {
     }
 
     if (subcommand === "status") {
-      await printAllProviderStatuses();
+      await printAllProviderStatuses(kilnHome);
       return;
     }
 
     if (subcommand === "opencode") {
       switch (action ?? "link") {
-        case "link":   await runOpenCodeLink(args.slice(2)); return;
-        case "import": await runOpenCodeImport(args.slice(2)); return;
-        case "status": await runOpenCodeStatus(args.slice(2)); return;
-        case "logout": await runOpenCodeLogout(args.slice(2)); return;
+        case "link":   await runOpenCodeLink(args.slice(2), kilnHome); return;
+        case "import": await runOpenCodeImport(args.slice(2), kilnHome); return;
+        case "status": await runOpenCodeStatus(args.slice(2), kilnHome); return;
+        case "logout": await runOpenCodeLogout(args.slice(2), kilnHome); return;
         case "help":   printUsage(); return;
         default:       printUsage(); return;
       }
@@ -65,16 +77,16 @@ export async function runAuth(args: string[]): Promise<void> {
 
     switch (action ?? "login") {
       case "login":
-        await runCodexLogin();
+        await runCodexLogin(kilnHome);
         return;
       case "status":
-        await runCodexStatus(args.slice(2));
+        await runCodexStatus(args.slice(2), kilnHome);
         return;
       case "activate":
-        await runCodexActivate(args.slice(2));
+        await runCodexActivate(args.slice(2), kilnHome);
         return;
       case "logout":
-        await runCodexLogout(args.slice(2));
+        await runCodexLogout(args.slice(2), kilnHome);
         return;
       case "help":
         printUsage();
@@ -88,9 +100,10 @@ export async function runAuth(args: string[]): Promise<void> {
   }
 }
 
-async function runCodexLogin(): Promise<void> {
+async function runCodexLogin(kilnHome?: string): Promise<void> {
   const authRequest = await startProviderAuthRequest({
     provider: "codex-oauth",
+    kilnHome,
     requestId: `cli-auth:${Date.now()}`,
     flow: "device_code",
   });
@@ -110,9 +123,9 @@ async function runCodexLogin(): Promise<void> {
   console.log("Authenticated successfully");
 }
 
-async function runCodexStatus(rest: string[]): Promise<void> {
+async function runCodexStatus(rest: string[], kilnHome?: string): Promise<void> {
   const options = parseCodexStatusOptions(rest);
-  const pool = new CodexOAuthCredentialPoolService();
+  const pool = new CodexOAuthCredentialPoolService({ kilnHome });
   const entries = await pool.listStatus();
   if (entries.length === 0) {
     console.log("Not authenticated");
@@ -185,9 +198,9 @@ type CodexActivationOutcome =
   | { readonly kind: "no-available-credential" }
   | { readonly kind: "no-activatable-credential"; readonly blockedIds: readonly string[] };
 
-async function runCodexActivate(rest: string[]): Promise<void> {
+async function runCodexActivate(rest: string[], kilnHome?: string): Promise<void> {
   const selection = parseCodexActivateOptions(rest);
-  const pool = new CodexOAuthCredentialPoolService();
+  const pool = new CodexOAuthCredentialPoolService({ kilnHome });
   const nativeAuthPath = join(resolveNativeHarnessDir("codex"), "auth.json");
 
   const absorbedAccountId = await absorbCurrentNativeAccount(pool, nativeAuthPath);
@@ -203,7 +216,7 @@ async function runCodexActivate(rest: string[]): Promise<void> {
   const target = outcome.target;
 
   const backupPath = backupNativeProjectionFile({
-    kilnDir: KILN_DIR,
+    kilnDir: resolveAuthKilnHome(kilnHome),
     targetId: NATIVE_CODEX_AUTH_BACKUP_TARGET_ID,
     filePath: nativeAuthPath,
     retain: NATIVE_CODEX_AUTH_BACKUP_RETENTION,
@@ -310,9 +323,9 @@ async function writeNativeAuthFileAtomically(nativeAuthPath: string, native: Nat
   }
 }
 
-async function runCodexLogout(rest: string[]): Promise<void> {
+async function runCodexLogout(rest: string[], kilnHome?: string): Promise<void> {
   const id = parseCodexLogoutOptions(rest);
-  const pool = new CodexOAuthCredentialPoolService();
+  const pool = new CodexOAuthCredentialPoolService({ kilnHome });
   if (id) {
     await pool.removeCredential(id);
     console.log(`Logged out of Codex credential ${id}`);
@@ -342,15 +355,16 @@ function parseCodexLogoutOptions(rest: string[]): string | undefined {
   throw new Error("Usage: kiln auth codex logout [--id <id>]");
 }
 
-async function runOpenCodeLink(rest: string[]): Promise<void> {
+async function runOpenCodeLink(rest: string[], kilnHome?: string): Promise<void> {
   const options = parseOpenCodeOptions(rest);
   const id = options.id ?? `${options.tier}-primary`;
-  const auth = new OpenCodeAuth();
-  const pool = new OpenCodeCredentialPoolService();
+  const auth = new OpenCodeAuth({ kilnHome });
+  const pool = new OpenCodeCredentialPoolService({ kilnHome });
 
   if (options.key) {
     const linked = await startProviderAuthRequest({
       provider: options.tier === "zen" ? "opencode-zen" : "opencode-go",
+      kilnHome,
       requestId: `cli-auth:${Date.now()}`,
       apiKey: options.key,
       tier: options.tier,
@@ -386,6 +400,7 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
   }
   const linked = await startProviderAuthRequest({
     provider: options.tier === "zen" ? "opencode-zen" : "opencode-go",
+    kilnHome,
     requestId: `cli-auth:${Date.now()}`,
     apiKey: key,
     tier: options.tier,
@@ -399,11 +414,11 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
   console.log(`Linked OpenCode (${options.tier}) as ${id}`);
 }
 
-async function runOpenCodeImport(rest: string[]): Promise<void> {
+async function runOpenCodeImport(rest: string[], kilnHome?: string): Promise<void> {
   const options = parseOpenCodeOptions(rest, { allowKey: false });
   const id = options.id ?? `${options.tier}-primary`;
-  const auth = new OpenCodeAuth();
-  const pool = new OpenCodeCredentialPoolService();
+  const auth = new OpenCodeAuth({ kilnHome });
+  const pool = new OpenCodeCredentialPoolService({ kilnHome });
   const imported = await auth.readFromOpenCodeConfig({ tier: options.tier });
   if (!imported) {
     console.log(`No OpenCode ${options.tier} API key found in OpenCode config`);
@@ -418,9 +433,9 @@ async function runOpenCodeImport(rest: string[]): Promise<void> {
   console.log(`Imported OpenCode (${options.tier}) as ${id} from OpenCode config`);
 }
 
-async function runOpenCodeStatus(rest: string[] = []): Promise<void> {
+async function runOpenCodeStatus(rest: string[] = [], kilnHome?: string): Promise<void> {
   const options = parseOpenCodeFilterOptions(rest);
-  const pool = new OpenCodeCredentialPoolService();
+  const pool = new OpenCodeCredentialPoolService({ kilnHome });
   const entries = (await pool.listStatus()).filter((entry) => {
     if (options.tier !== undefined && entry.tier !== options.tier) {
       return false;
@@ -448,9 +463,9 @@ async function runOpenCodeStatus(rest: string[] = []): Promise<void> {
   }
 }
 
-async function runOpenCodeLogout(rest: string[] = []): Promise<void> {
+async function runOpenCodeLogout(rest: string[] = [], kilnHome?: string): Promise<void> {
   const options = parseOpenCodeFilterOptions(rest);
-  await new OpenCodeCredentialPoolService().clearCredentials(options);
+  await new OpenCodeCredentialPoolService({ kilnHome }).clearCredentials(options);
   if (!options.tier && !options.id) {
     console.log("Logged out of OpenCode");
     return;
@@ -532,10 +547,11 @@ function readLineFromStdin(): Promise<string> {
   });
 }
 
-async function printAllProviderStatuses(): Promise<void> {
+async function printAllProviderStatuses(kilnHome?: string): Promise<void> {
+  const authDir = resolveAuthDirectory(kilnHome);
   let entries: string[];
   try {
-    entries = await readdir(AUTH_DIR);
+    entries = await readdir(authDir);
   } catch (error) {
     const code = error instanceof Error && "code" in error ? (error as { code?: string }).code : undefined;
     if (code === "ENOENT") {
@@ -553,14 +569,14 @@ async function printAllProviderStatuses(): Promise<void> {
   }
 
   if (providerDirs.includes(DIRECT_OPENCODE_AUTH_DIR)) {
-    await runOpenCodeStatus();
+    await runOpenCodeStatus([], kilnHome);
   }
   if (providerDirs.includes("codex-oauth")) {
-    await runCodexStatus([]);
+    await runCodexStatus([], kilnHome);
   }
 
   for (const file of providerFiles) {
-    const tokenPath = join(AUTH_DIR, file);
+    const tokenPath = join(authDir, file);
 
     const provider = file.slice(0, -".json".length);
     const tokenFile = await loadGenericTokenFile(tokenPath);
@@ -576,15 +592,16 @@ async function printAllProviderStatuses(): Promise<void> {
     console.log(`${provider}: ${status}${expiry === "unknown" ? "" : ` (expires ${expiry})`}`);
   }
 
-  await printCredentialPermissionWarnings();
+  await printCredentialPermissionWarnings(kilnHome);
 }
 
 /**
  * Store-wide finding, so it belongs on the store-wide command rather than being
  * repeated by each provider status.
  */
-async function printCredentialPermissionWarnings(): Promise<void> {
-  const findings = await listOverPermissiveCredentialFiles({ rootDir: AUTH_DIR });
+async function printCredentialPermissionWarnings(kilnHome?: string): Promise<void> {
+  const authDir = resolveAuthDirectory(kilnHome);
+  const findings = await listOverPermissiveCredentialFiles({ rootDir: authDir });
   if (findings.length === 0) return;
   console.log("");
   console.log("Warning: credential files readable beyond their owner:");
@@ -592,7 +609,7 @@ async function printCredentialPermissionWarnings(): Promise<void> {
     console.log(`  ${finding.relativePath} (mode ${finding.mode})`);
   }
   console.log("These repair themselves the next time Kiln writes them. To fix now:");
-  console.log(`  chmod 600 ${findings.map((finding) => `${AUTH_DIR}/${finding.relativePath}`).join(" ")}`);
+  console.log(`  chmod 600 ${findings.map((finding) => `${authDir}/${finding.relativePath}`).join(" ")}`);
 }
 
 async function loadGenericTokenFile(path: string): Promise<Partial<CodexOAuthTokenFile> | null> {

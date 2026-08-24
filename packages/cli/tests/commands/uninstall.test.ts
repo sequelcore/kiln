@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { describe, expect, it } from "vitest";
-import { uninstallNativeTargets } from "../../src/commands/uninstall.js";
+import { uninstallNativeTargets, type UninstallNativeOptions } from "../../src/commands/uninstall.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
@@ -13,11 +14,24 @@ import {
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
 
+function projectBinding(root: string) {
+  const projectPath = join(root, "project");
+  mkdirSync(projectPath, { recursive: true });
+  return resolveProjectStateBinding(projectPath, { kilnHome: join(root, "kiln-home") });
+}
+
+function runUninstall(root: string, options: Omit<UninstallNativeOptions, "projectStateBinding"> = {}) {
+  return uninstallNativeTargets(join(root, "project"), {
+    ...options,
+    projectStateBinding: projectBinding(root),
+  });
+}
+
 describe("uninstallNativeTargets", () => {
   it("strips only managed TOML fields and removes target install state", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-codex-"));
     const codexConfigPath = join(root, "home", ".codex", "config.toml");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const document = {
       model: "gpt-5.4",
       approval_policy: "on-request",
@@ -45,7 +59,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "codex", userHome: join(root, "home") });
+      const result = runUninstall(root, { target: "codex", userHome: join(root, "home") });
 
       expect(result).toEqual({
         removed: ["codex-config"],
@@ -69,7 +83,7 @@ describe("uninstallNativeTargets", () => {
     const codexAgentPath = join(root, "home", ".codex", "agents", "planner.md");
     const codexSkillPath = join(root, "home", ".codex", "skills", "planner", "SKILL.md");
     const opencodeAgentPath = join(root, "home", ".config", "opencode", "agents", "planner.md");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const document = {
       model: "gpt-5.4",
       sandbox_mode: "workspace-write",
@@ -135,7 +149,7 @@ describe("uninstallNativeTargets", () => {
       );
       writeNativeProjectionInstallState(kilnDir, state);
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "codex" });
+      const result = runUninstall(root, { target: "codex" });
 
       expect(result).toEqual({
         removed: ["codex-config", "mcp:codex", "codex-agent:planner", "codex-skill:planner/SKILL.md"],
@@ -158,7 +172,7 @@ describe("uninstallNativeTargets", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-empty-harness-"));
 
     try {
-      const result = uninstallNativeTargets(join(root, "project"), { target: "codex" });
+      const result = runUninstall(root, { target: "codex" });
 
       expect(result).toEqual({
         removed: [],
@@ -174,7 +188,7 @@ describe("uninstallNativeTargets", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-empty-instructions-"));
 
     try {
-      const result = uninstallNativeTargets(join(root, "project"), { target: "global-instructions" });
+      const result = runUninstall(root, { target: "global-instructions" });
 
       expect(result).toEqual({
         removed: [],
@@ -189,7 +203,7 @@ describe("uninstallNativeTargets", () => {
   it("uninstalls only recorded global instruction shims for the group target", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-instructions-"));
     const codexPath = join(root, "home", ".codex", "AGENTS.md");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const content = "# Codex global instructions\n";
 
     try {
@@ -207,7 +221,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "instructions" });
+      const result = runUninstall(root, { target: "instructions" });
 
       expect(result).toEqual({
         removed: ["codex-global-instructions"],
@@ -224,7 +238,7 @@ describe("uninstallNativeTargets", () => {
   it("supports exact global instruction aliases", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-codex-instructions-"));
     const codexPath = join(root, "home", ".codex", "AGENTS.md");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const content = "# Codex global instructions\n";
 
     try {
@@ -242,7 +256,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "codex-instructions" });
+      const result = runUninstall(root, { target: "codex-instructions" });
 
       expect(result).toEqual({
         removed: ["codex-global-instructions"],
@@ -257,7 +271,7 @@ describe("uninstallNativeTargets", () => {
   it("skips drifted managed fields unless force is set", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-drift-"));
     const opencodeConfigPath = join(root, "home", ".config", "opencode", "opencode.json");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const projected = {
       permission: { default: "ask" },
       theme: "ocean",
@@ -283,7 +297,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "opencode" });
+      const result = runUninstall(root, { target: "opencode" });
 
       expect(result.removed).toEqual([]);
       expect(result.skipped).toEqual(["opencode-config"]);
@@ -300,7 +314,7 @@ describe("uninstallNativeTargets", () => {
   it("force strips drifted managed fields and keeps unmanaged fields", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-force-"));
     const opencodeConfigPath = join(root, "home", ".config", "opencode", "opencode.json");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const projected = {
       permission: { default: "ask" },
       theme: "ocean",
@@ -326,7 +340,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "opencode", force: true });
+      const result = runUninstall(root, { target: "opencode", force: true });
 
       expect(result).toEqual({
         removed: ["opencode-config"],
@@ -345,7 +359,7 @@ describe("uninstallNativeTargets", () => {
   it("removes whole-file managed targets when uninstalling hooks", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-hook-file-"));
     const hookPath = join(root, "project", ".claude", "hooks", "autoformat.sh");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const content = "#!/bin/sh\nexit 0\n";
 
     try {
@@ -363,7 +377,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "claude-autoformat-hook" });
+      const result = runUninstall(root, { target: "claude-autoformat-hook" });
 
       expect(result).toEqual({
         removed: ["claude-autoformat-hook"],
@@ -380,7 +394,7 @@ describe("uninstallNativeTargets", () => {
   it("skips drifted whole-file managed targets unless force is set", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-hook-file-drift-"));
     const hookPath = join(root, "project", ".claude", "hooks", "autoformat.sh");
-    const kilnDir = join(root, "project", ".kiln");
+    const kilnDir = projectBinding(root).projectionsPath;
     const projected = "#!/bin/sh\nexit 0\n";
     const drifted = "#!/bin/sh\necho user drift\n";
 
@@ -399,7 +413,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "claude-autoformat-hook" });
+      const result = runUninstall(root, { target: "claude-autoformat-hook" });
 
       expect(result.removed).toEqual([]);
       expect(result.skipped).toEqual(["claude-autoformat-hook"]);

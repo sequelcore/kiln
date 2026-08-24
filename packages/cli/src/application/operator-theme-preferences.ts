@@ -8,6 +8,7 @@ import { resolveGlobalUiTheme, type KilnGlobalConfig } from "../config/global-co
 import type { OperatorSurfaceThemeController } from "@kilnai/runtime";
 import { applyConfigMutation, proposeConfigMutation } from "./config-mutation-authority.js";
 import { ConfigMutationStore } from "./config-mutation-store.js";
+import { resolveProjectStateBinding } from "./project-state-root.js";
 
 export type OperatorThemePreference = OperatorThemeName;
 
@@ -61,21 +62,24 @@ export async function persistOperatorThemePreference(
     return;
   }
   const projectPath = options?.projectPath ?? process.cwd();
+  const projectStateBinding = resolveProjectStateBinding(projectPath);
   const record = proposeConfigMutation({
     projectPath,
     operation: "setting.set",
     payload: { scope: "global", key: "ui.theme", value: resolvedTheme },
+    projectStateBinding,
   });
   if (record.proposal.status !== "valid") {
     throw new Error(
       `Theme preference rejected: ${record.proposal.diagnostics.map((entry) => entry.message).join("; ")}`,
     );
   }
-  new ConfigMutationStore(projectPath).saveProposal(record);
+  new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath }).saveProposal(record);
   const result = await applyConfigMutation({
     projectPath,
     proposalId: record.proposal.proposalId,
     requester: "operator",
+    projectStateBinding,
   });
   if (result.settlement.outcome === "rejected") {
     throw new Error(
@@ -84,7 +88,7 @@ export async function persistOperatorThemePreference(
   }
 }
 
-export function createCliOperatorThemeController(): OperatorSurfaceThemeController {
+export function createCliOperatorThemeController(projectPath: string = process.cwd()): OperatorSurfaceThemeController {
   return {
     async setTheme(input: {
       readonly theme: string;
@@ -102,7 +106,7 @@ export function createCliOperatorThemeController(): OperatorSurfaceThemeControll
         };
       }
       try {
-        await persistOperatorThemePreference(resolvedTheme);
+        await persistOperatorThemePreference(resolvedTheme, { projectPath });
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }

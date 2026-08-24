@@ -86,7 +86,7 @@ describe("operatorRuntimeCommand", () => {
     expect(startListener).toHaveBeenCalledWith(expect.objectContaining({
       port: 4_820,
       identity: {
-        protocolVersion: "2",
+        protocolVersion: "3",
         service: "kiln-operator-runtime",
         instanceId: state.instanceId,
         version: state.version,
@@ -172,7 +172,7 @@ function readyStatus(): OperatorRuntimeSupervisorStatus {
   return {
     state: "ready",
     identity: {
-      protocolVersion: "2",
+      protocolVersion: "3",
       service: "kiln-operator-runtime",
       instanceId: "instance-1",
       version: launch.version,

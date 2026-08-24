@@ -1,9 +1,8 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { CredentialPool, type Credential, type CredentialOutcome } from "@kilnai/core";
 import { CredentialFileStore } from "./credential-file-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
+import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export type HarnessPoolProviderId = "claude-code" | "codex" | "opencode";
 
@@ -12,6 +11,8 @@ export interface HarnessHomeAuth {
 }
 
 export interface HarnessCredentialPoolServiceConfig {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
   readonly watcher?: CredentialWatcher;
@@ -36,7 +37,7 @@ export class HarnessCredentialPoolService {
   private readonly watcher?: CredentialWatcher;
 
   constructor(config: HarnessCredentialPoolServiceConfig = {}) {
-    this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
+    this.rootDir = resolveRuntimeStoreRoot(config, "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.watcher = config.watcher;
   }

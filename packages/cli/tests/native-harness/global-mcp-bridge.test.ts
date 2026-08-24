@@ -22,12 +22,12 @@ function captureFetchRequest(url: string | URL, init: RequestInit | undefined) {
 type CapturedRequest = ReturnType<typeof captureFetchRequest>;
 
 const ROOT = "C:\\workspace\\kiln";
-const PROJECT_RUNTIME_ID = `krp_${"a".repeat(64)}`;
-const MARKER_DIGEST = `sha256:${"b".repeat(64)}`;
+const PROJECT_RUNTIME_ID = `krp_${"a".repeat(64)}` as `krp_${string}`;
+const COMPOSITION_REVISION = `sha256:${"b".repeat(64)}` as `sha256:${string}`;
 const READY = {
   state: "ready" as const,
   identity: {
-    protocolVersion: "2" as const,
+    protocolVersion: "3" as const,
     service: "kiln-operator-runtime" as const,
     instanceId: "runtime-test",
     version: "test",
@@ -101,7 +101,7 @@ describe("global MCP bridge", () => {
         const request = captureFetchRequest(url, init);
         requests.push(request.clone() as CapturedRequest);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
-          return Response.json({ credential: "v2.payload.signature", expiresAt: 300 });
+          return Response.json({ credential: "v3.payload.signature", expiresAt: 300 });
         }
         return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
       },
@@ -116,9 +116,9 @@ describe("global MCP bridge", () => {
     expect(session.headers.get("origin")).toBe("http://127.0.0.1:43123");
     expect(session.headers.get(OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER)).toBe("control-token-value-control-token-value");
     await expect(session.json()).resolves.toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       canonicalRoot: ROOT,
-      binding: { projectRuntimeId: PROJECT_RUNTIME_ID, markerDigest: MARKER_DIGEST },
+      binding: { projectRuntimeId: PROJECT_RUNTIME_ID, compositionRevision: COMPOSITION_REVISION },
       principal: { kind: "native-harness", harness: "codex" },
       sessionId: "session-01",
     });
@@ -186,7 +186,7 @@ describe("global MCP bridge", () => {
         const request = captureFetchRequest(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           sessionOpens += 1;
-          return Response.json({ credential: `v2.payload${sessionOpens}.signature`, expiresAt: sessionOpens === 1 ? 140 : 400 });
+          return Response.json({ credential: `v3.payload${sessionOpens}.signature`, expiresAt: sessionOpens === 1 ? 140 : 400 });
         }
         mcpRequests += 1;
         return mcpRequests === 2 ? new Response(null, { status: 401 }) : Response.json({ jsonrpc: "2.0", id: 1, result: {} });
@@ -220,7 +220,7 @@ describe("global MCP bridge", () => {
         const request = captureFetchRequest(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           sessionOpens += 1;
-          return Response.json({ credential: `v2.payload${sessionOpens}.signature`, expiresAt: 500 });
+          return Response.json({ credential: `v3.payload${sessionOpens}.signature`, expiresAt: 500 });
         }
         mcpRequests += 1;
         if (mcpRequests === 1) return new Response(null, { status: 401 });
@@ -239,16 +239,16 @@ describe("global MCP bridge", () => {
     expect(renewedHeaders!.get("host")).toBe("127.0.0.1:43123");
     expect(renewedHeaders!.get("origin")).toBe("http://127.0.0.1:43123");
     expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId)).toBe(PROJECT_RUNTIME_ID);
-    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest)).toBe(MARKER_DIGEST);
+    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.compositionRevision)).toBe(COMPOSITION_REVISION);
     expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalKind)).toBe("native-harness");
     expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalId)).toBe("claude");
     expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.sessionId)).toBe("session-initial-401");
-    expect(renewedHeaders!.get("authorization")).toBe("Bearer v2.payload2.signature");
+    expect(renewedHeaders!.get("authorization")).toBe("Bearer v3.payload2.signature");
     expect(managedRuntime).toEqual({ status: "attached" });
     await handle.close();
   });
 
-  it("uses a new session id when the trusted marker binding changes", async () => {
+  it("uses a new session id when the trusted composition binding changes", async () => {
     const fixture = sdkFixture();
     let current = workspace();
     const ids = ["session-old", "session-new"];
@@ -264,14 +264,14 @@ describe("global MCP bridge", () => {
         const request = captureFetchRequest(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           openedIds.push((await request.clone().json() as { sessionId: string }).sessionId);
-          return Response.json({ credential: "v2.payload.signature", expiresAt: 500 });
+          return Response.json({ credential: "v3.payload.signature", expiresAt: 500 });
         }
         return Response.json({});
       },
       registerProcessSignals: false,
     });
     await handle.managedRuntime;
-    current = workspace({ markerDigest: `sha256:${"c".repeat(64)}` });
+    current = workspace({ compositionRevision: `sha256:${"c".repeat(64)}` });
     await fixture.callHandler!({ params: { name: "kiln_status_inspect", arguments: {} } });
     expect(openedIds).toEqual(["session-old", "session-new"]);
     await handle.close();
@@ -308,12 +308,20 @@ function workspace(overrides: Partial<ReturnType<typeof workspaceValue>> = {}) {
 }
 
 function workspaceValue() {
-  return { status: "resolved" as const, canonicalRoot: ROOT, projectRuntimeId: PROJECT_RUNTIME_ID, markerDigest: MARKER_DIGEST };
+  return {
+    status: "resolved" as const,
+    canonicalRoot: ROOT,
+    projectRuntimeId: PROJECT_RUNTIME_ID,
+    projectStateRoot: `${ROOT}\\.kiln\\state`,
+    adoptionRevision: `sha256:${"d".repeat(64)}` as `sha256:${string}`,
+    globalConfigRevision: `sha256:${"e".repeat(64)}` as `sha256:${string}`,
+    compositionRevision: COMPOSITION_REVISION,
+  };
 }
 
 async function sessionFetch(url: string | URL): Promise<Response> {
   return new URL(url).pathname === OPERATOR_RUNTIME_SESSION_PATH
-    ? Response.json({ credential: "v2.payload.signature", expiresAt: 500 })
+    ? Response.json({ credential: "v3.payload.signature", expiresAt: 500 })
     : Response.json({});
 }
 

@@ -24,9 +24,9 @@ truth, and native compatibility cannot define Kiln runtime authority.
 
 Kiln owns one canonical MCP bounded context with these boundaries:
 
-- Global `~/.kiln/config.yaml` and project `.kiln/kiln.yaml` are the only
-  durable server-definition authorities. Effective servers retain scope and
-  per-field provenance.
+- Global `~/.kiln/config.yaml` and the bound private project's `config.yaml`
+  are the only durable server-definition authorities. Effective servers retain
+  scope and per-field provenance.
 - Project definitions may add, inherit, narrow, override permitted fields, or
   disable a global identity. A transport change is a complete replacement;
   an incomplete cross-transport override is rejected.

@@ -50,7 +50,6 @@ const MOCK_CACHE: ContextArtifactCache = new InMemoryContextArtifactCache();
 const MOCK_APP_CONFIG: KilnAppConfig = {
   createRegistry: () => new DomainRegistry({
     builtinConfigs: [PYTHON_CONFIG],
-    domainsDir: ".kiln/domains",
   }),
   buildSystemPrompt: (opts) =>
     `<kiln-session><task>${opts.task}</task></kiln-session>`,
@@ -569,7 +568,7 @@ describe("run command", () => {
     it("determines api-key mode with --api-key", async () => {
       const config = makeConfig({ mode: "api-key", apiKey: "sk-ant-test" });
       const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
-      const ctx = await manager.prepare("Fix bug", "/project");
+      const ctx = await manager.prepare("Fix bug", process.cwd());
 
       expect(ctx.mode).toBe("api-key");
     });
@@ -581,7 +580,7 @@ describe("run command", () => {
         provider: "openai",
       });
       const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
-      const ctx = await manager.prepare("Fix bug", "/project");
+      const ctx = await manager.prepare("Fix bug", process.cwd());
 
       expect(ctx.mode).toBe("byok");
     });
@@ -592,7 +591,7 @@ describe("run command", () => {
       const config = makeConfig();
       const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
 
-      const ctx = await manager.prepare("Add tests", "/project");
+      const ctx = await manager.prepare("Add tests", process.cwd());
       expect(ctx.task).toBe("Add tests");
       expect(ctx.domain).toBeTruthy();
       expect(ctx.mcpServerEntryPath).toBeTruthy();
@@ -701,7 +700,7 @@ describe("run command", () => {
       const config = makeConfig();
       const manager = new SessionManager(config, MOCK_APP_CONFIG, MOCK_CACHE);
 
-      const ctx = await manager.prepare("", "/project");
+      const ctx = await manager.prepare("", process.cwd());
       expect(ctx.task).toBe("");
     });
   });

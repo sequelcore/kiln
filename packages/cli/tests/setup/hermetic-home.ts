@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "vitest";
@@ -17,6 +18,9 @@ const syntheticHome = mkdtempSync(join(tmpdir(), "kiln-cli-home-"));
 
 process.env.HOME = syntheticHome;
 process.env.USERPROFILE = syntheticHome;
+process.env.TEMP = syntheticHome;
+process.env.TMP = syntheticHome;
+process.env.TMPDIR = syntheticHome;
 
 // resolveGlobalConfigPath prefers XDG_CONFIG_HOME over the home directory, so
 // an inherited value would send global configuration outside the synthetic home
@@ -24,6 +28,10 @@ process.env.USERPROFILE = syntheticHome;
 // is why suites that hardcode the home-directory layout only failed on CI.
 delete process.env.XDG_CONFIG_HOME;
 
-afterAll(() => {
-  rmSync(syntheticHome, { recursive: true, force: true });
+afterAll(async () => {
+  // Native harness dependencies can release Windows file handles just after
+  // the final test body returns. Keep cleanup bounded and scoped to this
+  // setup's exact synthetic home; a persistent failure must still fail the
+  // suite rather than silently deleting a broader temp directory.
+  await rm(syntheticHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });

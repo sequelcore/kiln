@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [00 - Source Stability](00-source-stability.md) | Ready | Urgent | Complete [#102](https://github.com/sequelcore/kiln/issues/102): preserve approval identity during GUI Session replay and remove the Session-wide fallback. |
+| 1 | [00 - Source Stability](00-source-stability.md) | Ready | Urgent | Slice 3 / [#97](https://github.com/sequelcore/kiln/issues/97) is the next Ready work for deterministic recovery and separately authorized live validation; Slice 2 / [#100](https://github.com/sequelcore/kiln/issues/100) is implementation-complete and has passed its code, review, and deterministic gates, with operator-owned deletion of the inactive legacy discard quarantine still pending before lifecycle closure. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Queued | Normal | Reassess pairing only after Roadmap 00 names a supported source baseline. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 00 and Roadmap 08 identity. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |

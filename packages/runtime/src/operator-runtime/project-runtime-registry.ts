@@ -68,7 +68,7 @@ export class ProjectRuntimeRegistry<Runtime extends ProjectRuntimeOwner> {
         return existing.closing.then(() => this.ensure(descriptor));
       }
 
-      if (existing.binding.markerDigest === descriptor.binding.markerDigest)
+      if (existing.binding.compositionRevision === descriptor.binding.compositionRevision)
         return existing.creation;
 
       return this.close(projectRuntimeId).then(() => this.ensure(descriptor));
@@ -82,7 +82,7 @@ export class ProjectRuntimeRegistry<Runtime extends ProjectRuntimeOwner> {
     if (!entry || !entry.runtime || entry.closing) {
       throw new ProjectRuntimeRegistryError("runtime_unavailable");
     }
-    if (entry.binding.markerDigest !== binding.markerDigest) {
+    if (entry.binding.compositionRevision !== binding.compositionRevision) {
       throw new ProjectRuntimeRegistryError("stale_binding");
     }
     return entry.runtime;
@@ -97,10 +97,10 @@ export class ProjectRuntimeRegistry<Runtime extends ProjectRuntimeOwner> {
     }));
   }
 
-  close(projectRuntimeId: string, expectedMarkerDigest?: string): Promise<void> {
+  close(projectRuntimeId: string, expectedCompositionRevision?: string): Promise<void> {
     const entry = this.#entries.get(projectRuntimeId);
     if (!entry) return Promise.resolve();
-    if (expectedMarkerDigest !== undefined && entry.binding.markerDigest !== expectedMarkerDigest)
+    if (expectedCompositionRevision !== undefined && entry.binding.compositionRevision !== expectedCompositionRevision)
       return Promise.resolve();
     if (entry.closing) return entry.closing;
 
@@ -210,7 +210,7 @@ export class ProjectRuntimeRegistry<Runtime extends ProjectRuntimeOwner> {
 function copyBinding(binding: OperatorProjectBinding): OperatorProjectBinding {
   return {
     projectRuntimeId: binding.projectRuntimeId,
-    markerDigest: binding.markerDigest,
+    compositionRevision: binding.compositionRevision,
   };
 }
 

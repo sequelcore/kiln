@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createConfiguredSkillRegistry } from "./skill-registry.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
-function writeProjectSkill(root: string, name: string, description: string): void {
-  const skillDir = join(root, ".kiln", "skills", name);
+function writeProjectSkill(skillsRoot: string, name: string, description: string): void {
+  const skillDir = join(skillsRoot, name);
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.md"),
@@ -26,11 +27,13 @@ describe("createConfiguredSkillRegistry", () => {
   it("adds Kiln core builtin skills after project and user discovery", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-registry-"));
     try {
-      writeProjectSkill(root, "tdd-workflow", "project override");
+      const projectStateBinding = resolveProjectStateBinding(root, { kilnHome: join(root, "kiln-home") });
+      writeProjectSkill(projectStateBinding.skillsPath, "tdd-workflow", "project override");
 
       const registry = createConfiguredSkillRegistry({
         projectPath: root,
         userHome: root,
+        projectStateBinding,
       });
 
       expect(registry.get("code-review-findings")).toBeDefined();
@@ -44,9 +47,11 @@ describe("createConfiguredSkillRegistry", () => {
   it("honors builtin include, exclude, and disabled policy", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-registry-policy-"));
     try {
+      const projectStateBinding = resolveProjectStateBinding(root, { kilnHome: join(root, "kiln-home") });
       const registry = createConfiguredSkillRegistry({
         projectPath: root,
         userHome: root,
+        projectStateBinding,
         skillConfig: {
           builtin: {
             include: ["tdd-workflow", "code-review-findings"],
@@ -62,6 +67,7 @@ describe("createConfiguredSkillRegistry", () => {
       const disabled = createConfiguredSkillRegistry({
         projectPath: root,
         userHome: root,
+        projectStateBinding,
         skillConfig: { builtin: { enabled: false } },
       });
       expect(disabled.all()).toEqual([]);
@@ -73,11 +79,13 @@ describe("createConfiguredSkillRegistry", () => {
   it("excludes project skills disabled by canonical visibility", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-registry-visibility-"));
     try {
-      writeProjectSkill(root, "project-release", "project release");
+      const projectStateBinding = resolveProjectStateBinding(root, { kilnHome: join(root, "kiln-home") });
+      writeProjectSkill(projectStateBinding.skillsPath, "project-release", "project release");
 
       const registry = createConfiguredSkillRegistry({
         projectPath: root,
         userHome: root,
+        projectStateBinding,
         skillConfig: {
           builtin: { enabled: false },
           visibility: { overrides: { "project-release": "disabled" } },

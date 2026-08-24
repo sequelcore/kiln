@@ -7,7 +7,7 @@ and MCP Streamable HTTP; legacy HTTP+SSE is intentionally unsupported.
 ## Configuration and precedence
 
 Global servers live under `mcp.servers` in `~/.kiln/config.yaml`. Project
-servers use the same shape in `.kiln/kiln.yaml`. A project may add a server,
+servers use the same shape in the bound private project's `config.yaml`. A project may add a server,
 override common fields, replace a transport only with a complete definition,
 narrow global admission, or disable a global server. Invalid or widening
 overrides fail closed and retain source-path and field provenance in status.
@@ -33,7 +33,7 @@ mcp:
 ```
 
 ```yaml
-# <project>/.kiln/kiln.yaml
+# private project config.yaml
 version: "1"
 mcp:
   servers:
@@ -102,7 +102,8 @@ compatibility, install state, and drift. GUI Configuration Health and TUI setup
 consume the same contract.
 
 Projection preserves unmanaged keys, backs up before mutation, records exact
-owned fields in `.kiln/install-state.json`, refuses unmanaged id collisions,
+owned fields in the global native-projection install state under
+`~/.kiln/runtime/native-projections/`, refuses unmanaged id collisions,
 detects drift, and never replaces malformed native files. Repair is explicit;
 uninstall removes only recorded fields.
 
@@ -150,9 +151,8 @@ the current task projection and its field-level boundaries.
 
 The distinct identity does not overwrite an operator's existing `kiln tools
 --mcp` server. Projection rejects reserved-id collisions, malformed native
-files, and drift; uninstall removes only recorded owned fields. Legacy
-project-local declarations are detected only for owned migration and are never
-treated as runtime authority.
+files, and drift; uninstall removes only recorded owned fields. Repository-local
+legacy declarations are not read, migrated, or treated as runtime authority.
 
 ## Runtime surfaces
 

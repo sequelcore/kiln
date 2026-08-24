@@ -17,7 +17,7 @@ import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./age
 const HOME_DIR = "/home/test-user";
 const PROJECT_PATH = "/workspace/project";
 const GLOBAL_AGENTS_DIR = join(HOME_DIR, ".kiln", "agents");
-const PROJECT_AGENTS_DIR = join(PROJECT_PATH, ".kiln", "agents");
+const PROJECT_AGENTS_DIR = "/home/test/projects/krp_fixture/agents";
 
 const readdirSyncMock = readdirSync as unknown as ReturnType<typeof vi.fn>;
 const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
@@ -72,7 +72,7 @@ describe("agent-loader", () => {
   });
 
   it("returns no implicit agents when both configured directories are missing", async () => {
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
 
     expect(definitions).toEqual([]);
     expect(readdirSyncMock).toHaveBeenCalledWith(GLOBAL_AGENTS_DIR);
@@ -131,7 +131,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
 
     expect(definitions).toEqual([
       {
@@ -180,7 +180,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const [definition] = await loadAgentDefinitions(PROJECT_PATH);
+    const [definition] = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
 
     expect(definition?.instructions).toBe("# Plan\n\nCreate a concrete implementation plan.");
   });
@@ -203,7 +203,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    await expect(loadAgentDefinitions(PROJECT_PATH)).resolves.toEqual([]);
+    await expect(loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR })).resolves.toEqual([]);
   });
 
   it("allows project agents to reference global target and authority profile identities", async () => {
@@ -221,7 +221,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    await expect(loadAgentDefinitions(PROJECT_PATH)).resolves.toEqual([
+    await expect(loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR })).resolves.toEqual([
       {
         name: "ProjectWorker",
         role: "Project worker",
@@ -253,7 +253,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    await expect(loadAgentDefinitions(PROJECT_PATH)).resolves.toEqual([]);
+    await expect(loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR })).resolves.toEqual([]);
   });
 
   it("project agents override global agents with same name", async () => {
@@ -273,7 +273,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
 
     expect(definitions).toHaveLength(3);
     expect(findAgent(definitions, "shared")).toEqual({
@@ -295,7 +295,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
 
     expect(definitions).toEqual([]);
   });
@@ -308,7 +308,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { projectAgentsDirectory: PROJECT_AGENTS_DIR });
 
     expect(definitions).toEqual([]);
   });

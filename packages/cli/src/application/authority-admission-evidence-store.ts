@@ -31,7 +31,12 @@ export class TranscriptAuthorityAdmissionEvidenceStore implements AuthorityAdmis
     await withConfigMutationLock(
       this.transcriptStore.authorityAdmissionLockPath(admitted.sessionId),
       () => this.transcriptStore.appendAuthorityAdmission(record),
-      { waitMs: 5_000 },
+      {
+        waitMs: 5_000,
+        ...(this.transcriptStore.privateStateRoot
+          ? { privateStateRoot: this.transcriptStore.privateStateRoot }
+          : {}),
+      },
     );
   }
 

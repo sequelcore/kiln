@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { AesSecretStore, KilnMcpClient, type ResolvedMcpServer } from "@kilnai/core";
+import { resolveKilnHomePath } from "./global-config/path.js";
 
 export const KILN_MCP_SECRET_KEY_ENV = "KILN_MCP_SECRET_KEY";
 const MCP_CREDENTIAL_PREFIX = "mcp:";
@@ -14,7 +14,7 @@ export interface McpCredentialAccess {
 
 export function createMcpCredentialAccess(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  userHome = homedir(),
+  kilnHome = resolveKilnHomePath(),
 ): McpCredentialAccess {
   const masterKey = environment[KILN_MCP_SECRET_KEY_ENV]?.trim();
   if (!masterKey) {
@@ -25,7 +25,7 @@ export function createMcpCredentialAccess(
       set: () => { throw new Error(`${KILN_MCP_SECRET_KEY_ENV} is required to use Kiln MCP credential references.`); },
     };
   }
-  const store = new AesSecretStore(join(userHome, ".kiln", "mcp-secrets.json"), masterKey);
+  const store = new AesSecretStore(join(kilnHome, "mcp-secrets.json"), masterKey);
   const key = (credentialId: string) => `${MCP_CREDENTIAL_PREFIX}${credentialId}`;
   return {
     available: true,
@@ -35,7 +35,7 @@ export function createMcpCredentialAccess(
   };
 }
 
-export function createCanonicalMcpClient(server: ResolvedMcpServer): KilnMcpClient {
-  const credentials = createMcpCredentialAccess();
+export function createCanonicalMcpClient(server: ResolvedMcpServer, kilnHome?: string): KilnMcpClient {
+  const credentials = createMcpCredentialAccess(process.env, kilnHome);
   return new KilnMcpClient(server, { credentialResolver: credentials.resolve });
 }

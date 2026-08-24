@@ -5,10 +5,14 @@ import {
   isRecord,
   rejectUnknownFields,
   validateOptionalRecord,
+  validateOptionalStringArray,
 } from "./shared.js";
 
 /** Root-owned leaf settings that do not delegate to another semantic contract. */
 const GLOBAL_WEB_FIELDS = fieldNamesOf<KilnGlobalWebConfig>({
+  enabled: true,
+  netPolicy: true,
+  allowedDomains: true,
   searchProvider: true,
   searchFallbackProviders: true,
   extractProvider: true,
@@ -25,8 +29,18 @@ export function validateGlobalWeb(value: unknown): void {
     value,
     GLOBAL_WEB_FIELDS,
     "global web",
-    "Put web authority in project .kiln/kiln.yaml.",
+    "Global config owns web capability ceilings and provider connections.",
   );
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    throw new KilnYamlError("web.enabled must be a boolean");
+  }
+  if (
+    value.netPolicy !== undefined
+    && !["none", "documentation", "package-managers", "full"].includes(String(value.netPolicy))
+  ) {
+    throw new KilnYamlError("web.netPolicy is invalid");
+  }
+  validateOptionalStringArray(value.allowedDomains, "web.allowedDomains");
   validateOptionalRecord(value, "searchProvider", "web.searchProvider");
   if (value.searchFallbackProviders !== undefined && !Array.isArray(value.searchFallbackProviders)) {
     throw new KilnYamlError("web.searchFallbackProviders must be an array");

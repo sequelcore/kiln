@@ -1002,15 +1002,23 @@ describe("global-config", () => {
     );
   });
 
-  it("readGlobalConfig() rejects global web authority fields", () => {
+  it("readGlobalConfig() accepts global web capability ceilings", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "4"', "web:", "  enabled: true"].join("\n"),
+      [
+        'version: "4"',
+        "web:",
+        "  enabled: true",
+        "  netPolicy: full",
+        "  allowedDomains: ['*']",
+      ].join("\n"),
     );
 
-    expect(() => readGlobalConfig()).toThrow(
-      "Unknown global web field: enabled. Put web authority in project .kiln/kiln.yaml.",
-    );
+    expect(readGlobalConfig()?.web).toEqual({
+      enabled: true,
+      netPolicy: "full",
+      allowedDomains: ["*"],
+    });
   });
 
   it("readGlobalConfig() rejects invalid target catalog references and account selection", () => {

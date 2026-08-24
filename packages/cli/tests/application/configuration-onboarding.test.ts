@@ -9,12 +9,16 @@ import { deriveEffectiveKilnYaml } from "../../src/config/config-merger.js";
 import { readGlobalExecutionTargetAuthority } from "../../src/config/global-config.js";
 import { resolveExecutionRouteCandidates } from "../../src/config/execution-route-resolver.js";
 import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
-import { readKilnYaml } from "../../src/kiln-yaml.js";
+import { readKilnYamlFile } from "../../src/kiln-yaml.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
 import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-v4-fixture.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
 import {
   applyConfigurationOnboarding,
   readConfigurationOnboarding,
+  type ApplyConfigurationOnboardingInput,
+  type ReadConfigurationOnboardingInput,
 } from "../../src/application/configuration-onboarding.js";
 import {
   applyConfigMutation,
@@ -40,6 +44,7 @@ function globalConfig(defaultTargetId?: string): KilnGlobalConfig {
       accountPolicies: [],
       targets: [target] as never,
     },
+    permissions: { approval: "on-request", sandbox: "read-only" },
     ...(defaultTargetId === undefined ? {} : { targetRouting: { defaultTargetId } }),
   };
 }
@@ -56,30 +61,54 @@ function globalConfigWithTargets(
       accountPolicies: [],
       targets: targets as never,
     },
+    permissions: { approval: "on-request", sandbox: "read-only" },
     ...(defaultTargetId === undefined ? {} : { targetRouting: { defaultTargetId } }),
   };
 }
 
 describe("configuration onboarding application", () => {
   let projectPath: string;
+  let kilnHome: string;
+  let projectStateBinding: ProjectStateBinding;
   let globalHome: string;
   let previousXdgConfigHome: string | undefined;
 
   beforeEach(() => {
     projectPath = mkdtempSync(join(tmpdir(), "kiln-onboarding-"));
+    mkdirSync(join(projectPath, ".git"), { recursive: true });
+    kilnHome = mkdtempSync(join(tmpdir(), "kiln-onboarding-private-home-"));
+    projectStateBinding = resolveProjectStateBinding(projectPath, { kilnHome });
     globalHome = mkdtempSync(join(tmpdir(), "kiln-onboarding-global-"));
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
-    writeFileSync(join(globalHome, "kiln", "config.yaml"), "version: '4'\n", "utf8");
+    writeFileSync(join(globalHome, "kiln", "config.yaml"), stringify({
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.6-terra", "codex-default"),
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    }), "utf8");
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = globalHome;
   });
 
   afterEach(() => {
     rmSync(projectPath, { recursive: true, force: true });
+    rmSync(kilnHome, { recursive: true, force: true });
     rmSync(globalHome, { recursive: true, force: true });
     if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
   });
+
+  function readOnboarding(input: Omit<ReadConfigurationOnboardingInput, "projectStateBinding">) {
+    return readConfigurationOnboarding({ ...input, projectPath, projectStateBinding });
+  }
+
+  function applyOnboarding(input: Omit<ApplyConfigurationOnboardingInput, "projectStateBinding">) {
+    return applyConfigurationOnboarding({ ...input, projectPath, projectStateBinding });
+  }
+
+  function writeProjectConfig(contents: string): void {
+    mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
+    writeFileSync(projectStateBinding.configPath, contents, "utf8");
+    bootstrapProjectAdoption(projectStateBinding);
+  }
 
   it("reports ready only when a current admitted direct target is available", () => {
     const dependencies = {
@@ -87,7 +116,7 @@ describe("configuration onboarding application", () => {
       readTargetAuthority: vi.fn(() => ({ current: true })),
     };
 
-    expect(readConfigurationOnboarding({ projectPath, dependencies })).toEqual({
+    expect(readOnboarding({ projectPath, dependencies })).toEqual({
       schemaVersion: 1,
       status: "ready",
       scope: "project",
@@ -106,7 +135,7 @@ describe("configuration onboarding application", () => {
   });
 
   it("blocks without a global admitted direct target", () => {
-    const snapshot = readConfigurationOnboarding({
+    const snapshot = readOnboarding({
       projectPath,
       dependencies: {
         readGlobalConfig: () => ({ version: "4" }),
@@ -120,10 +149,8 @@ describe("configuration onboarding application", () => {
   });
 
   it("does not claim completion when project permissions are inherited from a broad global posture", () => {
-    const kilnDir = join(projectPath, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeFileSync(join(kilnDir, "kiln.yaml"), "version: '1'\n", "utf8");
-    const snapshot = readConfigurationOnboarding({
+    writeProjectConfig("version: '1'\n");
+    const snapshot = readOnboarding({
       projectPath,
       dependencies: {
         readGlobalConfig: () => ({ ...globalConfig("codex-default"), permissions: { approval: "never", sandbox: "danger-full-access" } }),
@@ -136,16 +163,14 @@ describe("configuration onboarding application", () => {
   });
 
   it("accepts an explicit untrusted project approval when global policy requires it", () => {
-    const kilnDir = join(projectPath, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeFileSync(join(kilnDir, "kiln.yaml"), [
+    writeProjectConfig([
       "version: '1'",
       "permissions:",
       "  approval: untrusted",
       "  sandbox: read-only",
       "",
-    ].join("\n"), "utf8");
-    const snapshot = readConfigurationOnboarding({
+    ].join("\n"));
+    const snapshot = readOnboarding({
       projectPath,
       dependencies: {
         readGlobalConfig: () => ({ ...globalConfig("codex-default"), permissions: { approval: "untrusted", sandbox: "read-only" } }),
@@ -157,19 +182,20 @@ describe("configuration onboarding application", () => {
   });
 
   it("accepts an on-failure project approval as stricter than the safe baseline", () => {
-    const kilnDir = join(projectPath, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeFileSync(join(kilnDir, "kiln.yaml"), [
+    writeProjectConfig([
       "version: '1'",
       "permissions:",
       "  approval: on-failure",
       "  sandbox: read-only",
       "",
-    ].join("\n"), "utf8");
-    const snapshot = readConfigurationOnboarding({
+    ].join("\n"));
+    const snapshot = readOnboarding({
       projectPath,
       dependencies: {
-        readGlobalConfig: () => globalConfig("codex-default"),
+        readGlobalConfig: () => ({
+          ...globalConfig("codex-default"),
+          permissions: { approval: "never", sandbox: "read-only" },
+        }),
         readTargetAuthority: () => ({ current: true }),
       },
     });
@@ -178,9 +204,7 @@ describe("configuration onboarding application", () => {
   });
 
   it("blocks a structurally valid project that broadens global work governance", () => {
-    const kilnDir = join(projectPath, ".kiln");
-    mkdirSync(kilnDir, { recursive: true });
-    writeFileSync(join(kilnDir, "kiln.yaml"), [
+    writeProjectConfig([
       "version: '1'",
       "permissions:",
       "  approval: on-request",
@@ -188,9 +212,9 @@ describe("configuration onboarding application", () => {
       "workGovernance:",
       "  defaultPosture: direct",
       "",
-    ].join("\n"), "utf8");
+    ].join("\n"));
 
-    const snapshot = readConfigurationOnboarding({
+    const snapshot = readOnboarding({
       projectPath,
       dependencies: {
         readGlobalConfig: () => ({
@@ -218,29 +242,32 @@ describe("configuration onboarding application", () => {
       targetId: target.id,
     };
 
-    const first = await applyConfigurationOnboarding({ projectPath, request, dependencies });
+    const first = await applyOnboarding({ projectPath, request, dependencies });
     expect(first.status).toBe("committed");
     expect(first.projectAdoption?.outcome).toBe("committed");
-    expect(parse(readFileSync(join(projectPath, ".kiln", "kiln.yaml"), "utf8"))).toEqual({
+    expect(parse(readFileSync(projectStateBinding.configPath, "utf8"))).toEqual({
       version: "1",
       permissions: { approval: "on-request", sandbox: "read-only" },
     });
 
-    const second = await applyConfigurationOnboarding({ projectPath, request, dependencies });
+    const second = await applyOnboarding({ projectPath, request, dependencies });
     expect(second.status).toBe("committed");
     expect(second.projectAdoption).toBeNull();
     expect(second.targetSelection).toBeNull();
   });
 
   it("composes a safe first turn onto the exact admitted provider/model route", async () => {
-    const admittedGlobal = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.6-terra", "codex-default");
+    const admittedGlobal = {
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.6-terra", "codex-default"),
+      permissions: { approval: "never", sandbox: "read-only" },
+    } satisfies KilnGlobalConfig;
     const globalPath = join(globalHome, "kiln", "config.yaml");
     writeFileSync(globalPath, stringify(admittedGlobal), "utf8");
     writeExecutionTargetEvidenceSnapshot({
       globalConfigPath: globalPath,
       snapshot: makeOperatorSurfaceTargetEvidence("codex-oauth", "gpt-5.6-terra", "codex-default"),
     });
-    const result = await applyConfigurationOnboarding({
+    const result = await applyOnboarding({
       projectPath,
       globalConfigPath: globalPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: "codex-default" },
@@ -248,7 +275,7 @@ describe("configuration onboarding application", () => {
     });
 
     expect(result.status).toBe("committed");
-    const project = readKilnYaml(join(projectPath, ".kiln"));
+    const project = readKilnYamlFile(projectStateBinding.configPath);
     const effective = deriveEffectiveKilnYaml(admittedGlobal, project);
     expect(effective?.permissions).toMatchObject({ approval: "on-request", sandbox: "read-only" });
     const authority = readGlobalExecutionTargetAuthority(admittedGlobal, { globalConfigPath: globalPath });
@@ -262,7 +289,7 @@ describe("configuration onboarding application", () => {
       readTargetAuthority: vi.fn(() => ({ current: true })),
     };
 
-    const result = await applyConfigurationOnboarding({
+    const result = await applyOnboarding({
       projectPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: target.id },
       dependencies,
@@ -272,14 +299,14 @@ describe("configuration onboarding application", () => {
     expect(result.projectAdoption).toBeNull();
     expect(result.targetSelection).toBeNull();
     expect(result.nextAction).toContain("approval");
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(projectStateBinding.configPath)).toBe(false);
   });
 
   it("never approves an implicit first target when no default exists", async () => {
     const costlyTarget = { ...target, id: "costly", label: "Costly route" };
     const safeTarget = { ...target, id: "safe", label: "Safe route" };
 
-    const result = await applyConfigurationOnboarding({
+    const result = await applyOnboarding({
       projectPath,
       approve: true,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: null },
@@ -291,7 +318,7 @@ describe("configuration onboarding application", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.nextAction).toContain("Select an admitted direct target");
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(projectStateBinding.configPath)).toBe(false);
   });
 
   it("retries failed reconciliation on rerun and keeps path-bearing diagnostics secret-free", async () => {
@@ -326,16 +353,16 @@ describe("configuration onboarding application", () => {
       targetId: "codex-default",
     };
 
-    const first = await applyConfigurationOnboarding({ projectPath, request, dependencies });
+    const first = await applyOnboarding({ projectPath, request, dependencies });
     expect(first.status).toBe("partial");
     expect(JSON.stringify(first)).not.toMatch(/Jane|Doe|AGENTS\.md|Users/iu);
-    expect(readConfigurationOnboarding({ projectPath, dependencies }).status).toBe("ready");
+    expect(readOnboarding({ projectPath, dependencies }).status).toBe("ready");
 
-    const second = await applyConfigurationOnboarding({ projectPath, request, dependencies });
+    const second = await applyOnboarding({ projectPath, request, dependencies });
     expect(second.status).toBe("committed");
     expect(second.projectAdoption?.outcome).toBe("committed");
     expect(reconciliationAttempt).toBe(2);
-    expect(readConfigurationOnboarding({ projectPath, dependencies }).status).toBe("complete");
+    expect(readOnboarding({ projectPath, dependencies }).status).toBe("complete");
   });
 
   it("does not report complete while the committed configuration is still reconciling", async () => {
@@ -371,10 +398,10 @@ describe("configuration onboarding application", () => {
       targetId: "codex-default",
     };
 
-    const pending = applyConfigurationOnboarding({ projectPath, request, dependencies });
+    const pending = applyOnboarding({ projectPath, request, dependencies });
     await reconciliationStarted;
 
-    const duringReconciliation = readConfigurationOnboarding({ projectPath, dependencies });
+    const duringReconciliation = readOnboarding({ projectPath, dependencies });
     finishReconciliation();
     const result = await pending;
 
@@ -396,11 +423,12 @@ describe("configuration onboarding application", () => {
     };
     const orphan = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "project.adopt",
       payload: { scope: "project", posture: "read-only" },
       now: new Date("2026-01-01T00:00:01.000Z"),
     });
-    const store = new ConfigMutationStore(projectPath);
+    const store = new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath });
     store.saveProposal(orphan);
     const write = orphan.writes[0]!;
     store.writeProgressMarker({
@@ -409,11 +437,10 @@ describe("configuration onboarding application", () => {
       intendedRevision: `sha256:${createHash("sha256").update(write.nextContent).digest("hex")}`,
       startedAt: "2026-01-01T00:00:02.000Z",
     });
-    mkdirSync(join(projectPath, ".kiln"), { recursive: true });
     writeFileSync(write.path, write.nextContent, "utf8");
-    expect(readConfigurationOnboarding({ projectPath, dependencies }).status).toBe("ready");
+    expect(readOnboarding({ projectPath, dependencies }).status).toBe("ready");
 
-    expect((await applyConfigurationOnboarding({ projectPath, request, dependencies })).status).toBe("committed");
+    expect((await applyOnboarding({ projectPath, request, dependencies })).status).toBe("committed");
     expect(store.readProgressMarker(orphan.proposal.proposalId)).toBeNull();
     const settlement = store.readSettlement(orphan.proposal.proposalId);
     expect(settlement).toMatchObject({
@@ -421,19 +448,21 @@ describe("configuration onboarding application", () => {
       baseRevision: "absent",
       restore: [{ path: write.path, previousContent: null }],
     });
-    expect(readConfigurationOnboarding({ projectPath, dependencies }).status).toBe("complete");
+    expect(readOnboarding({ projectPath, dependencies }).status).toBe("complete");
 
     const rollback = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       operation: "mutation.rollback",
       payload: { token: orphan.proposal.proposalId },
     });
     store.saveProposal(rollback);
     const rollbackApproval = rollback.proposal.approvalRequired
-      ? approveConfigMutation({ projectPath, proposalId: rollback.proposal.proposalId })
+      ? approveConfigMutation({ projectPath, projectStateBinding, proposalId: rollback.proposal.proposalId })
       : undefined;
     expect((await applyConfigMutation({
       projectPath,
+      projectStateBinding,
       proposalId: rollback.proposal.proposalId,
       ...(rollbackApproval === undefined ? {} : { approvalId: rollbackApproval.approvalId }),
       requester: "operator",
@@ -448,6 +477,7 @@ describe("configuration onboarding application", () => {
     const targetA = base.targetCatalog!.targets[0]!;
     const admitted = withSyntheticExecutionTargetEvidence({
       ...base,
+      permissions: { approval: "never", sandbox: "read-only" },
       targetCatalog: {
         ...base.targetCatalog!,
         targets: [targetA, { ...targetA, id: "target-b", label: "Target B" }],
@@ -457,25 +487,25 @@ describe("configuration onboarding application", () => {
     const before = stringify(admitted.config);
     writeFileSync(globalPath, before, "utf8");
     writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalPath, snapshot: admitted.evidence! });
-    mkdirSync(join(projectPath, ".kiln"), { recursive: true });
-    writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), [
+    writeProjectConfig([
       "version: '1'",
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",
       "",
-    ].join("\n"), "utf8");
+    ].join("\n"));
 
     const interrupted = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       globalConfigPath: globalPath,
       operation: "target.select",
       payload: { targetId: "target-b" },
       now: new Date("2026-01-01T00:00:01.000Z"),
     });
-    const store = new ConfigMutationStore(projectPath);
+    const store = new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath });
     store.saveProposal(interrupted);
-    const approval = approveConfigMutation({ projectPath, proposalId: interrupted.proposal.proposalId });
+    const approval = approveConfigMutation({ projectPath, projectStateBinding, proposalId: interrupted.proposal.proposalId });
     const write = interrupted.writes[0]!;
     store.writeProgressMarker({
       proposalId: interrupted.proposal.proposalId,
@@ -485,11 +515,14 @@ describe("configuration onboarding application", () => {
     });
     writeFileSync(globalPath, write.nextContent, "utf8");
 
-    const result = await applyConfigurationOnboarding({
+    const result = await applyOnboarding({
       projectPath,
+      approve: true,
       globalConfigPath: globalPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: "target-b" },
       dependencies: {
+        readGlobalConfig: () => admitted.config,
+        readTargetAuthority: () => ({ current: true }),
         applyMutation: (input) => applyConfigMutation({ ...input, reconcile: async () => [] }),
       },
     });
@@ -506,16 +539,18 @@ describe("configuration onboarding application", () => {
 
     const rollback = proposeConfigMutation({
       projectPath,
+      projectStateBinding,
       globalConfigPath: globalPath,
       operation: "mutation.rollback",
       payload: { token: interrupted.proposal.proposalId },
     });
     store.saveProposal(rollback);
     const rollbackApproval = rollback.proposal.approvalRequired
-      ? approveConfigMutation({ projectPath, proposalId: rollback.proposal.proposalId })
+      ? approveConfigMutation({ projectPath, projectStateBinding, proposalId: rollback.proposal.proposalId })
       : undefined;
     expect((await applyConfigMutation({
       projectPath,
+      projectStateBinding,
       globalConfigPath: globalPath,
       proposalId: rollback.proposal.proposalId,
       ...(rollbackApproval === undefined ? {} : { approvalId: rollbackApproval.approvalId }),
@@ -537,8 +572,8 @@ describe("configuration onboarding application", () => {
       posture: "read-only" as const,
       targetId: "codex-default",
     };
-    expect((await applyConfigurationOnboarding({ projectPath, request, dependencies })).status).toBe("committed");
-    const store = new ConfigMutationStore(projectPath);
+    expect((await applyOnboarding({ projectPath, request, dependencies })).status).toBe("committed");
+    const store = new ConfigMutationStore(projectPath, { root: projectStateBinding.mutationsPath });
     const settled = store.readLatestSettlement("project.adopt")!;
     const record = store.readProposal(settled.proposalId)!;
     const write = record.writes[0]!;
@@ -550,9 +585,10 @@ describe("configuration onboarding application", () => {
       startedAt: settled.settledAt,
     });
 
-    expect(readConfigurationOnboarding({ projectPath, dependencies }).status).toBe("complete");
+    expect(readOnboarding({ projectPath, dependencies }).status).toBe("complete");
     const replay = await applyConfigMutation({
       projectPath,
+      projectStateBinding,
       proposalId: settled.proposalId,
       requester: "operator",
       readEffectiveState: async () => undefined,
@@ -562,9 +598,15 @@ describe("configuration onboarding application", () => {
   });
 
   it("reports an unexpected second-operation rejection as partial after project commit", async () => {
-    const result = await applyConfigurationOnboarding({
+    const selectionGlobalPath = join(globalHome, "kiln", "selection-global.yaml");
+    writeFileSync(selectionGlobalPath, stringify({
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.6-terra", "other-target"),
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    }), "utf8");
+    const result = await applyOnboarding({
       projectPath,
       approve: true,
+      globalConfigPath: selectionGlobalPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: target.id },
       dependencies: {
         readGlobalConfig: () => globalConfig(),
@@ -575,11 +617,11 @@ describe("configuration onboarding application", () => {
     expect(result.status).toBe("partial");
     expect(result.projectAdoption?.outcome).toBe("committed");
     expect(result.targetSelection?.outcome).toBe("rejected");
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(true);
+    expect(existsSync(projectStateBinding.configPath)).toBe(true);
   });
 
   it("writes nothing when readiness is blocked", async () => {
-    const result = await applyConfigurationOnboarding({
+    const result = await applyOnboarding({
       projectPath,
       request: { schemaVersion: 1, scope: "project", posture: "read-only", targetId: null },
       dependencies: {
@@ -590,6 +632,6 @@ describe("configuration onboarding application", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.projectAdoption).toBeNull();
-    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(existsSync(projectStateBinding.configPath)).toBe(false);
   });
 });

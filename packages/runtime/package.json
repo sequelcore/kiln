@@ -24,7 +24,7 @@
     "test:model-gateway:listener:bun": "bun tests/model-gateway/model-gateway-listener.bun.ts",
     "test:model-gateway:sqlite:bun": "bun tests/model-gateway/local-model-gateway-store.bun.ts",
     "test:managed-economic-authority:sqlite:bun": "bun tests/managed-account-leases/managed-economic-commitment-authority.bun.ts",
-    "test:profile": "vitest run --reporter=json --outputFile=../../.kiln/runtime-vitest-profile.json",
+    "test:profile": "bun ../../scripts/run-vitest-profile.ts runtime",
     "test:live": "vitest run --config vitest.live.config.ts"
   },
   "license": "Apache-2.0",

@@ -8,12 +8,18 @@ import {
   type KilnInstructionDoctrineDefinition,
   type KilnInstructionProfileDefinition,
 } from "./instruction-profile-loader.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "./project-state-root.js";
+import { resolveProjectRoot } from "./project-root-resolver.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { backupNativeProjectionFile } from "../config/native-projection-backup.js";
 import {
   createNativeProjectionFileSnapshot,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
   removeNativeProjectionTargetState,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
@@ -69,6 +75,8 @@ export interface GlobalInstructionShimTargetResult extends GlobalInstructionShim
 
 export interface GlobalInstructionShimProjectionOptions {
   readonly userHome?: string;
+  /** Established private state binding for reading this project's config and profiles. */
+  readonly projectStateBinding?: ProjectStateBinding;
   readonly force?: boolean;
   readonly adoptUnmanaged?: boolean;
   readonly disabledHarnesses?: readonly NativeProjectionHarness[];
@@ -84,8 +92,7 @@ export interface GlobalInstructionShimProjectionResult {
 }
 
 interface ProjectionContext {
-  readonly projectPath: string;
-  readonly kilnDir: string;
+  readonly projectionStateDir: string;
   readonly profiles: readonly KilnInstructionProfileDefinition[];
   readonly sourceProfiles: readonly string[];
 }
@@ -117,8 +124,8 @@ export async function readGlobalInstructionShimProjectionSnapshots(
   projectPath: string,
   options: GlobalInstructionShimProjectionOptions = {},
 ): Promise<readonly GlobalInstructionShimSnapshot[]> {
-  const context = await loadProjectionContext(projectPath, options.userHome);
-  const state = readNativeProjectionInstallState(context.kilnDir);
+  const context = await loadProjectionContext(projectPath, options);
+  const state = readNativeProjectionInstallState(context.projectionStateDir);
   return listGlobalInstructionShimTargets(requireUserHome(options.userHome)).map((target) =>
     classifyTarget(context, state, target)
   );
@@ -130,7 +137,7 @@ export async function syncGlobalInstructionShimProjections(
 ): Promise<GlobalInstructionShimProjectionResult> {
   let context: ProjectionContext;
   try {
-    context = await loadProjectionContext(projectPath, options.userHome);
+    context = await loadProjectionContext(projectPath, options);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {
@@ -140,7 +147,7 @@ export async function syncGlobalInstructionShimProjections(
       outcomes: [{ targetId: "global-instruction-shims", path: projectPath, status: "failed", reason }],
     };
   }
-  let state = readNativeProjectionInstallState(context.kilnDir);
+  let state = readNativeProjectionInstallState(context.projectionStateDir);
   const results: GlobalInstructionShimTargetResult[] = [];
 
   for (const target of listGlobalInstructionShimTargets(requireUserHome(options.userHome))) {
@@ -154,7 +161,7 @@ export async function syncGlobalInstructionShimProjections(
     }
   }
 
-  if (!options.dryRun) writeNativeProjectionInstallState(context.kilnDir, state);
+  if (!options.dryRun) writeNativeProjectionInstallState(context.projectionStateDir, state);
   return {
     synced: results.filter((target) => target.written).length,
     targets: results,
@@ -215,7 +222,7 @@ function syncTarget(
 
   const backupPath = snapshot.status === "unmanaged" || snapshot.status === "drifted" || snapshot.status === "stale"
     ? backupNativeProjectionFile({
-      kilnDir: context.kilnDir,
+      kilnDir: context.projectionStateDir,
       targetId: target.targetId,
       filePath: target.filePath,
       timestamp: options.timestamp,
@@ -319,17 +326,26 @@ function classifyTarget(
   };
 }
 
-async function loadProjectionContext(projectPath: string, userHome?: string): Promise<ProjectionContext> {
-  const home = requireUserHome(userHome);
-  const kilnConfig = await loadKilnConfig(projectPath);
-  const allProfiles = loadInstructionProfiles(projectPath, home);
+async function loadProjectionContext(
+  projectPath: string,
+  options: GlobalInstructionShimProjectionOptions,
+): Promise<ProjectionContext> {
+  const home = requireUserHome(options.userHome);
+  const projectRoot = options.projectStateBinding?.canonicalRoot
+    ?? resolveProjectRoot({
+      explicitPath: projectPath,
+      ...(options.userHome ? { userHome: home } : {}),
+    }).rootPath;
+  const stateBinding = options.projectStateBinding
+    ?? resolveProjectStateBinding(projectRoot);
+  const kilnConfig = await loadKilnConfig(projectRoot, { projectStateBinding: stateBinding });
+  const allProfiles = loadInstructionProfiles(projectRoot, options.userHome, { projectStateBinding: stateBinding });
   const activeProfiles = kilnConfig?.activeInstructionProfiles ?? [];
   const profiles = activeProfiles
     .map((profileId) => findInstructionProfile(allProfiles, profileId))
     .filter((profile): profile is KilnInstructionProfileDefinition => profile?.scope === "global");
   return {
-    projectPath,
-    kilnDir: join(projectPath, ".kiln"),
+    projectionStateDir: resolveGlobalNativeProjectionStateDir(options.userHome),
     profiles,
     sourceProfiles: profiles.map((profile) => profile.name),
   };
@@ -373,7 +389,7 @@ function renderAuthoritySection(): readonly string[] {
     "## Authority",
     "",
     "Canonical durable doctrine lives in `~/.kiln/instructions`. Native harness files are generated entrypoint shims.",
-    "Project repositories add only project-specific context through repo shims and `.kiln/project-context.md`.",
+    "Project repositories add only project-specific context through repo shims and private project context state.",
     "",
   ];
 }

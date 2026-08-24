@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type { McpConfigurationResolution } from "@kilnai/core";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "../application/project-state-root.js";
 import { stripJsonComments } from "./json-comments.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
@@ -43,12 +47,15 @@ export interface NativeMcpProjectionOptions {
   readonly harnesses?: readonly NativeMcpHarness[];
   readonly force?: boolean;
   readonly now?: string;
+  /** Established private state binding for this project. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export function assertNativeMcpProjectionCurrent(
   resolution: McpConfigurationResolution,
   projectPath: string,
   harness: NativeMcpHarness,
+  projectStateBinding?: ProjectStateBinding,
 ): void {
   const enabled = Object.values(resolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted");
   if (enabled.length === 0) return;
@@ -58,8 +65,8 @@ export function assertNativeMcpProjectionCurrent(
       throw new Error(`Canonical MCP server '${server.id}' is incompatible with ${harness}: ${compatibility.reason}`);
     }
   }
-  const kilnDir = join(projectPath, ".kiln");
-  const state = readNativeProjectionInstallState(kilnDir);
+  const stateBinding = projectStateBinding ?? resolveProjectStateBinding(projectPath);
+  const state = readNativeProjectionInstallState(stateBinding.projectionsPath);
   const targetId = `mcp:${harness}`;
   const target = state.targets[targetId];
   if (!target) throw new Error(`${harness} MCP projection is not installed; run 'kiln mcp-config --client ${harness}'.`);
@@ -83,8 +90,9 @@ export async function syncNativeMcpProjections(
   projectPath: string,
   options: NativeMcpProjectionOptions = {},
 ): Promise<NativeMcpProjectionResult> {
-  const kilnDir = join(projectPath, ".kiln");
-  let installState = readNativeProjectionInstallState(kilnDir);
+  const stateBinding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath);
+  const projectionStateDir = stateBinding.projectionsPath;
+  let installState = readNativeProjectionInstallState(projectionStateDir);
   let stateChanged = false;
   const targets: NativeMcpProjectionTargetResult[] = [];
   const rollbacks: Array<() => void> = [];
@@ -178,7 +186,7 @@ export async function syncNativeMcpProjections(
     if (JSON.stringify(projected) !== JSON.stringify(current)) {
       const originalContent = existsSync(target) ? readFileSync(target, "utf8") : undefined;
       mkdirSync(dirname(target), { recursive: true });
-      backupNativeProjectionFile({ kilnDir, targetId, filePath: target, timestamp: options.now });
+      backupNativeProjectionFile({ kilnDir: stateBinding.projectStateRoot, targetId, filePath: target, timestamp: options.now });
       rollbacks.push(() => restoreNativeDocument(target, originalContent));
       writeNativeDocument(harness, target, projected);
     }
@@ -202,7 +210,7 @@ export async function syncNativeMcpProjections(
     });
     }
 
-    if (stateChanged) writeNativeProjectionInstallState(kilnDir, installState);
+    if (stateChanged) writeNativeProjectionInstallState(projectionStateDir, installState, stateBinding.projectStateRoot);
     return { targets };
   } catch (error) {
     rollbackNativeDocuments(rollbacks, error);
@@ -211,10 +219,11 @@ export async function syncNativeMcpProjections(
 
 export async function uninstallNativeMcpProjections(
   projectPath: string,
-  options: Pick<NativeMcpProjectionOptions, "harnesses" | "force" | "now"> = {},
+  options: Pick<NativeMcpProjectionOptions, "harnesses" | "force" | "now" | "projectStateBinding"> = {},
 ): Promise<NativeMcpProjectionResult> {
-  const kilnDir = join(projectPath, ".kiln");
-  let installState = readNativeProjectionInstallState(kilnDir);
+  const stateBinding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath);
+  const projectionStateDir = stateBinding.projectionsPath;
+  let installState = readNativeProjectionInstallState(projectionStateDir);
   const targets: NativeMcpProjectionTargetResult[] = [];
   let stateChanged = false;
   const rollbacks: Array<() => void> = [];
@@ -247,14 +256,14 @@ export async function uninstallNativeMcpProjections(
     }
     const stripped = stripManagedFields({ currentDocument: current, managedFields: owned.managedFields });
     const originalContent = existsSync(owned.filePath) ? readFileSync(owned.filePath, "utf8") : undefined;
-    backupNativeProjectionFile({ kilnDir, targetId, filePath: owned.filePath, timestamp: options.now });
+    backupNativeProjectionFile({ kilnDir: stateBinding.projectStateRoot, targetId, filePath: owned.filePath, timestamp: options.now });
     rollbacks.push(() => restoreNativeDocument(owned.filePath, originalContent));
     writeNativeDocument(harness, owned.filePath, stripped);
     installState = removeNativeProjectionTargetState(installState, targetId);
     stateChanged = true;
     targets.push({ harness, path: owned.filePath, status: "uninstalled" });
     }
-    if (stateChanged) writeNativeProjectionInstallState(kilnDir, installState);
+    if (stateChanged) writeNativeProjectionInstallState(projectionStateDir, installState, stateBinding.projectStateRoot);
     return { targets };
   } catch (error) {
     rollbackNativeDocuments(rollbacks, error);

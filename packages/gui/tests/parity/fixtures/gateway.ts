@@ -1,6 +1,7 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Readable } from "node:stream";
 import { expect, test as base, type Page } from "@playwright/test";
 
 const READY_TIMEOUT_MS = 30_000;
@@ -11,13 +12,17 @@ interface GatewayFixture {
   operatorToken: string;
 }
 
+type GatewayTestFixtures = Record<never, never>;
+
+type GatewayRunnerProcess = ChildProcessByStdio<null, Readable, Readable>;
+
 let activeOperatorToken = "";
 
 function resolveRepoRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "..");
 }
 
-async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<{ readonly port: number; readonly operatorToken: string }> {
+async function waitForReady(child: GatewayRunnerProcess): Promise<{ readonly port: number; readonly operatorToken: string }> {
   let stdoutBuffer = "";
   let stderrBuffer = "";
 
@@ -76,7 +81,7 @@ async function waitForReady(child: ChildProcessWithoutNullStreams): Promise<{ re
   });
 }
 
-async function stopRunner(child: ChildProcessWithoutNullStreams): Promise<void> {
+async function stopRunner(child: GatewayRunnerProcess): Promise<void> {
   if (child.exitCode !== null) {
     return;
   }
@@ -96,7 +101,7 @@ async function stopRunner(child: ChildProcessWithoutNullStreams): Promise<void> 
   });
 }
 
-export const test = base.extend<Record<string, never>, GatewayFixture>({
+export const test = base.extend<GatewayTestFixtures, GatewayFixture>({
   gatewayPort: [async ({ browserName }, use) => {
     void browserName;
     const repoRoot = resolveRepoRoot();

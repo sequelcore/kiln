@@ -51,11 +51,14 @@ function codexCredential(accountId: string, email?: string) {
 describe("auth command", () => {
   let logs: string[];
   let previousCodexHome: string | undefined;
+  let previousXdgConfigHome: string | undefined;
 
   beforeEach(async () => {
     logs = [];
     previousCodexHome = process.env.CODEX_HOME;
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     delete process.env.CODEX_HOME;
+    delete process.env.XDG_CONFIG_HOME;
     vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
       logs.push(String(message ?? ""));
     });
@@ -106,6 +109,8 @@ describe("auth command", () => {
     vi.restoreAllMocks();
     if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = previousCodexHome;
+    if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
     await rm(homeDir, { recursive: true, force: true });
   });
 
@@ -121,6 +126,23 @@ describe("auth command", () => {
     expect(logs.join("\n")).toContain("go-exhausted");
     expect(logs.join("\n")).toContain("5");
     expect(logs.join("\n")).toContain("exhausted");
+  }, 10_000);
+
+  it("uses the XDG-selected global Kiln home for auth state", async () => {
+    const xdgConfigHome = join(homeDir, "xdg-config");
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+    const kilnHome = join(xdgConfigHome, "kiln");
+    await mkdir(join(kilnHome, "auth", "opencode-api"), { recursive: true });
+    await writeFile(
+      join(kilnHome, "auth", "opencode-api", "xdg-only.json"),
+      `${JSON.stringify(openCodeCredential("xdg-only", "go", "xdg-key"))}\n`,
+      "utf8",
+    );
+
+    await runAuth(["opencode", "status"]);
+
+    expect(logs.join("\n")).toContain("xdg-only");
+    expect(logs.join("\n")).not.toContain("go-primary");
   }, 10_000);
 
   it("uses pooled provider state for aggregate auth status instead of singleton auth files", async () => {

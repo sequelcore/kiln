@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppGatewayRuntimeIdentity } from "@kilnai/gateway-contracts";
 import {
@@ -67,11 +68,42 @@ describe("AppGatewaySupervisor", () => {
     expect(processAdapter.spawn).not.toHaveBeenCalled();
     expect(processAdapter.terminate).not.toHaveBeenCalled();
   });
+
+  it("fails closed when the composed runtime directory is replaced by a junction", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-app-gateway-junction-"));
+    const runtimeDir = join(root, "runtime", "app-gateway");
+    const external = join(root, "external");
+    const sentinel = join(external, "sentinel.txt");
+    await mkdir(runtimeDir, { recursive: true });
+    await mkdir(external, { recursive: true });
+    await writeFile(sentinel, "must remain untouched", "utf8");
+    const inspect = vi.fn<() => Promise<AppGatewayListenerInspection>>()
+      .mockResolvedValue({ state: "stopped" });
+    const processAdapter = adapter(222);
+    const supervisor = createSupervisor(runtimeDir, inspect, processAdapter, root);
+
+    await rm(runtimeDir, { recursive: true, force: true });
+    symlinkSync(external, runtimeDir, process.platform === "win32" ? "junction" : "dir");
+
+    await expect(supervisor.start()).rejects.toThrow("unsafe");
+    expect(await readFile(sentinel, "utf8")).toBe("must remain untouched");
+    expect(await readFile(join(external, "state.json")).catch(() => null)).toBeNull();
+    expect(await readFile(join(external, "credentials.json")).catch(() => null)).toBeNull();
+    expect(await readFile(join(external, "lifecycle.lock")).catch(() => null)).toBeNull();
+    expect(inspect).not.toHaveBeenCalled();
+    expect(processAdapter.spawn).not.toHaveBeenCalled();
+  });
 });
 
-function createSupervisor(root: string, inspect: () => Promise<AppGatewayListenerInspection>, processAdapter: AppGatewayProcessAdapter) {
+function createSupervisor(
+  root: string,
+  inspect: () => Promise<AppGatewayListenerInspection>,
+  processAdapter: AppGatewayProcessAdapter,
+  privateStateRoot = dirname(root),
+) {
   return new AppGatewaySupervisor({
     runtimeDir: root,
+    privateStateRoot,
     desired: { port: 4_800, configurationRevision: revision },
     version: "3.0.0-test",
     launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "gateway", "serve", "--config", "gateway.yaml"], cwd: "C:/project", mode: "local-dev", version: "3.0.0-test" },

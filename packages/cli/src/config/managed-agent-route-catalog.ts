@@ -43,7 +43,9 @@ export async function createStagedManagedInvocationRouteCatalog(
   const currentConfig = () => options.reloadConfig?.() ?? config;
   const executionComposition = context.compositionMode !== "candidate-admission";
   let managedAccountComposition = executionComposition && !context.managedEconomicAuthority && config
-    ? createManagedAccountRuntimeComposition(config, context.cwd)
+    ? createManagedAccountRuntimeComposition(config, context.cwd, {
+        ...(context.runtimeStateRoot ? { runtimeStateRoot: context.runtimeStateRoot } : {}),
+      })
     : undefined;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
@@ -67,7 +69,9 @@ export async function createStagedManagedInvocationRouteCatalog(
       invocationServiceKey = undefined;
     }
     if (executionComposition && !context.managedEconomicAuthority && !managedAccountComposition && nextConfig) {
-      managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd);
+      managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd, {
+        ...(context.runtimeStateRoot ? { runtimeStateRoot: context.runtimeStateRoot } : {}),
+      });
     }
     if (managedAccountComposition && nextConfig?.executionCatalog) {
       managedAccountComposition.updateCatalog(nextConfig.executionCatalog);

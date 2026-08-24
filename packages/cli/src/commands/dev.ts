@@ -6,6 +6,8 @@ import { YamlWatcher } from "./dev-watcher.js";
 import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 import { createAppGatewayExecutionComposition, gatewayRequiresAppGatewayExecution } from "../application/app-gateway-execution-composition.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
 export interface DevFlags {
   readonly port?: number;
@@ -31,21 +33,15 @@ export function resolveDevLaunchPlan(
   flags: DevFlags = {},
   pathExists: (path: string) => boolean = existsSync,
 ): DevLaunchPlan {
-  const appDir = join(root, ".kiln");
-
-  if (!pathExists(appDir)) {
-    return { ok: false, message: "Not initialized. Run 'kiln init' first." };
-  }
-
-  const gatewayPath = flags.configPath ?? join(appDir, "gateway.yaml");
+  const gatewayPath = flags.configPath ?? join(root, "gateway.yaml");
   if (!pathExists(gatewayPath)) {
     return {
       ok: false,
-      message: "No gateway configuration found. Run 'kiln init' or pass --config <path>.",
+      message: "No gateway configuration found. Create gateway.yaml or pass --config <path>.",
     };
   }
 
-  const appYamlPath = join(appDir, "app.yaml");
+  const appYamlPath = join(root, "app.yaml");
   const watchPaths = [gatewayPath];
   if (pathExists(appYamlPath)) watchPaths.push(appYamlPath);
   const port = flags.port ?? 4800;
@@ -60,7 +56,8 @@ export function resolveDevLaunchPlan(
 }
 
 export async function devCommand(_appConfig: KilnAppConfig, flags: DevFlags = {}): Promise<void> {
-  const root = process.cwd();
+  const root = resolveProjectRoot().rootPath;
+  const projectStateBinding = resolveProjectStateBinding(root);
   const plan = resolveDevLaunchPlan(root, flags);
 
   if (!plan.ok) {
@@ -85,16 +82,22 @@ export async function devCommand(_appConfig: KilnAppConfig, flags: DevFlags = {}
 
   try {
     const { readGatewayConfigurationSource, startGateway } = await import("@kilnai/runtime");
-    const mcp = loadResolvedKilnMcpConfiguration(root);
+    const mcp = loadResolvedKilnMcpConfiguration(root, { projectStateBinding });
     if (mcp.diagnostics.length > 0) {
       throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
     }
     const appGatewayExecution = gatewayRequiresAppGatewayExecution(readGatewayConfigurationSource(plan.gatewayPath))
-      ? createAppGatewayExecutionComposition({ projectPath: root, configPath: plan.gatewayPath })
+      ? createAppGatewayExecutionComposition({
+          projectPath: root,
+          configPath: plan.gatewayPath,
+          projectStateBinding,
+        })
       : undefined;
     try {
       await startGateway(plan.gatewayPath, {
         port: plan.port,
+        kilnHome: projectStateBinding.kilnHome,
+        privateStateRoot: join(projectStateBinding.runtimePath, "app-gateway"),
         swarmCoordination: "project-local",
         canonicalMcpServers: new Map(Object.entries(mcp.servers)),
         mcpCredentialResolver: createMcpCredentialAccess().resolve,

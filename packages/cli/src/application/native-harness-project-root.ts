@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,11 +10,14 @@ export type NativeHarnessProjectRootResolution =
 export function resolveNativeHarnessProjectRoot(
   projectPath: string,
 ): NativeHarnessProjectRootResolution {
-  const rootPath = resolve(projectPath);
-  if (!existsSync(join(rootPath, ".kiln", "kiln.yaml"))) {
+  try {
+    const rootPath = realpathSync(projectPath);
+    return lstatSync(rootPath).isDirectory()
+      ? { status: "resolved", rootPath }
+      : { status: "missing" };
+  } catch {
     return { status: "missing" };
   }
-  return { status: "resolved", rootPath };
 }
 
 /**
@@ -28,8 +31,7 @@ export function discoverNativeHarnessProjectRoot(
   const sourceDirectory = dirname(fileURLToPath(moduleUrl));
   const rootPath = resolve(sourceDirectory, "../../../..");
   const packagePath = join(rootPath, "package.json");
-  const kilnConfigPath = join(rootPath, ".kiln", "kiln.yaml");
-  if (!existsSync(packagePath) || !existsSync(kilnConfigPath)) {
+  if (!existsSync(packagePath)) {
     return { status: "missing" };
   }
 

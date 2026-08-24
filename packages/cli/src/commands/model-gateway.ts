@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { userInfo } from "node:os";
 import { parseGatewayYaml, type ExecutionCatalog, type ModelGatewayConfig } from "@kilnai/core";
 import {
@@ -55,6 +55,12 @@ import {
   createCliTranscriptSessionTokenUsageReader,
   createRuntimeSessionTurnBudgetFromGlobalConfig,
 } from "../application/session-turn-budget.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 
 interface SupervisorSurface {
   start(): Promise<ModelGatewaySupervisorStatus>;
@@ -330,9 +336,10 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
 async function serveDevelopmentConfig(configPath: string, dependencies: ModelGatewayCommandDependencies): Promise<void> {
   const config = loadDevelopmentModelGateway(configPath);
   const globalConfig = dependencies.readGlobalConfig();
+  const binding = resolveProjectStateBinding(resolveProjectRoot({ explicitPath: dependencies.projectPath }).rootPath);
   const runtime = await startConfiguredModelGatewayListener(globalConfig, config, {
     config,
-    databasePath: join(dirname(configPath), ".kiln", "model-gateway", "model-gateway.sqlite"),
+    databasePath: join(binding.runtimePath, "model-gateway", "development.sqlite"),
     identity: { instanceId: `dev-${dependencies.pid}`, version: dependencies.version, configDigest: createModelGatewayConfigDigest(config), pid: dependencies.pid },
   }, dependencies);
   dependencies.log(`Development model gateway ready at http://127.0.0.1:${config.port}`);
@@ -408,9 +415,17 @@ function createModelGatewayExecutionComposition(
   if (!executionCatalog) {
     throw new Error("Model gateway execution requires admitted managed evidence for the configured target catalog.");
   }
-  mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
+  const projectStateBinding = resolveProjectStateBinding(projectPath);
+  const databaseIsPrivate = isPathWithin(projectStateBinding.projectStateRoot, databasePath);
+  if (databaseIsPrivate) {
+    ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, dirname(databasePath));
+    assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, databasePath);
+  } else {
+    mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
+  }
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
     catalog: executionCatalog,
+    kilnHome: projectStateBinding.kilnHome,
     env,
   });
   const transcriptStore = new TranscriptStore(projectPath);
@@ -452,6 +467,11 @@ function createModelGatewayExecutionComposition(
     },
     close: () => accountCapacityAuthority.close(),
   };
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const path = relative(resolve(root), resolve(candidate));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 function createModelGatewayExecutionConfigurationRevision(globalConfig: KilnGlobalConfig, config: ModelGatewayConfig): string {

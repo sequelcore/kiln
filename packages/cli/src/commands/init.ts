@@ -1,22 +1,26 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type {
   KilnConfigurationOnboardingApplyRequest,
   KilnConfigurationOnboardingSnapshot,
 } from "@kilnai/gateway-contracts";
 import type { KilnAppConfig } from "../config.js";
-import { readKilnYaml, type KilnProjectConfig } from "../kiln-yaml.js";
+import { readKilnYamlFile, type KilnProjectConfig } from "../kiln-yaml.js";
 import {
   applyConfigurationOnboarding,
   readConfigurationOnboarding,
   type ConfigurationOnboardingDependencies,
 } from "../application/configuration-onboarding.js";
+import {
+  type ProjectStateBinding,
+  resolveProjectStateBinding,
+} from "../application/project-state-root.js";
 
 export interface InitFlags {
   interactive?: boolean;
   targetId?: string;
   posture?: KilnConfigurationOnboardingApplyRequest["posture"];
   approve?: boolean;
+  kilnHome?: string;
+  projectStateBinding?: ProjectStateBinding;
   /** Test/runtime injection; never serialized into canonical project state. */
   dependencies?: ConfigurationOnboardingDependencies;
 }
@@ -44,10 +48,13 @@ export async function initCommand(
   flags: InitFlags = {},
 ): Promise<KilnProjectConfig | null> {
   const root = projectPath ?? process.cwd();
+  const binding = flags.projectStateBinding
+    ?? resolveProjectStateBinding(root, flags);
   const interactive = flags.interactive !== false && process.stdin.isTTY === true;
   const snapshot = readConfigurationOnboarding({
     projectPath: root,
     posture: flags.posture,
+    projectStateBinding: binding,
     dependencies: flags.dependencies,
   });
 
@@ -96,13 +103,14 @@ export async function initCommand(
     projectPath: root,
     request,
     approve,
+    projectStateBinding: binding,
     dependencies: flags.dependencies,
   });
 
   if (result.status === "blocked" || result.status === "rejected") {
     const message = result.nextAction ?? "Onboarding did not complete.";
     console.error(message);
-    return readAdoptedProject(root);
+    return readAdoptedProject(binding);
   }
   if (result.status === "partial") {
     console.error(result.nextAction ?? "Onboarding partially applied; review the reported operation outcomes.");
@@ -111,7 +119,7 @@ export async function initCommand(
   } else {
     console.log("Kiln project onboarding complete.");
   }
-  return readAdoptedProject(root);
+  return readAdoptedProject(binding);
 }
 
 async function chooseTarget(snapshot: KilnConfigurationOnboardingSnapshot, current: string | undefined): Promise<string | undefined> {
@@ -131,10 +139,9 @@ function reportBlocked(snapshot: KilnConfigurationOnboardingSnapshot): void {
   if (snapshot.nextAction) console.error(snapshot.nextAction);
 }
 
-function readAdoptedProject(projectPath: string): KilnProjectConfig | null {
-  if (!existsSync(join(projectPath, ".kiln", "kiln.yaml"))) return null;
+function readAdoptedProject(binding: ProjectStateBinding): KilnProjectConfig | null {
   try {
-    return readKilnYaml(join(projectPath, ".kiln"));
+    return readKilnYamlFile(binding.configPath);
   } catch {
     return null;
   }

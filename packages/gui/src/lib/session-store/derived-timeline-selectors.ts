@@ -80,17 +80,8 @@ export function derivePendingApprovals(entries: readonly TimelineEntry[]): reado
     }
     if (entry.eventKind === "approval_resolved") {
       const approvalId = approvalIdFromDetails(entry.details);
-      if (approvalId) {
-        pending.delete(approvalId);
-        continue;
-      }
-      if (entry.sessionId) {
-        for (const [key, value] of pending.entries()) {
-          if (value.sessionId === entry.sessionId) {
-            pending.delete(key);
-          }
-        }
-      }
+      if (!approvalId) continue;
+      pending.delete(approvalId);
     }
   }
   return [...pending.values()];

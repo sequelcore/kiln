@@ -1087,9 +1087,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
               onRefresh={() => settingsQuery.refetch()}
               onPropose={(request) => gatewayClient.proposeSettingsMutation(request)}
               onApply={(request) => gatewayClient.applySettingsMutation(request)}
-              onOpenYaml={workingDirectory ? () => {
-                void previewSetupSource(`${workingDirectory.replace(/[\\/]+$/u, "")}/.kiln/kiln.yaml`);
-              } : undefined}
               leadingContent={settingsSection === "models" ? (
                 <AvailableModelsPanel
                   catalog={availableModels}

@@ -64,8 +64,9 @@ universal contract.
 
 Kiln resolves direct manifest, lockfile, workspace, CI, and build evidence
 before prose when they conflict; preserves supported human notes; records
-unknowns; and updates only `.kiln/project-context.md`. Generated `AGENTS.md` and
-`CLAUDE.md` remain sync projections and are never the durable authoring target.
+unknowns; and updates only the bound private project `context` artifact under
+`<Kiln home>/projects/<project-id>/`. Generated `AGENTS.md` and `CLAUDE.md`
+remain sync projections and are never the durable authoring target.
 Projection ownership and drift stay with config-projection review.
 
 - [SWE-bench](https://proceedings.iclr.cc/paper_files/paper/2024/hash/edac78c3e300629acfe6cbe9ca88fb84-Abstract-Conference.html),

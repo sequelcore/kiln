@@ -1,6 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type { ContextArtifact, ContextArtifactCache } from "@kilnai/core";
+import {
+  assertPrivateStateFileTarget,
+  assertPrivateStateTarget,
+  ensurePrivateStateDirectory,
+} from "../../../utils/private-state-filesystem.js";
 
 interface SerializedContextArtifact {
   readonly key: string;
@@ -43,15 +48,19 @@ function deserializeArtifact(input: SerializedContextArtifact): ContextArtifact 
 
 export class ProjectContextArtifactCache implements ContextArtifactCache {
   private readonly filePath: string;
+  private readonly privateStateRoot: string;
   private readonly artifacts = new Map<string, ContextArtifact>();
   private persistChain: Promise<void> = Promise.resolve();
 
-  constructor(projectPath: string) {
-    this.filePath = join(projectPath, ".kiln", "context-artifacts.json");
+  constructor(filePath: string, privateStateRoot: string) {
+    this.filePath = resolve(filePath);
+    this.privateStateRoot = resolve(privateStateRoot);
+    assertPrivateStateTarget(this.privateStateRoot, this.filePath);
   }
 
   async hydrate(): Promise<void> {
     try {
+      await assertPrivateStateFileTarget(this.privateStateRoot, this.filePath);
       const content = await readFile(this.filePath, "utf-8");
       const parsed = JSON.parse(content) as { artifacts?: SerializedContextArtifact[] };
       this.artifacts.clear();
@@ -115,11 +124,17 @@ export class ProjectContextArtifactCache implements ContextArtifactCache {
 
   private async persist(): Promise<void> {
     try {
-      const dir = join(this.filePath, "..");
-      await mkdir(dir, { recursive: true });
+      const dir = dirname(this.filePath);
+      await ensurePrivateStateDirectory(this.privateStateRoot, dir, true);
+      await assertPrivateStateFileTarget(this.privateStateRoot, this.filePath);
       const artifacts = [...this.artifacts.values()]
         .filter((artifact) => !this.isExpired(artifact))
         .map(serializeArtifact);
+      // Re-check the parent chain immediately before publishing. This keeps a
+      // cache directory replaced after the first check from redirecting the
+      // write through a junction or symbolic link.
+      await ensurePrivateStateDirectory(this.privateStateRoot, dir, false);
+      await assertPrivateStateFileTarget(this.privateStateRoot, this.filePath);
       await writeFile(this.filePath, JSON.stringify({ artifacts }, null, 2), "utf-8");
     } catch {
       // fail-open
@@ -127,16 +142,27 @@ export class ProjectContextArtifactCache implements ContextArtifactCache {
   }
 }
 
-const projectCaches = new Map<string, ProjectContextArtifactCache>();
+const fileCaches = new Map<string, ProjectContextArtifactCache>();
 
-export async function getProjectContextArtifactCache(projectPath: string): Promise<ProjectContextArtifactCache> {
-  const existing = projectCaches.get(projectPath);
+/**
+ * Resolve the cache from an explicit private file path and its containing
+ * private state root supplied by composition. Runtime deliberately does not
+ * derive project state from a repository path.
+ */
+export async function getProjectContextArtifactCache(
+  filePath: string,
+  privateStateRoot: string,
+): Promise<ProjectContextArtifactCache> {
+  const canonicalFilePath = resolve(filePath);
+  const canonicalPrivateStateRoot = resolve(privateStateRoot);
+  const cacheKey = `${canonicalPrivateStateRoot}\0${canonicalFilePath}`;
+  const existing = fileCaches.get(cacheKey);
   if (existing) {
     return existing;
   }
 
-  const cache = new ProjectContextArtifactCache(projectPath);
+  const cache = new ProjectContextArtifactCache(canonicalFilePath, canonicalPrivateStateRoot);
   await cache.hydrate();
-  projectCaches.set(projectPath, cache);
+  fileCaches.set(cacheKey, cache);
   return cache;
 }

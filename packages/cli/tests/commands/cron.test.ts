@@ -51,12 +51,12 @@ interface RawAppYaml {
 }
 
 function writeAppYaml(dir: string, yamlContent: string): void {
-  mkdirSync(join(dir, ".kiln"), { recursive: true });
-  writeFileSync(join(dir, ".kiln", "app.yaml"), yamlContent);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "app.yaml"), yamlContent);
 }
 
 function readAppYaml(dir: string): RawAppYaml {
-  return parse(readFileSync(join(dir, ".kiln", "app.yaml"), "utf-8")) as RawAppYaml;
+  return parse(readFileSync(join(dir, "app.yaml"), "utf-8")) as RawAppYaml;
 }
 
 const BASE_APP_YAML = `name: test-app
@@ -105,7 +105,6 @@ describe("cronCommand", () => {
     });
 
     it("prints error when app.yaml does not exist", async () => {
-      mkdirSync(join(tempDir, ".kiln"), { recursive: true });
       await cronCommand(MOCK_APP_CONFIG, tempDir, ["list"]);
       const output = consoleLogSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
       expect(output).toContain("No app.yaml found");

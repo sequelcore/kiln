@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BenchmarkBaselineRunner,
@@ -27,6 +27,7 @@ import type { KilnAppConfig } from "../config.js";
 import {
   readGlobalConfig,
 } from "../config/global-config.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import {
   resolveFormalScreeningConfig,
   type ResolvedFormalScreeningConfig,
@@ -61,13 +62,20 @@ import {
 } from "../application/benchmark-frontend-verifier.js";
 import { FRONTEND_BENCHMARK_CASE_IDS } from "../application/benchmark-frontend-cases.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../application/benchmark-workspace.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
 
 export interface BenchmarkCommandDependencies {
   readonly executeItem?: BenchmarkItemExecutor;
   readonly createExecuteItem?: (flags: BenchmarkSessionExecutorFlags) => BenchmarkItemExecutor;
   readonly now?: () => Date;
   readonly repositoryRoot?: string;
+  /** Strict test/embedding seam for the operator-owned private project state. */
+  readonly projectStateBinding?: ProjectStateBinding;
   /** Strict test seam for the operator-owned private formal screening package. */
   readonly formalScreeningPackage?: PrivateFormalScreeningPackageFacts;
   /** Strict test seam for the operator-owned formal screening toolchain config. */
@@ -93,7 +101,7 @@ export async function benchmarkCommand(
       }));
       return;
     case "report":
-      writeBenchmarkReport(args);
+      writeBenchmarkReport(args, dependencies.projectStateBinding ?? resolveCommandProjectStateBinding());
       return;
     case "run-internal":
       await runInternalBenchmark(config, args, dependencies);
@@ -102,13 +110,13 @@ export async function benchmarkCommand(
       prepareBenchmarkVerifiers();
       return;
     case "project-bfcl":
-      projectBfclCommand(args);
+      projectBfclCommand(args, dependencies.projectStateBinding ?? resolveCommandProjectStateBinding());
       return;
     case "project-agentdojo":
-      projectAgentDojoCommand(args);
+      projectAgentDojoCommand(args, dependencies.projectStateBinding ?? resolveCommandProjectStateBinding());
       return;
     case "project-tau":
-      projectTauCommand(args);
+      projectTauCommand(args, dependencies.projectStateBinding ?? resolveCommandProjectStateBinding());
       return;
     case "--help":
     case "-h":
@@ -141,7 +149,7 @@ function printHelp(): void {
   ].join("\n"));
 }
 
-function writeBenchmarkReport(args: readonly string[]): void {
+function writeBenchmarkReport(args: readonly string[], projectStateBinding: ProjectStateBinding): void {
   const outputPath = readFlag(args, "--output");
   if (!outputPath) {
     throw new Error("benchmark report requires --output <path>.");
@@ -185,7 +193,9 @@ function writeBenchmarkReport(args: readonly string[]): void {
     ],
     publicationReadiness,
   });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   writeFileSync(outputPath, report.markdown, "utf-8");
   printJson({
     outputPath,
@@ -260,7 +270,7 @@ function normalizeRepositoryArtifactPath(path: string): string | undefined {
   return normalized;
 }
 
-function projectBfclCommand(args: readonly string[]): void {
+function projectBfclCommand(args: readonly string[], projectStateBinding: ProjectStateBinding): void {
   const inputPath = readFlag(args, "--input");
   const outputPath = readFlag(args, "--output");
   if (!inputPath || !outputPath) {
@@ -270,7 +280,9 @@ function projectBfclCommand(args: readonly string[]): void {
     datasetName: datasetNameFromPath(inputPath),
     content: readFileSync(inputPath, "utf-8"),
   });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   writeFileSync(
     outputPath,
     projected.dataset.items.map((item) => JSON.stringify(item)).join("\n") + "\n",
@@ -283,7 +295,7 @@ function projectBfclCommand(args: readonly string[]): void {
   });
 }
 
-function projectAgentDojoCommand(args: readonly string[]): void {
+function projectAgentDojoCommand(args: readonly string[], projectStateBinding: ProjectStateBinding): void {
   const inputPath = readFlag(args, "--input");
   const outputPath = readFlag(args, "--output");
   if (!inputPath || !outputPath) {
@@ -293,7 +305,9 @@ function projectAgentDojoCommand(args: readonly string[]): void {
     datasetName: datasetNameFromPath(inputPath),
     content: readFileSync(inputPath, "utf-8"),
   });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   writeFileSync(
     outputPath,
     projected.dataset.items.map((item) => JSON.stringify(item)).join("\n") + "\n",
@@ -306,7 +320,7 @@ function projectAgentDojoCommand(args: readonly string[]): void {
   });
 }
 
-function projectTauCommand(args: readonly string[]): void {
+function projectTauCommand(args: readonly string[], projectStateBinding: ProjectStateBinding): void {
   const inputPath = readFlag(args, "--input");
   const outputPath = readFlag(args, "--output");
   if (!inputPath || !outputPath) {
@@ -316,7 +330,9 @@ function projectTauCommand(args: readonly string[]): void {
     datasetName: datasetNameFromPath(inputPath),
     content: readFileSync(inputPath, "utf-8"),
   });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   writeFileSync(
     outputPath,
     projected.dataset.items.map((item) => JSON.stringify(item)).join("\n") + "\n",
@@ -350,6 +366,8 @@ async function runInternalBenchmark(
     || profile.id === "kiln-model-roster-frontend-render"
     || formalScreeningProfile;
   const repositoryRoot = dependencies.repositoryRoot ?? resolveProjectRoot().rootPath;
+  const projectStateBinding = dependencies.projectStateBinding ?? resolveCommandProjectStateBinding();
+  const resolvedKilnConfig = config.kilnYaml ?? await loadKilnConfig(repositoryRoot);
   const formalContext = formalScreeningProfile
     ? resolveFormalScreeningDependencies(repositoryRoot, dependencies)
     : undefined;
@@ -369,9 +387,11 @@ async function runInternalBenchmark(
   if (formalScreeningProfile && k !== 2) {
     throw new Error("Formal verification screening requires --k 2.");
   }
-  const outputPath = readFlag(args, "--output") ?? defaultOutputPath(profile.id, dependencies.now?.() ?? new Date());
+  const outputPath = readFlag(args, "--output")
+    ?? defaultOutputPath(projectStateBinding, profile.id, dependencies.now?.() ?? new Date());
   const artifactRoot = resolve(`${outputPath}.artifacts`);
   const deliberationMembers = readDeliberationLevelMembers(args);
+  guardPrivateDirectoryWrite(projectStateBinding, artifactRoot);
   const artifactStore = new FileArtifactResourceStore({ rootDir: artifactRoot });
   const accountOverrideIds = readAccountPool(args);
   if (formalScreeningProfile && accountOverrideIds.length !== 1) {
@@ -386,7 +406,7 @@ async function runInternalBenchmark(
       : item.id
   )))];
   const benchmarkPermissionPolicy = resolveBenchmarkPermissionPolicy(
-    config.kilnYaml?.permissions,
+    resolvedKilnConfig?.permissions,
     writeProfile ? "write" : "read-only",
   );
   const runs = [];
@@ -504,7 +524,9 @@ async function runInternalBenchmark(
         { pairIds: benchmarkPairIds },
       )
     : undefined;
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
+  guardPrivateFileWrite(projectStateBinding, outputPath);
   writeFileSync(outputPath, JSON.stringify({
     artifactRoot,
     baselines,
@@ -1234,9 +1256,29 @@ function datasetVersionFromPath(path: string): string {
   return name.match(/-v(\d+)$/u)?.[1] ?? "1";
 }
 
-function defaultOutputPath(profileId: string, now: Date): string {
+function defaultOutputPath(projectStateBinding: ProjectStateBinding, profileId: string, now: Date): string {
   const stamp = now.toISOString().replace(/[:.]/gu, "-");
-  return join(process.cwd(), ".kiln", "benchmarks", `${profileId}-${stamp}.json`);
+  return join(projectStateBinding.benchmarksPath, `${profileId}-${stamp}.json`);
+}
+
+function resolveCommandProjectStateBinding(): ProjectStateBinding {
+  return resolveProjectStateBinding(resolveProjectRoot({ cwd: process.cwd() }).rootPath);
+}
+
+function guardPrivateDirectoryWrite(binding: ProjectStateBinding, targetPath: string): void {
+  if (!isPrivateStateTarget(binding.projectStateRoot, targetPath)) return;
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, targetPath);
+}
+
+function guardPrivateFileWrite(binding: ProjectStateBinding, filePath: string): void {
+  if (!isPrivateStateTarget(binding.projectStateRoot, filePath)) return;
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, dirname(filePath));
+  assertPrivateStateFileTargetSync(binding.projectStateRoot, filePath);
+}
+
+function isPrivateStateTarget(privateStateRoot: string, targetPath: string): boolean {
+  const path = relative(resolve(privateStateRoot), resolve(targetPath));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 function computeConfigHash(value: unknown): string {

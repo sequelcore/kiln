@@ -1,22 +1,17 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveDevLaunchPlan } from "../../src/commands/dev.js";
+import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 
 describe("resolveDevLaunchPlan", () => {
   const root = join("workspace", "project");
-  const kilnDir = join(root, ".kiln");
-  const gatewayPath = join(kilnDir, "gateway.yaml");
-  const appPath = join(kilnDir, "app.yaml");
+  const gatewayPath = join(root, "gateway.yaml");
+  const appPath = join(root, "app.yaml");
 
-  it("requires an initialized project with a gateway configuration", () => {
+  it("requires a canonical gateway configuration", () => {
     expect(resolveDevLaunchPlan(root, {}, () => false)).toEqual({
       ok: false,
-      message: "Not initialized. Run 'kiln init' first.",
-    });
-
-    expect(resolveDevLaunchPlan(root, {}, (path) => path === kilnDir)).toEqual({
-      ok: false,
-      message: "No gateway configuration found. Run 'kiln init' or pass --config <path>.",
+      message: "No gateway configuration found. Create gateway.yaml or pass --config <path>.",
     });
   });
 
@@ -24,7 +19,7 @@ describe("resolveDevLaunchPlan", () => {
     const plan = resolveDevLaunchPlan(
       root,
       {},
-      (path) => path === kilnDir || path === gatewayPath || path === appPath,
+      (path) => path === gatewayPath || path === appPath,
     );
 
     expect(plan).toEqual({
@@ -39,7 +34,7 @@ describe("resolveDevLaunchPlan", () => {
     const plan = resolveDevLaunchPlan(
       root,
       { port: 4900, open: true },
-      (path) => path === kilnDir || path === gatewayPath,
+      (path) => path === gatewayPath,
     );
 
     expect(plan).toMatchObject({
@@ -47,6 +42,19 @@ describe("resolveDevLaunchPlan", () => {
       gatewayPath,
       port: 4900,
       openUrl: "http://localhost:4900/gui/",
+    });
+  });
+
+  it("plans a nested invocation against the canonical project root", () => {
+    const canonicalRoot = resolveProjectRoot({ cwd: process.cwd() }).rootPath;
+    const nestedCwd = join(canonicalRoot, "packages", "cli", "src");
+    const resolved = resolveProjectRoot({ cwd: nestedCwd });
+    const canonicalGatewayPath = join(canonicalRoot, "gateway.yaml");
+
+    expect(resolved.rootPath).toBe(canonicalRoot);
+    expect(resolveDevLaunchPlan(resolved.rootPath, {}, (path) => path === canonicalGatewayPath)).toMatchObject({
+      ok: true,
+      gatewayPath: canonicalGatewayPath,
     });
   });
 });

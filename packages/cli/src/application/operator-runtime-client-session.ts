@@ -75,11 +75,11 @@ export function createOperatorRuntimeClientSession(
         [OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER]: credentials.controlToken,
       },
       body: JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         canonicalRoot: workspace.canonicalRoot,
         binding: {
           projectRuntimeId: workspace.projectRuntimeId,
-          markerDigest: workspace.markerDigest,
+          compositionRevision: workspace.compositionRevision,
         },
         principal: options.principal,
         sessionId,
@@ -162,7 +162,7 @@ function withSessionHeaders(
   headers.set("host", authority);
   headers.set("origin", `http://${authority}`);
   headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId, session.workspace.projectRuntimeId);
-  headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest, session.workspace.markerDigest);
+  headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.compositionRevision, session.workspace.compositionRevision);
   headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.principalKind, principal.kind);
   headers.set(
     OPERATOR_RUNTIME_BINDING_HEADERS.principalId,
@@ -175,7 +175,7 @@ function withSessionHeaders(
 function parseSessionOpen(value: unknown): { readonly credential: string; readonly expiresAt: number } | undefined {
   if (!isRecord(value) || Object.keys(value).sort().join(",") !== "credential,expiresAt") return undefined;
   return typeof value.credential === "string"
-    && /^v2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential)
+    && /^v3\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential)
     && typeof value.expiresAt === "number"
     && Number.isSafeInteger(value.expiresAt)
     ? { credential: value.credential, expiresAt: value.expiresAt }
@@ -188,7 +188,7 @@ function sameWorkspace(
 ): boolean {
   return left.canonicalRoot === right.canonicalRoot
     && left.projectRuntimeId === right.projectRuntimeId
-    && left.markerDigest === right.markerDigest;
+    && left.compositionRevision === right.compositionRevision;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

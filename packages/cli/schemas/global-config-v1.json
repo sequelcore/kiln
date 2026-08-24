@@ -96,6 +96,11 @@
       "x-kiln-activation": "hot",
       "x-kiln-semantic-owner": "operator-preferences"
     },
+    "interactiveUse": {
+      "x-kiln-activation": "next-session",
+      "x-kiln-authority-impact": "authority-bearing",
+      "x-kiln-semantic-owner": "interactive-use"
+    },
     "managedAgents": {
       "x-kiln-authority-impact": "authority-bearing",
       "x-kiln-semantic-owner": "managed-agent-configuration"
@@ -383,7 +388,37 @@
     "web": {
       "additionalProperties": false,
       "properties": {
+        "allowedDomains": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
         "extractProvider": {},
+        "netPolicy": {
+          "anyOf": [
+            {
+              "const": "none",
+              "type": "string"
+            },
+            {
+              "const": "documentation",
+              "type": "string"
+            },
+            {
+              "const": "package-managers",
+              "type": "string"
+            },
+            {
+              "const": "full",
+              "type": "string"
+            }
+          ]
+        },
         "searchFallbackProviders": {
           "items": {},
           "type": "array"

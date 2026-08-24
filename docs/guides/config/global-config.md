@@ -7,17 +7,17 @@ owns target and account choices, reusable authority, model policy, native
 projections, and operator preferences. Managed target facts live in immutable
 snapshots beside it. The canonical global schema version is `"4"`.
 
-Repository configuration has a narrower job. `.kiln/kiln.yaml` may define
-project context and restrictions, but it cannot define or override providers,
-models, targets, accounts, economics, deliberation policy, or authority
-profiles.
+Project configuration has a narrower job. The private project
+`~/.kiln/projects/<krp_sha256>/config.yaml` may define project context and
+restrictions, but it cannot define or override providers, models, targets,
+accounts, economics, deliberation policy, or authority profiles.
 
 Keep the related filesystem configuration beside the owning scope:
 
 | Scope | YAML | Profiles and packages |
 | --- | --- | --- |
 | Global operator | `~/.kiln/config.yaml`, `~/.kiln/evidence/execution-targets/<sha256>.json` | `~/.kiln/instructions`, `~/.kiln/agents`, `~/.kiln/skills` |
-| Project | `.kiln/kiln.yaml` | `.kiln/instructions`, `.kiln/agents`, `.kiln/skills`, `.kiln/project-context.md` |
+| Project | `~/.kiln/projects/<krp_sha256>/config.yaml` | `~/.kiln/projects/<krp_sha256>/instructions`, `agents`, `skills`, `context` |
 
 Native Codex, Claude Code, and OpenCode files are generated projections. They
 are not configuration authority and should not be edited as a substitute for
@@ -310,9 +310,10 @@ provider, model, account, credential, or price evidence.
 ## Agent profiles
 
 Agent profiles are explicit executable roles. Global profiles live in
-`~/.kiln/agents/*.md`. Project profiles in `.kiln/agents/*.md` may add roles or
-shadow a global profile for Kiln execution in that repository, but they still
-reference global targets and authority profiles.
+`~/.kiln/agents/*.md`. Project profiles in the bound private namespace's
+`agents/*.md` may add roles or shadow a global profile for Kiln execution in
+that repository, but they still reference global targets and authority
+profiles.
 
 A valid profile declares `name`, `role`, `goal`, and `tier`. Optional fields
 include display identity, instructions, tools, skills, instruction profiles,
@@ -418,10 +419,11 @@ web:
   allowedDomains: [docs.example.com]
 ```
 
-Project config may also contain project MCP, communication, interactive-use,
-skills, quality-gate, context-governance, depth, and parallelism settings. It
+Project config may also contain attenuated MCP, communication, web policy, skills,
+context-governance, depth, and parallelism settings. It
 cannot declare providers, models, target catalogs, target routing, economics,
-model suitability, deliberation policy, authority profiles, or Model Gateway.
+model suitability, deliberation policy, authority profiles, interactive-use,
+quality gates, or Model Gateway.
 Unknown or forbidden fields fail validation instead of being silently merged.
 
 The runtime contract is `packages/cli/src/config/project-config-schema.ts`.
@@ -433,7 +435,7 @@ The versioned editor projection is published as
 `@kilnai/cli/schemas/project-config-v1.json`; its companion descriptor artifact
 is `project-config-descriptors-v1.json`. Both are generated from the runtime
 schema with `bun run --cwd packages/cli config:schema:generate`, and tests reject
-committed artifact drift. Editors may map `.kiln/kiln.yaml` to the schema in the
+committed artifact drift. Editors may map the private `config.yaml` to the schema in the
 installed package. JSON Schema provides completion and early feedback, but the
 runtime schema plus named semantic admission remain authoritative.
 
@@ -444,8 +446,8 @@ are admitted.
 ## Instruction profiles and skills
 
 Durable doctrine belongs in instruction profiles, not agent copies or generated
-harness files. Global profiles live in `~/.kiln/instructions`; repository
-profiles live in `.kiln/instructions`.
+harness files. Global profiles live in `~/.kiln/instructions`; project profiles
+live in the bound private namespace's `instructions` directory.
 
 Skills are procedural packages, not permissions. Built-in skills are a
 separate first-party skill catalog governed by `skills.builtin`; this does not

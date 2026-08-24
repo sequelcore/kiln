@@ -479,7 +479,6 @@ describe("KilnConfig setup and status permission integrity", () => {
         rootPath: "C:/repo/kiln",
         projectName: "kiln",
         hasGitRoot: true,
-        hasKilnYaml: true,
         kilnYaml: { path: "C:/repo/kiln/.kiln/kiln.yaml", status: "valid" },
         projectContext: { path: "C:/repo/kiln/.kiln/project-context.md", status: "valid" },
       },

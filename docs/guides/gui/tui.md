@@ -270,9 +270,12 @@ browses Kiln sessions, not provider-specific session namespaces.
 
 Kiln stores:
 
-- `.kiln/sessions.jsonl` as the canonical deduplicated session index
-- `.kiln/sessions/<sessionId>/meta.json` for per-session metadata
-- `.kiln/sessions/<sessionId>/transcript.jsonl` for the transcript stream
+- the bound private project's `sessions/sessions.jsonl` as the canonical
+  deduplicated session index
+- `sessions/<sessionId>/meta.json` for per-session metadata in that private
+  namespace
+- `sessions/<sessionId>/transcript.jsonl` for the transcript stream in that
+  private namespace
 
 At startup, `makeMultiProviderSessionFactory()` starts without a hidden active
 continuation target. Once the operator explicitly continues a canonical session,

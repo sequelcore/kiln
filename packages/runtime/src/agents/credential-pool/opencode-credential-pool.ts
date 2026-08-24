@@ -1,7 +1,6 @@
 import { constants, type BigIntStats } from "node:fs";
 import { createHash } from "node:crypto";
 import { lstat, open, readdir, unlink, type FileHandle } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   CredentialPool,
@@ -17,10 +16,13 @@ import { CredentialHealthStore } from "./credential-health-store.js";
 import { CredentialFileStore } from "./credential-file-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
+import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export const OPENCODE_POOL_PROVIDER_ID = "opencode-api";
 
 export interface OpenCodeCredentialPoolServiceConfig {
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
   readonly rootDir?: string;
   readonly healthStore?: CredentialHealthStore;
   readonly watcher?: CredentialWatcher;
@@ -85,7 +87,7 @@ export class OpenCodeCredentialPoolService {
   private readonly observability?: CredentialPoolObservabilityRegistry;
 
   constructor(config: OpenCodeCredentialPoolServiceConfig = {}) {
-    this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
+    this.rootDir = resolveRuntimeStoreRoot(config, "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.fileStore = new CredentialFileStore<OpenCodeAuthFile>({ rootDir: this.rootDir });
     this.watcher = config.watcher;

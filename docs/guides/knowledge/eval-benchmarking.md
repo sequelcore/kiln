@@ -168,7 +168,7 @@ In that mode, grade only the `answer` field and retain `telemetry`,
 Internal baseline validation uses a different command contract:
 
 ```bash
-kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
+kiln benchmark run-internal --profile kiln-tool-agent --output ~/.kiln/projects/<krp_sha256>/benchmarks/tool.json
 ```
 
 `run-internal` keeps stdout as one benchmark JSON status document and writes the

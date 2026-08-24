@@ -10,6 +10,7 @@ import {
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
 import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
+import { type ProjectStateBinding, resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   configSettingDescriptor,
   configSettingDescriptors,
@@ -23,6 +24,7 @@ import { admitSettingsProposalRecord } from "../../src/application/config-settin
 
 let tempDir: string;
 let globalHome: string;
+let projectStateBinding!: ProjectStateBinding;
 let previousXdgConfigHome: string | undefined;
 
 const reconcileOk = vi.fn(async () => []);
@@ -32,7 +34,14 @@ function globalConfigPath(): string {
 }
 
 function projectConfigPath(): string {
-  return join(tempDir, ".kiln", "kiln.yaml");
+  return projectStateBinding.configPath;
+}
+
+function mutationStore(): ConfigMutationStore {
+  return new ConfigMutationStore(tempDir, {
+    root: projectStateBinding.mutationsPath,
+    globalConfigPath: globalConfigPath(),
+  });
 }
 
 function seedGlobalConfig(): void {
@@ -41,7 +50,7 @@ function seedGlobalConfig(): void {
 }
 
 function seedProjectConfig(extra = ""): void {
-  mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+  mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
   writeFileSync(projectConfigPath(), [
     "# Project configuration authored by the operator",
     "version: '1'",
@@ -52,8 +61,14 @@ function seedProjectConfig(extra = ""): void {
 }
 
 function propose(payload: unknown, operation: "setting.set" | "setting.reset" = "setting.set") {
-  const record = proposeConfigMutation({ projectPath: tempDir, operation, payload });
-  new ConfigMutationStore(tempDir).saveProposal(record);
+  const record = proposeConfigMutation({
+    projectPath: tempDir,
+    projectStateBinding,
+    globalConfigPath: globalConfigPath(),
+    operation,
+    payload,
+  });
+  mutationStore().saveProposal(record);
   return record;
 }
 
@@ -62,6 +77,8 @@ async function apply(proposalId: string, approvalId?: string) {
     projectPath: tempDir,
     proposalId,
     requester: "operator",
+    projectStateBinding,
+    globalConfigPath: globalConfigPath(),
     ...(approvalId ? { approvalId } : {}),
     reconcile: reconcileOk,
     readEffectiveState: async () => undefined,
@@ -72,8 +89,10 @@ describe("governed configuration settings", () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-setting-"));
     globalHome = mkdtempSync(join(tmpdir(), "kiln-setting-home-"));
+    mkdirSync(join(tempDir, ".git"), { recursive: true });
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = globalHome;
+    projectStateBinding = resolveProjectStateBinding(tempDir);
     reconcileOk.mockClear();
   });
 
@@ -114,7 +133,11 @@ describe("governed configuration settings", () => {
     expect(refused.settlement.outcome).toBe("rejected");
     expect(parse(readFileSync(projectConfigPath(), "utf-8")).permissions.sandbox).toBe("read-only");
 
-    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const approval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: record.proposal.proposalId,
+    });
     const committed = await apply(record.proposal.proposalId, approval.approvalId);
 
     expect(committed.settlement.outcome).toBe("committed");
@@ -137,7 +160,7 @@ describe("governed configuration settings", () => {
     expect(propose({ scope: "project", key: "not.a.key", value: "x" }).proposal.status).toBe("invalid");
     expect(propose({ scope: "project", key: "maxDepth", value: "not-a-number" }).proposal.status).toBe("invalid");
     expect(propose({ scope: "project", key: "permissions.approval", value: "whenever" }).proposal.status).toBe("invalid");
-    expect(propose({ scope: "project", key: "requireApproval", value: "yes" }).proposal.status).toBe("invalid");
+    expect(propose({ scope: "project", key: "permissions.sandbox", value: "unrestricted" }).proposal.status).toBe("invalid");
   });
 
   it("never creates configuration that has not been adopted", () => {
@@ -151,12 +174,13 @@ describe("governed configuration settings", () => {
   });
 
   it("resets one project key to inheritance while preserving unrelated YAML and comments", async () => {
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
     writeFileSync(projectConfigPath(), [
       "# Keep this operator comment",
       "version: '1'",
       "domain: backend",
-      "teamMode: solo",
+      "channels:",
+      "  - cli",
       "permissions:",
       "  sandbox: read-only",
       "",
@@ -171,7 +195,7 @@ describe("governed configuration settings", () => {
     const written = readFileSync(projectConfigPath(), "utf-8");
     expect(written).toContain("# Keep this operator comment");
     expect(parse(written).domain).toBeUndefined();
-    expect(parse(written).teamMode).toBe("solo");
+    expect(parse(written).channels).toEqual(["cli"]);
     expect(parse(written).permissions.sandbox).toBe("read-only");
   });
 
@@ -186,7 +210,11 @@ describe("governed configuration settings", () => {
     expect(refused.settlement.outcome).toBe("rejected");
     expect(parse(readFileSync(projectConfigPath(), "utf-8")).permissions.sandbox).toBe("danger-full-access");
 
-    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const approval = approveConfigMutation({
+      projectPath: tempDir,
+      projectStateBinding,
+      proposalId: record.proposal.proposalId,
+    });
     const committed = await apply(record.proposal.proposalId, approval.approvalId);
     expect(committed.settlement.outcome).toBe("committed");
     expect(parse(readFileSync(projectConfigPath(), "utf-8")).permissions.sandbox).toBeUndefined();
@@ -194,15 +222,15 @@ describe("governed configuration settings", () => {
   });
 
   it("rejects keyless reset and never restores a whole document", () => {
-    seedProjectConfig("teamMode: solo");
+    seedProjectConfig("channels:\n  - cli");
     const record = propose({ scope: "project" }, "setting.reset");
     expect(record.proposal.status).toBe("invalid");
     expect(record.proposal.diagnostics.map((entry) => entry.message).join(" ")).toContain("Required non-empty string");
-    expect(parse(readFileSync(projectConfigPath(), "utf-8")).teamMode).toBe("solo");
+    expect(parse(readFileSync(projectConfigPath(), "utf-8")).channels).toEqual(["cli"]);
   });
 
   it("rejects reset for an already inherited nested key without rewriting YAML", () => {
-    seedProjectConfig("teamMode: solo");
+    seedProjectConfig("channels:\n  - cli");
     const before = readFileSync(projectConfigPath(), "utf-8");
 
     const record = propose({ scope: "project", key: "skills.selection.mode" }, "setting.reset");
@@ -214,11 +242,15 @@ describe("governed configuration settings", () => {
 
   it("rejects a settings proposal when its loaded snapshot revision is stale", async () => {
     seedProjectConfig();
-    const status = await readConfigStatusSnapshot({ projectPath: tempDir, view: "settings" });
+    const status = await readConfigStatusSnapshot({
+      projectPath: tempDir,
+      projectStateBinding,
+      view: "settings",
+    });
     const settings = (await readConfigStatusView(status, "settings")).value as {
       readonly revisions: { readonly project?: string };
     };
-    writeFileSync(projectConfigPath(), `${readFileSync(projectConfigPath(), "utf-8")}teamMode: solo\n`, "utf-8");
+    writeFileSync(projectConfigPath(), `${readFileSync(projectConfigPath(), "utf-8")}maxDepth: 2\n`, "utf-8");
 
     const record = propose({
       scope: "project",
@@ -237,13 +269,21 @@ describe("governed configuration settings", () => {
 
     const set = propose({ scope: "project", key: "domain", value: "backend" });
     expect((await apply(set.proposal.proposalId)).settlement.outcome).toBe("committed");
-    const modifiedSnapshot = await readConfigStatusSnapshot({ projectPath: tempDir, view: "settings" });
+    const modifiedSnapshot = await readConfigStatusSnapshot({
+      projectPath: tempDir,
+      projectStateBinding,
+      view: "settings",
+    });
     const modifiedView = await readConfigStatusView(modifiedSnapshot, "settings");
     expect((modifiedView.value as { entries: readonly { key: string; modified: boolean }[] }).entries.find((entry) => entry.key === "domain")).toMatchObject({ modified: true });
 
     const reset = propose({ scope: "project", key: "domain" }, "setting.reset");
     expect((await apply(reset.proposal.proposalId)).settlement.outcome).toBe("committed");
-    const inheritedSnapshot = await readConfigStatusSnapshot({ projectPath: tempDir, view: "settings" });
+    const inheritedSnapshot = await readConfigStatusSnapshot({
+      projectPath: tempDir,
+      projectStateBinding,
+      view: "settings",
+    });
     const inheritedView = await readConfigStatusView(inheritedSnapshot, "settings");
     expect((inheritedView.value as { entries: readonly { key: string; modified: boolean; inherited: boolean }[] }).entries.find((entry) => entry.key === "domain")).toMatchObject({ modified: false, inherited: true });
   });
@@ -254,16 +294,17 @@ describe("governed configuration settings", () => {
     // limits are not.
     for (const key of [
       "permissions.sandbox",
-      "permissions.dataFirewall",
-      "interactiveUse.allowExternalBrowser",
       "workGovernance.defaultPosture",
       "skills.selection.mode",
       "skills.builtin",
     ]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "project").authorityBearing).toBe(true);
     }
-    for (const key of ["domain", "channels", "teamMode", "maxDepth", "parallelWorkers", "requireApproval"]) {
+    for (const key of ["domain", "channels"]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "project").authorityBearing).toBe(false);
+    }
+    for (const key of ["maxDepth", "parallelWorkers"]) {
+      expect(configSettingGovernance(configSettingDescriptor(key)!, "project").authorityBearing).toBe(true);
     }
     for (const key of ["ui.theme", "identity.name", "identity.timezone"]) {
       expect(configSettingGovernance(configSettingDescriptor(key)!, "global").authorityBearing).toBe(false);
@@ -290,6 +331,8 @@ describe("governed configuration settings", () => {
     seedProjectConfig();
     const typo = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
+      globalConfigPath: globalConfigPath(),
       operation: "setting.set",
       payload: { scope: "Project", key: "domain", value: "backend" },
     });
@@ -306,7 +349,7 @@ describe("governed configuration settings", () => {
   });
 
   it("refuses to edit a key that resolves through a YAML alias", () => {
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    mkdirSync(projectStateBinding.projectStateRoot, { recursive: true });
     writeFileSync(projectConfigPath(), [
       "version: '1'",
       "base: &base",
@@ -325,9 +368,8 @@ describe("governed configuration settings", () => {
     const cases: readonly (readonly [string, string, unknown])[] = [
       ["channels", "a, b ,c", ["a", "b", "c"]],
       ["maxDepth", "3", 3],
-      ["requireApproval", "false", false],
-      ["permissions.tools", '[{"tool":"bash","action":"deny"}]', [{ tool: "bash", action: "deny" }]],
-      ["interactiveUse.applicationAliases", '{"code":["vscode"]}', { code: ["vscode"] }],
+      ["permissions.sandbox", "read-only", "read-only"],
+      ["skills.builtin", '{"enabled":false}', { enabled: false }],
       ["workGovernance.defaultPosture", "direct", "direct"],
     ];
     for (const [key, raw, expected] of cases) {
@@ -340,19 +382,19 @@ describe("governed configuration settings", () => {
   it("normalizes structured values from curated GUI controls through descriptor admission", () => {
     seedProjectConfig();
 
-    expect(propose({ scope: "project", key: "requireApproval", value: false }).proposal.status).toBe("valid");
+    expect(propose({ scope: "project", key: "skills.selection.mode", value: "auto" }).proposal.status).toBe("valid");
     expect(propose({ scope: "project", key: "maxDepth", value: 3 }).proposal.status).toBe("valid");
     const list = propose({ scope: "project", key: "channels", value: ["cli", "gui"] });
     expect(list.proposal.status).toBe("valid");
     expect(parse(list.writes[0]!.nextContent).channels).toEqual(["cli", "gui"]);
     expect(propose({
       scope: "project",
-      key: "interactiveUse.applicationAliases",
-      value: { " code ": [" vscode ", "", "cursor"] },
+      key: "skills.builtin",
+      value: { enabled: false, include: ["repo-review"] },
     }).proposal.normalizedPayload).toEqual({
       scope: "project",
-      key: "interactiveUse.applicationAliases",
-      value: { code: ["vscode", "cursor"] },
+      key: "skills.builtin",
+      value: { enabled: false, include: ["repo-review"] },
     });
   });
 
@@ -368,31 +410,35 @@ describe("governed configuration settings", () => {
       .toThrow("is not a settings mutation");
   });
 
-  it("does not admit unversioned legacy reset records", async () => {
+  it("does not admit unsupported proposal record versions", async () => {
     seedProjectConfig("maxDepth: 2");
     const record = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
+      globalConfigPath: globalConfigPath(),
       operation: "setting.reset",
       payload: { scope: "project", key: "maxDepth" },
     });
-    new ConfigMutationStore(tempDir).saveProposal({ ...record, recordVersion: 1 } as never);
+    mutationStore().saveProposal({ ...record, recordVersion: 1 } as never);
 
     const result = await apply(record.proposal.proposalId);
     expect(result.settlement.outcome).toBe("rejected");
-    expect(result.settlement.diagnostics[0]?.message).toContain("retired");
+    expect(result.settlement.diagnostics[0]?.message).toContain("not found");
     expect(readFileSync(projectConfigPath(), "utf-8")).toContain("maxDepth: 2");
   });
 
-  it("settles an already-landed legacy reset honestly before retiring it", async () => {
+  it("does not execute an unsupported unkeyed record even when its bytes already landed", async () => {
     seedProjectConfig("maxDepth: 2");
     const current = readFileSync(projectConfigPath(), "utf-8");
     const proposed = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
+      globalConfigPath: globalConfigPath(),
       operation: "setting.reset",
       payload: { scope: "project", key: "maxDepth" },
     });
     const landed = "version: '1'\ndomain: default\n";
-    const legacy = {
+    const unsupported = {
       ...proposed,
       recordVersion: undefined,
       proposal: {
@@ -406,8 +452,8 @@ describe("governed configuration settings", () => {
         nextHash: createHash("sha256").update(landed).digest("hex"),
       }],
     };
-    const store = new ConfigMutationStore(tempDir);
-    store.saveProposal(legacy);
+    const store = mutationStore();
+    store.saveProposal(unsupported as never);
     writeFileSync(projectConfigPath(), landed, "utf-8");
     store.writeProgressMarker({
       proposalId: proposed.proposal.proposalId,
@@ -417,8 +463,8 @@ describe("governed configuration settings", () => {
     });
 
     const result = await apply(proposed.proposal.proposalId);
-    expect(result.settlement.outcome).toBe("committed");
-    expect(store.readProgressMarker(proposed.proposal.proposalId)).toBeNull();
+    expect(result.settlement.outcome).toBe("rejected");
+    expect(store.readProgressMarker(proposed.proposal.proposalId)).not.toBeNull();
     expect(readFileSync(projectConfigPath(), "utf-8")).toBe(landed);
   });
 

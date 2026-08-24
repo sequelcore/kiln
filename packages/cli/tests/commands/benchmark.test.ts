@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KILN_BENCHMARK_PROFILES } from "@kilnai/core/eval";
 import { benchmarkCommand } from "../../src/commands/benchmark.js";
+import * as configMerger from "../../src/config/config-merger.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
 import {
   hashPrivateFormalScreeningTree,
@@ -214,7 +215,7 @@ describe("benchmarkCommand", () => {
   });
 
   afterEach(() => {
-    consoleLogSpy.mockRestore();
+    vi.restoreAllMocks();
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -652,8 +653,9 @@ describe("benchmarkCommand", () => {
       };
     };
 
+    const loadKilnConfigSpy = vi.spyOn(configMerger, "loadKilnConfig").mockResolvedValue(FORMAL_APP_CONFIG.kilnYaml);
     const run = async (outputPath: string) => benchmarkCommand(
-      FORMAL_APP_CONFIG,
+      MOCK_APP_CONFIG,
       "run-internal",
       [
         "--profile", "kiln-formal-verification-pilot",
@@ -671,6 +673,7 @@ describe("benchmarkCommand", () => {
     );
 
     await run(firstOutputPath);
+    expect(loadKilnConfigSpy).toHaveBeenCalledWith(REPOSITORY_ROOT);
     generatedOutput = "second outcome";
     await run(secondOutputPath);
 

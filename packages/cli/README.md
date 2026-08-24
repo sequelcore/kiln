@@ -47,7 +47,7 @@ kiln init
 
 The interactive flow selects an already admitted direct target, confirms the
 restrictive `read-only` permission posture, and writes only
-`.kiln/kiln.yaml` through the configuration mutation authority. It never
+the private project's `config.yaml` through the configuration mutation authority. It never
 writes credentials, machine paths, `app.yaml`, `gateway.yaml`, or wizard state.
 
 For deterministic automation:
@@ -66,16 +66,23 @@ reconciliation before reporting the first turn ready. While that reconciliation
 is active, status remains pending and another apply fails closed. Crash recovery
 resumes the exact interrupted proposal, retaining its approval and rollback.
 
+Project state is stored under the operator-private
+`~/.kiln/projects/<krp_sha256>/` binding. Its identity-only `adoption.json`
+binds the canonical project root to `config.yaml`, context, profiles, skills,
+sessions, runtime state, caches, evidence, and backups. A relocated project has
+a new identity and must be explicitly re-adopted; the CLI does not read or
+migrate a repository-local `.kiln/` tree.
+
 ### `kiln dev`
 
-Start the canonical App Gateway from `.kiln/gateway.yaml`:
+Start the canonical App Gateway from the repository's `gateway.yaml`:
 
 ```bash
 kiln dev
 ```
 
-- Requires `.kiln/gateway.yaml`, or a gateway path supplied with `--config`
-- Watches the gateway config and local `.kiln/app.yaml`, reporting when a restart is required
+- Requires `gateway.yaml`, or a gateway path supplied with `--config`
+- Watches the gateway config and local `app.yaml`, reporting when a restart is required
 - Enables project-local swarm coordination for development workflows
 - Accepts `--open` to open the existing GUI at `/gui/`; it does not start a separate development UI or control plane
 
@@ -149,8 +156,8 @@ kiln gateway restart
 ```
 
 Use `kiln gateway serve` only for a foreground development process. Production
-lifecycle state and the local control credential live separately under
-`.kiln/runtime/app-gateway/`.
+lifecycle state and the local control credential live separately under the
+private project's `runtime/app-gateway/` directory.
 
 ### `kiln domain`
 
@@ -204,10 +211,10 @@ Inspect benchmark contracts and write local evidence artifacts:
 
 ```bash
 kiln benchmark profiles
-kiln benchmark readiness --baseline ./.kiln/benchmarks/tool.json
-kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
-kiln benchmark run-internal --profile kiln-model-roster-backend-write --route opencode-go-glm53 --k 5 --output ./.kiln/benchmarks/glm53-backend.json
-kiln benchmark run-internal --profile kiln-tool-agent --route codex-terra --deliberation-level-sweep low,medium,high --output ./.kiln/benchmarks/deliberation.json
+kiln benchmark readiness --baseline ~/.kiln/projects/<krp_sha256>/benchmarks/tool.json
+kiln benchmark run-internal --profile kiln-tool-agent --output ~/.kiln/projects/<krp_sha256>/benchmarks/tool.json
+kiln benchmark run-internal --profile kiln-model-roster-backend-write --route opencode-go-glm53 --k 5 --output ~/.kiln/projects/<krp_sha256>/benchmarks/glm53-backend.json
+kiln benchmark run-internal --profile kiln-tool-agent --route codex-terra --deliberation-level-sweep low,medium,high --output ~/.kiln/projects/<krp_sha256>/benchmarks/deliberation.json
 ```
 
 `run-internal` writes one benchmark JSON status document to stdout and stores
@@ -242,7 +249,7 @@ kiln uninstall codex
 Kiln-owned direct sessions do not depend on native projection. Projection is
 managed, reversible, drift-aware, and preserves unmanaged native settings. See
 `docs/guides/mcp.md` for configuration, security, App Gateway, and Roblox Studio.
-For Codex, `mcp-config` additionally installs the project-local Kiln control
+For Codex, `mcp-config` additionally installs the project-scoped Kiln control
 plane as a stdio child; it does not require the HTTP Model Gateway process.
 
 ## Documentation

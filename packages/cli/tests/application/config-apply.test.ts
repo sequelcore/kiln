@@ -20,6 +20,8 @@ import {
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
 import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 
 vi.mock("../../src/config/config-merger.js", () => ({
@@ -43,15 +45,17 @@ vi.mock("../../src/application/repo-shim-projection.js", () => ({
 
 let tempDir: string;
 let globalHome: string;
+let projectStateBinding: ProjectStateBinding;
 let previousXdgConfigHome: string | undefined;
 
 describe("config apply", () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-config-apply-"));
     globalHome = mkdtempSync(join(tmpdir(), "kiln-config-apply-global-"));
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     process.env.XDG_CONFIG_HOME = globalHome;
+    projectStateBinding = resolveProjectStateBinding(tempDir);
+    bootstrapProjectAdoption(projectStateBinding);
   });
 
   afterEach(() => {
@@ -67,6 +71,7 @@ describe("config apply", () => {
   it("commits a non-authority change without an approval", async () => {
     const record = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "skill.upsert",
       payload: {
         name: "repo-review",
@@ -75,11 +80,12 @@ describe("config apply", () => {
       },
       now: new Date("2026-05-07T12:00:00.000Z"),
     });
-    const store = new ConfigMutationStore(tempDir);
+    const store = new ConfigMutationStore(tempDir, { root: projectStateBinding.mutationsPath });
     store.saveProposal(record);
 
     const result = await applyConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       proposalId: record.proposal.proposalId,
       requester: "operator",
       now: new Date("2026-05-07T12:03:00.000Z"),
@@ -87,16 +93,17 @@ describe("config apply", () => {
     });
 
     expect(result.settlement.outcome).toBe("committed");
-    expect(readFileSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"), "utf-8")).toContain("name: repo-review");
+    expect(readFileSync(join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"), "utf-8")).toContain("name: repo-review");
     expect(result.settlement.reconciliationEffects.map((effect) => effect.target)).toEqual(["native-skills", "repo-shims"]);
     expect(vi.mocked(syncNativeSkillProjections)).toHaveBeenCalledWith(tempDir, {
       disabledHarnesses: [],
+      projectStateBinding,
       skillConfig: { visibility: { overrides: { "repo-review": "explicit-only" } } },
     });
   });
 
   it("fails closed when the proposal base file changed after proposal creation", async () => {
-    const agentsDir = join(tempDir, ".kiln", "agents");
+    const agentsDir = projectStateBinding.agentsPath;
     mkdirSync(agentsDir, { recursive: true });
     const agentPath = join(agentsDir, "architect.md");
     writeFileSync(agentPath, [
@@ -111,15 +118,17 @@ describe("config apply", () => {
 
     const record = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "agent.attach_skills",
       payload: { agent: "architect", skills: ["ddd-review"] },
     });
-    const store = new ConfigMutationStore(tempDir);
+    const store = new ConfigMutationStore(tempDir, { root: projectStateBinding.mutationsPath });
     store.saveProposal(record);
     writeFileSync(agentPath, `${readFileSync(agentPath, "utf-8")}\nChanged underneath proposal.\n`, "utf-8");
 
     const result = await applyConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       proposalId: record.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -134,6 +143,7 @@ describe("config apply", () => {
   it("fails closed when a stored proposal targets non-canonical config paths", async () => {
     const record = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "skill.upsert",
       payload: {
         name: "repo-review",
@@ -150,10 +160,11 @@ describe("config apply", () => {
         path: join(tempDir, ".kiln", "config.yaml"),
       }],
     };
-    const store = new ConfigMutationStore(tempDir);
+    const store = new ConfigMutationStore(tempDir, { root: projectStateBinding.mutationsPath });
     store.saveProposal(tamperedRecord);
     const result = await applyConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       proposalId: record.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -164,7 +175,7 @@ describe("config apply", () => {
     expect(result.settlement.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({
         field: join(tempDir, ".kiln", "config.yaml"),
-        message: "Project mutations may only write .kiln/agents, .kiln/skills, or .kiln/kiln.yaml canonical configuration.",
+        message: "Project mutations may only write private agents, skills, or config.yaml canonical state.",
       }),
     ]));
     expect(existsSync(join(tempDir, ".kiln", "config.yaml"))).toBe(false);
@@ -173,11 +184,12 @@ describe("config apply", () => {
   it("fails closed when a canonical path resolves through a junction outside the project", async () => {
     const outsideDir = mkdtempSync(join(tmpdir(), "kiln-config-outside-"));
     try {
-      const skillsDir = join(tempDir, ".kiln", "skills");
+      const skillsDir = projectStateBinding.skillsPath;
       mkdirSync(skillsDir, { recursive: true });
       symlinkSync(outsideDir, join(skillsDir, "escaped-skill"), "junction");
       const record = proposeConfigMutation({
         projectPath: tempDir,
+        projectStateBinding,
         operation: "skill.upsert",
         payload: {
           name: "escaped-skill",
@@ -188,14 +200,15 @@ describe("config apply", () => {
       expect(record.proposal.status).toBe("invalid");
       expect(record.proposal.diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          message: "Refused a canonical path whose physical target escapes the project root.",
+          message: "Refused a canonical path whose physical target escapes private project state.",
         }),
       ]));
-      const store = new ConfigMutationStore(tempDir);
+      const store = new ConfigMutationStore(tempDir, { root: projectStateBinding.mutationsPath });
       store.saveProposal(record);
 
       const result = await applyConfigMutation({
         projectPath: tempDir,
+        projectStateBinding,
         proposalId: record.proposal.proposalId,
         requester: "operator",
         reconcile: async () => [],
@@ -215,20 +228,22 @@ describe("config apply", () => {
   });
 
   it("applies context-policy promotion, freeze, and exact rollback through canonical config", async () => {
-    const kilnYamlPath = join(tempDir, ".kiln", "kiln.yaml");
+    const kilnYamlPath = projectStateBinding.configPath;
     writeFileSync(kilnYamlPath, "version: '1'\ncontextGovernance:\n  allocationMode: whole-block\n", "utf-8");
     const { candidate, evaluation } = adaptationEvidence();
 
     const promotion = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "context_governance.adapt",
       payload: { action: "promote", expectedRevision: 0, candidate, evaluation },
     });
     expect(promotion.proposal.status).toBe("valid");
-    const store = new ConfigMutationStore(tempDir);
+    const store = new ConfigMutationStore(tempDir, { root: projectStateBinding.mutationsPath });
     store.saveProposal(promotion);
     expect((await applyConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       proposalId: promotion.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -242,6 +257,7 @@ describe("config apply", () => {
 
     const stale = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "context_governance.adapt",
       payload: { action: "freeze", expectedRevision: 0, reason: "stale request" },
     });
@@ -249,12 +265,14 @@ describe("config apply", () => {
 
     const freeze = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "context_governance.adapt",
       payload: { action: "freeze", expectedRevision: 1, reason: "monitor recommended freeze" },
     });
     store.saveProposal(freeze);
     expect((await applyConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       proposalId: freeze.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],
@@ -263,12 +281,14 @@ describe("config apply", () => {
 
     const rollback = proposeConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       operation: "context_governance.adapt",
       payload: { action: "rollback", expectedRevision: 2 },
     });
     store.saveProposal(rollback);
     expect((await applyConfigMutation({
       projectPath: tempDir,
+      projectStateBinding,
       proposalId: rollback.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [],

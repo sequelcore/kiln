@@ -253,7 +253,8 @@ Each backend reports cost differently:
 
 For backends using computed cost tracking, Kiln fetches model pricing from the models.dev API and caches it locally:
 
-- Cache location: .kiln/models-cache.json
+- Cache location: private project `cache/models-cache.json` under
+  `~/.kiln/projects/<krp_sha256>/`
 - TTL: 24 hours
 - Fallback: if fetch fails, uses last cached data (fail-open)
 

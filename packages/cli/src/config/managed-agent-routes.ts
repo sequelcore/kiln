@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join, posix, resolve, win32 } from "node:path";
 import type {
   ArtifactResourceStore,
@@ -109,6 +108,7 @@ import { readSkillCatalogStatus } from "./skill-catalog-status.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
 import { admitManagedDirectTarget } from "./managed-direct-target-admission.js";
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
+import { resolveProjectStateBinding, type ProjectStateBinding } from "../application/project-state-root.js";
 
 type ManagedSkillCatalogEntry = NonNullable<ManagedInvocationToolOptions["skillCatalog"]>[number];
 
@@ -221,6 +221,10 @@ export interface ManagedInvocationToolOptionsCatalog {
 
 export interface ResolveManagedInvocationToolOptionsContext {
   readonly cwd: string;
+  /** Established private binding; production compositions should pass it when already resolved. */
+  readonly projectStateBinding?: ProjectStateBinding;
+  /** Exact operator-private Runtime state root supplied by CLI composition. */
+  readonly runtimeStateRoot?: string;
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
@@ -614,18 +618,23 @@ export async function resolveManagedInvocationToolOptions(
   if (routeConfigs.length === 0) {
     return { routeHealth: [] };
   }
+  const routes: ManagedInvocationToolRoute[] = [];
+  const routeHealth: ManagedAgentRouteHealth[] = [];
+  const userHome = context.userHome;
+  const projectStateBinding = context.projectStateBinding ?? resolveProjectStateBinding(context.cwd, {
+    ...(context.userHome ? { kilnHome: join(context.userHome, ".kiln") } : {}),
+  });
   const managedAccountRouting = context.managedAccountRouting
     ?? (context.managedEconomicAuthority && config.executionCatalog
-      ? new ConfiguredExecutionAccountRuntime({ catalog: config.executionCatalog })
+      ? new ConfiguredExecutionAccountRuntime({ catalog: config.executionCatalog, kilnHome: projectStateBinding.kilnHome })
       : undefined);
   const routeContext = managedAccountRouting === context.managedAccountRouting
     ? context
     : { ...context, managedAccountRouting };
-
-  const routes: ManagedInvocationToolRoute[] = [];
-  const routeHealth: ManagedAgentRouteHealth[] = [];
-  const userHome = context.userHome ?? homedir();
-  const agentDefinitions = await loadAgentDefinitions(context.cwd, { userHome });
+  const agentDefinitions = await loadAgentDefinitions(context.cwd, {
+    ...(userHome ? { userHome } : {}),
+    projectStateBinding,
+  });
   mark("managed-route-agents-loaded", { count: agentDefinitions.length });
   const configuredAgentDefinitions = mergeManagedAgentIntentDefinitions(agentDefinitions, config.managedAgents);
   const derivedEconomicPolicies = deriveManagedAgentEconomicPolicies({
@@ -642,7 +651,7 @@ export async function resolveManagedInvocationToolOptions(
   const economicPolicyHealthByAgent = new Map(
     economicPolicyHealth.map((health) => [health.agentName, health]),
   );
-  const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
+  const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, projectStateBinding, config.skills);
   mark("managed-route-skills-loaded", { count: skillCatalog.length });
 
   let routeIndex = 0;
@@ -747,7 +756,9 @@ export async function resolveManagedInvocationToolOptions(
     || (context.includeUnavailableRoutes === true && unavailableRoutes.length > 0);
   const executionComposition = context.compositionMode !== "candidate-admission";
   const managedAccountComposition = executionComposition && !context.managedEconomicAuthority
-    ? context.managedAccountComposition ?? createManagedAccountRuntimeComposition(config, context.cwd)
+    ? context.managedAccountComposition ?? createManagedAccountRuntimeComposition(config, context.cwd, {
+        ...(context.runtimeStateRoot ? { runtimeStateRoot: context.runtimeStateRoot } : {}),
+      })
     : undefined;
   if (managedAccountComposition && config.executionCatalog) {
     managedAccountComposition.updateCatalog(config.executionCatalog);
@@ -765,6 +776,8 @@ export async function resolveManagedInvocationToolOptions(
         context.invocationService,
         context.invocationServiceKey,
         managedAccountComposition,
+        context.runtimeStateRoot,
+        projectStateBinding,
         context.managedEconomicAuthority !== undefined,
       )
     : undefined;
@@ -805,6 +818,8 @@ export async function resolveManagedInvocationToolOptions(
         ...(invocationService && invocationServiceKey ? { invocationServiceKey } : {}),
         ...(economicDispatch ? { economicDispatch, workspaceRoot: context.cwd } : {}),
         contextResolver: createManagedInvocationContextResolver(context.cwd, userHome, {
+          projectAgentsDirectory: projectStateBinding.agentsPath,
+          projectSkillsDirectory: projectStateBinding.skillsPath,
           skillConfig: config.skills,
           modelTaskSuitability: config.modelTaskSuitability,
         }),
@@ -955,7 +970,7 @@ function validateManagedAgentEconomicPolicyBindings(
   return failures;
 }
 
-/** Intent-only managed agents do not require a second `.kiln/agents` authoring file. */
+/** Intent-only managed agents do not require a second private project agent authoring file. */
 function mergeManagedAgentIntentDefinitions(
   definitions: readonly KilnAgentDefinition[],
   managedAgents: KilnManagedAgentsConfig | undefined,
@@ -1259,10 +1274,16 @@ export function createManagedInvocationToolOptionsCatalog(
 
 function loadManagedInvocationSkillCatalog(
   projectPath: string,
-  userHome: string,
+  userHome: string | undefined,
+  projectStateBinding: ReturnType<typeof resolveProjectStateBinding>,
   skillConfig: KilnYamlSkillsConfig | undefined,
 ): readonly ManagedSkillCatalogEntry[] {
-  const catalog = readSkillCatalogStatus({ projectPath, userHome, skillConfig });
+  const catalog = readSkillCatalogStatus({
+    projectPath,
+    ...(userHome ? { userHome } : {}),
+    projectStateBinding,
+    skillConfig,
+  });
   return catalog.entries
     .map((skill): ManagedSkillCatalogEntry => ({
       name: skill.name,
@@ -2361,19 +2382,22 @@ function createManagedInvocationService(
   existingService: RuntimeManagedAgentInvocationService | undefined,
   existingServiceKey: string | undefined,
   managedAccountComposition: ManagedAccountRuntimeComposition | undefined,
+  runtimeStateRoot: string | undefined,
+  projectStateBinding: ProjectStateBinding | undefined,
   managedEconomicAuthorityAvailable = false,
 ): RuntimeManagedAgentInvocationService | undefined {
+  const stateRoot = runtimeStateRoot ?? projectStateBinding?.runtimePath ?? resolveProjectStateBinding(cwd).runtimePath;
   const serviceKey = managedInvocationServiceKey(config, cwd) ?? `managed-invocation:${resolve(cwd)}`;
   const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
   const hasExternalHarnessRoute = routeConfigs.some((route) => route.kind === "harness");
   if (existingService && existingServiceKey === serviceKey) {
     if (hasExternalHarnessRoute && !existingService.hasExternalActionClaimConfigured()) {
-      existingService.configureExternalActionClaim(createManagedExternalActionClaimContext(cwd));
+      existingService.configureExternalActionClaim(createManagedExternalActionClaimContext(cwd, stateRoot, projectStateBinding));
     }
     return existingService;
   }
   const externalActionClaim = hasExternalHarnessRoute
-    ? createManagedExternalActionClaimContext(cwd)
+    ? createManagedExternalActionClaimContext(cwd, stateRoot, projectStateBinding)
     : undefined;
   const leaseConfig = config.managedAgents?.worktreeLease;
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) =>
@@ -2402,17 +2426,22 @@ function createManagedInvocationService(
         allowedRouteIds: credentialRouteIds,
       }),
       recoveryStore: new ManagedFilesystemRuntimeRecoveryStore({
-        rootPath: join(cwd, ".kiln", "runtime", "managed-invocation-recovery"),
+        rootPath: join(stateRoot, "managed-invocation-recovery"),
       }),
     } : {}),
     ...(externalActionClaim !== undefined ? { externalActionClaim } : {}),
   });
 }
 
-function createManagedExternalActionClaimContext(cwd: string) {
-  const transcriptEvidence = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(cwd));
+function createManagedExternalActionClaimContext(
+  cwd: string,
+  runtimeStateRoot: string,
+  projectStateBinding?: ProjectStateBinding,
+) {
+  const transcriptEvidence = new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(projectStateBinding ?? cwd));
   const store = new SqliteManagedExternalInvocationActionClaimStore({
-    path: join(cwd, ".kiln", "runtime", "managed-external-invocation-action-claims.sqlite"),
+    path: join(runtimeStateRoot, "managed-external-invocation-action-claims.sqlite"),
+    ...(projectStateBinding ? { privateStateRoot: projectStateBinding.projectStateRoot } : {}),
   });
   return {
     ownerGeneration: `managed-external-owner:${process.pid}:${randomUUID()}`,
@@ -2427,6 +2456,8 @@ export function createManagedAccountRuntimeComposition(
   cwd: string,
   storage: {
     readonly compositionKey?: string;
+    /** Exact operator-private Runtime state root supplied by CLI composition. */
+    readonly runtimeStateRoot?: string;
     readonly databasePath?: string;
   } = {},
 ): ManagedAccountRuntimeComposition | undefined {
@@ -2440,10 +2471,14 @@ export function createManagedAccountRuntimeComposition(
     existing.updateCatalog(executionCatalog);
     return existing;
   }
-  const databasePath = storage.databasePath ?? join(compositionKey, ".kiln", "runtime", "managed-account-leases.sqlite");
+  const databasePath = storage.databasePath
+    ?? join(storage.runtimeStateRoot ?? resolveProjectStateBinding(cwd).runtimePath, "managed-account-leases.sqlite");
   const runtimeDirectory = dirname(databasePath);
   mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
-  const routing = new ConfiguredExecutionAccountRuntime({ catalog: executionCatalog });
+  const routing = new ConfiguredExecutionAccountRuntime({
+    catalog: executionCatalog,
+    kilnHome: resolveProjectStateBinding(cwd).kilnHome,
+  });
   const authority = new SqliteManagedAccountLeaseAuthority({
     path: databasePath,
   });

@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { TrustedExecutionProfile } from "@kilnai/core";
+import type { ProjectStateBinding } from "../application/project-state-root.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import {
+  assertPrivateStateFileTarget,
+  ensurePrivateStateDirectory,
+} from "../application/private-project-state-filesystem.js";
 import { readNativeProjectionInstallState } from "../config/native-projection-state.js";
 
 export const RUNTIME_PERMISSION_EVIDENCE_SCHEMA = "kiln.runtime-permission-evidence" as const;
@@ -87,16 +93,38 @@ export function deriveOpenCodeTrustedExecutionProfile(rules: readonly { readonly
   return rules.some((rule) => rule.permission === "*" && rule.action === "allow") && rules.every((rule) => rule.action === "allow") ? "workspace-write" : "restricted";
 }
 
-export function createRuntimePermissionObservationStore(input: { readonly projectPath: string; readonly evidenceDirectory?: string }): RuntimePermissionObservationStore {
-  const evidenceDirectory = resolve(input.evidenceDirectory ?? join(input.projectPath, ".kiln", "evidence", "runtime-permission-observations"));
+export interface RuntimePermissionObservationStoreInput {
+  readonly projectPath: string;
+  /** Explicit binding seam for composition and hermetic tests. */
+  readonly projectStateBinding?: ProjectStateBinding;
+  readonly evidenceDirectory?: string;
+  /** Explicit private root when an overridden evidence directory remains project-owned. */
+  readonly privateStateRoot?: string;
+  /** Private directory containing the native projection install-state record. */
+  readonly projectionStateDirectory?: string;
+}
+
+export function createRuntimePermissionObservationStore(
+  input: RuntimePermissionObservationStoreInput,
+): RuntimePermissionObservationStore {
+  const stateBinding = input.projectStateBinding ?? resolveProjectStateBinding(input.projectPath);
+  const evidenceDirectory = resolve(input.evidenceDirectory ?? join(stateBinding.evidencePath, "runtime-permission-observations"));
+  const projectionStateDirectory = resolve(input.projectionStateDirectory ?? stateBinding.projectionsPath);
+  const privateStateRoot = input.privateStateRoot ?? (input.evidenceDirectory === undefined ? stateBinding.projectStateRoot : undefined);
   const write = async (value: RuntimePermissionRequestedEvidence | RuntimePermissionObservedEvidence): Promise<void> => {
     if (!isEvidence(value)) throw new Error("Runtime permission evidence failed strict validation.");
     const directory = join(evidenceDirectory, value.harness);
-    await mkdir(directory, { recursive: true });
     const timestamp = value.kind === "requested" ? value.requestedAt : value.verifiedAt;
     const name = `${timestamp.replace(/[:.]/gu, "-")}-${randomUUID()}.json`;
     const finalPath = join(directory, name);
     const temporary = join(directory, `.${name}.${randomUUID()}.tmp`);
+    if (privateStateRoot !== undefined) {
+      await ensurePrivateStateDirectory(privateStateRoot, directory, true);
+      await assertPrivateStateFileTarget(privateStateRoot, finalPath);
+      await assertPrivateStateFileTarget(privateStateRoot, temporary);
+    } else {
+      await mkdir(directory, { recursive: true });
+    }
     try {
       const handle = await open(temporary, "wx");
       try { await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8"); await handle.sync(); } finally { await handle.close(); }
@@ -106,7 +134,7 @@ export function createRuntimePermissionObservationStore(input: { readonly projec
   return {
     evidenceDirectory,
     recordRequested: async (draft) => {
-      const target = readNativeProjectionInstallState(join(input.projectPath, ".kiln")).targets[TARGET_IDS[draft.harness]];
+      const target = readNativeProjectionInstallState(projectionStateDirectory).targets[TARGET_IDS[draft.harness]];
       if (!target?.permissionIntegrity || target.permissionIntegrity.harness !== draft.harness) {
         throw new Error(`No exact native permission projection is installed for ${draft.harness}.`);
       }

@@ -19,6 +19,7 @@ const sessionsData = [
   },
 ] as const;
 const dashboardData = {
+  executionRouteCatalog: { routes: [] },
   providers: [],
   telemetry: {
     status: "idle" as const,
@@ -59,6 +60,7 @@ vi.mock("../src/api/client.js", () => ({
 
     async loadDashboard() {
       return {
+        executionRouteCatalog: { routes: [] },
         providers: [],
         telemetry: {
           status: "idle",
@@ -162,8 +164,6 @@ function resetStore(): void {
       models: ["claude-sonnet-4-6"],
     }],
     providerModelDiscovery: providerModelDiscovery("claude", "claude-sonnet-4-6"),
-    activeProvider: null,
-    activeModel: null,
     sessionList: [],
     selectedSessionId: null,
     continuationTargetId: null,
@@ -179,12 +179,10 @@ function resetStore(): void {
     currentTurnTrackedInputTokens: 0,
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
-    providerSwitching: false,
-    providerExplicitSelection: false,
     authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
-    providerSwitchTimeoutId: null,
+    executionRouteSelectionTimeoutId: null,
     activityPhase: "idle",
   });
 }
@@ -201,9 +199,16 @@ function providerModelDiscovery(
       counts: { total: 1, returned: 1, omitted: 0 },
     },
     entries: [{
-      providerRoute: { providerId, providerModelId },
+      normalizedModel: { family: providerModelId },
+      providerRoute: { providerId, providerModelId, scope: "test" },
+      rawEvidence: { rawId: providerModelId, provenance: "app-shell-responsive" },
+      credentialEvidence: { state: "authenticated", source: "app-shell-responsive" },
+      entitlementEvidence: { state: "confirmed", source: "app-shell-responsive" },
+      freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      routeHealth: { status: "healthy" },
+      policyAdmission: { use: "interactive", status: "admitted" },
       eligibility: { eligible: true, reasonCodes: [] },
-    } as GuiProviderModelDiscoveryProjection["entries"][number]],
+    } satisfies GuiProviderModelDiscoveryProjection["entries"][number]],
   };
 }
 

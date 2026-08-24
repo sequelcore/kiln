@@ -1,8 +1,7 @@
 // Gateway: GatewayServer -- persistent Bun/Hono process hosting multiple Apps
 
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { Hono } from "hono";
 import type { AppGatewayRuntimeIdentity } from "@kilnai/gateway-contracts";
 import {
@@ -81,6 +80,8 @@ import {
   mountGuiStaticAssets,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
+import { resolveGatewayPrivateState } from "./gateway-private-state.js";
+import { resolveRuntimeStoreRoot } from "../kiln-home.js";
 
 type MetaVoiceChannelType = "whatsapp" | "instagram" | "messenger";
 
@@ -140,6 +141,10 @@ async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
 
 export interface StartGatewayOptions {
   readonly port?: number;
+  /** Canonical operator Kiln home supplied by CLI composition. */
+  readonly kilnHome?: string;
+  /** Exact operator-private mutable state root supplied by CLI project composition. */
+  readonly privateStateRoot?: string;
   readonly onReady?: (url: string) => void;
   /** Local supervisor ownership. The credential is runtime-only and never projected by control responses. */
   readonly supervision?: {
@@ -354,7 +359,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 async function startGatewayWithOwnedResources(configPath: string, options?: StartGatewayOptions): Promise<void> {
   const configurationSource = readGatewayConfigurationSource(configPath);
   const gatewayConfig = configurationSource.config;
-  const gatewayYamlDir = dirname(configurationSource.gateway.path);
+  const privateState = resolveGatewayPrivateState(configurationSource.gateway.path, {
+    ...(options?.privateStateRoot === undefined ? {} : { privateStateRoot: options.privateStateRoot }),
+    ...(options?.kilnHome === undefined ? {} : { kilnHome: options.kilnHome }),
+  });
   const port = options?.port ?? gatewayConfig.port;
   if (options?.supervision && (
     options.supervision.identity.port !== port
@@ -379,7 +387,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
     );
   }
 
-  const resolvedApps = resolveApps(configurationSource);
+  const resolvedApps = resolveApps(configurationSource, { kilnHome: options?.kilnHome });
   const appGatewayExecution = options?.appGatewayExecution;
   if (resolvedApps.some((resolved) => resolved.runtimeModeConfig?.runtime === "provider-adapter") && !appGatewayExecution) {
     throw new KilnError(
@@ -477,7 +485,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
 
   // EventBus: shared across all apps for canonical observability projections.
   const credentialWatcher = new CredentialWatcher({
-    rootDir: join(homedir(), ".kiln", "auth"),
+    rootDir: resolveRuntimeStoreRoot({ kilnHome: options?.kilnHome }, "auth"),
   });
   await credentialWatcher.start();
   const credentialPoolObservability = new CredentialPoolObservabilityRegistry();
@@ -493,7 +501,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
   const secretKeyEnv = options?.secretKeyEnv;
   const secretMasterKey = secretKeyEnv ? process.env[secretKeyEnv] : undefined;
   const secretStore = secretMasterKey
-    ? new AesSecretStore(join(dirname(configPath), ".kiln", "secrets.json"), secretMasterKey)
+    ? new AesSecretStore(privateState.secretsPath, secretMasterKey)
     : undefined;
 
   // Integration runtime: register adapters and configure credential resolution
@@ -554,6 +562,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       resolved.runtimeModeConfig.provider,
       credentialWatcher,
       credentialPoolObservability,
+      options?.kilnHome,
     );
     const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
@@ -1223,7 +1232,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       modelGatewayRuntime = await startModelGatewayListener({
         config: gatewayConfig.modelGateway,
         ...modelGatewayExecution!,
-        databasePath: join(gatewayYamlDir, ".kiln", "model-gateway", "model-gateway.sqlite"),
+        databasePath: privateState.modelGatewayDatabasePath,
         ...(options?.modelGatewayListener === undefined ? {} : { listen: options.modelGatewayListener }),
       });
       const surfaces = [gatewayConfig.modelGateway.surfaces.openAIResponses ? "/v1/responses" : undefined, gatewayConfig.modelGateway.surfaces.anthropicMessages ? "/v1/messages" : undefined].filter(Boolean).join(", ");
@@ -1253,6 +1262,7 @@ async function createProviderFromConfig(
   config: ProviderConfig,
   credentialWatcher?: CredentialWatcher,
   credentialPoolObservability?: CredentialPoolObservabilityRegistry,
+  kilnHome?: string,
 ): Promise<ProviderAdapter> {
   const model = config.model;
   const requireModel = (): string => {
@@ -1268,6 +1278,7 @@ async function createProviderFromConfig(
   switch (config.name) {
     case "codex-oauth": {
       const service = new CodexOAuthCredentialPoolService({
+        kilnHome,
         watcher: credentialWatcher,
         observability: credentialPoolObservability,
       });
@@ -1278,6 +1289,7 @@ async function createProviderFromConfig(
     case "opencode-go":
     case "opencode-zen": {
       const service = new OpenCodeCredentialPoolService({
+        kilnHome,
         watcher: credentialWatcher,
         observability: credentialPoolObservability,
       });
@@ -1296,6 +1308,7 @@ async function createProviderFromConfig(
         throw new KilnError("CONFIG_INVALID", `Unsupported pooled provider: ${config.name}`);
       }
       const service = new DirectProviderCredentialPoolService({
+        kilnHome,
         watcher: credentialWatcher,
         observability: credentialPoolObservability,
       });

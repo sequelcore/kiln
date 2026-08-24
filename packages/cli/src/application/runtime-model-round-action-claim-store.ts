@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import type { PerCallToolConfig } from "@kilnai/runtime";
+import { assertPrivateStateFileTargetSync } from "./private-project-state-filesystem.js";
 import { SqliteActionClaimStoreOwner } from "./sqlite-action-claim-store-owner.js";
 
 type RuntimeModelRoundDispatchContext = NonNullable<PerCallToolConfig["runtimeModelRoundDispatch"]>;
@@ -17,6 +18,8 @@ const CANONICAL_SHA256_ID = /^sha256:[a-f0-9]{64}$/u;
 
 export interface RuntimeModelRoundActionClaimStoreOptions {
   readonly path: string;
+  /** Canonical project-private root when this store is project-owned. */
+  readonly privateStateRoot?: string;
   readonly now?: () => string;
   readonly idGenerator?: () => string;
   readonly ownerId?: string;
@@ -61,6 +64,10 @@ export class SqliteRuntimeModelRoundActionClaimStore implements RuntimeModelRoun
 
   constructor(options: RuntimeModelRoundActionClaimStoreOptions) {
     if (!options.path.trim()) throw new TypeError("Runtime model-round claim database path is required.");
+    const assertWritablePath = options.privateStateRoot === undefined
+      ? undefined
+      : () => assertPrivateStateFileTargetSync(options.privateStateRoot!, options.path);
+    assertWritablePath?.();
     mkdirSync(dirname(options.path), { recursive: true });
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#idGenerator = options.idGenerator ?? randomUUID;
@@ -69,10 +76,12 @@ export class SqliteRuntimeModelRoundActionClaimStore implements RuntimeModelRoun
       database: this.#db,
       storeName: "Runtime model-round",
       now: this.#now,
+      ...(assertWritablePath ? { assertWritablePath } : {}),
       ...(options.ownerId !== undefined ? { ownerId: options.ownerId } : {}),
       ...(options.ownerStaleMs !== undefined ? { ownerStaleMs: options.ownerStaleMs } : {}),
     });
     try {
+      assertWritablePath?.();
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
       this.#db.exec(`
         CREATE TABLE IF NOT EXISTS runtime_model_round_action_claims (

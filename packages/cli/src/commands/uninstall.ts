@@ -15,11 +15,17 @@ import {
 import type { KilnAppConfig } from "../config.js";
 import { CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID, uninstallCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
 import { OPENCODE_SKILL_VISIBILITY_TARGET_ID, uninstallOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "../application/project-state-root.js";
 
 export interface UninstallNativeOptions {
   readonly target?: string;
   readonly force?: boolean;
   readonly userHome?: string;
+  /** Established private state binding for this project. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }
 
 export interface UninstallNativeResult {
@@ -106,8 +112,11 @@ export async function uninstallCommand(
 }
 
 export function uninstallNativeTargets(projectPath: string, options: UninstallNativeOptions = {}): UninstallNativeResult {
-  const kilnDir = join(projectPath, ".kiln");
-  let installState = readNativeProjectionInstallState(kilnDir);
+  const stateBinding = options.projectStateBinding ?? resolveProjectStateBinding(projectPath, options.userHome === undefined
+    ? {}
+    : { kilnHome: join(options.userHome, ".kiln") });
+  const projectionStateDir = stateBinding.projectionsPath;
+  let installState = readNativeProjectionInstallState(projectionStateDir);
   const targetIds = options.target?.trim() === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID
     || options.target?.trim() === OPENCODE_SKILL_VISIBILITY_TARGET_ID
     ? [] : resolveTargetIds(installState, options.target);
@@ -169,7 +178,7 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
   }
 
   if (removed.length > 0) {
-    writeNativeProjectionInstallState(kilnDir, installState);
+    writeNativeProjectionInstallState(projectionStateDir, installState);
   }
 
   const target = options.target?.trim();

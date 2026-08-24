@@ -13,10 +13,23 @@ import {
   assertNativeMcpProjectionCurrent,
   syncNativeMcpProjections,
   uninstallNativeMcpProjections,
+  type NativeMcpProjectionOptions,
 } from "../../src/config/native-mcp-projection-sync.js";
 import * as nativeProjectionState from "../../src/config/native-projection-state.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const roots: string[] = [];
+
+function projectBinding(root: string) {
+  return resolveProjectStateBinding(root, { kilnHome: join(root, "kiln-home") });
+}
+
+function mcpOptions(
+  root: string,
+  options: Omit<NativeMcpProjectionOptions, "projectStateBinding"> = {},
+): NativeMcpProjectionOptions {
+  return { ...options, projectStateBinding: projectBinding(root) };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -167,7 +180,7 @@ describe("native MCP projection lifecycle", () => {
       },
     });
 
-    const result = await syncNativeMcpProjections(conflicting, root, { harnesses: ["codex"] });
+    const result = await syncNativeMcpProjections(conflicting, root, mcpOptions(root, { harnesses: ["codex"] }));
 
     expect(result.targets).toEqual([expect.objectContaining({ status: "incompatible", reason: expect.stringContaining("global") })]);
     expect(existsSync(join(root, ".codex", "config.toml"))).toBe(false);
@@ -190,27 +203,27 @@ describe("native MCP projection lifecycle", () => {
       throw new Error("synthetic MCP install-state failure");
     });
 
-    await expect(syncNativeMcpProjections(portableResolution(), root, {
+    await expect(syncNativeMcpProjections(portableResolution(), root, mcpOptions(root, {
       harnesses: ["claude", "opencode"],
-    })).rejects.toThrow("synthetic MCP install-state failure");
+    }))).rejects.toThrow("synthetic MCP install-state failure");
 
     for (const [path, content] of before) expect(readFileSync(path, "utf8")).toBe(content);
-    expect(existsSync(join(root, ".kiln", "install-state.json"))).toBe(false);
+    expect(existsSync(join(projectBinding(root).projectionsPath, "install-state.json"))).toBe(false);
   });
 
   it("restores every native MCP file byte-for-byte when uninstall-state persistence fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-uninstall-rollback-"));
     roots.push(root);
-    await syncNativeMcpProjections(portableResolution(), root, { harnesses: ["claude", "opencode"] });
+    await syncNativeMcpProjections(portableResolution(), root, mcpOptions(root, { harnesses: ["claude", "opencode"] }));
     const files = [join(root, ".mcp.json"), join(root, "opencode.json")];
     const before = new Map(files.map((path) => [path, readFileSync(path, "utf8")]));
     vi.spyOn(nativeProjectionState, "writeNativeProjectionInstallState").mockImplementation(() => {
       throw new Error("synthetic MCP uninstall-state failure");
     });
 
-    await expect(uninstallNativeMcpProjections(root, {
+    await expect(uninstallNativeMcpProjections(root, mcpOptions(root, {
       harnesses: ["claude", "opencode"],
-    })).rejects.toThrow("synthetic MCP uninstall-state failure");
+    }))).rejects.toThrow("synthetic MCP uninstall-state failure");
 
     for (const [path, content] of before) expect(readFileSync(path, "utf8")).toBe(content);
   });
@@ -221,9 +234,9 @@ describe("native MCP projection lifecycle", () => {
     mkdirSync(join(root, ".codex"), { recursive: true });
     writeFileSync(join(root, ".codex", "config.toml"), 'model = "keep-me"\n\n[mcp_servers.unmanaged]\ncommand = "keep"\n');
 
-    const result = await syncNativeMcpProjections(resolution(), root, {
+    const result = await syncNativeMcpProjections(resolution(), root, mcpOptions(root, {
       now: "2026-07-19T12:00:00.000Z",
-    });
+    }));
 
     expect(result.targets).toEqual(expect.arrayContaining([
       expect.objectContaining({ harness: "codex", status: "current" }),
@@ -238,7 +251,7 @@ describe("native MCP projection lifecycle", () => {
         "studio.v2": { command: "cmd.exe", args: ["/c", "C:\\Roblox\\mcp.bat"] },
       },
     });
-    expect(JSON.parse(readFileSync(join(root, ".kiln", "install-state.json"), "utf-8")))
+    expect(JSON.parse(readFileSync(join(projectBinding(root).projectionsPath, "install-state.json"), "utf-8")))
       .toMatchObject({ targets: { "mcp:codex": { managedFields: ["/mcp_servers/studio.v2"] } } });
   });
 
@@ -249,11 +262,11 @@ describe("native MCP projection lifecycle", () => {
     const target = join(root, ".codex", "config.toml");
     writeFileSync(target, "not = [valid");
 
-    const result = await syncNativeMcpProjections(resolution(), root, { harnesses: ["codex"] });
+    const result = await syncNativeMcpProjections(resolution(), root, mcpOptions(root, { harnesses: ["codex"] }));
 
     expect(result.targets).toEqual([expect.objectContaining({ harness: "codex", status: "blocked-malformed" })]);
     expect(readFileSync(target, "utf-8")).toBe("not = [valid");
-    expect(existsSync(join(root, ".kiln", "install-state.json"))).toBe(false);
+    expect(existsSync(join(projectBinding(root).projectionsPath, "install-state.json"))).toBe(false);
   });
 
   it("synchronizes and uninstalls portable definitions for Claude and OpenCode while preserving unmanaged keys", async () => {
@@ -262,7 +275,7 @@ describe("native MCP projection lifecycle", () => {
     writeFileSync(join(root, ".mcp.json"), JSON.stringify({ keep: true, mcpServers: { unmanaged: { command: "keep" } } }));
     writeFileSync(join(root, "opencode.json"), JSON.stringify({ theme: "keep", mcp: { unmanaged: { type: "local", command: ["keep"] } } }));
 
-    const sync = await syncNativeMcpProjections(portableResolution(), root, { harnesses: ["claude", "opencode"] });
+    const sync = await syncNativeMcpProjections(portableResolution(), root, mcpOptions(root, { harnesses: ["claude", "opencode"] }));
     expect(sync.targets).toEqual([
       expect.objectContaining({ harness: "claude", status: "current" }),
       expect.objectContaining({ harness: "opencode", status: "current" }),
@@ -276,7 +289,7 @@ describe("native MCP projection lifecycle", () => {
       mcp: { unmanaged: { type: "local" }, portable: { type: "local", command: ["node", "fixture-server.mjs", "argument with spaces"] } },
     });
 
-    await uninstallNativeMcpProjections(root);
+    await uninstallNativeMcpProjections(root, mcpOptions(root));
     expect(JSON.parse(readFileSync(join(root, ".mcp.json"), "utf-8"))).toEqual({ keep: true, mcpServers: { unmanaged: { command: "keep" } } });
     expect(JSON.parse(readFileSync(join(root, "opencode.json"), "utf-8"))).toEqual({ theme: "keep", mcp: { unmanaged: { type: "local", command: ["keep"] } } });
   });
@@ -284,20 +297,20 @@ describe("native MCP projection lifecycle", () => {
   it("detects drift, repairs only with force, and uninstalls owned fields", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-drift-"));
     roots.push(root);
-    await syncNativeMcpProjections(resolution(), root, { harnesses: ["codex"] });
+    await syncNativeMcpProjections(resolution(), root, mcpOptions(root, { harnesses: ["codex"] }));
     const target = join(root, ".codex", "config.toml");
     writeFileSync(target, readFileSync(target, "utf-8").replace("cmd.exe", "tampered.exe"));
 
-    const drift = await syncNativeMcpProjections(resolution(), root, { harnesses: ["codex"] });
+    const drift = await syncNativeMcpProjections(resolution(), root, mcpOptions(root, { harnesses: ["codex"] }));
     expect(drift.targets).toEqual([expect.objectContaining({ status: "drifted" })]);
     expect(readFileSync(target, "utf-8")).toContain("tampered.exe");
 
-    const repaired = await syncNativeMcpProjections(resolution(), root, { harnesses: ["codex"], force: true });
+    const repaired = await syncNativeMcpProjections(resolution(), root, mcpOptions(root, { harnesses: ["codex"], force: true }));
     expect(repaired.targets).toEqual([expect.objectContaining({ status: "current" })]);
     expect(readFileSync(target, "utf-8")).toContain("cmd.exe");
-    expect(() => assertNativeMcpProjectionCurrent(resolution(), root, "codex")).not.toThrow();
+    expect(() => assertNativeMcpProjectionCurrent(resolution(), root, "codex", projectBinding(root))).not.toThrow();
 
-    const uninstall = await uninstallNativeMcpProjections(root);
+    const uninstall = await uninstallNativeMcpProjections(root, mcpOptions(root));
     expect(uninstall.targets).toEqual([expect.objectContaining({ harness: "codex", status: "uninstalled" })]);
     const after = parseToml(readFileSync(target, "utf-8")) as { mcp_servers?: Record<string, unknown> };
     expect(after.mcp_servers?.["studio.v2"]).toBeUndefined();

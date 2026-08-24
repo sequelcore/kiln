@@ -2,6 +2,7 @@ import {
   MemoryArtifactResourceStore,
   type DefaultBuiltinToolRegistryOptions,
 } from "@kilnai/core";
+import { join } from "node:path";
 import type { AuthorityDescriptor, InvocationAdmission } from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 import type { KilnAppConfig } from "../config.js";
@@ -16,6 +17,8 @@ import { resolveFormalVerificationConfiguration } from "./formal-verification-co
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { resolveModelFacingPermissionPolicy } from "./model-facing-permission-policy.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 export const PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS = [
   "read",
@@ -169,7 +172,12 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     : options.memoryAuthority?.permissionPolicy;
   const resourceProviders = [
     ...(merged.resourceProviders ?? []),
-    new ExternalEngagementResourceProvider(projectPath),
+    new ExternalEngagementResourceProvider(
+      join(
+        resolveProjectStateBinding(resolveProjectRoot({ explicitPath: projectPath }).rootPath).evidencePath,
+        "external-engagement",
+      ),
+    ),
   ];
   return {
     ...merged,

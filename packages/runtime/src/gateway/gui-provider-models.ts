@@ -128,11 +128,13 @@ export async function discoverGuiCliOperatorModels(
 
 export async function resolveGuiOperatorDiscoveryResults(
   providerAvailability: Readonly<Record<string, boolean>>,
-  routeHealthStore: ProviderModelRouteHealthStore = new ProviderModelRouteHealthStore(),
+  routeHealthStore?: ProviderModelRouteHealthStore,
+  kilnHome?: string,
 ): Promise<GuiProviderDiscoveryResult[]> {
+  const resolvedRouteHealthStore = routeHealthStore ?? new ProviderModelRouteHealthStore({ kilnHome });
   const [cliModels, directProviderDiscovery] = await Promise.all([
     discoverGuiCliOperatorModels(providerAvailability),
-    discoverGuiDirectProviderModelDiscovery(providerAvailability, process.env, routeHealthStore),
+    discoverGuiDirectProviderModelDiscovery(providerAvailability, process.env, resolvedRouteHealthStore, kilnHome),
   ]);
   return buildGuiOperatorDiscoveryResults({
     claudeModels: cliModels.claudeModels,
@@ -650,6 +652,7 @@ export async function discoverGuiDirectProviderModelDiscovery(
   providerAvailability: Readonly<Record<string, boolean>>,
   env: Readonly<Record<string, string | undefined>> = process.env,
   routeHealthStore?: ProviderModelRouteHealthStore,
+  kilnHome?: string,
 ): Promise<Record<string, GuiCliProviderModelDiscovery>> {
   const [
     openCodeDirectDiscovery,
@@ -661,14 +664,14 @@ export async function discoverGuiDirectProviderModelDiscovery(
     lmStudioDiscovery,
     codexOauthDiscovery,
   ] = await Promise.all([
-    discoverOpenCodeDirectModelDiscovery(providerAvailability, env),
+    discoverOpenCodeDirectModelDiscovery(providerAvailability, env, kilnHome),
     discoverOpenAiModelDiscovery(providerAvailability.openai, env),
     discoverAnthropicModelDiscovery(providerAvailability.anthropic, env),
     discoverDeepSeekModelDiscovery(providerAvailability.deepseek, env),
     discoverOpenRouterModelDiscovery(providerAvailability.openrouter, env),
     discoverOllamaModelDiscovery(providerAvailability.ollama, env),
     discoverLmStudioModelDiscovery(providerAvailability.lmstudio, env),
-    discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"]),
+    discoverCodexOauthModelDiscovery(providerAvailability["codex-oauth"], kilnHome),
   ]);
   const discoveries = Object.fromEntries([
     ...(codexOauthDiscovery ? [["codex-oauth", codexOauthDiscovery] as const] : []),
@@ -721,11 +724,12 @@ async function attachProviderModelRouteHealth(
 
 async function discoverCodexOauthModelDiscovery(
   available: boolean | undefined,
+  kilnHome?: string,
 ): Promise<GuiCliProviderModelDiscovery | undefined> {
   if (available !== true) {
     return undefined;
   }
-  const credentialPool = new CodexOAuthCredentialPoolService();
+  const credentialPool = new CodexOAuthCredentialPoolService({ kilnHome });
   let tokenCandidates: readonly { readonly credentialId: string; readonly accessToken: string }[] = [];
   try {
     tokenCandidates = await credentialPool.listValidAccessTokenCandidates();
@@ -1666,6 +1670,7 @@ async function discoverLmStudioModelDiscovery(
 async function discoverOpenCodeDirectModelDiscovery(
   providerAvailability: Readonly<Record<string, boolean>>,
   env: Readonly<Record<string, string | undefined>>,
+  kilnHome?: string,
 ): Promise<Record<string, GuiCliProviderModelDiscovery>> {
   const allTargets: readonly OpenCodeDirectProviderDiscoveryTarget[] = [
     {
@@ -1697,7 +1702,7 @@ async function discoverOpenCodeDirectModelDiscovery(
 
   return Object.fromEntries(await Promise.all(
     targets.map(async (target) => {
-      const credential = await resolveOpenCodeDirectCredential(target);
+      const credential = await resolveOpenCodeDirectCredential(target, kilnHome);
       if (!credential.ok) {
         return [
           target.provider,
@@ -1718,8 +1723,9 @@ async function discoverOpenCodeDirectModelDiscovery(
 
 async function resolveOpenCodeDirectCredential(
   target: OpenCodeDirectProviderDiscoveryTarget,
+  kilnHome?: string,
 ): Promise<OpenCodeDirectCredentialResolution> {
-  const pool = await new OpenCodeCredentialPoolService().createPool(target.tier);
+  const pool = await new OpenCodeCredentialPoolService({ kilnHome }).createPool(target.tier);
   const credential = pool.getAllCredentials().find((candidate) => candidate.auth.api_key.trim().length > 0);
   if (credential) {
     return { ok: true, token: credential.auth.api_key.trim() };

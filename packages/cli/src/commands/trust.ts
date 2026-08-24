@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import readline from "node:readline";
 import {
   OPENCODE_NO_FILESYSTEM_SANDBOX,
@@ -11,6 +11,7 @@ import {
 } from "@kilnai/core";
 import { readGlobalConfig } from "../config/global-config.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveKilnHomePath } from "../config/global-config/path.js";
 
 const HARNESSES = ["codex", "claude-code", "opencode"] as const;
 function harness(value: string | undefined): TrustedExecutionHarness | undefined {
@@ -71,15 +72,17 @@ async function limitationCommand(args: readonly string[]): Promise<void> {
     if (!confirmed) { process.exitCode = 1; return; }
   }
   const now = new Date().toISOString();
+  const semanticLimitationDir = join(resolveKilnHomePath(), "trust", "semantic-limitations");
   if (action === "accept-limitation") {
     const acceptance = acceptTrustedExecutionSemanticLimitation({
       projectPath, descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX, acceptedBy: operatorId!, acceptedAt: now,
       reviewAfter: OPENCODE_NO_FILESYSTEM_SANDBOX.reviewAfter,
+      baseDir: semanticLimitationDir,
     });
     console.log(`OpenCode limitation accepted by ${acceptance.acceptedBy} until ${acceptance.reviewAfter}.`);
     return;
   }
-  console.log(revokeTrustedExecutionSemanticLimitation({ projectPath, descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX, revokedBy: operatorId!, revokedAt: now })
+  console.log(revokeTrustedExecutionSemanticLimitation({ projectPath, descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX, revokedBy: operatorId!, revokedAt: now, baseDir: semanticLimitationDir })
     ? "OpenCode limitation acceptance revoked."
     : "No current OpenCode limitation acceptance exists for this project.");
 }
@@ -106,16 +109,17 @@ export async function trustCommand(args: readonly string[]): Promise<void> {
     return;
   }
   const projectPath = resolveProjectRoot().rootPath;
+  const trustDir = join(resolveKilnHomePath(), "trust");
   if (action === "revoke") {
     const result = revokeTrustedExecutionGrant(target, projectPath, {
       operatorId,
       authorizedAt: new Date().toISOString(),
-    });
+    }, trustDir);
     if (!result.hadExistingGrant) console.log(`No trusted-execution grant exists for \`${target}\` in this project.`);
     else console.log(`Trusted-execution grant revoked for ${target}.`);
     return;
   }
-  const plan = planTrustedExecutionGrant({ harness: target, projectPath, requestedProfile });
+  const plan = planTrustedExecutionGrant({ harness: target, projectPath, requestedProfile, baseDir: trustDir });
   console.log(
     `Project: ${projectPath}\nHarness: ${target}\nApproval control: ${plan.enforcement.approvalControl}\nFilesystem sandbox: ${plan.enforcement.filesystemSandbox}\nNetwork boundary: ${plan.enforcement.networkBoundary}\nStrength: ${plan.enforcement.strength}\nRevoke: kiln trust revoke ${target}`,
   );
@@ -139,7 +143,7 @@ export async function trustCommand(args: readonly string[]): Promise<void> {
     approved: true,
     operatorId,
     authorizedAt: new Date().toISOString(),
-  });
+  }, trustDir);
   if (result.status === "rejected") {
     console.error(result.reason ?? "Trusted execution grant was rejected.");
     process.exitCode = 1;

@@ -11,6 +11,7 @@ import {
 } from "../../src/config/builtin-tool-surface-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 vi.mock("@kilnai/runtime", () => ({
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
@@ -110,8 +111,10 @@ describe("builtin tool surface config", () => {
   it("registers external engagement artifacts as shared read-only resources", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-builtin-tool-surface-"));
     try {
-      mkdirSync(join(projectPath, ".kiln", "external-engagement"), { recursive: true });
-      writeFileSync(join(projectPath, ".kiln", "external-engagement", "feature-intake.json"), JSON.stringify({
+      vi.stubEnv("XDG_CONFIG_HOME", join(projectPath, "xdg"));
+      const artifactRoot = join(resolveProjectStateBinding(projectPath).evidencePath, "external-engagement");
+      mkdirSync(artifactRoot, { recursive: true });
+      writeFileSync(join(artifactRoot, "feature-intake.json"), JSON.stringify({
         reportId: "intake-report-1",
         generatedAt: "2026-06-24T00:00:00.000Z",
         sourceDecisionReportId: "decision-report-1",
@@ -130,6 +133,7 @@ describe("builtin tool surface config", () => {
         reportId: "intake-report-1",
       });
     } finally {
+      vi.unstubAllEnvs();
       rmSync(projectPath, { recursive: true, force: true });
     }
   });

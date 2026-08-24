@@ -23,7 +23,7 @@ const DEFAULT_PREVIEW_LINE_LIMIT = 100;
 const MAX_PREVIEW_LINE_LIMIT = 1_000;
 const DEFAULT_FILE_BYTES = 256 * 1024;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const IGNORED_DIRECTORIES = new Set([".git", ".kiln-worktrees", "build", "coverage", "dist", "node_modules"]);
+const IGNORED_DIRECTORIES = new Set([".git", "build", "coverage", "dist", "node_modules"]);
 
 export interface WorkspaceResourceProviderOptions {
   readonly rootPath: string;

@@ -150,8 +150,9 @@ in-flight request deduplication. Cold startup starts with an immediate
 the operator transport is listening. Startup, dashboard reads, and socket opens
 must not block on CLI probes, remote model endpoints, or local daemons.
 
-Local operator startup may also seed the runtime catalog from the project cache
-at `.kiln/cache/provider-discovery.json`. That file stores only fresh discovery
+Local operator startup may also seed the runtime catalog from the bound private
+project cache at `cache/provider-discovery.json` under
+`~/.kiln/projects/<krp_sha256>/`. That file stores only fresh discovery
 snapshots produced by runtime discovery. On startup the cached entries are
 projected as `status: stale`, `available: false`, and `authState: unknown`.
 This makes prior provider diagnostics visible immediately while preserving the

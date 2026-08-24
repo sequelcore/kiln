@@ -34,7 +34,12 @@ import {
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
-import { readKilnYaml } from "../kiln-yaml.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "../application/private-project-state-filesystem.js";
+import { readKilnYamlFile } from "../kiln-yaml.js";
 import type { KilnDeliberationPolicyConfig, KilnModelTaskSuitabilityTask } from "../kiln-yaml-types.js";
 import {
   computeEvalScore,
@@ -842,11 +847,9 @@ function resolveParallelWorkerLineage(
 
 async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: string): Promise<string | undefined> {
   try {
-    const transcriptPath = join(projectPath, ".kiln", "sessions", sessionId, "transcript.jsonl");
-    const content = await readFile(transcriptPath, "utf-8");
-    const lines = content.split("\n").filter((line) => line.trim().length > 0);
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const submittedPlan = parseSubmittedPlan(lines[i]!);
+    const events = await new TranscriptStore(projectPath).readTranscript(sessionId);
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const submittedPlan = parseSubmittedPlan(JSON.stringify(events[i]));
       if (submittedPlan !== undefined) {
         return submittedPlan;
       }
@@ -954,12 +957,13 @@ export async function runCommand(
   }
 
   const cwd = resolveProjectRoot().rootPath;
+  const projectStateBinding = resolveProjectStateBinding(cwd);
   let resolvedAgent: KilnAgentDefinition | undefined;
   if (flags.agent) {
-    const definitions = await loadAgentDefinitions(cwd);
+    const definitions = await loadAgentDefinitions(cwd, { projectStateBinding });
     resolvedAgent = findAgent(definitions, flags.agent);
     if (!resolvedAgent) {
-      const errorMessage = `Agent "${flags.agent}" not found in .kiln/agents/ or ~/.kiln/agents/`;
+      const errorMessage = `Agent "${flags.agent}" not found in the private project agent catalog or ~/.kiln/agents/`;
       runOutput.writeErrorLine(`Error: ${errorMessage}`);
       emitRunFailureOutput(runOutput, {
         answer: "",
@@ -977,9 +981,9 @@ export async function runCommand(
   }
 
   const globalConfig = readGlobalConfig();
-  const projectConfig = readKilnYaml(join(cwd, ".kiln"));
-  const resolvedKilnConfig = await loadKilnConfig(cwd);
-  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
+  const projectConfig = readKilnYamlFile(projectStateBinding.configPath);
+  const resolvedKilnConfig = await loadKilnConfig(cwd, { projectStateBinding });
+  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd, { projectStateBinding });
   if (mcpResolution.diagnostics.length > 0) {
     throw new Error(`Canonical MCP configuration is invalid: ${mcpResolution.diagnostics.map((item) => item.code).join(", ")}`);
   }
@@ -1113,12 +1117,31 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
+  const worktreeBaseDir = join(projectStateBinding.tmpPath, "worktrees");
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, worktreeBaseDir);
   const { registry, worktreeManager } = createDefaultRegistry({
+    kilnHome: projectStateBinding.kilnHome,
     canonicalMcpServers: admittedMcpServers,
     canonicalMcpProjectPath: cwd,
     runtimePermissionObservationProjectPath: cwd,
+    worktreeRepoRoot: cwd,
+    worktreeBaseDir,
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
-  const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.runtimePath);
+  for (const fileName of [
+    "managed-direct-tool-action-claims.sqlite",
+    "managed-direct-model-round-action-claims.sqlite",
+  ]) {
+    assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, join(projectStateBinding.runtimePath, fileName));
+  }
+  const contextArtifactCachePath = join(projectStateBinding.cachePath, "context-artifacts.json");
+  ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.cachePath);
+  assertPrivateStateFileTargetSync(projectStateBinding.projectStateRoot, contextArtifactCachePath);
+  const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(
+    contextArtifactCachePath,
+    projectStateBinding.projectStateRoot,
+  );
   const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
   let continuationSessionId: string | undefined;
   try {
@@ -1142,12 +1165,14 @@ export async function runCommand(
     });
     exitRunCommand(1, executionOptions);
   }
-  const transcriptStore = new TranscriptStore(cwd);
+  const transcriptStore = new TranscriptStore(projectStateBinding);
   const managedDirectToolActionClaims = new SqliteRuntimeToolActionClaimStore({
-    path: join(cwd, ".kiln", "runtime", "managed-direct-tool-action-claims.sqlite"),
+    path: join(projectStateBinding.runtimePath, "managed-direct-tool-action-claims.sqlite"),
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const managedDirectModelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-    path: join(cwd, ".kiln", "runtime", "managed-direct-model-round-action-claims.sqlite"),
+    path: join(projectStateBinding.runtimePath, "managed-direct-model-round-action-claims.sqlite"),
+    privateStateRoot: projectStateBinding.projectStateRoot,
   });
   const managedDirectAdmissionEvidence = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
   cleanupRegistry.register(async () => managedDirectToolActionClaims.close());
@@ -1219,7 +1244,7 @@ export async function runCommand(
   const env: Record<string, string> = {};
 
   const directRouteHealthStore = selectedRouteCandidates.some((candidate) => isDirectApiProvider(candidate.provider))
-    ? new ProviderModelRouteHealthStore()
+    ? new ProviderModelRouteHealthStore({ kilnHome: projectStateBinding.kilnHome })
     : undefined;
   const admittedRoutes = selectedRouteCandidates.length > 0
     ? await resolveAdmittedRunRouteCandidates({
@@ -1227,7 +1252,7 @@ export async function runCommand(
         registry,
         cwd,
         env,
-        routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore(),
+        routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore({ kilnHome: projectStateBinding.kilnHome }),
         canonicalExecution: true,
       })
     : { candidates: [], rejectedReasons: [], routeCapabilities: new Map() };
@@ -1302,6 +1327,7 @@ export async function runCommand(
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
   const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+    projectStateBinding,
     formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
   });
   cleanupRegistry.register(async () => boundedWork.close());
@@ -1332,12 +1358,15 @@ export async function runCommand(
     : createOperatorSurfaceEconomicAuthority("run", cwd);
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(managedRouteConfig, {
     cwd,
+    projectStateBinding,
+    runtimeStateRoot: projectStateBinding.runtimePath,
     registry,
     surface: "run",
     maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     providerModelEligibility: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({
+      kilnHome: projectStateBinding.kilnHome,
       builtinToolOptions: () => builtinToolOptions,
       runtimeEnv: env,
       canonicalMcpServers: admittedMcpServers,
@@ -1982,16 +2011,12 @@ export async function runCommand(
   }
 
   let verificationResult: VerificationResult | undefined;
-  const gates = resolvedKilnConfig?.qualityGates;
-  if (gates?.length) {
-    const mappedGates = gates.map((g) => ({
-      name: g.name,
-      command: g.command,
-      description: g.name,
-      required: g.required ?? true,
-    }));
+  // Verification commands belong to the globally owned domain definition.
+  // Project config no longer owns executable quality-gate authority.
+  const gates = context.domain.qualityGates;
+  if (gates.length > 0) {
     try {
-      verificationResult = await manager.runVerification(mappedGates, context.workingDirectory);
+      verificationResult = await manager.runVerification(gates, context.workingDirectory);
     } catch (error) {
       const errorMessage = `Failed to run verification gates. ${errorToMessage(error)}`;
       runOutput.writeErrorLine(`Error: ${errorMessage}`);

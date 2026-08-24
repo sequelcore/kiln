@@ -131,9 +131,9 @@ workGovernance:
   requiredEvidence: []
 ```
 
-Global config establishes operator/team defaults. Project `.kiln/kiln.yaml`
-may narrow posture or extend triggers and evidence expectations for the
-repository. File-count and coarse risk thresholds are deliberately not policy:
+Global config establishes operator/team defaults. The bound private project
+`config.yaml` may narrow posture or extend triggers and evidence expectations
+for the repository. File-count and coarse risk thresholds are deliberately not policy:
 they do not identify entanglement, authority, parallelism, or verification
 needs.
 

@@ -14,6 +14,8 @@ import {
 import { readGlobalConfig } from "../../src/config/global-config.js";
 import { loadKilnConfig } from "../../src/config/config-merger.js";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
+import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -136,6 +138,7 @@ const runWiringMocks = vi.hoisted(() => {
     authorityAdmissions: new Map<string, PersistedAuthorityAdmissionRecord[]>(),
     authorityAdmissionEvidenceStore: undefined as { persist(bundle: EffectiveAuthorityAdmissionBundle): Promise<void> } | undefined,
     preparedWorkingDirectory: undefined as string | undefined,
+    qualityGates: [] as Array<{ name: string; command: string; required: boolean }>,
     capturedSessionConfigs: [] as unknown[],
     capturedRunSessionInputs: [] as unknown[],
     evaluateRouteHealth: vi.fn().mockResolvedValue({ healthy: true }),
@@ -517,7 +520,7 @@ vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
 }));
 
 vi.mock("../../src/kiln-yaml.js", () => ({
-  readKilnYaml: vi.fn(() => ({ version: "1", skillGeneration: { enabled: false } })),
+  readKilnYamlFile: vi.fn(() => ({ version: "1", skillGeneration: { enabled: false } })),
 }));
 
 vi.mock("../../src/config/config-merger.js", () => ({
@@ -558,7 +561,10 @@ vi.mock("../../src/config/managed-agent-routes.js", () => ({
 vi.mock("../../src/wrapper/session-store.js", () => ({
   TranscriptStore: class {
     authorityAdmissionLockPath(_sessionId: string) {
-      return resolve(REPO_ROOT, ".kiln", "test-authority-admission.lock");
+      return resolve(
+        resolveProjectStateBinding(REPO_ROOT).sessionsPath,
+        "test-authority-admission.lock",
+      );
     }
     async init(...args: unknown[]) {
       await runWiringMocks.transcriptInit(...args);
@@ -593,7 +599,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
     async prepare(task: string, cwd: string) {
       const workingDirectory = runWiringMocks.preparedWorkingDirectory ?? cwd;
       return {
-        domain: { displayName: "Kiln" },
+        domain: { displayName: "Kiln", qualityGates: runWiringMocks.qualityGates },
         projectedContext: { blocks: [], estimatedTokens: 0 },
         systemPrompt: "System prompt",
         mcpServerEntryPath: "/tmp/mcp-entry.js",
@@ -722,6 +728,7 @@ describe("run command builtin tool wiring", () => {
   });
 
   beforeEach(() => {
+    bootstrapProjectAdoption(resolveProjectStateBinding(REPO_ROOT));
     vi.clearAllMocks();
     runWiringMocks.cleanupHandlers.length = 0;
     loadKilnConfigMock.mockResolvedValue(APP_KILN_YAML);
@@ -793,6 +800,7 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.authorityAdmissions.clear();
     runWiringMocks.authorityAdmissionEvidenceStore = undefined;
     runWiringMocks.preparedWorkingDirectory = undefined;
+    runWiringMocks.qualityGates = [];
     operatorCompositionMocks.state.dispatchError = undefined;
     configureExecutionRoute();
   });
@@ -961,12 +969,12 @@ describe("run command builtin tool wiring", () => {
   });
 
   it("uses the prepared working directory for isolated session execution", async () => {
-    runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-1";
+    runWiringMocks.preparedWorkingDirectory = "C:/private/kiln/worktrees/session-1";
 
     await runCommand(APP_CONFIG, "use isolated cwd", { isolate: true });
 
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
-      cwd: "C:/repo/.kiln-worktrees/session-1",
+      cwd: "C:/private/kiln/worktrees/session-1",
     });
   });
 
@@ -1395,17 +1403,8 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    loadKilnConfigMock.mockResolvedValueOnce({
-      ...APP_KILN_YAML,
-      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-    });
-    await expect(runCommand({
-      ...APP_CONFIG,
-      kilnYaml: {
-        ...APP_KILN_YAML,
-        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-      },
-    }, "verification throw cleanup failure", { output: "json" }, { exitOnFailure: false }))
+    runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
+    await expect(runCommand(APP_CONFIG, "verification throw cleanup failure", { output: "json" }, { exitOnFailure: false }))
       .rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1449,17 +1448,8 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    loadKilnConfigMock.mockResolvedValueOnce({
-      ...APP_KILN_YAML,
-      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-    });
-    await expect(runCommand({
-      ...APP_CONFIG,
-      kilnYaml: {
-        ...APP_KILN_YAML,
-        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-      },
-    }, "verification failure", { output: "json" }, { exitOnFailure: false }))
+    runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
+    await expect(runCommand(APP_CONFIG, "verification failure", { output: "json" }, { exitOnFailure: false }))
       .rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1558,17 +1548,8 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    loadKilnConfigMock.mockResolvedValueOnce({
-      ...APP_KILN_YAML,
-      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-    });
-    await expect(runCommand({
-      ...APP_CONFIG,
-      kilnYaml: {
-        ...APP_KILN_YAML,
-        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-      },
-    }, "verification cleanup failure", { output: "json" }, { exitOnFailure: false }))
+    runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
+    await expect(runCommand(APP_CONFIG, "verification cleanup failure", { output: "json" }, { exitOnFailure: false }))
       .rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1752,7 +1733,7 @@ describe("run command builtin tool wiring", () => {
     const exit = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("process.exit");
     }) as never);
-    runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-unavailable";
+    runWiringMocks.preparedWorkingDirectory = "C:/private/kiln/worktrees/session-unavailable";
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
     operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
 
@@ -1762,7 +1743,7 @@ describe("run command builtin tool wiring", () => {
 
     expect(runWiringMocks.runSession).not.toHaveBeenCalled();
     expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(expect.objectContaining({
-      worktreePath: "C:/repo/.kiln-worktrees/session-unavailable",
+      worktreePath: "C:/private/kiln/worktrees/session-unavailable",
     }));
     exit.mockRestore();
   });
@@ -1983,17 +1964,14 @@ describe("run command builtin tool wiring", () => {
   });
 
   it("runs verification gates inside the prepared working directory", async () => {
-    runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-verify";
-    loadKilnConfigMock.mockResolvedValueOnce({
-      ...APP_KILN_YAML,
-      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-    });
+    runWiringMocks.preparedWorkingDirectory = "C:/private/kiln/worktrees/session-verify";
+    runWiringMocks.qualityGates = [{ name: "typecheck", command: "bun run typecheck", required: true }];
 
     await runCommand(APP_CONFIG, "verify isolated cwd", { isolate: true });
 
     expect(runWiringMocks.runVerification).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: "typecheck" })]),
-      "C:/repo/.kiln-worktrees/session-verify",
+      "C:/private/kiln/worktrees/session-verify",
     );
   });
 

@@ -11,7 +11,6 @@ import type {
 } from "@kilnai/core";
 
 const EXTERNAL_ENGAGEMENT_RESOURCE_ROOT = "kiln://external-engagement";
-const EXTERNAL_ENGAGEMENT_WORKSPACE_DIR = ".kiln/external-engagement";
 const JSON_MIME_TYPE = "application/json";
 const MARKDOWN_MIME_TYPE = "text/markdown";
 const TEXT_MIME_TYPE = "text/plain";
@@ -54,10 +53,10 @@ interface ExternalEngagementArtifactSummary {
 }
 
 export class ExternalEngagementResourceProvider implements ToolResourceProvider {
-  private readonly workspaceDir: string;
+  private readonly artifactRootPath: string;
 
-  constructor(workspaceDir: string) {
-    this.workspaceDir = workspaceDir;
+  constructor(artifactRoot: string) {
+    this.artifactRootPath = artifactRoot;
   }
 
   listResources(): readonly ToolResourceDescriptor[] {
@@ -148,7 +147,7 @@ export class ExternalEngagementResourceProvider implements ToolResourceProvider 
   }
 
   private artifactRoot(): string {
-    return join(this.workspaceDir, EXTERNAL_ENGAGEMENT_WORKSPACE_DIR);
+    return this.artifactRootPath;
   }
 
   private listArtifactFiles(): readonly string[] {

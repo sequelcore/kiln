@@ -1,5 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ProjectRuntimeRegistry,
@@ -17,14 +18,20 @@ import type {
   OperatorProjectManagedAgentSummary,
   OperatorProjectAgentTaskApplicationComposition,
 } from "../../src/application/operator-project-agent-tasks.js";
+import {
+  bootstrapProjectAdoption,
+} from "../../src/application/project-adoption-manifest.js";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace-resolution.js";
 
 const SECRET = new TextEncoder().encode("operator-runtime-service-test-secret-32-bytes");
 const roots: string[] = [];
-const fixtureParent = dirname(resolve(import.meta.dirname, "../../../.."));
+const stateRoots: string[] = [];
+const fixtureParent = tmpdir();
 
 afterEach(() => {
   vi.useRealTimers();
+  for (const stateRoot of stateRoots.splice(0)) rmSync(stateRoot, { recursive: true, force: true });
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -45,7 +52,7 @@ describe("createOperatorRuntimeService", () => {
     }));
     const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
     const opened = await service.onSessionOpen({
-      schemaVersion: 2,
+      schemaVersion: 3,
       canonicalRoot: project.canonicalRoot,
       binding: project.binding,
       principal: { kind: "operator-surface", surface: "gui" },
@@ -109,7 +116,7 @@ describe("createOperatorRuntimeService", () => {
     const createComposition = vi.fn(async () => composition());
     const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
     const opened = await service.onSessionOpen({
-      schemaVersion: 2,
+      schemaVersion: 3,
       canonicalRoot: project.canonicalRoot,
       binding: project.binding,
       principal: { kind: "operator-surface", surface: "gui" },
@@ -382,11 +389,7 @@ describe("createOperatorRuntimeService", () => {
     const oldClaims = await openClaims(service, project, "codex", "old-binding");
     await service.onMcpRequest(managedStatusInput(oldClaims));
 
-    writeFileSync(
-      join(project.canonicalRoot, ".kiln", "kiln.yaml"),
-      'version: "1"\nprojectName: binding-replacement-new\n',
-      "utf8",
-    );
+    changeProjectRevision(project, "binding-replacement-new");
     const advanced = resolveProject(project.canonicalRoot);
     const newClaims = await openClaims(service, advanced, "claude", "new-binding");
 
@@ -424,11 +427,7 @@ describe("createOperatorRuntimeService", () => {
     const oldRequest = service.onMcpRequest(managedStatusInput(oldClaims));
     await vi.waitFor(() => expect(oldGetStatus).toHaveBeenCalledTimes(1));
 
-    writeFileSync(
-      join(project.canonicalRoot, ".kiln", "kiln.yaml"),
-      'version: "1"\nprojectName: captured-old-binding-new\n',
-      "utf8",
-    );
+    changeProjectRevision(project, "captured-old-binding-new");
     const advanced = resolveProject(project.canonicalRoot);
     const freshOpening = service.onSessionOpen(
       sessionInput(advanced, "claude", "fresh-session"),
@@ -554,7 +553,7 @@ describe("createOperatorRuntimeService", () => {
       nowEpochSeconds: () => 100,
     });
     const opened = await service.onSessionOpen({
-      schemaVersion: 2,
+      schemaVersion: 3,
       canonicalRoot: project.canonicalRoot,
       binding: project.binding,
       principal: { kind: "operator-surface", surface: "gui" },
@@ -666,7 +665,7 @@ describe("createOperatorRuntimeService", () => {
     });
   });
 
-  it("denies unknown, expired, superseded, and stale-marker sessions without composing or exposing errors", async () => {
+  it("denies unknown, expired, superseded, and stale-composition sessions without composing or exposing errors", async () => {
     const project = adoptedProject("denials");
     let now = 100;
     const createComposition = vi.fn(async () => composition());
@@ -682,12 +681,12 @@ describe("createOperatorRuntimeService", () => {
     now = 101;
     await service.onSessionOpen(sessionInput(project, "codex", "denied-session"));
     const superseded = await service.onMcpRequest(mcpInput(claims, "tools/list"));
-    writeFileSync(join(project.canonicalRoot, ".kiln", "kiln.yaml"), 'version: "1"\nprojectName: changed\n', "utf8");
+    changeProjectRevision(project, "changed");
     const freshClaims = verifyClaims(await service.onSessionOpen({
       ...sessionInput(project, "codex", "fresh-session"),
       binding: resolveProject(project.canonicalRoot).binding,
     }), resolveProject(project.canonicalRoot), "codex", "fresh-session", 101);
-    writeFileSync(join(project.canonicalRoot, ".kiln", "kiln.yaml"), 'version: "1"\nprojectName: changed-again\n', "utf8");
+    changeProjectRevision(project, "changed-again");
     const stale = await service.onMcpRequest(mcpInput(freshClaims, "tools/list"));
 
     for (const response of [unknown, restarted, expired, superseded, stale]) {
@@ -702,28 +701,42 @@ describe("createOperatorRuntimeService", () => {
 function adoptedProject(label: string): ProjectFixture {
   const canonicalRoot = mkdtempSync(join(fixtureParent, `kiln-operator-${label}-`));
   roots.push(canonicalRoot);
-  mkdirSync(join(canonicalRoot, ".kiln"), { recursive: true });
-  writeFileSync(join(canonicalRoot, ".kiln", "kiln.yaml"), `version: "1"\nprojectName: ${label}\n`, "utf8");
+  mkdirSync(join(canonicalRoot, ".git"), { recursive: true });
+  const state = resolveProjectStateBinding(canonicalRoot);
+  stateRoots.push(state.projectStateRoot);
+  mkdirSync(state.projectStateRoot, { recursive: true });
+  writeFileSync(state.configPath, `version: "1"\nprojectName: ${label}\n`, "utf8");
+  bootstrapProjectAdoption(state);
   return resolveProject(canonicalRoot);
 }
 
 interface ProjectFixture {
   readonly canonicalRoot: string;
-  readonly binding: { readonly projectRuntimeId: string; readonly markerDigest: string };
+  readonly binding: { readonly projectRuntimeId: string; readonly compositionRevision: string };
+  readonly adoptionManifestPath: string;
 }
 
 function resolveProject(canonicalRoot: string): ProjectFixture {
   const resolved = resolveTrustedWorkspace({ cwd: () => canonicalRoot });
   if (resolved.status !== "resolved") throw new Error("Expected adopted project fixture");
+  const state = resolveProjectStateBinding(canonicalRoot);
   return {
     canonicalRoot: resolved.canonicalRoot,
-    binding: { projectRuntimeId: resolved.projectRuntimeId, markerDigest: resolved.markerDigest },
+    binding: { projectRuntimeId: resolved.projectRuntimeId, compositionRevision: resolved.compositionRevision },
+    adoptionManifestPath: state.adoptionManifestPath,
   };
+}
+
+function changeProjectRevision(project: ProjectFixture, label: string): void {
+  const state = resolveProjectStateBinding(project.canonicalRoot);
+  writeFileSync(state.configPath, `version: 1\nprojectName: ${label}\n`, "utf8");
+  rmSync(project.adoptionManifestPath, { force: true });
+  bootstrapProjectAdoption(state);
 }
 
 function sessionInput(project: ProjectFixture, harness: OperatorRuntimeHarness, sessionId: string): OperatorRuntimeSessionOpenInput {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     canonicalRoot: project.canonicalRoot,
     binding: project.binding,
     principal: { kind: "native-harness", harness },

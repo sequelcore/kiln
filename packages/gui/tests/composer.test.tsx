@@ -476,9 +476,7 @@ describe("Composer", () => {
           freshness: "fresh",
         }}
         commandMenu={{ open: false, query: "", commands: [], onQueryChange: vi.fn(), onExecute: vi.fn(), onOpenChange: vi.fn() }}
-        leadingActions={null}
-        trailingActions={null}
-        onSubmit={() => undefined}
+        onSubmit={() => true}
         onTogglePlanMode={() => undefined}
         onGovernedWorkItemCountChange={() => undefined}
       onCancel={() => undefined}
@@ -505,9 +503,7 @@ describe("Composer", () => {
           reason: "No compatible context window was persisted.",
         }}
         commandMenu={{ open: false, query: "", commands: [], onQueryChange: vi.fn(), onExecute: vi.fn(), onOpenChange: vi.fn() }}
-        leadingActions={null}
-        trailingActions={null}
-        onSubmit={() => undefined}
+        onSubmit={() => true}
         onTogglePlanMode={() => undefined}
         onGovernedWorkItemCountChange={() => undefined}
         onCancel={() => undefined}

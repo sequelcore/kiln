@@ -63,6 +63,17 @@ The interfaces do not become interchangeable. They share Kiln's execution
 target catalog, policy, capacity, and evidence while retaining their native agent
 loops and capabilities.
 
+## Project state
+
+`kiln init` binds the canonical project root to an operator-private namespace
+under `~/.kiln/projects/<krp_sha256>/`. The namespace contains the project
+`config.yaml`, identity-only `adoption.json`, context, profiles, skills,
+sessions, runtime state, caches, evidence, and backups. The repository is not a
+mutable Kiln state root; `AGENTS.md` and `CLAUDE.md` are deliberate generated
+guidance projections. Relocating a project creates a new identity and requires
+explicit re-adoption. Kiln does not read or migrate a repository-local `.kiln/`
+tree.
+
 ## Evaluate Kiln from source
 
 You need [Git](https://git-scm.com/) and

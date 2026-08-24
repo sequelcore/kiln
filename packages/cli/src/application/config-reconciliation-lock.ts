@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { KilnConfigReconciliationTarget } from "@kilnai/gateway-contracts";
 import { ConfigMutationStore } from "./config-mutation-store.js";
 import { withConfigMutationLock } from "./config-mutation-lock.js";
+import { resolveProjectStateBinding } from "./project-state-root.js";
 
 /**
  * Serializes reconciliation for one project/target pair.
@@ -27,12 +28,14 @@ export async function withConfigReconciliationTargetLock<T>(
   await predecessor;
   try {
     const store = new ConfigMutationStore(projectPath);
+    const binding = resolveProjectStateBinding(projectPath);
     const lockPath = sharedOutput
       ? store.globalReconciliationLockPathFor(target)
       : store.reconciliationLockPathFor(target);
     return await withConfigMutationLock(lockPath, run, {
       waitMs: 30_000,
       retryMs: 25,
+      ...(sharedOutput ? {} : { privateStateRoot: binding.projectStateRoot }),
     });
   } finally {
     release();

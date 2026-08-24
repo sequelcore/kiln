@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExecutionCatalog } from "@kilnai/core";
 import { parseAppYaml, parseGatewayYaml } from "@kilnai/core";
@@ -18,6 +18,14 @@ import { createRuntimeConfigurationRevisionSetId, readRuntimeConfigurationRevisi
 import { captureOperatorExecutionCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
+import {
+  resolveProjectStateBinding,
+  type ProjectStateBinding,
+} from "./project-state-root.js";
+import {
+  assertPrivateStateFileTargetSync,
+  ensurePrivateStateDirectorySync,
+} from "./private-project-state-filesystem.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
 import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
 import { createChannelEgressActionClaimContext, SqliteChannelEgressActionClaimStore } from "./channel-egress-action-claim-store.js";
@@ -51,36 +59,53 @@ export function createAppGatewayExecutionComposition(input: {
   readonly configPath: string;
   readonly captureCatalogSnapshot?: () => OperatorSessionExecutionCatalogSnapshot;
   readonly readGlobalConfigSnapshot?: typeof readGlobalConfigSnapshot;
+  /** Test/embedding seam for the verified operator-private project state. */
+  readonly projectStateBinding?: ProjectStateBinding;
 }): AppGatewayExecutionComposition {
+  const binding = input.projectStateBinding ?? resolveProjectStateBinding(input.projectPath);
+  const projectPath = binding.canonicalRoot;
   const globalConfigSnapshot = (input.readGlobalConfigSnapshot ?? readGlobalConfigSnapshot)();
-  const snapshot = captureCompleteAppGatewaySnapshot(input, globalConfigSnapshot);
+  const snapshot = captureCompleteAppGatewaySnapshot({ ...input, projectPath }, globalConfigSnapshot);
   if (!snapshot.catalog) {
     throw new Error("App Gateway execution requires an admitted canonical execution catalog.");
   }
 
-  mkdirSync(join(input.projectPath, ".kiln", "runtime"), { recursive: true });
+  ensurePrivateStateDirectorySync(binding.projectStateRoot, binding.runtimePath);
+  for (const fileName of [
+    "operator-session-account-capacity.sqlite",
+    "app-gateway-model-round-claims.sqlite",
+    "app-gateway-tool-action-claims.sqlite",
+    "app-gateway-channel-egress-claims.sqlite",
+    "app-gateway-media-action-claims.sqlite",
+  ]) {
+    assertPrivateStateFileTargetSync(binding.projectStateRoot, join(binding.runtimePath, fileName));
+  }
   const capacityAuthority = createOperatorSessionAccountCapacityAuthority({
-    path: join(input.projectPath, ".kiln", "runtime", "operator-session-account-capacity.sqlite"),
+    path: join(binding.runtimePath, "operator-session-account-capacity.sqlite"),
     configurationRevision: snapshot.configurationRevision.revisionSetId,
   });
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
     catalog: snapshot.catalog,
+    kilnHome: binding.kilnHome,
     observeOperatorSessionCapacity: (candidates) => capacityAuthority.observeCandidateCapacity(candidates),
   });
-  const transcriptStore = new TranscriptStore(input.projectPath);
+  const transcriptStore = new TranscriptStore(binding);
   const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(
     globalConfigSnapshot.config,
     createCliTranscriptSessionTokenUsageReader(transcriptStore),
   );
   const evidenceStore = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
   const modelRoundActionClaims = new SqliteRuntimeModelRoundActionClaimStore({
-    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-model-round-claims.sqlite"),
+    path: join(binding.runtimePath, "app-gateway-model-round-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const toolActionClaims = new SqliteRuntimeToolActionClaimStore({
-    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-tool-action-claims.sqlite"),
+    path: join(binding.runtimePath, "app-gateway-tool-action-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const channelEgressActionClaimsStore = new SqliteChannelEgressActionClaimStore({
-    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-channel-egress-claims.sqlite"),
+    path: join(binding.runtimePath, "app-gateway-channel-egress-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const channelEgressActionClaims = createChannelEgressActionClaimContext({
     ownerGeneration: `app-gateway:${randomUUID()}`,
@@ -88,7 +113,8 @@ export function createAppGatewayExecutionComposition(input: {
     readAdmission: (readInput) => evidenceStore.readAdmission(readInput),
   });
   const runtimeMediaActionClaimsStore = new SqliteRuntimeMediaActionClaimStore({
-    path: join(input.projectPath, ".kiln", "runtime", "app-gateway-media-action-claims.sqlite"),
+    path: join(binding.runtimePath, "app-gateway-media-action-claims.sqlite"),
+    privateStateRoot: binding.projectStateRoot,
   });
   const runtimeMediaActionClaims = createRuntimeMediaActionClaimContext({
     ownerGeneration: `app-gateway:media:${randomUUID()}`,

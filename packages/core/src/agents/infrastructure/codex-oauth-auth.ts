@@ -1,16 +1,15 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { KilnError } from "../../engine/errors.js";
 import { CREDENTIAL_FILE_MODE, applyCredentialFileMode } from "./credential-file-mode.js";
+import { resolveCoreKilnHome } from "../../kiln-home.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE = "https://auth.openai.com";
 const DEVICE_VERIFICATION_URI = "https://auth.openai.com/codex/device";
 const DEVICE_CALLBACK_URI = "https://auth.openai.com/deviceauth/callback";
-const DEFAULT_TOKEN_PATH = join(homedir(), ".kiln", "auth", "codex-oauth.json");
 const AUTO_REFRESH_BUFFER_SECONDS = 120;
 const POLL_TIMEOUT_MS = 15 * 60 * 1000;
 const BROWSER_AUTHORIZATION_TIMEOUT_MS = 15 * 60 * 1000;
@@ -70,6 +69,8 @@ export interface PollAuthorizationParams {
 
 export interface CodexOAuthAuthOptions {
   readonly tokenPath?: string;
+  /** Canonical operator Kiln home supplied by CLI/Runtime composition. */
+  readonly kilnHome?: string;
   readonly browserCallbackPorts?: readonly number[];
   readonly browserAuthorizationTimeoutMs?: number;
 }
@@ -86,7 +87,7 @@ export class CodexOAuthAuth {
   private readonly browserAuthorizationTimeoutMs: number;
 
   constructor(options: CodexOAuthAuthOptions = {}) {
-    this.tokenPath = options.tokenPath ?? DEFAULT_TOKEN_PATH;
+    this.tokenPath = options.tokenPath ?? join(resolveCoreKilnHome(options.kilnHome), "auth", "codex-oauth.json");
     this.browserCallbackPorts = options.browserCallbackPorts ?? BROWSER_CALLBACK_PORTS;
     this.browserAuthorizationTimeoutMs = options.browserAuthorizationTimeoutMs ?? BROWSER_AUTHORIZATION_TIMEOUT_MS;
   }

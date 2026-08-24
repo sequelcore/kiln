@@ -4,10 +4,11 @@ import { join } from "node:path";
 import {
   buildGuiOperatorDiscoveryResults,
   createRuntimeMediaActionClaimContext,
-  defineEffectiveAuthorityAdmissionBundle,
   defineRuntimeSessionAuthorityFacet,
   OperatorSessionAuthorityAdmissionBridge,
   OperatorSessionExecutionBridge,
+  OperatorSessionExecutionRoutingService,
+  createOperatorSessionAccountCapacityAuthority,
   projectAvailableModelCatalogForExecutionRoutes,
   projectGuiProviderModelDiscovery,
   startGuiGateway,
@@ -32,10 +33,20 @@ import {
 import {
   InMemoryContextArtifactCache,
   SqliteMemoryRepository,
+  createExecutionAccountRef,
+  defineExecutionCatalog,
+  trustedInternalMemoryAuthority,
+  type ExecutionCatalog,
+  type ManagedEconomicAmount,
   type CreateMemoryRecordInput,
   type ExecutionCatalogInput,
   type MemoryProvenance,
 } from "@kilnai/core";
+import {
+  createFixtureModelRoundStore,
+  createFixtureToolActionStore,
+} from "../../../../runtime/tests/session/runtime-claim-fixture.js";
+import { createMediaActionTestContext } from "../../../../runtime/tests/gateway/media-action-test-fixture.js";
 import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
@@ -173,7 +184,6 @@ const restoredSessionDetail: GuiSessionDetail = {
     task: "Summarize parity checklist",
     startedAt: "2026-07-03T12:00:00.000Z",
     completedAt: "2026-07-03T12:00:03.000Z",
-    lastProvider: "claude",
   },
   events: [
     {
@@ -283,7 +293,7 @@ const restoredSessionDetail: GuiSessionDetail = {
 const contextSessionDetails: Record<string, GuiSessionDetail> = {
   "context-partial-session": {
     id: "context-partial-session",
-    meta: { kilnSessionId: "context-partial-session", title: "Inspect partial context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
+    meta: { kilnSessionId: "context-partial-session", title: "Inspect partial context evidence", task: "Inspect partial context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
     events: [{
       eventId: "parity-context-partial",
       kilnSessionId: "context-partial-session",
@@ -310,7 +320,7 @@ const contextSessionDetails: Record<string, GuiSessionDetail> = {
   },
   "context-authoritative-session": {
     id: "context-authoritative-session",
-    meta: { kilnSessionId: "context-authoritative-session", title: "Inspect authoritative context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
+    meta: { kilnSessionId: "context-authoritative-session", title: "Inspect authoritative context evidence", task: "Inspect authoritative context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
     events: [{
       eventId: "parity-context-authoritative",
       kilnSessionId: "context-authoritative-session",
@@ -665,6 +675,93 @@ const fakeSessionFactory: CliSessionFactory = () => ({
 let activeProvider = "claude";
 let activeModel = "";
 
+const PARITY_ECONOMIC_AMOUNT = {
+  atoms: "0",
+  scale: 0,
+  unit: "request",
+  scheme: { kind: "unit" },
+} satisfies ManagedEconomicAmount;
+const PARITY_DIGEST = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const PARITY_CREDENTIAL_REVISION = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+function canonicalExecutionCatalogForRoute(
+  route: ExecutionRouteCatalog["routes"][number],
+  accountId: string,
+  accountPolicyId: string,
+): ExecutionCatalog {
+  const accountSelection = route.accountSelection.mode === "automatic"
+    ? { mode: "automatic" as const, accountPolicyId }
+    : { mode: "exact" as const, accountId };
+  return defineExecutionCatalog({
+    accounts: [{
+      id: accountId,
+      providerId: route.providerId,
+      credentialId: `${accountId}-credential`,
+      maxConcurrency: 2,
+      reservedAffinitySlots: 0,
+      economics: {
+        capacityIdentity: `${accountId}-capacity`,
+        subscriptionClass: "subscription",
+        quotaClassId: `${accountId}-quota`,
+        creditPosture: "disabled",
+        overagePosture: "disabled",
+      },
+    }],
+    accountPolicies: [{ id: accountPolicyId, accountIds: [accountId], strategy: "economic-least-pressure" }],
+    routes: [{
+      id: route.routeId,
+      label: route.label,
+      providerId: route.providerId,
+      providerModelId: route.providerModelId,
+      accountSelection,
+      dataClassification: "public",
+      dataPolicyEvidence: {
+        providerId: route.providerId,
+        providerModelId: route.providerModelId,
+        dataUse: "service-operation",
+        trainingPosture: "prohibited",
+        retention: { posture: "zero", days: 0 },
+        permittedMaximumClassification: "public",
+        permittedClassifications: ["public"],
+        sourceIdentity: "parity-execution-policy",
+        sourceRevision: "parity-R1",
+        sourceDigest: PARITY_DIGEST,
+        observedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+      economics: {
+        adapterCapabilityId: "parity-adapter",
+        adapterCapabilityVersion: "parity-v1",
+        authBillingChannel: "subscription",
+        executionMode: "execute",
+        serviceTier: "standard",
+        rateCardBasis: "parity-rate-card",
+        envelopeSemantics: "parity-envelope",
+        fallbackPosture: "disabled",
+        overagePosture: "disabled",
+        contextClass: "parity-context",
+        cacheClass: "none",
+        priceEvidence: {
+          kind: "subscription",
+          rateCardId: "parity-rate-card",
+          rateCardRevision: "parity-R1",
+          evidence: {
+            sourceIdentity: "parity-economics",
+            sourceRevision: "parity-R1",
+            sourceDigest: PARITY_DIGEST,
+            observedAt: "2026-01-01T00:00:00.000Z",
+            validUntil: "2099-01-01T00:00:00.000Z",
+            confidence: "high",
+            authority: "configured",
+          },
+        },
+        auxiliaryCharges: [],
+        executionEnvelope: { limits: [PARITY_ECONOMIC_AMOUNT] },
+      },
+    }],
+  });
+}
+
 function createDeterministicOperatorRouting(): {
   readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
@@ -675,6 +772,7 @@ function createDeterministicOperatorRouting(): {
   readonly runtimeToolActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeToolActionClaims"];
   readonly runtimeMediaActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeMediaActionClaims"];
   readonly runExecutionTargetWizard: NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]>;
+  readonly getExecutionRouteCatalog: () => ExecutionRouteCatalog;
 } {
   const operatorTurnExecutionBridge = new OperatorSessionExecutionBridge<
     unknown,
@@ -710,34 +808,9 @@ function createDeterministicOperatorRouting(): {
       return bundle?.sessionId === input.sessionId && bundle.turnId === input.turnId ? bundle : undefined;
     },
   };
-  const createActionClaimStore = () => {
-    const permits = new WeakMap<object, { readonly claimId: string; consumed: boolean }>();
-    return {
-      claim(claim: { readonly claimId: string }) {
-        const state = { claimId: claim.claimId, consumed: false };
-        const permit = {
-          claimId: claim.claimId,
-          permitId: `parity:${claim.claimId}`,
-          consume: () => {
-            if (state.consumed) throw new Error("Parity action-claim permit already consumed.");
-            state.consumed = true;
-          },
-        };
-        permits.set(permit, state);
-        return permit;
-      },
-      settle(permit: { readonly claimId: string }) {
-        const state = permits.get(permit);
-        if (!state || state.claimId !== permit.claimId || !state.consumed) {
-          throw new Error("Unknown or unconsumed parity action-claim permit.");
-        }
-        permits.delete(permit);
-      },
-    };
-  };
-  const runtimeModelRoundActionClaims = createActionClaimStore() as NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeModelRoundActionClaims"];
-  const runtimeToolActionClaims = createActionClaimStore() as NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeToolActionClaims"];
-  const runtimeMediaActionClaimStore = createActionClaimStore() as NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeMediaActionClaims"]["store"];
+  const runtimeModelRoundActionClaims = createFixtureModelRoundStore();
+  const runtimeToolActionClaims = createFixtureToolActionStore();
+  const runtimeMediaActionClaimStore = createMediaActionTestContext().mediaActionClaims.store;
   const runtimeMediaActionClaims = createRuntimeMediaActionClaimContext({
     ownerGeneration: "parity-gui:media:r1",
     store: runtimeMediaActionClaimStore,
@@ -815,84 +888,104 @@ function createDeterministicOperatorRouting(): {
       };
     },
   };
+  const accountCapacityAuthority = createOperatorSessionAccountCapacityAuthority({
+    path: ":memory:",
+    ownerId: "parity-gui-runner",
+    recoveryDomain: "parity-gui",
+    configurationRevision: "parity-R1",
+  });
+  // Keep the captured catalog immutable per dispatch; a shared mutable capture
+  // could be overwritten by a later concurrent request before admission runs.
+  const createRouting = (catalog: ExecutionCatalog) => new OperatorSessionExecutionRoutingService<
+    unknown,
+    OperatorTurnGuiDispatchPayload,
+    OperatorTurnDispatchResult
+  >({
+    catalogSource: {
+      capture: () => ({
+        catalog,
+        configurationRevision: { revisionSetId: "parity-R1", revisions: { execution: "parity-R1" } },
+      }),
+      activate: () => undefined,
+    },
+    candidates: {
+      resolve: async ({ admission, catalog: capturedCatalog }) => {
+        const accountId = admission.accountSelection.mode === "exact"
+          ? admission.accountSelection.accountId
+          : admission.accountSelection.eligibleAccountIds[0];
+        if (!accountId) throw new Error("Parity execution route has no eligible account.");
+        const account = capturedCatalog.accounts.find((candidate) => candidate.id === accountId);
+        if (!account) throw new Error(`Parity account '${accountId}' is not configured.`);
+        return [{
+          candidate: {
+            accountId,
+            safety: "eligible",
+            health: "healthy",
+            quota: "available",
+            capacity: "available",
+            economicCost: PARITY_ECONOMIC_AMOUNT,
+            pressure: 0,
+          },
+          lease: {
+            candidate: {
+              account: createExecutionAccountRef(`configured:${accountId}`),
+              route: {
+                providerId: admission.providerId,
+                providerModelId: admission.providerModelId,
+                scope: "operator-session",
+              },
+              health: "healthy",
+              leaseCapacity: "available",
+              pressure: 0,
+              reservedForNewWork: false,
+            },
+            capacityIdentity: account.economics.capacityIdentity,
+            credentialRevisionId: PARITY_CREDENTIAL_REVISION,
+            usageEvidence: {
+              health: "healthy",
+              freshness: "fresh",
+              availability: "available",
+              observedAt: "2026-01-01T00:00:00.000Z",
+              validUntil: "2099-01-01T00:00:00.000Z",
+              source: "provider-endpoint",
+              confidence: "authoritative",
+            },
+            accountEconomics: account.economics,
+            capacity: {
+              maxConcurrency: account.maxConcurrency,
+              reservedAffinitySlots: account.reservedAffinitySlots,
+            },
+          },
+        }];
+      },
+    },
+    accountCapacityAuthority,
+    credentials: {
+      resolve: async ({ credentialId, lease }) => ({
+        credential: { kind: "parity" },
+        credentialId,
+        credentialRevisionId: lease.credentialRevisionId,
+      }),
+    },
+    authorityAdmission: operatorAuthorityAdmissionBridge,
+    dispatch: {
+      dispatchCommittedTurn: (committed) => operatorTurnExecutionBridge.dispatchCommittedTurn(committed),
+    },
+  });
   const operatorTurnDispatcher: OperatorTurnDispatchPort<
     OperatorTurnGuiDispatchPayload,
     OperatorTurnDispatchResult
   > = {
     async dispatchTurn(request) {
-      const admission = await executionRouteSelection.admit(request.intent);
-      if (!admission.ok) {
-        throw new Error(admission.reason);
-      }
-      const accountId = request.intent.accountOverrideId ?? "parity-account";
-      const budget = await operatorAuthorityAdmissionBridge.preflight({ request });
-      const selectedAdmission = admission.admission;
-      const binding = {
-        status: "bound" as const,
-        routeId: selectedAdmission.routeId,
+      const route = routeCatalog.routes.find(({ routeId }) => routeId === request.intent.routeId);
+      if (!route) throw new Error(`Execution target '${request.intent.routeId}' is not configured in the parity fixture.`);
+      const accountId = request.intent.accountOverrideId ?? `parity-${route.providerId}-account`;
+      const executionCatalog = canonicalExecutionCatalogForRoute(
+        route,
         accountId,
-        credentialId: "parity-credential",
-        credentialRevision: `sha256:${"b".repeat(64)}`,
-      };
-      const snapshot = {
-        catalog: { routes: [{ id: selectedAdmission.routeId, providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId }] },
-        configurationRevision: { revisionSetId: "parity-R1", revisions: { execution: "parity-R1" } },
-      };
-      const dataPolicy = { decision: { status: "admitted" as const, freshness: "current" as const, reason: "synthetic parity policy" } };
-      const facets = await operatorAuthorityAdmissionBridge.prepare({
-        request,
-        admission: selectedAdmission,
-        snapshot,
-        binding,
-        dataPolicy,
-      });
-      const authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
-        sessionId: facets.sessionId,
-        turnId: facets.turnId,
-        admittedAt: new Date().toISOString(),
-        configuration: { sessionRevision: facets.sessionRevision, turnRevision: snapshot.configurationRevision },
-        session: facets.session,
-        turn: {
-          ...facets.turn,
-          budget,
-          execution: { status: "routed", route: selectedAdmission, dataPolicy, binding },
-        },
-      });
-      await operatorAuthorityAdmissionBridge.persist(authorityAdmission);
-      let result: OperatorTurnDispatchResult;
-      try {
-        result = await operatorTurnExecutionBridge.dispatchCommittedTurn({
-          executionId: request.executionId,
-          intentFingerprint: request.intentFingerprint,
-          admission: selectedAdmission,
-          accountId,
-          lease: {},
-          credential: { kind: "parity" },
-          authorityAdmission,
-          configurationRevision: snapshot.configurationRevision,
-          binding,
-          payload: request.payload,
-        } as never);
-      } catch (error) {
-        await operatorAuthorityAdmissionBridge.abort(request.executionId);
-        throw error;
-      }
-      return {
-        admission: selectedAdmission,
-        accountId,
-        leaseId: "parity-lease",
-        evidence: {
-          routeId: selectedAdmission.routeId,
-          accountId,
-          credentialId: "parity-credential",
-          credentialRevision: binding.credentialRevision,
-          capacityIdentity: "parity-capacity",
-          leaseId: "parity-lease",
-          dispatchFenceId: "parity-dispatch",
-          status: "completed",
-        },
-        result,
-      };
+        `parity-${route.providerId}-policy`,
+      );
+      return createRouting(executionCatalog).execute(request);
     },
   };
 
@@ -990,6 +1083,7 @@ function createDeterministicOperatorRouting(): {
     runtimeToolActionClaims,
     runtimeMediaActionClaims,
     runExecutionTargetWizard,
+    getExecutionRouteCatalog: () => routeCatalog,
   };
 }
 
@@ -998,7 +1092,7 @@ function executionRoute(
   label: string,
   providerId: string,
   providerModelId: string,
-) {
+) : ExecutionRouteCatalog["routes"][number] {
   return {
     routeId,
     label,
@@ -1186,6 +1280,7 @@ async function main(): Promise<void> {
         { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
       ],
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
+      executionRouteCatalog: operatorRouting.getExecutionRouteCatalog(),
       continuationInfoByProvider: continuationSessionId
         ? { [activeProvider]: { strategy: "continue_session", feedbackLabel: continuationSessionId } }
         : {},
@@ -1296,7 +1391,7 @@ async function main(): Promise<void> {
     builtinToolOptions: {
       memoryResources: {
         repository: memoryRepository,
-        authority: { kind: "trusted-internal" },
+        authority: trustedInternalMemoryAuthority(),
       },
     },
     operatorTransport: {
