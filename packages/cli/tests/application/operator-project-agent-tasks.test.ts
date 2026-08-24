@@ -104,7 +104,7 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
 });
 
 vi.mock("../../src/application/config-status.js", () => ({
-  readConfigStatusSnapshot: vi.fn(async (options?: { readonly projectPath?: string }) => {
+  readConfigStatusSnapshot: vi.fn(async (options?: { readonly projectPath?: string; readonly view?: string }) => {
     const projectRoot = options?.projectPath ?? "C:/workspace/unresolved";
     const effectiveConfig = {
       schemaRevision: 1,
@@ -159,6 +159,7 @@ vi.mock("../../src/application/config-status.js", () => ({
         globalInstructionShims: [],
         nativeProjections: [],
         permissionIntegrity: [],
+        skillDiagnostics: { state: "current" },
         recommendedActions: ["none"],
       },
       harnessCapabilities: [],
@@ -252,6 +253,7 @@ describe("operator project agent-task production composition", () => {
         callerId: "claude-native-harness",
         idempotencyKey: "cross-project-governance-proof",
       })).rejects.toMatchObject({ code: "governance_unavailable" });
+      expect(readConfigStatusSnapshot).toHaveBeenLastCalledWith(expect.objectContaining({ view: "effective" }));
     } finally {
       await composition.close();
       rmSync(projectRoot, { recursive: true, force: true });

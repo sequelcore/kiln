@@ -247,6 +247,8 @@ export type {
   KilnSkillInventoryDiagnosticSnapshot,
   KilnSkillSourceInventorySnapshot,
   KilnSkillCatalogSummarySnapshot,
+  KilnSkillCatalogDiagnosticsSnapshot,
+  KilnSkillDiagnosticState,
   TrustedExecutionIntegrity,
 } from "./config-status.js";
 export {
@@ -263,6 +265,7 @@ export {
   KILN_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SOURCE_STATUSES,
   KILN_PROJECTION_TARGET_STATUSES,
+  KILN_SKILL_DIAGNOSTIC_STATES,
   TRUSTED_EXECUTION_CLASSIFICATIONS,
   TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
   TRUSTED_EXECUTION_EVIDENCE_SOURCES,
@@ -283,6 +286,7 @@ export {
   KilnSkillCatalogSnapshotEntrySchema,
   KilnSkillCatalogSnapshotSchema,
   KilnSkillCatalogSummarySnapshotSchema,
+  KilnSkillCatalogDiagnosticsSnapshotSchema,
   KilnSkillProjectionTargetSnapshotSchema,
   isGuiExecutableConfigSetupAction,
   TrustedExecutionIntegritySchema,

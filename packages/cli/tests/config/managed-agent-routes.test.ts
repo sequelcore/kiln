@@ -1673,13 +1673,11 @@ describe("resolveManagedInvocationToolOptions", () => {
           origin: "builtin",
           configured: true,
         }),
-        expect.objectContaining({
-          name: "shadcn",
-          origin: "native-harness",
-          configured: false,
-          omissionReason: "native-harness-local-only",
-        }),
       ]));
+      expect(result.managedInvocation?.skillCatalog).not.toContainEqual(expect.objectContaining({
+        name: "shadcn",
+        origin: "native-harness",
+      }));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -136,6 +136,7 @@ export async function createStagedManagedInvocationRouteCatalog(
       if (disposed) {
         return;
       }
+      mark("route-catalog-background-refresh-started");
       void refreshNow();
       if (!catalog || refreshInterval !== undefined || options.refreshIntervalMs === 0) {
         return;

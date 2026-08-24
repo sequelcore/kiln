@@ -51,12 +51,15 @@ export function SetupSourceInventory(props: SetupSourceInventoryProps) {
       <CanonicalSourcesCard snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
       <GlobalInstructionShimsCard projections={props.snapshot.globalInstructionShims} />
       <NativeProjectionsCard projections={props.snapshot.nativeProjections} />
-      <SkillCatalogCard skills={props.snapshot.skills} />
+      <SkillCatalogCard skills={props.snapshot.skills} diagnostics={props.snapshot.skillDiagnostics} />
     </section>
   );
 }
 
-function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnapshot | undefined }) {
+function SkillCatalogCard(props: {
+  readonly skills: KilnSkillCatalogSummarySnapshot | undefined;
+  readonly diagnostics: KilnConfigSetupSnapshot["skillDiagnostics"];
+}) {
   return (
     <Card>
       <CardHeader>
@@ -64,17 +67,25 @@ function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnaps
         <CardDescription>
           Bounded inventory evidence for implicit skill metadata visible to each supported harness.
         </CardDescription>
-        {props.skills ? (
-          <CardAction>
+        <CardAction>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Badge variant={props.diagnostics.state === "failed" ? "destructive" : "secondary"}>
+              {skillDiagnosticLabel(props.diagnostics.state)}
+            </Badge>
+            {props.skills ? (
             <Badge variant={props.skills.complete ? "outline" : "secondary"}>
               {props.skills.complete ? "Complete inventory" : "Incomplete inventory"}
             </Badge>
-          </CardAction>
-        ) : null}
+            ) : null}
+          </div>
+        </CardAction>
       </CardHeader>
       <CardContent className="p-0">
+        <p role="status" aria-label="Skill diagnostic lifecycle" className="border-b border-border/70 px-4 py-3 text-sm text-muted-foreground">
+          {skillDiagnosticDescription(props.diagnostics)}
+        </p>
         {props.skills === undefined ? (
-          <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">Skill diagnostics are unavailable from this setup snapshot.</p>
+          <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">No skill catalog evidence is available.</p>
         ) : (
           <>
             <dl aria-label="Skill identity summary" className="grid grid-cols-1 gap-px border-y border-border/70 bg-border/70 sm:grid-cols-3">
@@ -155,6 +166,23 @@ function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnaps
       </CardContent>
     </Card>
   );
+}
+
+function skillDiagnosticLabel(state: KilnConfigSetupSnapshot["skillDiagnostics"]["state"]): string {
+  return state === "pending" ? "Inventory pending"
+    : state === "failed" ? "Inventory failed"
+      : state === "not_collected" ? "Inventory not collected"
+      : state === "stale" ? "Stale inventory"
+        : state === "empty" ? "Empty inventory" : "Current inventory";
+}
+
+function skillDiagnosticDescription(diagnostics: KilnConfigSetupSnapshot["skillDiagnostics"]): string {
+  if (diagnostics.state === "pending") return "Skill diagnostics are running in the background. Configuration remains available.";
+  if (diagnostics.state === "failed") return diagnostics.reason ?? "Skill diagnostics failed.";
+  if (diagnostics.state === "not_collected") return diagnostics.reason ?? "Skill diagnostics were not collected for this narrow configuration read.";
+  if (diagnostics.state === "stale") return diagnostics.reason ?? "The last skill inventory is stale while a fresh scan runs.";
+  if (diagnostics.state === "empty") return "The current diagnostic inventory contains no skills.";
+  return "Current skill diagnostics are available.";
 }
 
 const NUMBER_FORMATTER = new Intl.NumberFormat();

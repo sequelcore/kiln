@@ -234,7 +234,7 @@ describe("config-status", () => {
     });
   });
 
-  it("reads global config and projection status from the composed binding after XDG changes", async () => {
+  it("reads narrow effective config from the composed binding without projection inventory after XDG changes", async () => {
     const binding = resolveProjectStateBinding(tempDir, { kilnHome: join(tempDir, "bound-kiln") });
     const globalConfig = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "bound-default");
     mkdirSync(binding.kilnHome, { recursive: true });
@@ -259,10 +259,12 @@ describe("config-status", () => {
       identity: "/model",
       value: { default: "gpt-5.4-mini" },
     }));
-    expect(snapshot.projections).toEqual(expect.arrayContaining([
-      expect.objectContaining({ targetId: "repo-shim:agents", path: join(tempDir, "AGENTS.md") }),
-      expect.objectContaining({ targetId: "workflow-snapshot:manifest", path: join(binding.projectionsPath, "workflow-snapshot-manifest.json") }),
-    ]));
+    expect(snapshot.projections).toEqual([]);
+    expect(snapshot.permissionIntegrity).toEqual([]);
+    expect(snapshot.setup.skillDiagnostics).toEqual({
+      state: "not_collected",
+      reason: "Skill diagnostics are not collected by narrow effective/settings reads.",
+    });
   });
 
   it("derives activation status from the current canonical lineage and settlement evidence", async () => {

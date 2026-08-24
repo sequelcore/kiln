@@ -301,7 +301,7 @@ async function result(
     status,
     message,
     errors,
-    setup: (await readConfigStatusSnapshot({ projectPath, userHome })).setup,
+    setup: (await readConfigStatusSnapshot({ projectPath, userHome, view: "skills" })).setup,
   };
 }
 

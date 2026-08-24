@@ -182,13 +182,13 @@ async function runConfigSetupCommand(
     return [await executeConfigSetupAction({ projectPath, action })];
   }
   if (!args.includes("--apply")) {
-    const snapshot = await readConfigStatusSnapshot({ projectPath });
+    const snapshot = await readConfigStatusSnapshot({ projectPath, view: "skills" });
     return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
   }
 
   const results: KilnConfigSetupActionResult[] = [];
   for (let index = 0; index < KILN_CONFIG_SETUP_ACTIONS.length; index += 1) {
-    const snapshot = await readConfigStatusSnapshot({ projectPath });
+    const snapshot = await readConfigStatusSnapshot({ projectPath, view: "skills" });
     const next = snapshot.setup.recommendedActions.find((candidate) => candidate !== "none");
     if (!next) {
       break;

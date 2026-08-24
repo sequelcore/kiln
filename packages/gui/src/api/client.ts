@@ -199,12 +199,13 @@ export class GuiGatewayClient {
     );
   }
 
-  async loadConfigSetup(): Promise<KilnConfigSetupSnapshot> {
+  async loadConfigSetup(options: { readonly refreshSkillDiagnostics?: boolean } = {}): Promise<KilnConfigSetupSnapshot> {
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
     const failures: string[] = [];
 
     for (const candidateBaseUrl of candidateBaseUrls) {
       const url = new URL("/gui/api/config/setup", candidateBaseUrl);
+      if (options.refreshSkillDiagnostics) url.searchParams.set("refreshSkillDiagnostics", "true");
       try {
         const response = await fetch(url, {
           headers: { accept: "application/json" },

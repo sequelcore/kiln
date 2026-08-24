@@ -113,6 +113,7 @@ vi.mock("../src/api/client.js", () => ({
         globalInstructionShims: [],
         nativeProjections: [],
         permissionIntegrity: [],
+        skillDiagnostics: { state: "current" },
         recommendedActions: ["none"],
       };
     }
@@ -393,6 +394,7 @@ describe("AppShell sidebar modes", () => {
             globalInstructionShims: [],
             nativeProjections: [],
             permissionIntegrity: [],
+            skillDiagnostics: { state: "current" as const },
             recommendedActions: ["none" as const],
           },
           error: null,
@@ -891,9 +893,14 @@ describe("AppShell sidebar modes", () => {
     const setupQueryOptions = useQueryMock.mock.calls.findLast(([options]) => {
       const queryKey = (options as { queryKey?: readonly unknown[] }).queryKey ?? [];
       return queryKey.includes("setup");
-    })?.[0] as { enabled?: boolean; refetchInterval?: unknown } | undefined;
+    })?.[0] as {
+      enabled?: boolean;
+      refetchInterval?: (query: { state: { data?: { skillDiagnostics: { state: "current" } } } }) => number | false;
+    } | undefined;
     expect(setupQueryOptions).toMatchObject({ enabled: true });
-    expect(setupQueryOptions).not.toHaveProperty("refetchInterval");
+    expect(setupQueryOptions?.refetchInterval?.({
+      state: { data: { skillDiagnostics: { state: "current" } } },
+    })).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Preview Project Context" }));
     await waitFor(() => {
       expect(loadWorkspaceFileMock).toHaveBeenCalledWith("C:/workspace/kiln/.kiln/project-context.md");

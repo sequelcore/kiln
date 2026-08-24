@@ -35,6 +35,7 @@ import { useSessionStore } from "../lib/session-store/index.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../lib/session-store/index.js";
 import { deriveSessionContinuity } from "../lib/session-continuity.js";
 import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
+import { setupDiagnosticRefetchInterval } from "../lib/setup-diagnostic-polling.js";
 import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";
 import type { CommandPaletteItem } from "./command-palette.js";
 import { WorkbenchSurfaces } from "./workbench-surfaces.js";
@@ -714,10 +715,16 @@ function useAppShellRuntimeView(props: AppShellProps) {
     queryFn: async () => gatewayClient.loadMemoryLatticeGraph(memoryFilters),
     enabled: gatewayReady && (workbenchSurface === "memory" || memorySurfaceOpen),
   });
+  const setupDiagnosticRefreshRequestedRef = useRef(false);
   const setupQuery = useQuery({
     queryKey: ["gui", "setup", gatewayReady ? "ready" : "waiting"],
-    queryFn: async () => gatewayClient.loadConfigSetup(),
+    queryFn: async () => {
+      const refreshSkillDiagnostics = setupDiagnosticRefreshRequestedRef.current;
+      setupDiagnosticRefreshRequestedRef.current = false;
+      return gatewayClient.loadConfigSetup({ refreshSkillDiagnostics });
+    },
     enabled: gatewayReady && settingsSection === "health",
+    refetchInterval: (query) => setupDiagnosticRefetchInterval(query.state.data),
   });
   const onboardingQuery = useQuery({
     queryKey: ["gui", "configuration-onboarding", gatewayReady ? "ready" : "waiting"],
@@ -1111,7 +1118,10 @@ function useAppShellRuntimeView(props: AppShellProps) {
                     loading={Boolean(setupQuery.isLoading)}
                     refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
                     error={setupQuery.error instanceof Error ? setupQuery.error : null}
-                    onRefresh={() => void setupQuery.refetch()}
+                    onRefresh={() => {
+                      setupDiagnosticRefreshRequestedRef.current = true;
+                      void setupQuery.refetch();
+                    }}
                     onExecuteAction={(action) => void executeSetupAction(action)}
                     onPreviewSource={(path) => void previewSetupSource(path)}
                     actionInFlight={setupActionInFlight}

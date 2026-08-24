@@ -40,6 +40,7 @@ export async function statusCommand(
 ): Promise<void> {
   const snapshot = await readConfigStatusSnapshot({
     projectPath: projectPath ?? process.cwd(),
+    view: "skills",
     ...(options.kilnHome === undefined ? {} : { kilnHome: options.kilnHome }),
     ...(options.projectStateBinding === undefined ? {} : { projectStateBinding: options.projectStateBinding }),
     ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),

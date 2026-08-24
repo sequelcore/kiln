@@ -160,6 +160,29 @@ describe("config mutation authority", () => {
     expect(store.readLatestSettlement("project.adopt")).toBeNull();
   });
 
+  it("uses the narrow effective-config view for default mutation readback", async () => {
+    const readConfigStatusSnapshot = vi.fn(async () => ({ effectiveConfig: undefined }));
+    vi.doMock("../../src/application/config-status.js", () => ({ readConfigStatusSnapshot }));
+    try {
+      const record = propose("skill.upsert", {
+        name: "effective-readback",
+        description: "Exercise the canonical readback boundary.",
+        instructions: "Read effective configuration only.",
+      });
+
+      await applyConfigMutation({
+        projectPath: tempDir,
+        proposalId: record.proposal.proposalId,
+        requester: "operator",
+        reconcile: reconcileOk,
+      });
+
+      expect(readConfigStatusSnapshot).toHaveBeenCalledWith({ projectPath: tempDir, view: "effective" });
+    } finally {
+      vi.doUnmock("../../src/application/config-status.js");
+    }
+  });
+
   it("commits a non-authority-expanding change without an approval", async () => {
     const record = propose("skill.upsert", {
       name: "repo-review",

@@ -434,8 +434,12 @@ export async function guiCommand(
       ),
       executionRouteCatalog: await executionRouteSelection.getCatalog(),
     }),
-    getSetupSnapshot: async () => {
-      const snapshot = await readConfigStatusSnapshot({ projectPath: cwd });
+    getSetupSnapshot: async (options?: { readonly refreshSkillDiagnostics?: boolean }) => {
+      const snapshot = await readConfigStatusSnapshot({
+        projectPath: cwd,
+        view: "setup",
+        ...(options?.refreshSkillDiagnostics ? { refreshSkillDiagnostics: true } : {}),
+      });
       return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
     },
     executeSetupAction: async (action) => executeConfigSetupAction({ projectPath: cwd, action }),
@@ -815,7 +819,7 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
 
 async function readLocalGuiConfigHealth(projectPath: string): Promise<OperatorWorkspaceConfigHealthSummary> {
   try {
-    return createOperatorWorkspaceConfigHealthSummary((await readConfigStatusSnapshot({ projectPath })).setup);
+    return createOperatorWorkspaceConfigHealthSummary((await readConfigStatusSnapshot({ projectPath, view: "setup" })).setup);
   } catch (error) {
     return {
       status: "blocked",

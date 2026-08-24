@@ -103,7 +103,7 @@ import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/author
 import { SqliteManagedExternalInvocationActionClaimStore } from "../application/managed-external-invocation-action-claim-store.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
-import { readSkillCatalogStatus } from "./skill-catalog-status.js";
+import { readConfiguredSkillCatalogStatus } from "./skill-catalog-status.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
 import { admitManagedDirectTarget } from "./managed-direct-target-admission.js";
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
@@ -1280,7 +1280,7 @@ function loadManagedInvocationSkillCatalog(
   projectStateBinding: ReturnType<typeof resolveProjectStateBinding>,
   skillConfig: KilnYamlSkillsConfig | undefined,
 ): readonly ManagedSkillCatalogEntry[] {
-  const catalog = readSkillCatalogStatus({
+  const catalog = readConfiguredSkillCatalogStatus({
     projectPath,
     ...(userHome ? { userHome } : {}),
     projectStateBinding,

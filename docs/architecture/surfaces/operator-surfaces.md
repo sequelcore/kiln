@@ -243,7 +243,11 @@ redacted or bounded to the workspace identity unless the operator explicitly
 requests raw diagnostic detail.
 
 Provider/model discovery and managed-agent route refreshes remain runtime-owned
-background work after the relevant operator transport is listening. Cached or
+background work after the GUI transport is listening or the TUI has rendered
+its first frame. The initial managed-route catalog is a fail-closed pending
+projection built only from canonical configured agents, routes, and skills;
+external/native/plugin skill inventory is diagnostic-only and cannot authorize
+execution. Cached or
 stale startup projections may improve diagnostics, but they must not become
 execution admission evidence until fresh runtime discovery succeeds.
 Startup-path discovery adapters must not run synchronous child processes or
@@ -252,9 +256,13 @@ behind async process boundaries with bounded timeouts and diagnostic statuses,
 so operator transports can become usable while deeper provider evidence is
 still being refreshed.
 
-There is no native startup or rendering benchmark while Roadmap 10 is deferred.
-Any future comparison starts from the then-current active surfaces and shared
-contracts after the roadmap is re-admitted.
+The secret-free startup profile owns named gateway-ready, first-frame, and
+first-usable milestones. CI budgets are deterministic regression gates over its
+committed synthetic configuration, not portable production-latency claims;
+comparative claims require repeated runs with frozen host, cache, runtime, and
+browser conditions. Ordinary catalog tests use operator-sized fixtures only as
+structural regression evidence (inventory scope, plugin isolation, and stable
+ordering); wall-clock budgets remain in this owned profile lane.
 
 Electron remains rejected as the general web GUI substrate. A future native
 track may evaluate it again without treating the removed prototype as precedent.

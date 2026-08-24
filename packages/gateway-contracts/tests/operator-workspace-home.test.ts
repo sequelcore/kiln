@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OperatorSessionEvent } from "../src/frames.js";
+import { KilnConfigSetupSnapshotSchema } from "../src/config-status.js";
 import { createOperatorCockpitFixture } from "./fixtures/operator-cockpit.js";
 import {
   projectOperatorCockpitReadOnlyView,
@@ -20,6 +21,26 @@ import {
 } from "./fixtures/external-runtime-governance.js";
 
 describe("operator workspace home projection", () => {
+  it("rejects setup wire data that omits diagnostic lifecycle evidence", () => {
+    const parsed = KilnConfigSetupSnapshotSchema.safeParse({
+      projectRoot: "C:/workspace/kiln",
+      projectContext: {
+        path: "C:/workspace/kiln/.kiln/project-context.md",
+        status: "valid",
+        recommendation: "none",
+      },
+      repoShims: [],
+      globalInstructionShims: [],
+      nativeProjections: [],
+      permissionIntegrity: [],
+      recommendedActions: ["none"],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(parsed.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ["skillDiagnostics"] }),
+    ]));
+  });
   it("preserves external-runtime governance evidence in one canonical projection", () => {
     const cockpitProjection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-07-28T09:01:00.000Z",
@@ -720,6 +741,7 @@ describe("operator workspace home projection", () => {
       ],
       globalInstructionShims: [],
       permissionIntegrity: [],
+      skillDiagnostics: { state: "pending" },
       recommendedActions: ["review-project-context", "sync-repo-shims", "review-native-projection-drift"],
     });
 
@@ -886,6 +908,7 @@ describe("operator workspace home projection", () => {
         remediationRequiresApproval: true,
         lastVerifiedAt: "2026-07-01T15:02:01.000Z",
       }],
+      skillDiagnostics: { state: "current", observedAt: "2026-07-01T15:02:01.000Z" },
       recommendedActions: ["none"],
     });
 

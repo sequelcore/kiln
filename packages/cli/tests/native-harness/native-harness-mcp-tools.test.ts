@@ -109,6 +109,7 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],
+      skillDiagnostics: { state: "current", observedAt: "2026-07-01T00:00:00.000Z" },
       recommendedActions: ["none"],
     },
     harnessCapabilities: [{

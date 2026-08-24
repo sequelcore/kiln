@@ -543,6 +543,12 @@ independently. The model-callable `kiln_config.read` tool is a read-only
 projection of this contract; it may inspect effective config and status but
 must not mutate configuration or native provider files.
 
+`effective` and `settings` are canonical narrow reads. They capture global and
+project configuration directly and are intentionally unable to invoke native
+projection, MCP, skill, or plugin diagnostic readers. Settings additionally
+derives activation evidence because mutation previews expose that lifecycle;
+the effective view does not synthesize unrelated diagnostic state.
+
 Projection health is derived, not stored. Native drift yields `drifted`, stale
 projection or permission evidence yields `stale`, and unproven or failed
 permission observation yields `unknown`; none may be labeled `current` by a
@@ -567,16 +573,40 @@ adoption until the operator reconciles them. GUI, TUI, CLI, SDK/widget, and
 runtime tools must use this setup read model instead of locally filtering
 generic projection lists.
 
+Full skill inventory has one process-local diagnostic owner. The owner runs the
+blocking filesystem/plugin scanner outside the operator event loop, single-flights
+equivalent refreshes, and exposes `pending`, `current`, `failed`, `stale`,
+`empty`, or `not_collected` evidence through `setup.skillDiagnostics`.
+`not_collected` is terminal and means a narrow effective/settings read
+intentionally did not attempt diagnostics; it is not a scan failure. A setup request returns the
+latest lifecycle immediately; current or stale inventory may accompany it, but
+no diagnostic inventory state participates in managed execution admission. The
+worker has an internal deadline and is terminated on timeout, so a filesystem
+or plugin stall settles as failed evidence rather than retaining an unbounded
+worker. A failed refresh remains terminal even when its last catalog payload is
+retained; passive reads never launch a replacement scan. Only an explicit setup
+refresh retries it. The process owner retains at most eight least-recently-used
+diagnostic keys, never evicts live work, and fails closed when every retained
+entry is busy. Worker and deadline handles are unreferenced where the runtime
+supports it. These bounds are runtime-owned and are not operator configuration.
+
 Interactive GUI and TUI setup adapters attach the already-derived
 `effectiveConfig` projection to this setup response. They do not re-read YAML
 or recompute precedence. GUI exposes expandable field value/provenance rows;
 TUI prints the same value, source, health, activation, and ordered chain. The
-field is absent when effective configuration admission fails.
+field is absent when effective configuration admission fails. While the health
+view is open, GUI polls only `pending` or `stale` skill diagnostics and stops at
+`current`, `empty`, or `failed`. TUI does not own a polling lifecycle; pending
+output explicitly tells the operator to run `/setup` again. GUI renders the
+diagnostic lifecycle independently from the retained catalog completeness, so
+a stale payload cannot hide a terminal refresh failure.
 
 The setup read model remains the shared source of truth. `kiln config read
 setup` prints the raw setup snapshot, `kiln status` includes deterministic
 setup actions, the GUI reads `/gui/api/config/setup`, and the TUI `/setup`
-command renders the same status. Surfaces must not infer setup state by
+command renders the same status. GUI passive reads omit query parameters;
+`refreshSkillDiagnostics=true` is the explicit retry port used only by the
+operator refresh action. Surfaces must not infer setup state by
 re-reading YAML, repo shims, or native harness files.
 
 GUI setup actions use a separate governed action boundary:

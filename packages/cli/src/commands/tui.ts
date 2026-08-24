@@ -1761,7 +1761,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     }),
   });
   startupProfiler.mark("bootstrap-context-ready", { transport: startupTransport });
-  stagedManagedInvocation?.startBackgroundRefresh();
 
   const shutdown = (code = 0, error?: unknown) => {
     bootstrap.shutdown();
@@ -1866,10 +1865,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     bootstrap.refreshProviderDiscovery,
     (themeName) => persistTuiThemePreference(themeName, { projectPath: cwd }),
     async () => {
-      const snapshot = await readConfigStatusSnapshot({ projectPath: cwd });
+      const snapshot = await readConfigStatusSnapshot({ projectPath: cwd, view: "setup" });
       return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
     },
-    () => startupProfiler.mark("tui-first-frame-rendered"),
+    () => {
+      startupProfiler.mark("tui-first-frame-rendered");
+      stagedManagedInvocation?.startBackgroundRefresh();
+    },
     bootstrap.providerModelDiscoveryRef,
     bootstrap.executionRouteCatalogRef,
     () => settingsApplication.read(),

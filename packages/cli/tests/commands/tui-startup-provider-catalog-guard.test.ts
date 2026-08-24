@@ -865,6 +865,15 @@ describe("tuiCommand startup provider catalog guard", () => {
       expect.objectContaining({ surface: "tui", phase: "gateway-started" }),
       expect.objectContaining({ surface: "tui", phase: "tui-first-frame-rendered" }),
     ]));
+    const firstFrameIndex = phases.findIndex((marker) => (
+      marker.surface === "tui" && marker.phase === "tui-first-frame-rendered"
+    ));
+    const managedRefreshIndex = phases.findIndex((marker) => (
+      marker.surface === "managed-agent-route-catalog"
+      && marker.phase === "route-catalog-background-refresh-started"
+    ));
+    expect(firstFrameIndex).toBeGreaterThanOrEqual(0);
+    expect(managedRefreshIndex).toBeGreaterThan(firstFrameIndex);
   });
 
   it("accepts pending direct startup for non-model-less harness providers and fails closed on execution", async () => {

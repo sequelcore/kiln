@@ -157,7 +157,7 @@ function createOperatorProjectGovernanceReader(
     async read() {
       let candidate: unknown;
       try {
-        candidate = await readConfigStatusSnapshot({ projectPath: rootPath, projectStateBinding });
+        candidate = await readConfigStatusSnapshot({ projectPath: rootPath, projectStateBinding, view: "effective" });
       } catch {
         throw new AgentTaskApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
       }

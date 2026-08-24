@@ -75,6 +75,7 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     "permission integrity:",
     permissionIntegrity,
     "skills:",
+    `  - diagnostics=${snapshot.skillDiagnostics.state}${snapshot.skillDiagnostics.reason ? ` reason=${snapshot.skillDiagnostics.reason}` : ""}${snapshot.skillDiagnostics.state === "pending" ? "; run /setup again to view completed skill diagnostics" : ""}`,
     skills,
     "mcp servers:",
     mcp,

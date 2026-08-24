@@ -429,11 +429,19 @@ describe("KilnConfig setup and status permission integrity", () => {
         permissionIntegrity: integrity,
       }],
       permissionIntegrity: [integrity],
+      skillDiagnostics: {
+        state: "not_collected",
+        reason: "Skill diagnostics were intentionally omitted by a narrow read.",
+      },
       recommendedActions: [],
     });
 
     expect(parsed.permissionIntegrity).toEqual([integrity]);
     expect(parsed.globalInstructionShims[0]).toMatchObject({ harness: "codex" });
+    expect(parsed.skillDiagnostics).toEqual({
+      state: "not_collected",
+      reason: "Skill diagnostics were intentionally omitted by a narrow read.",
+    });
   });
 
   it("requires the canonical harness identity on every global instruction shim", () => {
@@ -452,6 +460,7 @@ describe("KilnConfig setup and status permission integrity", () => {
       globalInstructionShims: [shim],
       nativeProjections: [],
       permissionIntegrity: [],
+      skillDiagnostics: { state: "current" },
       recommendedActions: ["sync-global-instruction-shims"],
     })).toThrow();
   });
@@ -469,6 +478,7 @@ describe("KilnConfig setup and status permission integrity", () => {
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [integrity],
+      skillDiagnostics: { state: "current" },
       recommendedActions: [],
     };
 

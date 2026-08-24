@@ -8,6 +8,8 @@ import { expect, test } from "vitest";
 
 const execFile = promisify(execFileCallback);
 const repoRoot = resolve(import.meta.dirname, "..");
+const GUI_GATEWAY_READY_BUDGET_MS = 5_000;
+const GUI_FIRST_USABLE_BUDGET_MS = 12_000;
 
 test("profiles the first usable GUI interaction when browser measurement is enabled", async () => {
   const gatewayPort = await reservePort();
@@ -25,6 +27,7 @@ test("profiles the first usable GUI interaction when browser measurement is enab
         slowest: Array<{ name: string; durationMs: number }>;
       };
       milestones: Array<{ name: string; atMs: number }>;
+      phaseMarkers: Array<{ surface?: string; phase?: string }>;
     };
   };
   expect(profile.command.measureFirstPaint).toBe(true);
@@ -35,6 +38,17 @@ test("profiles the first usable GUI interaction when browser measurement is enab
   expect(profile.timings.browserResourceSummary?.slowest[0]?.name).toMatch(/^\/gui\//u);
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("browser-ready");
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("gui-first-usable-interaction");
+  const gatewayReady = profile.timings.milestones.find((milestone) => milestone.name === "gateway-health-ready");
+  expect(gatewayReady?.atMs).toBeLessThan(GUI_GATEWAY_READY_BUDGET_MS);
+  expect(profile.timings.firstUsablePaintMs).toBeLessThan(GUI_FIRST_USABLE_BUDGET_MS);
+  const gatewayStartedIndex = profile.timings.phaseMarkers.findIndex((marker) => (
+    marker.surface === "gui" && marker.phase === "gateway-started"
+  ));
+  const managedRefreshIndex = profile.timings.phaseMarkers.findIndex((marker) => (
+    marker.surface === "managed-agent-route-catalog" && marker.phase === "route-catalog-background-refresh-started"
+  ));
+  expect(gatewayStartedIndex).toBeGreaterThanOrEqual(0);
+  expect(managedRefreshIndex).toBeGreaterThan(gatewayStartedIndex);
 }, 75_000);
 
 /**

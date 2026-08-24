@@ -65,6 +65,33 @@ export interface ReadSkillCatalogStatusOptions {
   readonly onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void;
 }
 
+/**
+ * Reads only Kiln-owned configured skill sources for execution context.
+ *
+ * External/native/plugin discovery is diagnostic evidence and must never sit
+ * on managed-route readiness or authorize execution. This projection stays
+ * fresh by reading the canonical project/user skill roots on every admission
+ * refresh while keeping operator-home inventory out of the execution path.
+ */
+export function readConfiguredSkillCatalogStatus(
+  options: ReadSkillCatalogStatusOptions,
+): Pick<KilnSkillCatalogSnapshot, "entries"> {
+  const kilnSkillsDirectory = join(resolveConfiguredKilnHome(options.userHome), "skills");
+  const projectSkillsDirectory = options.projectSkillsDirectory
+    ?? options.projectStateBinding?.skillsPath
+    ?? resolvePrivateProjectSkillsDirectory(options.projectPath, options.userHome);
+  const configured = discoverConfiguredSkills({
+    projectSkillsDirectory,
+    kilnSkillsDirectory,
+    skillConfig: options.skillConfig,
+  });
+  return {
+    entries: configured
+      .map(projectConfiguredSkillForExecution)
+      .sort((left, right) => left.name.localeCompare(right.name) || left.origin.localeCompare(right.origin)),
+  };
+}
+
 export function readGlobalExternalSkillInventory(options: Pick<ReadSkillCatalogStatusOptions,
   "userHome" | "pluginProvider" | "commandRunner" | "onCandidateResolved">) {
   const userHome = options.userHome ?? homedir();
@@ -184,7 +211,20 @@ export function readSkillCatalogStatus(
     const candidates = implicitCandidates.filter((candidate) => candidate.applicableHarnesses.includes(summary.harness));
     return { ...summary, candidateCount: candidates.length, descriptionBytes: candidates.reduce((total, candidate) => total + candidate.descriptionBytes, 0) };
   }) };
-  const globalExposureInventory = readGlobalExternalSkillInventory({ ...options, pluginProvider });
+  const globalExposureInventory = {
+    inventory: {
+      ...inventoryBase,
+      // Reuse the one complete scan. Global external exposure excludes
+      // canonical, native-projection, and project-ancestry candidates but does
+      // not reopen the same operator roots or plugin packages.
+      candidates: inventoryBase.candidates.filter((candidate) => (
+        candidate.sourceKind === "plugin"
+        || candidate.sourceKind === "system"
+        || (candidate.sourceKind === "shared-agents" && candidate.exposureScope === "user")
+      )),
+    },
+    absolutePathBySourceId,
+  };
   const inventory = {
     ...inventoryBase,
     externalExposure: externalExposureEvidence(globalExposureInventory.inventory, options.skillConfig,
@@ -457,6 +497,32 @@ function projectConfiguredSkill(
           state: "blocked",
           reason: "Configured Kiln skill is disabled by canonical catalog visibility policy.",
         }
+      : {
+          state: "available",
+          reason: "Configured Kiln skill. Admission still depends on explicit request, agent profile defaults, or auto skill selection.",
+        },
+    ...(source.desiredVisibility === "disabled"
+      ? { omissionReason: "Disabled by skills.visibility policy." }
+      : {}),
+  };
+}
+
+function projectConfiguredSkillForExecution(source: SkillSourceEntry): KilnSkillCatalogSnapshotEntry {
+  const isBuiltin = source.origin === "builtin"
+    || KILN_CORE_BUILTIN_SKILLS.some((skill) => skill.name === source.index.name);
+  return {
+    name: source.index.name,
+    description: source.index.description,
+    origin: source.origin,
+    configured: true,
+    builtIn: isBuiltin,
+    sourcePath: source.sourcePath,
+    desiredVisibility: source.desiredVisibility,
+    tools: source.index.tools,
+    tags: source.index.tags,
+    projections: [],
+    admission: source.desiredVisibility === "disabled"
+      ? { state: "blocked", reason: "Configured Kiln skill is disabled by canonical catalog visibility policy." }
       : {
           state: "available",
           reason: "Configured Kiln skill. Admission still depends on explicit request, agent profile defaults, or auto skill selection.",

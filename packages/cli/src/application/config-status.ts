@@ -18,6 +18,7 @@ import type {
   KilnProjectionTargetSnapshot,
   KilnRepoShimProjectionSnapshot,
   KilnConfigActivationStatusEntry,
+  KilnSkillCatalogDiagnosticsSnapshot,
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
 import { readKilnYamlFile, readKilnYamlFileSnapshot } from "../kiln-yaml.js";
@@ -73,6 +74,7 @@ import {
 } from "./repo-shim-projection.js";
 import { readGlobalInstructionShimProjectionSnapshots } from "./global-instruction-shim-projection.js";
 import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
+import { readSkillCatalogDiagnostics, refreshSkillCatalogDiagnostics } from "../config/skill-catalog-diagnostics.js";
 import type {
   SkillInventoryCommandRunner,
   SkillPluginProvider,
@@ -109,6 +111,8 @@ export interface ReadConfigStatusOptions {
   readonly pluginProvider?: SkillPluginProvider;
   readonly commandRunner?: SkillInventoryCommandRunner;
   readonly view?: KilnConfigReadView;
+  /** Explicit operator retry; passive setup reads must leave this false. */
+  readonly refreshSkillDiagnostics?: boolean;
 }
 
 export interface ReadConfigStatusViewOptions {
@@ -174,13 +178,83 @@ export async function readConfigStatusSnapshot(
   const projectState = readProjectConfigState(rootPath, projectStateBinding);
   const projectContext = readProjectContextState(rootPath, projectStateBinding);
   const effectiveConfig = buildEffectiveConfig(globalState, projectState, errors);
-  const mcp = buildMcpStatus(globalState, projectState, rootPath, projectStateBinding, projectStateBinding.kilnHome);
 
   errors.push(
     ...sourceErrors("global config", globalState.source),
     ...sourceErrors("project config", projectState.source),
     ...sourceErrors("project context", projectContext),
   );
+
+  // Settings and effective-config reads own canonical configuration only. Keep
+  // them structurally ahead of native projection, MCP, skill/plugin inventory,
+  // and setup diagnostics so an ordinary page read cannot accidentally grow
+  // into an operator-home scan. Settings still carries activation evidence
+  // because mutation previews expose that boundary to the operator.
+  if (options.view === "effective" || options.view === "settings") {
+    const permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"] = [];
+    const effectiveConfigProjection = effectiveConfig
+      ? projectEffectiveConfig({
+        effectiveConfig,
+        globalConfig: globalState.config,
+        projectConfig: projectState.config,
+        globalSource: globalState.source,
+        projectSource: projectState.source,
+        projections: [],
+        permissionIntegrity,
+      })
+      : undefined;
+    const activationStatus = options.view === "settings"
+      ? await readActivationStatus(
+        rootPath,
+        globalState.source.path,
+        globalState,
+        projectState,
+        errors,
+        projectStateBinding,
+      )
+      : undefined;
+    const mcp: KilnMcpStatusSnapshot = { servers: [], diagnostics: [] };
+    const setup = buildSetupSnapshot({
+      rootPath,
+      projectContext,
+      repoShims: [],
+      globalInstructionShims: [],
+      projections: [],
+      permissionIntegrity,
+      skillDiagnostics: {
+        state: "not_collected",
+        reason: "Skill diagnostics are not collected by narrow effective/settings reads.",
+      },
+      mcp,
+    });
+    const snapshot: KilnConfigStatusSnapshot = {
+      evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
+      generatedAt: now.toISOString(),
+      project: {
+        rootPath,
+        projectName: root.projectName,
+        hasGitRoot: root.hasGitRoot,
+        kilnYaml: projectState.source,
+        projectContext,
+      },
+      global: globalState.source,
+      effectiveConfigStatus: effectiveConfig ? "valid" : errors.length > 0 ? "invalid" : "missing",
+      ...(effectiveConfigProjection ? { effectiveConfig: effectiveConfigProjection } : {}),
+      ...(activationStatus ? { activationStatus } : {}),
+      errors,
+      mcp,
+      projections: [],
+      permissionIntegrity,
+      setup,
+      harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
+    };
+    if (effectiveConfig) resolvedConfigDetails.set(snapshot, effectiveConfig);
+    configSourceDetails.set(snapshot, { global: globalState, project: projectState });
+    projectStateBindingDetails.set(snapshot, projectStateBinding);
+    return snapshot;
+  }
+
+  const mcp = buildMcpStatus(globalState, projectState, rootPath, projectStateBinding, projectStateBinding.kilnHome);
 
   const projectionState = await readProjectionSnapshots(
     rootPath,
@@ -204,17 +278,40 @@ export async function readConfigStatusSnapshot(
     })
     : undefined;
   const shouldReadSkillCatalog = options.view === undefined || options.view === "skills" || options.view === "setup";
-  const skillCatalog = effectiveConfig && shouldReadSkillCatalog
-    ? readSkillCatalogStatus({
+  let synchronousSkillCatalog: ReturnType<typeof readSkillCatalogStatus> | undefined;
+  let diagnosticRead: ReturnType<typeof readSkillCatalogDiagnostics> | undefined;
+  if (effectiveConfig && shouldReadSkillCatalog) {
+    const skillOptions = {
       projectPath: rootPath,
       ...(options.userHome === undefined ? {} : { userHome: options.userHome }),
       projectStateBinding,
       cwd: options.cwd ?? rootPath,
       skillConfig: effectiveConfig.skills,
-      ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
-      ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
-    })
-    : undefined;
+    };
+    const readInjectedCatalog = options.pluginProvider !== undefined || options.commandRunner !== undefined;
+    if (options.view === "skills" || readInjectedCatalog) {
+      synchronousSkillCatalog = readSkillCatalogStatus({
+        ...skillOptions,
+        ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+        ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+      });
+    } else {
+      diagnosticRead = options.refreshSkillDiagnostics
+        ? await refreshSkillCatalogDiagnostics(skillOptions)
+        : readSkillCatalogDiagnostics(skillOptions);
+    }
+  }
+  const skillCatalog = synchronousSkillCatalog ?? diagnosticRead?.catalog;
+  const skillDiagnostics: KilnSkillCatalogDiagnosticsSnapshot = synchronousSkillCatalog
+    ? {
+      state: (synchronousSkillCatalog.inventory?.candidates.length ?? 0) === 0
+        && synchronousSkillCatalog.entries.length === 0 ? "empty" : "current",
+      observedAt: now.toISOString(),
+    }
+    : diagnosticRead?.lifecycle ?? {
+      state: "failed",
+      reason: "Skill diagnostics require valid effective configuration.",
+    };
   const setup = buildSetupSnapshot({
     rootPath,
     projectContext,
@@ -223,6 +320,7 @@ export async function readConfigStatusSnapshot(
     projections: projectionState.projections,
     permissionIntegrity,
     skillCatalog,
+    skillDiagnostics,
     mcp,
   });
   const activationStatus = await readActivationStatus(
@@ -959,6 +1057,7 @@ function buildSetupSnapshot(input: {
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"];
   readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
+  readonly skillDiagnostics: KilnSkillCatalogDiagnosticsSnapshot;
   readonly mcp: KilnMcpStatusSnapshot;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
@@ -982,6 +1081,7 @@ function buildSetupSnapshot(input: {
     nativeProjections,
     permissionIntegrity: input.permissionIntegrity,
     ...(input.skillCatalog ? { skills: summarizeSkillCatalog(input.skillCatalog) } : {}),
+    skillDiagnostics: input.skillDiagnostics,
     mcp: input.mcp,
     recommendedActions: actions,
   };

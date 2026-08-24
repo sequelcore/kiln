@@ -58,9 +58,10 @@ function setupSnapshot(): KilnConfigSetupSnapshot {
       limitationAcceptances: [],
       classification: "runtime-policy-mismatch",
       recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
-      remediationRequiresApproval: true,
-      lastVerifiedAt: "2026-07-01T15:02:01.000Z",
-    }],
+    remediationRequiresApproval: true,
+    lastVerifiedAt: "2026-07-01T15:02:01.000Z",
+  }],
+    skillDiagnostics: { state: "current", observedAt: "2026-07-01T15:03:00.000Z" },
     recommendedActions: ["none"],
   };
 }
@@ -204,6 +205,28 @@ describe("formatSetupSnapshot", () => {
   });
 
   it("renders an absent skill summary explicitly", () => {
-    expect(formatSetupSnapshot(setupSnapshot())).toContain("skills:\n  - unavailable");
+    expect(formatSetupSnapshot(setupSnapshot())).toContain("skills:\n  - diagnostics=current\n  - unavailable");
+  });
+
+  it("tells the operator how to refresh pending skill diagnostics", () => {
+    const snapshot = { ...setupSnapshot(), skillDiagnostics: { state: "pending" as const } };
+
+    expect(formatSetupSnapshot(snapshot)).toContain(
+      "diagnostics=pending; run /setup again to view completed skill diagnostics",
+    );
+  });
+
+  it("renders intentionally omitted diagnostics without retry guidance", () => {
+    const snapshot = {
+      ...setupSnapshot(),
+      skillDiagnostics: {
+        state: "not_collected" as const,
+        reason: "Skill diagnostics are not collected by this narrow read.",
+      },
+    };
+
+    const output = formatSetupSnapshot(snapshot);
+    expect(output).toContain("diagnostics=not_collected reason=Skill diagnostics are not collected by this narrow read.");
+    expect(output).not.toContain("run /setup again");
   });
 });

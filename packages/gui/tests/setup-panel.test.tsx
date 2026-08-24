@@ -74,6 +74,7 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
     globalInstructionShims: [],
     nativeProjections: [],
     permissionIntegrity: [],
+    skillDiagnostics: { state: "pending" },
     recommendedActions: ["adopt-project-context", "sync-repo-shims"],
     ...overrides,
   };
@@ -422,11 +423,62 @@ describe("SetupPanel", () => {
     expect(screen.queryByText("repo-context-review")).not.toBeInTheDocument();
   });
 
+  it("shows failed diagnostic lifecycle separately from a retained stale catalog", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          skills: skillCatalog(),
+          skillDiagnostics: {
+            state: "failed",
+            observedAt: "2026-08-24T12:00:00.000Z",
+            reason: "Skill diagnostic inventory failed; use an explicit setup refresh to retry.",
+          },
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Inventory failed")).toBeInTheDocument();
+    expect(screen.getByText("Incomplete inventory")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Skill diagnostic lifecycle" })).toHaveTextContent(
+      "Skill diagnostic inventory failed; use an explicit setup refresh to retry.",
+    );
+  });
+
+  it("renders intentionally omitted narrow-view diagnostics without calling them failed", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          skillDiagnostics: {
+            state: "not_collected",
+            reason: "Skill diagnostics are not collected by narrow effective/settings reads.",
+          },
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Inventory not collected")).toBeInTheDocument();
+    expect(screen.queryByText("Inventory failed")).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Skill diagnostic lifecycle" })).toHaveTextContent(
+      "Skill diagnostics are not collected by narrow effective/settings reads.",
+    );
+  });
+
   it("renders an accessible unavailable state when the shared skill catalog summary is absent", () => {
     render(
       <SetupPanel snapshot={setupSnapshot()} loading={false} error={null} onRefresh={vi.fn()} onExecuteAction={vi.fn()} onPreviewSource={vi.fn()} />,
     );
 
-    expect(screen.getByRole("status", { name: "Skill catalog status" })).toHaveTextContent("Skill diagnostics are unavailable from this setup snapshot.");
+    expect(screen.getByRole("status", { name: "Skill diagnostic lifecycle" })).toHaveTextContent("Skill diagnostics are running in the background. Configuration remains available.");
+    expect(screen.getByRole("status", { name: "Skill catalog status" })).toHaveTextContent("No skill catalog evidence is available.");
   });
 });

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";
+import { readConfiguredSkillCatalogStatus, readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
   createNativeProjectionFileSnapshot,
@@ -18,6 +18,38 @@ function createProjectPath(root: string): string {
 }
 
 describe("skill catalog status path safety", () => {
+  it("keeps a synthetic 400-skill execution catalog deterministic and plugin-free", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-configured-skills-perf-"));
+    const projectPath = createProjectPath(root);
+    const userHome = join(root, "operator");
+    const binding = resolveProjectStateBinding(projectPath, { kilnHome: join(root, "kiln") });
+    for (let index = 0; index < 400; index += 1) {
+      const skillRoot = join(binding.skillsPath, `synthetic-${index.toString().padStart(3, "0")}`);
+      mkdirSync(skillRoot, { recursive: true });
+      writeFileSync(join(skillRoot, "SKILL.md"), [
+        "---",
+        `name: synthetic-${index.toString().padStart(3, "0")}`,
+        "description: Portable operator-sized structural fixture.",
+        "---",
+        "",
+      ].join("\n"), "utf8");
+    }
+    const pluginProvider = () => {
+      throw new Error("configured execution catalog must not call plugin discovery");
+    };
+    const result = readConfiguredSkillCatalogStatus({
+      projectPath,
+      userHome,
+      projectStateBinding: binding,
+      skillConfig: { builtin: { enabled: false } },
+      pluginProvider,
+    });
+    expect(result.entries).toHaveLength(400);
+    expect(result.entries.map((entry) => entry.name)).toEqual(
+      [...result.entries].map((entry) => entry.name).sort(),
+    );
+  });
+
   it("reports a complete current Codex fingerprint before external policy is configured", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
     const projectPath = createProjectPath(root); const userHome = join(root, "user");

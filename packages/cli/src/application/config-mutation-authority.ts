@@ -700,7 +700,7 @@ async function readEffectiveState(
 
 const defaultEffectiveStateReadBack: EffectiveStateReadBackPort = async (projectPath) => {
   const { readConfigStatusSnapshot } = await import("./config-status.js");
-  const snapshot = await readConfigStatusSnapshot({ projectPath });
+  const snapshot = await readConfigStatusSnapshot({ projectPath, view: "effective" });
   return snapshot.effectiveConfig;
 };
 

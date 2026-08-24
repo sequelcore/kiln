@@ -548,6 +548,7 @@ describe("GuiGatewayClient", () => {
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],
+      skillDiagnostics: { state: "failed", reason: "Explicit retry fixture." },
       recommendedActions: ["none"],
     }), {
       status: 200,
@@ -556,11 +557,12 @@ describe("GuiGatewayClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new GuiGatewayClient("http://localhost:4810");
-    const setup = await client.loadConfigSetup();
+    const setup = await client.loadConfigSetup({ refreshSkillDiagnostics: true });
 
     expect(setup.projectContext.status).toBe("valid");
     expect(setup.repoShims[0]?.targetId).toBe("repo-shim:agents");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/config/setup");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("refreshSkillDiagnostics=true");
   });
 
   it("executes setup actions through the GUI gateway", async () => {
@@ -586,6 +588,7 @@ describe("GuiGatewayClient", () => {
         globalInstructionShims: [],
         nativeProjections: [],
         permissionIntegrity: [],
+        skillDiagnostics: { state: "current" },
         recommendedActions: ["none"],
       },
     }), {

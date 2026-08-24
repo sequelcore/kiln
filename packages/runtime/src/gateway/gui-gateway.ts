@@ -189,7 +189,9 @@ export interface StartGuiGatewayOptions {
     readonly operatorModels?: Record<string, string[]>;
     readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   }) => Promise<GuiDashboardSnapshot>;
-  readonly getSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>;
+  readonly getSetupSnapshot?: (options?: {
+    readonly refreshSkillDiagnostics?: boolean;
+  }) => Promise<KilnConfigSetupSnapshot>;
   readonly executeSetupAction?: (action: KilnConfigSetupAction) => Promise<KilnConfigSetupActionResult>;
   readonly getConfigurationOnboarding?: () => Promise<KilnConfigurationOnboardingSnapshot>;
   readonly applyConfigurationOnboarding?: (
@@ -577,7 +579,9 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     if (!options.getSetupSnapshot) {
       return c.json({ error: "setup_status_unavailable" }, 404);
     }
-    return c.json(await options.getSetupSnapshot());
+    return c.json(await options.getSetupSnapshot({
+      refreshSkillDiagnostics: c.req.query("refreshSkillDiagnostics") === "true",
+    }));
   });
 
   app.post("/gui/api/config/setup/actions", async (c) => {

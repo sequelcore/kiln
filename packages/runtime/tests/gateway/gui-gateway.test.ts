@@ -334,6 +334,7 @@ describe("GUI gateway HTTP and static assets", () => {
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],
+      skillDiagnostics: { state: "current" as const, observedAt: "2026-07-01T00:00:00.000Z" },
       recommendedActions: ["none" as const],
     };
     const executeSetupAction = vi.fn(async (action: KilnConfigSetupAction) => ({
@@ -343,6 +344,7 @@ describe("GUI gateway HTTP and static assets", () => {
       errors: [],
       setup,
     }));
+    const getSetupSnapshot = vi.fn(async () => setup);
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port, fetch }: { port?: number; fetch: typeof appFetch }) => {
         appFetch = fetch;
@@ -360,9 +362,15 @@ describe("GUI gateway HTTP and static assets", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        getSetupSnapshot: async () => setup,
+        getSetupSnapshot,
         executeSetupAction,
       });
+
+      const refreshedSetup = await appFetch!(new Request(
+        "http://localhost/gui/api/config/setup?refreshSkillDiagnostics=true",
+      ));
+      expect(refreshedSetup.status).toBe(200);
+      expect(getSetupSnapshot).toHaveBeenLastCalledWith({ refreshSkillDiagnostics: true });
 
       const response = await appFetch!(new Request("http://localhost/gui/api/config/setup/actions", {
         method: "POST",

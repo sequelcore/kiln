@@ -627,6 +627,24 @@ export interface KilnSkillCatalogSummarySnapshot {
   }[];
 }
 
+export const KILN_SKILL_DIAGNOSTIC_STATES = [
+  "pending",
+  "current",
+  "failed",
+  "stale",
+  "empty",
+  "not_collected",
+] as const;
+
+export type KilnSkillDiagnosticState = typeof KILN_SKILL_DIAGNOSTIC_STATES[number];
+
+/** Process-local lifecycle for the expensive, diagnostic-only skill inventory. */
+export interface KilnSkillCatalogDiagnosticsSnapshot {
+  readonly state: KilnSkillDiagnosticState;
+  readonly observedAt?: string;
+  readonly reason?: string;
+}
+
 export interface KilnProjectionTargetSnapshot {
   readonly targetId: string;
   readonly path: string;
@@ -737,6 +755,7 @@ export interface KilnConfigSetupSnapshot {
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSummarySnapshot;
+  readonly skillDiagnostics: KilnSkillCatalogDiagnosticsSnapshot;
   readonly mcp?: KilnMcpStatusSnapshot;
   readonly recommendedActions: readonly KilnConfigSetupAction[];
 }
@@ -1177,6 +1196,12 @@ export const KilnSkillCatalogSummarySnapshotSchema = z.object({
   })).max(12).default([]),
 });
 
+export const KilnSkillCatalogDiagnosticsSnapshotSchema = z.object({
+  state: z.enum(KILN_SKILL_DIAGNOSTIC_STATES),
+  observedAt: z.string().datetime().optional(),
+  reason: z.string().optional(),
+}).strict();
+
 export const KilnMcpStatusSnapshotSchema = z.object({
   servers: z.array(z.object({
     id: z.string(), enabled: z.boolean(), source: z.enum(["global", "project", "overridden", "disabled-by-project"]),
@@ -1210,6 +1235,7 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
   skills: KilnSkillCatalogSummarySnapshotSchema.optional(),
+  skillDiagnostics: KilnSkillCatalogDiagnosticsSnapshotSchema,
   mcp: KilnMcpStatusSnapshotSchema.optional(),
   recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
 });
