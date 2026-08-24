@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentAdapterDescriptor,
@@ -523,7 +523,12 @@ describe("managed agent route catalog", () => {
   });
 
   it("projects explicit read-only reference roots with default protected descendants", async () => {
-    const cwd = "C:/workspace/kiln";
+    const cwd = createTempRoot();
+    const referenceRoots = [
+      "C:/workspace/references/t1code",
+      "C:/workspace/references/vllm-studio",
+    ];
+    const protectedEntries = [".git", "node_modules", ".kiln"];
     const catalog = makeExecutionCatalog("opencode-go-frontend-reference-readonly");
     const resolution = await resolveManagedInvocationToolOptions({
       executionCatalog: catalog,
@@ -539,7 +544,7 @@ describe("managed agent route catalog", () => {
         tools: { allowed: ["read", "grep", "glob", "web_search"], network: true, writes: false },
         readAuthority: {
           workspace: {
-            allowedPaths: ["C:/workspace/references/t1code", "C:/workspace/references/vllm-studio"],
+            allowedPaths: referenceRoots,
             deniedPaths: [],
           },
         },
@@ -573,19 +578,11 @@ describe("managed agent route catalog", () => {
       readAuthority: {
         workspace: {
           allowedPaths: [
-            "C:\\workspace\\references\\t1code",
-            "C:\\workspace\\references\\vllm-studio",
+            ...referenceRoots.map((rootPath) => win32.normalize(rootPath)),
           ],
           deniedPaths: [
-            "C:\\workspace\\kiln\\.git",
-            "C:\\workspace\\kiln\\node_modules",
-            "C:\\workspace\\kiln\\.kiln",
-            "C:\\workspace\\references\\t1code\\.git",
-            "C:\\workspace\\references\\t1code\\node_modules",
-            "C:\\workspace\\references\\t1code\\.kiln",
-            "C:\\workspace\\references\\vllm-studio\\.git",
-            "C:\\workspace\\references\\vllm-studio\\node_modules",
-            "C:\\workspace\\references\\vllm-studio\\.kiln",
+            ...protectedEntries.map((entry) => join(cwd, entry)),
+            ...referenceRoots.flatMap((rootPath) => protectedEntries.map((entry) => win32.join(rootPath, entry))),
           ],
         },
       },

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../kiln-yaml.js", () => ({
   readKilnYamlFile: vi.fn(),
@@ -40,6 +40,13 @@ import {
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 const readKilnYamlMock = readKilnYamlFile as unknown as ReturnType<typeof vi.fn>;
 const mergeKilnYamlMock = mergeKilnYaml as unknown as ReturnType<typeof vi.fn>;
+const temporaryRoots: string[] = [];
+
+function createTempRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), "kiln-config-merger-project-"));
+  temporaryRoots.push(root);
+  return root;
+}
 
 describe("config-merger", () => {
   beforeEach(() => {
@@ -49,11 +56,15 @@ describe("config-merger", () => {
     mergeKilnYamlMock.mockReset();
   });
 
+  afterEach(() => {
+    for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
   it("returns null when both global and project config are missing", async () => {
     readGlobalConfigMock.mockReturnValue(null);
     readKilnYamlMock.mockReturnValue(null);
 
-    const result = await loadKilnConfig("/repo");
+    const result = await loadKilnConfig(createTempRoot());
 
     expect(readKilnYamlMock).toHaveBeenCalledWith(expect.stringMatching(/[\\/]config\.yaml$/u));
     expect(result).toBeNull();
@@ -126,7 +137,7 @@ describe("config-merger", () => {
     readKilnYamlMock.mockReturnValue(projectConfig);
     mergeKilnYamlMock.mockReturnValue(merged);
 
-    await expect(loadKilnConfigWithGlobalAuthority("/repo")).resolves.toEqual({
+    await expect(loadKilnConfigWithGlobalAuthority(createTempRoot())).resolves.toEqual({
       kilnYaml: merged,
       globalConfig,
     });
@@ -450,7 +461,7 @@ describe("config-merger", () => {
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(null);
 
-    const result = await loadKilnConfig("/repo");
+    const result = await loadKilnConfig(createTempRoot());
 
     expect(result).toEqual({
       version: "1",
@@ -512,7 +523,7 @@ describe("config-merger", () => {
     readGlobalConfigMock.mockReturnValue(null);
     readKilnYamlMock.mockReturnValue(projectConfig);
 
-    const result = await loadKilnConfig("/repo");
+    const result = await loadKilnConfig(createTempRoot());
 
     expect(result).toEqual(projectConfig);
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
@@ -543,7 +554,7 @@ describe("config-merger", () => {
     readKilnYamlMock.mockReturnValue(projectConfig);
     mergeKilnYamlMock.mockReturnValue(merged);
 
-    const result = await loadKilnConfig("/repo");
+    const result = await loadKilnConfig(createTempRoot());
 
     expect(mergeKilnYamlMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -574,7 +585,7 @@ describe("config-merger", () => {
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(projectConfig);
 
-    await expect(loadKilnConfig("/repo")).rejects.toThrow(
+    await expect(loadKilnConfig(createTempRoot())).rejects.toThrow(
       "Project-only MCP server 'projectSrv' is not admitted by global configuration.",
     );
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
