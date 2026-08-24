@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   defineExecutionCatalog,
@@ -44,10 +44,24 @@ import {
 } from "@kilnai/runtime";
 
 // Harness route resolution owns a fixed-path action-claim database. Tests
-// resolve multiple independent services against the same synthetic C:/repo
+// resolve multiple independent services against the same synthetic project
 // root, so close the previous fixture owner before constructing the next one.
 // This keeps the fixture lifecycle equivalent to the production route catalog
 // refresh/dispose lifecycle without weakening the singleton owner invariant.
+const TEST_PROJECT_ROOT = mkdtempSync(join(tmpdir(), "kiln-managed-agent-routes-"));
+const TEST_PROJECT_SCOPE_ID = basename(TEST_PROJECT_ROOT);
+const TEST_PROJECT_CONFIG_PATH = join(TEST_PROJECT_ROOT, "packages", "cli", "src", "config");
+const TEST_PROJECT_DENIED_PATHS = [
+  join(TEST_PROJECT_ROOT, ".git"),
+  join(TEST_PROJECT_ROOT, "node_modules"),
+  join(TEST_PROJECT_ROOT, ".kiln"),
+  join(TEST_PROJECT_CONFIG_PATH, ".git"),
+  join(TEST_PROJECT_CONFIG_PATH, "node_modules"),
+  join(TEST_PROJECT_CONFIG_PATH, ".kiln"),
+] as const;
+afterAll(() => {
+  rmSync(TEST_PROJECT_ROOT, { recursive: true, force: true });
+});
 let fixtureInvocationService: { readonly close: () => void } | undefined;
 afterEach(() => {
   fixtureInvocationService?.close();
@@ -87,7 +101,7 @@ const READONLY_POLICY: KilnPermissionPolicy = {
   sandbox: "read-only",
 };
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
-const TEST_INVOCATION_SERVICE_KEY = `managed-invocation:${resolve("C:/repo")}`;
+const TEST_INVOCATION_SERVICE_KEY = `managed-invocation:${resolve(TEST_PROJECT_ROOT)}`;
 const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY = {
   proposalSupported: true,
   approvedApplySupported: true,
@@ -572,7 +586,7 @@ function defineHarnessChildAuthorityAdmission(sessionId: string, turnId: string)
 async function persistHarnessChildAuthorityAdmission(
   admission: ReturnType<typeof defineHarnessChildAuthorityAdmission>,
 ): Promise<ReturnType<typeof defineHarnessChildAuthorityAdmission>> {
-  await new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore("C:/repo")).persist(admission.bundle);
+  await new TranscriptAuthorityAdmissionEvidenceStore(new TranscriptStore(TEST_PROJECT_ROOT)).persist(admission.bundle);
   return admission;
 }
 
@@ -698,7 +712,7 @@ function makeDirectAdapter(providerId = "openai", writeCapable = false): Managed
 describe("resolveManagedInvocationToolOptions", () => {
   it("does not expose managed invocation when config is absent or disabled", async () => {
     await expect(resolveManagedInvocationToolOptions(null, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
     })).resolves.toEqual({
@@ -706,7 +720,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     await expect(resolveManagedInvocationToolOptions(baseConfig({ enabled: false }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
     })).resolves.toEqual({
@@ -722,7 +736,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         opencode: { enabled: false },
       },
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
     })).resolves.toEqual({
@@ -748,7 +762,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           memory: { access: "read-only" },
         }],
       }), {
-        cwd: "C:/repo",
+        cwd: TEST_PROJECT_ROOT,
         registry: createRegistry(provider),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -792,7 +806,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         reason: "Use a stronger visual-design route when available.",
       }],
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -838,13 +852,13 @@ describe("resolveManagedInvocationToolOptions", () => {
       permissionProfile: "read-only",
       allowedToolNames: ["read", "tree", "grep", "glob"],
       workingDirectory: {
-        path: "C:/repo",
+        path: TEST_PROJECT_ROOT,
         mode: "read-only",
       },
       timeoutMs: 120000,
       timeoutSource: "explicit-route",
       memoryScope: {
-        scope: { kind: "project", id: "repo" },
+        scope: { kind: "project", id: TEST_PROJECT_SCOPE_ID },
         access: "read-only",
       },
     });
@@ -865,7 +879,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     const resolve = async (timeoutMs: number) => await resolveManagedInvocationToolOptions(
       baseConfig({ targetFixtures: [{ ...route, timeoutMs }] }),
       {
-        cwd: "C:/repo",
+        cwd: TEST_PROJECT_ROOT,
         registry: createRegistry("codex"),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -892,7 +906,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       }],
       }),
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -925,7 +939,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -952,7 +966,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -973,7 +987,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -997,7 +1011,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1039,7 +1053,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistryWithCapturedHarnessRun("codex", (options) => {
         capturedRun = options;
       }),
@@ -1125,7 +1139,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       }],
       }),
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1153,7 +1167,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1189,7 +1203,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1207,7 +1221,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }]);
     expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
       workingDirectory: {
-        path: "C:/repo",
+        path: TEST_PROJECT_ROOT,
         mode: "sandbox",
       },
     });
@@ -1226,7 +1240,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         workingDirectory: "sandbox",
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1270,7 +1284,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: new SessionRegistry([]),
       surface: "gui",
     });
@@ -1314,7 +1328,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
     expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
       workingDirectory: {
-        path: "C:/repo",
+        path: TEST_PROJECT_ROOT,
         mode: "sandbox",
       },
     });
@@ -1643,8 +1657,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
-      userHome: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
+      userHome: TEST_PROJECT_ROOT,
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1755,7 +1769,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       maxParallelChildren: 4,
@@ -1856,7 +1870,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         codex: { enabled: false },
       },
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1880,7 +1894,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex", false),
       surface: "gui",
     });
@@ -1906,7 +1920,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1932,7 +1946,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -1961,7 +1975,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       providerModelEligibility: observedProviderModels({
@@ -2001,7 +2015,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2033,7 +2047,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2068,7 +2082,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2094,7 +2108,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2124,7 +2138,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("opencode"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2151,7 +2165,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistryWithCapturedHarnessRun("claude", (options) => {
         capturedResolution ??= options.deliberationResolution;
       }, (config) => {
@@ -2252,7 +2266,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         }],
       }),
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2277,7 +2291,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistryWithCapturedHarnessRun("opencode", (options) => {
         capturedResolution ??= options.deliberationResolution;
       }, (config) => {
@@ -2381,7 +2395,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         }],
       }),
     }, {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("opencode"),
       surface: "gui",
       providerModelEligibility: observedProviderModels({ opencode: ["opencode/gpt-5.4"] }),
@@ -2401,7 +2415,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2480,7 +2494,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         tools: { allowed: ["read"], writes: false },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2523,7 +2537,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           tools: { allowed: ["read"], writes: false },
         }],
       }), {
-        cwd: "C:/repo",
+        cwd: TEST_PROJECT_ROOT,
         registry: createRegistry("claude"),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2580,7 +2594,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2604,7 +2618,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       permissionProfile: "apply-approved-writes",
       writeAllowed: true,
       workingDirectory: {
-        path: "C:/repo",
+        path: TEST_PROJECT_ROOT,
         mode: "workspace-write",
       },
       memoryScope: {
@@ -2615,15 +2629,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         scope: {
           workspace: {
             mode: "apply-approved",
-            allowedPaths: ["C:\\repo\\packages\\cli\\src\\config"],
-            deniedPaths: [
-              "C:\\repo\\.git",
-              "C:\\repo\\node_modules",
-              "C:\\repo\\.kiln",
-              "C:\\repo\\packages\\cli\\src\\config\\.git",
-              "C:\\repo\\packages\\cli\\src\\config\\node_modules",
-              "C:\\repo\\packages\\cli\\src\\config\\.kiln",
-            ],
+            allowedPaths: [TEST_PROJECT_CONFIG_PATH],
+            deniedPaths: TEST_PROJECT_DENIED_PATHS,
           },
           memory: {
             mode: "propose",
@@ -2669,7 +2676,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2690,22 +2697,15 @@ describe("resolveManagedInvocationToolOptions", () => {
       permissionProfile: "apply-approved-writes",
       writeAllowed: true,
       workingDirectory: {
-        path: "C:/repo",
+        path: TEST_PROJECT_ROOT,
         mode: "workspace-write",
       },
       writeAuthority: {
         scope: {
           workspace: {
             mode: "apply-approved",
-            allowedPaths: ["C:\\repo\\packages\\cli\\src\\config"],
-            deniedPaths: [
-              "C:\\repo\\.git",
-              "C:\\repo\\node_modules",
-              "C:\\repo\\.kiln",
-              "C:\\repo\\packages\\cli\\src\\config\\.git",
-              "C:\\repo\\packages\\cli\\src\\config\\node_modules",
-              "C:\\repo\\packages\\cli\\src\\config\\.kiln",
-            ],
+            allowedPaths: [TEST_PROJECT_CONFIG_PATH],
+            deniedPaths: TEST_PROJECT_DENIED_PATHS,
           },
         },
       },
@@ -2734,7 +2734,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("opencode-go"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2765,7 +2765,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2801,8 +2801,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
-      userHome: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
+      userHome: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
@@ -2835,7 +2835,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
-      cwd: "C:/repo",
+      cwd: TEST_PROJECT_ROOT,
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
