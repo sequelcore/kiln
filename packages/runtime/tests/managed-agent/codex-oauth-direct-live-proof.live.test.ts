@@ -1,4 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vitest";
+import {
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
+  digestManagedEconomicValue,
+  type ManagedEconomicCommitment,
+} from "@kilnai/core";
 import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
@@ -6,11 +15,22 @@ import {
 } from "@kilnai/core/agents";
 import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
+  CodexOAuthCredentialPoolService,
+  ManagedEconomicDispatchCoordinator,
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
+  SqliteManagedAccountLeaseAuthority,
 } from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../../cli/src/config/managed-agent-direct-adapters.js";
-import type { ManagedCommittedInvocationRequest, ManagedInvocationRouteProfile } from "@kilnai/runtime";
+import type {
+  ManagedAgentRuntimeAdapter,
+  ManagedInvocationRouteProfile,
+} from "@kilnai/runtime";
+import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "../../src/agents/managed-invocation/invocation-service.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  type EffectiveAuthorityAdmissionBundle,
+} from "../../src/session/effective-authority-admission-bundle.js";
 import type {
   RuntimeModelRoundActionClaim,
   RuntimeModelRoundActionClaimPermit,
@@ -20,6 +40,8 @@ import type {
   RuntimeToolActionClaimStore,
 } from "@kilnai/runtime";
 import type { DirectProviderCredentialBinding } from "../../../cli/src/wrapper/direct-provider-adapter-factory.js";
+import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
+import { managedEconomicAdmissionBundle } from "./managed-economic-admission-fixture.js";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
@@ -48,23 +70,9 @@ describeManagedAgentProviderLive(
         },
       }, async (workspace) => {
         const model = requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL);
-        const adapter = await createManagedDirectProviderAdapterFactory({
-          builtinToolOptions: createSessionBuiltinToolOptions(),
-          runtimeToolActionClaims: createLiveToolActionStore(),
-          readAuthorityAdmission: () => undefined,
-          runtimeModelRoundActionClaims: createLiveModelRoundStore(),
-        })({
-          id: "codex-oauth-readonly-live",
-          kind: "direct",
-          authorityProfiles: [],
-        }, credentialBindingFor("codex-oauth-readonly-live"), undefined,
-        committedRequestFor("codex-oauth-readonly-live", "codex-oauth", model, "invocation-codex-oauth-direct-live-readonly-1"),
-        directProfile("read-only", "foundation-readonly-plan", "credential-route:codex-oauth:runtime-selected", "read-only"));
-        if (!adapter) {
-          throw new Error("Expected Codex OAuth direct live adapter");
-        }
+        const invocationId = "invocation-codex-oauth-direct-live-readonly-1";
         const request = defineManagedAgentInvocationRequest({
-          invocationId: "invocation-codex-oauth-direct-live-readonly-1",
+          invocationId,
           agentId: "codex-oauth-direct-live:foundation-readonly-plan",
           parentSessionId: "session-codex-oauth-direct-live-parent",
           parentTurnId: "session-codex-oauth-direct-live-parent:turn:1",
@@ -92,8 +100,9 @@ describeManagedAgentProviderLive(
             },
             timeoutMs: 120000,
             credentialRoute: {
-              mode: "runtime-selected",
+              mode: "account-leased",
               routeId: "credential-route:codex-oauth:runtime-selected",
+              accountPolicyId: createExecutionAccountPolicyId("codex-oauth-accounts"),
             },
             memoryScope: {
               scope: { kind: "project", id: "kiln" },
@@ -111,15 +120,26 @@ describeManagedAgentProviderLive(
           },
         });
 
-        const result = await createCodexOauthDirectLiveService()
-          .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
+        const result = await withCodexOauthEconomicDispatch({
+          routeId: "codex-oauth-live-proof",
+          model,
+          invocationId,
+          parentTurnId: request.parentTurnId,
+          permissionProfile: "read-only",
+          admissionProfile: "foundation-readonly-plan",
+          workingDirectoryMode: "read-only",
+        }, ({ adapter, economicDispatch, childAuthorityAdmission }) => createCodexOauthDirectLiveService()
+          .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request), {
+            economicDispatch,
+            childAuthorityAdmission,
+          }));
 
         expect(result.status).toBe("completed");
         if (result.status !== "completed") {
           throw new Error("Expected completed Codex OAuth direct-provider live proof");
         }
         expectCompletedLiveRecord(result.record, "Codex OAuth direct-provider read live proof");
-        expectCredentialRouteLeaseEvidence(result.record, "invocation-codex-oauth-direct-live-readonly-1");
+        expectCredentialRouteLeaseEvidence(result.record, invocationId);
         expect(result.record.resultHandoff?.summary).toContain("kiln-codex-oauth-direct-live-proof");
         await expect(workspace.readFile("proof.txt")).resolves.toContain("keyword=kiln-codex-oauth-direct-live-proof");
       });
@@ -139,22 +159,6 @@ describeManagedAgentProviderLive(
         },
       }, async (workspace) => {
         const model = requireManagedAgentLiveEnvironment(KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL);
-        const adapter = await createManagedDirectProviderAdapterFactory({
-          builtinToolOptions: createSessionBuiltinToolOptions(),
-          runtimeToolActionClaims: createLiveToolActionStore(),
-          readAuthorityAdmission: () => undefined,
-          runtimeModelRoundActionClaims: createLiveModelRoundStore(),
-        })({
-          id: "codex-oauth-approved-write-live",
-          kind: "direct",
-          authorityProfiles: [],
-        }, credentialBindingFor("codex-oauth-approved-write-live"), undefined,
-        committedRequestFor("codex-oauth-approved-write-live", "codex-oauth", model, "invocation-codex-oauth-direct-live-write-1"),
-        directProfile("apply-approved-writes", "foundation-apply-approved-writes", "credential-route:codex-oauth:runtime-selected", "workspace-write", true));
-        if (!adapter) {
-          throw new Error("Expected Codex OAuth direct approved-write live adapter");
-        }
-
         const invocationId = "invocation-codex-oauth-direct-live-write-1";
         const request = defineManagedAgentInvocationRequest({
           invocationId,
@@ -185,8 +189,9 @@ describeManagedAgentProviderLive(
             },
             timeoutMs: 120000,
             credentialRoute: {
-              mode: "runtime-selected",
+              mode: "account-leased",
               routeId: "credential-route:codex-oauth:runtime-selected",
+              accountPolicyId: createExecutionAccountPolicyId("codex-oauth-accounts"),
             },
             memoryScope: {
               scope: { kind: "project", id: "kiln" },
@@ -235,8 +240,20 @@ describeManagedAgentProviderLive(
           },
         });
 
-        const result = await createCodexOauthDirectLiveService()
-          .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
+        const result = await withCodexOauthEconomicDispatch({
+          routeId: "codex-oauth-live-proof",
+          model,
+          invocationId,
+          parentTurnId: request.parentTurnId,
+          permissionProfile: "apply-approved-writes",
+          admissionProfile: "foundation-apply-approved-writes",
+          workingDirectoryMode: "workspace-write",
+          writeAllowed: true,
+        }, ({ adapter, economicDispatch, childAuthorityAdmission }) => createCodexOauthDirectLiveService()
+          .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request), {
+            economicDispatch,
+            childAuthorityAdmission,
+          }));
 
         expect(result.status).toBe("completed");
         if (result.status !== "completed") {
@@ -262,6 +279,272 @@ describeManagedAgentProviderLive(
   },
 );
 
+interface CodexOauthEconomicDispatchInput {
+  readonly routeId: string;
+  readonly model: string;
+  readonly invocationId: string;
+  readonly parentTurnId: string;
+  readonly permissionProfile: "read-only" | "apply-approved-writes";
+  readonly admissionProfile: "foundation-readonly-plan" | "foundation-apply-approved-writes";
+  readonly workingDirectoryMode: "read-only" | "workspace-write";
+  readonly writeAllowed?: boolean;
+}
+
+async function withCodexOauthEconomicDispatch<T>(
+  input: CodexOauthEconomicDispatchInput,
+  execute: (prepared: {
+    readonly adapter: ManagedAgentRuntimeAdapter;
+    readonly economicDispatch: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
+    readonly childAuthorityAdmission: { readonly bundle: EffectiveAuthorityAdmissionBundle };
+  }) => Promise<T>,
+): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "kiln-codex-oauth-direct-economic-live-"));
+  const authority = new SqliteManagedAccountLeaseAuthority({
+    path: join(root, "authority.sqlite"),
+    ownerId: `owner:${input.invocationId}`,
+    now: () => Date.parse("2026-08-02T12:00:00.000Z"),
+  });
+  let resolveSettlement!: () => void;
+  let rejectSettlement!: (error: unknown) => void;
+  const settlementRecorded = new Promise<void>((resolve, reject) => {
+    resolveSettlement = resolve;
+    rejectSettlement = reject;
+  });
+  try {
+    const profile = directProfile(
+      input.permissionProfile,
+      input.admissionProfile,
+      "credential-route:codex-oauth:runtime-selected",
+      input.workingDirectoryMode,
+      input.writeAllowed,
+    );
+    const credentialBinding = await credentialBindingFor(input.routeId);
+    const childAdmissions = new Map<string, EffectiveAuthorityAdmissionBundle>();
+    const createAdapter = createManagedDirectProviderAdapterFactory({
+      builtinToolOptions: createSessionBuiltinToolOptions(),
+      runtimeToolActionClaims: createLiveToolActionStore(),
+      readAuthorityAdmission: ({ admissionId }) => childAdmissions.get(admissionId),
+      runtimeModelRoundActionClaims: createLiveModelRoundStore(),
+    });
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: {
+        acquire: (request) => authority.acquireCommitment(request),
+        releasePreFence: (jobId, economicAttemptId) =>
+          authority.releaseCommitmentPreFence(jobId, economicAttemptId),
+        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) =>
+          authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim),
+        readDispatch: (jobId, economicAttemptId, dispatchFenceId, actionClaim) =>
+          authority.readDispatch(jobId, economicAttemptId, dispatchFenceId, actionClaim),
+        settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
+          try {
+            const record = authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
+            resolveSettlement();
+            return record;
+          } catch (error) {
+            rejectSettlement(error);
+            throw error;
+          }
+        },
+        recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+          authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+      },
+      resolveLifecycleTimeoutMs: () => 120_000,
+      createAdapter: ({
+        commitment,
+        dispatchFenceId,
+        abortSignal,
+        authorityProfileId,
+        admissionProfile,
+        profileAuthorityDigest,
+        invocationId,
+      }) => createAdapter({
+        id: input.routeId,
+        kind: "direct",
+        authorityProfiles: [],
+      }, credentialBinding, abortSignal, {
+        commitment,
+        dispatchFenceId,
+        abortSignal,
+        authorityProfileId,
+        admissionProfile,
+        profileAuthorityDigest,
+        invocationId,
+      }, profile),
+    });
+    const baseAdoption = createEconomicRouteProofAdoption({
+      providerId: "codex-oauth",
+      routeId: input.routeId,
+      modelId: input.model,
+      priceKind: "subscription",
+      quotaEvidence: {
+        kind: "unknown",
+        capacityIdentity: "codex-oauth-capacity",
+        subscriptionClass: "unknown",
+        reason: "Live fixture does not project account quota into durable test evidence.",
+        evidence: null,
+      },
+      quotaRequirement: "optional",
+    });
+    const adoption = {
+      ...baseAdoption,
+      routeCapacity: baseAdoption.routeCapacity.map((capacity) => ({
+        ...capacity,
+        candidates: capacity.candidates.map((candidate) => ({
+          ...candidate,
+          candidate: {
+            ...candidate.candidate,
+            account: createExecutionAccountRef(`configured:${credentialBinding.accountId}`),
+          },
+          credentialRevisionId: credentialBinding.credentialRevision,
+        })),
+      })),
+    };
+    const prepared = await coordinator.prepare({
+      jobId: `job:${input.invocationId}`,
+      economicAttemptId: `economic-attempt:${input.invocationId}`,
+      intentFingerprint: digestManagedEconomicValue({
+        invocationId: input.invocationId,
+        routeId: input.routeId,
+        model: input.model,
+      }),
+      admissionBundle: managedEconomicAdmissionBundle({
+        sessionId: "session-codex-oauth-direct-live-parent",
+        turnId: input.parentTurnId,
+        admittedAuthority: input.writeAllowed ? "audited" : "read_only",
+      }),
+      effectIdentity: "managed-agent-live:codex-oauth-provider-dispatch",
+      adoption,
+      admissionProfile: input.admissionProfile,
+      authorityProfileId: profile.authorityProfileId,
+      invocationId: input.invocationId,
+      workLimitDurationMs: 120_000,
+    });
+    if (prepared.status !== "prepared") {
+      throw new Error("Codex OAuth live economic dispatch was not prepared.");
+    }
+    const childAuthorityAdmission = createLiveChildAuthorityAdmission(input, credentialBinding, prepared.commitment);
+    childAdmissions.set(childAuthorityAdmission.admissionId, childAuthorityAdmission);
+    const result = await execute({
+      adapter: prepared.adapter,
+      economicDispatch: {
+        commitment: prepared.commitment,
+        dispatchFenceId: prepared.dispatchFenceId,
+        recordExecutionSettlementPending: prepared.recordExecutionSettlementPending,
+        createExecutionSettlement: prepared.createExecutionSettlement,
+        registerEconomicSettlement: prepared.registerEconomicSettlement,
+      },
+      childAuthorityAdmission: { bundle: childAuthorityAdmission },
+    });
+    await settlementRecorded;
+    return result;
+  } finally {
+    authority.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function createLiveChildAuthorityAdmission(
+  input: CodexOauthEconomicDispatchInput,
+  credentialBinding: DirectProviderCredentialBinding,
+  commitment: ManagedEconomicCommitment,
+): EffectiveAuthorityAdmissionBundle {
+  const admittedAuthority = input.writeAllowed ? "audited" as const : "read_only" as const;
+  const allowedToolNames = input.writeAllowed ? ["read", "edit"] : ["read"];
+  const toolPermissions: EffectiveAuthorityAdmissionBundle["turn"]["tools"]["allowedToolPermissions"] =
+    allowedToolNames.map((toolName) => ({
+      toolName,
+      authority: {
+        level: toolName === "edit" ? 3 : 1,
+        allowed: true,
+        requiresApproval: false,
+        reason: "live-proof-policy-admitted",
+      },
+      effectEnvelope: toolName === "edit"
+        ? {
+            operation: "mutate",
+            boundaries: ["workspace"],
+            reversibility: "compensatable",
+            dataEgress: "none",
+            identityUse: "none",
+            consequences: ["local-state"],
+            idempotency: "non-idempotent",
+          }
+        : {
+            operation: "observe",
+            boundaries: ["workspace"],
+            reversibility: "reversible",
+            dataEgress: "none",
+            identityUse: "none",
+            consequences: ["local-state"],
+            idempotency: "idempotent",
+          },
+    }));
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "session-codex-oauth-direct-live-parent",
+    turnId: input.parentTurnId,
+    admittedAt: "2026-08-02T12:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: "codex-oauth-live", revisions: { liveProof: "1" } },
+      turnRevision: { revisionSetId: "codex-oauth-live", revisions: { liveProof: "1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "codex-oauth-live", revision: "1", skillIds: [] },
+      authorityCeiling: {
+        maximumAuthority: admittedAuthority,
+        reason: "Codex OAuth direct live proof authority ceiling.",
+        subjectId: input.invocationId,
+      },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: admittedAuthority,
+        admittedAuthority,
+        sourcePolicy: "runtime_surface_projection",
+        reason: "Codex OAuth direct live proof admission.",
+        completeness: "authoritative",
+        toolCount: toolPermissions.length,
+        deniedToolCount: 0,
+        sandboxProjection: input.writeAllowed ? "workspace_write" : "read_only",
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: toolPermissions, deniedToolNames: [] },
+      effectCeiling: {
+        operation: input.writeAllowed ? "mutate" : "observe",
+        boundaries: ["process", "workspace", "machine", "network", "external-system"],
+        reversibility: input.writeAllowed ? "compensatable" : "reversible",
+        dataEgress: "sensitive-data",
+        identityUse: "privileged",
+        consequences: ["local-state", "external-state", "financial", "security"],
+        idempotency: input.writeAllowed ? "non-idempotent" : "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: {
+        status: "routed",
+        route: {
+          routeId: input.routeId,
+          providerId: "codex-oauth",
+          providerModelId: input.model,
+          accountSelection: { mode: "exact", accountId: credentialBinding.accountId, source: "route" },
+        },
+        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
+        binding: {
+          status: "bound",
+          routeId: input.routeId,
+          accountId: credentialBinding.accountId,
+          credentialId: credentialBinding.credentialId,
+          credentialRevision: credentialBinding.credentialRevision,
+        },
+        economicCommitment: {
+          commitmentId: commitment.commitmentId,
+          authorityRevision: commitment.reservation.authorityRevision,
+        },
+      },
+    },
+  });
+}
+
 function createCodexOauthDirectLiveService(): RuntimeManagedAgentInvocationService {
   return new RuntimeManagedAgentInvocationService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
@@ -270,12 +553,16 @@ function createCodexOauthDirectLiveService(): RuntimeManagedAgentInvocationServi
   });
 }
 
-function credentialBindingFor(routeId: string): DirectProviderCredentialBinding {
+async function credentialBindingFor(routeId: string): Promise<DirectProviderCredentialBinding> {
+  const selected = (await new CodexOAuthCredentialPoolService().listExecutionAccounts())[0];
+  if (!selected) {
+    throw new Error("Codex OAuth direct live proof requires one executable credential.");
+  }
   return {
     routeId,
-    accountId: "codex-oauth-live-account",
-    credentialId: "codex-oauth-live-credential",
-    credentialRevision: "codex-oauth-live-credential-revision",
+    accountId: selected.credentialId,
+    credentialId: selected.credentialId,
+    credentialRevision: selected.revision,
   };
 }
 
@@ -370,70 +657,6 @@ function directProfile(
       scope: { kind: "project", id: "kiln" },
       access: writeAllowed ? "write-proposals" : "read-only",
     },
-  };
-}
-
-function committedRequestFor(
-  routeId: string,
-  providerId: string,
-  modelId: string,
-  invocationId: string,
-): ManagedCommittedInvocationRequest {
-  const route = {
-    routeId,
-    providerId,
-    modelId,
-    adapterCapabilityId: "text",
-    adapterCapabilityVersion: "1",
-    authBillingChannel: "subscription",
-    executionMode: "direct",
-    serviceTier: "default",
-    accountPolicyId: null,
-    fallbackPosture: "disabled" as const,
-    overagePosture: "disabled" as const,
-    rateCardId: "codex-oauth-live",
-    rateCardRevision: "1",
-    priceEvidenceDigest: "sha256:codex-oauth-live-price",
-    unit: "request",
-    scheme: { kind: "unit" as const },
-    contextClass: "default",
-    cacheClass: "none",
-    auxiliaryScheduleDigest: "sha256:codex-oauth-live-auxiliary",
-    envelopeDigest: "sha256:codex-oauth-live-envelope",
-  };
-  const selectedIdentity = { route, account: { kind: "accountless" as const } };
-  const policy = {
-    policyId: "codex-oauth-live-policy",
-    schemaVersion: 1,
-    policyRevision: "codex-oauth-live-policy-revision",
-    policyDigest: "sha256:codex-oauth-live-policy",
-    comparisonDomains: [],
-    noRouteAction: "deny" as const,
-    evidenceRequirements: { quota: "optional" as const, price: "optional" as const },
-  };
-  return {
-    commitment: {
-      commitmentId: `codex-oauth-live-commitment:${invocationId}`,
-      reservation: {
-        reservationId: `codex-oauth-live-reservation:${invocationId}`,
-        jobId: `codex-oauth-live-job:${invocationId}`,
-        economicAttemptId: `codex-oauth-live-attempt:${invocationId}`,
-        policy,
-        selectedIdentity,
-        priceIdentity: null,
-        envelope: { kind: "bounded", digest: "sha256:codex-oauth-live-envelope", limits: [] },
-        amounts: [],
-        authorityRevision: "sha256:codex-oauth-live-authority",
-      },
-      rejected: [],
-      notSelected: [],
-    },
-    dispatchFenceId: `codex-oauth-live-fence:${invocationId}`,
-    abortSignal: new AbortController().signal,
-    authorityProfileId: "authority:codex-oauth-live",
-    admissionProfile: "foundation-readonly-plan",
-    profileAuthorityDigest: "sha256:codex-oauth-live-profile",
-    invocationId,
   };
 }
 
