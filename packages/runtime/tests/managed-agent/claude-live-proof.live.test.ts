@@ -2,7 +2,6 @@ import { expect, it } from "vitest";
 import {
   ManagedCliHarnessAdapter,
   ManagedRuntimeCredentialRouteLeaseManager,
-  RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
 import {
   discoverClaudeCliModelDiscovery,
@@ -18,6 +17,7 @@ import {
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import type { CliSessionFactory } from "../../src/execution/cli-session-contract.js";
+import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 import {
   defineDeliberationLevelId,
   type DeliberationResolution,
@@ -72,7 +72,7 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
         filesystemBoundary: { enabled: true, trackedPaths: [workspace.filePath("proof.txt")], restoreReadOnlyViolations: true },
       });
 
-      const result = await new RuntimeManagedAgentInvocationService({
+      const result = await createExternalHarnessTestService({
         credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
           allowedRouteIds: ["credential-route:claude"],
         }),

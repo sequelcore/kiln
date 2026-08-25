@@ -4,7 +4,6 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   ManagedCliHarnessAdapter,
   ManagedRuntimeCredentialRouteLeaseManager,
-  RuntimeManagedAgentInvocationService,
   appendManagedInvocationSessionEvents,
 } from "../../src/agents/managed-invocation/index.js";
 import { OpenCodeSession } from "../../../cli/src/wrapper/opencode-session.js";
@@ -19,6 +18,7 @@ import {
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import type { CliSession, CliSessionFactory } from "../../src/execution/cli-session-contract.js";
+import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 
 const itOpenCodeWriteProof = process.env[KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV] === "1" ? it : it.skip;
 
@@ -283,8 +283,8 @@ function createOpenCodeLiveSessionFactory(options: {
   });
 }
 
-function createOpenCodeLiveInvocationService(): RuntimeManagedAgentInvocationService {
-  return new RuntimeManagedAgentInvocationService({
+function createOpenCodeLiveInvocationService(): ReturnType<typeof createExternalHarnessTestService> {
+  return createExternalHarnessTestService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
       allowedRouteIds: ["credential-route:opencode"],
     }),
@@ -368,7 +368,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
 }
 
 async function expectCancelledJoinStable(input: {
-  readonly service: RuntimeManagedAgentInvocationService;
+  readonly service: ReturnType<typeof createOpenCodeLiveInvocationService>;
   readonly invocationId: string;
   readonly expectedSummary: string;
   readonly expectedWriteEvidence: unknown;

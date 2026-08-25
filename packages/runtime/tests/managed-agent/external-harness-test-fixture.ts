@@ -165,6 +165,30 @@ export class ExternalHarnessTestService {
     });
   }
 
+  start(
+    request: Parameters<RuntimeManagedAgentInvocationService["start"]>[0],
+    adapter: Parameters<RuntimeManagedAgentInvocationService["start"]>[1],
+    capabilitySnapshotInput: Parameters<RuntimeManagedAgentInvocationService["start"]>[2],
+    lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
+  ): ReturnType<RuntimeManagedAgentInvocationService["start"]> {
+    return this.service.start(request, adapter, capabilitySnapshotInput, {
+      ...lifecycleOptions,
+      childAuthorityAdmission: this.authorityAdmission,
+    });
+  }
+
+  cancel(
+    ...input: Parameters<RuntimeManagedAgentInvocationService["cancel"]>
+  ): ReturnType<RuntimeManagedAgentInvocationService["cancel"]> {
+    return this.service.cancel(...input);
+  }
+
+  join(
+    ...input: Parameters<RuntimeManagedAgentInvocationService["join"]>
+  ): ReturnType<RuntimeManagedAgentInvocationService["join"]> {
+    return this.service.join(...input);
+  }
+
   status(invocationId: string): ReturnType<RuntimeManagedAgentInvocationService["status"]> {
     return this.service.status(invocationId);
   }

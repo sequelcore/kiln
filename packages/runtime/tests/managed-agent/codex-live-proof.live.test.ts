@@ -3,7 +3,6 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   ManagedCliHarnessAdapter,
   ManagedRuntimeCredentialRouteLeaseManager,
-  RuntimeManagedAgentInvocationService,
   appendManagedInvocationSessionEvents,
 } from "../../src/agents/managed-invocation/index.js";
 import { CodexSession } from "../../../cli/src/wrapper/codex-session.js";
@@ -17,6 +16,7 @@ import {
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import type { CliSessionFactory } from "../../src/execution/cli-session-contract.js";
+import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
 
 describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_CODEX_TESTS_ENV, () => {
   it("does not accept a real Codex write attempt under read-only authority", async () => {
@@ -193,8 +193,8 @@ function createCodexLiveSessionFactory(options: {
   });
 }
 
-function createCodexLiveInvocationService(): RuntimeManagedAgentInvocationService {
-  return new RuntimeManagedAgentInvocationService({
+function createCodexLiveInvocationService(): ReturnType<typeof createExternalHarnessTestService> {
+  return createExternalHarnessTestService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
       allowedRouteIds: ["credential-route:codex"],
     }),
