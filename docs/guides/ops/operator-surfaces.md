@@ -30,12 +30,12 @@ There is no supported global package installation for this source state. The
 project and package names are provisional. Surface-specific guides show the
 source commands and their additional requirements.
 
-The verified source candidate is branch `dev` on Windows 11 x64 with Bun
-`1.4.0`; issue [#103](https://github.com/sequelcore/kiln/issues/103) records the
-exact supported commit when its final operator-local cleanup gate closes. The
-admitted local surfaces are CLI, TUI, and GUI. Remote GUI exposure, macOS,
-Linux, native desktop, package installation, unpublished tags, and provisional
-`@kilnai/*` coordinates are not supported by this baseline.
+The supported source baseline is branch `dev` on Windows 11 x64 with Bun
+`1.4.0`; closed issue [#103](https://github.com/sequelcore/kiln/issues/103)
+records the exact commit. The admitted local surfaces are CLI, TUI, and GUI.
+Remote GUI exposure, macOS, Linux, native desktop, package installation,
+unpublished tags, and provisional `@kilnai/*` coordinates are not supported by
+this baseline.
 
 Credential-free startup does not imply every provider route is admitted.
 Genuine runtime permission attestation is exact only for Codex app-server

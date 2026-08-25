@@ -16,11 +16,10 @@ You need:
   repository commands and short-lived CLI execution; and
 - Windows 11 x64 and PowerShell or another Windows shell.
 
-The verified source candidate is branch `dev`. Issue
-[#103](https://github.com/sequelcore/kiln/issues/103) will record the exact
-supported commit after its final operator-local cleanup gate closes. macOS and
-Linux remain unadmitted until they pass the same clean-source gates; do not
-infer support from portable unit fixtures or CI syntax.
+The supported source baseline is branch `dev`. Closed issue
+[#103](https://github.com/sequelcore/kiln/issues/103) records the exact commit.
+macOS and Linux remain unadmitted until they pass the same clean-source gates;
+do not infer support from portable unit fixtures or CI syntax.
 
 The persistent Model Gateway does not inherit that ambient Bun as its service
 host. The current source-only Windows preview can adopt the operator's one
@@ -40,10 +39,10 @@ cd kiln
 git rev-parse HEAD
 ```
 
-Compare the printed revision with the exact commit recorded in issue #103 once
-that issue is closed. Do not rely on the repository default branch, a moving
-`dev` head, an unpublished tag, or an `@kilnai/*` package version. All remaining
-commands run from the repository root unless stated otherwise.
+Compare the printed revision with the exact commit recorded in closed issue
+#103. Do not rely on the repository default branch, a moving `dev` head, an
+unpublished tag, or an `@kilnai/*` package version. All remaining commands run
+from the repository root unless stated otherwise.
 
 ## Run commands from source
 

@@ -29,15 +29,14 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [00 - Source Stability](00-source-stability.md) | Blocked | Urgent | All code, deterministic, live-representative, build, typecheck, docs, help, and startup gates pass on the Windows x64 `dev` candidate. The execution harness blocks the one remaining action: operator-owned deletion of the exact inactive quarantine for [#100](https://github.com/sequelcore/kiln/issues/100). Record the final commit in [#103](https://github.com/sequelcore/kiln/issues/103) immediately afterward. |
-| 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Queued | Normal | Reassess pairing only after Roadmap 00 names a supported source baseline. |
-| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 00 and Roadmap 08 identity. |
-| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |
-| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
-| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters only after the source-stability gate or an explicit reprioritization. |
-| 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface is independently useful but is not the default before source stability. |
-| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
+| 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 with the threat model and portable negative contract fixtures. |
+| 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
+| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |
+| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
+| 5 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters only after an explicit priority decision. |
+| 7 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface remains independently useful but is not the default ahead of the Ready track. |
+| 8 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
 ## Dependency Rules
 
@@ -52,13 +51,13 @@ roadmap reorganization.
   governed-mutation contracts.
 - The 2026-08-14 operator decision removed `07` as a prerequisite for `08`.
   Roadmap 12 then completed the first safe-turn-without-YAML vertical proof.
-  The 2026-08-23 source-stability decision now supersedes the former Connect
-  priority: Roadmap `00` is the default track, and Roadmap `08.5` Slice 0 was
-  its first completed bounded task. Roadmap `08` pairing and later connectivity slices
-  are queued until Roadmap `00` names a supported source baseline. This is
-  sequencing, not a transfer of bounded-context ownership. Neither Connect
-  track admits a Kiln-hosted cloud; a managed relay requires a separate future
-  decision.
+  The 2026-08-23 source-stability decision temporarily superseded the former
+  Connect priority. Roadmap `00` completed the supported local source baseline
+  on 2026-08-25, so Roadmap `08` is now the default Ready track. Roadmap `08.5`
+  Slice 0 remains its independently completed safety boundary, and later
+  connectivity slices wait on Roadmap `08` session identity. This sequencing
+  does not transfer bounded-context ownership. Neither Connect track admits a
+  Kiln-hosted cloud; a managed relay requires a separate future decision.
 - `08.75` owns inbound agents Kiln did not launch: their identity, bounded
   verification surface, lease-scoped sandboxes, and settlement. It consumes `08`
   identity and `08.5` transport and widens neither. An agent identity never
@@ -125,9 +124,9 @@ The current repository has no active release candidate and no supported
 installable package line. The historical `3.0.0-beta.1` candidate was not
 published and is no longer the target: additional live validation, a complete
 rebrand, and new package coordinates must precede any future release process.
-Issue [#103](https://github.com/sequelcore/kiln/issues/103) owns the supported
-source baseline. Issue [#104](https://github.com/sequelcore/kiln/issues/104)
-owns the separately blocked installable-candidate admission. Release work
-starts only after Roadmap `00` is complete, the product decisions are
-canonical, and the exact committed candidate satisfies
-`docs/operations/release.md`.
+Closed issue [#103](https://github.com/sequelcore/kiln/issues/103) records the
+supported source baseline. Issue
+[#104](https://github.com/sequelcore/kiln/issues/104) owns the separately
+blocked installable-candidate admission. Roadmap `00` completion does not admit
+a release: the product decisions must become canonical and an exact committed
+candidate must still satisfy `docs/operations/release.md`.

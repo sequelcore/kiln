@@ -1,11 +1,11 @@
 # 08 - Kiln Connect Pairing And Sessions
 
-Status: Queued
+Status: Ready
 Priority: Normal
-Execution: Queued - reassess the pairing/session contract after Roadmap 00
-names a supported source baseline.
+Execution: Ready - begin Slice 0 with the threat model and portable negative
+contract fixtures; the supported source baseline is now established.
 Created: 2026-07-24
-Reprioritized: 2026-08-23
+Reprioritized: 2026-08-25
 
 ## Objective
 
@@ -137,7 +137,7 @@ The evidence supports these bounded conclusions:
 
 ### Slice 0 - Threat Model And Contract Fixtures
 
-Status: Queued behind Roadmap 00 Source Stability.
+Status: Ready.
 
 Define principals, protected assets, trust boundaries, session scopes, pairing
 states, credential classes, expiry, renewal, revocation, replay behavior, and
@@ -234,9 +234,9 @@ provider becomes mandatory for local-first Connect by accident.
 
 ## Dependencies
 
-- The 2026-08-23 source-stability decision queues this track behind Roadmap 00.
-  Remote pairing is product expansion, not a prerequisite for stable local
-  source use.
+- Roadmap 00 completed the supported local source baseline on 2026-08-25.
+  Remote pairing remains product expansion rather than part of local source
+  support.
 - The 2026-08-14 operator priority decision supersedes the former sequencing
   gate behind Roadmap 07. Roadmap 07 is no longer a prerequisite.
 - Roadmap 08.5 Slice 0 closed the local GUI/TUI listener and browser-origin
