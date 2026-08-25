@@ -55,6 +55,10 @@ Durable research lives under [`foundations/`](foundations/README.md):
 
 ## Active Investigations
 
+[Harness Cache And End-To-End Efficiency](active/harness-efficiency.md) supports
+Roadmap 06 provider-cache topology and Roadmap 06.5 task-level latency and cost
+attribution.
+
 Open, owner-backed research lives under [`active/`](active/README.md):
 
 - CI test suite performance — active owner-backed investigation

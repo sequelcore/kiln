@@ -45,6 +45,11 @@ GUI, TUI, CLI, SDK, widget, and native-surface integration; test-first
 contract evolution; cross-surface projection contracts in
 `@kilnai/gateway-contracts`.
 
+[Roadmap 06.5](06.5-end-to-end-harness-efficiency.md) owns task-level latency
+and cost attribution. This track admits or rejects native acceleration only
+after that evidence identifies a bounded hot path; it does not own the general
+performance roadmap or its benchmark results.
+
 Rust, WASM, or sidecars may be used for: packaged local launcher or native
 helper binaries; high-density event presentation/projection; replay indexes
 and cursor maps; timeline, session, invocation, tool, cost, and provider

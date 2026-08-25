@@ -36,6 +36,10 @@ The foundation is implemented:
 - Core owns provider-neutral communication intent/resolution, Runtime owns its
   per-route decision and identified prompt component, and adapters project
   only revision-backed native controls.
+- Provider cache usage is observable, but the manifest's static/dynamic scopes
+  do not yet become provider-specific cache breakpoints. Current system prompts
+  can contain per-turn task, governed-context, and temporal material before the
+  conversation prefix, so cache efficiency is not yet live-proven.
 
 Stable boundaries are documented in
 [Context Governance](../architecture/context/context-governance.md),
@@ -52,6 +56,12 @@ disclosure, and content-free observation. It does not externally validate
 Kiln's exact manifest, hash, or event design; those remain Kiln-owned contracts
 that must pass the gates below.
 
+Provider cache and latency evidence lives in
+[Harness Cache And End-To-End Efficiency](../research/active/harness-efficiency.md).
+This track owns prompt-cache topology; [Roadmap 06.5](06.5-end-to-end-harness-efficiency.md)
+separately owns total-latency attribution because prefill reuse is only one
+part of task wall time.
+
 ## Goals
 
 - Persist one canonical, content-free effective-prompt observation for the
@@ -62,6 +72,9 @@ that must pass the gates below.
   each admitted model family before promotion.
 - Load nested instructions, skill bodies, resources, and nonessential tool
   schemas only when their scope is reached and policy admits them.
+- Preserve one provider-recognized stable prefix, project only supported cache
+  controls, and prove reuse without crossing tenant, route, model, policy, or
+  authority partitions.
 - Keep instruction profiles limited to durable organization doctrine; keep
   project facts in adopted project context, task procedures in skills, and
   provider/model/budget decisions in executable config.
@@ -82,6 +95,8 @@ remain config.
 - Content-free events and cross-surface inspection.
 - Model-specific component evaluation and ablation.
 - Progressive instruction, skill-resource, and tool-schema disclosure.
+- Provider-specific projection of manifest scope into real cache boundaries,
+  affinity, retention, and content-free evidence.
 - Optional controlled-language packs with explicit authority.
 - Drift diagnostics between canonical config/profile sources and generated
   native harness projections.
@@ -97,6 +112,8 @@ remain config.
   distribution authority.
 - No compatibility aliases, parallel prompt builders, or surface-local prompt
   policy.
+- No ownership of task-level latency, tool-performance optimization, provider
+  queueing, or startup benchmarks; Roadmap 06.5 owns those outcomes.
 
 ## Ordered Slices
 
@@ -184,9 +201,44 @@ exact-format behavior; score required-content recall and correctness before
 style or length; and retain a no-promotion result when no candidate clears the
 predeclared gate.
 
-### Slice 3 - Progressive Disclosure
+### Slice 2.5 - Provider Cache Topology
 
 Status: Queued behind Slice 2.
+
+Turn effective-prompt component scope into the exact cache topology sent to
+each provider. Define one Core-owned desired topology and partition identity;
+let adapters project only the breakpoint, affinity, and retention capabilities
+their pinned routes actually support. Replace the CLI's literal dynamic-boundary
+marker with typed evidence or delete it; prompt text must never impersonate a
+provider cache control.
+
+Keep reusable tool schemas and system components before the first volatile
+component. Move task, exact per-turn timestamps, admitted dynamic context, and
+other volatile material after the stable provider breakpoint when provider
+semantics and instruction authority permit it. If a required high-authority
+component cannot move, report the resulting cache limitation instead of
+weakening its precedence. Derive request-region stability and serialized order
+from the effective manifest and the actual adapter payload rather than labeling
+the whole system stable.
+
+Add route-owned `none`, short, and long retention resolution only where the
+provider supports it. Bind reuse to tenant, route, model, policy, effective
+authority, tool-schema, and any other dimension required to prevent invalid
+reuse. Retention that changes provider data handling or Zero Data Retention
+eligibility requires an explicit operator-visible decision.
+
+Acceptance: repeated warm requests demonstrate provider-reported reuse of the
+intended stable prefix; changing task-only dynamic content preserves only the
+admitted prefix; changing tenant, route, model, policy, authority, or tool
+schema produces no invalid reuse; unsupported controls remain explicit; exact
+serialized request evidence agrees with component scope; and cache gains pass
+Slice 2 outcome, safety, authority, required-content, and tool-trajectory gates.
+Cold, warm, post-short-TTL, and long-session results report absolute cache
+read/write/uncached tokens and TTFT, not only a hit ratio.
+
+### Slice 3 - Progressive Disclosure
+
+Status: Queued behind Slice 2.5.
 
 The skill capability plane decides which skill is admitted; this slice decides when its body
 and resources enter the prompt. Keep initial skill projection metadata-only;
@@ -203,6 +255,11 @@ explicit, replayable, scope-bounded, and fails closed on missing or ambiguous
 authority; required safety and authority information is never deferred behind
 the action it governs; cross-harness conformance fixtures prove semantic
 parity without requiring identical provider prompt text.
+
+Progressive disclosure must measure both sides of its cache interaction. A
+smaller initial tool or instruction prefix is not promoted when repeated
+activation churn increases uncached input, total task latency, tool-trajectory
+failures, or overall cost.
 
 ### Slice 4 - Controlled Language Packs
 
@@ -237,6 +294,12 @@ is published.
   ablation.
 - Token or cache improvement does not compensate for correctness, safety, or
   tool-trajectory regression.
+- Cache topology follows the exact provider serialization and manifest scope;
+  no literal prompt marker is treated as a provider breakpoint.
+- Cache reuse fails closed across tenant, route, model, policy, authority, and
+  tool-schema partition changes.
+- Retention and affinity controls are route capabilities with explicit privacy
+  and unsupported-state evidence, not universal defaults.
 - Safety and authority instructions are never deferred behind the action they
   govern.
 - Optional writing/compliance packs are explicit, removable, versioned, and
@@ -249,7 +312,8 @@ is published.
 Core/Runtime/Gateway event tests, privacy serialization tests, cross-surface
 replay parity, representative eval fixtures, per-model prompt snapshots,
 task-outcome evals, component-removal ablations, progressive-disclosure
-fixtures, controlled-language validator fixtures (pass, fail, partial,
+fixtures, provider cache-topology fixtures, invalid-reuse probes, paired cold
+and warm live provider trials, controlled-language validator fixtures (pass, fail, partial,
 unsupported, human-review-required), workspace typecheck, affected-package
 tests, and `git diff --check`.
 
@@ -257,7 +321,9 @@ tests, and `git diff --check`.
 
 Operators can inspect exactly which content-free prompt components affected a
 turn; changes are removable and evaluated; scoped content loads only after
-explicit governed activation; optional controlled-language packs distinguish
+explicit governed activation; provider cache reuse follows typed component
+scope without crossing an authority or policy partition; optional
+controlled-language packs distinguish
 drafting guidance from deterministic validation and human certification.
 Stable contracts are promoted into architecture and operator guides, and this
 track is removed once all remaining obligations are complete or split into

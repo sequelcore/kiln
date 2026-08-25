@@ -21,6 +21,11 @@ Every note must name or link:
   isolation.
 - [Prompt Component and Response Governance](prompt-component-governance.md)
   supports [Roadmap 06](../../roadmap/06-prompt-governance-plane.md).
+- [Harness Cache and End-to-End Efficiency](harness-efficiency.md) supports
+  [Roadmap 06](../../roadmap/06-prompt-governance-plane.md) for provider prompt
+  caching and
+  [Roadmap 06.5](../../roadmap/06.5-end-to-end-harness-efficiency.md) for
+  attributable task latency and cost.
 - [Provider-Neutral Communication Governance](provider-neutral-communication.md)
   records the current provider/harness evidence and the evaluation work that
   remains before any communication default or prompt fallback can be promoted.

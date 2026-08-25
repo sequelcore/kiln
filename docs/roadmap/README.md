@@ -32,15 +32,22 @@ roadmap reorganization.
 | 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 with the threat model and portable negative contract fixtures. |
 | 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
 | 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |
-| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
-| 5 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters only after an explicit priority decision. |
-| 7 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface remains independently useful but is not the default ahead of the Ready track. |
-| 8 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
+| 4 | [06.5 - End-To-End Harness Efficiency](06.5-end-to-end-harness-efficiency.md) | Research | Normal | Define the production-path benchmark and attribution contract after higher-priority Ready work; optimization waits on a measured bottleneck. |
+| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
+| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters only after an explicit priority decision. |
+| 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface remains independently useful but is not the default ahead of the Ready track. |
+| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
 ## Dependency Rules
 
-- `06` decides how admitted instructions and skill content enter provider prompts and become replayable evidence.
+- `06` decides how admitted instructions and skill content enter provider
+  prompts, become replayable evidence, and project into provider-specific cache
+  topology.
+- `06.5` owns production-path latency and cost attribution across provider,
+  tools, orchestration, retries, compaction, and startup. It consumes `06`
+  prompt-cache evidence but does not own prompt content or provider cache
+  semantics. A measured native candidate must also pass `09`.
 - `07` owns desired stack policy and drift evidence; skills may consume its result but never own versions.
 - `08` owns `Kiln Connect` pairing, device identity, authenticated operator
   sessions, scopes, expiry, and revocation.
@@ -64,7 +71,8 @@ roadmap reorganization.
   becomes an operator identity. Its Slice 1 verification surface is
   independently useful to local and outbound delegates, so it is admissible
   before the inbound premise resolves.
-- `09` is a decision boundary, not queued implementation.
+- `09` is a decision boundary, not queued implementation. It never becomes the
+  general performance owner; `06.5` must first identify a bounded hot path.
 - `10` is the final roadmap track. It owns the future native-surface product
   decision and is not admissible until every other executable roadmap track is
   closed by completion, rejection, or removal. No native implementation or

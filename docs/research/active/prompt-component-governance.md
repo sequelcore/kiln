@@ -22,6 +22,12 @@ governance. Progressive disclosure and prompt-component evaluation remain
 follow-up work. No universal prompt reduction is earned without representative
 model-and-harness-specific evaluation.
 
+Prompt-cache topology and total task latency are analyzed separately in
+[Harness Cache And End-To-End Efficiency](harness-efficiency.md). This note
+continues to own component placement and evaluation; the linked research owns
+the cache/latency evidence and explains why cache-hit rate is not an
+end-to-end-performance result.
+
 ## Decision Question
 
 Which behavior should Kiln place in native runtime contracts, durable
