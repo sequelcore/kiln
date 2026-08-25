@@ -302,15 +302,19 @@ export class ConfiguredExecutionAccountRuntime {
       providerId: configuredRoute.providerId,
       providerModelId: configuredRoute.providerModelId,
     });
-    const now = this.#validNow();
+    const usageLookupAt = this.#validNow();
     const accountIds = admittedAccountIds(admission);
     const accounts = accountIds.map((accountId) => this.#requireAccount(accountId, catalog));
     const executionAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId, true);
     const usage = await this.#listUsage(
       admission.providerId as DirectProviderId,
-      now,
+      usageLookupAt,
       accounts.map(({ credentialId }) => credentialId),
     );
+    // A refresh observes provider state asynchronously after the cache lookup.
+    // Freshness must be judged against a clock captured after that observation;
+    // otherwise every newly refreshed snapshot appears to come from the future.
+    const evaluationTime = this.#validNow();
     const cost = configuredRouteEconomics(catalog, admission.routeId);
     const candidates: ConfiguredExecutionCandidate[] = [];
 
@@ -322,11 +326,11 @@ export class ConfiguredExecutionAccountRuntime {
       if (execution === undefined) continue;
       const usageEvidence = deriveUsageEvidence(
         usage.find((entry) => entry.provider === account.providerId && entry.credentialId === account.credentialId),
-        now,
+        evaluationTime,
       );
       const accountRef = configuredExecutionAccountRef(account, execution);
       const quota = projectAccountQuota(account.providerId, usageEvidence);
-      const health = quota === "available" ? usageEvidence.health : "unhealthy";
+      const health = usageEvidence.health;
       const lease = {
         candidate: Object.freeze({
           account: accountRef,
@@ -636,7 +640,10 @@ function deriveUsageEvidence(
     ? "fresh"
     : "stale";
   return {
-    health: freshness === "fresh" && usage.availability === "exhausted" ? "unhealthy" : "healthy",
+    // Credential/provider health is enforced by the executable-account pool.
+    // Usage availability belongs exclusively to the quota facet so admission
+    // can retain the actual fail-closed reason (unknown versus exhausted).
+    health: "healthy",
     freshness,
     availability: usage.availability,
     observedAt: usage.observedAt,

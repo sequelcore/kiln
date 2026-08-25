@@ -347,6 +347,30 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     ]);
   });
 
+  it("evaluates refreshed Codex quota against a clock captured after the observation", async () => {
+    let currentNow = new Date("2026-08-11T12:00:00.000Z");
+    const refreshedUsage = [{
+      ...usageSnapshot("credential-a", "available"),
+      observedAt: "2026-08-11T12:00:01.000Z",
+      validUntil: "2026-08-11T12:05:01.000Z",
+    }];
+    const codexPool = pool([codexExecution], [], refreshedUsage);
+    codexPool.refreshUsageForCredentials.mockImplementation(async () => {
+      currentNow = new Date("2026-08-11T12:00:02.000Z");
+      return refreshedUsage;
+    });
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog,
+      codexPool,
+      now: () => currentNow,
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+
+    await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
+      { candidate: { accountId: "account-a", health: "healthy", quota: "available" } },
+    ]);
+  });
+
   it("fails closed when Codex quota remains unknown after refresh", async () => {
     const unknownUsage = [{
       ...usageSnapshot("credential-a", "available"),
@@ -362,7 +386,20 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
 
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
-      { candidate: { accountId: "account-a", health: "unhealthy", quota: "unknown" } },
+      { candidate: { accountId: "account-a", health: "healthy", quota: "unknown" } },
+    ]);
+  });
+
+  it("keeps quota exhaustion distinct from credential health", async () => {
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog,
+      codexPool: pool([codexExecution], [usageSnapshot("credential-a", "exhausted")]),
+      now: () => new Date("2026-08-11T12:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+
+    await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
+      { candidate: { accountId: "account-a", health: "healthy", quota: "exhausted" } },
     ]);
   });
 });
