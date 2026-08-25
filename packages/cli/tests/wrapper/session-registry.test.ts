@@ -225,8 +225,15 @@ const HOST_ENFORCEABLE_POLICY = {
   dataFirewall: [{ destination: "logs", action: "deny" as const }],
   agentScopes: [],
 };
+const HOST_NO_EGRESS_REDACTION_POLICY = {
+  ...GRANULAR_POLICY,
+  agentScopes: [],
+};
 
-function hostEnforcedProviderConfig(policy: KilnPermissionPolicy) {
+function hostEnforcedProviderConfig(
+  policy: KilnPermissionPolicy,
+  dataEgress: "none" | "metadata" = "none",
+) {
   const revision = `sha256:${"1".repeat(64)}` as const;
   const sandbox = createBoundHostToolSandbox({
     policy: new SandboxPolicy({
@@ -256,14 +263,25 @@ function hostEnforcedProviderConfig(policy: KilnPermissionPolicy) {
     },
     turn: {
       authority: {
-        executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
+        executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
         sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative",
-        toolCount: 0, deniedToolCount: 0,
+        toolCount: 1, deniedToolCount: 0,
       },
       workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
-      tools: { allowedToolPermissions: [], deniedToolNames: [], hostEnforcement: sandbox.admission },
+      tools: {
+        allowedToolPermissions: [{
+          toolName: "read",
+          authority: { level: 1, allowed: true, requiresApproval: false, reason: "test" },
+          effectEnvelope: {
+            operation: "observe", boundaries: ["workspace"], reversibility: "reversible", dataEgress,
+            identityUse: "none", consequences: [], idempotency: "idempotent",
+          },
+        }],
+        deniedToolNames: [],
+        hostEnforcement: sandbox.admission,
+      },
       effectCeiling: {
-        operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+        operation: "observe", boundaries: ["workspace"], reversibility: "reversible", dataEgress,
         identityUse: "none", consequences: [], idempotency: "idempotent",
       },
       budget: { status: "not-configured" }, execution: { status: "not-routed" },
@@ -858,14 +876,30 @@ describe("SessionRegistry", () => {
       expect(create).not.toHaveBeenCalled();
     });
 
-    it("keeps unimplemented agent-scope and redaction rules as launch blockers", () => {
+    it("admits redaction rules only when the bound tool projection cannot egress data", () => {
+      const create = vi.fn(() => makeMockSession("openai"));
+      const registry = new SessionRegistry([{
+        id: "openai", deliberationTransport: "none" as const, costTier: "high",
+        capabilities: CAPABILITIES.openai!, create,
+      }]);
+
+      expect(registry.createSession("openai", hostEnforcedProviderConfig(HOST_NO_EGRESS_REDACTION_POLICY)))
+        .toBeDefined();
+      expect(() => registry.createSession(
+        "openai",
+        hostEnforcedProviderConfig(HOST_NO_EGRESS_REDACTION_POLICY, "metadata"),
+      )).toThrow(/unsupported data-firewall redact/iu);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps unimplemented agent-scope rules as launch blockers", () => {
       const create = vi.fn(() => makeMockSession("openai"));
       const registry = new SessionRegistry([{
         id: "openai", deliberationTransport: "none" as const, costTier: "high",
         capabilities: CAPABILITIES.openai!, create,
       }]);
       expect(() => registry.createSession("openai", hostEnforcedProviderConfig(GRANULAR_POLICY)))
-        .toThrow(/unsupported (agent-scope|data-firewall)/iu);
+        .toThrow(/unsupported agent-scope/iu);
       expect(create).not.toHaveBeenCalled();
     });
 

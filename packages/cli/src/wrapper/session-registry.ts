@@ -27,6 +27,7 @@ import {
   type RuntimeSessionTurnBudgetAuthority,
   type RuntimeExecutionEnvelope,
   type CliDeliberationTransport,
+  type EffectiveAuthorityAdmissionBundle,
 } from "@kilnai/runtime";
 import { ClaudeSession, type ClaudeSessionConfig } from "./claude-code-process.js";
 import type { ClaudePrivatePlanArtifactCapability } from "./claude-private-plan-artifacts.js";
@@ -1044,7 +1045,10 @@ function assertPreventiveSessionRoute(id: ProviderId, config: ProviderCreateConf
     unsupportedRules: direct && !directExecutesTools
       ? []
       : hostEnforced
-        ? translated.unsupportedRules.filter((rule) => !isHostInvocationEnforcedRule(rule))
+        ? translated.unsupportedRules.filter((rule) => !isHostInvocationEnforcedRule(
+            rule,
+            config.authorityAdmissionContext!.bundle,
+          ))
         : translated.unsupportedRules,
   });
   if (!admission.admitted) {
@@ -1054,9 +1058,17 @@ function assertPreventiveSessionRoute(id: ProviderId, config: ProviderCreateConf
   }
 }
 
-function isHostInvocationEnforcedRule(rule: PermissionTranslationRule): boolean {
+function isHostInvocationEnforcedRule(
+  rule: PermissionTranslationRule,
+  bundle: EffectiveAuthorityAdmissionBundle,
+): boolean {
   if (rule.category === "agent-scope") return false;
-  if (rule.category === "data-firewall") return rule.action.toLowerCase() === "deny";
+  if (rule.category === "data-firewall") {
+    if (rule.action.toLowerCase() === "deny") return true;
+    return bundle.turn.tools.allowedToolPermissions.every(
+      (permission) => permission.effectEnvelope.dataEgress === "none",
+    );
+  }
   return rule.category === "tool"
     || rule.category === "command"
     || rule.category === "file-governance";
