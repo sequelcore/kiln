@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ActionEffectEnvelope, Capability, KilnMcpClient, ToolDefinition } from "@kilnai/core";
-import { type defineExecutionCatalog, normalizeActionEffectEnvelope } from "@kilnai/core";
+import {
+  assertBoundHostToolSandbox,
+  type defineExecutionCatalog,
+  normalizeActionEffectEnvelope,
+} from "@kilnai/core";
 import {
   type AttachedRuntimeBuiltinToolSurface,
   type AttendedTrustedExecutionLeaseApprovalPort,
@@ -17,11 +21,14 @@ import {
   RuntimeSession,
   type RuntimeSessionTurnBudgetAuthority,
   readRuntimeModelRoundAdmission,
+  createRuntimeHostToolEnforcement,
   requireOperatorAdoptionDecisionPersistence,
 } from "@kilnai/runtime";
 import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
 import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
+import { digestKilnPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import { assertConfiguredInvocationAdmission } from "../config/builtin-tool-surface-config.js";
 import { ProviderSession } from "../wrapper/provider-session.js";
 import { isDirectApiProvider, type ProviderId } from "../wrapper/session-registry.js";
 import { createOperatorTurnDispatchComposition } from "./operator-turn-dispatch-composition.js";
@@ -188,6 +195,13 @@ export function createCanonicalRunSessionDispatcher(input: {
         mcpClients,
         mcpToolAllowlist: admittedMcpToolNames,
       });
+      const hostToolSandbox = payload.toolSandbox === undefined
+        ? undefined
+        : assertBoundHostToolSandbox(payload.toolSandbox);
+      if (hostToolSandbox
+        && hostToolSandbox.admission.permissionPolicyDigest !== digestKilnPermissionPolicy(payload.permissionPolicy)) {
+        throw new Error("Canonical host sandbox does not bind the exact effective permission policy.");
+      }
       let perCallConfig = {
         ...builder.buildAuthorityPerCallConfig({
           deliberationResolution: payload.sessionConfig.deliberationResolution,
@@ -196,6 +210,7 @@ export function createCanonicalRunSessionDispatcher(input: {
           abortSignal: payload.abortSignal,
           turnId: adoption.turnId,
           workingDirectory: payload.sessionConfig.cwd,
+          ...(hostToolSandbox ? { toolSandbox: hostToolSandbox } : {}),
           externalTools,
           externalCapabilities,
         }),
@@ -205,6 +220,7 @@ export function createCanonicalRunSessionDispatcher(input: {
         turnId: adoption.turnId,
         turnCorrelationId: adoption.correlationId,
         operatorAdoptionDecision: adoption.operatorAdoptionDecision,
+        ...(hostToolSandbox ? { hostToolSandboxAdmission: hostToolSandbox.admission } : {}),
       } satisfies RuntimeAuthorityAdmissionCandidateConfig;
       const projectedAuthority = perCallConfig.effectiveTurnAuthority;
       const authority =
@@ -357,6 +373,16 @@ export function createCanonicalRunSessionDispatcher(input: {
         toolAuthority: _candidateToolAuthority,
         ...admittedExecutionConfig
       } = prepared.perCallConfig;
+      const runtimeHostToolEnforcement = persistedRuntimeAdmission.turn.tools.hostEnforcement
+        ? createRuntimeHostToolEnforcement({
+            bundle: persistedRuntimeAdmission,
+            sandbox: assertBoundHostToolSandbox(admittedExecutionConfig.sandbox),
+            invocationAdmission: assertConfiguredInvocationAdmission(
+              admittedExecutionConfig.toolInvocationAdmission,
+              payload.permissionPolicy,
+            ),
+          })
+        : undefined;
       const {
         attendedTrustedExecutionSessionAuthority: _attendedTrustedExecutionSessionAuthority,
         ...authorityAdmissionContext
@@ -383,6 +409,7 @@ export function createCanonicalRunSessionDispatcher(input: {
               authorityAdmission: persistedRuntimeAdmission,
               runtimeModelRoundDispatch,
               runtimeToolActionClaims,
+              ...(runtimeHostToolEnforcement ? { runtimeHostToolEnforcement } : {}),
             },
           },
         },

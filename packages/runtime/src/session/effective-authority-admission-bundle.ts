@@ -8,6 +8,7 @@ import type {
   OperatorAdoptionDecisionAuthority,
   SessionTokenUsageObservation,
 } from "@kilnai/core";
+import type { BoundHostToolSandboxAdmission } from "@kilnai/core/sandbox";
 import {
   deterministicOperatorAdoptionDecisionId,
   isValidNarrowing,
@@ -70,11 +71,14 @@ export interface ToolPermissionAdmission {
   readonly allowedToolPermissions: readonly ToolPermissionAdmissionEntry[];
   readonly deniedToolNames: readonly string[];
   readonly callerOwnedToolContract?: CallerOwnedToolContractAdmission;
+  /** Secret-free evidence for the exact process-local host enforcement capability. */
+  readonly hostEnforcement?: BoundHostToolSandboxAdmission;
 }
 
 export interface ToolPermissionAdmissionProjectionInput {
   readonly candidateToolNames: readonly string[];
-  readonly config: Pick<PerCallToolConfig, "toolAllowlist" | "toolAuthority" | "perCallCapabilities">;
+  readonly config: Pick<PerCallToolConfig,
+    "toolAllowlist" | "toolAuthority" | "perCallCapabilities" | "hostToolSandboxAdmission">;
 }
 
 /**
@@ -113,6 +117,9 @@ export function projectToolPermissionAdmissionFromPerCallConfig(
   return deepFreeze({
     allowedToolPermissions,
     deniedToolNames: candidateToolNames.filter((name) => !input.config.toolAllowlist?.has(name)),
+    ...(input.config.hostToolSandboxAdmission
+      ? { hostEnforcement: normalizeHostToolEnforcement(input.config.hostToolSandboxAdmission) }
+      : {}),
   });
 }
 
@@ -279,6 +286,12 @@ export function defineEffectiveAuthorityAdmissionBundle(
   const callerOwnedToolContract = input.turn.tools.callerOwnedToolContract === undefined
     ? undefined
     : normalizeCallerOwnedToolContract(input.turn.tools.callerOwnedToolContract);
+  const hostEnforcement = input.turn.tools.hostEnforcement === undefined
+    ? undefined
+    : normalizeHostToolEnforcement(input.turn.tools.hostEnforcement);
+  if (hostEnforcement && hostEnforcement.configurationRevisionId !== turnRevision.revisionSetId) {
+    throw new TypeError("Host enforcement must bind the exact turn configuration revision.");
+  }
   validateAuthorityAttenuation(input);
   validateOperatorAdoption(input);
   validateToolPermissions(input.turn.authority, allowedToolPermissions, deniedToolNames, effectCeiling);
@@ -321,6 +334,7 @@ export function defineEffectiveAuthorityAdmissionBundle(
         allowedToolPermissions,
         deniedToolNames,
         ...(callerOwnedToolContract === undefined ? {} : { callerOwnedToolContract }),
+        ...(hostEnforcement === undefined ? {} : { hostEnforcement }),
       },
       effectCeiling,
       budget: input.turn.budget,
@@ -330,6 +344,32 @@ export function defineEffectiveAuthorityAdmissionBundle(
   const detached = clonePlain(body);
   const admissionId = `sha256:${createHash("sha256").update(stableStringify(detached), "utf8").digest("hex")}` as const;
   return deepFreeze({ admissionId, ...detached });
+}
+
+function normalizeHostToolEnforcement(value: unknown): BoundHostToolSandboxAdmission {
+  if (!isPlainRecord(value)
+    || value.schemaRevision !== 1
+    || !isDigest(value.sandboxId)
+    || !isDigest(value.configurationRevisionId)
+    || !isDigest(value.permissionPolicyDigest)
+    || !isDigest(value.policyDigest)
+    || typeof value.leaseId !== "string" || value.leaseId.trim().length === 0
+    || !["read-only", "read-write", "none"].includes(value.fsPolicy as string)
+    || !["none", "package-managers", "documentation", "full"].includes(value.netPolicy as string)
+    || !isCount(value.allowedPathCount)
+    || !isCount(value.deniedPathCount)
+    || !isCount(value.allowedDomainCount)) {
+    throw new TypeError("turn.tools.hostEnforcement must contain canonical secret-free host sandbox evidence.");
+  }
+  return clonePlain(value) as unknown as BoundHostToolSandboxAdmission;
+}
+
+function isDigest(value: unknown): value is `sha256:${string}` {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function validateAuthorityAttenuation(input: EffectiveAuthorityAdmissionBundleInput): void {

@@ -10,6 +10,7 @@ import {
   GoalRunStore,
   SandboxPolicy,
   WorkItemStore,
+  createBoundHostToolSandbox,
   createSessionBuiltinToolOptions,
   defineDeliberationLevelId,
   mapProviderModelRouteErrorToOutcome,
@@ -26,6 +27,7 @@ import {
 } from "@kilnai/runtime";
 import type { OperatorAdoptionRuntimeBinding } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { GuiModelDeliberationCapabilities } from "@kilnai/gateway-contracts";
 import { defaultBuildSystemPrompt } from "../config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -38,7 +40,11 @@ import {
   type ProviderId,
 } from "../wrapper/session-registry.js";
 import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
-import { readGlobalConfig, readGlobalConfigSnapshot, readGlobalExecutionCatalog } from "../config/global-config.js";
+import {
+  readGlobalConfigSnapshot,
+  readGlobalExecutionCatalog,
+  type KilnGlobalConfig,
+} from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { readKilnYamlFile } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
@@ -49,7 +55,11 @@ import {
   observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
-import { resolveBenchmarkPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import {
+  digestKilnPermissionPolicy,
+  resolveBenchmarkPermissionPolicy,
+} from "../config/model-facing-permission-policy.js";
+import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { resolveProjectStateBinding } from "./project-state-root.js";
 import {
   assertPrivateStateFileTargetSync,
@@ -109,7 +119,6 @@ import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-a
 import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import { readRuntimeConfigurationRevision } from "./runtime-configuration-revision.js";
-import { captureOperatorExecutionCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "./operator-transcript-projection.js";
 import { canonicalSessionEventsFromTranscript } from "./runtime-session-rehydration.js";
 
@@ -152,14 +161,54 @@ export interface BenchmarkSessionExecutorFlags {
 export interface BenchmarkSessionExecutorOptions {
   readonly appConfig: KilnAppConfig;
   readonly flags?: BenchmarkSessionExecutorFlags;
+  /** One immutable effective config used by command preflight and every trial. */
+  readonly configurationAdmission?: BenchmarkConfigurationAdmission;
   /** Host-owned private formal screening facts supplied by the command. */
   readonly formalScreeningPackage?: PrivateFormalScreeningPackageFacts;
   /** Host-owned resolved formal screening toolchain supplied by the command. */
   readonly formalScreeningConfig?: ResolvedFormalScreeningConfig;
 }
 
+export interface BenchmarkConfigurationAdmission {
+  readonly mode: "read-only" | "write";
+  readonly configurationRevision: import("@kilnai/runtime").RuntimeConfigurationRevisionSnapshot;
+  readonly globalConfig: KilnGlobalConfig | null;
+  readonly resolvedKilnConfig: ResolvedKilnConfig | null;
+  readonly permissionPolicy: KilnPermissionPolicy;
+}
+
+/** Captures effective benchmark policy and Runtime revision as one fail-closed value. */
+export async function captureBenchmarkConfigurationAdmission(input: {
+  readonly repositoryRoot: string;
+  readonly appConfig: KilnAppConfig;
+  readonly mode: "read-only" | "write";
+}): Promise<BenchmarkConfigurationAdmission> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const before = readRuntimeConfigurationRevision(input.repositoryRoot);
+    const global = readGlobalConfigSnapshot();
+    if (before.revisions.global !== global.revision) continue;
+    const capturedResolvedKilnConfig = input.appConfig.kilnYaml
+      ?? await loadKilnConfig(input.repositoryRoot, { globalConfig: global.config });
+    const after = readRuntimeConfigurationRevision(input.repositoryRoot);
+    if (before.revisionSetId !== after.revisionSetId || after.revisions.global !== global.revision) continue;
+    const globalConfig = cloneAndFreeze(global.config);
+    const resolvedKilnConfig = cloneAndFreeze(capturedResolvedKilnConfig);
+    return Object.freeze({
+      mode: input.mode,
+      configurationRevision: cloneAndFreeze(after),
+      globalConfig,
+      resolvedKilnConfig,
+      permissionPolicy: cloneAndFreeze(resolveBenchmarkPermissionPolicy(resolvedKilnConfig?.permissions, input.mode)),
+    });
+  }
+  throw new Error("Canonical benchmark configuration changed during preflight admission.");
+}
+
 export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutorOptions): BenchmarkItemExecutor {
   let deliberationResolutionPromise: Promise<DeliberationResolution> | undefined;
+  let configurationAdmissionPromise = options.configurationAdmission
+    ? Promise.resolve(options.configurationAdmission)
+    : undefined;
   return async (input, context) => {
     const startedAt = Date.now();
     const isFormalScreening = context.profile.id === "kiln-formal-verification-pilot";
@@ -184,6 +233,16 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           context.item.metadata?.workspaceFixture,
         );
     const writeMode = WRITE_BENCHMARK_PROFILE_IDS.has(context.profile.id);
+    configurationAdmissionPromise ??= captureBenchmarkConfigurationAdmission({
+      repositoryRoot,
+      appConfig: options.appConfig,
+      mode: writeMode ? "write" : "read-only",
+    });
+    const configurationAdmission = await configurationAdmissionPromise;
+    const expectedConfigurationMode = writeMode ? "write" : "read-only";
+    if (configurationAdmission.mode !== expectedConfigurationMode) {
+      throw new Error(`Benchmark configuration admission mode '${configurationAdmission.mode}' cannot execute '${expectedConfigurationMode}'.`);
+    }
     const writeLease = privateFormalScreeningLease ?? (writeMode
       ? createBenchmarkWriteWorkspaceLease(repositoryRoot, context.item.metadata?.workspaceFixture)
       : undefined);
@@ -221,7 +280,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ].join("\n")
       : input;
     const mode: SessionMode = "cli-wrapper";
-    const globalConfig = readGlobalConfig();
+    const globalConfig = configurationAdmission.globalConfig;
     const directExecutionCatalog = readGlobalExecutionCatalog(globalConfig);
     const managedRouteConfig = globalConfig
       ? { ...globalConfig, executionCatalog: directExecutionCatalog ?? undefined }
@@ -229,7 +288,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const projectConfig = benchmarkWorkspace.kind === "repository"
       ? readKilnYamlFile(projectStateBinding.configPath)
       : undefined;
-    const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
+    const resolvedKilnConfig = configurationAdmission.resolvedKilnConfig;
     const configuredRouteCandidates = resolveExecutionRouteCandidates({
       globalConfig,
       executionCatalog: directExecutionCatalog,
@@ -253,10 +312,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     }
     const preferredProvider = configuredRouteCandidates[0]?.provider;
     const effectiveModel = configuredRouteCandidates[0]?.model;
-    const permissionPolicy = resolveBenchmarkPermissionPolicy(
-      resolvedKilnConfig?.permissions ?? options.appConfig.kilnYaml?.permissions,
-      writeMode ? "write" : "read-only",
-    );
+    const permissionPolicy = configurationAdmission.permissionPolicy;
     const wrapperConfig = {
       mode,
       provider: preferredProvider,
@@ -551,7 +607,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       sessionHooks,
       ...(formalAbortController ? { abortSignal: formalAbortController.signal } : {}),
       ...(writeLease ? {
-        toolSandbox: {
+        toolSandbox: createBoundHostToolSandbox({
           policy: new SandboxPolicy({
             projectPath: writeLease.rootPath,
             config: {
@@ -562,7 +618,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               allowedDomains: [],
             },
           }),
-        },
+          leaseId: writeLease.leaseId,
+          configurationRevisionId: configurationAdmission.configurationRevision.revisionSetId as `sha256:${string}`,
+          permissionPolicyDigest: digestKilnPermissionPolicy(permissionPolicy),
+        }),
       } : {}),
       output: runOutput,
       operatorAdoption,
@@ -593,14 +652,20 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               authorityStateRoot,
               executionId: `${sessionId}:account:${index}`,
               routeId: configuredRouteCandidate.routeId,
-              configurationRevision: readRuntimeConfigurationRevision(repositoryRoot),
+              configurationRevision: configurationAdmission.configurationRevision,
               authorityAdmissionEvidenceStore: managedDirectAdmissionEvidence,
-              captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
-                projectPath: repositoryRoot,
-                readConfigSnapshot: readGlobalConfigSnapshot,
-                readConfigurationRevision: readRuntimeConfigurationRevision,
-                readExecutionCatalog: readGlobalExecutionCatalog,
-              }),
+              captureCatalogSnapshot: () => {
+                const current = readRuntimeConfigurationRevision(repositoryRoot);
+                const global = readGlobalConfigSnapshot();
+                if (current.revisionSetId !== configurationAdmission.configurationRevision.revisionSetId
+                  || global.revision !== configurationAdmission.configurationRevision.revisions.global) {
+                  throw new Error("Canonical benchmark configuration changed after preflight admission.");
+                }
+                return Object.freeze({
+                  catalog: directExecutionCatalog,
+                  configurationRevision: configurationAdmission.configurationRevision,
+                });
+              },
               ...(accountOverrideId ? { accountOverrideId } : {}),
               ...(executionDeliberation
                 ? { routeEvidence: { deliberationResolution: executionDeliberation } }
@@ -836,6 +901,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       }
     }
   };
+}
+
+function cloneAndFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value;
+  return deepFreeze(structuredClone(value));
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 function resolveFormalScreeningCase(

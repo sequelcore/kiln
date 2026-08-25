@@ -9,6 +9,7 @@ import {
 import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import {
   OperatorSessionPreDispatchCancellationError,
+  OperatorSessionPreProviderLaunchRejectionError,
   OperatorSessionExecutionRoutingService,
   type OperatorSessionAuthorityAdmissionPort,
   type OperatorSessionAuthorityAdmissionFacets,
@@ -222,6 +223,28 @@ describe("OperatorSessionExecutionRoutingService", () => {
       "turn-1",
       "turn-1:dispatch",
       expect.objectContaining({ kind: "completed", outcome: "cancelled" }),
+    );
+  });
+
+  it("durably settles a known pre-provider rejection as failed rather than unknown", async () => {
+    const { routing, authority } = service({
+      dispatch: {
+        dispatchCommittedTurn: vi.fn(async () => {
+          throw new OperatorSessionPreProviderLaunchRejectionError("counterfeit host enforcement");
+        }),
+      },
+    });
+
+    await expect(routing.execute({
+      executionId: "turn-1",
+      intentFingerprint: `sha256:${"b".repeat(64)}`,
+      intent: { routeId: "terra" },
+      payload: undefined,
+    })).rejects.toThrow(/counterfeit host enforcement/iu);
+    expect(authority.settleAccountCapacity).toHaveBeenCalledWith(
+      "turn-1",
+      "turn-1:dispatch",
+      expect.objectContaining({ kind: "completed", outcome: "provider-error" }),
     );
   });
 

@@ -60,17 +60,23 @@ export class SandboxPolicy {
     config: SandboxConfig;
     projectPath: string;
   }) {
-    this._config = config;
-    this._projectPath = projectPath;
+    this._config = Object.freeze({
+      fsPolicy: config.fsPolicy,
+      netPolicy: config.netPolicy,
+      allowedPaths: Object.freeze([...config.allowedPaths]),
+      deniedPaths: Object.freeze([...config.deniedPaths]),
+      allowedDomains: Object.freeze([...config.allowedDomains]),
+    });
+    this._projectPath = resolve(projectPath);
 
     // Default allowedPaths to project dir for read-write policies
     const allowed =
-      config.allowedPaths.length === 0 && config.fsPolicy === "read-write"
-        ? [resolve(projectPath)]
-        : config.allowedPaths.map((p) => resolve(p));
+      this._config.allowedPaths.length === 0 && this._config.fsPolicy === "read-write"
+        ? [this._projectPath]
+        : this._config.allowedPaths.map((p) => resolve(p));
 
-    this._resolvedAllowedPaths = allowed;
-    this._resolvedDeniedPaths = config.deniedPaths.map((p) => resolve(p));
+    this._resolvedAllowedPaths = Object.freeze(allowed);
+    this._resolvedDeniedPaths = Object.freeze(this._config.deniedPaths.map((p) => resolve(p)));
   }
 
   canRead(filePath: string): boolean {

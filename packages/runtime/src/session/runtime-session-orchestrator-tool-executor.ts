@@ -47,6 +47,7 @@ import {
   readExecutionTurnId,
 } from "./effective-authority-admission-bundle.js";
 import { buildRuntimeInvocationEffectResolvers } from "./runtime-invocation-effect-resolvers.js";
+import { assertRuntimeHostToolEnforcement } from "./runtime-host-tool-enforcement.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import type {
   CommandShell,
@@ -1911,10 +1912,24 @@ export class RuntimeSessionToolExecutor {
         }
       : undefined;
     const callBuiltin = this.callBuiltinTools?.get(toolCall.name);
+    const assertHostEnforcement = (): void => {
+      const admittedConfig = perCallConfig;
+      if (!admittedConfig) return;
+      const bundle = admittedConfig.authorityAdmission;
+      if (!bundle?.turn.tools.hostEnforcement) return;
+      assertRuntimeHostToolEnforcement(admittedConfig.runtimeHostToolEnforcement, {
+        bundle,
+        sandbox: admittedConfig.sandbox,
+        invocationAdmission: admittedConfig.toolInvocationAdmission,
+      });
+    };
     if (callBuiltin) {
       return {
         adapterIdentity: `${perCallConfig?.runtimeToolActionClaims?.adapterIdentity ?? "runtime"}:call-builtin:${toolCall.name}`,
-        invoke: () => callBuiltin(toolCall.input, context),
+        invoke: () => {
+          assertHostEnforcement();
+          return callBuiltin(toolCall.input, context);
+        },
       };
     }
 
@@ -1922,7 +1937,10 @@ export class RuntimeSessionToolExecutor {
     if (depBuiltin) {
       return {
         adapterIdentity: `${perCallConfig?.runtimeToolActionClaims?.adapterIdentity ?? "runtime"}:builtin:${toolCall.name}`,
-        invoke: () => depBuiltin(toolCall.input, context),
+        invoke: () => {
+          assertHostEnforcement();
+          return depBuiltin(toolCall.input, context);
+        },
       };
     }
 
@@ -1931,7 +1949,10 @@ export class RuntimeSessionToolExecutor {
       if (client) {
         return {
           adapterIdentity: `${perCallConfig?.runtimeToolActionClaims?.adapterIdentity ?? "runtime"}:mcp:${client.serverName}:${toolCall.name}`,
-          invoke: () => client.executeCapability(toolCall.name, toolCall.input),
+          invoke: () => {
+            assertHostEnforcement();
+            return client.executeCapability(toolCall.name, toolCall.input);
+          },
         };
       }
     }

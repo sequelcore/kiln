@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
-import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
+import {
+  captureBenchmarkConfigurationAdmission,
+  createBenchmarkSessionExecutor,
+} from "../../src/application/benchmark-session-executor.js";
 import type {
   PrivateFormalScreeningCaseFacts,
   PrivateFormalScreeningPackageFacts,
@@ -22,7 +25,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   closeMemoryRepository: vi.fn(),
   createDefaultRegistry: vi.fn(),
   createBenchmarkAuthorityWorkspaceLease: vi.fn(() => ({
-    rootPath: "C:/temp/benchmark-authority",
+    rootPath: join(tmpdir(), "kiln-test-benchmark-authority"),
     cleanup: vi.fn(),
   })),
   createPrivateFormalScreeningWorkspaceLease: vi.fn(),
@@ -51,6 +54,10 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
   prepare: vi.fn(),
   readGlobalConfig: vi.fn(),
+  readGlobalConfigSnapshot: vi.fn(() => ({
+    config: benchmarkExecutorMocks.readGlobalConfig(),
+    revision: `sha256:${"b".repeat(64)}`,
+  })),
   readKilnYamlFile: vi.fn(),
   readRuntimeConfigurationRevision: vi.fn(() => ({
     revisionSetId: `sha256:${"a".repeat(64)}`,
@@ -120,6 +127,7 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   return {
     ...actual,
     readGlobalConfig: benchmarkExecutorMocks.readGlobalConfig,
+    readGlobalConfigSnapshot: benchmarkExecutorMocks.readGlobalConfigSnapshot,
     readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
       config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
   };
@@ -346,9 +354,41 @@ function makeBenchmarkContext(item: {
 }
 
 describe("createBenchmarkSessionExecutor", () => {
+  it("rejects when effective configuration changes while policy is captured", async () => {
+    let reads = 0;
+    benchmarkExecutorMocks.readRuntimeConfigurationRevision.mockImplementation(() => ({
+      revisionSetId: `sha256:${(reads++ % 2 === 0 ? "a" : "9").repeat(64)}`,
+      revisions: {
+        global: `sha256:${"b".repeat(64)}`,
+        project: `sha256:${"c".repeat(64)}`,
+        "project-state": `sha256:${"d".repeat(64)}`,
+        adoption: `sha256:${"e".repeat(64)}`,
+        "execution-target-evidence": `sha256:${"f".repeat(64)}`,
+      },
+    }));
+
+    await expect(captureBenchmarkConfigurationAdmission({
+      repositoryRoot: process.cwd(),
+      appConfig: MOCK_APP_CONFIG,
+      mode: "write",
+    })).rejects.toThrow(/changed during preflight admission/iu);
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
+    benchmarkExecutorMocks.readRuntimeConfigurationRevision.mockImplementation(() => ({
+      revisionSetId: `sha256:${"a".repeat(64)}`,
+      revisions: {
+        global: `sha256:${"b".repeat(64)}`,
+        project: `sha256:${"c".repeat(64)}`,
+        "project-state": `sha256:${"d".repeat(64)}`,
+        adoption: `sha256:${"e".repeat(64)}`,
+        "execution-target-evidence": `sha256:${"f".repeat(64)}`,
+      },
+    }));
+    mkdirSync(join(tmpdir(), "kiln-test-benchmark-authority"), { recursive: true });
     benchmarkExecutorMocks.createPrivateFormalScreeningWorkspaceLease.mockImplementation(() => ({
+      leaseId: "benchmark-write:test",
       rootPath: "C:/temp/private-formal-lease",
       bridgeRootPath: "C:/temp/private-formal-bridge",
       canonicalHash: "sha256:" + "d".repeat(64),
@@ -634,9 +674,10 @@ describe("createBenchmarkSessionExecutor", () => {
       metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
     }));
 
+    const authorityRoot = join(tmpdir(), "kiln-test-benchmark-authority");
     expect(benchmarkExecutorMocks.getProjectContextArtifactCache).toHaveBeenCalledWith(
-      join("C:/temp/benchmark-authority", "cache", "context-artifacts.json"),
-      "C:/temp/benchmark-authority",
+      join(authorityRoot, "cache", "context-artifacts.json"),
+      authorityRoot,
     );
     expect(benchmarkExecutorMocks.prepare).toHaveBeenCalledWith(
       expect.stringContaining("Use paths relative to this workspace root"),
@@ -671,7 +712,7 @@ describe("createBenchmarkSessionExecutor", () => {
       }),
     );
     expect(benchmarkExecutorMocks.createProjectBoundedWorkAuthority).toHaveBeenLastCalledWith(expectedWorkspace, {
-      authorityStateRoot: "C:/temp/benchmark-authority",
+      authorityStateRoot: authorityRoot,
       projectIdentityRoot: expectedWorkspace,
       projectStateBinding,
       formalVerificationCapability: {
@@ -683,8 +724,8 @@ describe("createBenchmarkSessionExecutor", () => {
       expect.anything(),
       expectedWorkspace,
       {
-        compositionKey: "C:/temp/benchmark-authority",
-        databasePath: join("C:/temp/benchmark-authority", "managed-account-leases.sqlite"),
+        compositionKey: authorityRoot,
+        databasePath: join(authorityRoot, "managed-account-leases.sqlite"),
       },
     );
     expect(benchmarkExecutorMocks.withGlobalIdentityContext).toHaveBeenCalledTimes(priorIdentityContextCount);

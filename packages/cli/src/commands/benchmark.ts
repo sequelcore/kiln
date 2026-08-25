@@ -24,10 +24,7 @@ import {
   defineDeliberationLevelId,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
-import {
-  readGlobalConfig,
-} from "../config/global-config.js";
-import { loadKilnConfig } from "../config/config-merger.js";
+import type { KilnGlobalConfig } from "../config/global-config.js";
 import {
   resolveFormalScreeningConfig,
   type ResolvedFormalScreeningConfig,
@@ -36,7 +33,9 @@ import {
   BENCHMARK_EXECUTION_ENVELOPE,
   FORMAL_SCREENING_BUDGET,
   FORMAL_SCREENING_EXECUTION_ENVELOPE,
+  captureBenchmarkConfigurationAdmission,
   createBenchmarkSessionExecutor,
+  type BenchmarkConfigurationAdmission,
   type BenchmarkSessionExecutorFlags,
 } from "../application/benchmark-session-executor.js";
 import {
@@ -44,7 +43,6 @@ import {
   loadPrivateFormalScreeningPackage,
   type PrivateFormalScreeningPackageFacts,
 } from "../application/private-formal-screening-package.js";
-import { resolveBenchmarkPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import {
   BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
   BACKEND_VERIFIER_ID,
@@ -71,7 +69,10 @@ import { resolveProjectStateBinding, type ProjectStateBinding } from "../applica
 
 export interface BenchmarkCommandDependencies {
   readonly executeItem?: BenchmarkItemExecutor;
-  readonly createExecuteItem?: (flags: BenchmarkSessionExecutorFlags) => BenchmarkItemExecutor;
+  readonly createExecuteItem?: (
+    flags: BenchmarkSessionExecutorFlags,
+    configurationAdmission: BenchmarkConfigurationAdmission,
+  ) => BenchmarkItemExecutor;
   readonly now?: () => Date;
   readonly repositoryRoot?: string;
   /** Strict test/embedding seam for the operator-owned private project state. */
@@ -367,9 +368,13 @@ async function runInternalBenchmark(
     || formalScreeningProfile;
   const repositoryRoot = dependencies.repositoryRoot ?? resolveProjectRoot().rootPath;
   const projectStateBinding = dependencies.projectStateBinding ?? resolveCommandProjectStateBinding();
-  const resolvedKilnConfig = config.kilnYaml ?? await loadKilnConfig(repositoryRoot);
+  const configurationAdmission = await captureBenchmarkConfigurationAdmission({
+    repositoryRoot,
+    appConfig: config,
+    mode: writeProfile ? "write" : "read-only",
+  });
   const formalContext = formalScreeningProfile
-    ? resolveFormalScreeningDependencies(repositoryRoot, dependencies)
+    ? resolveFormalScreeningDependencies(repositoryRoot, dependencies, configurationAdmission.globalConfig)
     : undefined;
   const datasetPath = formalScreeningProfile ? undefined : readFlag(args, "--dataset") ?? defaultDatasetPath(profile.id);
   const datasetContent = datasetPath ? readFileSync(datasetPath, "utf-8") : undefined;
@@ -405,10 +410,7 @@ async function runInternalBenchmark(
       ? item.metadata.pairId.trim()
       : item.id
   )))];
-  const benchmarkPermissionPolicy = resolveBenchmarkPermissionPolicy(
-    resolvedKilnConfig?.permissions,
-    writeProfile ? "write" : "read-only",
-  );
+  const benchmarkPermissionPolicy = configurationAdmission.permissionPolicy;
   const runs = [];
   for (const deliberationLevel of deliberationMembers) {
     const executorFlags = readExecutorFlags(
@@ -418,11 +420,12 @@ async function runInternalBenchmark(
       benchmarkPairIds,
       join(artifactRoot, "authority-evidence"),
     );
-    const executor = dependencies.createExecuteItem?.(executorFlags)
+    const executor = dependencies.createExecuteItem?.(executorFlags, configurationAdmission)
       ?? dependencies.executeItem
       ?? createBenchmarkSessionExecutor({
         appConfig: config,
         flags: executorFlags,
+        configurationAdmission,
         ...(formalContext ? {
           formalScreeningPackage: formalContext.package,
           formalScreeningConfig: formalContext.config,
@@ -601,6 +604,7 @@ function validateFormalScreeningFlags(args: readonly string[], minimumK: number)
 function resolveFormalScreeningDependencies(
   repositoryRoot: string,
   dependencies: BenchmarkCommandDependencies,
+  globalConfig: KilnGlobalConfig | null,
 ): FormalScreeningContext {
   const injectedPackage = dependencies.formalScreeningPackage;
   const injectedConfig = dependencies.formalScreeningConfig;
@@ -610,7 +614,6 @@ function resolveFormalScreeningDependencies(
   if (injectedPackage && injectedConfig) {
     return { package: injectedPackage, config: injectedConfig };
   }
-  const globalConfig = readGlobalConfig();
   const config = resolveFormalScreeningConfig(globalConfig);
   const packageFacts = loadPrivateFormalScreeningPackage({
     packagePath: config.privatePackagePath,

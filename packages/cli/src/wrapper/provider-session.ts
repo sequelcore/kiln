@@ -53,6 +53,8 @@ import {
   type OperatorAdoptionRuntimeBinding,
   type EffectiveAuthorityAdmissionBundle,
   RuntimeModelRoundDispatchService,
+  assertRuntimeHostToolEnforcement,
+  OperatorSessionPreProviderLaunchRejectionError,
   runtimeModelRoundEffectIdentity,
   type RuntimeSession,
 } from "@kilnai/runtime";
@@ -75,6 +77,7 @@ import type { DirectProviderCredentialBinding } from "./direct-provider-adapter-
 import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
 import type { AttachedRuntimeBuiltinToolSurfaceOptions } from "@kilnai/runtime";
 import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
+import { assertConfiguredInvocationAdmission } from "../config/builtin-tool-surface-config.js";
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
@@ -807,6 +810,9 @@ export class ProviderSession implements IKilnSession {
         ...(abortSignal ? { abortSignal } : {}),
         ...(workingDirectory ? { workingDirectory } : {}),
         ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
+        ...(this.builtinToolSurface.toolInvocationAdmission
+          ? { toolInvocationAdmission: this.builtinToolSurface.toolInvocationAdmission }
+          : {}),
         toolAllowlist: admittedToolNames,
         additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
         perCallCapabilities: filterCapabilityMap(combinedCapabilities, admittedToolNames),
@@ -888,6 +894,9 @@ export class ProviderSession implements IKilnSession {
       ...(abortSignal ? { abortSignal } : {}),
       ...(workingDirectory ? { workingDirectory } : {}),
       ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
+      ...(this.builtinToolSurface.toolInvocationAdmission
+        ? { toolInvocationAdmission: this.builtinToolSurface.toolInvocationAdmission }
+        : {}),
       toolAllowlist: admittedToolNames,
       toolAuthority,
       additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
@@ -926,6 +935,25 @@ export class ProviderSession implements IKilnSession {
     }
     if (!perCallConfig.runtimeModelRoundDispatch) {
       throw new Error("Authority-admitted provider sessions require a durable Runtime model-round claim.");
+    }
+    if (perCallConfig.authorityAdmission.turn.tools.hostEnforcement) {
+      if (options.toolSandbox !== perCallConfig.sandbox) {
+        throw new OperatorSessionPreProviderLaunchRejectionError(
+          "Direct provider execution received a tool sandbox different from its admitted host capability.",
+        );
+      }
+      try {
+        assertConfiguredInvocationAdmission(perCallConfig.toolInvocationAdmission, this.config.permissionPolicy);
+        assertRuntimeHostToolEnforcement(perCallConfig.runtimeHostToolEnforcement, {
+          bundle: perCallConfig.authorityAdmission,
+          sandbox: perCallConfig.sandbox,
+          invocationAdmission: perCallConfig.toolInvocationAdmission,
+        });
+      } catch (error) {
+        throw new OperatorSessionPreProviderLaunchRejectionError(
+          `Direct provider host enforcement rejected before launch: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     const mcpCapabilities = authorityAdmissionContext.mcpCapabilities;

@@ -17,11 +17,13 @@ import {
   type ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import {
+  assertRuntimeHostToolEnforcement,
   HarnessCredentialPoolService,
   type HarnessHomeAuth,
   type HarnessPoolProviderId,
   type ManagedInvocationToolAttachment,
   type OperatorSurfaceController,
+  OperatorSessionPreProviderLaunchRejectionError,
   type RuntimeSessionTurnBudgetAuthority,
   type RuntimeExecutionEnvelope,
   type CliDeliberationTransport,
@@ -43,6 +45,8 @@ import { assertNativeMcpProjectionCurrent } from "../config/native-mcp-projectio
 import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
 import { createRuntimePermissionObservationStore } from "./runtime-permission-observation.js";
 import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../config/model-facing-permission-policy.js";
+import { digestKilnPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import { assertConfiguredInvocationAdmission } from "../config/builtin-tool-surface-config.js";
 import { admitPreventiveRoute } from "../config/harness-integration-capabilities.js";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
@@ -1028,21 +1032,64 @@ function assertPreventiveSessionRoute(id: ProviderId, config: ProviderCreateConf
   const translated = direct
     ? translatePermissionForProvider(config.permissionPolicy, id)
     : translatePermission(config.permissionPolicy, id);
+  const hostEnforced = directExecutesTools ? assertHostEnforcementIfPresent(config) : false;
   const admission = admitPreventiveRoute({
     route: direct ? "direct-provider" : id,
     // Text-only direct routes cannot perform tool effects, so no tool-route
     // prohibition or sandbox claim is required. Kiln-executable direct
     // routes are gated by the actual Runtime authorizer below.
-    approval: directExecutesTools ? config.permissionPolicy.approval : undefined,
-    sandbox: directExecutesTools ? config.permissionPolicy.sandbox : undefined,
+    approval: directExecutesTools && !hostEnforced ? config.permissionPolicy.approval : undefined,
+    sandbox: directExecutesTools && !hostEnforced ? config.permissionPolicy.sandbox : undefined,
     representableRules: !direct && "representableRules" in translated ? translated.representableRules : [],
-    unsupportedRules: direct && !directExecutesTools ? [] : translated.unsupportedRules,
+    unsupportedRules: direct && !directExecutesTools
+      ? []
+      : hostEnforced
+        ? translated.unsupportedRules.filter((rule) => !isHostInvocationEnforcedRule(rule))
+        : translated.unsupportedRules,
   });
   if (!admission.admitted) {
-    throw new Error(
+    throw new OperatorSessionPreProviderLaunchRejectionError(
       `Session route '${id}' rejected before provider launch: ${admission.reason}`,
     );
   }
+}
+
+function isHostInvocationEnforcedRule(rule: PermissionTranslationRule): boolean {
+  if (rule.category === "agent-scope") return false;
+  if (rule.category === "data-firewall") return rule.action.toLowerCase() === "deny";
+  return rule.category === "tool"
+    || rule.category === "command"
+    || rule.category === "file-governance";
+}
+
+function assertHostEnforcementIfPresent(config: ProviderCreateConfig): boolean {
+  const context = config.authorityAdmissionContext;
+  const perCallConfig = context?.perCallConfig;
+  const admitted = context?.bundle.turn.tools.hostEnforcement;
+  if (!admitted && !perCallConfig?.runtimeHostToolEnforcement) return false;
+  if (!context || !perCallConfig || !admitted) {
+    throw new OperatorSessionPreProviderLaunchRejectionError(
+      "Session route rejected before provider launch: incomplete Runtime host enforcement evidence.",
+    );
+  }
+  if (admitted.permissionPolicyDigest !== digestKilnPermissionPolicy(config.permissionPolicy)) {
+    throw new OperatorSessionPreProviderLaunchRejectionError(
+      "Session route rejected before provider launch: host enforcement permission policy is stale or contradictory.",
+    );
+  }
+  try {
+    assertConfiguredInvocationAdmission(perCallConfig.toolInvocationAdmission, config.permissionPolicy);
+    assertRuntimeHostToolEnforcement(perCallConfig.runtimeHostToolEnforcement, {
+      bundle: context.bundle,
+      sandbox: perCallConfig.sandbox,
+      invocationAdmission: perCallConfig.toolInvocationAdmission,
+    });
+  } catch (error) {
+    throw new OperatorSessionPreProviderLaunchRejectionError(
+      `Session route rejected before provider launch: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return true;
 }
 
 const HARNESS_PROVIDER_HOME_ENV: Record<HarnessPoolProviderId, string> = {

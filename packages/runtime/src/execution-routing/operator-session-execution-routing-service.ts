@@ -190,6 +190,11 @@ export class OperatorSessionPreDispatchCancellationError extends Error {
   override readonly name = "OperatorSessionPreDispatchCancellationError";
 }
 
+/** Known fail-closed rejection before a provider adapter or tool effect can start. */
+export class OperatorSessionPreProviderLaunchRejectionError extends Error {
+  override readonly name = "OperatorSessionPreProviderLaunchRejectionError";
+}
+
 /**
  * Applies the Core execution-routing contract to one operator turn and commits
  * shared SQLite capacity before any provider adapter or credential is materialized.
@@ -397,6 +402,12 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
           // The dispatch result already settled the capacity owner.
         } else if (error instanceof OperatorSessionPreDispatchCancellationError) {
           this.#settleCancelled(request.executionId, fenceId);
+        } else if (error instanceof OperatorSessionPreProviderLaunchRejectionError) {
+          this.#options.accountCapacityAuthority.settleAccountCapacity(
+            request.executionId,
+            fenceId,
+            { kind: "completed", outcome: "provider-error", observedAt: this.#now().toISOString() },
+          );
         } else {
           this.#settleUnknown(request.executionId, fenceId, "dispatch-outcome-unknown");
         }

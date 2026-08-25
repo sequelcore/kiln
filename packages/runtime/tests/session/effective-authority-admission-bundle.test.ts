@@ -15,6 +15,7 @@ import {
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { ActionEffectEnvelope, AuthorityDescriptor, Capability } from "@kilnai/core/engine";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
+import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
 
 const READ_AUTHORITY: AuthorityDescriptor = { level: 1, allowed: true, requiresApproval: false, reason: "read-only tool admitted" };
 const WRITE_AUTHORITY: AuthorityDescriptor = { level: 2, allowed: true, requiresApproval: false, reason: "audited tool admitted" };
@@ -87,6 +88,48 @@ function input(): EffectiveAuthorityAdmissionBundleInput {
 }
 
 describe("EffectiveAuthorityAdmissionBundle", () => {
+  it("binds exact host enforcement evidence into the admission digest", () => {
+    const revision = `sha256:${"1".repeat(64)}` as const;
+    const policyDigest = `sha256:${"2".repeat(64)}` as const;
+    const sandbox = createBoundHostToolSandbox({
+      policy: new SandboxPolicy({
+        projectPath: "/tmp/lease",
+        config: {
+          fsPolicy: "read-write",
+          netPolicy: "none",
+          allowedPaths: ["/tmp/lease"],
+          deniedPaths: [],
+          allowedDomains: [],
+        },
+      }),
+      leaseId: "lease:1",
+      configurationRevisionId: revision,
+      permissionPolicyDigest: policyDigest,
+    });
+    const candidate = input();
+    const bundle = defineEffectiveAuthorityAdmissionBundle({
+      ...candidate,
+      configuration: {
+        sessionRevision: { revisionSetId: revision, revisions: { global: "g1" } },
+        turnRevision: { revisionSetId: revision, revisions: { global: "g1" } },
+      },
+      turn: {
+        ...candidate.turn,
+        tools: { ...candidate.turn.tools, hostEnforcement: sandbox.admission },
+      },
+    });
+
+    expect(bundle.turn.tools.hostEnforcement).toEqual(sandbox.admission);
+    expect(JSON.stringify(bundle.turn.tools.hostEnforcement)).not.toContain("/tmp/lease");
+    expect(() => defineEffectiveAuthorityAdmissionBundle({
+      ...candidate,
+      turn: {
+        ...candidate.turn,
+        tools: { ...candidate.turn.tools, hostEnforcement: sandbox.admission },
+      },
+    })).toThrow(/host enforcement.*configuration revision/iu);
+  });
+
   it("requires an explicit adoption outcome and preserves the non-authority outcome", () => {
     const bundle = defineEffectiveAuthorityAdmissionBundle(input());
     expect(bundle.turn.operatorAdoption).toEqual({ status: "not-required" });

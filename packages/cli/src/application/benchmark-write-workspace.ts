@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -40,6 +40,7 @@ export interface BenchmarkWriteWorkspaceSnapshot {
 }
 
 export interface BenchmarkWriteWorkspaceLease {
+  readonly leaseId: string;
   readonly rootPath: string;
   readonly canonicalHash: string;
   readonly initialSnapshot: BenchmarkWriteWorkspaceSnapshot;
@@ -71,6 +72,7 @@ export function createBenchmarkWriteWorkspaceLease(
     let cleaned = false;
 
     return {
+      leaseId: `benchmark-write:${randomUUID()}`,
       rootPath: leaseRoot,
       canonicalHash,
       initialSnapshot: toPublicSnapshot(before),

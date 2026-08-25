@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import type { SandboxPolicy } from "./policies.js";
 
 export interface ValidationResult {
@@ -34,14 +35,14 @@ export class PathValidator {
   }
 
   validateRead(filePath: string): ValidationResult {
-    if (this._policy.canRead(filePath)) {
+    if (this._policy.canRead(filePath) && this.validatePhysicalPath(filePath, "read")) {
       return { allowed: true };
     }
     return { allowed: false, reason: `Read access denied: ${filePath}` };
   }
 
   validateWrite(filePath: string): ValidationResult {
-    if (this._policy.canWrite(filePath)) {
+    if (this._policy.canWrite(filePath) && this.validatePhysicalPath(filePath, "write")) {
       return { allowed: true };
     }
     return { allowed: false, reason: `Write access denied: ${filePath}` };
@@ -57,5 +58,33 @@ export class PathValidator {
       }
     }
     return { allowed: true };
+  }
+
+  private validatePhysicalPath(filePath: string, operation: "read" | "write"): boolean {
+    const physicalPath = resolvePhysicalCandidate(filePath);
+    if (physicalPath === undefined) return false;
+    return operation === "read"
+      ? this._policy.canRead(physicalPath)
+      : this._policy.canWrite(physicalPath);
+  }
+}
+
+/** Resolves the nearest existing ancestor so nonexistent write targets remain checkable. */
+function resolvePhysicalCandidate(filePath: string): string | undefined {
+  const target = resolve(filePath);
+  let current = target;
+  for (;;) {
+    try {
+      return resolve(realpathSync.native(current), relative(current, target));
+    } catch {
+      try {
+        if (lstatSync(current).isSymbolicLink()) return undefined;
+      } catch {
+        // A missing component is expected for new write targets.
+      }
+      const parent = dirname(current);
+      if (parent === current) return undefined;
+      current = parent;
+    }
   }
 }

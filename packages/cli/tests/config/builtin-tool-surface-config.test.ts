@@ -5,6 +5,7 @@ import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
 import {
   createConfiguredInvocationAdmission,
+  assertConfiguredInvocationAdmission,
   loadConfiguredBuiltinToolSurfaceOptions,
   observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
@@ -209,13 +210,14 @@ describe("builtin tool surface config", () => {
   });
 
   it("adapts canonical tool and concrete input permissions into Core admission", () => {
-    const admission = createConfiguredInvocationAdmission({
+    const policy = {
       approval: "never",
       tools: [{ tool: "WebFetch", action: "deny" }],
       commands: [{ pattern: "rm *", action: "deny" }],
       fileGovernance: { denyGlobs: ["**/.env"] },
       dataFirewall: [{ destination: "external-mcp", action: "deny" }],
-    });
+    } as const;
+    const admission = createConfiguredInvocationAdmission(policy);
     const effect = {
       operation: "observe" as const,
       boundaries: ["process"] as const,
@@ -239,6 +241,9 @@ describe("builtin tool surface config", () => {
       toolInput: { url: "https://unknown.example" },
       resolvedEffect: { ...effect, dataEgress: "project-data" },
     }).allowed).toBe(false);
+    expect(assertConfiguredInvocationAdmission(admission, policy)).toBe(admission);
+    expect(() => assertConfiguredInvocationAdmission({ authorize: admission.authorize }, policy))
+      .toThrow(/counterfeit/iu);
   });
 
   it("does not synthesize a second default permission owner for runtime-attached sessions", async () => {

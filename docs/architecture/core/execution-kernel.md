@@ -159,6 +159,17 @@ bundle fails closed before the action fence. The evidence owner supports
 retrieval by `admissionId` for recovery and audit and retains the full bundle at
 least as long as an active or retained action claim references it.
 
+For Kiln-executable direct-provider turns, `turn.tools.hostEnforcement` binds a
+secret-free projection of the exact lease sandbox, effective permission-policy
+digest, and turn configuration revision. The corresponding sandbox and
+invocation admission are process-local capabilities, not serializable
+authority. Runtime requires their exact identities at route admission, again
+before provider construction, and immediately before each builtin or MCP
+effect. A missing, copied, stale, broader, or revision-mismatched capability is
+a known pre-provider rejection; it launches nothing and is durably settled as
+failed. Permission categories without an actual host enforcement path remain
+launch blockers.
+
 ### 5. Prepare Dispatch
 
 Runtime performs every fallible step that can be completed without crossing the

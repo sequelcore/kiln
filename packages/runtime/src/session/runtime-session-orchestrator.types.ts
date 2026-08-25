@@ -52,6 +52,7 @@ import type {
   ToolResultSanitizer,
   TurnTemporalContext,
 } from "@kilnai/core";
+import type { BoundHostToolSandboxAdmission } from "@kilnai/core/sandbox";
 import type { ManagedAttendedTrustedExecutionContext } from "../agents/managed-invocation/attended-trusted-execution.js";
 import type { ManagedExternalInvocationActionClaimContext } from "../agents/managed-invocation/external-invocation-action-claim.js";
 import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
@@ -68,6 +69,7 @@ import type { RuntimeFormalVerificationObservation } from "../work-governance/fo
 import type { EffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "./runtime-configuration-revision-pin.js";
 import type { RuntimeSession } from "./runtime-session.js";
+import type { RuntimeHostToolEnforcement } from "./runtime-host-tool-enforcement.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-authority.js";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 
@@ -354,6 +356,10 @@ export interface PerCallToolConfig {
   readonly workingDirectory?: string;
   /** Sandbox policy and validators applied to builtin tool execution for this call. */
   readonly sandbox?: unknown;
+  /** Persistable projection of the exact bound host sandbox supplied for this call. */
+  readonly hostToolSandboxAdmission?: BoundHostToolSandboxAdmission;
+  /** Process-local capability tying the persisted bundle to the sandbox and invocation policy. */
+  readonly runtimeHostToolEnforcement?: RuntimeHostToolEnforcement;
   readonly governedWorkRequirement?: {
     readonly kind: "goal_materialization";
     readonly requiredWorkItemCount: number;

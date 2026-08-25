@@ -120,7 +120,14 @@ import {
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession, KilnPermissionPolicy } from "../../src/wrapper/session.js";
 import type { DeliberationResolution } from "@kilnai/core/agents";
+import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
+import {
+  createRuntimeHostToolEnforcement,
+  defineEffectiveAuthorityAdmissionBundle,
+} from "@kilnai/runtime";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
+import { digestKilnPermissionPolicy } from "../../src/config/model-facing-permission-policy.js";
+import { createConfiguredInvocationAdmission } from "../../src/config/builtin-tool-surface-config.js";
 
 const makeMockSession = (id: string): IKilnSession => ({
   sessionId: id,
@@ -213,6 +220,75 @@ const GRANULAR_POLICY = {
   dataFirewall: [{ destination: "logs", action: "redact" as const }],
   agentScopes: [{ agent: "planner", inherit: false }],
 };
+const HOST_ENFORCEABLE_POLICY = {
+  ...GRANULAR_POLICY,
+  dataFirewall: [{ destination: "logs", action: "deny" as const }],
+  agentScopes: [],
+};
+
+function hostEnforcedProviderConfig(policy: KilnPermissionPolicy) {
+  const revision = `sha256:${"1".repeat(64)}` as const;
+  const sandbox = createBoundHostToolSandbox({
+    policy: new SandboxPolicy({
+      projectPath: process.cwd(),
+      config: {
+        fsPolicy: "read-write",
+        netPolicy: "none",
+        allowedPaths: [process.cwd()],
+        deniedPaths: [],
+        allowedDomains: [],
+      },
+    }),
+    leaseId: "lease:registry-test",
+    configurationRevisionId: revision,
+    permissionPolicyDigest: digestKilnPermissionPolicy(policy),
+  });
+  const invocationAdmission = createConfiguredInvocationAdmission(policy);
+  const bundle = defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "session", turnId: "turn", admittedAt: "2026-08-25T00:00:00.000Z",
+    configuration: {
+      sessionRevision: { revisionSetId: revision, revisions: { global: "g1" } },
+      turnRevision: { revisionSetId: revision, revisions: { global: "g1" } },
+    },
+    session: {
+      skillCatalog: { catalogId: "none", revision: "none", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "test" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
+        sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative",
+        toolCount: 0, deniedToolCount: 0,
+      },
+      workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [], hostEnforcement: sandbox.admission },
+      effectCeiling: {
+        operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+        identityUse: "none", consequences: [], idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" }, execution: { status: "not-routed" },
+    },
+  });
+  const runtimeHostToolEnforcement = createRuntimeHostToolEnforcement({ bundle, sandbox, invocationAdmission });
+  return {
+    model: "gpt-5.4",
+    task: "test",
+    permissionPolicy: policy,
+    authorityAdmissionContext: {
+      bundle,
+      runtimeSession: {} as never,
+      builtinToolSurface: {} as never,
+      mcpClients: [],
+      mcpCapabilities: [],
+      perCallConfig: {
+        authorityAdmission: bundle,
+        sandbox,
+        toolInvocationAdmission: invocationAdmission,
+        runtimeHostToolEnforcement,
+      },
+    },
+  };
+}
 
 function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistry {
   return new SessionRegistry(
@@ -720,6 +796,77 @@ describe("SessionRegistry", () => {
         task: "test",
         permissionPolicy: GRANULAR_POLICY,
       })).toThrow(/rejected before provider launch/);
+    });
+
+    it("admits granular direct-provider policy only with the exact bound host capability", () => {
+      const create = vi.fn(() => makeMockSession("openai"));
+      const registry = new SessionRegistry([{
+        id: "openai",
+        deliberationTransport: "none" as const,
+        costTier: "high",
+        capabilities: CAPABILITIES.openai!,
+        create,
+      }]);
+      const config = hostEnforcedProviderConfig(HOST_ENFORCEABLE_POLICY);
+
+      expect(registry.createSession("openai", config)).toBeDefined();
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects counterfeit and broader host capabilities with zero provider launches", () => {
+      const create = vi.fn(() => makeMockSession("openai"));
+      const registry = new SessionRegistry([{
+        id: "openai",
+        deliberationTransport: "none" as const,
+        costTier: "high",
+        capabilities: CAPABILITIES.openai!,
+        create,
+      }]);
+      const config = hostEnforcedProviderConfig(HOST_ENFORCEABLE_POLICY);
+      const context = config.authorityAdmissionContext!;
+      const counterfeit = {
+        ...config,
+        authorityAdmissionContext: {
+          ...context,
+          perCallConfig: {
+            ...context.perCallConfig,
+            runtimeHostToolEnforcement: { ...context.perCallConfig.runtimeHostToolEnforcement },
+          },
+        },
+      };
+      expect(() => registry.createSession("openai", counterfeit)).toThrow(/process-local/iu);
+
+      const broaderSandbox = createBoundHostToolSandbox({
+        policy: new SandboxPolicy({
+          projectPath: process.cwd(),
+          config: {
+            fsPolicy: "read-write", netPolicy: "full", allowedPaths: [], deniedPaths: [], allowedDomains: ["*"],
+          },
+        }),
+        leaseId: "lease:broader",
+        configurationRevisionId: context.bundle.configuration.turnRevision.revisionSetId as `sha256:${string}`,
+        permissionPolicyDigest: digestKilnPermissionPolicy(HOST_ENFORCEABLE_POLICY),
+      });
+      const broader = {
+        ...config,
+        authorityAdmissionContext: {
+          ...context,
+          perCallConfig: { ...context.perCallConfig, sandbox: broaderSandbox },
+        },
+      };
+      expect(() => registry.createSession("openai", broader)).toThrow(/exact tool sandbox/iu);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("keeps unimplemented agent-scope and redaction rules as launch blockers", () => {
+      const create = vi.fn(() => makeMockSession("openai"));
+      const registry = new SessionRegistry([{
+        id: "openai", deliberationTransport: "none" as const, costTier: "high",
+        capabilities: CAPABILITIES.openai!, create,
+      }]);
+      expect(() => registry.createSession("openai", hostEnforcedProviderConfig(GRANULAR_POLICY)))
+        .toThrow(/unsupported (agent-scope|data-firewall)/iu);
+      expect(create).not.toHaveBeenCalled();
     });
 
     it.each([

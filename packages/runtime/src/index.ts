@@ -465,6 +465,7 @@ export {
   OperatorSessionExecutionRoutingError,
   OperatorSessionExecutionRoutingService,
   OperatorSessionPreDispatchCancellationError,
+  OperatorSessionPreProviderLaunchRejectionError,
 } from "./execution-routing/operator-session-execution-routing-service.js";
 export type {
   OperatorTurnDispatchPayload,
@@ -1093,6 +1094,7 @@ export type {
   RuntimeSessionConfig,
   RuntimeSessionTokenUsageReader,
   RuntimeSessionTurnBudgetAuthority,
+  RuntimeHostToolEnforcement,
   RuntimeToolActionAdmissionReceipt,
   RuntimeToolActionClaim,
   RuntimeToolActionClaimId,
@@ -1118,12 +1120,14 @@ export type {
 export {
   assertPersistableAuthorityAdmissionBundle,
   assertRuntimeToolActionClaim,
+  assertRuntimeHostToolEnforcement,
   buildEffectiveTurnAuthorityPolicyInputs,
   captureRuntimeConfigurationRevision,
   collectRuntimeFeedbackEvidence,
   createRedisSessionStore,
   createRuntimeModelRoundPermitId,
   createRuntimeToolActionPermitId,
+  createRuntimeHostToolEnforcement,
   DefaultAgentHandoffSummarizer,
   DefaultContextSummarizer,
   DefaultEscalationDetector,

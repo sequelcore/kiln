@@ -63,6 +63,11 @@ export type {
   RuntimeSessionTokenUsageReader,
   RuntimeSessionTurnBudgetAuthority,
 } from "./session-turn-budget-authority.js";
+export {
+  assertRuntimeHostToolEnforcement,
+  createRuntimeHostToolEnforcement,
+} from "./runtime-host-tool-enforcement.js";
+export type { RuntimeHostToolEnforcement } from "./runtime-host-tool-enforcement.js";
 export { collectRuntimeFeedbackEvidence } from "./session-feedback-evidence.js";
 export {
   deriveGovernedTurnOutcome,

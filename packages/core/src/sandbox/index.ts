@@ -17,6 +17,14 @@ export { SandboxPolicy, createPolicy, createTenantSandbox, ROLE_PRESETS } from "
 export { PathValidator, isSubPath } from "./path-validator.js";
 export type { ValidationResult } from "./path-validator.js";
 export {
+  assertBoundHostToolSandbox,
+  createBoundHostToolSandbox,
+} from "./host-tool-sandbox.js";
+export type {
+  BoundHostToolSandbox,
+  BoundHostToolSandboxAdmission,
+} from "./host-tool-sandbox.js";
+export {
   NetworkFilter,
   PACKAGE_MANAGER_DOMAINS,
   DOCUMENTATION_DOMAINS,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { resolve } from "node:path";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { createPolicy } from "../../src/sandbox/policies.js";
 import { PathValidator, isSubPath } from "../../src/sandbox/path-validator.js";
 
@@ -82,6 +84,37 @@ describe("PathValidator", () => {
     const validator = new PathValidator({ policy });
     const result = validator.validateRead(`${PROJECT}/src/../src/index.ts`);
     expect(result.allowed).toBe(true);
+  });
+
+  it("rejects reads through a symbolic link that leaves the admitted root", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-path-validator-"));
+    const workspace = join(root, "workspace");
+    const outside = join(root, "outside");
+    mkdirSync(workspace);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.txt"), "secret");
+    symlinkSync(outside, join(workspace, "escape"), process.platform === "win32" ? "junction" : "dir");
+    try {
+      const validator = new PathValidator({ policy: createPolicy("worker", workspace) });
+      expect(validator.validateRead(join(workspace, "escape", "secret.txt"))).toMatchObject({ allowed: false });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects writes through a symbolic link that leaves the admitted root", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-path-validator-"));
+    const workspace = join(root, "workspace");
+    const outside = join(root, "outside");
+    mkdirSync(workspace);
+    mkdirSync(outside);
+    symlinkSync(outside, join(workspace, "escape"), process.platform === "win32" ? "junction" : "dir");
+    try {
+      const validator = new PathValidator({ policy: createPolicy("worker", workspace) });
+      expect(validator.validateWrite(join(workspace, "escape", "new.txt"))).toMatchObject({ allowed: false });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

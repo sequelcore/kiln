@@ -15,6 +15,7 @@ import { ExternalEngagementResourceProvider } from "./external-engagement-resour
 import { readGlobalConfig, type KilnGlobalConfig } from "./global-config.js";
 import { resolveFormalVerificationConfiguration } from "./formal-verification-config.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
+import { digestKilnPermissionPolicy } from "./model-facing-permission-policy.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
@@ -37,6 +38,8 @@ export const PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS = [
   "work_profile.list",
   "work_item.list",
 ] as const;
+
+const configuredInvocationAdmissions = new WeakMap<object, `sha256:${string}`>();
 
 export const PROGRESSIVE_RUNTIME_EXECUTION_TOOLS = [
   ...PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS,
@@ -83,7 +86,7 @@ export function createConfiguredInvocationAdmission(
   policy: KilnPermissionPolicy,
 ): InvocationAdmission {
   const evaluator = createPermissionEvaluator(policy);
-  return {
+  const admission: InvocationAdmission = {
     authorize({ toolName, toolInput, resolvedEffect }) {
       const decisions = [evaluator.evaluateTool(toolName)];
       const command = firstString(toolInput, ["command", "cmd"]);
@@ -103,6 +106,19 @@ export function createConfiguredInvocationAdmission(
       return combinePermissionDecisions(decisions);
     },
   };
+  configuredInvocationAdmissions.set(admission, digestKilnPermissionPolicy(policy));
+  return admission;
+}
+
+/** Rejects arbitrary callbacks that merely implement the invocation port shape. */
+export function assertConfiguredInvocationAdmission(
+  value: InvocationAdmission | undefined,
+  policy: KilnPermissionPolicy,
+): InvocationAdmission {
+  if (!value || configuredInvocationAdmissions.get(value) !== digestKilnPermissionPolicy(policy)) {
+    throw new Error("Configured invocation admission is missing, counterfeit, or bound to another permission policy.");
+  }
+  return value;
 }
 
 function firstString(input: Readonly<Record<string, unknown>>, keys: readonly string[]): string | undefined {

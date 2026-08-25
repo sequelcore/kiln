@@ -29,12 +29,15 @@ export * from "./capabilities/index.js";
 export { resolveCoreKilnHome } from "./kiln-home.js";
 export type { FsPolicy, NetPolicy, SandboxConfig } from "./sandbox/index.js";
 export {
+  assertBoundHostToolSandbox,
+  createBoundHostToolSandbox,
   DOCUMENTATION_DOMAINS,
   NetworkFilter,
   PACKAGE_MANAGER_DOMAINS,
   SandboxPolicy,
   createPolicy,
 } from "./sandbox/index.js";
+export type { BoundHostToolSandbox, BoundHostToolSandboxAdmission } from "./sandbox/index.js";
 export * as engine from "./engine/index.js";
 
 // Re-export streaming types for runtime

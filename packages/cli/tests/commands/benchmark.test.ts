@@ -17,6 +17,35 @@ import {
 } from "../../src/application/private-formal-screening-package.js";
 import type { ResolvedFormalScreeningConfig } from "../../src/config/formal-screening-config.js";
 
+vi.mock("../../src/application/benchmark-session-executor.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/application/benchmark-session-executor.js")>();
+  return {
+    ...actual,
+    captureBenchmarkConfigurationAdmission: vi.fn(async (input: {
+      readonly repositoryRoot: string;
+      readonly appConfig: typeof MOCK_APP_CONFIG & { readonly kilnYaml?: typeof FORMAL_APP_CONFIG.kilnYaml };
+      readonly mode: "read-only" | "write";
+    }) => {
+      const merger = await import("../../src/config/config-merger.js");
+      const policyModule = await import("../../src/config/model-facing-permission-policy.js");
+      const resolvedKilnConfig = input.appConfig.kilnYaml ?? await merger.loadKilnConfig(input.repositoryRoot);
+      return {
+        mode: input.mode,
+        configurationRevision: {
+          revisionSetId: `sha256:${"a".repeat(64)}`,
+          revisions: { global: `sha256:${"b".repeat(64)}` },
+        },
+        globalConfig: null,
+        resolvedKilnConfig,
+        permissionPolicy: policyModule.resolveBenchmarkPermissionPolicy(
+          resolvedKilnConfig?.permissions,
+          input.mode,
+        ),
+      };
+    }),
+  };
+});
+
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
 const MOCK_APP_CONFIG = {

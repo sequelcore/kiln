@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 
@@ -26,6 +27,23 @@ export function resolveModelFacingPermissionPolicy(
 }
 
 const BENCHMARK_MUTATING_TOOLS = ["write", "edit", "patch"] as const;
+
+/** Secret-free canonical identity for the exact model-facing policy object. */
+export function digestKilnPermissionPolicy(policy: KilnPermissionPolicy): `sha256:${string}` {
+  const canonical = canonicalJsonValue(policy);
+  return `sha256:${createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex")}`;
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .filter(([, child]) => child !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right, "en"))
+      .map(([key, child]) => [key, canonicalJsonValue(child)]));
+  }
+  return value;
+}
 
 /**
  * Derives the benchmark posture from the already admitted model-facing
