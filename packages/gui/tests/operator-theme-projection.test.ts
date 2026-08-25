@@ -1,13 +1,13 @@
+import { OPERATOR_THEME_DEFINITIONS_BY_ID } from "@kilnai/operator-appearance";
 import { describe, expect, it, vi } from "vitest";
 import {
-  applyOperatorTheme,
   applyOperatorAppearance,
+  applyOperatorTheme,
   OPERATOR_THEME_APPLIED_EVENT,
   projectOperatorThemeCssVariables,
   projectOperatorThemeHexVariables,
   resolveAppliedOperatorThemePalette,
 } from "../src/lib/operator-theme-projection.js";
-import { OPERATOR_THEME_DEFINITIONS_BY_ID } from "@kilnai/operator-appearance";
 
 const phosphor = OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
 if (!phosphor) throw new Error("Phosphor test palette unavailable.");
@@ -20,9 +20,13 @@ describe("operator theme projection", () => {
       "--kiln-canvas": expect.stringMatching(/^oklch\(/),
       "--kiln-surface-overlay": expect.stringMatching(/^oklch\(/),
       "--kiln-message-surface": expect.stringMatching(/^oklch\(/),
+      "--kiln-code-background": expect.stringMatching(/^oklch\(/),
+      "--kiln-code-foreground": expect.stringMatching(/^oklch\(/),
       "--kiln-sidebar-control": expect.stringMatching(/^oklch\(/),
       "--kiln-toolbar-control": expect.stringMatching(/^oklch\(/),
       "--kiln-terminal-cursor": expect.stringMatching(/^oklch\(/),
+      "--kiln-terminal-background": expect.stringMatching(/^oklch\(/),
+      "--kiln-terminal-foreground": expect.stringMatching(/^oklch\(/),
       "--kiln-status-update-surface": expect.stringMatching(/^oklch\(/),
     });
     expect(Object.keys(variables)).toHaveLength(63);

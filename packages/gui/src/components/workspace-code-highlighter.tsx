@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import css from "react-syntax-highlighter/dist/esm/languages/prism/css";
 import go from "react-syntax-highlighter/dist/esm/languages/prism/go";
@@ -15,6 +13,8 @@ import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
 import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
+import { OPERATOR_WORKSPACE_CODE_SYNTAX_STYLE } from "../lib/operator-code-syntax-style.js";
 
 interface WorkspaceCodeHighlighterProps {
   readonly content: string;
@@ -38,62 +38,15 @@ SyntaxHighlighter.registerLanguage("typescript", typescript);
 SyntaxHighlighter.registerLanguage("xml", markup);
 SyntaxHighlighter.registerLanguage("yaml", yaml);
 
-const workspaceSyntaxTheme: Record<string, CSSProperties> = {
-  'pre[class*="language-"]': {
-    background: "var(--workspace-viewer)",
-    color: "var(--color-text)",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-    fontSize: "12px",
-    lineHeight: "1.25rem",
-    margin: 0,
-    padding: "0.75rem 0",
-    tabSize: 2,
-  },
-  'code[class*="language-"]': {
-    background: "transparent",
-    color: "var(--color-text)",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-    tabSize: 2,
-  },
-  comment: { color: "var(--color-text-muted)" },
-  prolog: { color: "var(--color-text-muted)" },
-  doctype: { color: "var(--color-text-muted)" },
-  cdata: { color: "var(--color-text-muted)" },
-  punctuation: { color: "var(--color-text-muted)" },
-  property: { color: "var(--color-primary)" },
-  tag: { color: "var(--color-primary)" },
-  boolean: { color: "var(--color-warning)" },
-  number: { color: "var(--color-warning)" },
-  constant: { color: "var(--color-warning)" },
-  symbol: { color: "var(--color-warning)" },
-  selector: { color: "var(--color-success)" },
-  string: { color: "var(--color-success)" },
-  char: { color: "var(--color-success)" },
-  builtin: { color: "var(--color-success)" },
-  inserted: { color: "var(--color-success)" },
-  operator: { color: "var(--color-accent)" },
-  entity: { color: "var(--color-accent)" },
-  url: { color: "var(--color-accent)" },
-  variable: { color: "var(--color-accent)" },
-  atrule: { color: "var(--color-accent)" },
-  attrvalue: { color: "var(--color-success)" },
-  function: { color: "var(--color-primary)" },
-  className: { color: "var(--color-primary)" },
-  keyword: { color: "var(--color-accent)" },
-  regex: { color: "var(--color-warning)" },
-  important: { color: "var(--color-warning)", fontWeight: 600 },
-  deleted: { color: "var(--color-error)" },
-};
-
 export function WorkspaceCodeHighlighter(props: WorkspaceCodeHighlighterProps) {
   return (
     <SyntaxHighlighter
       data-testid="workspace-code"
       language={props.language}
-      style={workspaceSyntaxTheme}
+      style={OPERATOR_WORKSPACE_CODE_SYNTAX_STYLE}
       showLineNumbers
       wrapLongLines={false}
-      customStyle={{ background: "var(--workspace-viewer)", minWidth: "max-content" }}
+      customStyle={{ background: "var(--color-code-background)", minWidth: "max-content" }}
       codeTagProps={{ style: { fontFamily: "inherit" } }}
       lineNumberStyle={{
         minWidth: "3.5rem",

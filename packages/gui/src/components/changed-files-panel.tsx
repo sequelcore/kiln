@@ -146,7 +146,7 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
                 {selectedFile.diffPreview ? (
                   <>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Diff preview</p>
-                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-border/50 bg-secondary/25 px-2.5 py-2 text-[11px] leading-5 text-foreground">
+                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-border/50 bg-code-background px-2.5 py-2 text-[11px] leading-5 text-code-foreground">
                       {selectedFile.diffPreview.split(/\r?\n/).map((line, index) => (
                         <span key={`${index}:${line}`} className="block">
                           {line.length > 0 ? line : " "}

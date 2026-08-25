@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
+import type { KilnTheme } from "../src/theme.js";
 
 vi.mock("@opentui/core", () => ({
   BoxRenderable: class { add = vi.fn(); },
@@ -8,6 +9,7 @@ vi.mock("@opentui/core", () => ({
     constructor(_: unknown, props?: { content?: string }) { this.content = props?.content ?? ""; }
   },
   MarkdownRenderable: class {},
+  CodeRenderable: class {},
   SyntaxStyle: {
     create: () => ({}),
   },
@@ -70,7 +72,7 @@ describe("TUI handler managed-agent projection", () => {
       },
       dispose: vi.fn(),
     });
-    ctx.theme = { userBg: "user-bg", userFg: "user-fg" } as HandlerContext["theme"];
+    ctx.theme = () => ({ userBg: "user-bg", userFg: "user-fg" }) as KilnTheme;
     ctx.chatScrollBox = { content: { add: vi.fn() } } as unknown as HandlerContext["chatScrollBox"];
     ctx.messageNodes = [];
 

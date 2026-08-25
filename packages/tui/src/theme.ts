@@ -33,6 +33,8 @@ export interface KilnTheme {
   toolFg: string;
   thinkingFg: string;
   cursorFg: string;
+  codeBg: string;
+  codeFg: string;
 }
 
 function createTheme(palette: OperatorThemePalette): KilnTheme {
@@ -57,6 +59,8 @@ function createTheme(palette: OperatorThemePalette): KilnTheme {
     toolFg: operatorColorToHex(palette.status.success.foreground),
     thinkingFg: operatorColorToHex(palette.text.muted),
     cursorFg: operatorColorToHex(palette.terminal.cursor),
+    codeBg: operatorColorToHex(palette.conversation.code.background),
+    codeFg: operatorColorToHex(palette.conversation.code.foreground),
   };
 }
 

@@ -21,11 +21,11 @@ export function ProviderAuthenticationEvidence(props: ProviderAuthenticationEvid
         <dl className="grid grid-cols-[auto_1fr] gap-2 text-xs">
           <dt className="text-muted-foreground">Link</dt>
           <dd>
-            <code className="select-all break-all text-foreground">{props.details.verificationUri}</code>
+            <code className="select-all break-all text-code-foreground">{props.details.verificationUri}</code>
           </dd>
           <dt className="text-muted-foreground">Code</dt>
           <dd>
-            <code className="select-all text-lg tracking-wide text-foreground">{props.details.userCode}</code>
+            <code className="select-all text-lg tracking-wide text-code-foreground">{props.details.userCode}</code>
           </dd>
         </dl>
       ) : null}

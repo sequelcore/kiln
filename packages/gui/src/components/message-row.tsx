@@ -12,7 +12,6 @@ import python from "react-syntax-highlighter/dist/esm/languages/hljs/python";
 import shell from "react-syntax-highlighter/dist/esm/languages/hljs/shell";
 import typescript from "react-syntax-highlighter/dist/esm/languages/hljs/typescript";
 import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
-import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -45,6 +44,7 @@ import {
   MessageHeader,
 } from "@/components/ui/message";
 import { cn } from "@/lib/utils";
+import { OPERATOR_CODE_SYNTAX_STYLE } from "../lib/operator-code-syntax-style.js";
 import { TranscriptSurface } from "./transcript-surface.js";
 import { ProviderGlyph } from "./provider-glyph.js";
 
@@ -118,7 +118,7 @@ const markdownComponents: Components = {
     const lang = match?.[1] ?? "text";
     return (
       <SyntaxHighlighter
-        style={atomOneDark}
+        style={OPERATOR_CODE_SYNTAX_STYLE}
         language={lang}
         PreTag="div"
         customStyle={{ borderRadius: "0.375rem", fontSize: "0.75rem", marginTop: "0.5rem", marginBottom: "0.5rem" }}

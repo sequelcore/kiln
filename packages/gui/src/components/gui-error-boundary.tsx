@@ -54,7 +54,7 @@ export class GuiErrorBoundary extends Component<GuiErrorBoundaryProps, GuiErrorB
               <p className="mt-1 text-sm leading-6 text-[var(--color-text-muted)]">
                 The interface hit a render-time failure. Reload the GUI to start a clean surface.
               </p>
-              <code className="mt-3 block max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 font-mono text-xs text-[var(--color-text-muted)]">
+              <code className="mt-3 block max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border)] bg-code-background px-3 py-2 font-mono text-xs text-code-foreground">
                 {this.state.error.message}
               </code>
               <Button type="button" variant="outline" size="sm" className="mt-4" onClick={this.reload}>

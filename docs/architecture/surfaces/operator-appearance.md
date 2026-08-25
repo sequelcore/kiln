@@ -37,7 +37,10 @@ effective scheme, theme, palette, and explicit fallback evidence. The GUI can
 observe the operating-system color scheme and re-resolves `system` changes.
 The TUI cannot do so reliably, therefore `system` resolves to the documented
 dark fallback. A surface may adapt semantic colors to CSS or terminal-safe
-sRGB, but may not own another palette.
+sRGB, but may not own another palette. Inline code, fenced code, source
+viewers, and terminal output consume their canonical foreground/background
+pairs. Renderer-specific syntax scopes may map to existing semantic roles, but
+must not introduce fixed light or dark editor palettes.
 
 `operator_set_theme` is a live session actuator only. Runtime sends one
 `operator_theme_set` frame to an attached GUI or TUI and reports its
@@ -63,5 +66,7 @@ package and implementing only its renderer adapter and observation capability.
 - Canonical preferences admit only built-in themes with a variant matching the
   selected scheme. Missing system observation resolves deterministically.
 - Theme definitions must pass structural and semantic contrast validation.
+- Conversation code foreground/background must meet the normal-text contrast
+  gate independently of the surrounding message surface.
 - GUI and TUI projection tests prove their renderer mappings; configuration
   tests prove canonical admission and revision-fenced writes.

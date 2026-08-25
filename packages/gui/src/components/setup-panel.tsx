@@ -194,7 +194,7 @@ function EffectiveConfigurationCard(props: { readonly snapshot: KilnConfigSetupS
           ) : props.snapshot.fields.map((field) => (
             <details key={field.identity} className="group px-4 py-3 text-sm">
               <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-medium text-foreground">
-                <code className="min-w-0 break-all text-xs">{field.identity}</code>
+                <code className="min-w-0 break-all text-xs text-code-foreground">{field.identity}</code>
                 <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
                   <span>{field.source}</span>
                   <Badge variant={field.health === "current" ? "outline" : "destructive"}>{field.health}</Badge>
@@ -206,7 +206,7 @@ function EffectiveConfigurationCard(props: { readonly snapshot: KilnConfigSetupS
                 <div className="sm:col-span-2"><dt className="font-medium text-foreground">Source</dt><dd className="break-all">{field.sourcePath}</dd></div>
                 <div className="sm:col-span-2"><dt className="font-medium text-foreground">Override chain</dt><dd>{field.overrideChain.map((step) => `${step.scope}: ${step.disposition}`).join(" → ")}</dd></div>
               </dl>
-              <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-muted/50 p-3 text-xs text-foreground">{
+              <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-code-background p-3 text-xs text-code-foreground">{
                 field.redacted ? "present (redacted)" : JSON.stringify(field.value, null, 2)
               }</pre>
             </details>

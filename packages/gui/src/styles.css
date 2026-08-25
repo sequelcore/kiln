@@ -81,6 +81,10 @@
   --color-background-element: var(--kiln-secondary);
   --color-surface-raised: var(--kiln-surface-raised);
   --color-surface-sunken: var(--kiln-code-background);
+  --color-code-background: var(--kiln-code-background);
+  --color-code-foreground: var(--kiln-code-foreground);
+  --color-terminal-background: var(--kiln-terminal-background);
+  --color-terminal-foreground: var(--kiln-terminal-foreground);
   --color-surface-hover: var(--kiln-accent-surface);
   --color-surface-selected: var(--kiln-sidebar-selected);
   --color-border-subtle: var(--kiln-sidebar-border);
@@ -317,8 +321,8 @@ body {
 .markdown-body code {
   border: 1px solid var(--color-border);
   border-radius: 0.25rem;
-  background: color-mix(in oklch, var(--color-background-element) 85%, transparent);
-  color: var(--color-accent);
+  background: var(--color-code-background);
+  color: var(--color-code-foreground);
   padding: 0.08rem 0.3rem;
   overflow-wrap: anywhere;
   white-space: break-spaces;
@@ -327,7 +331,7 @@ body {
 .markdown-body pre {
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
-  background: var(--color-background);
+  background: var(--color-code-background);
   max-width: 100%;
   overflow-x: auto;
   padding: 0.6rem;
@@ -336,7 +340,7 @@ body {
 .markdown-body pre code {
   border: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--color-code-foreground);
   padding: 0;
   white-space: pre;
 }
@@ -379,7 +383,7 @@ body {
 .kiln-json-view__boolean,
 .kiln-json-view__null,
 .kiln-json-view__undefined {
-  color: var(--color-warning);
+  color: var(--color-info);
 }
 
 .kiln-json-view__other,

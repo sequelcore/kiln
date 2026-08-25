@@ -119,7 +119,7 @@ function CodeBlock(props: { readonly content: string; readonly language?: string
 function PlainCodeBlock(props: { readonly content: string }) {
   const lines = props.content.split(/\r?\n/);
   return (
-    <pre data-testid="workspace-code" className="grid min-w-max grid-cols-[3.5rem_minmax(0,1fr)] px-0 py-3 font-mono text-[12px] leading-5 text-foreground">
+    <pre data-testid="workspace-code" className="grid min-w-max grid-cols-[3.5rem_minmax(0,1fr)] bg-code-background px-0 py-3 font-mono text-[12px] leading-5 text-code-foreground">
       {lines.map((line, index) => (
         <span key={`${index}:${line}`} className="contents">
           <span className="select-none border-r border-border/50 bg-workspace-viewer-gutter px-3 text-right text-muted-foreground/65">
@@ -151,12 +151,12 @@ function MarkdownPreview(props: { readonly content: string }) {
               <blockquote className="my-4 border-l-2 border-border pl-4 text-muted-foreground">{children}</blockquote>
             ),
             code: ({ children }) => (
-              <code className="rounded border border-border/60 bg-workspace-viewer-panel px-1.5 py-0.5 font-mono text-[12px]">
+              <code className="rounded border border-border/60 bg-code-background px-1.5 py-0.5 font-mono text-[12px] text-code-foreground">
                 {children}
               </code>
             ),
             pre: ({ children }) => (
-              <pre className="my-4 overflow-auto rounded-md border border-border/70 bg-workspace-viewer-panel p-3 font-mono text-[12px] leading-5">
+              <pre className="my-4 overflow-auto rounded-md border border-border/70 bg-code-background p-3 font-mono text-[12px] leading-5 text-code-foreground">
                 {children}
               </pre>
             ),

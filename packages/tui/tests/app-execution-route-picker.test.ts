@@ -209,10 +209,14 @@ vi.mock("@opentui/core", () => {
       return renderer;
     },
     TextRenderable: MockTextRenderable,
+    MarkdownRenderable: MockTextRenderable,
     BoxRenderable: MockTextRenderable,
     TextareaRenderable: MockTextRenderable,
     ScrollBoxRenderable: MockTextRenderable,
     RGBA: class {},
+    SyntaxStyle: {
+      fromTheme: () => ({ destroy: () => undefined }),
+    },
     fg: () => (value: unknown) => stringify(value),
     t: (strings: TemplateStringsArray, ...values: unknown[]) => strings.reduce(
       (result, segment, index) => result + segment + (index < values.length ? stringify(values[index]) : ""),
@@ -244,6 +248,8 @@ const TEST_THEME: KilnTheme = {
   toolFg: "#22dd88",
   thinkingFg: "#999999",
   cursorFg: "#ffffff",
+  codeBg: "#111111",
+  codeFg: "#ffffff",
 };
 
 async function flushUi(): Promise<void> {

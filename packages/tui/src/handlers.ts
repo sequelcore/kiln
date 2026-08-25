@@ -7,9 +7,9 @@ import {
   BoxRenderable,
   TextRenderable,
   MarkdownRenderable,
-  SyntaxStyle,
   t,
   fg,
+  type SyntaxStyle,
   type CliRenderer,
   type ScrollBoxRenderable,
 } from "@opentui/core";
@@ -36,6 +36,10 @@ import {
 } from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
+import {
+  applyTuiMarkdownCodeMaterial,
+  createTuiMarkdownNodeRenderer,
+} from "./markdown-code-material.js";
 
 /**
  * Context object passed to all handlers.
@@ -43,7 +47,8 @@ import type { UIComponents } from "./ui.js";
 export interface HandlerContext {
   renderer: CliRenderer;
   state: ReactiveState;
-  theme: KilnTheme;
+  theme: () => KilnTheme;
+  markdownSyntaxStyle: () => SyntaxStyle;
   ui: UIComponents;
   chatScrollBox: ScrollBoxRenderable;
   sidebarToolsBox: ScrollBoxRenderable;
@@ -124,7 +129,7 @@ export async function handleTextDelta(
         paddingBottom: 1,
         paddingLeft: 2,
         paddingRight: 2,
-        backgroundColor: ctx.theme.assistantBg,
+        backgroundColor: ctx.theme().assistantBg,
       });
       ctx.chatScrollBox.content.add(assistantBox);
 
@@ -133,7 +138,7 @@ export async function handleTextDelta(
       const model = assistantData.model;
       const routeLabel = model ? `${provider} · ${model}` : provider;
       const headerNode = new TextRenderable(ctx.renderer, {
-        content: t`${fg(ctx.theme.textMuted)("[" + routeLabel + "]")}`,
+        content: t`${fg(ctx.theme().textMuted)("[" + routeLabel + "]")}`,
         width: "100%",
       });
       assistantBox.add(headerNode);
@@ -143,9 +148,10 @@ export async function handleTextDelta(
         content,
         width: "100%",
         streaming: true,
-        fg: ctx.theme.text,
+        fg: ctx.theme().text,
         conceal: true,
-        syntaxStyle: SyntaxStyle.create(),
+        syntaxStyle: ctx.markdownSyntaxStyle(),
+        renderNode: createTuiMarkdownNodeRenderer(ctx.theme),
       });
       assistantBox.add(assistantData.markdown);
       assistantData.node = assistantData.markdown;
@@ -155,6 +161,7 @@ export async function handleTextDelta(
       assistantData.msg.content += content;
       if (assistantData.markdown) {
         assistantData.markdown.content = assistantData.msg.content;
+        applyTuiMarkdownCodeMaterial(assistantData.markdown, ctx.theme());
       }
       update(ctx.state, "messages", [...ctx.state.messages]);
     }
@@ -193,11 +200,11 @@ export function handleToolUse(
     paddingBottom: 1,
     paddingLeft: 2,
     paddingRight: 2,
-    backgroundColor: ctx.theme.background,
+    backgroundColor: ctx.theme().background,
   });
   ctx.chatScrollBox.content.add(msgBox);
   const node = new TextRenderable(ctx.renderer, {
-    content: t`${fg(ctx.theme.toolFg)("⟳ " + (toolName ?? "tool"))}${fg(ctx.theme.textMuted)(inputPreview)}`,
+    content: t`${fg(ctx.theme().toolFg)("⟳ " + (toolName ?? "tool"))}${fg(ctx.theme().textMuted)(inputPreview)}`,
     width: "100%",
   });
   msgBox.add(node);
@@ -215,10 +222,10 @@ export function handleToolUse(
   const countStr = count > 1 ? ` ×${count}` : "";
 
   if (ctx.sidebarToolNode) {
-    ctx.sidebarToolNode.content = t`${fg(ctx.theme.toolFg)("⟳ ")}${fg(ctx.theme.text)(toolName)}${fg(ctx.theme.textMuted)(countStr)}`;
+    ctx.sidebarToolNode.content = t`${fg(ctx.theme().toolFg)("⟳ ")}${fg(ctx.theme().text)(toolName)}${fg(ctx.theme().textMuted)(countStr)}`;
   } else {
     const sidebarToolNode = new TextRenderable(ctx.renderer, {
-      content: t`${fg(ctx.theme.toolFg)("⟳ ")}${fg(ctx.theme.text)(toolName)}${fg(ctx.theme.textMuted)(countStr)}`,
+      content: t`${fg(ctx.theme().toolFg)("⟳ ")}${fg(ctx.theme().text)(toolName)}${fg(ctx.theme().textMuted)(countStr)}`,
       width: "100%",
     });
     ctx.sidebarToolsBox.content.add(sidebarToolNode);
@@ -243,7 +250,7 @@ export function handleToolResult(
   );
   if (entry) {
     entry.msg.content = truncated;
-    entry.node.content = t`${fg(ctx.theme.toolFg)("⟳ " + (entry.msg.toolName ?? "tool"))}`;
+    entry.node.content = t`${fg(ctx.theme().toolFg)("⟳ " + (entry.msg.toolName ?? "tool"))}`;
   }
 
   update(ctx.state, "currentActivity", {
@@ -398,7 +405,7 @@ export function handleToolOutput(
   const combined = `${entry.msg.content}${output}`;
   entry.msg.content = combined.length > 4_096 ? combined.slice(-4_096) : combined;
   const visible = entry.msg.content.split(/\r?\n/u).slice(-8).join("\n").trimEnd();
-  entry.node.content = t`${fg(ctx.theme.toolFg)("âŸ³ " + toolName)}${visible ? `\n${visible}` : ""}`;
+  entry.node.content = t`${fg(ctx.theme().toolFg)("âŸ³ " + toolName)}${visible ? `\n${visible}` : ""}`;
   update(ctx.state, "messages", [...ctx.state.messages]);
 }
 
@@ -517,11 +524,11 @@ export function handleError(
     paddingBottom: 1,
     paddingLeft: 2,
     paddingRight: 2,
-    backgroundColor: ctx.theme.background,
+    backgroundColor: ctx.theme().background,
   });
   ctx.chatScrollBox.content.add(msgBox);
   const node = new TextRenderable(ctx.renderer, {
-    content: t`${fg(ctx.theme.error)("error")}: ${message}`,
+    content: t`${fg(ctx.theme().error)("error")}: ${message}`,
     width: "100%",
   });
   msgBox.add(node);
@@ -587,11 +594,11 @@ export async function sendMessage(
     paddingBottom: 1,
     paddingLeft: 2,
     paddingRight: 2,
-    backgroundColor: ctx.theme.userBg,
+    backgroundColor: ctx.theme().userBg,
   });
   ctx.chatScrollBox.content.add(msgBox);
   const userNode = new TextRenderable(ctx.renderer, {
-    content: t`${fg(ctx.theme.userFg)("you")}: ${text}`,
+    content: t`${fg(ctx.theme().userFg)("you")}: ${text}`,
     width: "100%",
   });
   msgBox.add(userNode);
@@ -692,7 +699,7 @@ export async function sendMessage(
             const routeLabel = assistantData.model
               ? `${assistantData.provider} · ${assistantData.model}`
               : assistantData.provider;
-            assistantData.headerNode.content = t`${fg(ctx.theme.textMuted)("[" + routeLabel + "]")}`;
+            assistantData.headerNode.content = t`${fg(ctx.theme().textMuted)("[" + routeLabel + "]")}`;
           }
           handleCompleted(
             ctx,

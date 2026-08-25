@@ -4,7 +4,8 @@ Pure appearance policy for Kiln's operator surfaces.
 
 This package owns the shared semantic OKLCH palettes, built-in Automata,
 Phosphor, and Vesper theme definitions, boundary validation, contrast checks,
-and deterministic resolution of an appearance preference. It has no filesystem,
+including the conversation-code adjacency, and deterministic resolution of an
+appearance preference. It has no filesystem,
 DOM, configuration, frame, watcher, or lifecycle dependencies. Renderers should
 project the resolved palette into their own representations.
 

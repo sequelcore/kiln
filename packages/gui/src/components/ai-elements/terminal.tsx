@@ -258,7 +258,7 @@ export const Terminal = ({
     <TerminalContext.Provider value={contextValue}>
       <div
         className={cn(
-          "flex flex-col overflow-hidden rounded-md border border-border/70 bg-background/60 text-foreground",
+          "flex flex-col overflow-hidden rounded-md border border-border/70 bg-terminal-background text-terminal-foreground",
           className
         )}
         {...props}

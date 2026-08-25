@@ -26,6 +26,12 @@ export const OPERATOR_SEMANTIC_CONTRAST_ADJACENCIES: readonly SemanticContrastAd
     minimumRatio: 4.5,
   },
   {
+    id: "conversation.code.foreground-on-conversation.code.background",
+    foreground: "conversation.code.foreground",
+    background: "conversation.code.background",
+    minimumRatio: 7,
+  },
+  {
     id: "sidebar.foreground-on-sidebar.background",
     foreground: "sidebar.foreground",
     background: "sidebar.background",
@@ -115,6 +121,9 @@ function colorAtPath(palette: OperatorThemePalette, path: string): OperatorColor
   }
   if (section === "control" && role !== undefined && role in palette.control) {
     return palette.control[role as keyof OperatorThemePalette["control"]];
+  }
+  if (section === "conversation" && role === "code" && nestedRole !== undefined && nestedRole in palette.conversation.code) {
+    return palette.conversation.code[nestedRole as keyof OperatorThemePalette["conversation"]["code"]];
   }
   if (section === "sidebar" && role !== undefined && role in palette.sidebar) {
     return palette.sidebar[role as keyof OperatorThemePalette["sidebar"]];

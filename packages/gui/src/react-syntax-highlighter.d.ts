@@ -25,9 +25,3 @@ declare module "react-syntax-highlighter/dist/esm/languages/prism/*" {
   const language: unknown;
   export default language;
 }
-
-declare module "react-syntax-highlighter/dist/esm/styles/hljs" {
-  import type * as React from "react";
-
-  export const atomOneDark: Record<string, React.CSSProperties>;
-}

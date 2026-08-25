@@ -205,10 +205,15 @@ function ToolPreviewText(props: { readonly text: string; readonly outputKind: st
   return (
     <pre
       className={cn(
-        "max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground",
+        "max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5",
+        props.outputKind === "code" || props.outputKind === "diff"
+          ? "bg-code-background text-code-foreground"
+          : props.outputKind === "command"
+            ? "bg-terminal-background text-terminal-foreground"
+            : "text-foreground",
         props.outputKind === "tree"
           ? "rounded-md bg-background/35 px-3 py-2"
-          : "border-l border-border/70 bg-transparent px-3 py-1.5",
+          : "border-l border-border/70 px-3 py-1.5",
       )}
     >
       {lines.map((line, index) => (
@@ -316,7 +321,7 @@ function JsonPreviewText(props: { readonly text: string }) {
   const data = parseJsonPreview(props.text);
   if (!data) return <ToolPreviewText text={props.text} outputKind="code" />;
   return (
-    <div className="max-h-56 max-w-full overflow-auto rounded-md bg-background/35 px-3 py-2 font-mono text-[11px] leading-5 text-foreground">
+    <div className="max-h-56 max-w-full overflow-auto rounded-md bg-code-background px-3 py-2 font-mono text-[11px] leading-5 text-code-foreground">
       <JsonView
         aria-label="JSON output"
         compactTopLevel
@@ -964,7 +969,7 @@ function FileChangedDetails(props: { readonly entry: TimelineEventEntry }) {
       {diffPreview ? (
         <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-background-element)] p-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Diff</p>
-          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1.5 text-[11px] leading-5 text-[var(--color-text)]">
+          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-code-background px-2 py-1.5 text-[11px] leading-5 text-code-foreground">
             {diffPreview}
           </pre>
           {diffTruncated ? (

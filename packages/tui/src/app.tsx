@@ -4,7 +4,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { createCliRenderer, TextRenderable } from "@opentui/core";
+import { createCliRenderer, MarkdownRenderable, SyntaxStyle, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
 import {
   getGuiProviderMetadata,
@@ -59,6 +59,8 @@ import {
   renderSlashPopover,
 } from "./render.js";
 import { setTuiOperatorThemeHandler } from "./operator-theme-handler.js";
+import { createTuiMarkdownSyntaxTheme } from "./markdown-syntax-theme.js";
+import { applyTuiMarkdownCodeMaterial } from "./markdown-code-material.js";
 
 export interface ProviderDisplayInfo {
   readonly id: string;
@@ -145,6 +147,7 @@ export async function startTui(
   };
 
   let currentTheme = theme;
+  let markdownSyntaxStyle = SyntaxStyle.fromTheme(createTuiMarkdownSyntaxTheme(currentTheme));
   let localThemeIndex = 0;
   let themePickerOpen = false;
   let themePicker: ReturnType<typeof createThemePicker> | null = null;
@@ -382,7 +385,8 @@ export async function startTui(
         {
           renderer,
           state,
-          theme: currentTheme,
+          theme: () => currentTheme,
+          markdownSyntaxStyle: () => markdownSyntaxStyle,
           ui,
           chatScrollBox: ui.chatScrollBox,
           sidebarToolsBox: ui.sidebarToolsBox,
@@ -1276,6 +1280,8 @@ export async function startTui(
 
   function applyTheme(newTheme: KilnTheme): void {
     currentTheme = newTheme;
+    const previousMarkdownSyntaxStyle = markdownSyntaxStyle;
+    markdownSyntaxStyle = SyntaxStyle.fromTheme(createTuiMarkdownSyntaxTheme(currentTheme));
     renderer.setBackgroundColor(currentTheme.background);
     ui.rootContainer.backgroundColor = currentTheme.background;
     ui.chatColumn.backgroundColor = currentTheme.background;
@@ -1310,7 +1316,15 @@ export async function startTui(
               ? currentTheme.assistantBg
               : currentTheme.background;
       }
+      if (node instanceof MarkdownRenderable) {
+        node.fg = currentTheme.text;
+        node.syntaxStyle = markdownSyntaxStyle;
+        node.clearCache();
+        applyTuiMarkdownCodeMaterial(node, currentTheme);
+      }
     }
+
+    previousMarkdownSyntaxStyle.destroy();
 
     update(state, "messages", [...state.messages]);
   }
@@ -1928,7 +1942,8 @@ export async function startTui(
           {
             renderer,
             state,
-            theme: currentTheme,
+            theme: () => currentTheme,
+            markdownSyntaxStyle: () => markdownSyntaxStyle,
             ui,
             chatScrollBox: ui.chatScrollBox,
             sidebarToolsBox: ui.sidebarToolsBox,
@@ -2070,5 +2085,6 @@ export async function startTui(
   });
 
   await new Promise<void>((resolve) => renderer.once("destroy", resolve));
+  markdownSyntaxStyle.destroy();
   clearOperatorThemeHandler();
 }

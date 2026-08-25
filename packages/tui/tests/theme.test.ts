@@ -36,6 +36,8 @@ describe("TUI themes", () => {
       toolFg: operatorColorToHex(shared.status.success.foreground),
       thinkingFg: operatorColorToHex(shared.text.muted),
       cursorFg: operatorColorToHex(shared.terminal.cursor),
+      codeBg: operatorColorToHex(shared.conversation.code.background),
+      codeFg: operatorColorToHex(shared.conversation.code.foreground),
     });
   });
 });

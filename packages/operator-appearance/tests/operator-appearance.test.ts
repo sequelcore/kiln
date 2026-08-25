@@ -85,6 +85,21 @@ describe("operator appearance public policy", () => {
     const invalidContrast = validateSemanticAdjacencyContrast(invalidContrastPalette);
     expect(invalidContrast.valid).toBe(false);
     expect(invalidContrast.violations.map((violation) => violation.id)).toContain("text.default-on-surface.default");
+
+    const invalidCodeContrastPalette: OperatorThemePalette = {
+      ...lightPalette,
+      conversation: {
+        ...lightPalette.conversation,
+        code: {
+          ...lightPalette.conversation.code,
+          foreground: lightPalette.conversation.code.background,
+        },
+      },
+    };
+    const invalidCodeContrast = validateSemanticAdjacencyContrast(invalidCodeContrastPalette);
+    expect(invalidCodeContrast.violations.map((violation) => violation.id)).toContain(
+      "conversation.code.foreground-on-conversation.code.background",
+    );
   });
 
   it("resolves explicit and observed system schemes", () => {

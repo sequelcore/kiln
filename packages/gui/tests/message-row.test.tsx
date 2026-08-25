@@ -64,6 +64,31 @@ describe("MessageRow", () => {
     expect(container.querySelector(".markdown-body")).not.toBeNull();
   });
 
+  it("renders inline and fenced code through the operator code-theme adapter", () => {
+    const { container } = render(
+      <MessageRow
+        message={{
+          id: "msg-themed-code",
+          role: "assistant",
+          content: "Created `settings.yaml`.\n\n```typescript\nconst ready = true;\n```",
+          createdAt: "2026-08-24T00:00:00.000Z",
+          parts: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("settings.yaml").tagName).toBe("CODE");
+    const fencedCode = container.querySelector("code.language-typescript");
+    expect(fencedCode).not.toBeNull();
+    expect(fencedCode).toHaveTextContent("const ready = true;");
+    const highlightedBlock = fencedCode?.parentElement;
+    expect(highlightedBlock).toHaveStyle({
+      color: "var(--color-code-foreground)",
+      background: "var(--color-code-background)",
+    });
+    expect(container.querySelector(".markdown-body")).not.toBeNull();
+  });
+
   it("keeps wide markdown tables horizontally scrollable instead of squeezing columns", () => {
     render(
       <MessageRow
