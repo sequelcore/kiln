@@ -958,6 +958,7 @@ describe("createBenchmarkSessionExecutor", () => {
       .map((tool: { readonly name?: string }) => tool.name)).toContain("lemma_check");
     expect(treatment.metadata?.toolProjectionHash).toEqual(expect.any(String));
     expect(control.metadata?.toolProjectionHash).not.toBe(treatment.metadata?.toolProjectionHash);
+    expect(control.metadata?.verifierHash).toBe(treatment.metadata?.verifierHash);
     expect(benchmarkExecutorMocks.createPrivateFormalScreeningWorkspaceLease).toHaveBeenCalledTimes(2);
   });
 

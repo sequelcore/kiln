@@ -995,7 +995,7 @@ function computeFormalVerifierHash(screeningCase: PrivateFormalScreeningCaseFact
   return digestCanonicalValue({
     verifierId: "kiln.backend-write.v2",
     verifierVersion: "2",
-    benchmarkCaseId: screeningCase.id,
+    benchmarkCaseId: screeningCase.pairId,
     testDigest: screeningCase.hiddenTestDigest,
     hiddenTestCount: screeningCase.hiddenTestCount,
     allowedChangedPaths: screeningCase.allowedChangedPaths,
