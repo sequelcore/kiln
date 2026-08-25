@@ -297,8 +297,8 @@ const guiOperatorTransportDefaults = (() => {
         yield { type: "done" as const, content: "" };
       },
     }),
-    persistCanonicalSessionEvent: async () => undefined,
-  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvent">;
+    persistCanonicalSessionEvents: async () => undefined,
+  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvents">;
 })();
 
 vi.mock("hono/bun", () => ({

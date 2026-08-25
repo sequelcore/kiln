@@ -6,6 +6,7 @@ import {
   type ContinuationSidebarInfo,
 } from "../application/continuation-sidebar-info.js";
 import { loadOperatorSessionSummaries } from "../application/operator-session-history.js";
+import { createOperatorSessionEventPersistence } from "../application/operator-session-event-persistence.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
 import {
@@ -123,9 +124,9 @@ import {
   OperatorSessionExecutionBridge,
   getProjectContextArtifactCache,
   withManagedInvocationService,
+  type CanonicalSessionEventPersistence,
   type OperatorExecutionRouteSelectionPort,
   type ConfiguredExecutionCredential,
-  type OperatorAdoptionDecisionPersistence,
 } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
@@ -195,8 +196,8 @@ interface TuiBootstrapOptions {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: import("@kilnai/runtime").AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
-  /** Durable transcript sink for pre-round governed adoption decisions. */
-  readonly persistCanonicalSessionEvent?: OperatorAdoptionDecisionPersistence;
+  /** Durable canonical session history shared by local operator surfaces. */
+  readonly persistCanonicalSessionEvents: CanonicalSessionEventPersistence;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -1135,7 +1136,7 @@ async function bootstrapGatewaySession(
     managedInvocation: options.managedInvocation,
     boundedWork: options.boundedWork,
     sessionTurnBudget: options.sessionTurnBudget,
-    persistCanonicalSessionEvent: options.persistCanonicalSessionEvent,
+    persistCanonicalSessionEvents: options.persistCanonicalSessionEvents,
     resumeSessionHydrator: options.resumeSessionHydrator,
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
@@ -1526,6 +1527,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const sessionStore = new SessionStore(projectStateBinding);
   const transcriptStore = new TranscriptStore(projectStateBinding);
+  const persistCanonicalSessionEvents = createOperatorSessionEventPersistence({
+    sessionStore,
+    transcriptStore,
+    workingDirectory: cwd,
+  });
   const operatorAdmissionEvidenceStore = new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore);
   ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.runtimePath);
   for (const fileName of [
@@ -1741,12 +1747,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     managedInvocation: managedInvocationForGateway,
     boundedWork: boundedWork.surface,
     sessionTurnBudget,
-    persistCanonicalSessionEvent: async (event) => {
-      await transcriptStore.appendManyNext(
-        event.kilnSessionId,
-        [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
-      );
-    },
+    persistCanonicalSessionEvents,
     resumeSessionHydrator,
     operatorVoice,
     initialProviderDiscovery,

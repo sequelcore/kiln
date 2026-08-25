@@ -27,7 +27,6 @@ import type { RuntimeToolActionClaimsContext } from "../execution-kernel/runtime
 import {
   hasGovernedGoalTools,
   prepareOperatorAdoptionTurn,
-  requireOperatorAdoptionDecisionPersistence,
 } from "../session/operator-adoption-authority.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeAuthorityAdmissionCandidateConfig } from "../session/runtime-session-orchestrator.types.js";
@@ -995,7 +994,7 @@ function wireOperatorTransport(
           session,
           actorId: payload.userId,
           correlationId: request.executionId,
-          persist: requireOperatorAdoptionDecisionPersistence(input.transport.persistCanonicalSessionEvent),
+          persist: (event) => input.transport.persistCanonicalSessionEvents([event]),
         });
         const admittedPerCallConfig = {
           ...perCallConfig,
@@ -1174,7 +1173,7 @@ function wireOperatorTransport(
       userParts: payload.userParts,
       channel: "gui",
       resumeSessionHydrator: input.transport.resumeSessionHydrator,
-      persistCanonicalSessionEvent: input.transport.persistCanonicalSessionEvent,
+      persistCanonicalSessionEvents: input.transport.persistCanonicalSessionEvents,
       providerValidation: payload.providerDiscovery,
       contextUsageWindow: contextUsageWindowEvidence(
         committed.admission.providerId,

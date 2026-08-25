@@ -58,7 +58,10 @@ import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberatio
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn } from "./message-pipeline/index.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
-import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
+import type {
+  CanonicalSessionEventPersistence,
+  RuntimeSessionHydrator,
+} from "./message-pipeline/index.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -112,8 +115,6 @@ import {
 import {
   hasGovernedGoalTools,
   prepareOperatorAdoptionTurn,
-  requireOperatorAdoptionDecisionPersistence,
-  type OperatorAdoptionDecisionPersistence,
 } from "../session/operator-adoption-authority.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
@@ -184,8 +185,8 @@ export interface TuiGatewayOptions {
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
-  /** Durable transcript sink required before governed goal tools can run. */
-  readonly persistCanonicalSessionEvent?: OperatorAdoptionDecisionPersistence;
+  /** Durable canonical session history shared by every local operator surface. */
+  readonly persistCanonicalSessionEvents: CanonicalSessionEventPersistence;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
@@ -600,7 +601,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           session,
           actorId: payload.userId,
           correlationId: request.executionId,
-          persist: requireOperatorAdoptionDecisionPersistence(options.persistCanonicalSessionEvent),
+          persist: (event) => options.persistCanonicalSessionEvents([event]),
         });
         const admittedPerCallConfig = {
           ...perCallConfig,
@@ -744,7 +745,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       userParts: payload.userParts,
       channel: "tui",
       resumeSessionHydrator: options.resumeSessionHydrator,
-      persistCanonicalSessionEvent: options.persistCanonicalSessionEvent,
+      persistCanonicalSessionEvents: options.persistCanonicalSessionEvents,
       providerValidation: payload.providerDiscovery,
       contextUsageWindow: buildTuiContextUsageWindowEvidence(
         committed.admission.providerId,

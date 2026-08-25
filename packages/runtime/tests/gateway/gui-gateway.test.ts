@@ -768,7 +768,7 @@ describe("GUI gateway HTTP and static assets", () => {
     const persistAuthority = vi.fn(async (bundle: import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle) => {
       persistedAuthorityBundle = bundle;
     });
-    const persistCanonicalSessionEvent = vi.fn().mockResolvedValue(undefined);
+    const persistCanonicalSessionEvents = vi.fn().mockResolvedValue(undefined);
     const freshRouting = guiTestRouting.create();
     vi.mocked(processAdmittedTurn).mockReset();
     vi.mocked(processAdmittedTurn).mockResolvedValue({
@@ -814,7 +814,7 @@ describe("GUI gateway HTTP and static assets", () => {
           },
           createProvider: createProvider as never,
           onClear,
-          persistCanonicalSessionEvent,
+          persistCanonicalSessionEvents,
           authorityAdmissionEvidenceStore: {
             persist: persistAuthority,
             loadSessionFacet: async () => undefined,
@@ -846,7 +846,7 @@ describe("GUI gateway HTTP and static assets", () => {
         vi.mocked(processAdmittedTurn).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
       );
       const persistedBundle = persistAuthority.mock.calls[0]?.[0];
-      const persistedAdoption = persistCanonicalSessionEvent.mock.calls[0]?.[0];
+      const persistedAdoption = persistCanonicalSessionEvents.mock.calls[0]?.[0]?.[0];
       expect(persistedBundle?.turnId).toBe(persistedAdoption?.operatorTurnId);
       expect(persistedAdoption?.correlationId).toEqual(expect.any(String));
       expect(persistAuthority.mock.invocationCallOrder[0]).toBeLessThan(

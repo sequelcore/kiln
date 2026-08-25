@@ -83,10 +83,7 @@ import {
   appendCanonicalTurnEvents,
   resolveCanonicalTurnIdentity,
 } from "../../session/runtime-session-event-ledger.js";
-import {
-  hasGovernedGoalTools,
-  type OperatorAdoptionDecisionPersistence,
-} from "../../session/operator-adoption-authority.js";
+import { hasGovernedGoalTools } from "../../session/operator-adoption-authority.js";
 import {
   type ContextUsageWindowEvidence
 } from "../../session/context-usage-projection.js";
@@ -173,6 +170,11 @@ import {
 } from "../../session/effective-authority-admission-bundle.js";
 import { assertPersistableAuthorityAdmissionBundle } from "../../session/authority-admission-evidence.js";
 import type { RuntimeMediaActionClaimContext } from "../../execution-kernel/runtime-media-action-claim.js";
+
+/** Durable sink for one canonical session-event batch committed by Runtime. */
+export type CanonicalSessionEventPersistence = (
+  events: readonly CanonicalSessionEvent[],
+) => Promise<void>;
 
 export interface AdmittedTurnContext {
   readonly orchestrator: RuntimeSessionOrchestrator;
@@ -265,8 +267,8 @@ export interface AdmittedTurnContext {
   };
   /** Publishes persisted canonical turn evidence to the active operator surface. */
   readonly publishCanonicalSessionEvents?: (events: readonly CanonicalSessionEvent[]) => void;
-  /** Durable transcript sink for governed operator adoption decisions. */
-  readonly persistCanonicalSessionEvent?: OperatorAdoptionDecisionPersistence;
+  /** Durable sink for canonical events produced by this turn. */
+  readonly persistCanonicalSessionEvents?: CanonicalSessionEventPersistence;
 }
 
 export interface RuntimeSessionHydrationResult {
@@ -1007,7 +1009,7 @@ async function invokeOrchestratorWithLedgerCapture(
       runtimeEvents: failureRuntimeEvents,
     });
     await ctx.sessionRegistry.save(session);
-    ctx.publishCanonicalSessionEvents?.(failureEvents);
+    await persistAndPublishCanonicalSessionEvents(ctx, failureEvents);
     await ctx.turnCapture?.abort?.(session.id);
     throw error;
   } finally {
@@ -1278,6 +1280,14 @@ async function finalizeEgressAndPersistTurn(
 
 type FinalizedTurn = Awaited<ReturnType<typeof finalizeEgressAndPersistTurn>>;
 
+async function persistAndPublishCanonicalSessionEvents(
+  ctx: AdmittedTurnContext,
+  events: readonly CanonicalSessionEvent[],
+): Promise<void> {
+  await ctx.persistCanonicalSessionEvents?.(events);
+  ctx.publishCanonicalSessionEvents?.(events);
+}
+
 /**
  * Persist the session and publish canonical session evidence, then return the
  * final `AdmittedTurnResult`.
@@ -1296,7 +1306,7 @@ async function finalizeAndPersistTurn(
   const { resultParts, egressContextSummary, egressToolExecutions, voiceSynthesis, completedTurnEvents } = finalized;
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);
-  ctx.publishCanonicalSessionEvents?.(completedTurnEvents);
+  await persistAndPublishCanonicalSessionEvents(ctx, completedTurnEvents);
 
 
   trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
@@ -1396,7 +1406,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         providerRequests: orchestration.result.providerRequests,
       });
       await ctx.sessionRegistry.save(state.session);
-      ctx.publishCanonicalSessionEvents?.(failureEvents);
+      await persistAndPublishCanonicalSessionEvents(ctx, failureEvents);
     }
     await ctx.turnCapture?.abort?.(state.session.id);
     throw error;

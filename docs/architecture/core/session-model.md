@@ -429,6 +429,14 @@ under the bound private project's
 ledger-only rows are not loadable conversations and must not appear in the
 operator history as compatibility fallbacks.
 
+The shared operator Runtime commits each completed or failed canonical turn-event
+batch through one durable persistence port before reporting the turn as committed.
+The CLI adapter for that port is the sole projection owner for local GUI and TUI:
+it appends the canonical transcript, derives `meta.json` from the complete
+idempotent event stream, and updates the completed-session index without changing
+the operator's explicit continuation target. Surfaces may stream or render the
+same events, but they do not own a second persistence path.
+
 On Windows, canonical session IDs can contain characters such as `:` that are
 invalid in directory names. Kiln therefore encodes the session ID only at the
 filesystem path boundary. The persisted metadata still stores the original

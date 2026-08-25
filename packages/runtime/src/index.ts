@@ -618,6 +618,7 @@ export type {
   AdmittedTurnContext,
   AdmittedTurnResult,
   BudgetDeniedResult,
+  CanonicalSessionEventPersistence,
   ProcessResult,
   RuntimeSessionHydrationResult,
   RuntimeSessionHydrator,

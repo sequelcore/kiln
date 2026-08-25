@@ -185,7 +185,7 @@ describe("SessionStore continuation targets", () => {
       await mkdir(state.projectStateRoot, { recursive: true });
       if (!await createDirectoryLink(outsideDir, state.sessionsPath)) return;
 
-      await store.append(makeRecord({ sessionId: "unsafe-root" }));
+      await expect(store.append(makeRecord({ sessionId: "unsafe-root" }))).rejects.toThrow();
 
       await expect(readFile(join(outsideDir, "sessions.jsonl"), "utf8")).rejects.toThrow();
       await expect(readFile(join(outsideDir, "continuation-targets.json"), "utf8")).rejects.toThrow();
@@ -394,12 +394,12 @@ describe("TranscriptStore", () => {
       await mkdir(state.projectStateRoot, { recursive: true });
       if (!await createDirectoryLink(outsideDir, state.sessionsPath)) return;
 
-      await store.init("unsafe-root", {
+      await expect(store.init("unsafe-root", {
         kilnSessionId: "unsafe-root",
         provider: "codex-oauth",
         task: "unsafe path test",
         startedAt: new Date().toISOString(),
-      });
+      })).rejects.toThrow();
 
       await expect(readFile(join(outsideDir, "unsafe-root", "meta.json"), "utf8")).rejects.toThrow();
     } finally {
@@ -414,12 +414,12 @@ describe("TranscriptStore", () => {
       await mkdir(state.sessionsPath, { recursive: true });
       if (!await createDirectoryLink(outsideDir, join(state.sessionsPath, encodeURIComponent(sessionId)))) return;
 
-      await store.init(sessionId, {
+      await expect(store.init(sessionId, {
         kilnSessionId: sessionId,
         provider: "codex-oauth",
         task: "unsafe path test",
         startedAt: new Date().toISOString(),
-      });
+      })).rejects.toThrow();
 
       await expect(readFile(join(outsideDir, "meta.json"), "utf8")).rejects.toThrow();
     } finally {

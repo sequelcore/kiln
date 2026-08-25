@@ -208,19 +208,15 @@ export class SessionStore {
   }
 
   async append(record: SessionRecord, options: SessionRecordAppendOptions = {}): Promise<void> {
-    try {
-      const dir = join(this.filePath, '..');
-      await ensurePrivateStateDirectory(this.baseDir, dir, true);
-      const currentRecords = await this.readRecords();
-      const previous = currentRecords.findLast((entry) => entry.sessionId === record.sessionId);
-      const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
-      records.push(mergeRepeatedSessionRecord(previous, record));
-      await this.writeRecords(records);
-      if (options.updateContinuationTarget !== false) {
-        await this.setContinuationTarget(record);
-      }
-    } catch (err) {
-      console.error('[SessionStore] Failed to append session record:', err);
+    const dir = join(this.filePath, '..');
+    await ensurePrivateStateDirectory(this.baseDir, dir, true);
+    const currentRecords = await this.readRecords();
+    const previous = currentRecords.findLast((entry) => entry.sessionId === record.sessionId);
+    const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
+    records.push(mergeRepeatedSessionRecord(previous, record));
+    await this.writeRecords(records);
+    if (options.updateContinuationTarget !== false) {
+      await this.setContinuationTarget(record);
     }
   }
 
@@ -756,15 +752,11 @@ export class TranscriptStore {
   }
 
   async init(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
-    try {
-      const dir = this.sessionDir(sessionId);
-      await ensurePrivateStateDirectory(this.baseDir, dir, true);
-      const filePath = join(dir, 'meta.json');
-      await assertPrivateStateFileTarget(this.baseDir, filePath);
-      await writeFile(filePath, serializePersistedMeta(meta), 'utf-8');
-    } catch {
-      // fail-open
-    }
+    const dir = this.sessionDir(sessionId);
+    await ensurePrivateStateDirectory(this.baseDir, dir, true);
+    const filePath = join(dir, 'meta.json');
+    await assertPrivateStateFileTarget(this.baseDir, filePath);
+    await writeFile(filePath, serializePersistedMeta(meta), 'utf-8');
   }
 
   async append(sessionId: string, event: PersistedTranscriptEvent): Promise<void> {

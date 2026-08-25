@@ -293,7 +293,7 @@ function makeSessionManager() {
 
 function makeTuiTestRouting(
   sessionManager: Pick<TuiGatewayOptions["sessionManager"], "getProvider" | "getModel">,
-): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvent"> {
+): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvents"> {
   const routing = tuiTestRouting.create(sessionManager.getProvider(), sessionManager.getModel());
   return {
     executionRouteSelection: routing.executionRouteSelection as never,
@@ -319,7 +319,7 @@ function makeTuiTestRouting(
         yield { type: "done" as const, content: "" };
       },
     }),
-    persistCanonicalSessionEvent: async () => undefined,
+    persistCanonicalSessionEvents: async () => undefined,
   };
 }
 

@@ -1433,8 +1433,8 @@ async function main(): Promise<void> {
       runtimeModelRoundActionClaims: operatorRouting.runtimeModelRoundActionClaims,
       runtimeToolActionClaims: operatorRouting.runtimeToolActionClaims,
       runtimeMediaActionClaims: operatorRouting.runtimeMediaActionClaims,
-      persistCanonicalSessionEvent: async (event) => {
-        canonicalSessionEvents.push(event);
+      persistCanonicalSessionEvents: async (events) => {
+        canonicalSessionEvents.push(...events);
       },
     },
   });

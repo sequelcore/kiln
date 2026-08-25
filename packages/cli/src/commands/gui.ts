@@ -66,7 +66,7 @@ import {
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
-import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../application/operator-transcript-projection.js";
+import { createOperatorSessionEventPersistence } from "../application/operator-session-event-persistence.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
 import { SqliteRuntimeToolActionClaimStore } from "../application/runtime-tool-action-claim-store.js";
@@ -202,6 +202,11 @@ export async function guiCommand(
   const provider = parseStartupProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
   const transcriptStore = new TranscriptStore(projectStateBinding);
+  const persistCanonicalSessionEvents = createOperatorSessionEventPersistence({
+    sessionStore,
+    transcriptStore,
+    workingDirectory: cwd,
+  });
   ensurePrivateStateDirectorySync(projectStateBinding.projectStateRoot, projectStateBinding.runtimePath);
   for (const fileName of [
     "managed-direct-tool-action-claims.sqlite",
@@ -555,12 +560,7 @@ export async function guiCommand(
       }),
       systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
-      persistCanonicalSessionEvent: async (event) => {
-        await transcriptStore.appendManyNext(
-          event.kilnSessionId,
-          [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
-        );
-      },
+      persistCanonicalSessionEvents,
       onContinueSession: async (sessionId, requestedRouteId) => {
         const meta = await transcriptStore.readMeta(sessionId);
         const binding = [...(meta?.executionBindings ?? [])].reverse().find((entry) => entry.status === "bound");

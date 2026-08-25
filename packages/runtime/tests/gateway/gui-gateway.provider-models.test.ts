@@ -420,7 +420,7 @@ describe("projectGuiOperatorModels", () => {
             persist: async (bundle) => { firstBundleWrites.push(bundle); },
             loadSessionFacet: async () => undefined,
           },
-          persistCanonicalSessionEvent: async (event) => { firstAdoptionWrites.push(event); },
+          persistCanonicalSessionEvents: async (events) => { firstAdoptionWrites.push(...events); },
         },
       });
       let connection = guiSocketHarness.simulateConnection({ userId: "restart-user" });
@@ -464,7 +464,7 @@ describe("projectGuiOperatorModels", () => {
               ...firstBundle.session,
             }),
           },
-          persistCanonicalSessionEvent: async (event) => { secondAdoptionWrites.push(event); },
+          persistCanonicalSessionEvents: async (events) => { secondAdoptionWrites.push(...events); },
         },
       });
       connection = guiSocketHarness.simulateConnection({ userId: "restart-user" });

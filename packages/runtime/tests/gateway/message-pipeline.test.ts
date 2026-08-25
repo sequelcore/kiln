@@ -373,7 +373,7 @@ describe("processAdmittedTurn", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("uses the persisted bundle and pre-admitted canonical adoption without allocating a second authority turn", async () => {
+  it("persists the canonical turn batch after using the pre-admitted adoption", async () => {
     const session = new RuntimeSession({
       sessionId: "session-authority",
       appName: "test-app",
@@ -381,14 +381,14 @@ describe("processAdmittedTurn", () => {
       userId: "user-1",
       systemPrompt: "You are a test assistant.",
     });
-    const persistCanonicalSessionEvent = vi.fn().mockResolvedValue(undefined);
+    const persistCanonicalSessionEvents = vi.fn().mockResolvedValue(undefined);
     const adoption = await prepareOperatorAdoptionTurn({
       session,
       actorId: "user-1",
       correlationId: "routing-execution-1",
-      persist: persistCanonicalSessionEvent,
+      persist: (event) => persistCanonicalSessionEvents([event]),
     });
-    persistCanonicalSessionEvent.mockClear();
+    persistCanonicalSessionEvents.mockClear();
     const revision = { revisionSetId: "R1", revisions: { execution: "R1" } } as const;
     const authority = {
       executionMode: "execute" as const,
@@ -428,7 +428,7 @@ describe("processAdmittedTurn", () => {
     await expect(processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
-      persistCanonicalSessionEvent,
+      persistCanonicalSessionEvents,
       authorityAdmission: bundle,
       perCallConfig: {
         turnCorrelationId: adoption.correlationId,
@@ -438,7 +438,12 @@ describe("processAdmittedTurn", () => {
       },
     }))).resolves.toMatchObject({ ok: true });
 
-    expect(persistCanonicalSessionEvent).not.toHaveBeenCalled();
+    expect(persistCanonicalSessionEvents).toHaveBeenCalledTimes(1);
+    expect(persistCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ kind: "turn_started", kilnSessionId: session.id }),
+      expect.objectContaining({ kind: "user_message", kilnSessionId: session.id }),
+      expect.objectContaining({ kind: "turn_completed", kilnSessionId: session.id }),
+    ]));
     expect(orchestrator.processMessage).toHaveBeenCalledWith(
       session,
       expect.any(Array),
@@ -448,6 +453,27 @@ describe("processAdmittedTurn", () => {
         authorityAdmission: bundle,
       }),
     );
+  });
+
+  it("does not report a committed turn when canonical session persistence fails", async () => {
+    const session = new RuntimeSession({
+      sessionId: "session-persistence-failure",
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    const persistCanonicalSessionEvents = vi.fn().mockRejectedValue(new Error("session store unavailable"));
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator: makeMockOrchestrator(),
+      sessionRegistry: makeMockSessionRegistry(session),
+      persistCanonicalSessionEvents,
+    }))).rejects.toThrow("session store unavailable");
+
+    expect(persistCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ kind: "turn_completed", kilnSessionId: session.id }),
+    ]));
   });
 
   it("rejects a same-ID mutated per-call authority bundle before projection", async () => {
