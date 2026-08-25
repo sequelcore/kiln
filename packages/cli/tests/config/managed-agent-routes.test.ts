@@ -541,6 +541,24 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
 }
 
 function defineHarnessChildAuthorityAdmission(sessionId: string, turnId: string) {
+  const resourceReadPermission = {
+    toolName: "resource_read",
+    authority: {
+      level: 1 as const,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Harness resource context is admitted for read-only fixture hydration",
+    },
+    effectEnvelope: {
+      operation: "observe" as const,
+      boundaries: ["workspace"] as const,
+      reversibility: "reversible" as const,
+      dataEgress: "none" as const,
+      identityUse: "none" as const,
+      consequences: ["local-state"] as const,
+      idempotency: "idempotent" as const,
+    },
+  };
   return {
     bundle: defineEffectiveAuthorityAdmissionBundle({
       sessionId,
@@ -562,12 +580,12 @@ function defineHarnessChildAuthorityAdmission(sessionId: string, turnId: string)
           sourcePolicy: "runtime_surface_projection",
           reason: "test harness admission",
           completeness: "authoritative",
-          toolCount: 0,
+          toolCount: 1,
           deniedToolCount: 0,
         },
         workGovernance: { status: "not-required" },
         operatorAdoption: { status: "not-required" },
-        tools: { allowedToolPermissions: [], deniedToolNames: [] },
+        tools: { allowedToolPermissions: [resourceReadPermission], deniedToolNames: [] },
         effectCeiling: {
           operation: "observe",
           boundaries: ["workspace"],

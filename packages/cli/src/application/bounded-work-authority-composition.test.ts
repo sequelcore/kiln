@@ -558,6 +558,15 @@ describe("bounded-work authority composition", () => {
         executionScope,
         formalVerificationObservations: Object.freeze([observation]),
         authority: { level: 1, allowed: true, requiresApproval: false, reason: "test authority" },
+        resolvedEffect: {
+          operation: "mutate",
+          boundaries: ["workspace"],
+          reversibility: "compensatable",
+          dataEgress: "metadata",
+          identityUse: "none",
+          consequences: ["local-state"],
+          idempotency: "non-idempotent",
+        },
       };
       const execution = await finishExecutor(executionContext.toolCall.input, executionContext);
       expect(execution.isError, execution.output).toBe(false);
@@ -735,6 +744,15 @@ describe("bounded-work authority composition", () => {
         executionScope,
         formalVerificationObservations: Object.freeze([observation]),
         authority: { level: 1, allowed: true, requiresApproval: false, reason: "test authority" },
+        resolvedEffect: {
+          operation: "mutate",
+          boundaries: ["workspace"],
+          reversibility: "compensatable",
+          dataEgress: "metadata",
+          identityUse: "none",
+          consequences: ["local-state"],
+          idempotency: "non-idempotent",
+        },
       };
       const finished = await finishExecutor(executionContext.toolCall.input, executionContext);
       expect(finished.isError, finished.output).toBe(false);

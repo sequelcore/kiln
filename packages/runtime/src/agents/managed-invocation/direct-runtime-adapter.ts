@@ -581,14 +581,24 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       };
       (perCallConfig as { runtimeToolActionClaims?: RuntimeToolActionClaimsContext }).runtimeToolActionClaims =
         runtimeToolActionClaims;
+      // Resource hydration is a host-owned context admission before provider execution,
+      // so it consumes the persisted parent-turn permission rather than exposing
+      // resource_read as a child-callable model tool.
+      const resourceReadPermission = childAuthority.bundle.turn.tools.allowedToolPermissions.find(
+        ({ toolName }) => toolName === "resource_read",
+      );
       const governedResourceContext = await buildManagedInvocationResourceContext({
         resourceUris: request.input.resourceUris,
         invocationId: request.invocationId,
         abortSignal,
-        resourceReader: createManagedInvocationRuntimeResourceReader({
-          builtinTools: runtimeBuiltinTools,
-          session: childSession,
-        }),
+        ...(resourceReadPermission
+          ? { resourceReader: createManagedInvocationRuntimeResourceReader({
+              builtinTools: runtimeBuiltinTools,
+              session: childSession,
+              authority: resourceReadPermission.authority,
+              resolvedEffect: resourceReadPermission.effectEnvelope,
+            }) }
+          : {}),
       });
       let result: OrchestrateResult;
       try {

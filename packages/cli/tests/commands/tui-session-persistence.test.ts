@@ -1816,7 +1816,7 @@ describe("makeMultiProviderSessionFactory", () => {
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(mockSessionManagerPrepare).toHaveBeenCalled();
@@ -1847,7 +1847,7 @@ describe("makeMultiProviderSessionFactory", () => {
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(mockStartTuiGateway).toHaveBeenCalledTimes(1);
@@ -1895,7 +1895,7 @@ describe("makeMultiProviderSessionFactory", () => {
       );
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(mockStartTui).not.toHaveBeenCalled();
@@ -1932,7 +1932,7 @@ describe("makeMultiProviderSessionFactory", () => {
       );
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(mockProjectGuiProviderModelDiscovery).not.toHaveBeenCalled();
@@ -1985,7 +1985,7 @@ describe("makeMultiProviderSessionFactory", () => {
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(mockStartTuiGateway).not.toHaveBeenCalled();
@@ -2076,7 +2076,7 @@ describe("makeMultiProviderSessionFactory", () => {
       initSpy.mockRestore();
       appendSpy.mockRestore();
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(runtimeSessionIds).toHaveLength(2);
@@ -2120,7 +2120,7 @@ describe("makeMultiProviderSessionFactory", () => {
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
 
     expect(switchToConfiguredRouteResult).toBe("openai-default");

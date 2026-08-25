@@ -207,8 +207,8 @@ function cliTestAdmission(input: {
     consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
     idempotency: "idempotent" as const,
   };
-  const toolPermissions = [{
-    toolName: "read",
+  const toolPermissions = ["read", "resource_read"].map((toolName) => ({
+    toolName,
     authority: {
       level: 1 as const,
       allowed: true,
@@ -216,7 +216,7 @@ function cliTestAdmission(input: {
       reason: "CLI direct provider test admission",
     },
     effectEnvelope: observeEffect,
-  }];
+  }));
   return defineEffectiveAuthorityAdmissionBundle({
     sessionId: input.parentSessionId,
     turnId: input.parentTurnId,

@@ -105,7 +105,10 @@ function directTestAdmission(
   const model = request.providerRoute.model ?? "test-model";
   const accountId = `direct-test-account:${request.invocationId}`;
   const credentialRevision = "direct-test-credential-revision";
-  const allowedToolNames = [...new Set(request.authority.toolAuthority.allowedToolNames)].sort();
+  const allowedToolNames = [...new Set([
+    ...request.authority.toolAuthority.allowedToolNames,
+    ...(request.input.resourceUris?.length ? ["resource_read"] : []),
+  ])].sort();
   const observeEffect = {
     operation: "observe" as const,
     boundaries: ["process", "workspace", "machine", "network", "external-system"] as const,

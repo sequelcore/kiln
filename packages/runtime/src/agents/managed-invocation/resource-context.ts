@@ -1,4 +1,6 @@
 import type {
+  AuthorityDescriptor,
+  ResolvedInvocationEffect,
   ToolCall,
   ToolResult,
 } from "@kilnai/core";
@@ -58,6 +60,8 @@ export async function buildManagedInvocationResourceContext(
 export function createManagedInvocationRuntimeResourceReader(input: {
   readonly builtinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly session: RuntimeSession;
+  readonly authority: AuthorityDescriptor;
+  readonly resolvedEffect: ResolvedInvocationEffect;
 }): ManagedInvocationResourceReader | undefined {
   const resourceRead = input.builtinTools.get("resource_read");
   if (!resourceRead) {
@@ -68,6 +72,8 @@ export function createManagedInvocationRuntimeResourceReader(input: {
       session: input.session,
       toolCall,
       abortSignal,
+      authority: input.authority,
+      resolvedEffect: input.resolvedEffect,
     });
 }
 

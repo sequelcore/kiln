@@ -28,6 +28,7 @@ import type {
   ModelDeliberationCapabilities,
   StructuredExecutionResult,
 } from "@kilnai/core";
+import type { EffectiveAuthorityAdmissionBundle } from "../../session/effective-authority-admission-bundle.js";
 import type {
   CliSession,
   CliSessionFactory,
@@ -196,7 +197,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const request = input.request;
     const childSessionId = `${request.parentSessionId}:managed:${request.invocationId}`;
     const cwd = request.authority.workingDirectory.path;
-    const resourceReader = this.resolveResourceReader(request, childSessionId);
+    const resourceReader = this.resolveResourceReader(request, childSessionId, childAuthorityAdmission);
     const resourceContext = await buildManagedInvocationResourceContext({
       resourceUris: request.input.resourceUris,
       invocationId: request.invocationId,
@@ -556,6 +557,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   private resolveResourceReader(
     request: ManagedAgentInvocationRequest,
     childSessionId: string,
+    authorityAdmission: EffectiveAuthorityAdmissionBundle,
   ): ManagedInvocationResourceReader | undefined {
     if (this.resourceReader) {
       return this.resourceReader;
@@ -563,6 +565,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     if (!this.builtinToolsProvider) {
       return undefined;
     }
+    const resourceReadPermission = authorityAdmission.turn.tools.allowedToolPermissions.find(
+      ({ toolName }) => toolName === "resource_read",
+    );
+    if (!resourceReadPermission) return undefined;
     return createManagedInvocationRuntimeResourceReader({
       builtinTools: this.builtinToolsProvider(),
       session: new RuntimeSession({
@@ -572,6 +578,8 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         userId: request.requestedBy,
         systemPrompt: request.input.summary,
       }),
+      authority: resourceReadPermission.authority,
+      resolvedEffect: resourceReadPermission.effectEnvelope,
     });
   }
 
