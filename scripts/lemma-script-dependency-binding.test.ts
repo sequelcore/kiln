@@ -286,12 +286,8 @@ describe("observeLemmaScriptDependencyBinding", () => {
     expect(invalidCodes(result)).toContain(expectedCode);
   });
 
-  it("rejects ancestors and cwd that can inject resolution state", async () => {
+  it("rejects runtime ancestors and cwd that can inject resolution state", async () => {
     const fixture = createFixture();
-    const ancestorConfig = resolve(fixture.root, "..", ".npmrc");
-    writeFileSync(ancestorConfig, "registry=https://registry.invalid\n", "utf8");
-    expect(invalidCodes(await observeLemmaScriptDependencyBinding(fixture.input))).toContain("ancestor-npmrc");
-
     const cwdOutside = createFixture();
     const outside = mkdtempSync(join(TEST_PARENT, ".lemma-binding-cwd-"));
     temporaryRoots.push(outside);

@@ -1,4 +1,4 @@
-import type { ActionEffectEnvelope, ResolvedInvocationEffect } from "@kilnai/core";
+import type { ActionEffectEnvelope, ResolvedInvocationEffect } from "@kilnai/core/engine";
 import { describe, expect, it } from "vitest";
 import {
   type AttendedTrustedExecutionLeaseApprovalBinding,

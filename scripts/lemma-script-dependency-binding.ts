@@ -64,7 +64,6 @@ export type LemmaScriptDependencyBindingRejectionCode =
   | "node-path"
   | "bun-environment"
   | "ancestor-node-modules"
-  | "ancestor-npmrc"
   | "ancestor-bunfig"
   | "package-root-invalid"
   | "entrypoint-invalid"
@@ -405,12 +404,13 @@ async function assertPathComponents(path: string): Promise<void> {
 }
 
 async function rejectAncestorInfluence(root: SecurePath): Promise<void> {
+  // Qualification never invokes a package manager and hashes the installed
+  // closure directly, so ancestor .npmrc files cannot affect this execution.
   let current = dirname(root.realPath);
   while (true) {
     if (basename(current) === "node_modules" || (await exists(join(current, "node_modules")))) {
       throw new BindingFailure("ancestor-node-modules");
     }
-    if (await exists(join(current, ".npmrc"))) throw new BindingFailure("ancestor-npmrc");
     if (await exists(join(current, "bunfig.toml"))) throw new BindingFailure("ancestor-bunfig");
     const parent = dirname(current);
     if (parent === current) break;
