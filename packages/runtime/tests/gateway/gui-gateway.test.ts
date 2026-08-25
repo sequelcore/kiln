@@ -242,7 +242,6 @@ describe("GUI gateway HTTP and static assets", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -294,7 +293,6 @@ describe("GUI gateway HTTP and static assets", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "claude",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -679,7 +677,6 @@ describe("GUI gateway HTTP and static assets", () => {
       operatorTransport: {
         ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -762,6 +759,11 @@ describe("GUI gateway HTTP and static assets", () => {
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const onClear = vi.fn().mockResolvedValue(undefined);
+    const exactProvider = {
+      name: "openai",
+      createMessage: vi.fn(),
+    };
+    const createProvider = vi.fn(async () => exactProvider);
     let persistedAuthorityBundle: import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle | undefined;
     const persistAuthority = vi.fn(async (bundle: import("../../src/session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle) => {
       persistedAuthorityBundle = bundle;
@@ -805,12 +807,12 @@ describe("GUI gateway HTTP and static assets", () => {
           operatorAuthorityAdmissionBridge: freshRouting.operatorAuthorityAdmissionBridge as never,
           executionRouteSelection: freshRouting.executionRouteSelection,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
             setModel: vi.fn(),
           },
+          createProvider: createProvider as never,
           onClear,
           persistCanonicalSessionEvent,
           authorityAdmissionEvidenceStore: {
@@ -836,6 +838,13 @@ describe("GUI gateway HTTP and static assets", () => {
       );
 
       expect(onClear).toHaveBeenCalledWith();
+      expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
+        admission: expect.objectContaining({ providerId: "openai", providerModelId: GPT4O }),
+        credential: { kind: "test" },
+      }));
+      expect(createProvider.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(processAdmittedTurn).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+      );
       const persistedBundle = persistAuthority.mock.calls[0]?.[0];
       const persistedAdoption = persistCanonicalSessionEvent.mock.calls[0]?.[0];
       expect(persistedBundle?.turnId).toBe(persistedAdoption?.operatorTurnId);

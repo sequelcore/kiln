@@ -121,11 +121,11 @@ describe("gui window launcher", () => {
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+        json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/" }],
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+        json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/" }],
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
@@ -219,7 +219,7 @@ describe("gui window launcher", () => {
       ok: true,
       json: async () => String(input).endsWith("/json/version")
         ? { webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/test" }
-        : [{ type: "page", url: "http://localhost:4810/gui/" }],
+        : [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/" }],
     } as Response));
     const fetchImpl = fetchMock as unknown as typeof fetch;
 
@@ -296,7 +296,7 @@ describe("gui window launcher", () => {
       const fetchImpl = vi.fn<typeof fetch>()
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => [{ type: "page", url: "http://localhost:4810/gui/?theme=phosphor" }],
+          json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/?theme=phosphor" }],
         } as Response)
         .mockResolvedValueOnce({
           ok: true,
@@ -304,7 +304,7 @@ describe("gui window launcher", () => {
         } as Response)
         .mockResolvedValue({
           ok: true,
-          json: async () => [{ type: "page", url: "http://localhost:4810/gui/?theme=phosphor" }],
+          json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/?theme=phosphor" }],
         } as Response);
 
       const whenClosed = waitForManagedGuiAppWindowClose(
@@ -333,6 +333,42 @@ describe("gui window launcher", () => {
     }
   });
 
+  it("keeps tracking the managed page when client-side navigation changes its URL", async () => {
+    vi.useFakeTimers();
+    try {
+      const child = new FakeChildProcess();
+      const fetchImpl = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/" }],
+        } as Response)
+        .mockResolvedValue({
+          ok: true,
+          json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/settings/general" }],
+        } as Response);
+
+      const whenClosed = waitForManagedGuiAppWindowClose(
+        "http://localhost:4810/gui/",
+        "C:\\Temp\\kiln-profile",
+        child as unknown as ReturnType<typeof launchGuiWindow>["child"],
+        {
+          fetchImpl,
+          readDevToolsPort: () => 9222,
+          pollMs: 100,
+          closeConfirmationMs: 200,
+        },
+      );
+      const settled = vi.fn();
+      void whenClosed.then(settled, settled);
+
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(settled).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("treats the managed app window as closed after its target stays absent for the confirmation grace", async () => {
     vi.useFakeTimers();
     try {
@@ -340,7 +376,7 @@ describe("gui window launcher", () => {
       const fetchImpl = vi.fn<typeof fetch>()
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+          json: async () => [{ id: "managed-page", type: "page", url: "http://localhost:4810/gui/" }],
         } as Response)
         .mockResolvedValue({
           ok: true,

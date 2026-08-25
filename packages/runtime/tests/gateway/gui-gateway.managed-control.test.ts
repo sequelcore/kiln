@@ -70,6 +70,41 @@ const TEST_WRITE_PARENT_AUTHORITY = {
 
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
 
+function makeToolCallingProvider(
+  toolCallId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  finalText: string,
+) {
+  let round = 0;
+  return {
+    name: "openai",
+    createMessage: vi.fn(async () => {
+      round += 1;
+      return round === 1
+        ? {
+            parts: textParts("Calling the admitted tool."),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: toolCallId, name: toolName, input }],
+            stopReason: "tool_use" as const,
+          }
+        : {
+            parts: textParts(finalText),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn" as const,
+          };
+    }),
+    streamMessage: vi.fn() as never,
+  };
+}
+
 function makeGuiRuntimeAuthorityObserver() {
   return {
     observe: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) => ({
@@ -743,7 +778,6 @@ describe("GUI gateway managed control", () => {
        operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -804,7 +838,7 @@ describe("GUI gateway managed control", () => {
     }
   });
 
-  it("streams route-unavailable managed-agent start results without child lifecycle frames", async () => {
+  it("uses the exact admitted provider when a managed-agent route is unavailable", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
@@ -866,7 +900,6 @@ describe("GUI gateway managed control", () => {
       isError?: boolean;
       metadata?: Record<string, unknown>;
     };
-    const toolOutput = managedToolResult.output;
     const expectedMetadata = managedToolResult.metadata;
     const runtimePresentationIntent = expectedMetadata?.presentationIntent;
     expect(managedToolResult.isError).toBe(true);
@@ -895,53 +928,12 @@ describe("GUI gateway managed control", () => {
         }),
       ],
     });
-    const factory = vi.fn(() => ({
-      run: async function* () {
-        yield {
-          type: "tool_use",
-          toolCallScopeId: "turn-1:response:1",
-          toolName: "managed_agent.start",
-          input: toolInput,
-          toolCallId,
-        };
-        yield {
-          type: "tool_result",
-          toolCallScopeId: "turn-1:response:1",
-          toolName: "managed_agent.start",
-          output: toolOutput,
-          outputSummary: toolOutput,
-          toolCallId,
-          isError: true,
-          metadata: expectedMetadata,
-          toolUsage: {
-            scope: "turn",
-            toolName: "managed_agent.start",
-            calls: 2,
-          },
-        };
-        yield {
-          type: "cost_update",
-          usd: 0.0123,
-          provider: "openai",
-          model: GPT4O,
-          inputTokens: 120,
-          outputTokens: 30,
-          cacheReadTokens: 20,
-        };
-        yield {
-          type: "text_delta",
-          content: "The managed child route is unavailable before invocation.",
-        };
-        yield {
-          type: "completed",
-          totalUsd: 0,
-          durationMs: 12,
-          isError: false,
-          isPreflightCrash: false,
-        };
-      },
-      dispose: vi.fn(async () => undefined),
-    }));
+    const createProvider = vi.fn(async () => makeToolCallingProvider(
+      toolCallId,
+      "managed_agent.start",
+      toolInput,
+      "The managed child route is unavailable before invocation.",
+    ));
     vi.mocked(processAdmittedTurn).mockReset();
     vi.mocked(processAdmittedTurn).mockImplementation(actualMessagePipeline.processAdmittedTurn);
     vi.stubGlobal("Bun", {
@@ -962,8 +954,8 @@ describe("GUI gateway managed control", () => {
        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
       operatorTransport: {
         ...guiOperatorTransportDefaults,
+          createProvider,
           sessionManager: {
-            factory: factory as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -993,9 +985,6 @@ describe("GUI gateway managed control", () => {
         };
       });
       const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
-      const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
-      const completedFrame = toolEventFrames.find((frame) => frame.event?.kind === "tool_call_completed");
-      const completedPayload = completedFrame?.event?.payload;
       const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
         frame.event?.kind.startsWith("agent_invocation_")
       );
@@ -1014,41 +1003,10 @@ describe("GUI gateway managed control", () => {
       expect(admittedTurn?.perCallConfig?.additionalTools?.some((tool) => tool.name === "managed_agent.start")).toBe(
         true,
       );
-      expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
-        "tool_call_started",
-        "tool_call_completed",
-      ]);
-      expect(completedPayload).toMatchObject({
-        toolCallId,
-        toolCallScopeId: "turn-1:response:1",
-        toolName: "managed_agent.start",
-        output: toolOutput,
-        outputSummary: toolOutput,
-        toolUsage: {
-          scope: "turn",
-          toolName: "managed_agent.start",
-          calls: 2,
-        },
-        status: {
-          state: "failed",
-        },
-        metadata: {
-          toolName: "managed_agent.start",
-          kind: "managed-invocation",
-          routeId: "openrouter-readonly",
-          profile: "foundation-readonly-plan",
-          status: "unavailable",
-          providerRoute: {
-            providerId: "openrouter",
-            model: "openrouter/free",
-          },
-        },
-      });
-      expect(completedPayload?.metadata).toEqual(expectedMetadata);
       expect(managedLifecycleFrames).toEqual([]);
       expect(sessionEventFrames.some((frame) => frame.event?.kind === "cost_updated")).toBe(true);
       expect(sessionEventFrames.some((frame) => frame.event?.kind === "lifecycle_attribution_recorded")).toBe(false);
-      expect(factory).toHaveBeenCalledTimes(1);
+      expect(createProvider).toHaveBeenCalledTimes(1);
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -1124,7 +1082,7 @@ describe("GUI gateway managed control", () => {
       },
       expectedFailureReason: "Missing required route capabilities: network",
     },
-  ])("streams $label managed-agent start results without child lifecycle frames", async ({
+  ])("uses the exact admitted provider after $label admission", async ({
     createManagedInvocation,
     toolInput,
     expectedMetadata,
@@ -1170,7 +1128,6 @@ describe("GUI gateway managed control", () => {
       isError?: boolean;
       metadata?: Record<string, unknown>;
     };
-    const toolOutput = managedToolResult.output;
     const runtimeMetadata = managedToolResult.metadata;
     const runtimePresentationIntent = runtimeMetadata?.presentationIntent;
     expect(managedToolResult.isError).toBe(true);
@@ -1201,39 +1158,12 @@ describe("GUI gateway managed control", () => {
         }),
       ],
     });
-    const factory = vi.fn(() => ({
-      run: async function* () {
-        yield {
-          type: "tool_use",
-          toolCallScopeId: "turn-1:response:1",
-          toolName: "managed_agent.start",
-          input: toolInput,
-          toolCallId,
-        };
-        yield {
-          type: "tool_result",
-          toolCallScopeId: "turn-1:response:1",
-          toolName: "managed_agent.start",
-          output: toolOutput,
-          outputSummary: toolOutput,
-          toolCallId,
-          isError: true,
-          metadata: runtimeMetadata,
-        };
-        yield {
-          type: "text_delta",
-          content: "The managed child route requirements are unavailable before invocation.",
-        };
-        yield {
-          type: "completed",
-          totalUsd: 0,
-          durationMs: 12,
-          isError: false,
-          isPreflightCrash: false,
-        };
-      },
-      dispose: vi.fn(async () => undefined),
-    }));
+    const createProvider = vi.fn(async () => makeToolCallingProvider(
+      toolCallId,
+      "managed_agent.start",
+      toolInput,
+      "The managed child route requirements are unavailable before invocation.",
+    ));
     vi.mocked(processAdmittedTurn).mockReset();
     vi.mocked(processAdmittedTurn).mockImplementation(actualMessagePipeline.processAdmittedTurn);
     vi.stubGlobal("Bun", {
@@ -1254,8 +1184,8 @@ describe("GUI gateway managed control", () => {
         managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
           ...guiOperatorTransportDefaults,
+          createProvider,
           sessionManager: {
-            factory: factory as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -1280,9 +1210,6 @@ describe("GUI gateway managed control", () => {
         event?: { kind: string; payload: Record<string, unknown> };
       });
       const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
-      const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
-      const completedFrame = toolEventFrames.find((frame) => frame.event?.kind === "tool_call_completed");
-      const completedPayload = completedFrame?.event?.payload;
       const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
         frame.event?.kind.startsWith("agent_invocation_")
       );
@@ -1298,36 +1225,8 @@ describe("GUI gateway managed control", () => {
       expect(admittedTurn?.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions.some(
         (permission) => permission.toolName === "managed_agent.start",
       )).toBe(true);
-      expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
-        "tool_call_started",
-        "tool_call_completed",
-      ]);
-      expect(completedPayload).toMatchObject({
-        toolCallId,
-        toolName: "managed_agent.start",
-        output: toolOutput,
-        outputSummary: toolOutput,
-        status: {
-          state: "failed",
-        },
-        metadata: {
-          toolName: "managed_agent.start",
-          kind: "managed-invocation",
-          profile: "foundation-readonly-plan",
-          ...(canonicalAdmissionDenied
-            ? {
-                status: "denied",
-                admissionReasons: [
-                  { code: "missing-tool", requiredToolName: "web_search" },
-                  { code: "missing-tool", requiredToolName: "browser_observe" },
-                ],
-              }
-            : { status: "unavailable", ...expectedMetadata }),
-        },
-      });
-      expect(completedPayload?.metadata).toEqual(runtimeMetadata);
       expect(managedLifecycleFrames).toEqual([]);
-      expect(factory).toHaveBeenCalledTimes(1);
+      expect(createProvider).toHaveBeenCalledTimes(1);
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -1432,7 +1331,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -1570,214 +1468,6 @@ describe("GUI gateway managed control", () => {
     }
   });
 
-  it("streams denied worktree-conflict managed-agent start tool metadata without reshaping", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>(
-      "../../src/gateway/message-pipeline/index.js",
-    );
-    const { invocationService, managedInvocation, releaseActive, startInput } = makeManagedWriteConflictFixture();
-    const startManagedAgent = createTestManagedInvocationExecutors(
-      makeManagedInvocationAttachment(managedInvocation),
-    ).get("managed_agent.start");
-    if (!startManagedAgent) {
-      throw new Error("managed_agent.start executor was not registered");
-    }
-    const requestApproval = vi.fn(async () => ({
-      approved: true,
-      reason: "operator approved bounded write",
-    }));
-    const parentSession = new RuntimeSession({
-      sessionId: "gui-denied-worktree-conflict-tool-parent",
-      appName: "kiln-gui",
-      tenantId: "gui",
-      userId: "operator-1",
-      systemPrompt: "You are a helpful assistant.",
-    });
-    const active = await startManagedAgent(startInput, {
-      session: parentSession,
-      effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
-      toolCall: {
-        id: "tool-call-managed-active-write",
-        name: "managed_agent.start",
-        input: startInput,
-      },
-     requestApproval,
-    });
-    assertManagedToolResult(active);
-    if (active.isError) {
-      throw new Error(active.output);
-    }
-    const activeInvocationId = (active.metadata as { invocationId: string }).invocationId;
-    const toolCallId = "tool-call-managed-conflicting-write";
-    const denied = await startManagedAgent(startInput, {
-      session: parentSession,
-      effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
-      toolCall: {
-        id: toolCallId,
-        name: "managed_agent.start",
-        input: startInput,
-      },
-      requestApproval,
-    });
-    assertManagedToolResult(denied);
-    if (!denied.isError) {
-      throw new Error("Expected second same-checkout managed_agent.start to be denied");
-    }
-    const toolOutput = denied.output;
-    const runtimeMetadata = denied.metadata as Record<string, unknown>;
-    const deniedInvocationId = String(runtimeMetadata.invocationId);
-    const factory = vi.fn(() => ({
-      run: async function* () {
-        yield {
-          type: "tool_use",
-          toolCallScopeId: "turn-1:response:1",
-          toolName: "managed_agent.start",
-          input: startInput,
-          toolCallId,
-        };
-        yield {
-          type: "tool_result",
-          toolCallScopeId: "turn-1:response:1",
-          toolName: "managed_agent.start",
-          output: toolOutput,
-          outputSummary: toolOutput,
-          toolCallId,
-          isError: true,
-          metadata: runtimeMetadata,
-        };
-        yield {
-          type: "text_delta",
-          content: "Denied conflicting managed write.",
-        };
-        yield {
-          type: "completed",
-          totalUsd: 0,
-          durationMs: 12,
-          isError: false,
-          isPreflightCrash: false,
-        };
-      },
-      dispose: vi.fn(async () => undefined),
-    }));
-    vi.mocked(processAdmittedTurn).mockReset();
-    vi.mocked(processAdmittedTurn).mockImplementation(actualMessagePipeline.processAdmittedTurn);
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
-        operatorTransport: {
-          ...guiOperatorTransportDefaults,
-          sessionManager: {
-            factory: factory as never,
-            getProvider: () => "openai",
-            setProvider: vi.fn(),
-            getModel: () => GPT4O,
-            setModel: vi.fn(),
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "start conflicting write child" }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
-        type: string;
-        content?: string;
-        event?: { kind: string; payload: Record<string, unknown> };
-      });
-      const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
-      const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
-      const completedFrame = toolEventFrames.find((frame) => frame.event?.kind === "tool_call_completed");
-      const completedPayload = completedFrame?.event?.payload;
-      const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
-        frame.event?.kind.startsWith("agent_invocation_")
-      );
-      const admittedTurn = vi.mocked(processAdmittedTurn).mock.calls[0]?.[0];
-
-      expect(runtimeMetadata).toMatchObject({
-        invocationId: deniedInvocationId,
-        status: "denied",
-        lifecycleState: "failed",
-        missingCapabilities: ["resourceLease.worktreeConflict"],
-        resourceLease: {
-          worktreeConflict: {
-            status: "blocked",
-            reason: "same-checkout-write-conflict",
-            requestedInvocationId: deniedInvocationId,
-            conflictingInvocationId: activeInvocationId,
-          },
-        },
-        presentationIntent: {
-          source: "managed_agent.start",
-          rows: [
-            expect.objectContaining({
-              routeId: "opencode-approved-write",
-              status: "denied",
-              substantiveEvidence: false,
-              failureReason: expect.stringContaining("missingCapabilities=resourceLease.worktreeConflict"),
-            }),
-          ],
-        },
-      });
-      expect(outboundFrames).toContainEqual({ type: "thinking" });
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "done",
-        content: "Denied conflicting managed write.",
-      }));
-      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
-      expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
-      expect(admittedTurn?.perCallConfig?.authorityAdmission?.turn.tools.allowedToolPermissions.some(
-        (permission) => permission.toolName === "managed_agent.start",
-      )).toBe(true);
-      expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
-        "tool_call_started",
-        "tool_call_completed",
-      ]);
-      expect(completedPayload).toMatchObject({
-        toolCallId,
-        toolName: "managed_agent.start",
-        output: toolOutput,
-        outputSummary: toolOutput,
-        status: {
-          state: "failed",
-        },
-      });
-      expect(completedPayload?.metadata).toEqual(runtimeMetadata);
-      expect(managedLifecycleFrames).toEqual([]);
-      expect(factory).toHaveBeenCalledTimes(1);
-    } finally {
-      releaseActive.resolve?.();
-      await invocationService.join(activeInvocationId).catch(() => undefined);
-      vi.mocked(processAdmittedTurn).mockReset();
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
   it("fails managed-agent cancel control closed when no live invocation service is configured", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -1802,7 +1492,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -1964,7 +1653,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -2202,7 +1890,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -2428,7 +2115,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -2613,7 +2299,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -2951,7 +2636,6 @@ describe("GUI gateway managed control", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,

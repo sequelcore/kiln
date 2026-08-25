@@ -101,10 +101,16 @@ describe("SqliteRuntimeToolActionClaimStore", () => {
     const dir = mkdtempSync(join(tmpdir(), "kiln-runtime-tool-owner-"));
     dirs.push(dir);
     const path = join(dir, "claims.sqlite");
-    const first = new SqliteRuntimeToolActionClaimStore({ path, ownerId: "first-owner" });
+    const now = () => "2026-01-01T00:00:00.000Z";
+    const first = new SqliteRuntimeToolActionClaimStore({ path, ownerId: "first-owner", ownerStaleMs: 30_000, now });
     const original = claim();
     const permit = first.claim(original);
-    expect(() => new SqliteRuntimeToolActionClaimStore({ path, ownerId: "second-owner" })).toThrow(/live owner/iu);
+    expect(() => new SqliteRuntimeToolActionClaimStore({
+      path,
+      ownerId: "second-owner",
+      ownerStaleMs: 30_000,
+      now,
+    })).toThrow(/live owner.*retry in 30 seconds.*do not delete action-claim state/iu);
     expect(first.read(original.claimId)).toMatchObject({ status: "claimed" });
     permit.consume();
     first.settle(permit, { kind: "success" });

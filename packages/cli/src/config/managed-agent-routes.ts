@@ -2357,9 +2357,6 @@ function createHarnessSessionFactory(
       ...(factoryContext?.deliberationResolution
         ? { deliberationResolution: factoryContext.deliberationResolution }
         : {}),
-      ...(factoryContext?.communicationIntent
-        ? { communicationIntent: factoryContext.communicationIntent }
-        : {}),
       ...(harnessExecutable
         ? {
             harnessExecutable: harnessExecutable.path,

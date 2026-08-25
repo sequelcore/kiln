@@ -4,7 +4,7 @@ export { defineRuntimeSessionAuthorityFacet } from "./runtime-session-authority-
 export type { RuntimeSessionAuthorityFacet, RuntimeSessionAuthorityFacetInput } from "./runtime-session-authority-facet.js";
 export { assertPersistableAuthorityAdmissionBundle } from "./authority-admission-evidence.js";
 export type { AuthorityAdmissionEvidenceStore } from "./authority-admission-evidence.js";
-export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
+export { RuntimeSessionOrchestrationSurface, RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
 export {
   RuntimeModelRoundCommittedError,
   RuntimeModelRoundPreDispatchCancellationError,

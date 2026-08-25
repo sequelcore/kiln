@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { defineDeliberationLevelId } from "@kilnai/core/agents";
+import {
+  defineDeliberationLevelId,
+  knownModelCommunicationCapabilities,
+  resolveCommunicationIntent,
+  resolveCommunicationProfile,
+} from "@kilnai/core/agents";
 import { extractText } from "@kilnai/core/engine";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
@@ -159,6 +164,35 @@ describe("CliSubscriptionExecutor", () => {
       status: "exact",
       selectedLevel: "high",
     });
+  });
+
+  it("transports the resolved communication intent to the subscription session", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "codex-oauth");
+    const intent = resolveCommunicationIntent([{
+      source: "global",
+      intent: { responseDetail: "concise", onUnsupported: "omit" },
+    }]);
+    const communicationResolution = resolveCommunicationProfile({
+      intent,
+      execution: { provider: "codex-oauth", model: "gpt-5.6-terra", surface: "runtime" },
+      capabilities: knownModelCommunicationCapabilities("codex-oauth", "gpt-5.6-terra"),
+    });
+
+    expect(executor.communicationTransport).toBe("native");
+    await executor.createMessage({
+      system: "sys",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+      communicationResolution,
+    });
+
+    expect(run.mock.calls[0]?.[0]?.communicationIntent).toBe(intent);
   });
 
   it("defaults to no deliberation transport instead of claiming native support", () => {

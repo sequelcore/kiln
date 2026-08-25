@@ -5,6 +5,8 @@ prerequisites and mutation boundary before executing a command.
 
 - [Operate the Model Gateway](model-gateway.md) covers setup, verification,
   recovery, retained incidents, and exact uninstall.
+- [Operate the Operator Runtime](operator-runtime.md) covers shared-process
+  lifecycle, inspection, and the required restart after a source rebuild.
 - [Validate source-stability recovery](source-stability-recovery.md) separates
   the portable recovery gate from explicitly authorized live provider proofs.
 - [Release runbook](release.md) defines the publication process. No release

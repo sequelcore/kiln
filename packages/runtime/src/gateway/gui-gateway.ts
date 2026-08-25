@@ -14,12 +14,10 @@ import {
   type ToolAuthorizedEvent,
   type DefaultBuiltinToolRegistryOptions,
   type TurnTemporalContext,
-  assertScopedExecutionSessionToolEvent,
   type CommunicationIntentCandidate,
   type ExecutionSessionEvent,
 } from "@kilnai/core";
-import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import { RuntimeSessionOrchestrationSurface } from "../session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../session/runtime-session.js";
 import {
   readRuntimeModelRoundAdmission,
@@ -40,7 +38,7 @@ import {
 } from "../session/effective-authority-admission-bundle.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
+import { processAdmittedTurn } from "./message-pipeline/index.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import type {
@@ -68,7 +66,6 @@ import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
-  resolveAttachedRuntimeToolCallMetadata,
   type AttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./attached-runtime-tool-surface.js";
@@ -91,7 +88,6 @@ import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
-import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
@@ -105,7 +101,6 @@ import {
   KilnSettingsSnapshotSchema,
   isGuiExecutableConfigSetupAction,
   OperatorResourceReadRequestSchema,
-  buildOperatorToolResultPayload,
   projectOperatorResourceReadResult,
   isGuiProviderModeless,
   type GuiDashboardSnapshot,
@@ -874,7 +869,6 @@ function wireOperatorTransport(
     kilnHome?: string;
   },
 ): () => void {
-  const providerLabel = input.transport.sessionManager.getProvider();
   const approvalRegistry = new ApprovalGateRegistry();
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: input.builtinToolOptions,
@@ -887,20 +881,12 @@ function wireOperatorTransport(
     readonly authorityAdmission: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
     readonly attemptId: string;
   }>();
-  const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
+  const activityStreamer = new GuiActivityStreamer(approvalRegistry);
   bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const activeTurns = new Map<string, ActiveGuiTurn>();
-  const executor = new CliSubscriptionExecutor(
-    input.transport.sessionManager.factory,
-    providerLabel,
-    (event) => activityStreamer.forward(event),
-    () => activeOperatorSurface,
-    () => input.transport.sessionManager.getDeliberationTransport?.() ?? "none",
-  );
   const eventBus = input.transport.eventBus ?? new EventBus(100);
-  const orchestrator = new RuntimeSessionOrchestrator({
-    provider: executor,
+  const orchestrationSurface = new RuntimeSessionOrchestrationSurface({
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
   });
@@ -908,8 +894,8 @@ function wireOperatorTransport(
   const priorActiveSessions = new Map<string, RuntimeSession | undefined>();
 
   activityStreamer.bindApprovalBridge({
-    approve: (approvalId) => orchestrator.continue(approvalId),
-    reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
+    approve: (approvalId) => orchestrationSurface.continue(approvalId),
+    reject: (approvalId, reason) => orchestrationSurface.emitApprovalReceived(false, reason, approvalId),
   });
   const authorityCoordinator = new OperatorAuthorityAdmissionCoordinator<
     OperatorTurnGuiDispatchPayload,
@@ -1072,7 +1058,7 @@ function wireOperatorTransport(
     },
   });
   input.transport.operatorAuthorityAdmissionBridge.bind(authorityCoordinator);
-  input.transport.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnGuiDispatchPayload>) => {
+  input.transport.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<import("../managed-account-leases/configured-execution-account-runtime.js").ConfiguredExecutionCredential, OperatorTurnGuiDispatchPayload>) => {
     if (committed.payload.freshSessionRequested) {
       try {
         await input.transport.onClear?.();
@@ -1168,6 +1154,14 @@ function wireOperatorTransport(
       runtimeModelRoundDispatch,
       runtimeToolActionClaims,
     } satisfies PerCallToolConfig;
+    const provider = await input.transport.createProvider({
+      credential: committed.credential,
+      admission: committed.admission,
+    });
+    const orchestrator = orchestrationSurface.bindProvider(
+      provider,
+      committed.admission.providerModelId,
+    );
     return processAdmittedTurn({
       orchestrator,
       sessionRegistry,
@@ -2269,10 +2263,7 @@ class GuiActivityStreamer {
     reject: (approvalId: string, reason: string) => void;
   } | null = null;
 
-  constructor(
-    private readonly approvalRegistry: ApprovalGateRegistry,
-    private readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]> = new Map(),
-  ) {}
+  constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
 
   bindApprovalBridge(bridge: {
     approve: (approvalId: string) => void;
@@ -2539,134 +2530,6 @@ class GuiActivityStreamer {
     }
     this.eventBus = null;
     this.capture = null;
-  }
-
-  forward(event: ExecutionSessionEvent): void {
-    if (!this.ws) return;
-
-    if (event.type === "text_delta") {
-      if (event.isThinking) {
-        this.emitActivityPhase({
-          phase: "thinking",
-          details: event.content,
-        });
-        return;
-      }
-      const sanitizedDelta = sanitizeAssistantEgressText(event.content);
-      if (sanitizedDelta.length === 0) {
-        return;
-      }
-      this.emitSessionEvent({
-        kind: "assistant_delta",
-        timestamp: new Date().toISOString(),
-        payload: {
-          messageId: this.capture?.assistantMessageId ?? "assistant-live",
-          delta: sanitizedDelta,
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-    } else if (event.type === "tool_use") {
-      assertScopedExecutionSessionToolEvent(event);
-      this.emitSessionEvent({
-        kind: "tool_call_started",
-        timestamp: new Date().toISOString(),
-        payload: {
-          toolCallId: event.toolCallId,
-          toolCallScopeId: event.toolCallScopeId,
-          toolName: event.toolName ?? "unknown",
-          input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
-          ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-      this.emitActivityPhase({
-        phase: "tool_running",
-        toolName: event.toolName,
-      });
-    } else if (event.type === "tool_output_delta") {
-      assertScopedExecutionSessionToolEvent(event);
-      this.emitSessionEvent({
-        kind: "tool_call_output_delta",
-        timestamp: new Date().toISOString(),
-        payload: {
-          toolCallId: event.toolCallId,
-          toolCallScopeId: event.toolCallScopeId,
-          toolName: event.toolName,
-          stream: event.stream,
-          delta: event.delta,
-          chunkIndex: event.chunkIndex,
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-    } else if (event.type === "tool_result") {
-      assertScopedExecutionSessionToolEvent(event);
-      if (this.capture) {
-        this.capture.toolCompletions.push({
-          toolName: event.toolName ?? "unknown",
-          success: !event.isError,
-          output: event.output ?? "",
-          resultSummary: event.outputSummary ?? event.output ?? "",
-          ...(event.metadata ? { metadata: event.metadata } : {}),
-        });
-      }
-      this.emitSessionEvent({
-        kind: "tool_call_completed",
-        timestamp: new Date().toISOString(),
-        payload: {
-          toolCallScopeId: event.toolCallScopeId,
-          ...buildOperatorToolResultPayload({
-            toolCallId: event.toolCallId,
-            toolName: event.toolName ?? "unknown",
-            output: event.output,
-            outputSummary: event.outputSummary,
-            isError: event.isError,
-            metadata: event.metadata,
-            resourceLinks: event.resourceLinks,
-            toolUsage: event.toolUsage,
-          }),
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-      const interactiveFrame = projectInteractiveUseFrameFromToolResult({
-        ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),
-        toolCallId: event.toolCallId,
-        toolCallScopeId: event.toolCallScopeId,
-        toolName: event.toolName ?? "unknown",
-        timestamp: new Date().toISOString(),
-        status: event.isError ? "failed" : "succeeded",
-        metadata: event.metadata,
-        ...(event.isError ? { error: event.output ?? event.outputSummary } : {}),
-      });
-      if (interactiveFrame) {
-        this.ws.send(JSON.stringify(interactiveFrame));
-      }
-      this.emitActivityPhase({ phase: "idle" });
-    } else if (event.type === "file_changed") {
-      if (this.capture) {
-        this.capture.fileChanges.push({
-          path: event.path,
-          changeType: event.changeType,
-          linesAdded: event.linesAdded,
-          linesRemoved: event.linesRemoved,
-          diffPreview: event.diffPreview,
-          diffTruncated: event.diffTruncated,
-        });
-      }
-      this.emitSessionEvent({
-        kind: "file_changed",
-        timestamp: new Date().toISOString(),
-        payload: {
-          change: {
-            path: event.path,
-            changeType: event.changeType === "modified" ? "updated" : event.changeType,
-            linesAdded: event.linesAdded,
-            linesRemoved: event.linesRemoved,
-            diffPreview: event.diffPreview,
-            diffTruncated: event.diffTruncated,
-          },
-        },
-      });
-    }
   }
 
   forwardSessionEvents(events: readonly CanonicalSessionEvent[]): void {

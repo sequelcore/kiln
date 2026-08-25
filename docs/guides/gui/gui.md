@@ -32,6 +32,12 @@ Both local listeners bind explicitly to `127.0.0.1`. The gateway admits only
 its exact bundled-GUI origin or the exact loopback Vite origin selected by this
 startup. It never exposes a wildcard listener or wildcard CORS policy.
 
+GUI reuses the machine-global Operator Runtime. Closing the GUI does not stop
+that shared process, so a source rebuild does not replace Runtime code already
+loaded in memory. Follow the
+[Operator Runtime runbook](../../operations/operator-runtime.md) after rebuilding
+CLI, Runtime, Core, gateway-contract, or provider-adapter code.
+
 To exercise built production assets instead, build the workspace first:
 
 ```bash
@@ -52,7 +58,8 @@ owns GUI assets in this mode, while the local gateway exposes only the operator
 API and WebSocket contract; a prebuilt `packages/gui/dist` bundle is not a dev
 startup prerequisite. Kiln waits for Vite readiness before opening the managed
 browser window, tracks the actual DevTools page target rather than a short-lived
-Windows launcher process, confirms target absence across a bounded grace period
+Windows launcher process, keeps that target identity across client-side route
+changes such as Settings, confirms target absence across a bounded grace period
 so development reloads are not mistaken for closure, and terminates the complete
 Vite child tree when the window closes. Shutdown asks the dedicated browser to
 close through DevTools, waits for that browser connection to close, and only then

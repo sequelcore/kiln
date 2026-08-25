@@ -413,7 +413,7 @@ describe("projectGuiOperatorModels", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never, getProvider: () => "openai", setProvider: vi.fn(),
+            getProvider: () => "openai", setProvider: vi.fn(),
             getModel: () => GPT4O, setModel: vi.fn(),
           },
           authorityAdmissionEvidenceStore: {
@@ -452,7 +452,7 @@ describe("projectGuiOperatorModels", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never, getProvider: () => "openai", setProvider: vi.fn(),
+            getProvider: () => "openai", setProvider: vi.fn(),
             getModel: () => GPT4O, setModel: vi.fn(),
           },
           resumeSessionHydrator: resumeSessionHydrator as never,

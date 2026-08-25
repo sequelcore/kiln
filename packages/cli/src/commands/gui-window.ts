@@ -55,6 +55,7 @@ interface LaunchGuiWindowOptions extends ResolveGuiBrowserHostOptions {
 }
 
 interface DevToolsTargetSummary {
+  readonly id?: string;
   readonly type?: string;
   readonly url?: string;
 }
@@ -339,7 +340,7 @@ export function waitForManagedGuiAppWindowClose(
 
   return new Promise<void>((resolve, reject) => {
     let settled = false;
-    let sawManagedAppTarget = false;
+    let managedAppTargetId: string | undefined;
     let intervalHandle: ReturnType<typeof setInterval> | null = null;
     let startupTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
     let closeConfirmationHandle: ReturnType<typeof setTimeout> | null = null;
@@ -378,7 +379,7 @@ export function waitForManagedGuiAppWindowClose(
     };
 
     const confirmManagedWindowClosed = () => {
-      if (!sawManagedAppTarget || closeConfirmationHandle) {
+      if (!managedAppTargetId || closeConfirmationHandle) {
         return;
       }
       closeConfirmationHandle = setTimeoutImpl(() => {
@@ -408,15 +409,16 @@ export function waitForManagedGuiAppWindowClose(
           return;
         }
 
-        const hasManagedAppTarget = payload.some((target) => {
+        const managedAppTarget = payload.find((target) => {
           const summary = target as DevToolsTargetSummary;
-          return summary.type === "page"
-            && typeof summary.url === "string"
-            && normalizeManagedGuiUrl(summary.url) === normalizedUrl;
+          if (summary.type !== "page" || typeof summary.id !== "string") return false;
+          return managedAppTargetId
+            ? summary.id === managedAppTargetId
+            : typeof summary.url === "string" && normalizeManagedGuiUrl(summary.url) === normalizedUrl;
         });
 
-        if (hasManagedAppTarget) {
-          sawManagedAppTarget = true;
+        if (managedAppTarget) {
+          managedAppTargetId ??= (managedAppTarget as DevToolsTargetSummary).id;
           if (closeConfirmationHandle) {
             clearTimeoutImpl(closeConfirmationHandle);
             closeConfirmationHandle = null;
@@ -428,18 +430,18 @@ export function waitForManagedGuiAppWindowClose(
           return;
         }
 
-        if (sawManagedAppTarget) {
+        if (managedAppTargetId) {
           confirmManagedWindowClosed();
         }
       } catch {
-        if (sawManagedAppTarget) {
+        if (managedAppTargetId) {
           confirmManagedWindowClosed();
         }
       }
     };
 
     child.once("error", (error) => {
-      if (!sawManagedAppTarget) {
+      if (!managedAppTargetId) {
         fail(error);
       }
     });

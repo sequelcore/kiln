@@ -61,6 +61,7 @@ function makeResponse(text: string): AgentResponse {
 
 class TestAdapter implements ProviderAdapter {
   readonly name = "test";
+  readonly communicationTransport = "native" as const;
 
   constructor(
     private readonly handler: () => Promise<AgentResponse>,
@@ -431,6 +432,7 @@ describe("CodexOAuthCredentialPoolService", () => {
       }),
     });
 
+    expect(adapter.communicationTransport).toBe("native");
     await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
     expect(calls).toEqual([validToken.access_token]);
     await expect(service.listStatus()).resolves.toEqual([
@@ -578,6 +580,21 @@ describe("CodexOAuthCredentialPoolService", () => {
       expect.objectContaining({ credentialId: "first" }),
       expect.objectContaining({ credentialId: "second" }),
     ]);
+  });
+
+  it("preserves native communication transport on the exact built-in Codex adapter", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "selected", tokenFile: accountToken("account-a") });
+    const selected = (await service.listExecutableAccounts())[0]!;
+    const credential = await service.resolveExecutionCredential(selected);
+
+    const adapter = await service.createAdapterFromCredential({
+      credential,
+      defaultModel: "gpt-5.6-terra",
+    });
+
+    expect(adapter.name).toBe("codex-oauth");
+    expect(adapter.communicationTransport).toBe("native");
   });
 
   it("materializes only an exact selected Codex OAuth account revision", async () => {

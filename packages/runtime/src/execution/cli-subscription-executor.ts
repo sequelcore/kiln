@@ -47,6 +47,8 @@ export type CliDeliberationTransportSource =
  */
 export class CliSubscriptionExecutor implements ProviderAdapter {
   readonly name: string;
+  /** Carries capability-resolved controls to the child; it does not infer support. */
+  readonly communicationTransport = "native" as const;
 
   get deliberationTransport(): CliDeliberationTransport {
     const source = this.deliberationTransportSource;
@@ -66,6 +68,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const prompt = buildPromptFromMessages(options.messages);
     const cwd = options.executionContext?.workingDirectory ?? process.cwd();
+    const communicationIntent = options.communicationResolution?.requested;
 
     const operatorSurface = this.getOperatorSurface?.();
     const session = this.factory(options.system, cwd, {
@@ -91,6 +94,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         system: options.system,
         messages: options.messages,
         deliberationResolution: options.deliberationResolution,
+        ...(communicationIntent ? { communicationIntent } : {}),
         ...(options.signal ? { abortSignal: options.signal } : {}),
         ...(options.executionContext?.executionScope ? { executionScope: options.executionContext.executionScope } : {}),
       })) {

@@ -7,7 +7,6 @@ import {
   OpenCodeAdapter,
   type Credential,
   type CredentialOutcome,
-  type CreateMessageOptions,
   type OpenCodeAuthFile,
   type OpenCodeTier,
   type ProviderAdapter,
@@ -16,6 +15,7 @@ import { CredentialHealthStore } from "./credential-health-store.js";
 import { CredentialFileStore } from "./credential-file-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
+import { withProviderAdapterOutcomeRecording } from "./provider-adapter-outcome-recording.js";
 import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export const OPENCODE_POOL_PROVIDER_ID = "opencode-api";
@@ -242,29 +242,7 @@ export class OpenCodeCredentialPoolService {
     const recordOutcome = async (error?: unknown): Promise<void> => {
       await this.recordProviderOutcome(credential.providerId, credential.credentialId, error);
     };
-    return {
-      name: delegate.name,
-      deliberationTransport: delegate.deliberationTransport,
-      createMessage: async (messageOptions: CreateMessageOptions) => {
-        try {
-          const response = await delegate.createMessage(messageOptions);
-          await recordOutcome();
-          return response;
-        } catch (error) {
-          await recordOutcome(error);
-          throw error;
-        }
-      },
-      streamMessage: async function* (messageOptions: CreateMessageOptions) {
-        try {
-          yield* delegate.streamMessage(messageOptions);
-          await recordOutcome();
-        } catch (error) {
-          await recordOutcome(error);
-          throw error;
-        }
-      },
-    };
+    return withProviderAdapterOutcomeRecording({ delegate, recordOutcome });
   }
 
   async createPool(tier: OpenCodeTier): Promise<CredentialPool<OpenCodeAuthFile>> {

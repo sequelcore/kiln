@@ -1147,6 +1147,7 @@ export {
   RedisSessionStore,
   RuntimeModelRoundDispatchService,
   RuntimeSession,
+  RuntimeSessionOrchestrationSurface,
   RuntimeSessionOrchestrator,
   RuntimeSessionTurnBudgetService,
   RuntimeToolActionDispatchService,

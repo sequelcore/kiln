@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
-  buildOperatorToolResultPayload,
   type ExecutionRouteCatalog,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
@@ -14,7 +13,7 @@ import {
   type OperatorExecutionMode,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
-import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import { RuntimeSessionOrchestrationSurface } from "../session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../session/runtime-session.js";
 import {
   readRuntimeModelRoundAdmission,
@@ -30,6 +29,7 @@ import {
 } from "../session/effective-authority-admission-bundle.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
+import type { ConfiguredExecutionCredential } from "../managed-account-leases/configured-execution-account-runtime.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import {
   textParts,
@@ -49,22 +49,20 @@ import {
   type VoiceConfig,
   type TurnTemporalContext,
   defineTurnTemporalContext,
-  assertScopedExecutionSessionToolEvent,
   type CommunicationIntentCandidate,
   type ExecutionSessionEvent,
+  type AdmittedExecutionRoute,
+  type ProviderAdapter,
 } from "@kilnai/core";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
-import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { CliDeliberationTransport, CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
+import { processAdmittedTurn } from "./message-pipeline/index.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
-  resolveAttachedRuntimeToolCallMetadata,
   type AttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./attached-runtime-tool-surface.js";
@@ -139,13 +137,16 @@ export interface TuiGatewayOptions {
    * Provides factory + provider/model get/set for cross-provider session support.
    */
   readonly sessionManager: {
-    readonly factory: CliSessionFactory;
     getProvider: () => string;
-    getDeliberationTransport?: () => CliDeliberationTransport;
     setProvider: (provider: string) => void;
     getModel: () => string;
     setModel: (model: string) => void;
   };
+  /** Materializes the exact post-fence provider bound to the committed credential. */
+  readonly createProvider: (input: {
+    readonly credential: ConfiguredExecutionCredential;
+    readonly admission: AdmittedExecutionRoute;
+  }) => ProviderAdapter | Promise<ProviderAdapter>;
   /** System prompt for the TUI session. Default: "You are a helpful assistant." */
   readonly systemPrompt?: string;
   /** IANA timezone from the operator's validated global identity. */
@@ -161,7 +162,7 @@ export interface TuiGatewayOptions {
   /** Per-turn routing authority. Picker admission is UX evidence only. */
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   /** Composition-owned bridge bound to this gateway's local orchestrator. */
-  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<OperatorTurnTuiDispatchPayload>;
   readonly authorityAdmissionEvidenceStore: AuthorityAdmissionEvidenceStore;
   readonly runtimeModelRoundActionClaims: import("../execution-kernel/runtime-model-round-action-claim.js").RuntimeModelRoundActionClaimStore;
@@ -485,7 +486,6 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       }
     : undefined;
   const builtinToolOptions = options.builtinToolOptions;
-  const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveTuiProviderDiscovery(options.getProviderAvailability, options.kilnHome),
@@ -524,19 +524,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     ),
   });
   const resourceSurfaces: TuiResourceSurfaceRegistration[] = [{ surface: builtinToolSurface }];
-  activityStreamer.setToolCallMetadata(builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
-  const executor = new CliSubscriptionExecutor(
-    options.sessionManager.factory,
-    providerLabel,
-    (event) => activityStreamer.forward(event),
-    () => activeOperatorSurface,
-    () => options.sessionManager.getDeliberationTransport?.() ?? "none",
-  );
   const eventBus = options.eventBus ?? new EventBus(100);
-  const orchestrator = new RuntimeSessionOrchestrator({
-    provider: executor,
+  const orchestrationSurface = new RuntimeSessionOrchestrationSurface({
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
   });
@@ -552,8 +543,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     readonly attemptId: string;
   }>();
   activityStreamer.bindApprovalBridge({
-    approve: (approvalId) => orchestrator.continue(approvalId),
-    reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
+    approve: (approvalId) => orchestrationSurface.continue(approvalId),
+    reject: (approvalId, reason) => orchestrationSurface.emitApprovalReceived(false, reason, approvalId),
   });
   const authorityCoordinator = new OperatorAuthorityAdmissionCoordinator<
     OperatorTurnTuiDispatchPayload,
@@ -648,7 +639,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     discardPrepared: ({ turnBuiltinToolSurface }) => turnBuiltinToolSurface.dispose(),
   });
   options.operatorAuthorityAdmissionBridge.bind(authorityCoordinator);
-  options.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnTuiDispatchPayload>) => {
+  options.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<ConfiguredExecutionCredential, OperatorTurnTuiDispatchPayload>) => {
     const prepared = authorityCoordinator.consume(committed.executionId, committed.authorityAdmission);
     const { payload, runtimeSession, turnBuiltinToolSurface, executionMode, activeModelCapabilities } = prepared;
     const readAdmission = options.authorityAdmissionEvidenceStore.readAdmission;
@@ -733,6 +724,14 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       runtimeModelRoundDispatch,
       runtimeToolActionClaims,
     } satisfies PerCallToolConfig;
+    const provider = await options.createProvider({
+      credential: committed.credential,
+      admission: committed.admission,
+    });
+    const orchestrator = orchestrationSurface.bindProvider(
+      provider,
+      committed.admission.providerModelId,
+    );
     return processAdmittedTurn({
       orchestrator,
       sessionRegistry,
@@ -1264,12 +1263,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 }
 
 /**
- * Bridges CLI session events to the active WebSocket connection.
- *
  * The TUI gateway has exactly one WS connection at a time. This class
- * holds a reference to the current WS and forwards activity events
- * (tool_use, tool_result, cost_update, thinking) as they arrive from
- * the CliSubscriptionExecutor.
+ * holds a reference to the current WS and projects canonical Runtime events.
  */
 class TuiActivityStreamer {
   private readonly pendingApprovals = new Set<string>();
@@ -1291,13 +1286,7 @@ class TuiActivityStreamer {
     reject: (approvalId: string, reason: string) => void;
   } | null = null;
 
-  private toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]> = new Map();
-
   constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
-
-  setToolCallMetadata(metadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>): void {
-    this.toolCallMetadata = metadata;
-  }
 
   bindApprovalBridge(bridge: {
     approve: (approvalId: string) => void;
@@ -1538,122 +1527,6 @@ class TuiActivityStreamer {
     this.capture = null;
   }
 
-  forward(event: ExecutionSessionEvent): void {
-    if (!this.ws) return;
-
-    if (event.type === "text_delta") {
-      if (event.isThinking) {
-        this.emitActivityPhase({
-          phase: "thinking",
-          details: event.content,
-        });
-        return;
-      }
-      const sanitizedDelta = sanitizeAssistantEgressText(event.content);
-      if (sanitizedDelta.length === 0) {
-        return;
-      }
-      this.emitSessionEvent({
-        kind: "assistant_delta",
-        timestamp: new Date().toISOString(),
-        payload: {
-          messageId: this.capture ? `${this.capture.sessionId}:live:assistant` : "assistant-live",
-          delta: sanitizedDelta,
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-    } else if (event.type === "tool_use") {
-      assertScopedExecutionSessionToolEvent(event);
-      this.emitSessionEvent({
-        kind: "tool_call_started",
-        timestamp: new Date().toISOString(),
-        payload: {
-          toolCallId: event.toolCallId,
-          toolCallScopeId: event.toolCallScopeId,
-          toolName: event.toolName ?? "unknown",
-          input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
-          ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-      this.emitActivityPhase({
-        phase: "tool_running",
-        toolName: event.toolName,
-      });
-    } else if (event.type === "tool_output_delta") {
-      assertScopedExecutionSessionToolEvent(event);
-      this.emitSessionEvent({
-        kind: "tool_call_output_delta",
-        timestamp: new Date().toISOString(),
-        payload: {
-          toolCallId: event.toolCallId,
-          toolCallScopeId: event.toolCallScopeId,
-          toolName: event.toolName,
-          stream: event.stream,
-          delta: event.delta,
-          chunkIndex: event.chunkIndex,
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-    } else if (event.type === "tool_result") {
-      assertScopedExecutionSessionToolEvent(event);
-      if (this.capture) {
-        this.capture.toolCompletions.push({
-          toolName: event.toolName ?? "unknown",
-          success: !event.isError,
-          output: event.output ?? "",
-          resultSummary: event.outputSummary ?? event.output ?? "",
-          ...(event.metadata ? { metadata: event.metadata } : {}),
-        });
-      }
-      this.emitSessionEvent({
-        kind: "tool_call_completed",
-        timestamp: new Date().toISOString(),
-        payload: {
-          toolCallScopeId: event.toolCallScopeId,
-          ...buildOperatorToolResultPayload({
-            toolCallId: event.toolCallId,
-            toolName: event.toolName ?? "unknown",
-            output: event.output,
-            outputSummary: event.outputSummary,
-            isError: event.isError,
-            metadata: event.metadata,
-            resourceLinks: event.resourceLinks,
-            toolUsage: event.toolUsage,
-          }),
-        },
-        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
-      });
-      this.emitActivityPhase({ phase: "idle" });
-    } else if (event.type === "file_changed") {
-      if (this.capture) {
-        this.capture.fileChanges.push({
-          path: event.path,
-          changeType: event.changeType,
-          linesAdded: event.linesAdded,
-          linesRemoved: event.linesRemoved,
-          diffPreview: event.diffPreview,
-          diffTruncated: event.diffTruncated,
-        });
-      }
-      this.emitSessionEvent({
-        kind: "file_changed",
-        timestamp: new Date().toISOString(),
-        payload: {
-          change: {
-            path: event.path,
-            changeType: event.changeType === "modified" ? "updated" : event.changeType,
-            linesAdded: event.linesAdded,
-            linesRemoved: event.linesRemoved,
-            diffPreview: event.diffPreview,
-            diffTruncated: event.diffTruncated,
-          },
-        },
-      });
-    }
-    // completed/error are handled by the gateway's done/error frames.
-    // approval_requested/approval_received come via eventBus, not execution session events.
-  }
 }
 
 async function resolveTuiProviderDiscovery(

@@ -6,6 +6,7 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  resolveCommunicationIntent,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core/agents";
@@ -261,6 +262,30 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       type: "object",
       properties: { version: { const: "structured-execution-result-v1" } },
     });
+  });
+
+  it("passes communication intent through the turn-local session run contract", async () => {
+    const baseRequest = makeRequest();
+    const communicationIntent = resolveCommunicationIntent([{
+      source: "agent-profile",
+      intent: { responseDetail: "concise", onUnsupported: "omit" },
+    }]);
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      providerRoute: { ...baseRequest.providerRoute, communicationIntent },
+    });
+    const run = vi.fn((_options: ExecutionSessionRunOptions) => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false },
+    ]));
+    const factory = vi.fn<CliSessionFactory>(() => ({
+      run,
+      dispose: vi.fn(async () => undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+
+    await createExternalHarnessTestService().invoke(request, adapter, snapshotInputFor(request));
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ communicationIntent }));
   });
 
   it("reduces a Claude managed child to native plan authority", async () => {

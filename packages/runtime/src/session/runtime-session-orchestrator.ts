@@ -214,10 +214,13 @@ export class RuntimeSessionOrchestrator {
   private readonly approvalGate: RuntimeSessionApprovalGate;
   private readonly telemetry: RuntimeSessionExecutionTelemetry;
 
-  constructor(private readonly deps: OrchestratorDeps) {
+  constructor(
+    private readonly deps: OrchestratorDeps,
+    approvalGate?: RuntimeSessionApprovalGate,
+  ) {
     this.executionEnvelope = resolveExecutionEnvelope(deps.executionEnvelope);
     this._tools = deps.tools;
-    this.approvalGate = new RuntimeSessionApprovalGate(deps.eventBus);
+    this.approvalGate = approvalGate ?? new RuntimeSessionApprovalGate(deps.eventBus);
     this.telemetry = new RuntimeSessionExecutionTelemetry(
       resolveExecutionIdentity({
         configuredProvider: deps.provider.name,
@@ -242,7 +245,7 @@ export class RuntimeSessionOrchestrator {
       provider,
       ...(model ? { model } : {}),
       tools: this._tools,
-    });
+    }, this.approvalGate);
   }
 
   emitApprovalRequested(description: string, sessionId: string, approvalId: string): void {
@@ -1158,6 +1161,34 @@ export class RuntimeSessionOrchestrator {
       };
     }
     return undefined;
+  }
+}
+
+/**
+ * Owns the operator-facing approval lifecycle before an exact provider can be
+ * materialized from a dispatch-fenced credential.
+ */
+export class RuntimeSessionOrchestrationSurface {
+  private readonly approvalGate: RuntimeSessionApprovalGate;
+
+  constructor(private readonly deps: Omit<OrchestratorDeps, "provider" | "model">) {
+    this.approvalGate = new RuntimeSessionApprovalGate(deps.eventBus);
+  }
+
+  bindProvider(provider: ProviderAdapter, model?: string): RuntimeSessionOrchestrator {
+    return new RuntimeSessionOrchestrator({
+      ...this.deps,
+      provider,
+      ...(model ? { model } : {}),
+    }, this.approvalGate);
+  }
+
+  continue(approvalId: string): void {
+    this.approvalGate.continue(approvalId);
+  }
+
+  emitApprovalReceived(approved: boolean, reason: string | undefined, approvalId: string): void {
+    this.approvalGate.emitApprovalReceived(approved, reason, approvalId);
   }
 }
 

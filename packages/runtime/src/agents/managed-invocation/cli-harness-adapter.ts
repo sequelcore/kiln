@@ -226,9 +226,6 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       kilnSessionId: childSessionId,
       permissionPolicy: permissionPolicyFromAuthority(request, this.providerId),
       ...(deliberationResolution ? { deliberationResolution } : {}),
-      ...(request.providerRoute.communicationIntent
-        ? { communicationIntent: request.providerRoute.communicationIntent }
-        : {}),
       ...(this.privatePlanArtifactCapability ? {
         privatePlanArtifactCapability: this.privatePlanArtifactCapability,
       } : {}),

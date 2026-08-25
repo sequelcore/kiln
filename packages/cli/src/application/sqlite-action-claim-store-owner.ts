@@ -125,7 +125,15 @@ export class SqliteActionClaimStoreOwner {
       )
       .get();
     if (current && current.heartbeat > now - this.#ownerStaleMs) {
-      throw new Error(`${this.#storeName} action-claim store already has a live owner.`);
+      const retryInSeconds = Math.max(
+        1,
+        Math.ceil((current.heartbeat + this.#ownerStaleMs - now) / 1_000),
+      );
+      throw new Error(
+        `${this.#storeName} action-claim store already has a live owner. `
+        + `Close the active owner; after an abrupt exit, retry in ${retryInSeconds} seconds. `
+        + "Do not delete action-claim state.",
+      );
     }
 
     if (current) {

@@ -35,6 +35,7 @@ function makeResponse(text: string): AgentResponse {
 
 class TestAdapter implements ProviderAdapter {
   readonly name = "test";
+  readonly communicationTransport = "native" as const;
 
   constructor(private readonly handler: () => Promise<AgentResponse>) {}
 
@@ -76,6 +77,7 @@ describe("DirectProviderCredentialPoolService", () => {
       },
     });
 
+    expect(adapter.communicationTransport).toBe("native");
     await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
     expect(seen).toEqual([{ apiKey: "sk-env", baseUrl: undefined }]);
     await expect(service.listStatus("openai")).resolves.toEqual([expect.objectContaining({

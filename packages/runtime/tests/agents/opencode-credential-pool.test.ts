@@ -33,6 +33,7 @@ function makeResponse(text: string): AgentResponse {
 
 class TestAdapter implements ProviderAdapter {
   readonly name = "test";
+  readonly communicationTransport = "native" as const;
 
   constructor(
     private readonly handler: () => Promise<AgentResponse>,
@@ -154,6 +155,7 @@ describe("OpenCodeCredentialPoolService", () => {
       }),
     });
 
+    expect(adapter.communicationTransport).toBe("native");
     await expect(adapter.createMessage(makeOptions())).rejects.toThrow("rate limited");
     expect(calls).toEqual(["sk-first"]);
   });

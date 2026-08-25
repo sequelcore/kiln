@@ -27,9 +27,10 @@ import {
   type RoutingRequest,
   textParts,
 } from "@kilnai/core/engine";
-import { EventBus } from "@kilnai/core/events";
+import { EventBus, type ExecutionSessionRunOptions } from "@kilnai/core/events";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { ManagedRemoteHarnessAdapter } from "../../src/agents/managed-invocation/remote-harness-adapter.js";
+import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type {
@@ -66,6 +67,28 @@ function makeDeliberationCapabilities(
         sourceIdentity: "routed/models",
         sourceRevision: "test-r1",
         observedAt: "2026-05-12T00:00:00.000Z",
+      },
+    },
+  };
+}
+
+function makeCommunicationCapabilities(
+  provider: string,
+  model: string,
+): ModelRoutingRouteCapabilities {
+  return {
+    communication: {
+      provider,
+      model,
+      responseDetail: {
+        mechanism: "native",
+        supported: ["concise", "standard", "detailed"],
+        nativeValues: { concise: "low", standard: "medium", detailed: "high" },
+      },
+      evidence: {
+        sourceIdentity: `${provider}/models`,
+        sourceRevision: "communication-r1",
+        observedAt: "2026-08-13T00:00:00.000Z",
       },
     },
   };
@@ -662,22 +685,10 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const result = await orchestrator.processMessage(makeSession(), textParts("summarize"), undefined, undefined, {
       communicationIntent,
       modelRoutingPolicy: {
-        routeCapabilities: new Map([["routed/routed-model", {
-          communication: {
-            provider: "routed",
-            model: "routed-model",
-            responseDetail: {
-              mechanism: "native",
-              supported: ["concise", "standard", "detailed"],
-              nativeValues: { concise: "low", standard: "medium", detailed: "high" },
-            },
-            evidence: {
-              sourceIdentity: "routed/models",
-              sourceRevision: "communication-r1",
-              observedAt: "2026-08-13T00:00:00.000Z",
-            },
-          },
-        }]]),
+        routeCapabilities: new Map([[
+          "routed/routed-model",
+          makeCommunicationCapabilities("routed", "routed-model"),
+        ]]),
       },
     });
 
@@ -702,6 +713,45 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     ]));
     expect(result.providerRequests?.[0]?.communicationResolution?.identity)
       .toBe(result.communicationResolution?.identity);
+  });
+
+  it("dispatches native communication through the shared subscription executor", async () => {
+    const run = vi.fn((_options: ExecutionSessionRunOptions) => (async function* () {
+      yield { type: "text_delta" as const, content: "concise response" };
+      yield { type: "completed" as const, totalUsd: 0, durationMs: 1, outcome: "completed" as const, isPreflightCrash: false };
+    })());
+    const executor = new CliSubscriptionExecutor(
+      vi.fn().mockReturnValue({ run, dispose: vi.fn().mockResolvedValue(undefined) }),
+      "codex-oauth",
+    );
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: executor,
+      model: "gpt-5.6-terra",
+    });
+    const session = makeSession();
+    const communicationIntent = resolveCommunicationIntent([{
+      source: "global",
+      intent: { responseDetail: "concise", onUnsupported: "omit" },
+    }]);
+
+    const result = await orchestrator.processMessage(session, textParts("summarize"), undefined, undefined, {
+      authorityAdmission: makeFixtureModelRoundAdmission(
+        session,
+        `${session.id}:turn:1`,
+        "codex-oauth",
+        "gpt-5.6-terra",
+      ),
+      communicationIntent,
+      modelRoutingPolicy: {
+        routeCapabilities: new Map([[
+          "codex-oauth/gpt-5.6-terra",
+          makeCommunicationCapabilities("codex-oauth", "gpt-5.6-terra"),
+        ]]),
+      },
+    });
+
+    expect(extractText(result.parts)).toBe("concise response");
+    expect(run.mock.calls[0]?.[0]?.communicationIntent).toBe(communicationIntent);
   });
 
   it("rejects unsupported communication policy before provider I/O", async () => {

@@ -69,7 +69,6 @@ describe("GUI gateway execution routing", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -130,7 +129,6 @@ describe("GUI gateway execution routing", () => {
       operatorTransport: {
         ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -181,7 +179,6 @@ describe("GUI gateway execution routing", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -266,7 +263,6 @@ describe("GUI gateway execution routing", () => {
       operatorTransport: {
         ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -322,7 +318,6 @@ describe("GUI gateway execution routing", () => {
           onContinueSession,
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -442,7 +437,6 @@ describe("GUI gateway execution routing", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",
@@ -526,7 +520,6 @@ describe("GUI gateway execution routing", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "",
             setProvider: vi.fn(),
             getModel: () => "",

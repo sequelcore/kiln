@@ -10,7 +10,6 @@ import {
   type CodexOAuthTokenFile,
   type Credential,
   type CredentialOutcome,
-  type CreateMessageOptions,
   type ProviderUsageSnapshot,
   type ProviderAdapter,
 } from "@kilnai/core";
@@ -19,6 +18,7 @@ import { FileProviderUsageStore, type ProviderUsageStore } from "../provider-usa
 import { CredentialHealthStore } from "./credential-health-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
+import { withProviderAdapterOutcomeRecording } from "./provider-adapter-outcome-recording.js";
 import { resolveRuntimeStoreRoot } from "../../kiln-home.js";
 
 export const CODEX_OAUTH_POOL_PROVIDER_ID = "codex-oauth";
@@ -451,29 +451,7 @@ export class CodexOAuthCredentialPoolService {
     const recordOutcome = async (error?: unknown): Promise<void> => {
       await this.recordProviderOutcome(credential.credentialId, error);
     };
-    return {
-      name: delegate.name,
-      deliberationTransport: delegate.deliberationTransport,
-      createMessage: async (messageOptions: CreateMessageOptions) => {
-        try {
-          const response = await delegate.createMessage(messageOptions);
-          await recordOutcome();
-          return response;
-        } catch (error) {
-          await recordOutcome(error);
-          throw error;
-        }
-      },
-      streamMessage: async function* (messageOptions: CreateMessageOptions) {
-        try {
-          yield* delegate.streamMessage(messageOptions);
-          await recordOutcome();
-        } catch (error) {
-          await recordOutcome(error);
-          throw error;
-        }
-      },
-    };
+    return withProviderAdapterOutcomeRecording({ delegate, recordOutcome });
   }
 
   async createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {

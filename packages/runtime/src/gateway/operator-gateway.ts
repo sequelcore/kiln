@@ -11,6 +11,7 @@ import type {
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import type { RuntimeModelRoundActionClaimStore } from "../execution-kernel/runtime-model-round-action-claim.js";
 import type { RuntimeToolActionClaimStore } from "../execution-kernel/runtime-tool-action-claim.js";
+import type { ConfiguredExecutionCredential } from "../managed-account-leases/configured-execution-account-runtime.js";
 
 export interface OperatorGateway extends TuiGateway {}
 
@@ -20,10 +21,10 @@ export type OnContinueSession = (sessionId: string, routeId?: string) => void | 
 
 type BaseOperatorSessionTransportOptions<Payload> = Omit<Pick<
   TuiGatewayOptions,
-  "sessionManager" | "systemPrompt" | "onClear" | "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "contextArtifactCache" | "artifactStore" | "voiceConfig" | "sttAdapter" | "ttsAdapter" | "eventBus" | "executionMode" | "managedInvocation" | "sessionTurnBudget" | "persistCanonicalSessionEvent"
+  "sessionManager" | "createProvider" | "systemPrompt" | "onClear" | "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "contextArtifactCache" | "artifactStore" | "voiceConfig" | "sttAdapter" | "ttsAdapter" | "eventBus" | "executionMode" | "managedInvocation" | "sessionTurnBudget" | "persistCanonicalSessionEvent"
 >, "operatorTurnDispatcher" | "operatorTurnExecutionBridge"> & {
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<Payload, OperatorTurnDispatchResult>;
-  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<unknown, Payload, OperatorTurnDispatchResult>;
+  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, Payload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<Payload>;
   readonly authorityAdmissionEvidenceStore: AuthorityAdmissionEvidenceStore;
   readonly runtimeModelRoundActionClaims: RuntimeModelRoundActionClaimStore;

@@ -148,6 +148,7 @@ import type {
   RuntimeSessionHydrator,
   OperatorTurnDispatchPort,
   OperatorSessionAuthorityAdmissionBridge,
+  TuiGatewayOptions,
 } from "@kilnai/runtime";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../application/authority-admission-evidence-store.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "../application/runtime-model-round-action-claim-store.js";
@@ -184,6 +185,7 @@ interface TuiBootstrapOptions {
   readonly cwd: string;
   readonly kilnHome: string;
   readonly sessionManager: MultiProviderSessionManager;
+  readonly createProvider: TuiGatewayOptions["createProvider"];
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
   readonly contextArtifactCache: ContextArtifactCache;
@@ -1107,6 +1109,7 @@ async function bootstrapGatewaySession(
   options.startupProfiler?.mark("gateway-start-requested");
   const gateway = await startTuiGateway({
     sessionManager,
+    createProvider: options.createProvider,
     kilnHome: options.kilnHome,
     runtimeConfigurationRevisionProvider: () => readRuntimeConfigurationRevision(options.cwd),
     port: flags.port,
@@ -1724,6 +1727,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     cwd,
     kilnHome: projectStateBinding.kilnHome,
     sessionManager,
+    createProvider: ({ credential, admission }) => operatorTurnComposition.accountRuntime.createProviderAdapterFromCredential({
+      providerId: admission.providerId,
+      providerModelId: admission.providerModelId,
+      credential,
+    }),
     registry,
     executionRouteSelection,
     contextArtifactCache,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   buildGuiOperatorDiscoveryResults,
   createRuntimeMediaActionClaimContext,
+  CliSubscriptionExecutor,
   defineRuntimeSessionAuthorityFacet,
   OperatorSessionAuthorityAdmissionBridge,
   OperatorSessionExecutionBridge,
@@ -13,6 +14,7 @@ import {
   projectGuiProviderModelDiscovery,
   startGuiGateway,
   type CliSessionFactory,
+  type ConfiguredExecutionCredential,
   type OperatorExecutionRouteSelectionPort,
   type OperatorTurnDispatchPort,
   type OperatorTurnDispatchResult,
@@ -767,7 +769,7 @@ function canonicalExecutionCatalogForRoute(
 function createDeterministicOperatorRouting(): {
   readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
-  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<unknown, OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["operatorAuthorityAdmissionBridge"];
   readonly authorityAdmissionEvidenceStore: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["authorityAdmissionEvidenceStore"];
   readonly runtimeModelRoundActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeModelRoundActionClaims"];
@@ -777,7 +779,7 @@ function createDeterministicOperatorRouting(): {
   readonly getExecutionRouteCatalog: () => ExecutionRouteCatalog;
 } {
   const operatorTurnExecutionBridge = new OperatorSessionExecutionBridge<
-    unknown,
+    ConfiguredExecutionCredential,
     OperatorTurnGuiDispatchPayload,
     OperatorTurnDispatchResult
   >();
@@ -899,7 +901,7 @@ function createDeterministicOperatorRouting(): {
   // Keep the captured catalog immutable per dispatch; a shared mutable capture
   // could be overwritten by a later concurrent request before admission runs.
   const createRouting = (catalog: ExecutionCatalog) => new OperatorSessionExecutionRoutingService<
-    unknown,
+    ConfiguredExecutionCredential,
     OperatorTurnGuiDispatchPayload,
     OperatorTurnDispatchResult
   >({
@@ -964,7 +966,11 @@ function createDeterministicOperatorRouting(): {
     accountCapacityAuthority,
     credentials: {
       resolve: async ({ credentialId, lease }) => ({
-        credential: { kind: "parity" },
+        credential: {
+          credentialId,
+          accessToken: "parity-synthetic-token",
+          chatgptAccountId: "parity-synthetic-account",
+        },
         credentialId,
         credentialRevisionId: lease.credentialRevisionId,
       }),
@@ -1396,7 +1402,6 @@ async function main(): Promise<void> {
     },
     operatorTransport: {
       sessionManager: {
-        factory: fakeSessionFactory,
         getProvider: () => activeProvider,
         setProvider: (provider) => {
           activeProvider = provider;
@@ -1406,6 +1411,7 @@ async function main(): Promise<void> {
           activeModel = model;
         },
       },
+      createProvider: ({ admission }) => new CliSubscriptionExecutor(fakeSessionFactory, admission.providerId),
       systemPrompt: "You are a deterministic e2e test assistant.",
       onClear: async () => {
         continuationSessionId = null;

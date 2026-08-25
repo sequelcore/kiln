@@ -4,7 +4,7 @@ import { textParts, type AuthorityDescriptor, type Capability, type RateLimiter,
 import { EventBus, type ApprovalRequestedEvent, type ToolCalledEvent, type ToolResultEvent } from "@kilnai/core/events";
 import { type KilnMcpClient } from "@kilnai/core/mcp";
 import { ToolResultSanitizer as RealToolResultSanitizer, type SafetyPipeline, type ToolResultSanitizer } from "@kilnai/core/safety";
-import { RuntimeSessionOrchestrator, type PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSessionOrchestrationSurface, RuntimeSessionOrchestrator, type PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { createFixtureClaimConfig } from "./runtime-claim-fixture.js";
@@ -393,6 +393,38 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           },
         }),
       );
+    });
+
+    it("keeps approval ownership on the surface that binds an exact provider", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const toolFn = vi.fn().mockResolvedValue("approved result");
+      const surface = new RuntimeSessionOrchestrationSurface({
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
+        capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
+        toolAuthorizer: {
+          authorize: vi.fn().mockReturnValue({
+            level: 4,
+            allowed: false,
+            requiresApproval: true,
+            reason: "Destructive tool requires confirmation",
+          }),
+        },
+      });
+      const orchestrator = surface.bindProvider(provider, "fixture-model");
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+
+      const pending = orchestrator.processMessage(makeSession(), textParts("delete stuff"));
+      await waitForAssertion(() => expect(approvalRequested).toHaveBeenCalledTimes(1));
+
+      const approvalEvent = approvalRequested.mock.calls[0]?.[0] as ApprovalRequestedEvent;
+      surface.continue(approvalEvent.approvalId);
+      await pending;
+
+      expect(toolFn).toHaveBeenCalledTimes(1);
     });
 
     it("passes the approval callback into builtin tool execution context", async () => {

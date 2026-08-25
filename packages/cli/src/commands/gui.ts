@@ -537,6 +537,11 @@ export async function guiCommand(
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,
+      createProvider: ({ credential, admission }) => operatorTurnComposition.accountRuntime.createProviderAdapterFromCredential({
+        providerId: admission.providerId,
+        providerModelId: admission.providerModelId,
+        credential,
+      }),
       operatorTurnDispatcher: operatorTurnComposition.dispatcher,
       operatorTurnExecutionBridge: operatorTurnComposition.bridge,
       operatorAuthorityAdmissionBridge: operatorTurnComposition.authorityAdmissionBridge,

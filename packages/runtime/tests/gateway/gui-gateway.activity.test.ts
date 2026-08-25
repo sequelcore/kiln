@@ -114,7 +114,6 @@ describe("GUI gateway activity", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -254,7 +253,6 @@ describe("GUI gateway activity", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -343,7 +341,6 @@ describe("GUI active turn lifecycle", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -427,7 +424,6 @@ describe("GUI active turn lifecycle", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,
@@ -516,7 +512,6 @@ describe("GUI active turn lifecycle", () => {
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
-            factory: vi.fn() as never,
             getProvider: () => "openai",
             setProvider: vi.fn(),
             getModel: () => GPT4O,

@@ -284,12 +284,6 @@ function stubBunServe(): ReturnType<typeof vi.fn> {
 
 function makeSessionManager() {
   return {
-    factory: vi.fn(() => ({
-      async *run() {
-        yield { type: "completed" as const, totalUsd: 0, durationMs: 0, outcome: "completed" as const, isPreflightCrash: false };
-      },
-      dispose: vi.fn().mockResolvedValue(undefined),
-    })) as never,
     getProvider: vi.fn(() => "claude"),
     setProvider: vi.fn(),
     getModel: vi.fn(() => "claude-sonnet-4-6"),
@@ -299,7 +293,7 @@ function makeSessionManager() {
 
 function makeTuiTestRouting(
   sessionManager: Pick<TuiGatewayOptions["sessionManager"], "getProvider" | "getModel">,
-): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "persistCanonicalSessionEvent"> {
+): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvent"> {
   const routing = tuiTestRouting.create(sessionManager.getProvider(), sessionManager.getModel());
   return {
     executionRouteSelection: routing.executionRouteSelection as never,
@@ -310,6 +304,21 @@ function makeTuiTestRouting(
     runtimeModelRoundActionClaims: routing.runtimeModelRoundActionClaims as never,
     runtimeToolActionClaims: routing.runtimeToolActionClaims as never,
     runtimeMediaActionClaims: routing.runtimeMediaActionClaims as never,
+    createProvider: async ({ admission }) => ({
+      name: admission.providerId,
+      createMessage: async () => ({
+        parts: [{ type: "text", text: "test response" }],
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+        stopReason: "end_turn",
+      }),
+      async *streamMessage() {
+        yield { type: "done" as const, content: "" };
+      },
+    }),
     persistCanonicalSessionEvent: async () => undefined,
   };
 }
@@ -842,128 +851,6 @@ describe("TUI gateway execution-route catalog", () => {
 });
 
 describe("TUI gateway message fail-closed behavior", () => {
-  it("projects rich CLI tool results to TUI session event frames", async () => {
-    vi.resetModules();
-    stubBunServe();
-    const discoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ claude: [] }));
-    const sessionManager = {
-      ...makeSessionManager(),
-      getProvider: vi.fn(() => "claude"),
-      getModel: vi.fn(() => ""),
-      factory: vi.fn(() => ({
-        run: async function* () {
-          yield {
-            type: "tool_use" as const,
-            toolCallScopeId: "turn-1:response:1",
-            toolCallId: "call-rich",
-            toolName: "managed_agent.invoke",
-            input: { profile: "foundation-readonly-plan" },
-          };
-          yield {
-            type: "tool_result" as const,
-            toolCallScopeId: "turn-1:response:1",
-            toolCallId: "call-rich",
-            toolName: "managed_agent.invoke",
-            output: "child completed",
-            metadata: {
-              invocationId: "managed-1",
-              routeId: "codex-oauth-auto-review-readonly",
-            },
-            resourceLinks: [{
-              uri: "kiln://managed-invocations/managed-1/transcript",
-              title: "Transcript",
-              relation: "events",
-            }],
-            toolUsage: {
-              scope: "turn" as const,
-              toolName: "managed_agent.invoke",
-              calls: 1,
-            },
-          };
-          yield {
-            type: "cost_update" as const,
-            usd: 0.0123,
-            provider: "claude",
-            model: "claude-sonnet-4-5",
-            inputTokens: 120,
-            outputTokens: 30,
-            cacheReadTokens: 20,
-          };
-          yield { type: "text_delta" as const, content: "Parent turn completed." };
-          yield { type: "completed" as const, totalUsd: 0, durationMs: 1, outcome: "completed" as const, isPreflightCrash: false };
-        },
-        dispose: vi.fn().mockResolvedValue(undefined),
-      })),
-    };
-    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
-
-    const gateway = await startTuiGateway({
-      sessionManager,
-      getProviderAvailability: () => ({ claude: true }),
-      ...makeTuiTestRouting(sessionManager),
-    });
-    try {
-      const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen?.(new Event("open"), wsCtx);
-      await selectTuiTestExecutionRoute(handlers, wsCtx);
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            type: "message",
-            content: "run rich cli event",
-          }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
-        type: string;
-        content?: string;
-        event?: { kind: string; payload: Record<string, unknown> };
-      });
-      const completedPayload = outboundFrames
-        .find((frame) => frame.type === "session_event" && frame.event?.kind === "tool_call_completed")
-        ?.event?.payload;
-      const sessionEvents = outboundFrames
-        .filter((frame) => frame.type === "session_event")
-        .map((frame) => frame.event);
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "done",
-        content: "Parent turn completed.",
-      }));
-      expect(completedPayload).toMatchObject({
-        toolCallId: "call-rich",
-        toolCallScopeId: "turn-1:response:1",
-        toolName: "managed_agent.invoke",
-        output: "child completed",
-        metadata: {
-          invocationId: "managed-1",
-          routeId: "codex-oauth-auto-review-readonly",
-        },
-        resourceLinks: [{
-          uri: "kiln://managed-invocations/managed-1/transcript",
-          title: "Transcript",
-          relation: "events",
-        }],
-        toolUsage: {
-          scope: "turn",
-          toolName: "managed_agent.invoke",
-          calls: 1,
-        },
-        status: {
-          state: "succeeded",
-        },
-      });
-      expect(sessionEvents.some((event) => event?.kind === "cost_updated")).toBe(false);
-      expect(sessionEvents.some((event) => event?.kind === "lifecycle_attribution_recorded")).toBe(false);
-    } finally {
-      discoverySpy.mockRestore();
-      gateway.shutdown();
-    }
-  });
-
   it("streams managed invocation session events from a TUI turn", async () => {
     vi.resetModules();
     vi.doMock("../../src/gateway/message-pipeline/index.js", async () => {

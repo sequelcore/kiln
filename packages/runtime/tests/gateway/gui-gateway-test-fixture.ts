@@ -282,8 +282,23 @@ const guiOperatorTransportDefaults = (() => {
     runtimeModelRoundActionClaims: routing.runtimeModelRoundActionClaims as unknown as OperatorGuiSessionTransportOptions["runtimeModelRoundActionClaims"],
     runtimeToolActionClaims: routing.runtimeToolActionClaims as unknown as OperatorGuiSessionTransportOptions["runtimeToolActionClaims"],
     runtimeMediaActionClaims: routing.runtimeMediaActionClaims as unknown as OperatorGuiSessionTransportOptions["runtimeMediaActionClaims"],
+    createProvider: async ({ admission }) => ({
+      name: admission.providerId,
+      createMessage: async () => ({
+        parts: [{ type: "text", text: "test response" }],
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+        stopReason: "end_turn",
+      }),
+      async *streamMessage() {
+        yield { type: "done" as const, content: "" };
+      },
+    }),
     persistCanonicalSessionEvent: async () => undefined,
-  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "persistCanonicalSessionEvent">;
+  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvent">;
 })();
 
 vi.mock("hono/bun", () => ({
