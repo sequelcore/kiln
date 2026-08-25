@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime config mutation session events", () => {
-  it("projects config proposal and apply tool results into canonical events", () => {
+  it("projects config proposal and apply tool results into canonical events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -16,7 +16,7 @@ describe("runtime config mutation session events", () => {
     const startedAt = new Date("2026-05-07T12:00:00.000Z");
     const proposedAt = new Date("2026-05-07T12:00:01.000Z");
     const appliedAt = new Date("2026-05-07T12:00:02.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "cli",
       userMessageContent: "Add a skill",
@@ -104,7 +104,7 @@ describe("runtime config mutation session events", () => {
     ]));
   });
 
-  it("projects a committed change whose reconciliation failed as applied, never as failed", () => {
+  it("projects a committed change whose reconciliation failed as applied, never as failed", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -114,7 +114,7 @@ describe("runtime config mutation session events", () => {
     session.addUserMessage(textParts("Apply config"));
 
     const timestamp = new Date("2026-05-07T12:00:00.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "cli",
       userMessageContent: "Apply config",
@@ -178,7 +178,7 @@ describe("runtime config mutation session events", () => {
     expect(events.some((event) => event.kind === "config_change_failed")).toBe(false);
   });
 
-  it("projects failed config apply results into canonical failure events", () => {
+  it("projects failed config apply results into canonical failure events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -188,7 +188,7 @@ describe("runtime config mutation session events", () => {
     session.addUserMessage(textParts("Apply config"));
 
     const timestamp = new Date("2026-05-07T12:00:00.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "cli",
       userMessageContent: "Apply config",

@@ -4,7 +4,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadOperatorSessionSummaries } from "../../src/application/operator-session-history.js";
 import { loadSessionDetail } from "../../src/commands/gui-session-detail.js";
-import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
+import { SessionStore, TranscriptStore, type PersistedTranscriptEventDraft } from "../../src/wrapper/session-store.js";
+
+async function appendTranscript(
+  store: TranscriptStore,
+  sessionId: string,
+  event: PersistedTranscriptEventDraft,
+): Promise<void> {
+  await store.appendManyNext(sessionId, [event]);
+}
 
 describe("Operator session history", () => {
   let tmpDir: string | undefined;
@@ -42,7 +50,7 @@ describe("Operator session history", () => {
       { routeId: "openai-fast", provider: "openai", model: "gpt-5.4-mini" },
       { routeId: "opencode-review", provider: "opencode", model: "gpt-5.4" },
     ].entries()) {
-      await transcriptStore.append("kiln-session-1", {
+      await appendTranscript(transcriptStore, "kiln-session-1", {
         eventId: `route-${index + 1}`,
         kilnSessionId: "kiln-session-1",
         sequence: index + 1,
@@ -124,7 +132,7 @@ describe("Operator session history", () => {
       lastTurnOutcome: "completed",
       costUsd: 0,
     });
-    await transcriptStore.append("kiln-session-transcript-only", {
+    await appendTranscript(transcriptStore, "kiln-session-transcript-only", {
       eventId: "route-1",
       kilnSessionId: "kiln-session-transcript-only",
       sequence: 1,
@@ -172,7 +180,7 @@ describe("Operator session history", () => {
       task: "interactive",
       startedAt: "2026-04-22T18:59:00.000Z",
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-1",
       kilnSessionId: sessionId,
       sequence: 1,
@@ -248,7 +256,7 @@ describe("Operator session history", () => {
       task: "interactive",
       startedAt: "2026-04-22T18:59:00.000Z",
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-2",
       kilnSessionId: sessionId,
       sequence: 1,

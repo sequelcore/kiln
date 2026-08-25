@@ -43,9 +43,10 @@ request before routing or session mutation.
 4. effective-prompt manifest assembly
 5. routing-suffix reconciliation and exact-prompt validation
 6. runtime continuity presentation
-7. model and tool orchestration
-8. canonical turn-record application
-9. session save and telemetry emission
+7. durable canonical turn-start admission
+8. model and tool orchestration with ordered event persistence
+9. canonical turn-record application and exactly-once terminal settlement
+10. session save and telemetry emission
 
 **Canonical boundary:** `processAdmittedTurn(...)`
 

@@ -11,7 +11,15 @@ import {
 } from "@kilnai/core/work-governance";
 import { RuntimeSession } from "@kilnai/runtime";
 import { createTranscriptRuntimeSessionHydrator } from "../../src/application/runtime-session-rehydration.js";
-import { TranscriptStore } from "../../src/wrapper/session-store.js";
+import { TranscriptStore, type PersistedTranscriptEventDraft } from "../../src/wrapper/session-store.js";
+
+async function appendTranscript(
+  store: TranscriptStore,
+  sessionId: string,
+  event: PersistedTranscriptEventDraft,
+): Promise<void> {
+  await store.appendManyNext(sessionId, [event]);
+}
 
 describe("createTranscriptRuntimeSessionHydrator", () => {
   let tmpDir: string;
@@ -34,7 +42,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       task: "interactive",
       startedAt: "2026-05-08T00:00:00.000Z",
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-1",
       kilnSessionId: sessionId,
       sequence: 1,
@@ -43,7 +51,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       source: { actor: "user", surface: "gui" },
       payload: { content: "hello" },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-2",
       kilnSessionId: sessionId,
       sequence: 2,
@@ -52,7 +60,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       source: { actor: "assistant", surface: "gui" },
       payload: { messageId: "a1", content: "Hello Alex." },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-3",
       kilnSessionId: sessionId,
       sequence: 3,
@@ -65,7 +73,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
         toolName: "read",
       },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-4",
       kilnSessionId: sessionId,
       sequence: 4,
@@ -169,7 +177,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       task: "interactive",
       startedAt: "2026-05-08T00:00:00.000Z",
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-1",
       kilnSessionId: sessionId,
       sequence: 1,
@@ -184,7 +192,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
         sequence: 99,
       },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-2",
       kilnSessionId: sessionId,
       sequence: 2,
@@ -200,7 +208,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
         turnOrdinal: 1,
       },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-3",
       kilnSessionId: sessionId,
       sequence: 3,
@@ -212,7 +220,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
         goal,
       },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-4",
       kilnSessionId: sessionId,
       sequence: 4,
@@ -225,7 +233,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
         workItem,
       },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-5",
       kilnSessionId: sessionId,
       sequence: 5,
@@ -299,7 +307,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       task: "interactive",
       startedAt: "2026-07-19T04:45:00.000Z",
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-web-start",
       kilnSessionId: sessionId,
       sequence: 1,
@@ -312,7 +320,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
         toolName: "web_search",
       },
     });
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       eventId: "evt-web-result",
       kilnSessionId: sessionId,
       sequence: 2,

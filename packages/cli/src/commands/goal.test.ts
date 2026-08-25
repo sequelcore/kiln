@@ -9,7 +9,15 @@ import {
   type WorkItem,
 } from "@kilnai/core/work-governance";
 import { goalCommand, loadGoalSnapshotFromTranscript } from "./goal.js";
-import { TranscriptStore } from "../wrapper/session-store.js";
+import { TranscriptStore, type PersistedTranscriptEventDraft } from "../wrapper/session-store.js";
+
+async function appendTranscript(
+  store: TranscriptStore,
+  sessionId: string,
+  event: PersistedTranscriptEventDraft,
+): Promise<void> {
+  await store.appendManyNext(sessionId, [event]);
+}
 
 const roots: string[] = [];
 
@@ -179,7 +187,7 @@ async function appendGoalCreated(
   sessionId: string,
   goal: GoalRun,
 ): Promise<void> {
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: `event-${goal.id}`,
     kilnSessionId: sessionId,
     sequence: goal.sequence,
@@ -195,7 +203,7 @@ async function appendWorkItemUpdated(
   sessionId: string,
   workItem: WorkItem,
 ): Promise<void> {
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: `event-${workItem.id}`,
     kilnSessionId: sessionId,
     sequence: workItem.sequence,
@@ -214,7 +222,7 @@ async function appendPlanSubmitted(
   sessionId: string,
   plan: ReturnType<PlanStateStore["submitPlan"]>,
 ): Promise<void> {
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: `event-${plan.id}`,
     kilnSessionId: sessionId,
     sequence: plan.sequence,
@@ -285,7 +293,7 @@ async function appendPlanAnalysis(
     readonly blockingFindingIds: readonly string[];
   },
 ): Promise<void> {
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: `event-analysis-${input.sequence}`,
     kilnSessionId: sessionId,
     sequence: input.sequence,

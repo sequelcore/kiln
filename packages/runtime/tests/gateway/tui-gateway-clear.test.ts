@@ -483,6 +483,14 @@ async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+async function waitForTuiCondition(condition: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (condition()) return;
+    await flushAsyncWork();
+  }
+  throw new Error(message);
+}
+
 async function selectTuiTestExecutionRoute(
   handlers: { readonly onMessage?: (event: MessageEvent, ws: never) => Promise<void> | void },
   wsCtx: unknown,
@@ -851,6 +859,73 @@ describe("TUI gateway execution-route catalog", () => {
 });
 
 describe("TUI gateway message fail-closed behavior", () => {
+  it("aborts active work and awaits settlement during explicit shutdown", async () => {
+    vi.resetModules();
+    vi.doMock("../../src/gateway/message-pipeline/index.js", async () => {
+      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>(
+        "../../src/gateway/message-pipeline/index.js",
+      );
+      return { ...actual, processAdmittedTurn: tuiProcessAdmittedTurn };
+    });
+    const stop = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4801, stop })),
+    });
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ claude: ["claude-sonnet-4-6"] }));
+    let observedSignal: AbortSignal | undefined;
+    let releaseSettlement!: () => void;
+    const settlementFence = new Promise<void>((resolve) => {
+      releaseSettlement = resolve;
+    });
+    tuiProcessAdmittedTurn.mockImplementation(async (input) => {
+      observedSignal = input.perCallConfig?.abortSignal;
+      if (!observedSignal) throw new Error("Expected active TUI turn abort signal.");
+      if (!observedSignal.aborted) {
+        await new Promise<void>((resolve) =>
+          observedSignal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      }
+      await settlementFence;
+      throw new Error("TUI turn aborted during shutdown");
+    });
+    const sessionManager = makeSessionManager();
+    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startTuiGateway>> | undefined;
+    try {
+      gateway = await startTuiGateway({ sessionManager, ...makeTuiTestRouting(sessionManager) });
+      const { handlers, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+      await selectTuiTestExecutionRoute(handlers, wsCtx);
+      const activeMessage = handlers.onMessage?.(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
+        wsCtx,
+      );
+      await waitForTuiCondition(() => observedSignal !== undefined, "Expected active TUI turn before shutdown.");
+
+      let shutdownSettled = false;
+      const shutdown = gateway.shutdown().then(() => {
+        shutdownSettled = true;
+      });
+      await Promise.resolve();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(observedSignal?.aborted).toBe(true);
+      expect(shutdownSettled).toBe(false);
+
+      releaseSettlement();
+      await Promise.all([activeMessage, shutdown]);
+      expect(shutdownSettled).toBe(true);
+      gateway = undefined;
+    } finally {
+      releaseSettlement?.();
+      tuiProcessAdmittedTurn.mockReset();
+      vi.doUnmock("../../src/gateway/message-pipeline/index.js");
+      discoverySpy.mockRestore();
+      await gateway?.shutdown();
+    }
+  });
+
   it("streams managed invocation session events from a TUI turn", async () => {
     vi.resetModules();
     vi.doMock("../../src/gateway/message-pipeline/index.js", async () => {

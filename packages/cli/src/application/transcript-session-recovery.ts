@@ -3,6 +3,7 @@ import type {
   PersistedTranscriptEvent,
   PersistedTranscriptEventDraft,
   SessionStore,
+  TranscriptSessionMutation,
   TranscriptStore,
 } from "../wrapper/session-store.js";
 
@@ -37,33 +38,31 @@ export async function recoverStaleOpenTranscriptSessions(
   const recoveredSessionIds: string[] = [];
 
   for (const sessionId of sessionIds) {
-    const meta = await options.transcriptStore.readMeta(sessionId);
-    if (!meta || meta.completedAt) {
-      continue;
-    }
-    const transcript = await options.transcriptStore.readTranscript(sessionId);
-    const openTurn = findStaleOpenTurn(transcript, now, staleAfterMs);
-    if (!openTurn) {
-      continue;
-    }
+    const recovered = await options.transcriptStore.withSessionMutation(sessionId, async (mutation) => {
+      const meta = await mutation.readMeta();
+      const transcript = await mutation.readTranscript();
+      const openTurn = findStaleOpenTurn(transcript, now, staleAfterMs);
+      if (!openTurn) return false;
 
-    await appendRecoveryEvents({
-      transcriptStore: options.transcriptStore,
-      sessionId,
-      openTurn,
-      now,
-      staleAfterMs,
+      await appendRecoveryEvents({
+        appendManyNext: mutation.appendManyNext,
+        sessionId,
+        openTurn,
+        now,
+        staleAfterMs,
+      });
+      await finalizeRecoveredSession({
+        mutation,
+        sessionStore: options.sessionStore,
+        projectPath: options.projectPath,
+        sessionId,
+        meta,
+        openTurn,
+        now,
+      });
+      return true;
     });
-    await finalizeRecoveredSession({
-      transcriptStore: options.transcriptStore,
-      sessionStore: options.sessionStore,
-      projectPath: options.projectPath,
-      sessionId,
-      meta,
-      openTurn,
-      now,
-    });
-    recoveredSessionIds.push(sessionId);
+    if (recovered) recoveredSessionIds.push(sessionId);
   }
 
   return {
@@ -78,16 +77,11 @@ function findStaleOpenTurn(
   staleAfterMs: number,
 ): OpenTurnCandidate | null {
   const openTurns = new Map<string, { startedAt: string; lastEventAt: string }>();
-  let lastEventAt: string | null = null;
 
   for (const event of [...transcript].sort((left, right) => left.sequence - right.sequence)) {
-    lastEventAt = latestIso(lastEventAt, event.timestamp);
     const turnId = readTurnId(event);
     if (!turnId) {
       continue;
-    }
-    for (const openTurn of openTurns.values()) {
-      openTurn.lastEventAt = latestIso(openTurn.lastEventAt, event.timestamp);
     }
     if (event.kind === "turn_started") {
       openTurns.set(turnId, {
@@ -98,6 +92,11 @@ function findStaleOpenTurn(
     }
     if (event.kind === "turn_completed") {
       openTurns.delete(turnId);
+      continue;
+    }
+    const openTurn = openTurns.get(turnId);
+    if (openTurn) {
+      openTurn.lastEventAt = latestIso(openTurn.lastEventAt, event.timestamp);
     }
   }
 
@@ -109,14 +108,13 @@ function findStaleOpenTurn(
   if (!turnId || !openTurn) {
     return null;
   }
-  const newestEvidenceAt = lastEventAt ?? openTurn.lastEventAt;
-  if (!isStale(newestEvidenceAt, now, staleAfterMs)) {
+  if (!isStale(openTurn.lastEventAt, now, staleAfterMs)) {
     return null;
   }
   return {
     turnId,
     startedAt: openTurn.startedAt,
-    lastEventAt: newestEvidenceAt,
+    lastEventAt: openTurn.lastEventAt,
   };
 }
 
@@ -152,7 +150,7 @@ function isStale(timestamp: string, now: Date, staleAfterMs: number): boolean {
 }
 
 async function appendRecoveryEvents(input: {
-  readonly transcriptStore: TranscriptStore;
+  readonly appendManyNext: TranscriptSessionMutation["appendManyNext"];
   readonly sessionId: string;
   readonly openTurn: OpenTurnCandidate;
   readonly now: Date;
@@ -194,47 +192,51 @@ async function appendRecoveryEvents(input: {
       },
     },
   ];
-  await input.transcriptStore.appendManyNext(input.sessionId, drafts);
+  await input.appendManyNext(drafts);
 }
 
 async function finalizeRecoveredSession(input: {
-  readonly transcriptStore: TranscriptStore;
+  readonly mutation: TranscriptSessionMutation;
   readonly sessionStore?: SessionStore;
   readonly projectPath?: string;
   readonly sessionId: string;
-  readonly meta: PersistedSessionMeta;
+  readonly meta: PersistedSessionMeta | null;
   readonly openTurn: OpenTurnCandidate;
   readonly now: Date;
 }): Promise<void> {
   const completedAt = input.now.toISOString();
   const lastError = `Recovered stale open turn ${input.openTurn.turnId}.`;
-  await input.transcriptStore.finalize(input.sessionId, {
+  const meta = input.meta;
+  if (!meta) {
+    return;
+  }
+  await input.mutation.finalize({
     completedAt,
     lastTurnOutcome: "failed",
     sessionLedger: {
-      ...input.meta.sessionLedger,
+      ...meta.sessionLedger,
       currentPhase: "recovered",
       lastError,
-      lastProvider: input.meta.provider,
+      lastProvider: meta.provider,
     },
   });
 
   if (!input.sessionStore || !input.projectPath) {
     return;
   }
-  await input.sessionStore.append({
+  await input.sessionStore.replaceSnapshot({
     sessionId: input.sessionId,
-    provider: input.meta.provider,
-    task: input.meta.task,
-    canonicalTitle: input.meta.canonicalTitle,
-    title: input.meta.title,
-    summary: input.meta.summary,
-    tags: input.meta.tags,
-    providersUsed: input.meta.providersUsed ?? [input.meta.provider],
+    provider: meta.provider,
+    task: meta.task,
+    canonicalTitle: meta.canonicalTitle,
+    title: meta.title,
+    summary: meta.summary,
+    tags: meta.tags,
+    providersUsed: meta.providersUsed ?? [meta.provider],
     completedAt,
-    cost: input.meta.costUsd ?? 0,
+    cost: meta.costUsd ?? 0,
     projectPath: input.projectPath,
-    providerThread: input.meta.providerThread,
-    resumeStrategy: input.meta.resumeStrategy,
+    providerThread: meta.providerThread,
+    resumeStrategy: meta.resumeStrategy,
   }, { updateContinuationTarget: false });
 }

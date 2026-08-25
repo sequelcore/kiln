@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalSessionEvent, ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core/events";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 describe("runtime session tool usage events", () => {
-  it("projects rich tool result evidence onto canonical tool completion events", () => {
+  it("projects rich tool result evidence onto canonical tool completion events", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -61,7 +61,7 @@ describe("runtime session tool usage events", () => {
       timestamp: new Date("2026-06-29T12:00:00.500Z"),
     };
 
-    appendCanonicalTurnEvents({
+    await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Research with a max of 8 searches.",
@@ -107,7 +107,7 @@ describe("runtime session tool usage events", () => {
     });
   });
 
-  it("correlates out-of-order tool results by their originating tool call id", () => {
+  it("correlates out-of-order tool results by their originating tool call id", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -157,7 +157,7 @@ describe("runtime session tool usage events", () => {
       timestamp: new Date("2026-06-29T12:00:00.400Z"),
     };
 
-    appendCanonicalTurnEvents({
+    await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Run both searches.",
@@ -220,7 +220,7 @@ describe("runtime session tool usage events", () => {
     ]);
   });
 
-  it("replays persisted runtime tool events without rewriting tool call identity", () => {
+  it("replays persisted runtime tool events without rewriting tool call identity", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -229,7 +229,7 @@ describe("runtime session tool usage events", () => {
     });
     const startedAt = new Date("2026-06-29T12:00:00.000Z");
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Replay the persisted tool result.",
@@ -275,7 +275,7 @@ describe("runtime session tool usage events", () => {
     ]);
   });
 
-  it("fails fast when runtime tool events are missing tool call identity", () => {
+  it("fails fast when runtime tool events are missing tool call identity", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -284,7 +284,7 @@ describe("runtime session tool usage events", () => {
     });
     const startedAt = new Date("2026-06-29T12:00:00.000Z");
 
-    expect(() => appendCanonicalTurnEvents({
+    await expect(projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Run a search.",
@@ -301,10 +301,10 @@ describe("runtime session tool usage events", () => {
         toolInput: { query: "missing id" },
         timestamp: startedAt,
       } as unknown as ToolCalledEvent],
-    })).toThrow(/missing toolCallId/);
+    })).rejects.toThrow(/missing toolCallId/);
   });
 
-  it("fails fast when runtime tool results are missing tool call identity", () => {
+  it("fails fast when runtime tool results are missing tool call identity", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -313,7 +313,7 @@ describe("runtime session tool usage events", () => {
     });
     const startedAt = new Date("2026-06-29T12:00:00.000Z");
 
-    expect(() => appendCanonicalTurnEvents({
+    await expect(projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Run a search.",
@@ -332,7 +332,7 @@ describe("runtime session tool usage events", () => {
         output: "missing id",
         timestamp: startedAt,
       } as unknown as ToolResultEvent],
-    })).toThrow(/missing toolCallId/);
+    })).rejects.toThrow(/missing toolCallId/);
   });
 
   it.each([
@@ -349,7 +349,7 @@ describe("runtime session tool usage events", () => {
       durationMs: 10,
       success: true,
     },
-  ])("fails fast when $type is missing tool-call scope identity", (runtimeEvent) => {
+  ])("fails fast when $type is missing tool-call scope identity", async (runtimeEvent) => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -358,7 +358,7 @@ describe("runtime session tool usage events", () => {
     });
     const startedAt = new Date("2026-06-29T12:00:00.000Z");
 
-    expect(() => appendCanonicalTurnEvents({
+    await expect(projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Run a search.",
@@ -373,6 +373,6 @@ describe("runtime session tool usage events", () => {
         sessionId: session.id,
         timestamp: startedAt,
       } as unknown as ToolCalledEvent | ToolResultEvent],
-    })).toThrow(/missing toolCallScopeId/);
+    })).rejects.toThrow(/missing toolCallScopeId/);
   });
 });

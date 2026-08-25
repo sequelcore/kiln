@@ -69,6 +69,16 @@ export interface RuntimeSessionConfig {
   readonly sessionId?: string;
 }
 
+export type CanonicalSessionEventBuilder = (
+  existingEvents: readonly CanonicalSessionEvent[],
+  nextSequence: number,
+) => readonly CanonicalSessionEvent[];
+
+export interface CanonicalSessionEventWriteOptions {
+  readonly persist?: (events: readonly CanonicalSessionEvent[]) => Promise<void>;
+  readonly publish?: (events: readonly CanonicalSessionEvent[]) => void;
+}
+
 export class RuntimeSession {
   readonly id: string;
   readonly appName: string;
@@ -105,6 +115,16 @@ export class RuntimeSession {
   private _runtimeSessionAuthorityFacet: RuntimeSessionAuthorityFacet | undefined;
   private readonly _liveTurnIds = new Set<string>();
   private _liveLifecycleRevision = 0;
+  /**
+   * The Runtime session is the sole owner of canonical event ordering. Event
+   * builders may prepare a batch at any time, but they only receive the live
+   * ledger and sequence cursor while this queue owns the session. This keeps
+   * concurrent turn lifecycles and other Runtime appends from allocating the
+   * same sequence from private snapshots.
+   */
+  private _canonicalEventWriteTail: Promise<void> = Promise.resolve();
+  private _canonicalEventWriteActive = false;
+  private _canonicalEventWriteCommit = false;
 
   constructor(config: RuntimeSessionConfig) {
     this.appName = config.appName;
@@ -403,9 +423,43 @@ export class RuntimeSession {
     return lastEvent ? lastEvent.sequence + 1 : 1;
   }
 
+  enqueueCanonicalSessionEventWrite(
+    build: CanonicalSessionEventBuilder,
+    options: CanonicalSessionEventWriteOptions = {},
+  ): Promise<readonly CanonicalSessionEvent[]> {
+    const operation = this._canonicalEventWriteTail.then(async () => {
+      this._canonicalEventWriteActive = true;
+      try {
+        const events = build(this._sessionEvents, this.nextSessionEventSequence());
+        if (events.length === 0) {
+          return events;
+        }
+        await options.persist?.(events);
+        this._canonicalEventWriteCommit = true;
+        try {
+          this.appendSessionEvents(events);
+        } finally {
+          this._canonicalEventWriteCommit = false;
+          this._canonicalEventWriteActive = false;
+        }
+        options.publish?.(events);
+        return events;
+      } finally {
+        this._canonicalEventWriteActive = false;
+      }
+    });
+    // A failed owner operation must not poison a later recovery attempt, while
+    // the returned operation still carries the original failure to its caller.
+    this._canonicalEventWriteTail = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
   appendSessionEvents(events: readonly CanonicalSessionEvent[]): void {
     if (events.length === 0) {
       return;
+    }
+    if (this._canonicalEventWriteActive && !this._canonicalEventWriteCommit) {
+      throw new Error("Canonical session event append conflicts with the active Runtime session owner.");
     }
     const expectedStartSequence = this.nextSessionEventSequence();
     for (let index = 0; index < events.length; index += 1) {

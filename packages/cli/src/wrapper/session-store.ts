@@ -1,16 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { dirname, join, resolve, sep } from 'node:path';
-import { appendFile, readFile, writeFile, readdir, rename, rm } from 'node:fs/promises';
-import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
-import {
-  resolveProjectStateBinding,
-  type ProjectStateBinding,
-  type ProjectStateRootOptions,
-} from '../application/project-state-root.js';
-import {
-  assertPrivateStateFileTarget,
-  ensurePrivateStateDirectory,
-} from '../application/private-project-state-filesystem.js';
+import { Database } from "bun:sqlite";
+import { createHash, randomUUID } from "node:crypto";
+import { appendFile, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import type {
   CanonicalSessionEventKind,
   ExecutionSessionBindingEvidence,
@@ -24,7 +15,18 @@ import {
   defineEffectiveAuthorityAdmissionBundle,
   defineRuntimeSessionAuthorityFacet,
   type EffectiveAuthorityAdmissionBundle,
-} from '@kilnai/runtime';
+} from "@kilnai/runtime";
+import { withConfigMutationLock } from "../application/config-mutation-lock.js";
+import {
+  assertPrivateStateFileTarget,
+  ensurePrivateStateDirectory,
+} from "../application/private-project-state-filesystem.js";
+import {
+  type ProjectStateBinding,
+  type ProjectStateRootOptions,
+  resolveProjectStateBinding,
+} from "../application/project-state-root.js";
+import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from "./index.js";
 
 export interface ProviderThreadMeta {
   provider: string;
@@ -41,6 +43,7 @@ export interface SessionRecord {
   tags?: readonly string[];
   providersUsed?: readonly string[];
   completedAt: string;
+  /** Per-turn delta for append; cumulative session snapshot for replaceSnapshot. */
   cost: number;
   projectPath: string;
   providerThread?: ProviderThreadMeta;
@@ -48,6 +51,16 @@ export interface SessionRecord {
 }
 
 export interface SessionRecordAppendOptions {
+  readonly updateContinuationTarget?: boolean;
+}
+
+/**
+ * SessionStore.append records one settled turn cost as a delta.  The
+ * transcript projection uses replaceSnapshot when it has a cumulative
+ * session cost. Keeping the two operations explicit prevents an incremental
+ * projection from being overwritten or counted twice.
+ */
+export interface SessionRecordSnapshotOptions {
   readonly updateContinuationTarget?: boolean;
 }
 
@@ -199,33 +212,62 @@ export class SessionStore {
   private readonly baseDir: string;
   private readonly filePath: string;
   private readonly continuationTargetsPath: string;
+  private readonly privateStateRoot?: string;
+  private readonly indexMutationLockPath: string;
 
   constructor(source: SessionStoreSource, options: ProjectStateRootOptions = {}) {
     const location = resolveSessionStoreLocation(source, options);
     this.baseDir = location.sessionsPath;
-    this.filePath = join(location.sessionsPath, 'sessions.jsonl');
-    this.continuationTargetsPath = join(location.sessionsPath, 'continuation-targets.json');
+    this.filePath = join(location.sessionsPath, "sessions.jsonl");
+    this.continuationTargetsPath = join(location.sessionsPath, "continuation-targets.json");
+    this.privateStateRoot = location.privateStateRoot;
+    this.indexMutationLockPath = join(location.sessionsPath, "sessions.index.lock");
   }
 
   async append(record: SessionRecord, options: SessionRecordAppendOptions = {}): Promise<void> {
-    const dir = join(this.filePath, '..');
-    await ensurePrivateStateDirectory(this.baseDir, dir, true);
-    const currentRecords = await this.readRecords();
-    const previous = currentRecords.findLast((entry) => entry.sessionId === record.sessionId);
-    const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
-    records.push(mergeRepeatedSessionRecord(previous, record));
-    await this.writeRecords(records);
-    if (options.updateContinuationTarget !== false) {
-      await this.setContinuationTarget(record);
-    }
+    await this.withIndexMutation(async () => {
+      const currentRecords = await this.readRecords();
+      const previous = currentRecords.findLast((entry) => entry.sessionId === record.sessionId);
+      const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
+      records.push(mergeRepeatedSessionRecord(previous, record));
+      await this.writeRecords(records);
+      if (options.updateContinuationTarget !== false) {
+        await this.setContinuationTargetNow(record);
+      }
+    });
+  }
+
+  /**
+   * Replaces the canonical row with a cumulative snapshot derived from the
+   * session transcript. This is the only operation used by the canonical
+   * Runtime event projector.
+   */
+  async replaceSnapshot(record: SessionRecord, options: SessionRecordSnapshotOptions = {}): Promise<void> {
+    await this.withIndexMutation(async () => {
+      const currentRecords = await this.readRecords();
+      const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
+      records.push(record);
+      await this.writeRecords(records);
+      if (options.updateContinuationTarget !== false) {
+        await this.setContinuationTargetNow(record);
+      }
+    });
+  }
+
+  private async withIndexMutation<T>(operation: () => Promise<T>): Promise<T> {
+    return withConfigMutationLock(this.indexMutationLockPath, operation, {
+      waitMs: 30_000,
+      retryMs: 25,
+      privateStateRoot: this.privateStateRoot,
+    });
   }
 
   private async writeRecords(records: readonly SessionRecord[]): Promise<void> {
     const dir = join(this.filePath, '..');
     await ensurePrivateStateDirectory(this.baseDir, dir, true);
     await assertPrivateStateFileTarget(this.baseDir, this.filePath);
-    const content = records.map(serializeSessionRecord).join('\n');
-    await writeFile(this.filePath, content ? `${content}\n` : '', 'utf-8');
+    const content = records.map(serializeSessionRecord).join("\n");
+    await writeAtomicPrivateStateFile(this.baseDir, this.filePath, content ? `${content}\n` : "");
   }
 
   private async readRecords(): Promise<SessionRecord[]> {
@@ -291,7 +333,7 @@ export class SessionStore {
     const dir = join(this.continuationTargetsPath, '..');
     await ensurePrivateStateDirectory(this.baseDir, dir, true);
     await assertPrivateStateFileTarget(this.baseDir, this.continuationTargetsPath);
-    await writeFile(this.continuationTargetsPath, JSON.stringify(targets, null, 2), 'utf-8');
+    await writeAtomicPrivateStateFile(this.baseDir, this.continuationTargetsPath, JSON.stringify(targets, null, 2));
   }
 
   async getContinuationTarget(provider?: string): Promise<SessionRecord | null> {
@@ -304,7 +346,7 @@ export class SessionStore {
     return provider ? targets.providerSessionIds?.[provider] : targets.defaultSessionId;
   }
 
-  async setContinuationTarget(record: SessionRecord): Promise<void> {
+  private async setContinuationTargetNow(record: SessionRecord): Promise<void> {
     try {
       const current = await this.readContinuationTargets();
       await this.writeContinuationTargets({
@@ -319,25 +361,32 @@ export class SessionStore {
     }
   }
 
+  async setContinuationTarget(record: SessionRecord): Promise<void> {
+    await this.withIndexMutation(() => this.setContinuationTargetNow(record));
+  }
+
   async clearContinuationTarget(provider?: string): Promise<void> {
-    try {
-      if (provider === undefined) {
-        await this.writeContinuationTargets({});
-        return;
+    await this.withIndexMutation(async () => {
+      try {
+        if (provider === undefined) {
+          await this.writeContinuationTargets({});
+          return;
+        }
+        const current = await this.readContinuationTargets();
+        const providerSessionIds = { ...(current.providerSessionIds ?? {}) };
+        delete providerSessionIds[provider];
+        const nextDefault =
+          current.defaultSessionId && current.defaultSessionId === current.providerSessionIds?.[provider]
+            ? undefined
+            : current.defaultSessionId;
+        await this.writeContinuationTargets({
+          ...(nextDefault ? { defaultSessionId: nextDefault } : {}),
+          ...(Object.keys(providerSessionIds).length > 0 ? { providerSessionIds } : {}),
+        });
+      } catch (err) {
+        console.error("[SessionStore] Failed to clear continuation target:", err);
       }
-      const current = await this.readContinuationTargets();
-      const providerSessionIds = { ...(current.providerSessionIds ?? {}) };
-      delete providerSessionIds[provider];
-      const nextDefault = current.defaultSessionId && current.defaultSessionId === current.providerSessionIds?.[provider]
-        ? undefined
-        : current.defaultSessionId;
-      await this.writeContinuationTargets({
-        ...(nextDefault ? { defaultSessionId: nextDefault } : {}),
-        ...(Object.keys(providerSessionIds).length > 0 ? { providerSessionIds } : {}),
-      });
-    } catch (err) {
-      console.error('[SessionStore] Failed to clear continuation target:', err);
-    }
+    });
   }
 
   async find(sessionId: string): Promise<SessionRecord | null> {
@@ -401,6 +450,10 @@ export interface PersistedSessionMeta {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   providerTokenUsage?: readonly PersistedProviderTokenUsage[];
+  /** Latest canonical cost snapshot for each turn/provider/model identity. */
+  providerTokenUsageSnapshots?: readonly PersistedProviderTokenUsageSnapshot[];
+  /** Last canonical transcript sequence materialized into this projection. */
+  projectedTranscriptSequence?: number;
   executionBindings?: readonly ExecutionSessionBindingEvidence[];
   toolCount?: number;
   turnDepth?: number;
@@ -437,6 +490,10 @@ export interface PersistedProviderTokenUsage {
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
+}
+
+export interface PersistedProviderTokenUsageSnapshot extends PersistedProviderTokenUsage {
+  readonly key: string;
 }
 
 function serializePersistedMeta(meta: PersistedSessionMeta): string {
@@ -498,6 +555,17 @@ export type PersistedTranscriptEventDraft = Omit<PersistedTranscriptEvent, 'sequ
   readonly sequence?: number;
 };
 
+export interface TranscriptSessionMutation {
+  readonly appendManyNext: (
+    events: readonly PersistedTranscriptEventDraft[],
+  ) => Promise<readonly PersistedTranscriptEvent[]>;
+  readonly init: (meta: PersistedSessionMeta) => Promise<void>;
+  readonly finalize: (updates: Partial<PersistedSessionMeta>) => Promise<void>;
+  readonly readMeta: () => Promise<PersistedSessionMeta | null>;
+  readonly readTranscript: () => Promise<PersistedTranscriptEvent[]>;
+  readonly readAuthorityAdmissions: () => Promise<PersistedAuthorityAdmissionRecord[]>;
+}
+
 export class IncompatibleTranscriptError extends Error {
   constructor(message: string) {
     super(message);
@@ -506,48 +574,49 @@ export class IncompatibleTranscriptError extends Error {
 }
 
 const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
-  'turn_started',
-  'user_message',
-  'assistant_message',
-  'assistant_delta',
-  'specification_submitted',
-  'clarification_recorded',
-  'plan_submitted',
-  'plan_analysis_reported',
-  'plan_approved',
-  'operator_adoption_decision',
-  'goal.created',
-  'goal.updated',
-  'goal.completed',
-  'goal.failed',
-  'goal.cancelled',
-  'work_items.materialized',
-  'provider_routed',
-  'tool_call_started',
-  'tool_call_completed',
-  'approval_requested',
-  'approval_resolved',
-  'config_change_proposed',
-  'config_change_approved',
-  'config_change_applied',
-  'config_change_failed',
-  'file_changed',
-  'cost_updated',
-  'context_usage_observed',
-  'effective_prompt_observed',
-  'lifecycle_attribution_recorded',
-  'agent_invocation_requested',
-  'agent_invocation_started',
-  'agent_invocation_completed',
-  'agent_invocation_failed',
-  'agent_invocation_cancelled',
-  'managed_economic_lifecycle',
-  'continuity_decided',
-  'error_recorded',
-  'turn_completed',
-  'work_item_updated',
-  'work_item_execution_started',
-  'work_item_execution_finished',
+  "turn_started",
+  "user_message",
+  "assistant_message",
+  "assistant_delta",
+  "specification_submitted",
+  "clarification_recorded",
+  "plan_submitted",
+  "plan_analysis_reported",
+  "plan_approved",
+  "operator_adoption_decision",
+  "goal.created",
+  "goal.updated",
+  "goal.completed",
+  "goal.failed",
+  "goal.cancelled",
+  "work_items.materialized",
+  "provider_routed",
+  "tool_call_started",
+  "tool_call_output_delta",
+  "tool_call_completed",
+  "approval_requested",
+  "approval_resolved",
+  "config_change_proposed",
+  "config_change_approved",
+  "config_change_applied",
+  "config_change_failed",
+  "file_changed",
+  "cost_updated",
+  "context_usage_observed",
+  "effective_prompt_observed",
+  "lifecycle_attribution_recorded",
+  "agent_invocation_requested",
+  "agent_invocation_started",
+  "agent_invocation_completed",
+  "agent_invocation_failed",
+  "agent_invocation_cancelled",
+  "managed_economic_lifecycle",
+  "continuity_decided",
+  "error_recorded",
+  "turn_completed",
+  "work_item_updated",
+  "work_item_execution_started",
+  "work_item_execution_finished",
 ]);
 const SESSION_EVENT_ACTORS = new Set(['user', 'assistant', 'system', 'tool', 'runtime']);
 const SESSION_EVENT_SURFACES = new Set(['cli', 'tui', 'gui', 'ide', 'gateway', 'runtime']);
@@ -682,6 +751,14 @@ export class TranscriptStore {
     return join(this.sessionDir(sessionId), 'authority-admissions.lock');
   }
 
+  private sessionMutationLockPath(sessionId: string): string {
+    return join(this.sessionDir(sessionId), "session.mutation.lock");
+  }
+
+  private transcriptIndexPath(sessionId: string): string {
+    return join(this.sessionDir(sessionId), "transcript-index.sqlite");
+  }
+
   async appendAuthorityAdmission(record: PersistedAuthorityAdmissionRecord): Promise<void> {
     if (!isPersistedAuthorityAdmissionRecord(record)) {
       throw new IncompatibleTranscriptError('Authority admission evidence does not satisfy its persisted record contract.');
@@ -691,8 +768,8 @@ export class TranscriptStore {
     } catch (error) {
       throw new IncompatibleTranscriptError(`Authority admission evidence is not a valid immutable bundle: ${error instanceof Error ? error.message : String(error)}`);
     }
-    await this.enqueueAppend(record.sessionId, async () => {
-      const existing = await this.readAuthorityAdmissions(record.sessionId);
+    await this.withSessionMutation(record.sessionId, async (mutation) => {
+      const existing = await mutation.readAuthorityAdmissions();
       const candidateFacet = authorityFacetFromBundle(record.bundle);
       if (existing.some((entry) => authorityFacetFromBundle(entry.bundle).facetId !== candidateFacet.facetId)) {
         throw new IncompatibleTranscriptError(`Authority admission evidence contains conflicting session facets for "${record.sessionId}".`);
@@ -709,6 +786,10 @@ export class TranscriptStore {
   }
 
   async readAuthorityAdmissions(sessionId: string): Promise<PersistedAuthorityAdmissionRecord[]> {
+    return this.withSessionMutation(sessionId, (mutation) => mutation.readAuthorityAdmissions());
+  }
+
+  private async readAuthorityAdmissionsNow(sessionId: string): Promise<PersistedAuthorityAdmissionRecord[]> {
     try {
       await ensurePrivateStateDirectory(this.baseDir, this.sessionDir(sessionId), false);
       const filePath = this.authorityAdmissionEvidencePath(sessionId);
@@ -751,22 +832,40 @@ export class TranscriptStore {
       || left.turnId.localeCompare(right.turnId));
   }
 
-  async init(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
+  private async initNow(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
     const dir = this.sessionDir(sessionId);
     await ensurePrivateStateDirectory(this.baseDir, dir, true);
     const filePath = join(dir, 'meta.json');
     await assertPrivateStateFileTarget(this.baseDir, filePath);
-    await writeFile(filePath, serializePersistedMeta(meta), 'utf-8');
+    await writeAtomicPrivateStateFile(this.baseDir, filePath, serializePersistedMeta(meta));
   }
 
-  async append(sessionId: string, event: PersistedTranscriptEvent): Promise<void> {
-    const existing = await this.readTranscript(sessionId);
-    validateTranscriptToolIdentities([...existing, event]);
-    const dir = this.sessionDir(sessionId);
-    await ensurePrivateStateDirectory(this.baseDir, dir, true);
-    const filePath = join(dir, 'transcript.jsonl');
-    await assertPrivateStateFileTarget(this.baseDir, filePath);
-    await appendFile(filePath, JSON.stringify(event) + '\n', 'utf-8');
+  async init(sessionId: string, meta: PersistedSessionMeta): Promise<void> {
+    await this.withSessionMutation(sessionId, (mutation) => mutation.init(meta));
+  }
+
+  async withSessionMutation<T>(
+    sessionId: string,
+    operation: (mutation: TranscriptSessionMutation) => Promise<T> | T,
+  ): Promise<T> {
+    return this.enqueueAppend(sessionId, () =>
+      withConfigMutationLock(
+        this.sessionMutationLockPath(sessionId),
+        () => operation(this.createSessionMutation(sessionId)),
+        { waitMs: 30_000, retryMs: 25, privateStateRoot: this.privateStateRoot },
+      ),
+    );
+  }
+
+  private createSessionMutation(sessionId: string): TranscriptSessionMutation {
+    return {
+      appendManyNext: (events) => this.appendManyNextNow(sessionId, events),
+      init: (meta) => this.initNow(sessionId, meta),
+      finalize: (updates) => this.finalizeNow(sessionId, updates),
+      readMeta: () => this.readMetaNow(sessionId),
+      readTranscript: () => this.readTranscriptNow(sessionId),
+      readAuthorityAdmissions: () => this.readAuthorityAdmissionsNow(sessionId),
+    };
   }
 
   async appendNext(sessionId: string, event: PersistedTranscriptEventDraft): Promise<PersistedTranscriptEvent | null> {
@@ -778,7 +877,8 @@ export class TranscriptStore {
     sessionId: string,
     events: readonly PersistedTranscriptEventDraft[],
   ): Promise<readonly PersistedTranscriptEvent[]> {
-    return this.enqueueAppend(sessionId, () => this.appendManyNextNow(sessionId, events));
+    if (events.length === 0) return [];
+    return this.withSessionMutation(sessionId, (mutation) => mutation.appendManyNext(events));
   }
 
   private async enqueueAppend<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
@@ -806,98 +906,204 @@ export class TranscriptStore {
   ): Promise<readonly PersistedTranscriptEvent[]> {
     const dir = this.sessionDir(sessionId);
     await ensurePrivateStateDirectory(this.baseDir, dir, true);
-    const existing = await this.readTranscript(sessionId);
-    const existingEventIds = new Set(existing.map((event) => event.eventId));
-    let sequence = existing.reduce((highest, event) => Math.max(highest, event.sequence), 0);
-    const events: PersistedTranscriptEvent[] = [];
-    for (const draft of drafts) {
-      if (existingEventIds.has(draft.eventId)) {
-        continue;
+    const index = await openTranscriptIndex(this.baseDir, this.privateStateRoot, this.transcriptIndexPath(sessionId));
+    try {
+      const transcriptPath = join(dir, "transcript.jsonl");
+      let transcriptState = await readTranscriptFileState(transcriptPath);
+      let indexed = readTranscriptIndexState(index);
+      if (
+        !indexed ||
+        indexed.byteLength !== transcriptState.byteLength ||
+        indexed.modifiedMs !== transcriptState.modifiedMs
+      ) {
+        const transcript = await this.readTranscriptNow(sessionId);
+        transcriptState = await readTranscriptFileState(transcriptPath);
+        indexed = await rebuildTranscriptIndex(index, transcript, transcriptState);
       }
-      sequence += 1;
-      const event = {
-        ...draft,
-        sequence,
-      };
-      if (!isPersistedTranscriptEvent(event)) {
-        throw new IncompatibleTranscriptError(
-          `Transcript event "${draft.eventId}" does not satisfy the persisted event contract.`,
-        );
+
+      let sequence = indexed.lastSequence;
+      const events: PersistedTranscriptEvent[] = [];
+      const pendingById = new Map<string, { readonly fingerprint: string; readonly event: PersistedTranscriptEvent }>();
+      for (const draft of drafts) {
+        const existing = index
+          .query<TranscriptIndexEventRow, [string]>(
+            "SELECT event_id, sequence, fingerprint, tool_scope_id, tool_call_id, tool_kind FROM transcript_events WHERE event_id=?",
+          )
+          .get(draft.eventId);
+        const pending = pendingById.get(draft.eventId);
+        if (existing || pending) {
+          const candidate = {
+            ...draft,
+            sequence: pending?.event.sequence ?? existing?.sequence ?? sequence + 1,
+          };
+          if (!isPersistedTranscriptEvent(candidate)) {
+            throw new IncompatibleTranscriptError(
+              `Transcript event "${draft.eventId}" does not satisfy the persisted event contract.`,
+            );
+          }
+          const fingerprint = transcriptEventFingerprint(candidate);
+          const storedFingerprint = existing?.fingerprint ?? pending?.fingerprint;
+          if (storedFingerprint !== fingerprint) {
+            throw new IncompatibleTranscriptError(
+              `Transcript event identity "${draft.eventId}" is already bound to different content.`,
+            );
+          }
+          continue;
+        }
+        sequence += 1;
+        const event = { ...draft, sequence };
+        if (!isPersistedTranscriptEvent(event)) {
+          throw new IncompatibleTranscriptError(
+            `Transcript event "${draft.eventId}" does not satisfy the persisted event contract.`,
+          );
+        }
+        validateIncrementalTranscriptToolIdentity(index, event, events);
+        events.push(event);
+        pendingById.set(event.eventId, { fingerprint: transcriptEventFingerprint(event), event });
       }
-      events.push(event);
-      existingEventIds.add(event.eventId);
+      if (events.length === 0) return events;
+
+      await writeTranscriptEvents(dir, events);
+      const writtenState = await readTranscriptFileState(transcriptPath);
+      index
+        .transaction(() => {
+          for (const event of events) {
+            const toolIdentity = transcriptToolIdentity(event);
+            index
+              .query(`
+              INSERT INTO transcript_events(event_id, sequence, fingerprint, tool_scope_id, tool_call_id, tool_kind)
+              VALUES(?,?,?,?,?,?)
+            `)
+              .run(
+                event.eventId,
+                event.sequence,
+                transcriptEventFingerprint(event),
+                toolIdentity?.scopeId ?? null,
+                toolIdentity?.callId ?? null,
+                toolIdentity?.kind ?? null,
+              );
+          }
+          index
+            .query(`
+            INSERT INTO transcript_index_state(singleton, byte_length, modified_ms, last_sequence)
+            VALUES(1,?,?,?)
+            ON CONFLICT(singleton) DO UPDATE SET byte_length=excluded.byte_length, modified_ms=excluded.modified_ms, last_sequence=excluded.last_sequence
+          `)
+            .run(writtenState.byteLength, writtenState.modifiedMs, sequence);
+        })
+        .immediate();
+      return events;
+    } finally {
+      index.close();
     }
-    validateTranscriptToolIdentities([...existing, ...events]);
-    await writeTranscriptEvents(dir, events);
-    return events;
   }
 
   async finalize(sessionId: string, updates: Partial<PersistedSessionMeta>): Promise<void> {
-    try {
-      const dir = this.sessionDir(sessionId);
-      const filePath = join(dir, 'meta.json');
-      const existing = await this.readMeta(sessionId);
-      if (!existing) {
-        return;
-      }
-      await ensurePrivateStateDirectory(this.baseDir, dir, false);
-      await assertPrivateStateFileTarget(this.baseDir, filePath);
-      await writeFile(
-        filePath,
-        serializePersistedMeta({
-          ...existing,
-          ...updates,
-          ...(updates.providerTokenUsage !== undefined ? {
-            providerTokenUsage: mergePersistedProviderTokenUsage(existing.providerTokenUsage, updates.providerTokenUsage),
-          } : {}),
-          ...(updates.executionBindings !== undefined ? {
-            executionBindings: mergeExecutionBindings(existing.executionBindings, updates.executionBindings),
-          } : {}),
-        }),
-        'utf-8',
-      );
-    } catch {
-      // fail-open
-    }
+    await this.withSessionMutation(sessionId, (mutation) => mutation.finalize(updates));
+  }
+
+  private async finalizeNow(sessionId: string, updates: Partial<PersistedSessionMeta>): Promise<void> {
+    const dir = this.sessionDir(sessionId);
+    const filePath = join(dir, "meta.json");
+    const existing = await this.readMetaNow(sessionId);
+    if (!existing) return;
+    await ensurePrivateStateDirectory(this.baseDir, dir, false);
+    await assertPrivateStateFileTarget(this.baseDir, filePath);
+    await writeAtomicPrivateStateFile(
+      this.baseDir,
+      filePath,
+      serializePersistedMeta({
+        ...existing,
+        ...updates,
+        ...(updates.providerTokenUsage !== undefined
+          ? {
+              providerTokenUsage: mergePersistedProviderTokenUsage(
+                existing.providerTokenUsage,
+                updates.providerTokenUsage,
+              ),
+            }
+          : {}),
+        ...(updates.executionBindings !== undefined
+          ? {
+              executionBindings: mergeExecutionBindings(existing.executionBindings, updates.executionBindings),
+            }
+          : {}),
+      }),
+    );
   }
 
   async readMeta(sessionId: string): Promise<PersistedSessionMeta | null> {
+    return this.readMetaNow(sessionId);
+  }
+
+  private async readMetaNow(sessionId: string): Promise<PersistedSessionMeta | null> {
     try {
       await ensurePrivateStateDirectory(this.baseDir, this.sessionDir(sessionId), false);
       const filePath = join(this.sessionDir(sessionId), 'meta.json');
       await assertPrivateStateFileTarget(this.baseDir, filePath);
-      const content = await readFile(filePath, 'utf-8');
-      return JSON.parse(content) as PersistedSessionMeta;
-    } catch {
-      return null;
+      const content = await readFile(filePath, "utf-8");
+      try {
+        return JSON.parse(content) as PersistedSessionMeta;
+      } catch (error) {
+        throw new IncompatibleTranscriptError(
+          `Session metadata for "${sessionId}" is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } catch (error) {
+      if (isMissingFileError(error)) return null;
+      throw error;
     }
   }
 
   async readTranscript(sessionId: string): Promise<PersistedTranscriptEvent[]> {
+    return this.withSessionMutation(sessionId, (mutation) => mutation.readTranscript());
+  }
+
+  private async readTranscriptNow(sessionId: string): Promise<PersistedTranscriptEvent[]> {
     try {
       await ensurePrivateStateDirectory(this.baseDir, this.sessionDir(sessionId), false);
       const filePath = join(this.sessionDir(sessionId), 'transcript.jsonl');
       await assertPrivateStateFileTarget(this.baseDir, filePath);
-      const content = await readFile(filePath, 'utf-8');
-      const events = content
-        .split('\n')
-        .filter((line) => line.trim() !== '')
-        .map((line, index) => {
-          try {
-            const parsed = JSON.parse(line) as unknown;
-            if (isPersistedTranscriptEvent(parsed)) {
-              return parsed;
-            }
-            throw new IncompatibleTranscriptError(
-              `Transcript line ${index + 1} does not satisfy the persisted event contract.`,
-            );
-          } catch (error) {
-            if (error instanceof IncompatibleTranscriptError) {
-              throw error;
-            }
+      const content = await readFile(filePath, "utf-8");
+      const lines = content.split("\n");
+      const hasTerminalNewline = content.endsWith("\n");
+      const lastContentIndex = lines.reduce((last, line, index) => (line.trim() === "" ? last : index), -1);
+      const events: PersistedTranscriptEvent[] = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index] ?? "";
+        if (line.trim() === "") continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line) as unknown;
+        } catch (error) {
+          // The final record may be cut before or after its line terminator;
+          // either way it is recoverable because no later record exists. A
+          // malformed record followed by another line is interior corruption.
+          const isIncompleteTail = index === lastContentIndex;
+          if (!isIncompleteTail) {
+            if (error instanceof IncompatibleTranscriptError) throw error;
             throw new IncompatibleTranscriptError(`Transcript line ${index + 1} is not valid JSON.`);
           }
-        });
+
+          const lineStart = lines.slice(0, index).reduce((offset, previousLine) => offset + previousLine.length + 1, 0);
+          const validPrefix = content.slice(0, lineStart);
+          await writeAtomicPrivateStateFile(this.baseDir, filePath, validPrefix);
+          break;
+        }
+        if (!isPersistedTranscriptEvent(parsed)) {
+          throw new IncompatibleTranscriptError(
+            `Transcript line ${index + 1} does not satisfy the persisted event contract.`,
+          );
+        }
+        events.push(parsed);
+      }
+      if (!hasTerminalNewline && events.length > 0 && content.trimEnd().length > 0) {
+        await writeAtomicPrivateStateFile(
+          this.baseDir,
+          filePath,
+          `${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+        );
+      }
       validateTranscriptToolIdentities(events);
       return events;
     } catch (error) {
@@ -921,10 +1127,275 @@ export class TranscriptStore {
   }
 }
 
-async function writeTranscriptEvents(
-  sessionDir: string,
-  events: readonly PersistedTranscriptEvent[],
-): Promise<void> {
+interface TranscriptIndexEventRow {
+  readonly event_id: string;
+  readonly sequence: number;
+  readonly fingerprint: string;
+  readonly tool_scope_id: string | null;
+  readonly tool_call_id: string | null;
+  readonly tool_kind: "tool_call_started" | "tool_call_completed" | null;
+}
+
+interface TranscriptIndexState {
+  readonly byteLength: number;
+  readonly modifiedMs: number;
+  readonly lastSequence: number;
+}
+
+const TRANSCRIPT_INDEX_SCHEMA_REVISION = 1;
+
+async function openTranscriptIndex(
+  privateStateRoot: string,
+  canonicalPrivateStateRoot: string | undefined,
+  path: string,
+): Promise<Database> {
+  await assertPrivateStateFileTarget(privateStateRoot, path);
+  const database = new Database(path, { create: true, strict: true });
+  try {
+    await assertPrivateStateFileTarget(canonicalPrivateStateRoot ?? privateStateRoot, path);
+    database.exec("PRAGMA busy_timeout=5000;");
+    const revision = database.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+    if (revision !== TRANSCRIPT_INDEX_SCHEMA_REVISION) {
+      database.exec("DROP TABLE IF EXISTS transcript_index_state; DROP TABLE IF EXISTS transcript_events;");
+    }
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS transcript_events (
+        event_id TEXT PRIMARY KEY,
+        sequence INTEGER NOT NULL UNIQUE,
+        fingerprint TEXT NOT NULL,
+        tool_scope_id TEXT,
+        tool_call_id TEXT,
+        tool_kind TEXT CHECK(tool_kind IS NULL OR tool_kind IN ('tool_call_started','tool_call_completed'))
+      );
+      CREATE INDEX IF NOT EXISTS transcript_events_tool_identity
+        ON transcript_events(tool_scope_id, tool_call_id, tool_kind);
+      CREATE TABLE IF NOT EXISTS transcript_index_state (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        byte_length INTEGER NOT NULL,
+        modified_ms REAL NOT NULL,
+        last_sequence INTEGER NOT NULL
+      );
+    `);
+    database.exec(`PRAGMA user_version=${TRANSCRIPT_INDEX_SCHEMA_REVISION};`);
+    return database;
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+}
+
+async function readTranscriptFileState(path: string): Promise<TranscriptIndexState> {
+  try {
+    const file = await stat(path);
+    return { byteLength: file.size, modifiedMs: file.mtimeMs, lastSequence: 0 };
+  } catch (error) {
+    if (isMissingFileError(error)) return { byteLength: 0, modifiedMs: 0, lastSequence: 0 };
+    throw error;
+  }
+}
+
+function readTranscriptIndexState(database: Database): TranscriptIndexState | null {
+  let row: {
+    byte_length: number;
+    modified_ms: number;
+    last_sequence: number;
+  } | null;
+  try {
+    row = database
+      .query<
+        {
+          byte_length: number;
+          modified_ms: number;
+          last_sequence: number;
+        },
+        []
+      >(`
+      SELECT byte_length, modified_ms, last_sequence
+      FROM transcript_index_state
+      WHERE singleton=1
+    `)
+      .get();
+  } catch {
+    return null;
+  }
+  if (
+    !row ||
+    !Number.isInteger(row.byte_length) ||
+    row.byte_length < 0 ||
+    !Number.isFinite(row.modified_ms) ||
+    !Number.isInteger(row.last_sequence) ||
+    row.last_sequence < 0
+  ) {
+    return null;
+  }
+  return {
+    byteLength: row.byte_length,
+    modifiedMs: row.modified_ms,
+    lastSequence: row.last_sequence,
+  };
+}
+
+async function rebuildTranscriptIndex(
+  database: Database,
+  transcript: readonly PersistedTranscriptEvent[],
+  fileState: TranscriptIndexState,
+): Promise<TranscriptIndexState> {
+  let lastSequence = 0;
+  database
+    .transaction(() => {
+      database.query("DELETE FROM transcript_events").run();
+      for (const event of transcript) {
+        const toolIdentity = transcriptToolIdentity(event);
+        database
+          .query(`
+        INSERT INTO transcript_events(event_id, sequence, fingerprint, tool_scope_id, tool_call_id, tool_kind)
+        VALUES(?,?,?,?,?,?)
+      `)
+          .run(
+            event.eventId,
+            event.sequence,
+            transcriptEventFingerprint(event),
+            toolIdentity?.scopeId ?? null,
+            toolIdentity?.callId ?? null,
+            toolIdentity?.kind ?? null,
+          );
+        lastSequence = Math.max(lastSequence, event.sequence);
+      }
+      database
+        .query(`
+      INSERT INTO transcript_index_state(singleton, byte_length, modified_ms, last_sequence)
+      VALUES(1,?,?,?)
+      ON CONFLICT(singleton) DO UPDATE SET byte_length=excluded.byte_length, modified_ms=excluded.modified_ms, last_sequence=excluded.last_sequence
+    `)
+        .run(fileState.byteLength, fileState.modifiedMs, lastSequence);
+    })
+    .immediate();
+  return { ...fileState, lastSequence };
+}
+
+function transcriptToolIdentity(event: PersistedTranscriptEvent): {
+  readonly scopeId: string;
+  readonly callId: string;
+  readonly kind: "tool_call_started" | "tool_call_completed";
+} | null {
+  if (event.kind !== "tool_call_started" && event.kind !== "tool_call_completed") return null;
+  return {
+    scopeId: requiredToolIdentityField(event, "toolCallScopeId"),
+    callId: requiredToolIdentityField(event, "toolCallId"),
+    kind: event.kind,
+  };
+}
+
+function validateIncrementalTranscriptToolIdentity(
+  database: Database,
+  event: PersistedTranscriptEvent,
+  pending: readonly PersistedTranscriptEvent[],
+): void {
+  const identity = transcriptToolIdentity(event);
+  if (!identity) return;
+  const stored =
+    database
+      .query<{ count: number }, [string, string, string]>(`
+    SELECT COUNT(*) AS count
+    FROM transcript_events
+    WHERE tool_scope_id=? AND tool_call_id=? AND tool_kind=?
+  `)
+      .get(identity.scopeId, identity.callId, identity.kind)?.count ?? 0;
+  const pendingCount = pending.filter((candidate) => {
+    const candidateIdentity = transcriptToolIdentity(candidate);
+    return (
+      candidateIdentity?.scopeId === identity.scopeId &&
+      candidateIdentity.callId === identity.callId &&
+      candidateIdentity.kind === identity.kind
+    );
+  }).length;
+  if (stored + pendingCount > 0) {
+    if (identity.kind === "tool_call_started") {
+      throw new IncompatibleTranscriptError(
+        `Transcript contains duplicate tool call identity "${identity.callId}" in scope "${identity.scopeId}".`,
+      );
+    }
+    throw new IncompatibleTranscriptError(
+      `Transcript contains duplicate tool result identity "${identity.callId}" in scope "${identity.scopeId}".`,
+    );
+  }
+  if (identity.kind === "tool_call_completed") {
+    const started =
+      database
+        .query<{ count: number }, [string, string]>(`
+      SELECT COUNT(*) AS count
+      FROM transcript_events
+      WHERE tool_scope_id=? AND tool_call_id=? AND tool_kind='tool_call_started'
+    `)
+        .get(identity.scopeId, identity.callId)?.count ?? 0;
+    const pendingStarted = pending.some((candidate) => {
+      const candidateIdentity = transcriptToolIdentity(candidate);
+      return (
+        candidateIdentity?.scopeId === identity.scopeId &&
+        candidateIdentity.callId === identity.callId &&
+        candidateIdentity.kind === "tool_call_started"
+      );
+    });
+    if (started === 0 && !pendingStarted) {
+      throw new IncompatibleTranscriptError(
+        `Transcript tool result "${event.eventId}" has no matching scoped tool start.`,
+      );
+    }
+  }
+}
+
+function transcriptEventFingerprint(event: PersistedTranscriptEvent): string {
+  const { sequence: _sequence, ...withoutSequence } = event;
+  return createHash("sha256").update(stableTranscriptValue(withoutSequence), "utf8").digest("hex");
+}
+
+function stableTranscriptValue(value: unknown): string {
+  const normalized = normalizePersistedJson(value, false);
+  return JSON.stringify(normalized) ?? "null";
+}
+
+const OMIT_PERSISTED_JSON = Symbol("omit-persisted-json");
+
+function normalizePersistedJson(value: unknown, inArray: boolean): unknown {
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") {
+    return inArray ? null : OMIT_PERSISTED_JSON;
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return null;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  const toJson = (value as { toJSON?: () => unknown }).toJSON;
+  if (typeof toJson === "function") {
+    return normalizePersistedJson(toJson.call(value), inArray);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizePersistedJson(entry, true));
+  }
+  const record = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort()) {
+    const entry = normalizePersistedJson(record[key], false);
+    if (entry !== OMIT_PERSISTED_JSON) {
+      normalized[key] = entry;
+    }
+  }
+  return normalized;
+}
+
+async function writeAtomicPrivateStateFile(privateStateRoot: string, filePath: string, content: string): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await assertPrivateStateFileTarget(privateStateRoot, filePath);
+    await writeFile(temporaryPath, content, { encoding: "utf8", flag: "wx" });
+    await rename(temporaryPath, filePath);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+async function writeTranscriptEvents(sessionDir: string, events: readonly PersistedTranscriptEvent[]): Promise<void> {
   if (events.length === 0) {
     return;
   }

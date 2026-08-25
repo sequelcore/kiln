@@ -10,7 +10,15 @@ import {
   sendManagedAgentJoinControl,
   type ManagedAgentGatewaySocket,
 } from "./managed-agent.js";
-import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import { SessionStore, TranscriptStore, type PersistedTranscriptEventDraft } from "../wrapper/session-store.js";
+
+async function appendTranscript(
+  store: TranscriptStore,
+  sessionId: string,
+  event: PersistedTranscriptEventDraft,
+): Promise<void> {
+  await store.appendManyNext(sessionId, [event]);
+}
 import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,
@@ -199,7 +207,7 @@ describe("managed-agent command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendManagedInvocationEvents(transcriptStore, "session-1");
-    await transcriptStore.append("session-1", {
+    await appendTranscript(transcriptStore, "session-1", {
       eventId: "event-adoption-malformed",
       kilnSessionId: "session-1",
       sequence: 4,
@@ -280,7 +288,7 @@ describe("managed-agent command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendManagedInvocationEvents(transcriptStore, "session-1");
-    await transcriptStore.append("session-1", {
+    await appendTranscript(transcriptStore, "session-1", {
       eventId: "economic-event-1",
       kilnSessionId: "session-1",
       sequence: 100,
@@ -329,7 +337,7 @@ describe("managed-agent command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendManagedInvocationEvents(transcriptStore, "session-1");
-    await transcriptStore.append("session-1", {
+    await appendTranscript(transcriptStore, "session-1", {
       eventId: "economic-event-malformed",
       kilnSessionId: "session-1",
       sequence: 100,
@@ -367,7 +375,7 @@ describe("managed-agent command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     for (const event of [...managedEconomicLifecycleEvents, ...managedEconomicLifecycleUnprojectableEvents]) {
-      await transcriptStore.append(MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.sessionId, {
+      await appendTranscript(transcriptStore, MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.sessionId, {
         ...event,
         payload: { ...event.payload, instanceId: "local" },
       });
@@ -392,7 +400,7 @@ describe("managed-agent command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     for (const event of managedAccountLeaseEvents) {
-      await transcriptStore.append(MANAGED_ACCOUNT_LEASE_FIXTURE.sessionId, event);
+      await appendTranscript(transcriptStore, MANAGED_ACCOUNT_LEASE_FIXTURE.sessionId, event);
     }
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
@@ -420,7 +428,7 @@ describe("managed-agent command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     for (const event of externalRuntimeGovernanceEvents) {
-      await transcriptStore.append(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId, event);
+      await appendTranscript(transcriptStore, EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId, event);
     }
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
@@ -1168,7 +1176,7 @@ async function appendManagedInvocationEvents(
     },
   };
 
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-requested",
     kilnSessionId: sessionId,
     sequence: 1,
@@ -1181,7 +1189,7 @@ async function appendManagedInvocationEvents(
       inputSummary: "Review Slice 5B.",
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-started",
     kilnSessionId: sessionId,
     sequence: 2,
@@ -1193,7 +1201,7 @@ async function appendManagedInvocationEvents(
       lifecycleState: "running",
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-completed",
     kilnSessionId: sessionId,
     sequence: 3,
@@ -1247,7 +1255,7 @@ async function appendGuiManagedToolEvidenceEvents(
     authorityProfileId: "authority:codex-oauth-readonly:foundation-readonly-plan",
   };
   const appendToolCompletion = async (
-    event: Parameters<TranscriptStore["append"]>[1],
+    event: PersistedTranscriptEventDraft,
   ): Promise<void> => {
     const toolCallId = event.payload.toolCallId;
     const toolName = event.payload.toolName;
@@ -1255,7 +1263,7 @@ async function appendGuiManagedToolEvidenceEvents(
       throw new Error("Managed tool evidence fixture requires canonical tool identity.");
     }
     const toolCallScopeId = `${event.turnId}:response:1`;
-    await transcriptStore.append(sessionId, {
+    await appendTranscript(transcriptStore, sessionId, {
       ...event,
       eventId: `${event.eventId}:started`,
       sequence: event.sequence * 2 - 1,
@@ -1267,7 +1275,7 @@ async function appendGuiManagedToolEvidenceEvents(
         input: {},
       },
     });
-    await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
       ...event,
       sequence: event.sequence * 2,
       payload: {
@@ -1462,7 +1470,7 @@ async function appendManagedConflictEvent(
     },
   };
 
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-conflict",
     kilnSessionId: sessionId,
     sequence: 1,
@@ -1501,7 +1509,7 @@ async function appendManagedTerminalViewStateEvents(
   transcriptStore: TranscriptStore,
   sessionId: string,
 ): Promise<void> {
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-timeout",
     kilnSessionId: sessionId,
     sequence: 1,
@@ -1532,7 +1540,7 @@ async function appendManagedTerminalViewStateEvents(
       },
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-cancelled",
     kilnSessionId: sessionId,
     sequence: 3,
@@ -1563,7 +1571,7 @@ async function appendManagedTerminalViewStateEvents(
       },
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-stale",
     kilnSessionId: sessionId,
     sequence: 2,
@@ -1596,7 +1604,7 @@ async function appendManagedTerminalViewStateEvents(
       },
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: "event-failed",
     kilnSessionId: sessionId,
     sequence: 4,
@@ -1657,7 +1665,7 @@ async function appendManagedAdoptionGateEvent(
     };
   },
 ): Promise<void> {
-  await transcriptStore.append(sessionId, {
+  await appendTranscript(transcriptStore, sessionId, {
     eventId: input.eventId ?? "event-adoption",
     kilnSessionId: sessionId,
     sequence: input.eventId ? 5 : 4,

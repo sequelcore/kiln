@@ -75,7 +75,7 @@ not carry raw tool outcomes into the model context.
 Session history and resume intent are separate persistence concerns.
 
 The bound private project's `sessions/sessions.jsonl` is the canonical session
-index for completed Kiln session records. It is keyed by Kiln session id: later
+index for Kiln session records, including sessions with an unsettled turn. It is keyed by Kiln session id: later
 turns for the same session update the canonical row instead of creating
 duplicate rows in operator history. Clear/new-session operations must not
 delete the index and must not treat it as a disposable "last session" pointer.
@@ -445,13 +445,30 @@ under the bound private project's
 ledger-only rows are not loadable conversations and must not appear in the
 operator history as compatibility fallbacks.
 
-The shared operator Runtime commits each completed or failed canonical turn-event
-batch through one durable persistence port before reporting the turn as committed.
+The shared operator Runtime owns one ordered durable turn stream. It persists the
+`turn_started` prefix (including the user message and continuity decision) before
+provider/orchestrator work, appends provider, tool, approval, cost, and error
+events as they occur, and appends exactly one terminal `turn_completed` event.
+The same canonical event batches are published after durable acceptance. An
+unmatched start or intermediate stream is therefore attributable after a crash;
+stale recovery settles it as failed without replaying uncertain provider work.
+
 The CLI adapter for that port is the sole projection owner for local GUI and TUI:
-it appends the canonical transcript, derives `meta.json` from the complete
-idempotent event stream, and updates the completed-session index without changing
-the operator's explicit continuation target. Surfaces may stream or render the
-same events, but they do not own a second persistence path.
+it appends each canonical batch to the transcript, advances `meta.json` from the
+accepted batch under the same per-session mutation lock, and replaces the derived
+session-index snapshot without changing the operator's explicit continuation
+target. `transcript.jsonl` remains the authority. Its sibling
+`transcript-index.sqlite` is a rebuildable append index used only for bounded
+sequence, identity, and tool-pair validation; file/index divergence rebuilds it
+from the transcript. Derived metadata records the last projected transcript
+sequence; after an interrupted append it replays only the unprojected canonical
+suffix under the same lock. Surfaces stream the same persisted event identities and
+replay the current Runtime snapshot after reconnect; they do not own a second
+persistence or activity path.
+
+A replaceable WebSocket disconnect detaches presentation without cancelling the
+turn. Explicit gateway shutdown stops new ingress, aborts active turns, awaits
+their canonical settlement, and only then disposes Runtime resources.
 
 On Windows, canonical session IDs can contain characters such as `:` that are
 invalid in directory names. Kiln therefore encodes the session ID only at the

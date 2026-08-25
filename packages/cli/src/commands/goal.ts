@@ -303,11 +303,9 @@ async function appendPlanApproval(
   }
 
   const timestamp = options.now().toISOString();
-  const sequence = Math.max(0, ...transcript.map((event) => event.sequence)) + 1;
-  await transcriptStore.append(sessionId, {
+  await transcriptStore.appendManyNext(sessionId, [{
     eventId: options.eventId(),
     kilnSessionId: sessionId,
-    sequence,
     timestamp,
     kind: "plan_approved",
     source: { actor: "user", surface: "cli", component: "goal-command" },
@@ -324,7 +322,7 @@ async function appendPlanApproval(
       fromMode: "plan",
       toMode: "execute",
     },
-  });
+  }]);
 
   return {
     planId: approval.planId,

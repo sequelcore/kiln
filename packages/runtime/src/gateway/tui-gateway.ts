@@ -1,6 +1,23 @@
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
+  type AdmittedExecutionRoute,
+  type ArtifactResourceStore,
+  type CommunicationIntentCandidate,
+  type ContentPart,
+  type ContextArtifactCache,
+  type DefaultBuiltinToolRegistryOptions,
+  defineTurnTemporalContext,
+  EventBus,
+  extractText,
+  type ProviderAdapter,
+  type SttAdapter,
+  type TtsAdapter,
+  type TurnTemporalContext,
+  textParts,
+  type VoiceConfig,
+} from "@kilnai/core";
+import {
   type ExecutionRouteCatalog,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
@@ -27,35 +44,18 @@ import {
   readExecutionToolAllowlist,
   readExecutionTurnAuthority,
 } from "../session/effective-authority-admission-bundle.js";
-import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
+import { hasGovernedGoalTools, prepareOperatorAdoptionTurn } from "../session/operator-adoption-authority.js";
+import { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import type { ConfiguredExecutionCredential } from "../managed-account-leases/configured-execution-account-runtime.js";
-import { SessionRegistry } from "../session/persistence/session-registry.js";
+import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import {
-  textParts,
-  extractText,
-  EventBus,
-  type ApprovalRequestedEvent,
-  type ApprovalReceivedEvent,
-  type CanonicalSessionEvent,
-  type KilnEvent,
-  type ToolAuthorizedEvent,
-  type DefaultBuiltinToolRegistryOptions,
-  type ContextArtifactCache,
-  type ArtifactResourceStore,
-  type ContentPart,
-  type SttAdapter,
-  type TtsAdapter,
-  type VoiceConfig,
-  type TurnTemporalContext,
-  defineTurnTemporalContext,
-  type CommunicationIntentCandidate,
-  type ExecutionSessionEvent,
-  type AdmittedExecutionRoute,
-  type ProviderAdapter,
-} from "@kilnai/core";
-import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
+  type ActiveOperatorTurn,
+  abortAndAwaitOperatorTurns,
+  createActiveOperatorTurn,
+} from "./active-operator-turn.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
+import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
 import { processAdmittedTurn } from "./message-pipeline/index.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import type {
@@ -79,7 +79,6 @@ import {
   LOCAL_OPERATOR_GATEWAY_HOST,
   localOperatorGatewayWebSocketUrl,
 } from "./operator-gateway-network.js";
-import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import {
   markGuiProviderDiscoveryStale,
@@ -88,16 +87,11 @@ import {
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
+import { OperatorActivityStreamer } from "./operator-activity-streamer.js";
+import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
-import type {
-  RuntimeTurnApprovalTransition,
-  RuntimeTurnAuthorityDecision,
-  RuntimeTurnFileChange,
-  RuntimeTurnToolCompletion,
-} from "../session/runtime-turn-record.js";
-import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
 import {
   fingerprintOperatorTurnIntent,
   type OperatorSessionAuthorityAdmissionBridge,
@@ -112,10 +106,6 @@ import {
   defineOperatorAuthorityAdmissionFacets,
   defineOperatorSkillCatalogAdmission,
 } from "../execution-routing/operator-authority-admission-facets.js";
-import {
-  hasGovernedGoalTools,
-  prepareOperatorAdoptionTurn,
-} from "../session/operator-adoption-authority.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
 const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
@@ -204,7 +194,7 @@ export interface TuiGateway {
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   /** Gracefully stop the gateway server. */
-  shutdown(): void;
+  shutdown(): Promise<void>;
 }
 
 const TUI_APP_NAME = "kiln-tui";
@@ -226,11 +216,9 @@ function surfacesForTuiSession(
     .map((registration) => registration.surface);
 }
 
-function disposeTuiResourceSurfaces(
-  registrations: readonly TuiResourceSurfaceRegistration[],
-): void {
+async function disposeTuiResourceSurfaces(registrations: readonly TuiResourceSurfaceRegistration[]): Promise<void> {
   const surfaces = [...new Set(registrations.map((registration) => registration.surface))];
-  void Promise.all(surfaces.map((surface) => surface.dispose().catch(() => undefined)));
+  await Promise.all(surfaces.map((surface) => surface.dispose().catch(() => undefined)));
 }
 
 function tuiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
@@ -515,7 +503,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const approvalRegistry = new ApprovalGateRegistry();
 
   // Activity streamer: bridges CLI session events to the active WS connection
-  const activityStreamer = new TuiActivityStreamer(approvalRegistry);
+  const activityStreamer = new OperatorActivityStreamer({
+    approvalRegistry,
+    instanceId: TUI_OPERATOR_COCKPIT_INSTANCE_ID,
+  });
+  const activeTurns = new Set<ActiveOperatorTurn>();
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions,
     boundedWork: options.boundedWork,
@@ -657,122 +649,116 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       },
     });
     const runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext = {
-      admission: bundle,
-      intentFingerprint: committed.intentFingerprint as `sha256:${string}`,
-      attemptId: committed.executionId,
-      routeId: committed.binding.routeId,
-      accountId: committed.binding.accountId,
-      credentialRevision: committed.binding.credentialRevision,
-      readAdmission: () => readRuntimeModelRoundAdmission({
-        readAdmission: (request) => readAdmission.call(options.authorityAdmissionEvidenceStore, request),
-        admissionId: bundle.admissionId,
-        sessionId: bundle.sessionId,
-        turnId: bundle.turnId,
-        expected: {
-          routeId: committed.binding.routeId,
-          accountId: committed.binding.accountId,
-          credentialRevision: committed.binding.credentialRevision,
-        },
-      }),
-      store: options.runtimeModelRoundActionClaims,
-      state: { claimed: false },
-    };
-    const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
-      admission: bundle,
-      attemptId: committed.executionId,
-      adapterIdentity: `tui:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
-      readAdmission: (request) => readRuntimeModelRoundAdmission({
-        readAdmission: (readRequest) => readAdmission.call(options.authorityAdmissionEvidenceStore, readRequest),
-        admissionId: request.admissionId,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        expected: {
-          routeId: committed.binding.routeId,
-          accountId: committed.binding.accountId,
-          credentialRevision: committed.binding.credentialRevision,
-        },
-      }),
-      store: options.runtimeToolActionClaims,
-      state: { claimed: false },
-    };
-    resourceSurfaces.push({
-      surface: turnBuiltinToolSurface,
-      sessionId: committed.authorityAdmission.sessionId,
-    });
-    latestMediaAdmissionBySession.set(committed.authorityAdmission.sessionId, {
-      authorityAdmission: bundle,
-      attemptId: committed.executionId,
-    });
-    options.sessionManager.setProvider(committed.admission.providerId);
-    options.sessionManager.setModel(committed.admission.providerModelId);
-    const {
-      turnId: _candidateTurnId,
-      operatorAdoptionDecision: _candidateAdoptionDecision,
-      executionBinding: _candidateExecutionBinding,
-      admittedExecutionRoute: _candidateExecutionRoute,
-      effectiveTurnAuthority: _candidateTurnAuthority,
-      authorityContext: _candidateAuthorityContext,
-      runtimeConfigurationRevision: _candidateConfigurationRevision,
-      runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
-      toolAllowlist: _candidateToolAllowlist,
-      toolAuthority: _candidateToolAuthority,
-      ...admittedExecutionConfig
-    } = prepared.perCallConfig;
-    const perCallConfig = {
-      ...admittedExecutionConfig,
-      authorityAdmission: bundle,
-      executionCredential: committed.credential,
-      runtimeModelRoundDispatch,
-      runtimeToolActionClaims,
-    } satisfies PerCallToolConfig;
-    const provider = await options.createProvider({
-      credential: committed.credential,
-      admission: committed.admission,
-    });
-    const orchestrator = orchestrationSurface.bindProvider(
-      provider,
-      committed.admission.providerModelId,
-    );
-    return processAdmittedTurn({
-      orchestrator,
-      sessionRegistry,
-      appName: TUI_APP_NAME,
-      tenantId: TUI_TENANT_ID,
-      userId: payload.userId,
-      sessionId: committed.authorityAdmission.sessionId,
-      admittedSession: runtimeSession,
-      systemPrompt: payload.systemPrompt,
-      userParts: payload.userParts,
-      channel: "tui",
-      resumeSessionHydrator: options.resumeSessionHydrator,
-      persistCanonicalSessionEvents: options.persistCanonicalSessionEvents,
-      providerValidation: payload.providerDiscovery,
-      contextUsageWindow: buildTuiContextUsageWindowEvidence(
-        committed.admission.providerId,
-        committed.admission.providerModelId,
-        activeModelCapabilities,
-        payload.providerDiscovery,
-      ),
-      executionMode,
-      contextArtifactCache: options.contextArtifactCache,
-      artifactStore: options.artifactStore,
-      voiceConfig: options.voiceConfig,
-      sttAdapter: options.sttAdapter,
-      ttsAdapter: options.ttsAdapter,
-      callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
-      perCallConfig,
-      authorityAdmission: bundle,
-      runtimeMediaActionClaims: options.runtimeMediaActionClaims,
-      runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
-      turnCapture: {
-        start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
-        finish: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
-        abort: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
-      },
-      publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
-        events.filter((event) => event.kind === "context_usage_observed"),
-      ),
-    });
+        admission: bundle,
+        intentFingerprint: committed.intentFingerprint as `sha256:${string}`,
+        attemptId: committed.executionId,
+        routeId: committed.binding.routeId,
+        accountId: committed.binding.accountId,
+        credentialRevision: committed.binding.credentialRevision,
+        readAdmission: () =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: (request) => readAdmission.call(options.authorityAdmissionEvidenceStore, request),
+            admissionId: bundle.admissionId,
+            sessionId: bundle.sessionId,
+            turnId: bundle.turnId,
+            expected: {
+              routeId: committed.binding.routeId,
+              accountId: committed.binding.accountId,
+              credentialRevision: committed.binding.credentialRevision,
+            },
+          }),
+        store: options.runtimeModelRoundActionClaims,
+        state: { claimed: false },
+      };
+      const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
+        admission: bundle,
+        attemptId: committed.executionId,
+        adapterIdentity: `tui:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
+        readAdmission: (request) =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: (readRequest) => readAdmission.call(options.authorityAdmissionEvidenceStore, readRequest),
+            admissionId: request.admissionId,
+            sessionId: request.sessionId,
+            turnId: request.turnId,
+            expected: {
+              routeId: committed.binding.routeId,
+              accountId: committed.binding.accountId,
+              credentialRevision: committed.binding.credentialRevision,
+            },
+          }),
+        store: options.runtimeToolActionClaims,
+        state: { claimed: false },
+      };
+      resourceSurfaces.push({
+        surface: turnBuiltinToolSurface,
+        sessionId: committed.authorityAdmission.sessionId,
+      });
+      latestMediaAdmissionBySession.set(committed.authorityAdmission.sessionId, {
+        authorityAdmission: bundle,
+        attemptId: committed.executionId,
+      });
+      options.sessionManager.setProvider(committed.admission.providerId);
+      options.sessionManager.setModel(committed.admission.providerModelId);
+      const {
+        turnId: _candidateTurnId,
+        operatorAdoptionDecision: _candidateAdoptionDecision,
+        executionBinding: _candidateExecutionBinding,
+        admittedExecutionRoute: _candidateExecutionRoute,
+        effectiveTurnAuthority: _candidateTurnAuthority,
+        authorityContext: _candidateAuthorityContext,
+        runtimeConfigurationRevision: _candidateConfigurationRevision,
+        runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
+        toolAllowlist: _candidateToolAllowlist,
+        toolAuthority: _candidateToolAuthority,
+        ...admittedExecutionConfig
+      } = prepared.perCallConfig;
+      const perCallConfig = {
+        ...admittedExecutionConfig,
+        abortSignal: payload.abortSignal,
+        authorityAdmission: bundle,
+        executionCredential: committed.credential,
+        runtimeModelRoundDispatch,
+        runtimeToolActionClaims,
+      } satisfies PerCallToolConfig;
+      const provider = await options.createProvider({
+        credential: committed.credential,
+        admission: committed.admission,
+      });
+      const orchestrator = orchestrationSurface.bindProvider(provider, committed.admission.providerModelId);
+      activityStreamer.selectSession(runtimeSession.id);
+      return processAdmittedTurn({
+        orchestrator,
+        sessionRegistry,
+        appName: TUI_APP_NAME,
+        tenantId: TUI_TENANT_ID,
+        userId: payload.userId,
+        sessionId: committed.authorityAdmission.sessionId,
+        admittedSession: runtimeSession,
+        systemPrompt: payload.systemPrompt,
+        userParts: payload.userParts,
+        channel: "tui",
+        resumeSessionHydrator: options.resumeSessionHydrator,
+        persistCanonicalSessionEvents: options.persistCanonicalSessionEvents,
+        providerValidation: payload.providerDiscovery,
+        contextUsageWindow: buildTuiContextUsageWindowEvidence(
+          committed.admission.providerId,
+          committed.admission.providerModelId,
+          activeModelCapabilities,
+          payload.providerDiscovery,
+        ),
+        executionMode,
+        contextArtifactCache: options.contextArtifactCache,
+        artifactStore: options.artifactStore,
+        voiceConfig: options.voiceConfig,
+        sttAdapter: options.sttAdapter,
+        ttsAdapter: options.ttsAdapter,
+        callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
+        perCallConfig,
+        authorityAdmission: bundle,
+        runtimeMediaActionClaims: options.runtimeMediaActionClaims,
+        runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
+        publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(events),
+      });
   });
 
   const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
@@ -808,6 +794,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         async onOpen(_event: Event, ws: WSContext) {
           operatorSocket = ws;
           activityStreamer.register(ws, eventBus);
+          const activeSession = await sessionRegistry.get(TUI_APP_NAME, userId, TUI_TENANT_ID);
+          if (activeSession) {
+            activityStreamer.forwardSessionEvents(activeSession.sessionEvents);
+          }
           unsubscribeDiscovery?.();
           unsubscribeDiscovery = providerCatalog.subscribe((snapshot) => {
             const currentDiscovery = applyDiscovery(snapshot.discovery);
@@ -1119,97 +1109,133 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               : "";
 
             if (!userContent.trim()) return;
-            // Send "thinking" status to indicate work has started
-            ws.send(JSON.stringify({ type: "thinking" }));
-            let result: import("./message-pipeline/index.js").ProcessResult;
-            let turnProvider: string | undefined;
-            let turnModel: string | undefined;
+            if (activeTurns.size > 0) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "A TUI turn is already active. Wait for it to settle before starting another turn.",
+                }),
+              );
+              return;
+            }
+            const currentTurn = createActiveOperatorTurn();
+            activeTurns.add(currentTurn);
             try {
-              const currentDiscovery = await refreshDiscovery();
-              if (!selectedRouteIntent) {
-                ws.send(JSON.stringify({ type: "error", message: "No execution route selected. Choose an execution route before sending a message." }));
+              // Send "thinking" status to indicate work has started
+              ws.send(JSON.stringify({ type: "thinking" }));
+              let result: import("./message-pipeline/index.js").ProcessResult;
+              let turnProvider: string | undefined;
+              let turnModel: string | undefined;
+              try {
+                const currentDiscovery = await refreshDiscovery();
+                if (!selectedRouteIntent) {
+                  ws.send(
+                    JSON.stringify({
+                      type: "error",
+                      message: "No execution route selected. Choose an execution route before sending a message.",
+                    }),
+                  );
+                  return;
+                }
+                const dispatcher = options.operatorTurnDispatcher;
+                if (!dispatcher) {
+                  ws.send(
+                    JSON.stringify({
+                      type: "error",
+                      code: "route-evidence-pending",
+                      message: "Operator execution routing is unavailable.",
+                    }),
+                  );
+                  return;
+                }
+                const executionId = crypto.randomUUID();
+                const execution = await dispatcher.dispatchTurn({
+                  executionId,
+                  intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedRouteIntent }),
+                  intent: selectedRouteIntent,
+                  payload: {
+                    surface: "tui",
+                    appName: TUI_APP_NAME,
+                    tenantId: TUI_TENANT_ID,
+                    userId,
+                    userParts: textParts(userContent),
+                    systemPrompt,
+                    message: frame,
+                    providerDiscovery: currentDiscovery,
+                    operatorTimeZone: options.operatorTimeZone,
+                    abortSignal: currentTurn.controller.signal,
+                  },
+                });
+                result = execution.result;
+                turnProvider = execution.admission.providerId;
+                turnModel = execution.admission.providerModelId;
+              } catch (err) {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: err instanceof Error ? err.message : String(err),
+                  }),
+                );
                 return;
               }
-              const dispatcher = options.operatorTurnDispatcher;
-              if (!dispatcher) {
-                ws.send(JSON.stringify({ type: "error", code: "route-evidence-pending", message: "Operator execution routing is unavailable." }));
-                return;
-              }
-              const executionId = crypto.randomUUID();
-              const execution = await dispatcher.dispatchTurn({
-                executionId,
-                intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedRouteIntent }),
-                intent: selectedRouteIntent,
-                payload: {
-                  surface: "tui",
-                  appName: TUI_APP_NAME,
-                  tenantId: TUI_TENANT_ID,
-                  userId,
-                  userParts: textParts(userContent),
-                  systemPrompt,
-                  message: frame,
-                  providerDiscovery: currentDiscovery,
-                  operatorTimeZone: options.operatorTimeZone,
-                },
-              });
-              result = execution.result;
-              turnProvider = execution.admission.providerId;
-              turnModel = execution.admission.providerModelId;
-            } catch (err) {
-              ws.send(JSON.stringify({
-                type: "error",
-                message: err instanceof Error ? err.message : String(err),
-              }));
-              return;
-            }
 
-            if (!result.ok) {
-              ws.send(JSON.stringify({
-                type: "error",
-                message: result.budgetDenied.message,
-              }));
-              return;
-            }
-            const output = result.result;
-            const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
-            if (!turnProvider) {
-              ws.send(JSON.stringify({
-                type: "error",
-                message: "Runtime completed without a provider route.",
-              }));
-              return;
-            }
-            const routedProvider = output.routingDecision?.provider ?? turnProvider;
-            const fallbackRoutedModel = isGuiProviderModeless(routedProvider)
-              ? ""
-              : turnModel ?? "";
-            const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
-            const authorityStatus = deriveTuiDoneAuthorityStatus(undefined);
-            const sourceMessageId = crypto.randomUUID();
-            voiceSynthesisSources.set(sourceMessageId, {
-              parts: output.parts,
-              sessionId: output.sessionId,
-              authorityAdmission: latestMediaAdmissionBySession.get(output.sessionId)?.authorityAdmission,
-              attemptId: latestMediaAdmissionBySession.get(output.sessionId)?.attemptId,
-            });
-            if (voiceSynthesisSources.size > 50) {
-              const oldest = voiceSynthesisSources.keys().next().value;
-              if (oldest) {
-                voiceSynthesisSources.delete(oldest);
+              if (!result.ok) {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: result.budgetDenied.message,
+                  }),
+                );
+                return;
               }
+              const output = result.result;
+              const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
+              if (!turnProvider) {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: "Runtime completed without a provider route.",
+                  }),
+                );
+                return;
+              }
+              const routedProvider = output.routingDecision?.provider ?? turnProvider;
+              const fallbackRoutedModel = isGuiProviderModeless(routedProvider) ? "" : (turnModel ?? "");
+              const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
+              const authorityStatus = deriveTuiDoneAuthorityStatus(undefined);
+              const sourceMessageId = crypto.randomUUID();
+              voiceSynthesisSources.set(sourceMessageId, {
+                parts: output.parts,
+                sessionId: output.sessionId,
+                authorityAdmission: latestMediaAdmissionBySession.get(output.sessionId)?.authorityAdmission,
+                attemptId: latestMediaAdmissionBySession.get(output.sessionId)?.attemptId,
+              });
+              if (voiceSynthesisSources.size > 50) {
+                const oldest = voiceSynthesisSources.keys().next().value;
+                if (oldest) {
+                  voiceSynthesisSources.delete(oldest);
+                }
+              }
+              ws.send(
+                JSON.stringify(
+                  buildTuiDoneFramePayload({
+                    sourceMessageId,
+                    content: extractText(output.parts),
+                    parts: output.parts,
+                    inputTokens: output.inputTokens,
+                    outputTokens: output.outputTokens,
+                    outcome: output.outcome,
+                    routedProvider,
+                    routedModel,
+                    runtimeContinuity,
+                    authorityStatus,
+                  }),
+                ),
+              );
+            } finally {
+              currentTurn.settle();
+              activeTurns.delete(currentTurn);
             }
-            ws.send(JSON.stringify(buildTuiDoneFramePayload({
-              sourceMessageId,
-              content: extractText(output.parts),
-              parts: output.parts,
-              inputTokens: output.inputTokens,
-              outputTokens: output.outputTokens,
-              outcome: output.outcome,
-              routedProvider,
-              routedModel,
-              runtimeContinuity,
-              authorityStatus,
-            })));
           } catch {
             // Discard malformed frames
           }
@@ -1256,278 +1282,12 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       readDiscovery();
       return projectGuiProviderModelDiscovery(providerDiscovery);
     },
-    shutdown: () => {
+    shutdown: async () => {
       server.stop();
-      disposeTuiResourceSurfaces(resourceSurfaces);
+      await abortAndAwaitOperatorTurns(activeTurns);
+      await disposeTuiResourceSurfaces(resourceSurfaces);
     },
   };
-}
-
-/**
- * The TUI gateway has exactly one WS connection at a time. This class
- * holds a reference to the current WS and projects canonical Runtime events.
- */
-class TuiActivityStreamer {
-  private readonly pendingApprovals = new Set<string>();
-  private capture: {
-    sessionId: string;
-    nextSequence: number;
-    fileChanges: RuntimeTurnFileChange[];
-    approvalTransitions: RuntimeTurnApprovalTransition[];
-    authorityDecisions: RuntimeTurnAuthorityDecision[];
-    toolCompletions: RuntimeTurnToolCompletion[];
-  } | null = null;
-  private ws: WSContext | null = null;
-  private eventBus: EventBus | null = null;
-  private approvalHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
-  private receivedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
-  private authorizedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
-  private approvalBridge: {
-    approve: (approvalId: string) => void;
-    reject: (approvalId: string, reason: string) => void;
-  } | null = null;
-
-  constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
-
-  bindApprovalBridge(bridge: {
-    approve: (approvalId: string) => void;
-    reject: (approvalId: string, reason: string) => void;
-  }): void {
-    this.approvalBridge = bridge;
-  }
-
-  beginTurnCapture(sessionId: string, nextSequence: number): void {
-    this.capture = {
-      sessionId,
-      nextSequence,
-      fileChanges: [],
-      approvalTransitions: [],
-      authorityDecisions: [],
-      toolCompletions: [],
-    };
-  }
-
-  endTurnCapture(sessionId: string): {
-    fileChanges: readonly RuntimeTurnFileChange[];
-    approvalTransitions: readonly RuntimeTurnApprovalTransition[];
-    authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
-    toolCompletions: readonly RuntimeTurnToolCompletion[];
-  } {
-    if (!this.capture || this.capture.sessionId !== sessionId) {
-      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [], toolCompletions: [] };
-    }
-    const captured = {
-      fileChanges: [...this.capture.fileChanges],
-      approvalTransitions: [...this.capture.approvalTransitions],
-      authorityDecisions: [...this.capture.authorityDecisions],
-      toolCompletions: [...this.capture.toolCompletions],
-    };
-    this.capture = null;
-    return captured;
-  }
-
-  private nextLiveSequence(): number | null {
-    if (!this.capture) {
-      return null;
-    }
-    const sequence = this.capture.nextSequence;
-    this.capture.nextSequence += 1;
-    return sequence;
-  }
-
-  private emitSessionEvent(input: {
-    kind: "assistant_delta" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
-    timestamp: string;
-    payload: Record<string, unknown>;
-    parentEventId?: string;
-    executionScope?: ExecutionSessionEvent["executionScope"];
-  }): void {
-    if (!this.ws || !this.capture) {
-      return;
-    }
-    const sequence = this.nextLiveSequence();
-    if (sequence === null) {
-      return;
-    }
-    const eventId = `${this.capture.sessionId}:live:${sequence}`;
-    const turnId = `${this.capture.sessionId}:turn:live`;
-    this.ws.send(JSON.stringify({
-      type: "session_event",
-      event: {
-        eventId,
-        kilnSessionId: this.capture.sessionId,
-        sequence,
-        timestamp: input.timestamp,
-        kind: input.kind,
-        turnId,
-        ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
-        ...(input.executionScope ? { executionScope: input.executionScope } : {}),
-        source: {
-          actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
-          surface: "tui",
-          component: "tui-gateway",
-        },
-        payload: input.payload,
-      },
-    } satisfies GuiInboundFrame));
-  }
-
-  forwardSessionEvents(events: readonly CanonicalSessionEvent[]): void {
-    if (!this.ws) return;
-    for (const event of events) {
-      const sequence = this.nextLiveSequence() ?? event.sequence;
-      this.ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
-        eventId: `${event.eventId}:live`,
-        sequence,
-        instanceId: TUI_OPERATOR_COCKPIT_INSTANCE_ID,
-      }) satisfies GuiInboundFrame));
-    }
-  }
-
-  private emitActivityPhase(input: {
-    phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
-    sessionId?: string;
-    toolName?: string;
-    details?: string;
-  }): void {
-    if (!this.ws) {
-      return;
-    }
-    const sessionId = input.sessionId ?? this.capture?.sessionId;
-    if (!sessionId) {
-      return;
-    }
-    this.ws.send(JSON.stringify({
-      type: "activity_phase",
-      kilnSessionId: sessionId,
-      ...(this.capture?.sessionId === sessionId ? { turnId: `${sessionId}:turn:live` } : {}),
-      phase: input.phase,
-      ...(input.toolName ? { toolName: input.toolName } : {}),
-      ...(input.details ? { details: input.details } : {}),
-    } satisfies GuiInboundFrame));
-  }
-
-  register(ws: WSContext, eventBus?: EventBus): void {
-    this.ws = ws;
-    this.eventBus = eventBus ?? null;
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners(): void {
-    if (!this.eventBus) return;
-
-    this.approvalHandler = (event: KilnEvent) => {
-      if (event.type === "approval_requested") {
-        const approvalEvent = event as unknown as ApprovalRequestedEvent;
-        const sessionId = approvalEvent.sessionId;
-        const approvalId = approvalEvent.approvalId;
-        if (sessionId && approvalId) {
-          this.pendingApprovals.add(approvalId);
-          if (this.capture && this.capture.sessionId === sessionId) {
-            this.capture.approvalTransitions.push({
-              approvalId,
-              status: "requested",
-              sessionId,
-              reason: approvalEvent.description,
-            });
-            this.emitSessionEvent({
-              kind: "approval_requested",
-              timestamp: approvalEvent.timestamp.toISOString(),
-              payload: {
-                approvalId,
-                sessionId,
-                action: approvalEvent.description,
-                justification: approvalEvent.description,
-              },
-            });
-          }
-          this.approvalRegistry.register(approvalId, {
-            approve: () => this.approvalBridge?.approve(approvalId),
-            reject: (reason: string) => this.approvalBridge?.reject(approvalId, reason),
-            status: () => (this.pendingApprovals.has(approvalId) ? "awaiting_approval" : "resolved"),
-          });
-        }
-        this.emitActivityPhase({
-          phase: "awaiting_approval",
-          sessionId,
-          details: approvalEvent.description,
-        });
-      }
-    };
-    this.eventBus.onAny(this.approvalHandler);
-
-    this.receivedHandler = (event: KilnEvent) => {
-      if (event.type === "approval_received") {
-        const receivedEvent = event as unknown as ApprovalReceivedEvent;
-        const sessionId = receivedEvent.sessionId;
-        const approvalId = receivedEvent.approvalId;
-        if (sessionId && approvalId) {
-          this.pendingApprovals.delete(approvalId);
-          if (this.capture && this.capture.sessionId === sessionId) {
-            this.capture.approvalTransitions.push({
-              approvalId,
-              status: receivedEvent.approved ? "approved" : "rejected",
-              sessionId,
-              reason: receivedEvent.reason,
-            });
-            this.emitSessionEvent({
-              kind: "approval_resolved",
-              timestamp: receivedEvent.timestamp.toISOString(),
-              payload: {
-                approvalId,
-                sessionId,
-                resolution: {
-                  decision: receivedEvent.approved ? "approved" : "denied",
-                  resolvedBy: "operator",
-                  reason: receivedEvent.reason,
-                },
-              },
-            });
-          }
-          this.approvalRegistry.unregister(approvalId);
-        }
-        this.emitActivityPhase({ phase: "idle", sessionId });
-      }
-    };
-    this.eventBus.onAny(this.receivedHandler);
-
-    this.authorizedHandler = (event: KilnEvent) => {
-      if (event.type === "tool_authorized") {
-        const authorizedEvent = event as ToolAuthorizedEvent;
-        const sessionId = authorizedEvent.sessionId;
-        if (sessionId && this.capture && this.capture.sessionId === sessionId) {
-          this.capture.authorityDecisions.push({
-            toolName: authorizedEvent.toolName,
-            level: authorizedEvent.level,
-            allowed: authorizedEvent.allowed,
-            reason: authorizedEvent.reason,
-          });
-        }
-      }
-    };
-    this.eventBus.onAny(this.authorizedHandler);
-  }
-
-  unregister(ws: WSContext): void {
-    if (this.ws === ws) {
-      this.ws = null;
-    }
-    if (this.eventBus && this.approvalHandler) {
-      this.eventBus.offAny(this.approvalHandler);
-      this.approvalHandler = null;
-    }
-    if (this.eventBus && this.receivedHandler) {
-      this.eventBus.offAny(this.receivedHandler);
-      this.receivedHandler = null;
-    }
-    if (this.eventBus && this.authorizedHandler) {
-      this.eventBus.offAny(this.authorizedHandler);
-      this.authorizedHandler = null;
-    }
-    this.eventBus = null;
-    this.capture = null;
-  }
-
 }
 
 async function resolveTuiProviderDiscovery(

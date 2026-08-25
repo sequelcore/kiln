@@ -1,4 +1,5 @@
 import "./gui-gateway-test-fixture.js";
+import { createSessionEvent } from "@kilnai/core/events";
 import * as guiFixture from "./gui-gateway-test-fixture.js";
 import {
   rmSync,
@@ -25,6 +26,95 @@ const {guiOperatorTransportDefaults, createGuiDist, waitForCondition, selectGuiT
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
 
 describe("GUI gateway activity", () => {
+  it("streams canonical Runtime progress with stable replay identity before turn completion", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4810, stop })),
+    });
+    const progressEvent = createSessionEvent<"tool_call_started">({
+      eventId: "session-live:event:4",
+      kilnSessionId: "session-live",
+      sequence: 4,
+      timestamp: new Date("2026-08-25T12:00:00.000Z"),
+      kind: "tool_call_started",
+      turnId: "session-live:turn:1",
+      toolCallId: "tool-1",
+      toolCallScopeId: "session-live:turn:1:round:1",
+      toolName: "bash",
+      input: { command: "git status --short" },
+      source: { actor: "tool", surface: "runtime", component: "orchestrator" },
+    });
+    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input) => {
+      input.publishCanonicalSessionEvents?.([progressEvent]);
+      return {
+        ok: true,
+        result: {
+          parts: textParts("done"),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: "session-live",
+          sessionMode: "mode-a",
+          traceId: "trace-live",
+          outcome: "completed",
+        },
+      } as never;
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          ...guiOperatorTransportDefaults,
+          sessionManager: {
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "inspect" }) }),
+        wsCtx,
+      );
+
+      const frames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string));
+      expect(frames).toContainEqual(
+        expect.objectContaining({
+          type: "session_event",
+          event: expect.objectContaining({
+            eventId: progressEvent.eventId,
+            sequence: progressEvent.sequence,
+            kind: "tool_call_started",
+          }),
+        }),
+      );
+      expect(frames).not.toContainEqual(
+        expect.objectContaining({
+          type: "session_event",
+          event: expect.objectContaining({ eventId: `${progressEvent.eventId}:live` }),
+        }),
+      );
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      await gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("forwards browser session stream updates from the configured provider", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -55,8 +145,10 @@ describe("GUI gateway activity", () => {
       }),
     };
     vi.mocked(processAdmittedTurn).mockReset();
+    let browserKilnSessionId: string | undefined;
     vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
-      await input.turnCapture?.start?.("gui-browser-session", 10);
+      browserKilnSessionId = input.admittedSession?.id;
+      if (!browserKilnSessionId) throw new Error("Expected an admitted Runtime session.");
       browserSessionUpdateHandler?.({
         target: "browser",
         status: "running",
@@ -74,7 +166,6 @@ describe("GUI gateway activity", () => {
           height: 720,
         },
       });
-      await input.turnCapture?.finish?.("gui-browser-session");
       return {
         ok: true,
         result: {
@@ -85,7 +176,7 @@ describe("GUI gateway activity", () => {
           cacheWriteTokens: 0,
           outcome: "completed",
           queued: false,
-          sessionId: "gui-browser-session",
+          sessionId: browserKilnSessionId,
           sessionMode: "ai_active",
           traceId: "trace-browser-stream",
         },
@@ -147,7 +238,7 @@ describe("GUI gateway activity", () => {
           status: "running",
           updatedAt: "2026-05-12T12:00:00.000Z",
           provider: "playwright",
-          kilnSessionId: "gui-browser-session",
+          kilnSessionId: browserKilnSessionId,
           sessionId: "browser-live",
           ownership: "agent",
           viewMode: "live",
@@ -164,7 +255,7 @@ describe("GUI gateway activity", () => {
       expect(liveFrame).toEqual({
         type: "browser_live_viewport_frame",
         sessionId: "browser-live",
-        kilnSessionId: "gui-browser-session",
+        kilnSessionId: browserKilnSessionId,
         frameId: "browser-live:2026-05-12T12:00:00.000Z",
         transport: "snapshot-polling",
         format: "png",
@@ -211,9 +302,10 @@ describe("GUI gateway activity", () => {
         browserSessionUpdateHandler = handler;
       }),
     };
+    let browserKilnSessionId: string | undefined;
     vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input) => {
-      await input.turnCapture?.start?.("gui-browser-session", 1);
-      await input.turnCapture?.finish?.("gui-browser-session");
+      browserKilnSessionId = input.admittedSession?.id;
+      if (!browserKilnSessionId) throw new Error("Expected an admitted Runtime session.");
       return {
         ok: true,
         result: {
@@ -224,7 +316,7 @@ describe("GUI gateway activity", () => {
           cacheWriteTokens: 0,
           outcome: "completed",
           queued: false,
-          sessionId: "gui-browser-session",
+          sessionId: browserKilnSessionId,
           sessionMode: "ai_active",
           traceId: "trace-browser-watch",
         },
@@ -297,7 +389,7 @@ describe("GUI gateway activity", () => {
       expect(liveFrame).toMatchObject({
         type: "browser_live_viewport_frame",
         sessionId: "browser-live",
-        kilnSessionId: "gui-browser-session",
+        kilnSessionId: browserKilnSessionId,
         transport: "cdp-screencast",
         artifactUri: "kiln://artifacts/interactive-screenshots/artifact_2/content",
         width: 1440,
@@ -314,6 +406,77 @@ describe("GUI gateway activity", () => {
 
 
 describe("GUI active turn lifecycle", () => {
+  it("aborts and awaits the active Runtime turn during explicit gateway shutdown", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4810, stop })),
+    });
+    let observedSignal: AbortSignal | undefined;
+    let releaseSettlement!: () => void;
+    const settlementFence = new Promise<void>((resolve) => {
+      releaseSettlement = resolve;
+    });
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      observedSignal = input.perCallConfig?.abortSignal;
+      if (!observedSignal) throw new Error("Expected active turn abort signal.");
+      if (!observedSignal.aborted) {
+        await new Promise<void>((resolve) =>
+          observedSignal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      }
+      await settlementFence;
+      throw new Error("turn aborted during shutdown");
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          ...guiOperatorTransportDefaults,
+          sessionManager: {
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      const { handlers, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      const activeMessage = handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
+        wsCtx,
+      );
+      await waitForCondition(() => observedSignal !== undefined, "Expected active GUI turn before shutdown.");
+
+      let shutdownSettled = false;
+      const shutdown = gateway.shutdown().then(() => {
+        shutdownSettled = true;
+      });
+      await Promise.resolve();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(observedSignal?.aborted).toBe(true);
+      expect(shutdownSettled).toBe(false);
+
+      releaseSettlement();
+      await Promise.all([activeMessage, shutdown]);
+      expect(shutdownSettled).toBe(true);
+      gateway = undefined;
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      await gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("aborts the active turn and acknowledges operator cancellation", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -395,8 +558,48 @@ describe("GUI active turn lifecycle", () => {
       completeTurn = resolve;
     });
     let observedSignal: AbortSignal | undefined;
+    let releaseDetachedProgress!: () => void;
+    const detachedProgressFence = new Promise<void>((resolve) => {
+      releaseDetachedProgress = resolve;
+    });
+    let detachedProgressPersisted!: () => void;
+    const detachedProgress = new Promise<void>((resolve) => {
+      detachedProgressPersisted = resolve;
+    });
+    let detachedRoutedEventId: string | undefined;
     vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
       observedSignal = input.perCallConfig?.abortSignal;
+      await detachedProgressFence;
+      const admittedSession = input.admittedSession;
+      if (!admittedSession) throw new Error("Expected an admitted Runtime session.");
+      const sessionId = admittedSession.id;
+      const turnId = `${sessionId}:turn:1`;
+      const started = createSessionEvent<"turn_started">({
+        eventId: `${sessionId}:event:1`,
+        kilnSessionId: sessionId,
+        sequence: admittedSession.nextSessionEventSequence(),
+        timestamp: new Date("2026-08-25T12:10:00.000Z"),
+        kind: "turn_started",
+        turnId,
+        turnOrdinal: 1,
+        trigger: "user_message",
+        source: { actor: "runtime", surface: "runtime", component: "message-pipeline" },
+      });
+      const routed = createSessionEvent<"provider_routed">({
+        eventId: `${sessionId}:event:2`,
+        kilnSessionId: sessionId,
+        sequence: started.sequence + 1,
+        timestamp: new Date("2026-08-25T12:10:01.000Z"),
+        kind: "provider_routed",
+        turnId,
+        provider: { provider: "openai", model: GPT4O },
+        reason: "selected route",
+        source: { actor: "runtime", surface: "runtime", component: "message-pipeline" },
+      });
+      admittedSession.appendSessionEvents([started, routed]);
+      detachedRoutedEventId = routed.eventId;
+      input.publishCanonicalSessionEvents?.([started, routed]);
+      detachedProgressPersisted();
       await turnCompletion;
       return {
         ok: true,
@@ -447,8 +650,19 @@ describe("GUI active turn lifecycle", () => {
       handlers.onClose!(new Event("close") as unknown as CloseEvent, wsCtx);
 
       expect(observedSignal?.aborted).toBe(false);
+      releaseDetachedProgress();
+      await detachedProgress;
       const reconnect = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await reconnect.handlers.onOpen!(new Event("open"), reconnect.wsCtx);
+      expect(reconnect.mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual(
+        expect.objectContaining({
+          type: "session_event",
+          event: expect.objectContaining({
+            eventId: detachedRoutedEventId,
+            kind: "provider_routed",
+          }),
+        }),
+      );
       await selectGuiTestExecutionRoute(reconnect.handlers, reconnect.wsCtx);
       await reconnect.handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "duplicate task" }) }),

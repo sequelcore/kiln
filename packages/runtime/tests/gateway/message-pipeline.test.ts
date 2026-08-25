@@ -9,7 +9,7 @@ import {
   type TtsAdapter,
   type VoiceConfig,
 } from "@kilnai/core/engine";
-import { EventBus, type EventMap, type MultimodalRoutedEvent } from "@kilnai/core/events";
+import { EventBus, type EventMap, type MultimodalRoutedEvent, type ToolCalledEvent } from "@kilnai/core/events";
 import { InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import { type SkillConfig, SkillRegistry } from "@kilnai/core/skill";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
@@ -105,6 +105,21 @@ function makeMockSession(): RuntimeSession {
     },
     appendSessionEvents(events: readonly Record<string, unknown>[]) {
       _sessionEvents = [..._sessionEvents, ...events];
+    },
+    async enqueueCanonicalSessionEventWrite(
+      build: (existingEvents: readonly CanonicalSessionEvent[], nextSequence: number) => readonly CanonicalSessionEvent[],
+      options?: {
+        readonly persist?: (events: readonly CanonicalSessionEvent[]) => Promise<void>;
+        readonly publish?: (events: readonly CanonicalSessionEvent[]) => void;
+      },
+    ) {
+      const lastEvent = _sessionEvents[_sessionEvents.length - 1];
+      const nextSequence = typeof lastEvent?.sequence === "number" ? lastEvent.sequence + 1 : 1;
+      const events = build(_sessionEvents as unknown as readonly CanonicalSessionEvent[], nextSequence);
+      await options?.persist?.(events);
+      _sessionEvents = [..._sessionEvents, ...(events as unknown as readonly Record<string, unknown>[])];
+      options?.publish?.(events);
+      return events;
     },
     setSystemPrompt,
     setActiveAgent,
@@ -438,10 +453,12 @@ describe("processAdmittedTurn", () => {
       },
     }))).resolves.toMatchObject({ ok: true });
 
-    expect(persistCanonicalSessionEvents).toHaveBeenCalledTimes(1);
-    expect(persistCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
+    expect(persistCanonicalSessionEvents).toHaveBeenCalledTimes(2);
+    expect(persistCanonicalSessionEvents.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "turn_started", kilnSessionId: session.id }),
       expect.objectContaining({ kind: "user_message", kilnSessionId: session.id }),
+    ]));
+    expect(persistCanonicalSessionEvents.mock.calls[1]?.[0]).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "turn_completed", kilnSessionId: session.id }),
     ]));
     expect(orchestrator.processMessage).toHaveBeenCalledWith(
@@ -453,6 +470,102 @@ describe("processAdmittedTurn", () => {
         authorityAdmission: bundle,
       }),
     );
+  });
+
+  it("commits the turn start before orchestration and commits runtime events incrementally", async () => {
+    const session = new RuntimeSession({
+      sessionId: "session-incremental-lifecycle",
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    const eventBus = new EventBus();
+    const persisted: CanonicalSessionEvent[][] = [];
+    const persistCanonicalSessionEvents = vi.fn(async (events: readonly CanonicalSessionEvent[]) => {
+      persisted.push([...events]);
+    });
+    const turnId = resolveCanonicalTurnIdentity(session, undefined).turnId;
+    const orchestrator = {
+      processMessage: vi.fn(async () => {
+        expect(persistCanonicalSessionEvents).toHaveBeenCalledTimes(1);
+        expect(persisted[0]?.map((event) => event.kind)).toEqual([
+          "turn_started",
+          "user_message",
+          "continuity_decided",
+        ]);
+        eventBus.emit({
+          type: "tool_called",
+          sessionId: session.id,
+          toolCallId: "incremental-tool-1",
+          toolCallScopeId: `${turnId}:response:1`,
+          toolName: "read_file",
+          toolInput: { path: "README.md" },
+          timestamp: new Date("2026-08-23T00:00:01.000Z"),
+        } as unknown as Parameters<typeof eventBus.emit>[0]);
+        eventBus.emit({
+          type: "tool_output",
+          sessionId: session.id,
+          toolCallId: "incremental-tool-1",
+          toolCallScopeId: `${turnId}:response:1`,
+          toolName: "read_file",
+          stream: "stdout",
+          delta: "read\n",
+          chunkIndex: 0,
+          timestamp: new Date("2026-08-23T00:00:01.100Z"),
+        } as unknown as Parameters<typeof eventBus.emit>[0]);
+        eventBus.emit({
+          type: "tool_result",
+          sessionId: session.id,
+          toolCallId: "incremental-tool-1",
+          toolCallScopeId: `${turnId}:response:1`,
+          toolName: "read_file",
+          durationMs: 100,
+          success: true,
+          output: "read",
+          resultSummary: "read",
+          timestamp: new Date("2026-08-23T00:00:01.200Z"),
+        } as unknown as Parameters<typeof eventBus.emit>[0]);
+        return {
+          parts: textParts("done"),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outcome: "completed" as const,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      admittedSession: session,
+      sessionRegistry: makeMockSessionRegistry(session),
+      persistCanonicalSessionEvents,
+      authorityAdmission: makePipelineFixtureAdmission(session, turnId),
+      perCallConfig: {
+        authorityAdmission: makePipelineFixtureAdmission(session, turnId),
+        turnCorrelationId: turnId,
+      },
+    }))).resolves.toMatchObject({ ok: true });
+
+    expect(persisted.flatMap((events) => events).map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "tool_call_started",
+      "tool_call_output_delta",
+      "tool_call_completed",
+      "context_usage_observed",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_started")).toHaveLength(1);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
   });
 
   it("does not report a committed turn when canonical session persistence fails", async () => {
@@ -471,9 +584,70 @@ describe("processAdmittedTurn", () => {
       persistCanonicalSessionEvents,
     }))).rejects.toThrow("session store unavailable");
 
-    expect(persistCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ kind: "turn_completed", kilnSessionId: session.id }),
+    expect(persistCanonicalSessionEvents).toHaveBeenCalledTimes(1);
+    expect(persistCanonicalSessionEvents.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "turn_started", kilnSessionId: session.id }),
     ]));
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(0);
+  });
+
+  it("aborts orchestration when incremental progress persistence fails", async () => {
+    const session = new RuntimeSession({
+      sessionId: "session-progress-persistence-failure",
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    const eventBus = new EventBus();
+    const progressFailure = new Error("progress store unavailable");
+    const persistCanonicalSessionEvents = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(progressFailure);
+    const processMessage = vi.fn(async (...args: unknown[]) => {
+      const perCallConfig = args[4] as { readonly abortSignal?: AbortSignal } | undefined;
+      const abortSignal = perCallConfig?.abortSignal;
+      const toolEvent: ToolCalledEvent = {
+        type: "tool_called",
+        sessionId: session.id,
+        toolCallId: "progress-failure-tool",
+        toolCallScopeId: `${session.id}:turn:1:response:1`,
+        toolName: "read_file",
+        toolInput: { path: "README.md" },
+        timestamp: new Date("2026-08-25T01:00:01.000Z"),
+      };
+      eventBus.emit(toolEvent as unknown as Parameters<typeof eventBus.emit>[0]);
+      await new Promise<void>((resolve) => {
+        if (abortSignal?.aborted) {
+          resolve();
+          return;
+        }
+        abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      throw abortSignal?.reason instanceof Error ? abortSignal.reason : new Error("orchestration aborted");
+    });
+    const orchestrator = {
+      ...makeMockOrchestrator(),
+      processMessage,
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      admittedSession: session,
+      sessionRegistry: makeMockSessionRegistry(session),
+      persistCanonicalSessionEvents,
+      authorityAdmission: makePipelineFixtureAdmission(session),
+      perCallConfig: {
+        authorityAdmission: makePipelineFixtureAdmission(session),
+      },
+    }))).rejects.toThrow("progress store unavailable");
+
+    expect(processMessage).toHaveBeenCalledOnce();
+    const callConfig = processMessage.mock.calls[0]?.[4] as { readonly abortSignal?: AbortSignal } | undefined;
+    expect(callConfig?.abortSignal?.aborted).toBe(true);
+    expect(persistCanonicalSessionEvents).toHaveBeenCalledTimes(2);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(0);
   });
 
   it("rejects a same-ID mutated per-call authority bundle before projection", async () => {
@@ -586,8 +760,8 @@ describe("processAdmittedTurn", () => {
 
     expect(result.ok).toBe(true);
     expect(sessionRegistry.save).toHaveBeenCalledTimes(1);
-    expect(published).toHaveLength(1);
-    expect(published[0]).toEqual(expect.arrayContaining([
+    expect(published).toHaveLength(2);
+    expect(published.at(-1)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "context_usage_observed",
         turnId: `${session.id}:turn:1`,
@@ -761,7 +935,11 @@ describe("processAdmittedTurn", () => {
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async (...args: unknown[]) => {
         observedProviderCalls.push(args);
-        expect(session.sessionEvents).toEqual([]);
+        expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+          "turn_started",
+          "user_message",
+          "continuity_decided",
+        ]);
         const __event_0: EventMap["cost_update"] = {
           type: "cost_update",
           provider: "codex-oauth",
@@ -967,8 +1145,6 @@ describe("processAdmittedTurn", () => {
       name: "failing-tts",
       synthesize: vi.fn().mockRejectedValue(new Error("TTS unavailable")),
     };
-    const abort = vi.fn();
-
     await expect(processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
@@ -986,10 +1162,8 @@ describe("processAdmittedTurn", () => {
         },
       },
       ttsAdapter,
-      turnCapture: { abort },
     }))).rejects.toThrow("media action was claimed");
 
-    expect(abort).toHaveBeenCalledWith(session.id);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "turn_started",
       "user_message",
@@ -1041,16 +1215,12 @@ describe("processAdmittedTurn", () => {
     } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
     (sessionRegistry.save as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("store down"));
-    const abort = vi.fn();
-
     await expect(processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry,
-      turnCapture: { abort },
     }))).rejects.toThrow("store down");
 
     expect(sessionRegistry.save).toHaveBeenCalledTimes(1);
-    expect(abort).toHaveBeenCalledWith(session.id);
     expect(session.sessionEvents.filter((event) => event.kind === "turn_started")).toHaveLength(1);
     expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
     expect(session.sessionEvents.at(-1)).toMatchObject({
@@ -2667,9 +2837,10 @@ describe("processAdmittedTurn", () => {
       ]);
     }
 
-    expect(ttsAdapter.synthesize).toHaveBeenCalledWith("voice response", {
+    expect(ttsAdapter.synthesize).toHaveBeenCalledWith("voice response", expect.objectContaining({
+      signal: expect.any(AbortSignal),
       voice: "alloy",
-    });
+    }));
     const artifact = artifactStore.get("voice-synthesis", "artifact_1");
     expect(artifact?.multimodal).toMatchObject({
       modality: "audio",
@@ -2741,12 +2912,13 @@ describe("processAdmittedTurn", () => {
     }));
 
     expect(result.ok).toBe(true);
-    expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock response", {
+    expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock response", expect.objectContaining({
       voice: "af_bella",
       speed: 0.97,
       format: "wav",
       language: "en-us",
-    });
+      signal: expect.any(AbortSignal),
+    }));
   });
 
   it("does not call TTS when the surface is configured as transcript-only", async () => {
@@ -3176,8 +3348,8 @@ describe("processAdmittedTurn", () => {
       "tool_call_started",
       "tool_call_completed",
       "cost_updated",
-      "lifecycle_attribution_recorded",
       "error_recorded",
+      "lifecycle_attribution_recorded",
       "context_usage_observed",
       "assistant_message",
       "turn_completed",
@@ -3195,7 +3367,7 @@ describe("processAdmittedTurn", () => {
       toolName: "write",
       input: { filePath: "src/demo.txt", content: "hello" },
     });
-    expect(ledger[7]).toMatchObject({
+    expect(ledger[8]).toMatchObject({
       kind: "lifecycle_attribution_recorded",
       parentEventId: ledger[6]?.eventId,
       summary: expect.objectContaining({
@@ -3641,7 +3813,7 @@ describe("processAdmittedTurn", () => {
     });
   });
 
-  it("marks the canonical turn failed when open governed work without closeout is reported through surface capture", async () => {
+  it("marks the canonical turn failed when canonical tool results report open governed work without closeout", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
     const contextArtifactCache = new InMemoryContextArtifactCache();
@@ -3653,55 +3825,54 @@ describe("processAdmittedTurn", () => {
       cacheWriteTokens: 0,
       outcome: "failed",
       queued: false,
+      toolExecutions: [
+        {
+          toolName: "work_governance.assess",
+          durationMs: 0,
+          success: true,
+          output: "recommendation: orchestrate",
+          resultSummary: "recommendation: orchestrate",
+        },
+        {
+          toolName: "work_item.update",
+          durationMs: 0,
+          success: true,
+          output: "{\"item\":{\"id\":\"work-1\",\"status\":\"pending\"}}",
+          resultSummary: "work item updated",
+          metadata: {
+            kind: "work_item",
+            operation: "update",
+            id: "work-1",
+            status: "pending",
+            item: {
+              id: "work-1",
+              status: "pending",
+              pauseRequirements: [],
+              providedEvidence: [],
+              executionAttempts: [],
+            },
+          },
+        },
+        {
+          toolName: "managed_agent.invoke",
+          durationMs: 0,
+          success: true,
+          output: "status: valid\n\nevidence:\n- UI surface map produced.",
+          resultSummary: "status: valid",
+          metadata: {
+            kind: "managed-invocation",
+            status: "completed",
+            routeId: "codex-oauth-scout-readonly",
+            profile: "foundation-readonly-plan",
+          },
+        },
+      ],
     } satisfies OrchestrateResult);
 
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
       contextArtifactCache,
-      turnCapture: {
-        finish: () => ({
-          toolCompletions: [
-            {
-              toolName: "work_governance.assess",
-              success: true,
-              output: "recommendation: orchestrate",
-              resultSummary: "recommendation: orchestrate",
-            },
-            {
-              toolName: "work_item.update",
-              success: true,
-              output: "{\"item\":{\"id\":\"work-1\",\"status\":\"pending\"}}",
-              resultSummary: "work item updated",
-              metadata: {
-                kind: "work_item",
-                operation: "update",
-                id: "work-1",
-                status: "pending",
-                item: {
-                  id: "work-1",
-                  status: "pending",
-                  pauseRequirements: [],
-                  providedEvidence: [],
-                  executionAttempts: [],
-                },
-              },
-            },
-            {
-              toolName: "managed_agent.invoke",
-              success: true,
-              output: "status: valid\n\nevidence:\n- UI surface map produced.",
-              resultSummary: "status: valid",
-              metadata: {
-                kind: "managed-invocation",
-                status: "completed",
-                routeId: "codex-oauth-scout-readonly",
-                profile: "foundation-readonly-plan",
-              },
-            },
-          ],
-        }),
-      },
     }));
 
     expect(result.ok).toBe(true);
@@ -4363,8 +4534,6 @@ describe("processAdmittedTurn", () => {
       eventBus,
     } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
-    const abort = vi.fn();
-
     await expect(processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry,
@@ -4372,12 +4541,10 @@ describe("processAdmittedTurn", () => {
         { type: "text", text: "Describe this image." },
         { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
       ],
-      turnCapture: { abort },
     }))).rejects.toThrow("unsupported_modality");
 
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
     expect(sessionRegistry.save).toHaveBeenCalledWith(session);
-    expect(abort).toHaveBeenCalledWith(session.id);
     expect(ledger.map((event) => event.kind)).toEqual([
       "turn_started",
       "user_message",

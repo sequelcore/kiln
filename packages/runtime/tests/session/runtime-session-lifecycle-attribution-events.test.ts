@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
 import type { ContextAuditEntry } from "@kilnai/core/context";
 import type { CostUpdateEvent } from "@kilnai/core/events";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -37,7 +37,7 @@ const contextAudit: ContextAuditEntry = {
 };
 
 describe("runtime session lifecycle attribution events", () => {
-  it("emits lifecycle attribution after canonical cost updates", () => {
+  it("emits lifecycle attribution after canonical cost updates", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -69,7 +69,7 @@ describe("runtime session lifecycle attribution events", () => {
       timestamp: completedAt,
     };
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Measure this turn.",
@@ -157,7 +157,7 @@ describe("runtime session lifecycle attribution events", () => {
     expect(events.map((event) => event.kind)).toContain("lifecycle_attribution_recorded");
   });
 
-  it("emits reconciled semantic allocations and explicit unknown remainder under the parent cost event", () => {
+  it("emits reconciled semantic allocations and explicit unknown remainder under the parent cost event", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -181,7 +181,7 @@ describe("runtime session lifecycle attribution events", () => {
       timestamp: completedAt,
     };
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Measure this turn.",
@@ -263,7 +263,7 @@ describe("runtime session lifecycle attribution events", () => {
     expect(attributionEvent.efficiencyEvidence.outcome).toBe("succeeded");
   });
 
-  it("maps path-like procedural source identity without emitting an invalid evidence URI", () => {
+  it("maps path-like procedural source identity without emitting an invalid evidence URI", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -271,7 +271,7 @@ describe("runtime session lifecycle attribution events", () => {
       systemPrompt: "Be useful.",
     });
     const completedAt = new Date("2026-06-30T12:00:01.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Use the selected skill.",

@@ -4,11 +4,12 @@ import {
   type ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
 import type { CanonicalSessionEventPersistence } from "@kilnai/runtime";
-import {
-  type PersistedProviderTokenUsage,
-  type PersistedSessionMeta,
-  type SessionStore,
-  type TranscriptStore,
+import type {
+  PersistedProviderTokenUsage,
+  PersistedProviderTokenUsageSnapshot,
+  PersistedSessionMeta,
+  SessionStore,
+  TranscriptStore,
 } from "../wrapper/session-store.js";
 import { deriveSessionMetadata, shouldPromoteLatestPromptToSessionTitle } from "./session-metadata.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "./operator-transcript-projection.js";
@@ -23,46 +24,84 @@ export function createOperatorSessionEventPersistence(input: {
     const sessionId = requireSingleSession(events);
     if (!sessionId) return;
 
-    await input.transcriptStore.appendManyNext(
-      sessionId,
-      events.map(toCanonicalSessionEventPersistedTranscriptEventDraft),
-    );
+    await input.transcriptStore.withSessionMutation(sessionId, async (mutation) => {
+      const appendedTranscriptEvents = await mutation.appendManyNext(
+        events.map(toCanonicalSessionEventPersistedTranscriptEventDraft),
+      );
 
-    const transcript = await input.transcriptStore.readTranscript(sessionId);
-    const canonicalEvents = canonicalSessionEventsFromTranscript(transcript, sessionId);
-    if (!canonicalEvents.some((event) => event.kind === "turn_started")) return;
+      const [existingMeta, authorityAdmissions] = await Promise.all([
+        mutation.readMeta(),
+        mutation.readAuthorityAdmissions(),
+      ]);
+      let projectionBase = existingMeta;
+      let canonicalEvents = canonicalSessionEventsFromTranscript(appendedTranscriptEvents, sessionId);
+      const projectedSequence = existingMeta?.projectedTranscriptSequence;
+      const hasProjectionGap =
+        projectedSequence !== undefined && appendedTranscriptEvents[0]?.sequence !== projectedSequence + 1;
+      const requiresCanonicalRebuild = existingMeta !== null && projectedSequence === undefined;
+      if (requiresCanonicalRebuild) {
+        // Metadata written before the projection cursor existed has no
+        // trustworthy transcript position. Rebuild canonical fields once,
+        // retaining only evidence that the transcript does not own.
+        canonicalEvents = canonicalSessionEventsFromTranscript(await mutation.readTranscript(), sessionId);
+        projectionBase = nonCanonicalSessionMeta(existingMeta);
+      } else if (hasProjectionGap) {
+        // A prior process may have settled the JSONL append but stopped before
+        // materializing metadata. Replay only the unprojected canonical suffix.
+        canonicalEvents = canonicalSessionEventsFromTranscript(
+          (await mutation.readTranscript()).filter((event) => event.sequence > projectedSequence),
+          sessionId,
+        );
+      } else if (!existingMeta && !canonicalEvents.some((event) => event.kind === "turn_started")) {
+        // A process can stop after the transcript append and before metadata is
+        // materialized. Rebuild that interrupted projection from canonical
+        // JSONL while the same session owner still holds the mutation lock.
+        canonicalEvents = canonicalSessionEventsFromTranscript(await mutation.readTranscript(), sessionId);
+      }
+      if (!existingMeta && !canonicalEvents.some((event) => event.kind === "turn_started")) {
+        return;
+      }
 
-    const [existingMeta, authorityAdmissions] = await Promise.all([
-      input.transcriptStore.readMeta(sessionId),
-      input.transcriptStore.readAuthorityAdmissions(sessionId),
-    ]);
-    const meta = projectSessionMeta({
-      sessionId,
-      events: canonicalEvents,
-      existingMeta,
-      workingDirectory: input.workingDirectory,
-      executionBindings: authorityAdmissions.flatMap((record) => (
-        record.bundle.turn.execution.status === "routed"
-          ? [record.bundle.turn.execution.binding]
-          : []
-      )),
+      const meta =
+        canonicalEvents.length === 0 && existingMeta
+          ? existingMeta
+          : canonicalEvents.length === 0
+            ? null
+            : projectSessionMeta({
+                sessionId,
+                events: canonicalEvents,
+                existingMeta: projectionBase,
+                workingDirectory: input.workingDirectory,
+                executionBindings: authorityAdmissions.flatMap((record) =>
+                  record.bundle.turn.execution.status === "routed" ? [record.bundle.turn.execution.binding] : [],
+                ),
+              });
+      if (!meta) return;
+
+      if (meta !== existingMeta) {
+        await mutation.init(meta);
+      }
+      await input.sessionStore.replaceSnapshot(
+        {
+          sessionId,
+          provider: meta.provider,
+          task: meta.task,
+          canonicalTitle: meta.canonicalTitle,
+          title: meta.title,
+          summary: meta.summary,
+          tags: meta.tags,
+          providersUsed: meta.providersUsed,
+          completedAt: meta.completedAt ?? meta.startedAt,
+          // SessionStore.replaceSnapshot consumes this cumulative value. It is
+          // never merged as another turn delta.
+          cost: meta.costUsd ?? 0,
+          projectPath: input.workingDirectory,
+          ...(meta.providerThread ? { providerThread: meta.providerThread } : {}),
+          ...(meta.resumeStrategy ? { resumeStrategy: meta.resumeStrategy } : {}),
+        },
+        { updateContinuationTarget: false },
+      );
     });
-    await input.transcriptStore.init(sessionId, meta);
-    await input.sessionStore.append({
-      sessionId,
-      provider: meta.provider,
-      task: meta.task,
-      canonicalTitle: meta.canonicalTitle,
-      title: meta.title,
-      summary: meta.summary,
-      tags: meta.tags,
-      providersUsed: meta.providersUsed,
-      completedAt: meta.completedAt ?? meta.startedAt,
-      cost: meta.costUsd ?? 0,
-      projectPath: input.workingDirectory,
-      ...(meta.providerThread ? { providerThread: meta.providerThread } : {}),
-      ...(meta.resumeStrategy ? { resumeStrategy: meta.resumeStrategy } : {}),
-    }, { updateContinuationTarget: false });
   };
 }
 
@@ -84,8 +123,8 @@ function projectSessionMeta(input: {
 }): PersistedSessionMeta {
   const firstTimestamp = input.events[0]?.timestamp.toISOString();
   if (!firstTimestamp) throw new Error("Canonical session metadata requires at least one event.");
-  const userMessages = input.events.flatMap((event) => event.kind === "user_message" ? [event.content] : []);
-  let canonicalTitle: string | undefined;
+  const userMessages = input.events.flatMap((event) => (event.kind === "user_message" ? [event.content] : []));
+  let canonicalTitle = input.existingMeta?.canonicalTitle;
   for (const prompt of userMessages) {
     if (!canonicalTitle || shouldPromoteLatestPromptToSessionTitle({ existingTitle: canonicalTitle, latestPrompt: prompt })) {
       canonicalTitle = deriveSessionMetadata({ prompt }).canonicalTitle;
@@ -111,17 +150,44 @@ function projectSessionMeta(input: {
     hasError: input.events.some((event) => event.kind === "error_recorded"),
   });
   const turnStartedEvents = input.events.filter((event) => event.kind === "turn_started");
-  const latestTurn = input.events.filter((event) => event.kind === "turn_completed").at(-1);
+  const latestTurnStarted = turnStartedEvents.at(-1);
+  const latestTurn = latestTurnStarted
+    ? input.events
+        .filter(
+          (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
+            event.kind === "turn_completed" && event.turnId === latestTurnStarted.turnId,
+        )
+        .at(-1)
+    : input.events
+        .filter(
+          (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
+            event.kind === "turn_completed",
+        )
+        .at(-1);
   const latestError = input.events.filter((event) => event.kind === "error_recorded").at(-1);
   const executionBindings = dedupeExecutionBindings([
     ...(input.existingMeta?.executionBindings ?? []),
     ...input.executionBindings,
   ]);
-  const usage = projectTokenUsage(input.events);
-  const exactArtifacts = [...new Set([
-    ...(input.existingMeta?.exactArtifacts ?? []),
-    ...input.events.flatMap((event) => event.kind === "file_changed" ? [event.change.path] : []),
-  ])];
+  const usage = projectTokenUsage({
+    existingMeta: input.existingMeta,
+    events: input.events,
+  });
+  const exactArtifacts = [
+    ...new Set([
+      ...(input.existingMeta?.exactArtifacts ?? []),
+      ...input.events.flatMap((event) => (event.kind === "file_changed" ? [event.change.path] : [])),
+    ]),
+  ];
+  const toolCount =
+    (input.existingMeta?.toolCount ?? 0) + input.events.filter((event) => event.kind === "tool_call_completed").length;
+  const turnDepth = (input.existingMeta?.turnDepth ?? 0) + turnStartedEvents.length;
+  const hasNewTurn = turnStartedEvents.length > 0;
+  const currentPhase = latestTurn
+    ? "completed"
+    : hasNewTurn
+      ? "interactive"
+      : (input.existingMeta?.sessionLedger?.currentPhase ?? "interactive");
 
   return {
     ...input.existingMeta,
@@ -133,32 +199,55 @@ function projectSessionMeta(input: {
     tags: metadata.tags,
     providersUsed: metadata.providersUsed,
     task,
-    startedAt: turnStartedEvents[0]?.timestamp.toISOString()
-      ?? input.existingMeta?.startedAt
-      ?? firstTimestamp,
-    ...(latestTurn ? {
-      completedAt: latestTurn.timestamp.toISOString(),
-      lastTurnOutcome: latestTurn.outcome,
-    } : {}),
+    startedAt: turnStartedEvents[0]?.timestamp.toISOString() ?? input.existingMeta?.startedAt ?? firstTimestamp,
+    ...(latestTurn
+      ? {
+          completedAt: latestTurn.timestamp.toISOString(),
+          lastTurnOutcome: latestTurn.outcome,
+        }
+      : hasNewTurn
+        ? {
+            completedAt: undefined,
+            lastTurnOutcome: undefined,
+          }
+        : {}),
     costUsd: usage.costUsd,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
     providerTokenUsage: usage.byProvider,
+    providerTokenUsageSnapshots: usage.snapshots,
+    projectedTranscriptSequence: Math.max(
+      input.existingMeta?.projectedTranscriptSequence ?? 0,
+      ...input.events.map((event) => event.sequence),
+    ),
     executionBindings,
-    toolCount: input.events.filter((event) => event.kind === "tool_call_completed").length,
-    turnDepth: turnStartedEvents.length,
+    toolCount,
+    turnDepth,
     sessionLedger: {
       ...input.existingMeta?.sessionLedger,
-      currentPhase: latestTurn ? "completed" : "interactive",
+      currentPhase,
       workingDirectory: input.workingDirectory,
       ...(latestError ? { lastError: latestError.message } : {}),
       ...(latestProvider ? { lastProvider: latestProvider.provider } : {}),
-      toolCallCount: input.events.filter((event) => event.kind === "tool_call_completed").length,
-      turnDepth: turnStartedEvents.length,
+      toolCallCount: toolCount,
+      turnDepth,
     },
     ...(exactArtifacts.length > 0 ? { exactArtifacts } : {}),
+  };
+}
+
+function nonCanonicalSessionMeta(meta: PersistedSessionMeta): PersistedSessionMeta {
+  return {
+    kilnSessionId: meta.kilnSessionId,
+    provider: meta.provider,
+    task: meta.task,
+    startedAt: meta.startedAt,
+    ...(meta.providerThread ? { providerThread: meta.providerThread } : {}),
+    ...(meta.resumeStrategy ? { resumeStrategy: meta.resumeStrategy } : {}),
+    ...(meta.resumeFeedback ? { resumeFeedback: meta.resumeFeedback } : {}),
+    ...(meta.resumeOutcome ? { resumeOutcome: meta.resumeOutcome } : {}),
   };
 }
 
@@ -168,53 +257,100 @@ function dedupeExecutionBindings(
   return [...new Map(bindings.map((binding) => [executionSessionBindingKey(binding), binding])).values()];
 }
 
-function projectTokenUsage(events: readonly CanonicalSessionEvent[]): {
+function projectTokenUsage(input: {
+  readonly existingMeta: PersistedSessionMeta | null;
+  readonly events: readonly CanonicalSessionEvent[];
+}): {
   readonly costUsd: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly byProvider: readonly PersistedProviderTokenUsage[];
+  readonly snapshots: readonly PersistedProviderTokenUsageSnapshot[];
 } {
-  const latestByTurnProvider = new Map<string, Extract<CanonicalSessionEvent, { readonly kind: "cost_updated" }>>();
-  let costUsd = 0;
-  for (const event of events) {
+  // Canonical cost_updated semantics are explicit: deltaUsd is the one-time
+  // session-cost delta for this event identity; usage is a cumulative
+  // turn/provider/model snapshot. Replacing the snapshot while summing only
+  // deltas keeps incremental and replayed projections equivalent.
+  const existingSnapshots = input.existingMeta?.providerTokenUsageSnapshots;
+  const snapshots = new Map<string, PersistedProviderTokenUsageSnapshot>(
+    (existingSnapshots ?? []).map((snapshot) => [snapshot.key, snapshot]),
+  );
+  const byProvider = new Map<string, PersistedProviderTokenUsage>();
+  for (const usage of input.existingMeta?.providerTokenUsage ?? []) {
+    byProvider.set(providerUsageKey(usage), { ...usage });
+  }
+
+  let costUsd = input.existingMeta?.costUsd ?? 0;
+  for (const event of input.events) {
     if (event.kind !== "cost_updated") continue;
     costUsd += event.cost.deltaUsd;
-    latestByTurnProvider.set(
-      `${event.turnId ?? event.eventId}\0${event.provider.provider}\0${event.provider.model}`,
-      event,
-    );
+    const snapshot = providerUsageSnapshot(event);
+    const previous = snapshots.get(snapshot.key);
+    if (previous) {
+      adjustProviderUsage(byProvider, previous, -1);
+    }
+    snapshots.set(snapshot.key, snapshot);
+    adjustProviderUsage(byProvider, snapshot, 1);
   }
 
-  const byProvider = new Map<string, PersistedProviderTokenUsage>();
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheWriteTokens = 0;
-  for (const event of latestByTurnProvider.values()) {
-    inputTokens += event.usage.inputTokens;
-    outputTokens += event.usage.outputTokens;
-    cacheReadTokens += event.usage.cacheReadTokens;
-    cacheWriteTokens += event.usage.cacheWriteTokens;
-    const key = `${event.provider.provider}\0${event.provider.model}`;
-    const current = byProvider.get(key);
-    byProvider.set(key, {
-      provider: event.provider.provider,
-      model: event.provider.model,
-      inputTokens: (current?.inputTokens ?? 0) + event.usage.inputTokens,
-      outputTokens: (current?.outputTokens ?? 0) + event.usage.outputTokens,
-      cacheReadTokens: (current?.cacheReadTokens ?? 0) + event.usage.cacheReadTokens,
-      cacheWriteTokens: (current?.cacheWriteTokens ?? 0) + event.usage.cacheWriteTokens,
-    });
-  }
-
+  const totals = [...byProvider.values()].reduce(
+    (current, usage) => ({
+      inputTokens: current.inputTokens + (usage.inputTokens ?? 0),
+      outputTokens: current.outputTokens + (usage.outputTokens ?? 0),
+      cacheReadTokens: current.cacheReadTokens + (usage.cacheReadTokens ?? 0),
+      cacheWriteTokens: current.cacheWriteTokens + (usage.cacheWriteTokens ?? 0),
+    }),
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    },
+  );
   return {
     costUsd,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
+    inputTokens: totals.inputTokens,
+    outputTokens: totals.outputTokens,
+    cacheReadTokens: totals.cacheReadTokens,
+    cacheWriteTokens: totals.cacheWriteTokens,
     byProvider: [...byProvider.values()],
+    snapshots: [...snapshots.values()],
   };
+}
+
+function providerUsageKey(usage: Pick<PersistedProviderTokenUsage, "provider" | "model">): string {
+  return `${usage.provider}\0${usage.model ?? ""}`;
+}
+
+function providerUsageSnapshot(
+  event: Extract<CanonicalSessionEvent, { readonly kind: "cost_updated" }>,
+): PersistedProviderTokenUsageSnapshot {
+  return {
+    key: `${event.turnId ?? event.eventId}\0${event.provider.provider}\0${event.provider.model}`,
+    provider: event.provider.provider,
+    model: event.provider.model,
+    inputTokens: event.usage.inputTokens,
+    outputTokens: event.usage.outputTokens,
+    cacheReadTokens: event.usage.cacheReadTokens,
+    cacheWriteTokens: event.usage.cacheWriteTokens,
+  };
+}
+
+function adjustProviderUsage(
+  byProvider: Map<string, PersistedProviderTokenUsage>,
+  usage: PersistedProviderTokenUsage,
+  direction: 1 | -1,
+): void {
+  const key = providerUsageKey(usage);
+  const current = byProvider.get(key);
+  byProvider.set(key, {
+    provider: usage.provider,
+    ...(usage.model !== undefined ? { model: usage.model } : {}),
+    inputTokens: (current?.inputTokens ?? 0) + direction * (usage.inputTokens ?? 0),
+    outputTokens: (current?.outputTokens ?? 0) + direction * (usage.outputTokens ?? 0),
+    cacheReadTokens: (current?.cacheReadTokens ?? 0) + direction * (usage.cacheReadTokens ?? 0),
+    cacheWriteTokens: (current?.cacheWriteTokens ?? 0) + direction * (usage.cacheWriteTokens ?? 0),
+  });
 }

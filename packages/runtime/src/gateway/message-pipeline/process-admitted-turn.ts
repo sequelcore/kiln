@@ -15,6 +15,7 @@ import type {
   ModelRoutedEvent,
   MultimodalRoutedEvent,
   ToolCalledEvent,
+  ToolOutputEvent,
   ToolResultEvent,
   TenantConfig,
   SttAdapter,
@@ -75,13 +76,12 @@ import {
   type RuntimeTurnApprovalTransition,
   type RuntimeTurnAuthorityDecision,
   type RuntimeTurnDangerousCommandOutcome,
-  type RuntimeTurnFileChange,
-  type RuntimeTurnProviderValidation,
-  type RuntimeTurnToolCompletion
+  type RuntimeTurnProviderValidation
 } from "../../session/runtime-turn-record.js";
 import {
-  appendCanonicalTurnEvents,
+  CanonicalTurnLifecycle,
   resolveCanonicalTurnIdentity,
+  type CanonicalSessionEventPersistence,
 } from "../../session/runtime-session-event-ledger.js";
 import { hasGovernedGoalTools } from "../../session/operator-adoption-authority.js";
 import {
@@ -143,8 +143,7 @@ import {
 } from "./runtime-ledger-replay.js";
 import {
   dangerousCommandOutcomeFromExecution,
-  buildAuthorityMutationViolation,
-  dedupeByStableKey
+  buildAuthorityMutationViolation
 } from "./turn-authority-guard.js";
 import {
   extractPlanAnalysisReports,
@@ -171,10 +170,7 @@ import {
 import { assertPersistableAuthorityAdmissionBundle } from "../../session/authority-admission-evidence.js";
 import type { RuntimeMediaActionClaimContext } from "../../execution-kernel/runtime-media-action-claim.js";
 
-/** Durable sink for one canonical session-event batch committed by Runtime. */
-export type CanonicalSessionEventPersistence = (
-  events: readonly CanonicalSessionEvent[],
-) => Promise<void>;
+export type { CanonicalSessionEventPersistence } from "../../session/runtime-session-event-ledger.js";
 
 export interface AdmittedTurnContext {
   readonly orchestrator: RuntimeSessionOrchestrator;
@@ -242,29 +238,6 @@ export interface AdmittedTurnContext {
   readonly evaluateEgressPermission?: (
     request: EgressPermissionRequest,
   ) => EgressPermissionDecision | Promise<EgressPermissionDecision>;
-  readonly turnCapture?: {
-    readonly start?: (sessionId: string, nextSequence: number) => void | Promise<void>;
-    readonly finish?: (
-      sessionId: string,
-    ) => (
-      | {
-        readonly fileChanges?: readonly RuntimeTurnFileChange[];
-        readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
-        readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
-        readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
-        readonly toolCompletions?: readonly RuntimeTurnToolCompletion[];
-      }
-      | undefined
-      | Promise<{
-        readonly fileChanges?: readonly RuntimeTurnFileChange[];
-        readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
-        readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
-        readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
-        readonly toolCompletions?: readonly RuntimeTurnToolCompletion[];
-      } | undefined>
-    );
-    readonly abort?: (sessionId: string) => void | Promise<void>;
-  };
   /** Publishes persisted canonical turn evidence to the active operator surface. */
   readonly publishCanonicalSessionEvents?: (events: readonly CanonicalSessionEvent[]) => void;
   /** Durable sink for canonical events produced by this turn. */
@@ -881,9 +854,10 @@ async function invokeOrchestratorWithLedgerCapture(
   ctx: AdmittedTurnContext,
   state: SessionAdmissionState,
   assembled: AssembledTurnContext,
+  lifecycle: CanonicalTurnLifecycle,
 ) {
   const { session, userParts } = state;
-  const { projectedTurnContext, runtimeContinuityPresentation, canonicalTurnIdentity } = assembled;
+  const { projectedTurnContext, canonicalTurnIdentity } = assembled;
   let perCallConfig = assembled.perCallConfig;
 
   const executionToolAllowlist = readExecutionToolAllowlist(perCallConfig);
@@ -923,12 +897,17 @@ async function invokeOrchestratorWithLedgerCapture(
   );
   const capturedRuntimeEvents = capturedRuntimeReplay.events;
   const capturedRuntimeEventKeys = capturedRuntimeReplay.keys;
+  const durableInitialRuntimeEvents = perCallConfig?.abortSignal?.aborted
+    ? capturedRuntimeEvents.filter((event) => event.type !== "error" || !isCancellationErrorEvent(event))
+    : capturedRuntimeEvents;
+  await lifecycle.appendRuntimeEvents(durableInitialRuntimeEvents);
   const orchestratorEventBus = ctx.orchestrator.eventBus;
   const onApprovalRequested = (event: ApprovalRequestedEvent): void => {
     if (event.sessionId !== session.id) return;
     if (!appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id)) {
       return;
     }
+    lifecycle.appendRuntimeEvent(event);
     approvalTransitions.push({
       approvalId: event.approvalId,
       status: "requested",
@@ -941,6 +920,7 @@ async function invokeOrchestratorWithLedgerCapture(
     if (!appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id)) {
       return;
     }
+    lifecycle.appendRuntimeEvent(event);
     approvalTransitions.push({
       approvalId: event.approvalId,
       status: event.approved ? "approved" : "rejected",
@@ -958,12 +938,19 @@ async function invokeOrchestratorWithLedgerCapture(
     });
   };
   const onRuntimeLedgerEvent = (
-    event: CostUpdateEvent | ErrorEvent | ModelRoutedEvent | MultimodalRoutedEvent | ToolCalledEvent | ToolResultEvent,
+    event: CostUpdateEvent | ErrorEvent | ModelRoutedEvent | MultimodalRoutedEvent | ToolCalledEvent | ToolOutputEvent | ToolResultEvent,
   ): void => {
     if (event.sessionId !== session.id) {
       return;
     }
-    appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id);
+    if (event.type === "error" && perCallConfig?.abortSignal?.aborted && isCancellationErrorEvent(event)) {
+      appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id);
+      return;
+    }
+    if (!appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id)) {
+      return;
+    }
+    lifecycle.appendRuntimeEvent(event);
   };
   orchestratorEventBus?.on("approval_requested", onApprovalRequested);
   orchestratorEventBus?.on("approval_received", onApprovalReceived);
@@ -973,9 +960,8 @@ async function invokeOrchestratorWithLedgerCapture(
   orchestratorEventBus?.on("model_routed", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("multimodal_routed", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("tool_called", onRuntimeLedgerEvent);
+  orchestratorEventBus?.on("tool_output", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("tool_result", onRuntimeLedgerEvent);
-  await ctx.turnCapture?.start?.(session.id, session.nextSessionEventSequence());
-
   let result: OrchestrateResult;
   try {
     // Process message
@@ -989,28 +975,25 @@ async function invokeOrchestratorWithLedgerCapture(
   } catch (error) {
     const turnFailedAt = new Date();
     const cancelled = perCallConfig?.abortSignal?.aborted === true;
-    const retainedRuntimeEvents = cancelled
-      ? capturedRuntimeEvents.filter((event) => event.type !== "error" || !isCancellationErrorEvent(event))
-      : capturedRuntimeEvents;
-    const failureRuntimeEvents = cancelled || retainedRuntimeEvents.some((event) => event.type === "error")
-      ? retainedRuntimeEvents
-      : [...retainedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
-    const failureEvents = appendCanonicalTurnEvents({
-      session,
-      executionRouteId: readExecutionBinding(perCallConfig)?.routeId,
-      turnId: readExecutionTurnId(perCallConfig),
-      channel: ctx.channel,
-      userMessageContent: state.userText,
+    const terminalRuntimeEvents = !cancelled && !capturedRuntimeEvents.some((event) => event.type === "error")
+      ? [runtimeFailureEvent(error, session.id, turnFailedAt)]
+      : [];
+    for (const event of terminalRuntimeEvents) {
+      appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id);
+    }
+    await lifecycle.settle({
       queued: false,
       turnOutcome: cancelled ? "cancelled" : "failed",
-      turnStartedAt: state.turnStartedAt,
       turnCompletedAt: turnFailedAt,
-      continuity: runtimeContinuityPresentation.runtimeContinuity,
-      runtimeEvents: failureRuntimeEvents,
+      terminalRuntimeEvents,
+      providerRequests: undefined,
+      ...(cancelled ? {} : {
+        lifecycleAttributionEvidence: {
+          contextAudit: projectedTurnContext.audit,
+        },
+      }),
     });
     await ctx.sessionRegistry.save(session);
-    await persistAndPublishCanonicalSessionEvents(ctx, failureEvents);
-    await ctx.turnCapture?.abort?.(session.id);
     throw error;
   } finally {
     orchestratorEventBus?.off("approval_requested", onApprovalRequested);
@@ -1021,17 +1004,15 @@ async function invokeOrchestratorWithLedgerCapture(
     orchestratorEventBus?.off("model_routed", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("multimodal_routed", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("tool_called", onRuntimeLedgerEvent);
+    orchestratorEventBus?.off("tool_output", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("tool_result", onRuntimeLedgerEvent);
   }
-  const externalTurnCapture = await ctx.turnCapture?.finish?.(session.id);
-
   return {
     result,
     approvalTransitions,
     authorityDecisions,
     capturedRuntimeEvents,
     capturedRuntimeEventKeys,
-    externalTurnCapture,
   };
 }
 
@@ -1048,17 +1029,17 @@ async function finalizeEgressAndPersistTurn(
   state: SessionAdmissionState,
   assembled: AssembledTurnContext,
   orchestration: OrchestrationOutcome,
+  lifecycle: CanonicalTurnLifecycle,
   runtimeFinalOutputText: string,
 ) {
-  const { session, effectiveTenantId, executionMode, userText, taskShape } = state;
-  const { perCallConfig, runtimeSupport, runtimeContinuityPresentation, projectedContextAudit } = assembled;
-  const { result, approvalTransitions, authorityDecisions, capturedRuntimeEvents, externalTurnCapture } = orchestration;
+  const { session, effectiveTenantId, executionMode, taskShape } = state;
+  const { perCallConfig, runtimeSupport, projectedContextAudit } = assembled;
+  const { result, approvalTransitions, authorityDecisions, capturedRuntimeEvents } = orchestration;
   let resultParts = result.parts;
 
   const turnToolExecutions = resolveTurnToolExecutions(
     result.toolExecutions,
     capturedRuntimeEvents,
-    externalTurnCapture?.toolCompletions,
   );
   const fileChanges = turnToolExecutions?.flatMap((execution) => (
     execution.fileChanges?.map((change) => ({
@@ -1066,27 +1047,11 @@ async function finalizeEgressAndPersistTurn(
       ...(execution.toolCallId ? { toolCallId: execution.toolCallId } : {}),
       ...(execution.executionScope ? { executionScope: execution.executionScope } : {}),
     })) ?? []
-  ));
-  const mergedFileChanges = dedupeByStableKey([
-    ...(fileChanges ?? []),
-    ...(externalTurnCapture?.fileChanges ?? []),
-  ], (change) => `${change.path}|${change.changeType}|${"linesAdded" in change ? change.linesAdded ?? "" : ""}|${"linesRemoved" in change ? change.linesRemoved ?? "" : ""}|${"diffPreview" in change ? change.diffPreview ?? "" : ""}|${"diffTruncated" in change ? String(change.diffTruncated ?? "") : ""}`);
-  const mergedApprovalTransitions = dedupeByStableKey([
-    ...approvalTransitions,
-    ...(externalTurnCapture?.approvalTransitions ?? []),
-  ], (transition) => `${transition.sessionId}|${transition.status}|${transition.reason ?? ""}`);
-  const mergedAuthorityDecisions = dedupeByStableKey([
-    ...authorityDecisions,
-    ...(externalTurnCapture?.authorityDecisions ?? []),
-  ], (decision) => `${decision.toolName}|${decision.level}|${decision.allowed}|${decision.reason ?? ""}`);
+  )) ?? [];
   const dangerousCommandOutcomes = turnToolExecutions
     ?.map((execution) => dangerousCommandOutcomeFromExecution(execution))
     .filter((outcome): outcome is RuntimeTurnDangerousCommandOutcome => outcome !== undefined)
     ?? [];
-  const mergedDangerousCommandOutcomes = dedupeByStableKey([
-    ...dangerousCommandOutcomes,
-    ...(externalTurnCapture?.dangerousCommandOutcomes ?? []),
-  ], (outcome) => `${outcome.toolName}|${outcome.action}|${outcome.reasonCode}|${outcome.reason}`);
   const planSubmissions = executionMode === "plan"
     ? extractPlanSubmissions(turnToolExecutions)
     : [];
@@ -1101,7 +1066,7 @@ async function finalizeEgressAndPersistTurn(
     : [];
   const authorityMutationViolation = buildAuthorityMutationViolation(
     readExecutionTurnAuthority(perCallConfig),
-    mergedFileChanges,
+    fileChanges,
   );
 
   resultParts = appendWebSourceAttributionIfMissing(resultParts, turnToolExecutions);
@@ -1188,39 +1153,21 @@ async function finalizeEgressAndPersistTurn(
       retentionMaxArtifacts: ctx.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
       mediaActionClaims: ctx.runtimeMediaActionClaims,
       authorityAdmission: ctx.authorityAdmission,
-      attemptId: ctx.perCallConfig?.runtimeModelRoundDispatch?.attemptId,
+      attemptId: perCallConfig?.runtimeModelRoundDispatch?.attemptId,
       callerId: `${ctx.channel}:voice-output:${ctx.userId}:${session.id}`,
       idempotencyKey: ctx.authorityAdmission?.turnId ?? session.id,
       logicalSendSlot: "assistant-tts",
-      abortSignal: ctx.perCallConfig?.abortSignal,
+      abortSignal: perCallConfig?.abortSignal,
     },
   );
   resultParts = voiceSynthesis.parts;
   for (const event of voiceSynthesis.events) {
-    appendRuntimeLedgerEvent(capturedRuntimeEvents, orchestration.capturedRuntimeEventKeys, event, session.id);
+    if (appendRuntimeLedgerEvent(capturedRuntimeEvents, orchestration.capturedRuntimeEventKeys, event, session.id)) {
+      lifecycle.appendRuntimeEvent(event);
+    }
   }
+  await lifecycle.flush();
 
-  applyRuntimeTurnRecord({
-    session,
-    channel: ctx.channel,
-    taskShape,
-    contextArtifactCache: ctx.contextArtifactCache,
-    continuityDecision: runtimeSupport.decision,
-    queued: result.queued,
-    inputTokens: result.inputTokens,
-    outputTokens: result.outputTokens,
-    contextSummary: result.contextSummary,
-    toolExecutions: turnToolExecutions,
-    routingDecision: result.routingDecision,
-    escalationReason: result.escalation?.reason,
-    activeAgentId: state.effectiveActiveAgentId,
-    routingTierHint: state.effectiveRoutingTier,
-    fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
-    approvalTransitions: mergedApprovalTransitions.length > 0 ? mergedApprovalTransitions : undefined,
-    authorityDecisions: mergedAuthorityDecisions.length > 0 ? mergedAuthorityDecisions : undefined,
-    dangerousCommandOutcomes: mergedDangerousCommandOutcomes.length > 0 ? mergedDangerousCommandOutcomes : undefined,
-    providerValidation: ctx.providerValidation,
-  });
   writeRuntimeHandoffSummaryArtifact(ctx.contextArtifactCache, {
     session,
     handoffBrief: state.effectiveHandoffBrief,
@@ -1229,19 +1176,11 @@ async function finalizeEgressAndPersistTurn(
     escalationReason: result.escalation?.reason,
     escalationDetail: result.escalation?.detail,
   });
-  const completedTurnEvents = appendCanonicalTurnEvents({
-    session,
-    executionRouteId: readExecutionBinding(perCallConfig)?.routeId,
-    turnId: readExecutionTurnId(perCallConfig),
-    channel: ctx.channel,
-    userMessageContent: userText,
+  await lifecycle.settle({
     assistantMessageContent: extractText(resultParts),
     queued: result.queued,
     turnOutcome: result.outcome,
-    turnStartedAt: state.turnStartedAt,
     turnCompletedAt: new Date(),
-    continuity: runtimeContinuityPresentation.runtimeContinuity,
-    runtimeEvents: capturedRuntimeEvents,
     planSubmissions,
     analysisReports,
     specificationSubmissions,
@@ -1260,7 +1199,7 @@ async function finalizeEgressAndPersistTurn(
       : undefined,
     clarificationRecords,
     authorityMutationViolations: authorityMutationViolation ? [authorityMutationViolation] : undefined,
-    fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
+    fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
     contextUsage: projectCompletedTurnContextUsage({
       result,
       turnId: readExecutionTurnId(perCallConfig),
@@ -1269,24 +1208,37 @@ async function finalizeEgressAndPersistTurn(
     providerRequests: result.providerRequests,
   });
 
+  applyRuntimeTurnRecord({
+    session,
+    channel: ctx.channel,
+    taskShape,
+    contextArtifactCache: ctx.contextArtifactCache,
+    continuityDecision: runtimeSupport.decision,
+    queued: result.queued,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    contextSummary: result.contextSummary,
+    toolExecutions: turnToolExecutions,
+    routingDecision: result.routingDecision,
+    escalationReason: result.escalation?.reason,
+    activeAgentId: state.effectiveActiveAgentId,
+    routingTierHint: state.effectiveRoutingTier,
+    fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
+    approvalTransitions: approvalTransitions.length > 0 ? approvalTransitions : undefined,
+    authorityDecisions: authorityDecisions.length > 0 ? authorityDecisions : undefined,
+    dangerousCommandOutcomes: dangerousCommandOutcomes.length > 0 ? dangerousCommandOutcomes : undefined,
+    providerValidation: ctx.providerValidation,
+  });
+
   return {
     resultParts,
     egressContextSummary,
     egressToolExecutions,
     voiceSynthesis,
-    completedTurnEvents,
   };
 }
 
 type FinalizedTurn = Awaited<ReturnType<typeof finalizeEgressAndPersistTurn>>;
-
-async function persistAndPublishCanonicalSessionEvents(
-  ctx: AdmittedTurnContext,
-  events: readonly CanonicalSessionEvent[],
-): Promise<void> {
-  await ctx.persistCanonicalSessionEvents?.(events);
-  ctx.publishCanonicalSessionEvents?.(events);
-}
 
 /**
  * Persist the session and publish canonical session evidence, then return the
@@ -1303,10 +1255,9 @@ async function finalizeAndPersistTurn(
   const { session, userText } = state;
   const { projectedContextAudit, perCallConfig } = assembled;
   const { result } = orchestration;
-  const { resultParts, egressContextSummary, egressToolExecutions, voiceSynthesis, completedTurnEvents } = finalized;
+  const { resultParts, egressContextSummary, egressToolExecutions, voiceSynthesis } = finalized;
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);
-  await persistAndPublishCanonicalSessionEvents(ctx, completedTurnEvents);
 
 
   trace.log("pipeline", "Message processed", { queued: result.queued, tokens: result.inputTokens + result.outputTokens });
@@ -1370,42 +1321,71 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     && !assembled.perCallConfig?.runtimeModelRoundDispatch) {
     throw new Error("App Gateway admitted provider turns require a durable Runtime model-round claim.");
   }
-  const liveTurnId = readExecutionTurnId(assembled.perCallConfig);
+  const turnAbort = deriveTurnAbortSignal(assembled.perCallConfig?.abortSignal);
+  const executionAssembled: AssembledTurnContext = {
+    ...assembled,
+    perCallConfig: {
+      ...assembled.perCallConfig,
+      abortSignal: turnAbort.signal,
+    },
+  };
+  const liveTurnId = readExecutionTurnId(executionAssembled.perCallConfig);
   const liveLifecycle = state.session as RuntimeSession & {
     beginLiveTurn?: (turnId: string) => void;
     settleLiveTurn?: (turnId: string) => void;
   };
   liveLifecycle.beginLiveTurn?.(liveTurnId);
   try {
-  const orchestration = await invokeOrchestratorWithLedgerCapture(ctx, state, assembled);
+  const lifecycle = new CanonicalTurnLifecycle({
+    session: state.session,
+    turnId: executionAssembled.canonicalTurnIdentity.turnId,
+    channel: ctx.channel,
+    userMessageContent: state.userText,
+    turnStartedAt: state.turnStartedAt,
+    continuity: executionAssembled.runtimeContinuityPresentation.runtimeContinuity,
+    executionRouteId: readExecutionBinding(executionAssembled.perCallConfig)?.routeId,
+    persist: ctx.persistCanonicalSessionEvents,
+    publish: ctx.publishCanonicalSessionEvents,
+    requestAbort: (reason) => turnAbort.abort(reason),
+  });
+  await lifecycle.start();
+  const orchestration = await invokeOrchestratorWithLedgerCapture(ctx, state, executionAssembled, lifecycle);
+  await lifecycle.flush();
   const runtimeFinalOutputText = extractText(orchestration.result.parts);
 
-  let canonicalTurnEventsAppended = false;
   try {
-    const finalized = await finalizeEgressAndPersistTurn(ctx, state, assembled, orchestration, runtimeFinalOutputText);
-    canonicalTurnEventsAppended = true;
-    return await finalizeAndPersistTurn(ctx, state, assembled, orchestration, finalized, trace);
+    const finalized = await finalizeEgressAndPersistTurn(
+      ctx,
+      state,
+      executionAssembled,
+      orchestration,
+      lifecycle,
+      runtimeFinalOutputText,
+    );
+    return await finalizeAndPersistTurn(ctx, state, executionAssembled, orchestration, finalized, trace);
   } catch (error) {
-    if (!canonicalTurnEventsAppended) {
+    if (lifecycle.state === "open") {
       const turnFailedAt = new Date();
-      const failureRuntimeEvents = orchestration.capturedRuntimeEvents.some((event) => event.type === "error")
-        ? orchestration.capturedRuntimeEvents
-        : [...orchestration.capturedRuntimeEvents, runtimeFailureEvent(error, state.session.id, turnFailedAt)];
-      const failureEvents = appendCanonicalTurnEvents({
-        session: state.session,
-        executionRouteId: readExecutionBinding(assembled.perCallConfig)?.routeId,
-        turnId: readExecutionTurnId(assembled.perCallConfig),
-        channel: ctx.channel,
-        userMessageContent: state.userText,
+      const cancelled = executionAssembled.perCallConfig?.abortSignal?.aborted === true;
+      const terminalRuntimeEvents = !cancelled && !orchestration.capturedRuntimeEvents.some((event) => event.type === "error")
+        ? [runtimeFailureEvent(error, state.session.id, turnFailedAt)]
+        : [];
+      for (const event of terminalRuntimeEvents) {
+        appendRuntimeLedgerEvent(
+          orchestration.capturedRuntimeEvents,
+          orchestration.capturedRuntimeEventKeys,
+          event,
+          state.session.id,
+        );
+      }
+      await lifecycle.settle({
         assistantMessageContent: runtimeFinalOutputText,
         queued: orchestration.result.queued,
-        turnOutcome: "failed",
-        turnStartedAt: state.turnStartedAt,
+        turnOutcome: cancelled ? "cancelled" : "failed",
         turnCompletedAt: turnFailedAt,
-        continuity: assembled.runtimeContinuityPresentation.runtimeContinuity,
-        runtimeEvents: failureRuntimeEvents,
+        terminalRuntimeEvents,
         lifecycleAttributionEvidence: {
-          contextAudit: assembled.projectedContextAudit,
+          contextAudit: executionAssembled.projectedContextAudit,
           finalOutput: {
             estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
           },
@@ -1413,12 +1393,37 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         providerRequests: orchestration.result.providerRequests,
       });
       await ctx.sessionRegistry.save(state.session);
-      await persistAndPublishCanonicalSessionEvents(ctx, failureEvents);
     }
-    await ctx.turnCapture?.abort?.(state.session.id);
     throw error;
   }
   } finally {
     liveLifecycle.settleLiveTurn?.(liveTurnId);
+    turnAbort.dispose();
   }
+}
+
+function deriveTurnAbortSignal(parent: AbortSignal | undefined): {
+  readonly signal: AbortSignal;
+  readonly abort: (reason?: unknown) => void;
+  readonly dispose: () => void;
+} {
+  const controller = new AbortController();
+  if (!parent) {
+    return {
+      signal: controller.signal,
+      abort: (reason) => controller.abort(reason),
+      dispose: () => undefined,
+    };
+  }
+  const onAbort = (): void => controller.abort(parent.reason);
+  if (parent.aborted) {
+    onAbort();
+  } else {
+    parent.addEventListener("abort", onAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    abort: (reason) => controller.abort(reason),
+    dispose: () => parent.removeEventListener("abort", onAbort),
+  };
 }

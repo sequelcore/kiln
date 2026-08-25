@@ -38,7 +38,10 @@ import {
   reconcileLifecycleAttributionLedger,
   projectFinalEffectivePromptObservation,
 } from "@kilnai/core";
-import type { RuntimeSession } from "./runtime-session.js";
+import type {
+  CanonicalSessionEventBuilder,
+  RuntimeSession,
+} from "./runtime-session.js";
 import type { RuntimeTurnFileChange } from "./runtime-turn-record.js";
 import { sanitizeAssistantEgressText } from "./assistant-egress-sanitizer.js";
 import {
@@ -46,7 +49,7 @@ import {
   type RuntimeLifecycleFinalOutputBoundary,
 } from "./runtime-lifecycle-attribution-allocations.js";
 
-type CapturedRuntimeLedgerEvent =
+export type CapturedRuntimeLedgerEvent =
   | ApprovalReceivedEvent
   | ApprovalRequestedEvent
   | CostUpdateEvent
@@ -57,7 +60,7 @@ type CapturedRuntimeLedgerEvent =
   | ToolOutputEvent
   | ToolResultEvent;
 
-interface RuntimeContinuitySnapshot {
+export interface RuntimeContinuitySnapshot {
   readonly strategy: string;
   readonly feedbackLabel?: string;
   readonly selectionReason?: string;
@@ -75,7 +78,7 @@ export interface RuntimeLifecycleAttributionEvidence {
   readonly finalOutput?: RuntimeLifecycleFinalOutputBoundary;
 }
 
-export interface AppendCanonicalTurnEventsInput {
+interface CanonicalTurnEventInput {
   readonly session: RuntimeSession;
   readonly executionRouteId?: string;
   readonly turnId?: string;
@@ -146,6 +149,16 @@ export interface AppendCanonicalTurnEventsInput {
   readonly contextUsage?: ContextUsageProjection;
   readonly providerRequests?: readonly ProviderRequestEvidence[];
 }
+
+/** Terminal-only evidence supplied when a Runtime turn settles. */
+export type CanonicalTurnTerminalInput = Omit<CanonicalTurnEventInput,
+  "session" | "executionRouteId" | "turnId" | "channel" | "userMessageContent" | "turnStartedAt" | "continuity" | "runtimeEvents"
+> & {
+  /** Runtime errors observed while settling are committed before the terminal. */
+  readonly terminalRuntimeEvents?: readonly CapturedRuntimeLedgerEvent[];
+};
+
+type CanonicalTurnEventPhase = "start" | "progress" | "terminal";
 
 export function resolveCanonicalTurnIdentity(
   session: RuntimeSession,
@@ -219,7 +232,12 @@ export function appendCanonicalOperatorAdoptionDecision(input: {
   return event;
 }
 
-export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
+function buildCanonicalTurnEvents(
+  input: CanonicalTurnEventInput,
+  phase: CanonicalTurnEventPhase,
+  existingEvents: readonly CanonicalSessionEvent[],
+  sequenceStart: number,
+): readonly CanonicalSessionEvent[] {
   const { session } = input;
   const turnIdentity = requireCanonicalTurnIdentity(session, input.turnId);
   const turnOrdinal = turnIdentity.turnOrdinal;
@@ -233,46 +251,62 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
   const userSource = makeSource("user", mapChannelToSurface(input.channel), "message-pipeline");
   const assistantSource = makeSource("assistant", "runtime", "message-pipeline");
 
-  let sequence = session.nextSessionEventSequence();
+  let sequence = sequenceStart;
   const nextSequence = () => sequence++;
   const pendingApprovalIds: string[] = [];
   let approvalOrdinal = 0;
-  let previousTotalCostUsd = 0;
+  const previousTotalCostUsdByProvider = new Map<string, number>();
+  for (const event of existingEvents) {
+    if (event.kind !== "cost_updated" || event.turnId !== turnId) {
+      continue;
+    }
+    const providerKey = sessionProviderKey(event.provider);
+    const total = event.cost.totalUsd ?? 0;
+    previousTotalCostUsdByProvider.set(
+      providerKey,
+      Math.max(previousTotalCostUsdByProvider.get(providerKey) ?? 0, total),
+    );
+  }
 
-  events.push(createSessionEvent<"turn_started">({
-    kilnSessionId: session.id,
-    sequence: nextSequence(),
-    kind: "turn_started",
-    turnId,
-    turnOrdinal,
-    trigger: "user_message",
-    source: runtimeSource,
-    timestamp: input.turnStartedAt,
-  }));
+  if (phase === "start") {
+    const hasEvent = (kind: CanonicalSessionEvent["kind"]): boolean => existingEvents.some(
+      (event) => event.kind === kind && event.turnId === turnId,
+    );
+    if (!hasEvent("turn_started")) events.push(createSessionEvent<"turn_started">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "turn_started",
+      turnId,
+      turnOrdinal,
+      trigger: "user_message",
+      source: runtimeSource,
+      timestamp: input.turnStartedAt,
+    }));
 
-  events.push(createSessionEvent<"user_message">({
-    kilnSessionId: session.id,
-    sequence: nextSequence(),
-    kind: "user_message",
-    turnId,
-    messageId: `${turnId}:user`,
-    content: userMessageContent,
-    source: userSource,
-    timestamp: input.turnStartedAt,
-  }));
+    if (!hasEvent("user_message")) events.push(createSessionEvent<"user_message">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "user_message",
+      turnId,
+      messageId: `${turnId}:user`,
+      content: userMessageContent,
+      source: userSource,
+      timestamp: input.turnStartedAt,
+    }));
 
-  events.push(createSessionEvent<"continuity_decided">({
-    kilnSessionId: session.id,
-    sequence: nextSequence(),
-    kind: "continuity_decided",
-    turnId,
-    decision: "continue",
-    reason: formatContinuityReason(input.continuity),
-    source: runtimeSource,
-    timestamp: input.turnStartedAt,
-  }));
+    if (!hasEvent("continuity_decided")) events.push(createSessionEvent<"continuity_decided">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "continuity_decided",
+      turnId,
+      decision: "continue",
+      reason: formatContinuityReason(input.continuity),
+      source: runtimeSource,
+      timestamp: input.turnStartedAt,
+    }));
+  }
 
-  for (const runtimeEvent of input.runtimeEvents) {
+  if (phase === "progress") for (const runtimeEvent of input.runtimeEvents) {
     switch (runtimeEvent.type) {
       case "model_routed": {
         events.push(createSessionEvent<"provider_routed">({
@@ -434,78 +468,34 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "cost_update": {
+        const providerIdentity = toSessionProviderIdentity(runtimeEvent);
+        const providerKey = sessionProviderKey(providerIdentity);
         const totalCostUsd = runtimeEvent.totalCostUsd;
+        const previousTotalCostUsd = previousTotalCostUsdByProvider.get(providerKey) ?? 0;
         const deltaUsd = Math.max(0, totalCostUsd - previousTotalCostUsd);
-        previousTotalCostUsd = totalCostUsd;
+        previousTotalCostUsdByProvider.set(providerKey, Math.max(previousTotalCostUsd, totalCostUsd));
         const costEvent = createSessionEvent<"cost_updated">({
-          kilnSessionId: session.id,
-          sequence: nextSequence(),
-          kind: "cost_updated",
-          turnId,
-          provider: toSessionProviderIdentity(runtimeEvent),
-          usage: {
-            inputTokens: runtimeEvent.inputTokens,
-            outputTokens: runtimeEvent.outputTokens,
-            cacheReadTokens: runtimeEvent.cacheReadTokens,
-            cacheWriteTokens: runtimeEvent.cacheWriteTokens,
-          },
-          cost: {
-            currency: "USD",
-            deltaUsd,
-            totalUsd: totalCostUsd,
-            ...(runtimeEvent.costEvidence ? { evidence: runtimeEvent.costEvidence } : {}),
-          },
-          source: runtimeSource,
-          timestamp: runtimeEvent.timestamp,
-        });
+            kilnSessionId: session.id,
+            sequence: nextSequence(),
+            kind: "cost_updated",
+            turnId,
+            provider: providerIdentity,
+            usage: {
+              inputTokens: runtimeEvent.inputTokens,
+              outputTokens: runtimeEvent.outputTokens,
+              cacheReadTokens: runtimeEvent.cacheReadTokens,
+              cacheWriteTokens: runtimeEvent.cacheWriteTokens,
+            },
+            cost: {
+              currency: "USD",
+              deltaUsd,
+              totalUsd: totalCostUsd,
+              ...(runtimeEvent.costEvidence ? { evidence: runtimeEvent.costEvidence } : {}),
+            },
+            source: runtimeSource,
+            timestamp: runtimeEvent.timestamp,
+          });
         events.push(costEvent);
-        const route = `${costEvent.provider.provider}/${costEvent.provider.model}`;
-        const lifecycleEvidence = normalizeLifecycleAttributionEvidence(
-          input.lifecycleAttributionEvidence,
-          session.id,
-          turnId,
-        );
-        const attributionLedger = projectCostUpdatedEventToLifecycleLedger(costEvent, {
-          allocations: projectRuntimeLifecycleAttributionAllocations({
-            contextAudit: lifecycleEvidence.contextAudit,
-            finalOutput: lifecycleEvidence.finalOutput,
-            route,
-          }),
-          context: {
-            route,
-          },
-        });
-        const reconciled = reconcileLifecycleAttributionLedger(costEvent, attributionLedger);
-        const efficiencyEvidence = projectVerifiedEfficiencyEvidence({
-          lifecycleEvidence: {
-            costEvent,
-            ledger: reconciled.ledger,
-            summary: reconciled.summary,
-          },
-          observedAt: runtimeEvent.timestamp.toISOString(),
-          policy: input.efficiencyPolicy ?? {
-            owner: "ContextGovernor",
-            policyId: "context-whole-block-static-v1",
-            configurationHash: hashPolicyAdaptationConfiguration({ contextAllocationMode: "whole-block" }),
-          },
-          outcome: input.turnOutcome === "completed"
-            ? "succeeded"
-            : input.turnOutcome === "failed"
-              ? "failed"
-              : "unknown",
-        });
-        events.push(createSessionEvent<"lifecycle_attribution_recorded">({
-          kilnSessionId: session.id,
-          sequence: nextSequence(),
-          kind: "lifecycle_attribution_recorded",
-          turnId,
-          parentEventId: costEvent.eventId,
-          ledger: reconciled.ledger,
-          summary: reconciled.summary,
-          efficiencyEvidence,
-          source: runtimeSource,
-          timestamp: runtimeEvent.timestamp,
-        }));
         break;
       }
       case "error": {
@@ -525,6 +515,33 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
     }
   }
 
+  if (phase === "terminal") {
+    const attributedCostEventIds = new Set(existingEvents
+      .filter((event): event is Extract<CanonicalSessionEvent, { readonly kind: "lifecycle_attribution_recorded" }> =>
+        event.kind === "lifecycle_attribution_recorded" && event.turnId === turnId)
+      .map((event) => event.parentEventId));
+    for (const costEvent of existingEvents) {
+      if (costEvent.kind !== "cost_updated" || costEvent.turnId !== turnId || attributedCostEventIds.has(costEvent.eventId)) {
+        continue;
+      }
+      events.push(createLifecycleAttributionEvent({
+        costEvent,
+        input,
+        sequence: nextSequence(),
+        runtimeSource,
+        observedAt: costEvent.timestamp,
+      }));
+    }
+  if (phase === "terminal" && input.runtimeEvents.length > 0) {
+    const terminalRuntimeEvents = buildCanonicalTurnEvents(
+      input,
+      "progress",
+      [...existingEvents, ...events],
+      sequence,
+    );
+    events.push(...terminalRuntimeEvents);
+    sequence += terminalRuntimeEvents.length;
+  }
   for (const submission of input.planSubmissions ?? []) {
     events.push(createSessionEvent<"plan_submitted">({
       kilnSessionId: session.id,
@@ -697,9 +714,451 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
     source: runtimeSource,
     timestamp: input.turnCompletedAt,
   }));
+  }
 
-  session.appendSessionEvents(events);
   return events;
+}
+
+function createLifecycleAttributionEvent(details: {
+  readonly costEvent: Extract<CanonicalSessionEvent, { readonly kind: "cost_updated" }>;
+  readonly input: CanonicalTurnEventInput;
+  readonly sequence: number;
+  readonly runtimeSource: SessionEventSource;
+  readonly observedAt: Date;
+}): Extract<CanonicalSessionEvent, { readonly kind: "lifecycle_attribution_recorded" }> {
+  const { costEvent } = details;
+  const route = `${costEvent.provider.provider}/${costEvent.provider.model}`;
+  const turnId = costEvent.turnId ?? details.input.turnId;
+  if (!turnId) throw new Error("Lifecycle attribution requires a canonical turn id.");
+  const lifecycleEvidence = normalizeLifecycleAttributionEvidence(
+    details.input.lifecycleAttributionEvidence,
+    costEvent.kilnSessionId,
+    turnId,
+  );
+  const attributionLedger = projectCostUpdatedEventToLifecycleLedger(costEvent, {
+    allocations: projectRuntimeLifecycleAttributionAllocations({
+      contextAudit: lifecycleEvidence.contextAudit,
+      finalOutput: lifecycleEvidence.finalOutput,
+      route,
+    }),
+    context: { route },
+  });
+  const reconciled = reconcileLifecycleAttributionLedger(costEvent, attributionLedger);
+  const efficiencyEvidence = projectVerifiedEfficiencyEvidence({
+    lifecycleEvidence: {
+      costEvent,
+      ledger: reconciled.ledger,
+      summary: reconciled.summary,
+    },
+    observedAt: details.observedAt.toISOString(),
+    policy: details.input.efficiencyPolicy ?? {
+      owner: "ContextGovernor",
+      policyId: "context-whole-block-static-v1",
+      configurationHash: hashPolicyAdaptationConfiguration({ contextAllocationMode: "whole-block" }),
+    },
+    outcome: details.input.turnOutcome === "completed"
+      ? "succeeded"
+      : details.input.turnOutcome === "failed"
+        ? "failed"
+        : "unknown",
+  });
+  return createSessionEvent<"lifecycle_attribution_recorded">({
+    kilnSessionId: costEvent.kilnSessionId,
+    sequence: details.sequence,
+    kind: "lifecycle_attribution_recorded",
+    turnId,
+    parentEventId: costEvent.eventId,
+    ledger: reconciled.ledger,
+    summary: reconciled.summary,
+    efficiencyEvidence,
+    source: details.runtimeSource,
+    timestamp: details.observedAt,
+  });
+}
+
+/** Durable sink for canonical Runtime turn evidence. */
+export type CanonicalSessionEventPersistence = (
+  events: readonly CanonicalSessionEvent[],
+) => Promise<void>;
+
+export interface CanonicalTurnLifecycleOptions {
+  readonly session: RuntimeSession;
+  readonly turnId: string;
+  readonly channel: string;
+  readonly userMessageContent: string;
+  readonly turnStartedAt: Date;
+  readonly continuity: RuntimeContinuitySnapshot;
+  readonly executionRouteId?: string;
+  readonly persist?: CanonicalSessionEventPersistence;
+  readonly publish?: (events: readonly CanonicalSessionEvent[]) => void;
+  /** Called as soon as canonical progress cannot be persisted. */
+  readonly requestAbort?: (reason: unknown) => void;
+}
+
+class CanonicalTurnEventBuilder {
+  readonly #baseInput: CanonicalTurnEventInput;
+  readonly #turnId: string;
+  readonly #pendingApprovalIds: string[] = [];
+  #approvalOrdinal = 0;
+
+  constructor(input: CanonicalTurnEventInput) {
+    this.#baseInput = input;
+    this.#turnId = requireCanonicalTurnIdentity(input.session, input.turnId).turnId;
+  }
+
+  get turnId(): string {
+    return this.#turnId;
+  }
+
+  normalizeApprovalEvent(event: CapturedRuntimeLedgerEvent): CapturedRuntimeLedgerEvent {
+    if (event.type === "approval_requested") {
+      const approvalId = event.approvalId ?? `${this.#turnId}:approval:${++this.#approvalOrdinal}`;
+      this.#pendingApprovalIds.push(approvalId);
+      return { ...event, approvalId };
+    }
+    if (event.type !== "approval_received") return event;
+    const approvalId = event.approvalId
+      ?? this.#pendingApprovalIds.shift()
+      ?? `${this.#turnId}:approval:${++this.#approvalOrdinal}`;
+    if (event.approvalId) {
+      const pendingIndex = this.#pendingApprovalIds.indexOf(event.approvalId);
+      if (pendingIndex >= 0) this.#pendingApprovalIds.splice(pendingIndex, 1);
+    }
+    return { ...event, approvalId };
+  }
+
+  start(
+    existingEvents: readonly CanonicalSessionEvent[],
+    nextSequence: number,
+  ): readonly CanonicalSessionEvent[] {
+    return this.#build("start", [], existingEvents, nextSequence);
+  }
+
+  progress(
+    event: CapturedRuntimeLedgerEvent,
+    existingEvents: readonly CanonicalSessionEvent[],
+    nextSequence: number,
+  ): readonly CanonicalSessionEvent[] {
+    return this.#build("progress", [event], existingEvents, nextSequence);
+  }
+
+  terminal(
+    input: CanonicalTurnTerminalInput,
+    existingEvents: readonly CanonicalSessionEvent[],
+    nextSequence: number,
+  ): readonly CanonicalSessionEvent[] {
+    return this.#build("terminal", [], existingEvents, nextSequence, input);
+  }
+
+  #build(
+    phase: CanonicalTurnEventPhase,
+    runtimeEvents: readonly CapturedRuntimeLedgerEvent[],
+    existingEvents: readonly CanonicalSessionEvent[],
+    nextSequence: number,
+    terminalInput?: CanonicalTurnTerminalInput,
+  ): readonly CanonicalSessionEvent[] {
+    const projectedRuntimeEvents = phase === "terminal"
+      ? (terminalInput?.terminalRuntimeEvents ?? [])
+      : runtimeEvents;
+    const input: CanonicalTurnEventInput = {
+      ...this.#baseInput,
+      ...(terminalInput ?? {}),
+      runtimeEvents: projectedRuntimeEvents,
+    };
+    return buildCanonicalTurnEvents(input, phase, existingEvents, nextSequence);
+  }
+}
+
+export type CanonicalTurnLifecycleState = "open" | "settling" | "settled" | "failed";
+
+/**
+ * Owns one Runtime turn from its durable start through exactly one terminal.
+ * EventBus notifications are synchronous; this owner queues them in arrival
+ * order and commits each batch only after its durable sink succeeds.
+ */
+export class CanonicalTurnLifecycle {
+  readonly #options: CanonicalTurnLifecycleOptions;
+  readonly #builder: CanonicalTurnEventBuilder;
+  readonly #committedRuntimeKeys = new Set<string>();
+  readonly #pendingRuntimeKeys = new Set<string>();
+  #writeTail: Promise<void> = Promise.resolve();
+  #writeFailure: unknown;
+  #started = false;
+  #state: CanonicalTurnLifecycleState = "open";
+  #settledOutcome: SessionTurnOutcome | undefined;
+  #settlement: Promise<void> | undefined;
+
+  constructor(options: CanonicalTurnLifecycleOptions) {
+    this.#options = options;
+    this.#builder = new CanonicalTurnEventBuilder({
+      session: options.session,
+      executionRouteId: options.executionRouteId,
+      turnId: options.turnId,
+      channel: options.channel,
+      userMessageContent: options.userMessageContent,
+      queued: false,
+      turnOutcome: "paused",
+      turnStartedAt: options.turnStartedAt,
+      turnCompletedAt: options.turnStartedAt,
+      continuity: options.continuity,
+      runtimeEvents: [],
+    });
+    const turnId = this.#builder.turnId;
+    const existingTerminal = options.session.sessionEvents.find(
+      (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
+        event.kind === "turn_completed" && event.turnId === turnId,
+    );
+    if (existingTerminal) {
+      this.#state = "settled";
+      this.#settledOutcome = existingTerminal.outcome;
+    }
+  }
+
+  get state(): CanonicalTurnLifecycleState {
+    return this.#state;
+  }
+
+  async start(): Promise<void> {
+    if (this.#started) {
+      await this.flush();
+      return;
+    }
+    if (this.#state === "settled") {
+      throw new Error(`Canonical turn ${this.#builder.turnId} is already settled as ${this.#settledOutcome}.`);
+    }
+    if (this.#state !== "open") {
+      if (this.#state === "failed") throw this.#writeFailure;
+      this.#started = true;
+      return;
+    }
+    this.#started = true;
+    this.#enqueue((existingEvents, nextSequence) => {
+      const existingTerminal = existingEvents.find(
+        (event): event is Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }> =>
+          event.kind === "turn_completed" && event.turnId === this.#builder.turnId,
+      );
+      if (existingTerminal) {
+        throw new Error(`Canonical turn ${this.#builder.turnId} is already settled as ${existingTerminal.outcome}.`);
+      }
+      return this.#builder.start(existingEvents, nextSequence);
+    }, []);
+    await this.flush();
+  }
+
+  /** Queues one runtime event; late events after settling are ignored. */
+  appendRuntimeEvent(event: CapturedRuntimeLedgerEvent): boolean {
+    if (!this.#started) {
+      throw new Error("Canonical Runtime turn lifecycle must start before runtime events are appended.");
+    }
+    if (this.#state === "failed") return false;
+    if (this.#state !== "open" || event.sessionId !== this.#options.session.id) return false;
+    const key = canonicalRuntimeEventIdentity(event);
+    if (this.#committedRuntimeKeys.has(key) || this.#pendingRuntimeKeys.has(key)
+      || runtimeEventIsAlreadyCanonical(this.#options.session.sessionEvents, this.#builder.turnId, event)) {
+      return false;
+    }
+    const normalizedEvent = this.#builder.normalizeApprovalEvent(event);
+    this.#pendingRuntimeKeys.add(key);
+    this.#enqueue(
+      (existingEvents, nextSequence) => this.#builder.progress(normalizedEvent, existingEvents, nextSequence),
+      [key],
+    );
+    return true;
+  }
+
+  async appendRuntimeEvents(events: readonly CapturedRuntimeLedgerEvent[]): Promise<void> {
+    for (const event of events) this.appendRuntimeEvent(event);
+    await this.flush();
+  }
+
+  async settle(input: CanonicalTurnTerminalInput): Promise<void> {
+    if (this.#state === "settled") {
+      if (this.#settledOutcome !== input.turnOutcome) {
+        throw new Error(`Canonical turn ${this.#builder.turnId} already settled as ${this.#settledOutcome}.`);
+      }
+      return;
+    }
+    if (this.#state === "failed") throw this.#writeFailure;
+    if (!this.#started) throw new Error("Canonical Runtime turn lifecycle must start before settlement.");
+    if (this.#settlement) return this.#settlement;
+    this.#state = "settling";
+    this.#settlement = (async () => {
+      const terminalRuntimeEvents = (input.terminalRuntimeEvents ?? [])
+        .map((event) => this.#builder.normalizeApprovalEvent(event));
+      this.#enqueue(
+        (existingEvents, nextSequence) => this.#builder.terminal({
+          ...input,
+          ...(terminalRuntimeEvents.length > 0 ? { terminalRuntimeEvents } : {}),
+        }, existingEvents, nextSequence),
+        [],
+      );
+      await this.flush();
+      this.#state = "settled";
+      this.#settledOutcome = input.turnOutcome;
+    })();
+    return this.#settlement;
+  }
+
+  async flush(): Promise<void> {
+    await this.#writeTail;
+    if (this.#state === "failed") throw this.#writeFailure;
+  }
+
+  #enqueue(
+    build: CanonicalSessionEventBuilder,
+    runtimeKeys: readonly string[],
+  ): void {
+    this.#writeTail = this.#writeTail.then(async () => {
+      if (this.#state === "failed") return;
+      try {
+        await this.#options.session.enqueueCanonicalSessionEventWrite(build, {
+          persist: this.#options.persist,
+          publish: this.#options.publish,
+        });
+        for (const key of runtimeKeys) {
+          this.#pendingRuntimeKeys.delete(key);
+          this.#committedRuntimeKeys.add(key);
+        }
+      } catch (error) {
+        for (const key of runtimeKeys) this.#pendingRuntimeKeys.delete(key);
+        this.#writeFailure ??= error;
+        this.#state = "failed";
+        this.#options.requestAbort?.(error);
+      }
+    });
+  }
+}
+
+export function canonicalRuntimeEventIdentity(event: CapturedRuntimeLedgerEvent): string {
+  const base = [event.type, event.sessionId, event.timestamp.toISOString()] as const;
+  switch (event.type) {
+    case "approval_requested":
+      return runtimeEventIdentity([...base, event.approvalId, event.taskId]);
+    case "approval_received":
+      return runtimeEventIdentity([...base, event.approvalId, event.taskId, event.approved, event.reason ?? ""]);
+    case "cost_update":
+      return runtimeEventIdentity([
+        ...base,
+        event.provider ?? "",
+        event.model ?? event.canonicalModel ?? "",
+        event.inputTokens,
+        event.outputTokens,
+        event.cacheReadTokens,
+        event.cacheWriteTokens,
+        event.totalCostUsd,
+      ]);
+    case "error":
+      return runtimeEventIdentity([...base, event.taskId, event.code, event.message]);
+    case "model_routed":
+      return runtimeEventIdentity([...base, event.provider, event.model, event.routingTier, event.previousModel ?? ""]);
+    case "multimodal_routed":
+      return runtimeEventIdentity([
+        ...base,
+        event.provider,
+        event.model,
+        event.strategy,
+        event.reasonCode,
+        event.requestedCapability,
+      ]);
+    case "tool_called":
+      return runtimeEventIdentity([...base, event.toolCallId, event.toolCallScopeId, event.toolName, event.taskId ?? ""]);
+    case "tool_output":
+      return runtimeEventIdentity([
+        ...base,
+        event.toolCallId,
+        event.toolCallScopeId,
+        event.toolName,
+        event.chunkIndex,
+        event.stream,
+        event.delta,
+      ]);
+    case "tool_result":
+      return runtimeEventIdentity([
+        ...base,
+        event.toolCallId,
+        event.toolCallScopeId,
+        event.toolName,
+        event.success,
+        event.retryAttempt ?? 0,
+        event.durationMs,
+        event.resultSummary ?? "",
+      ]);
+  }
+}
+
+function runtimeEventIdentity(parts: readonly unknown[]): string {
+  return JSON.stringify(parts);
+}
+
+function runtimeEventIsAlreadyCanonical(
+  sessionEvents: readonly CanonicalSessionEvent[],
+  turnId: string,
+  runtimeEvent: CapturedRuntimeLedgerEvent,
+): boolean {
+  return sessionEvents.some((event) => {
+    if (!("turnId" in event) || event.turnId !== turnId) {
+      return false;
+    }
+    if (event.timestamp.getTime() !== runtimeEvent.timestamp.getTime()) {
+      return false;
+    }
+    switch (runtimeEvent.type) {
+      case "approval_requested":
+        return event.kind === "approval_requested"
+          && event.approvalId === runtimeEvent.approvalId
+          && event.action === runtimeEvent.description;
+      case "approval_received":
+        return event.kind === "approval_resolved"
+          && event.approvalId === runtimeEvent.approvalId
+          && event.resolution.decision === (runtimeEvent.approved ? "approved" : "denied")
+          && event.resolution.reason === runtimeEvent.reason;
+      case "cost_update":
+        return event.kind === "cost_updated"
+          && event.provider.provider === (runtimeEvent.provider ?? "unknown")
+          && event.provider.model === (runtimeEvent.model ?? runtimeEvent.canonicalModel ?? "unknown")
+          && event.usage.inputTokens === runtimeEvent.inputTokens
+          && event.usage.outputTokens === runtimeEvent.outputTokens
+          && event.usage.cacheReadTokens === runtimeEvent.cacheReadTokens
+          && event.usage.cacheWriteTokens === runtimeEvent.cacheWriteTokens
+          && event.cost.totalUsd === runtimeEvent.totalCostUsd;
+      case "error":
+        return event.kind === "error_recorded"
+          && event.errorCode === runtimeEvent.code
+          && event.message === runtimeEvent.message;
+      case "model_routed":
+        return event.kind === "provider_routed"
+          && event.provider.provider === runtimeEvent.provider
+          && event.provider.model === runtimeEvent.model
+          && event.reason === runtimeEvent.reason;
+      case "multimodal_routed":
+        return event.kind === "multimodal_routed"
+          && event.provider.provider === runtimeEvent.provider
+          && event.provider.model === runtimeEvent.model
+          && event.strategy === runtimeEvent.strategy
+          && event.reasonCode === runtimeEvent.reasonCode;
+      case "tool_called":
+        return event.kind === "tool_call_started"
+          && event.toolCallId === runtimeEvent.toolCallId
+          && event.toolCallScopeId === runtimeEvent.toolCallScopeId
+          && event.toolName === runtimeEvent.toolName;
+      case "tool_output":
+        return event.kind === "tool_call_output_delta"
+          && event.toolCallId === runtimeEvent.toolCallId
+          && event.toolCallScopeId === runtimeEvent.toolCallScopeId
+          && event.toolName === runtimeEvent.toolName
+          && event.stream === runtimeEvent.stream
+          && event.delta === runtimeEvent.delta
+          && event.chunkIndex === runtimeEvent.chunkIndex;
+      case "tool_result":
+        return event.kind === "tool_call_completed"
+          && event.toolCallId === runtimeEvent.toolCallId
+          && event.toolCallScopeId === runtimeEvent.toolCallScopeId
+          && event.toolName === runtimeEvent.toolName
+          && event.status.state === (runtimeEvent.success ? "succeeded" : "failed")
+          && event.durationMs === runtimeEvent.durationMs
+          && event.outputSummary === runtimeEvent.resultSummary;
+    }
+  });
 }
 
 function sameAdoptionAuthority(
@@ -1189,6 +1648,10 @@ function toSessionProviderIdentity(event: {
     canonicalModel: event.canonicalModel,
     billingMode: event.billingMode,
   };
+}
+
+function sessionProviderKey(provider: SessionProviderIdentity): string {
+  return `${provider.provider}\0${provider.model}`;
 }
 
 function toSessionDelegationEvidence(delegation: MultimodalDelegationEvidence): NonNullable<Extract<

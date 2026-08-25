@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime work item session events", () => {
-  it("uses an explicit persisted turn id instead of the hydrated runtime turn count", () => {
+  it("uses an explicit persisted turn id instead of the hydrated runtime turn count", async () => {
     const session = new RuntimeSession({
       sessionId: "session-parent",
       appName: "kiln",
@@ -18,7 +18,7 @@ describe("runtime work item session events", () => {
     session.addUserMessage(textParts("Hydrated prior turn 5."));
     const timestamp = new Date("2026-05-27T18:20:17.000Z");
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       turnId: `${session.id}:turn:3`,
       channel: "gui",
@@ -51,7 +51,7 @@ describe("runtime work item session events", () => {
     ]));
   });
 
-  it("sanitizes canonical assistant messages before persistence", () => {
+  it("sanitizes canonical assistant messages before persistence", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -60,7 +60,7 @@ describe("runtime work item session events", () => {
     });
     const timestamp = new Date("2026-05-20T18:20:17.000Z");
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Continue governed UI work",
@@ -79,7 +79,7 @@ describe("runtime work item session events", () => {
     }));
   });
 
-  it("projects work item tool metadata into canonical session events", () => {
+  it("projects work item tool metadata into canonical session events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -89,7 +89,7 @@ describe("runtime work item session events", () => {
     session.addUserMessage(textParts("Plan the work"));
 
     const timestamp = new Date("2026-05-08T12:00:00.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Plan the work",
@@ -161,7 +161,7 @@ describe("runtime work item session events", () => {
     ]));
   });
 
-  it("projects work item execution attempt metadata into canonical session events", () => {
+  it("projects work item execution attempt metadata into canonical session events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -216,7 +216,7 @@ describe("runtime work item session events", () => {
       sequence: 3,
     };
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Execute the next work item",

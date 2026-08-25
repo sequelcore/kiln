@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime specification session events", () => {
-  it("projects structured specification and clarification artifacts into canonical session events", () => {
+  it("projects structured specification and clarification artifacts into canonical session events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -14,7 +14,7 @@ describe("runtime specification session events", () => {
     session.addUserMessage(textParts("Plan with structured intake"));
 
     const timestamp = new Date("2026-05-08T13:00:00.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Plan with structured intake",
@@ -54,7 +54,7 @@ describe("runtime specification session events", () => {
     ]));
   });
 
-  it("projects plan analysis reports into canonical session events", () => {
+  it("projects plan analysis reports into canonical session events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -64,7 +64,7 @@ describe("runtime specification session events", () => {
     session.addUserMessage(textParts("Analyze plan/spec consistency"));
 
     const timestamp = new Date("2026-05-08T14:00:00.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Analyze plan/spec consistency",

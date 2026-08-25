@@ -2,20 +2,14 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { WSContext } from "hono/ws";
 import {
-  EventBus,
-  defineTurnTemporalContext,
-  extractText,
-  type ApprovalReceivedEvent,
-  type ApprovalRequestedEvent,
   type CanonicalSessionEvent,
   type ContentPart,
-  type KilnEvent,
-  type ModelRoutedEvent,
-  type ToolAuthorizedEvent,
   type DefaultBuiltinToolRegistryOptions,
+  defineTurnTemporalContext,
+  EventBus,
+  extractText,
   type TurnTemporalContext,
   type CommunicationIntentCandidate,
-  type ExecutionSessionEvent,
 } from "@kilnai/core";
 import { RuntimeSessionOrchestrationSurface } from "../session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../session/runtime-session.js";
@@ -36,27 +30,14 @@ import {
   readExecutionTurnAuthority,
 } from "../session/effective-authority-admission-bundle.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
+import {
+  type ActiveOperatorTurn,
+  abortAndAwaitOperatorTurns,
+  createActiveOperatorTurn,
+} from "./active-operator-turn.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn } from "./message-pipeline/index.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
-import type {
-  RuntimeTurnApprovalTransition,
-  RuntimeTurnAuthorityDecision,
-  RuntimeTurnFileChange,
-  RuntimeTurnToolCompletion,
-} from "../session/runtime-turn-record.js";
-import type { OnContinueSession, OperatorGuiSessionTransportOptions } from "./operator-gateway.js";
-import {
-  mountGuiStaticAssets,
-  resolveGuiDistPath,
-} from "./gui-static-assets.js";
-import {
-  markGuiProviderDiscoveryStale,
-  projectGuiProviderModelDiscovery,
-  projectGuiOperatorModels,
-  resolveGuiOperatorDiscoveryResults,
-} from "./gui-provider-models.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
@@ -76,6 +57,19 @@ import {
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { appendManagedInvocationPromptAdmissionSessionEvent } from "../agents/managed-invocation/prompt-admission.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
+import {
+  mountGuiStaticAssets,
+  resolveGuiDistPath,
+} from "./gui-static-assets.js";
+import {
+  markGuiProviderDiscoveryStale,
+  projectGuiProviderModelDiscovery,
+  projectGuiOperatorModels,
+  resolveGuiOperatorDiscoveryResults,
+} from "./gui-provider-models.js";
+import { processAdmittedTurn } from "./message-pipeline/index.js";
+import { OperatorActivityStreamer } from "./operator-activity-streamer.js";
+import type { OnContinueSession, OperatorGuiSessionTransportOptions } from "./operator-gateway.js";
 import {
   LOCAL_OPERATOR_GATEWAY_HOST,
   localOperatorGatewayHttpOrigin,
@@ -240,18 +234,12 @@ export interface GuiGateway {
   readonly hasMountedGui: boolean;
   /** Ephemeral capability for local configuration mutations and target setup. */
   readonly operatorCapability?: string;
-  shutdown(): void;
+  shutdown(): Promise<void>;
 }
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
 type OperatorTurnRequestedAuthority = Extract<GuiOutboundFrame, { type: "message" }>["requestedAuthority"];
-
-interface ActiveGuiTurn {
-  readonly controller: AbortController;
-  readonly settled: Promise<void>;
-  readonly markSettled: () => void;
-}
 
 interface GuiResourceSurfaceRegistration {
   readonly surface: AttachedRuntimeBuiltinToolSurface;
@@ -269,20 +257,9 @@ function surfacesForGuiSession(
     .map((registration) => registration.surface);
 }
 
-function disposeGuiResourceSurfaces(
-  registrations: readonly GuiResourceSurfaceRegistration[],
-): void {
+async function disposeGuiResourceSurfaces(registrations: readonly GuiResourceSurfaceRegistration[]): Promise<void> {
   const surfaces = [...new Set(registrations.map((registration) => registration.surface))];
-  void Promise.all(surfaces.map((surface) => surface.dispose().catch(() => undefined)));
-}
-
-function createActiveGuiTurn(): ActiveGuiTurn {
-  const controller = new AbortController();
-  let markSettled = (): void => {};
-  const settled = new Promise<void>((resolve) => {
-    markSettled = resolve;
-  });
-  return { controller, settled, markSettled };
+  await Promise.all(surfaces.map((surface) => surface.dispose().catch(() => undefined)));
 }
 
 interface BrowserSessionUpdateHandlerConsumer {
@@ -730,9 +707,9 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     return c.json(sessionDetail);
   });
 
-  let disposeOperatorResourceSurfaces: (() => void) | undefined;
+  let operatorTransportLifecycle: { shutdown(): Promise<void> } | undefined;
   if (transportOptions) {
-    disposeOperatorResourceSurfaces = wireOperatorTransport(app, upgradeWebSocket, {
+    operatorTransportLifecycle = wireOperatorTransport(app, upgradeWebSocket, {
       transport: transportOptions,
       initialDiscovery: operatorDiscovery ?? [],
       getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
@@ -828,9 +805,9 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     },
     hasMountedGui,
     operatorCapability,
-    shutdown: () => {
+    shutdown: async () => {
       server.stop();
-      disposeOperatorResourceSurfaces?.();
+      await operatorTransportLifecycle?.shutdown();
     },
   };
 }
@@ -867,7 +844,7 @@ function wireOperatorTransport(
     goalController?: GuiGoalController;
     kilnHome?: string;
   },
-): () => void {
+): { shutdown(): Promise<void> } {
   const approvalRegistry = new ApprovalGateRegistry();
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: input.builtinToolOptions,
@@ -876,14 +853,28 @@ function wireOperatorTransport(
   });
   const resourceSurfaces: GuiResourceSurfaceRegistration[] = [{ surface: builtinToolSurface }];
   const committedAuthoritySessionIds = new Set<string>();
-  const latestMediaAdmissionBySession = new Map<string, {
-    readonly authorityAdmission: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
-    readonly attemptId: string;
-  }>();
-  const activityStreamer = new GuiActivityStreamer(approvalRegistry);
-  bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
-  let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
-  const activeTurns = new Map<string, ActiveGuiTurn>();
+  const latestMediaAdmissionBySession = new Map<
+    string,
+    {
+      readonly authorityAdmission: import("../session/effective-authority-admission-bundle.js").EffectiveAuthorityAdmissionBundle;
+      readonly attemptId: string;
+    }
+  >();
+  const activityStreamer = new OperatorActivityStreamer({
+    approvalRegistry,
+    instanceId: GUI_OPERATOR_COCKPIT_INSTANCE_ID,
+    onRuntimeEvent: (event, send) => {
+      const frame = projectMemoryLatticeInvalidationFrame(event);
+      if (frame) send(frame);
+    },
+  });
+  bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => {
+    forwardGuiBrowserSessionState(activityStreamer, state);
+  });
+  let activeOperatorSurface:
+    | { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } }
+    | undefined;
+  const activeTurns = new Map<string, ActiveOperatorTurn>();
   const eventBus = input.transport.eventBus ?? new EventBus(100);
   const orchestrationSurface = new RuntimeSessionOrchestrationSurface({
     eventBus,
@@ -1084,125 +1075,117 @@ function wireOperatorTransport(
       },
     });
     const runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext = {
-      admission: bundle,
-      intentFingerprint: committed.intentFingerprint as `sha256:${string}`,
-      attemptId: committed.executionId,
-      routeId: committed.binding.routeId,
-      accountId: committed.binding.accountId,
-      credentialRevision: committed.binding.credentialRevision,
-      readAdmission: () => readRuntimeModelRoundAdmission({
-        readAdmission: (request) => readAdmission.call(input.transport.authorityAdmissionEvidenceStore, request),
-        admissionId: bundle.admissionId,
-        sessionId: bundle.sessionId,
-        turnId: bundle.turnId,
-        expected: {
-          routeId: committed.binding.routeId,
-          accountId: committed.binding.accountId,
-          credentialRevision: committed.binding.credentialRevision,
-        },
-      }),
-      store: input.transport.runtimeModelRoundActionClaims,
-      state: { claimed: false },
-    };
-    const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
-      admission: bundle,
-      attemptId: committed.executionId,
-      adapterIdentity: `gui:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
-      readAdmission: (request) => readRuntimeModelRoundAdmission({
-        readAdmission: (readRequest) => readAdmission.call(input.transport.authorityAdmissionEvidenceStore, readRequest),
-        admissionId: request.admissionId,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        expected: {
-          routeId: committed.binding.routeId,
-          accountId: committed.binding.accountId,
-          credentialRevision: committed.binding.credentialRevision,
-        },
-      }),
-      store: input.transport.runtimeToolActionClaims,
-      state: { claimed: false },
-    };
-    resourceSurfaces.push({
-      surface: turnBuiltinToolSurface,
-      sessionId: committed.authorityAdmission.sessionId,
-    });
-    committedAuthoritySessionIds.add(committed.authorityAdmission.sessionId);
-    latestMediaAdmissionBySession.set(committed.authorityAdmission.sessionId, {
-      authorityAdmission: bundle,
-      attemptId: committed.executionId,
-    });
-    input.transport.sessionManager.setProvider(committed.admission.providerId);
-    input.transport.sessionManager.setModel(committed.admission.providerModelId);
-    const {
-      turnId: _candidateTurnId,
-      operatorAdoptionDecision: _candidateAdoptionDecision,
-      executionBinding: _candidateExecutionBinding,
-      admittedExecutionRoute: _candidateExecutionRoute,
-      effectiveTurnAuthority: _candidateTurnAuthority,
-      authorityContext: _candidateAuthorityContext,
-      runtimeConfigurationRevision: _candidateConfigurationRevision,
-      runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
-      toolAllowlist: _candidateToolAllowlist,
-      toolAuthority: _candidateToolAuthority,
-      ...admittedExecutionConfig
-    } = prepared.perCallConfig;
-    const perCallConfig = {
-      ...admittedExecutionConfig,
-      authorityAdmission: bundle,
-      executionCredential: committed.credential,
-      runtimeModelRoundDispatch,
-      runtimeToolActionClaims,
-    } satisfies PerCallToolConfig;
-    const provider = await input.transport.createProvider({
-      credential: committed.credential,
-      admission: committed.admission,
-    });
-    const orchestrator = orchestrationSurface.bindProvider(
-      provider,
-      committed.admission.providerModelId,
-    );
-    return processAdmittedTurn({
-      orchestrator,
-      sessionRegistry,
-      appName: GUI_APP_NAME,
-      tenantId: GUI_TENANT_ID,
-      userId: payload.userId,
-      sessionId: committed.authorityAdmission.sessionId,
-      admittedSession: runtimeSession,
-      systemPrompt: payload.systemPrompt,
-      userParts: payload.userParts,
-      channel: "gui",
-      resumeSessionHydrator: input.transport.resumeSessionHydrator,
-      persistCanonicalSessionEvents: input.transport.persistCanonicalSessionEvents,
-      providerValidation: payload.providerDiscovery,
-      contextUsageWindow: contextUsageWindowEvidence(
-        committed.admission.providerId,
-        committed.admission.providerModelId,
-        activeModelCapabilities,
-        payload.providerDiscovery,
-      ),
-      executionMode,
-      contextArtifactCache: input.transport.contextArtifactCache,
-      artifactStore: input.transport.artifactStore,
-      voiceConfig: input.transport.voiceConfig,
-      sttAdapter: input.transport.sttAdapter,
-      ttsAdapter: input.transport.ttsAdapter,
-      callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
-      perCallConfig,
-      authorityAdmission: bundle,
-      runtimeMediaActionClaims: input.transport.runtimeMediaActionClaims,
-      runtimeConfigurationRevisionProvider: input.runtimeConfigurationRevisionProvider,
-      turnCapture: {
-        start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
-        finish: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
-        abort: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
-      },
-      publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
-        events.filter((event) => event.kind === "context_usage_observed"
-          || event.kind === "cost_updated"
-          || (event.kind === "turn_completed" && event.outcome === "cancelled")),
-      ),
-    });
+        admission: bundle,
+        intentFingerprint: committed.intentFingerprint as `sha256:${string}`,
+        attemptId: committed.executionId,
+        routeId: committed.binding.routeId,
+        accountId: committed.binding.accountId,
+        credentialRevision: committed.binding.credentialRevision,
+        readAdmission: () =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: (request) => readAdmission.call(input.transport.authorityAdmissionEvidenceStore, request),
+            admissionId: bundle.admissionId,
+            sessionId: bundle.sessionId,
+            turnId: bundle.turnId,
+            expected: {
+              routeId: committed.binding.routeId,
+              accountId: committed.binding.accountId,
+              credentialRevision: committed.binding.credentialRevision,
+            },
+          }),
+        store: input.transport.runtimeModelRoundActionClaims,
+        state: { claimed: false },
+      };
+      const runtimeToolActionClaims: RuntimeToolActionClaimsContext = {
+        admission: bundle,
+        attemptId: committed.executionId,
+        adapterIdentity: `gui:${committed.binding.routeId}:${committed.binding.accountId}:${committed.binding.credentialRevision}`,
+        readAdmission: (request) =>
+          readRuntimeModelRoundAdmission({
+            readAdmission: (readRequest) =>
+              readAdmission.call(input.transport.authorityAdmissionEvidenceStore, readRequest),
+            admissionId: request.admissionId,
+            sessionId: request.sessionId,
+            turnId: request.turnId,
+            expected: {
+              routeId: committed.binding.routeId,
+              accountId: committed.binding.accountId,
+              credentialRevision: committed.binding.credentialRevision,
+            },
+          }),
+        store: input.transport.runtimeToolActionClaims,
+        state: { claimed: false },
+      };
+      resourceSurfaces.push({
+        surface: turnBuiltinToolSurface,
+        sessionId: committed.authorityAdmission.sessionId,
+      });
+      committedAuthoritySessionIds.add(committed.authorityAdmission.sessionId);
+      latestMediaAdmissionBySession.set(committed.authorityAdmission.sessionId, {
+        authorityAdmission: bundle,
+        attemptId: committed.executionId,
+      });
+      input.transport.sessionManager.setProvider(committed.admission.providerId);
+      input.transport.sessionManager.setModel(committed.admission.providerModelId);
+      const {
+        turnId: _candidateTurnId,
+        operatorAdoptionDecision: _candidateAdoptionDecision,
+        executionBinding: _candidateExecutionBinding,
+        admittedExecutionRoute: _candidateExecutionRoute,
+        effectiveTurnAuthority: _candidateTurnAuthority,
+        authorityContext: _candidateAuthorityContext,
+        runtimeConfigurationRevision: _candidateConfigurationRevision,
+        runtimeSessionConfigurationRevision: _candidateSessionConfigurationRevision,
+        toolAllowlist: _candidateToolAllowlist,
+        toolAuthority: _candidateToolAuthority,
+        ...admittedExecutionConfig
+      } = prepared.perCallConfig;
+      const perCallConfig = {
+        ...admittedExecutionConfig,
+        authorityAdmission: bundle,
+        executionCredential: committed.credential,
+        runtimeModelRoundDispatch,
+        runtimeToolActionClaims,
+      } satisfies PerCallToolConfig;
+      const provider = await input.transport.createProvider({
+        credential: committed.credential,
+        admission: committed.admission,
+      });
+      const orchestrator = orchestrationSurface.bindProvider(provider, committed.admission.providerModelId);
+      activityStreamer.selectSession(runtimeSession.id);
+      return processAdmittedTurn({
+        orchestrator,
+        sessionRegistry,
+        appName: GUI_APP_NAME,
+        tenantId: GUI_TENANT_ID,
+        userId: payload.userId,
+        sessionId: committed.authorityAdmission.sessionId,
+        admittedSession: runtimeSession,
+        systemPrompt: payload.systemPrompt,
+        userParts: payload.userParts,
+        channel: "gui",
+        resumeSessionHydrator: input.transport.resumeSessionHydrator,
+        persistCanonicalSessionEvents: input.transport.persistCanonicalSessionEvents,
+        providerValidation: payload.providerDiscovery,
+        contextUsageWindow: contextUsageWindowEvidence(
+          committed.admission.providerId,
+          committed.admission.providerModelId,
+          activeModelCapabilities,
+          payload.providerDiscovery,
+        ),
+        executionMode,
+        contextArtifactCache: input.transport.contextArtifactCache,
+        artifactStore: input.transport.artifactStore,
+        voiceConfig: input.transport.voiceConfig,
+        sttAdapter: input.transport.sttAdapter,
+        ttsAdapter: input.transport.ttsAdapter,
+        callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
+        perCallConfig,
+        authorityAdmission: bundle,
+        runtimeMediaActionClaims: input.transport.runtimeMediaActionClaims,
+        runtimeConfigurationRevisionProvider: input.runtimeConfigurationRevisionProvider,
+        publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(events),
+      });
   });
 
   app.post("/gui/api/resources/read", async (c) => {
@@ -1269,6 +1252,10 @@ function wireOperatorTransport(
           operatorSocket = ws;
           input.onSocketOpen?.();
           activityStreamer.register(ws, eventBus);
+          const activeSession = await sessionRegistry.get(GUI_APP_NAME, userId, GUI_TENANT_ID);
+          if (activeSession) {
+            activityStreamer.forwardSessionEvents(activeSession.sessionEvents);
+          }
           unsubscribeDiscovery?.();
           unsubscribeDiscovery = input.onDiscoveryUpdated((currentDiscovery) => {
             applyDiscovery(currentDiscovery);
@@ -1880,7 +1867,7 @@ function wireOperatorTransport(
             const freshSessionRequested = messageFrame.sessionIntent === "fresh";
             if (!userContent.trim() && userParts.length === 0) return;
 
-            const currentTurn = createActiveGuiTurn();
+            const currentTurn = createActiveOperatorTurn();
             activeTurns.set(userId, currentTurn);
             try {
             if (freshSessionRequested && continuationSessionId) {
@@ -2015,7 +2002,7 @@ function wireOperatorTransport(
               authorityStatus: deriveGuiDoneAuthorityStatus(undefined),
             } satisfies GuiInboundFrame));
             } finally {
-              currentTurn.markSettled();
+              currentTurn.settle();
               if (activeTurns.get(userId) === currentTurn) {
                 activeTurns.delete(userId);
               }
@@ -2042,7 +2029,12 @@ function wireOperatorTransport(
     }),
   );
 
-  return () => disposeGuiResourceSurfaces(resourceSurfaces);
+  return {
+    shutdown: async () => {
+      await abortAndAwaitOperatorTurns(activeTurns.values());
+      await disposeGuiResourceSurfaces(resourceSurfaces);
+    },
+  };
 }
 
 const GUI_CORS_ALLOWED_METHODS = new Set(["GET", "POST"]);
@@ -2232,347 +2224,38 @@ function contextUsageWindowEvidence(
   };
 }
 
-class GuiActivityStreamer {
-  private readonly pendingApprovals = new Set<string>();
-  private capture: {
-    sessionId: string;
-    nextSequence: number;
-    assistantMessageId: string;
-    fileChanges: RuntimeTurnFileChange[];
-    approvalTransitions: RuntimeTurnApprovalTransition[];
-    authorityDecisions: RuntimeTurnAuthorityDecision[];
-    toolCompletions: RuntimeTurnToolCompletion[];
-  } | null = null;
-  private ws: WSContext | null = null;
-  private eventBus: EventBus | null = null;
-  private approvalHandler: ((event: KilnEvent) => void) | null = null;
-  private receivedHandler: ((event: KilnEvent) => void) | null = null;
-  private modelRoutedHandler: ((event: KilnEvent) => void) | null = null;
-  private authorizedHandler: ((event: KilnEvent) => void) | null = null;
-  private memoryLatticeHandler: ((event: KilnEvent) => void) | null = null;
-  private lastKnownKilnSessionId: string | undefined;
-  /**
-   * Fallback ordinal for tool_use/tool_result events forwarded outside any active turn capture
-   * (e.g. an orphaned event arriving after `endTurnCapture`). Deterministic per connection --
-   * never a timestamp or random value -- because nothing in this no-capture path is persisted
-   * or replayed; it only feeds the live activity stream to the connected browser.
-   */
-  private approvalBridge: {
-    approve: (approvalId: string) => void;
-    reject: (approvalId: string, reason: string) => void;
-  } | null = null;
-
-  constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
-
-  bindApprovalBridge(bridge: {
-    approve: (approvalId: string) => void;
-    reject: (approvalId: string, reason: string) => void;
-  }): void {
-    this.approvalBridge = bridge;
+function forwardGuiBrowserSessionState(
+  streamer: OperatorActivityStreamer,
+  state: Omit<GuiBrowserSessionState, "kilnSessionId">,
+): void {
+  const kilnSessionId = streamer.currentSessionId();
+  streamer.sendFrame({
+    type: "browser_session_updated",
+    browserSession: {
+      ...state,
+      ...(kilnSessionId ? { kilnSessionId } : {}),
+    },
+  });
+  if (
+    state.viewMode !== "live" ||
+    state.stream.status !== "live" ||
+    !state.sessionId ||
+    !state.latestCapture?.uri ||
+    !state.latestCapture.width ||
+    !state.latestCapture.height
+  ) {
+    return;
   }
-
-  beginTurnCapture(sessionId: string, nextSequence: number): void {
-    this.lastKnownKilnSessionId = sessionId;
-    this.capture = {
-      sessionId,
-      nextSequence,
-      assistantMessageId: `${sessionId}:live:assistant`,
-      fileChanges: [],
-      approvalTransitions: [],
-      authorityDecisions: [],
-      toolCompletions: [],
-    };
-  }
-
-  endTurnCapture(sessionId: string): {
-    fileChanges: readonly RuntimeTurnFileChange[];
-    approvalTransitions: readonly RuntimeTurnApprovalTransition[];
-    authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
-    toolCompletions: readonly RuntimeTurnToolCompletion[];
-  } {
-    if (!this.capture || this.capture.sessionId !== sessionId) {
-      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [], toolCompletions: [] };
-    }
-    const captured = {
-      fileChanges: [...this.capture.fileChanges],
-      approvalTransitions: [...this.capture.approvalTransitions],
-      authorityDecisions: [...this.capture.authorityDecisions],
-      toolCompletions: [...this.capture.toolCompletions],
-    };
-    this.capture = null;
-    return captured;
-  }
-
-  private nextLiveSequence(): number | null {
-    if (!this.capture) {
-      return null;
-    }
-    const sequence = this.capture.nextSequence;
-    this.capture.nextSequence += 1;
-    return sequence;
-  }
-
-  private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
-    timestamp: string;
-    payload: Record<string, unknown>;
-    parentEventId?: string;
-    executionScope?: ExecutionSessionEvent["executionScope"];
-  }): void {
-    if (!this.ws || !this.capture) {
-      return;
-    }
-    const sequence = this.nextLiveSequence();
-    if (sequence === null) {
-      return;
-    }
-    const eventId = `${this.capture.sessionId}:live:${sequence}`;
-    const turnId = `${this.capture.sessionId}:turn:live`;
-    this.ws.send(JSON.stringify({
-      type: "session_event",
-      event: {
-        eventId,
-        kilnSessionId: this.capture.sessionId,
-        sequence,
-        timestamp: input.timestamp,
-        kind: input.kind,
-        turnId,
-        ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
-        ...(input.executionScope ? { executionScope: input.executionScope } : {}),
-        source: {
-          actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
-          surface: "gui",
-          component: "gui-gateway",
-        },
-        payload: input.payload,
-      },
-    } satisfies GuiInboundFrame));
-  }
-
-  private emitActivityPhase(input: {
-    phase: "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
-    sessionId?: string;
-    toolName?: string;
-    details?: string;
-  }): void {
-    if (!this.ws) {
-      return;
-    }
-    const sessionId = input.sessionId ?? this.capture?.sessionId;
-    if (!sessionId) {
-      return;
-    }
-    this.ws.send(JSON.stringify({
-      type: "activity_phase",
-      kilnSessionId: sessionId,
-      ...(this.capture?.sessionId === sessionId ? { turnId: `${sessionId}:turn:live` } : {}),
-      phase: input.phase,
-      ...(input.toolName ? { toolName: input.toolName } : {}),
-      ...(input.details ? { details: input.details } : {}),
-    } satisfies GuiInboundFrame));
-  }
-
-  register(ws: WSContext, eventBus?: EventBus): void {
-    this.ws = ws;
-    this.eventBus = eventBus ?? null;
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners(): void {
-    if (!this.eventBus) return;
-
-    this.approvalHandler = (event: KilnEvent) => {
-      if (event.type === "approval_requested") {
-        const approvalEvent = event as unknown as ApprovalRequestedEvent;
-        const sessionId = approvalEvent.sessionId;
-        const approvalId = approvalEvent.approvalId;
-        if (sessionId && approvalId) {
-          this.pendingApprovals.add(approvalId);
-          if (this.capture && this.capture.sessionId === sessionId) {
-            this.capture.approvalTransitions.push({
-              approvalId,
-              status: "requested",
-              sessionId,
-              reason: approvalEvent.description,
-            });
-            this.emitSessionEvent({
-              kind: "approval_requested",
-              timestamp: approvalEvent.timestamp.toISOString(),
-              payload: {
-                approvalId,
-                sessionId,
-                action: approvalEvent.description,
-                justification: approvalEvent.description,
-              },
-            });
-          }
-          this.approvalRegistry.register(approvalId, {
-            approve: () => this.approvalBridge?.approve(approvalId),
-            reject: (reason: string) => this.approvalBridge?.reject(approvalId, reason),
-            status: () => (this.pendingApprovals.has(approvalId) ? "awaiting_approval" : "resolved"),
-          });
-        }
-        this.emitActivityPhase({
-          phase: "awaiting_approval",
-          sessionId,
-          details: approvalEvent.description,
-        });
-      }
-    };
-    this.eventBus.onAny(this.approvalHandler);
-
-    this.receivedHandler = (event: KilnEvent) => {
-      if (event.type === "approval_received") {
-        const receivedEvent = event as unknown as ApprovalReceivedEvent;
-        const sessionId = receivedEvent.sessionId;
-        const approvalId = receivedEvent.approvalId;
-        if (sessionId && approvalId) {
-          this.pendingApprovals.delete(approvalId);
-          if (this.capture && this.capture.sessionId === sessionId) {
-            this.capture.approvalTransitions.push({
-              approvalId,
-              status: receivedEvent.approved ? "approved" : "rejected",
-              sessionId,
-              reason: receivedEvent.reason,
-            });
-            this.emitSessionEvent({
-              kind: "approval_resolved",
-              timestamp: receivedEvent.timestamp.toISOString(),
-              payload: {
-                approvalId,
-                sessionId,
-                resolution: {
-                  decision: receivedEvent.approved ? "approved" : "denied",
-                  resolvedBy: "operator",
-                  reason: receivedEvent.reason,
-                },
-              },
-            });
-          }
-          this.approvalRegistry.unregister(approvalId);
-        }
-        this.emitActivityPhase({ phase: "idle", sessionId });
-      }
-    };
-    this.eventBus.onAny(this.receivedHandler);
-
-    this.modelRoutedHandler = (event: KilnEvent) => {
-      if (event.type === "model_routed") {
-        const routedEvent = event as unknown as ModelRoutedEvent;
-        const sessionId = routedEvent.sessionId;
-        if (this.capture && sessionId === this.capture.sessionId) {
-          this.emitSessionEvent({
-            kind: "provider_routed",
-            timestamp: routedEvent.timestamp.toISOString(),
-            payload: {
-              provider: {
-                provider: routedEvent.provider,
-                model: routedEvent.model,
-              },
-              reason: routedEvent.reason,
-              routingRationale: routedEvent.rationale,
-            },
-          });
-        }
-      }
-    };
-    this.eventBus.onAny(this.modelRoutedHandler);
-
-    this.authorizedHandler = (event: KilnEvent) => {
-      if (event.type === "tool_authorized") {
-        const authorizedEvent = event as ToolAuthorizedEvent;
-        const sessionId = authorizedEvent.sessionId;
-        if (sessionId && this.capture && this.capture.sessionId === sessionId) {
-          this.capture.authorityDecisions.push({
-            toolName: authorizedEvent.toolName,
-            level: authorizedEvent.level,
-            allowed: authorizedEvent.allowed,
-            reason: authorizedEvent.reason,
-          });
-        }
-      }
-    };
-    this.eventBus.onAny(this.authorizedHandler);
-
-    this.memoryLatticeHandler = (event: KilnEvent) => {
-      const frame = projectMemoryLatticeInvalidationFrame(event);
-      if (frame) {
-        this.ws?.send(JSON.stringify(frame satisfies GuiInboundFrame));
-      }
-    };
-    this.eventBus.onAny(this.memoryLatticeHandler);
-  }
-
-  unregister(ws: WSContext): void {
-    if (this.ws === ws) {
-      this.ws = null;
-    }
-    if (this.eventBus && this.approvalHandler) {
-      this.eventBus.offAny(this.approvalHandler);
-      this.approvalHandler = null;
-    }
-    if (this.eventBus && this.receivedHandler) {
-      this.eventBus.offAny(this.receivedHandler);
-      this.receivedHandler = null;
-    }
-    if (this.eventBus && this.modelRoutedHandler) {
-      this.eventBus.offAny(this.modelRoutedHandler);
-      this.modelRoutedHandler = null;
-    }
-    if (this.eventBus && this.authorizedHandler) {
-      this.eventBus.offAny(this.authorizedHandler);
-      this.authorizedHandler = null;
-    }
-    if (this.eventBus && this.memoryLatticeHandler) {
-      this.eventBus.offAny(this.memoryLatticeHandler);
-      this.memoryLatticeHandler = null;
-    }
-    this.eventBus = null;
-    this.capture = null;
-  }
-
-  forwardSessionEvents(events: readonly CanonicalSessionEvent[]): void {
-    if (!this.ws) return;
-    for (const event of events) {
-      const sequence = this.nextLiveSequence() ?? event.sequence;
-      this.ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
-        eventId: `${event.eventId}:live`,
-        sequence,
-        instanceId: GUI_OPERATOR_COCKPIT_INSTANCE_ID,
-      }) satisfies GuiInboundFrame));
-    }
-  }
-
-  forwardBrowserSessionState(state: Omit<GuiBrowserSessionState, "kilnSessionId">): void {
-    if (!this.ws) return;
-    const kilnSessionId = this.capture?.sessionId ?? this.lastKnownKilnSessionId;
-    this.ws.send(JSON.stringify({
-      type: "browser_session_updated",
-      browserSession: {
-        ...state,
-        ...(kilnSessionId ? { kilnSessionId } : {}),
-      },
-    } satisfies GuiInboundFrame));
-    if (
-      state.viewMode === "live"
-      && state.stream.status === "live"
-      && state.sessionId
-      && state.latestCapture?.uri
-      && state.latestCapture.width
-      && state.latestCapture.height
-    ) {
-      this.ws.send(JSON.stringify({
-        type: "browser_live_viewport_frame",
-        sessionId: state.sessionId,
-        ...(kilnSessionId ? { kilnSessionId } : {}),
-        frameId: `${state.sessionId}:${state.updatedAt}`,
-        transport: state.latestCapture.transport ?? "snapshot-polling",
-        format: state.latestCapture.mimeType === "image/jpeg" ? "jpeg" : "png",
-        artifactUri: state.latestCapture.uri,
-        width: state.latestCapture.width,
-        height: state.latestCapture.height,
-        capturedAt: state.updatedAt,
-      } satisfies GuiInboundFrame));
-    }
-  }
+  streamer.sendFrame({
+    type: "browser_live_viewport_frame",
+    sessionId: state.sessionId,
+    ...(kilnSessionId ? { kilnSessionId } : {}),
+    frameId: `${state.sessionId}:${state.updatedAt}`,
+    transport: state.latestCapture.transport ?? "snapshot-polling",
+    format: state.latestCapture.mimeType === "image/jpeg" ? "jpeg" : "png",
+    artifactUri: state.latestCapture.uri,
+    width: state.latestCapture.width,
+    height: state.latestCapture.height,
+    capturedAt: state.updatedAt,
+  });
 }

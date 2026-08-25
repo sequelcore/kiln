@@ -221,7 +221,7 @@ interface TuiBootstrapResult {
   readonly providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null };
   readonly executionRouteCatalogRef: { current: ExecutionRouteCatalog | null };
   readonly refreshProviderDiscovery?: () => Promise<void>;
-  shutdown(): void;
+  shutdown(): Promise<void>;
 }
 type TuiControlSession = SessionLike & {
   clear?: () => Promise<void>;
@@ -1200,10 +1200,23 @@ async function bootstrapGatewaySession(
     providerDiscoveryRef,
     providerModelDiscoveryRef,
     executionRouteCatalogRef,
-    shutdown: () => {
-      void session?.dispose();
-      gateway.shutdown();
-      options.closeOperatorTurnComposition();
+    shutdown: async () => {
+      const failures: unknown[] = [];
+      for (const close of [
+        () => gateway.shutdown(),
+        () => session?.dispose(),
+        () => options.closeOperatorTurnComposition(),
+      ]) {
+        try {
+          await close();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Multiple TUI gateway resources failed to close.");
+      }
     },
   };
 }
@@ -1464,7 +1477,7 @@ async function bootstrapDirectSession(
     refreshProviderDiscovery: async () => {
       await refreshProviderModels({ force: true });
     },
-    shutdown: () => { options.closeOperatorTurnComposition(); },
+    shutdown: async () => { options.closeOperatorTurnComposition(); },
   };
 }
 
@@ -1772,27 +1785,49 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   });
   startupProfiler.mark("bootstrap-context-ready", { transport: startupTransport });
 
-  const shutdown = (code = 0, error?: unknown) => {
-    bootstrap.shutdown();
-    boundedWork.close();
-    managedDirectToolActionClaims.close();
-    managedDirectModelRoundActionClaims.close();
-    operatorEconomicAuthority?.close();
-    if (error) {
-      process.stderr.write(String(error instanceof Error ? (error.stack ?? error.message) : error) + "\n");
-      process.exitCode = 1;
-    } else {
-      process.exitCode = code;
-    }
-    setTimeout(() => process.exit(process.exitCode ?? code), 50).unref();
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = (code = 0, error?: unknown): Promise<void> => {
+    shutdownPromise ??= (async () => {
+      const failures: unknown[] = [];
+      for (const close of [
+        () => bootstrap.shutdown(),
+        () => boundedWork.close(),
+        () => managedDirectToolActionClaims.close(),
+        () => managedDirectModelRoundActionClaims.close(),
+        () => operatorEconomicAuthority?.close(),
+      ]) {
+        try {
+          await close();
+        } catch (closeError) {
+          failures.push(closeError);
+        }
+      }
+      if (error) {
+        process.stderr.write(String(error instanceof Error ? (error.stack ?? error.message) : error) + "\n");
+      }
+      if (failures.length > 0) {
+        const cleanupError = failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, "Multiple TUI resources failed to close.");
+        process.stderr.write(String(cleanupError instanceof Error
+          ? (cleanupError.stack ?? cleanupError.message)
+          : cleanupError) + "\n");
+      }
+      process.exitCode = error || failures.length > 0 ? 1 : code;
+    })();
+    return shutdownPromise;
+  };
+
+  const shutdownProcess = (code = 0, error?: unknown): void => {
+    void shutdown(code, error).finally(() => process.exit(process.exitCode ?? code));
   };
 
   const handlers = [
-    ["SIGINT", () => shutdown(0)],
-    ["SIGTERM", () => shutdown(0)],
-    ["SIGHUP", () => shutdown(0)],
-    ["uncaughtException", (e: unknown) => shutdown(1, e)],
-    ["unhandledRejection", (e: unknown) => shutdown(1, e)],
+    ["SIGINT", () => shutdownProcess(0)],
+    ["SIGTERM", () => shutdownProcess(0)],
+    ["SIGHUP", () => shutdownProcess(0)],
+    ["uncaughtException", (e: unknown) => shutdownProcess(1, e)],
+    ["unhandledRejection", (e: unknown) => shutdownProcess(1, e)],
   ] as const;
 
   for (const [ev, handler] of handlers) process.on(ev, handler);
@@ -1861,7 +1896,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   }
 
   const settingsApplication = createConfigSettingsApplication({ projectPath: cwd });
-  await startTui(
+  try {
+    await startTui(
     bootstrap.createSession,
     startupProviderDisplayInfo,
     provider,
@@ -1896,8 +1932,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       if (!approval) throw new Error("Settings proposal does not require approval.");
       return approval.approvalId;
     },
-  );
-
-  bootstrap.shutdown();
-  for (const [ev, handler] of handlers) process.off(ev, handler);
+    );
+  } finally {
+    for (const [ev, handler] of handlers) process.off(ev, handler);
+    await shutdown();
+  }
 }

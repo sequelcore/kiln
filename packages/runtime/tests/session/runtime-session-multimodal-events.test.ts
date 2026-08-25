@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime multimodal session events", () => {
-  it("projects multimodal route evidence into canonical operator events", () => {
+  it("projects multimodal route evidence into canonical operator events", async () => {
     const session = new RuntimeSession({
       appName: "kiln",
       tenantId: "test-tenant",
@@ -14,7 +14,7 @@ describe("runtime multimodal session events", () => {
     session.addUserMessage(textParts("Describe this image"));
 
     const timestamp = new Date("2026-05-13T12:00:00.000Z");
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Describe this image",

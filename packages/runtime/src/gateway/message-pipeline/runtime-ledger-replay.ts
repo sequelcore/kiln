@@ -8,10 +8,10 @@ import type {
 import {
   KilnError
 } from "@kilnai/core";
+import { canonicalRuntimeEventIdentity } from "../../session/runtime-session-event-ledger.js";
 import type {
   ToolExecutionSummary
 } from "../../session/runtime-session-orchestrator.js";
-import type { RuntimeTurnToolCompletion } from "../../session/runtime-turn-record.js";
 export type RuntimePipelineLedgerEvent =
   | import("@kilnai/core").ApprovalRequestedEvent
   | import("@kilnai/core").ApprovalReceivedEvent
@@ -20,6 +20,7 @@ export type RuntimePipelineLedgerEvent =
   | import("@kilnai/core").ModelRoutedEvent
   | import("@kilnai/core").MultimodalRoutedEvent
   | import("@kilnai/core").ToolCalledEvent
+  | import("@kilnai/core").ToolOutputEvent
   | ToolResultEvent;
 
 export function replayCapturedRuntimeLedgerEvents(
@@ -49,7 +50,6 @@ export function replayCapturedRuntimeLedgerEvents(
 export function resolveTurnToolExecutions(
   resultToolExecutions: readonly ToolExecutionSummary[] | undefined,
   runtimeEvents: readonly RuntimePipelineLedgerEvent[],
-  surfaceToolCompletions: readonly RuntimeTurnToolCompletion[] | undefined,
 ): readonly ToolExecutionSummary[] | undefined {
   if (resultToolExecutions && resultToolExecutions.length > 0) {
     return resultToolExecutions;
@@ -66,18 +66,7 @@ export function resolveTurnToolExecutions(
       ...(event.resolvedEffect ? { resolvedEffect: event.resolvedEffect } : {}),
       ...(event.authority ? { authority: event.authority } : {}),
     }));
-  if (projected.length > 0) {
-    return projected;
-  }
-  const surfaceProjected = surfaceToolCompletions?.map((completion): ToolExecutionSummary => ({
-    toolName: completion.toolName,
-    durationMs: 0,
-    success: completion.success,
-    ...(completion.output !== undefined ? { output: completion.output } : {}),
-    resultSummary: completion.resultSummary ?? "",
-    ...(completion.metadata ? { metadata: completion.metadata } : {}),
-  }));
-  return surfaceProjected && surfaceProjected.length > 0 ? surfaceProjected : undefined;
+  return projected.length > 0 ? projected : undefined;
 }
 
 function isRuntimeLedgerEvent(event: KilnEvent): event is
@@ -90,6 +79,7 @@ function isRuntimeLedgerEvent(event: KilnEvent): event is
     case "model_routed":
     case "multimodal_routed":
     case "tool_called":
+    case "tool_output":
     case "tool_result":
       return true;
     default:
@@ -106,7 +96,7 @@ export function appendRuntimeLedgerEvent(
   if (event.sessionId !== sessionId) {
     return false;
   }
-  const key = runtimeLedgerEventKey(event);
+  const key = canonicalRuntimeEventIdentity(event);
   if (keys.has(key)) {
     return false;
   }
@@ -114,31 +104,6 @@ export function appendRuntimeLedgerEvent(
   events.push(event);
   return true;
 }
-
-
-
-function runtimeLedgerEventKey(event: RuntimePipelineLedgerEvent): string {
-  const base = `${event.type}|${event.sessionId}|${event.timestamp.toISOString()}`;
-  switch (event.type) {
-    case "approval_requested":
-      return `${base}|${event.approvalId}`;
-    case "approval_received":
-      return `${base}|${event.approvalId}|${event.approved}`;
-    case "cost_update":
-      return `${base}|${event.provider ?? ""}|${event.model ?? ""}|${event.inputTokens}|${event.outputTokens}`;
-    case "error":
-      return `${base}|${event.code}|${event.message}`;
-    case "model_routed":
-      return `${base}|${event.provider}|${event.model}|${event.routingTier}`;
-    case "multimodal_routed":
-      return `${base}|${event.provider}|${event.model}|${event.strategy}|${event.reasonCode}|${event.requestedCapability}`;
-    case "tool_called":
-      return `${base}|${event.toolCallId}|${event.toolName}|${event.taskId ?? ""}`;
-    case "tool_result":
-      return `${base}|${event.toolCallId}|${event.toolName}|${event.success}|${event.resultSummary}`;
-  }
-}
-
 
 export function runtimeFailureEvent(error: unknown, sessionId: string, timestamp: Date): ErrorEvent {
   return {

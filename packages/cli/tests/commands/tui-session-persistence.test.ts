@@ -351,24 +351,19 @@ function makeStore(lastRecord: SessionRecord | null = null) {
 
 function makeTranscriptStore() {
   const events: import("../../src/wrapper/session-store.js").PersistedTranscriptEvent[] = [];
-  const append = vi.fn().mockImplementation(async (_sessionId: string, event: import("../../src/wrapper/session-store.js").PersistedTranscriptEvent) => {
-    events.push(event);
-  });
   const appendManyNext = vi.fn().mockImplementation(async (sessionId: string, drafts: readonly import("../../src/wrapper/session-store.js").PersistedTranscriptEventDraft[]) => {
+    void sessionId;
     let sequence = events.length;
     const appended = drafts.map((draft) => ({
       ...draft,
       sequence: ++sequence,
     } as import("../../src/wrapper/session-store.js").PersistedTranscriptEvent));
-    for (const event of appended) {
-      await append(sessionId, event);
-    }
+    events.push(...appended);
     return appended;
   });
   return {
     init: vi.fn().mockResolvedValue(undefined),
     readTranscript: vi.fn().mockImplementation(async () => [...events]),
-    append,
     appendNext: vi.fn().mockImplementation(async (sessionId: string, draft: import("../../src/wrapper/session-store.js").PersistedTranscriptEventDraft) => {
       const [event] = await appendManyNext(sessionId, [draft]);
       return event ?? null;
@@ -868,7 +863,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "read docs" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-full-output");
     const toolEvent = appendedEvents.find((event) => event.kind === "tool_call_completed");
     expect(toolEvent?.payload).toMatchObject({
       toolCallId: "call-full-output",
@@ -908,7 +903,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "summarize operator event visibility" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-turn");
     expect(appendedEvents.map((event) => event.kind)).toEqual([
       "turn_started",
       "user_message",
@@ -965,7 +960,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "costed turn" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-cost");
     expect(appendedEvents.find((event) => event.kind === "cost_updated")?.payload).toMatchObject({
       provider: { provider: "codex-oauth", model: "gpt-5.4" },
       usage: {
@@ -1125,7 +1120,7 @@ describe("makeMultiProviderSessionFactory", () => {
     } as never);
     while (!(await runIterator.next()).done) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-managed-events");
 
     expect(appendedEvents.map((event) => event.kind)).toEqual([
       "turn_started",
@@ -1326,7 +1321,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "redesign UI" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-tool-event");
     expect(appendedEvents.at(-1)).toMatchObject({
       kind: "turn_completed",
       payload: {
@@ -1380,7 +1375,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "research local search" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-approval-event");
     expect(appendedEvents.at(-1)).toMatchObject({
       kind: "turn_completed",
       payload: {
@@ -1471,7 +1466,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "redesign UI" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-config-event");
     expect(appendedEvents.at(-1)).toMatchObject({
       kind: "turn_completed",
       payload: {
@@ -1517,7 +1512,7 @@ describe("makeMultiProviderSessionFactory", () => {
       ],
     } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-governance-event");
     const userEvent = appendedEvents.find((event) => event.kind === "user_message");
     expect(userEvent?.payload).toMatchObject({
       content: "read live_test_visibility.txt",
@@ -1557,7 +1552,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "hello gui" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-managed-invocation");
     expect(appendedEvents).not.toHaveLength(0);
     expect(appendedEvents.every((event) => event.source?.surface === "gui")).toBe(true);
     expect(appendedEvents.every((event) => event.source?.component === "gui-command")).toBe(true);
@@ -1607,7 +1602,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const session = factory("sys", "/proj");
     for await (const _ of session.run({ prompt: "read im_alive.txt" } as any)) {}
 
-    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    const appendedEvents = await transcriptStore.readTranscript("sess-final-event");
     const started = appendedEvents.find((event) => event.kind === "tool_call_started");
     const completed = appendedEvents.find((event) => event.kind === "tool_call_completed");
     expect(started?.payload).toMatchObject({

@@ -711,7 +711,6 @@ describe("GUI gateway managed control", () => {
         systemPrompt: "You are a helpful assistant.",
       });
       session.addUserMessage(textParts("Delegate a managed read-only review."));
-      await input.turnCapture?.start?.(session.id, 10);
       const managedInvoke = input.callBuiltinTools?.get("managed_agent.invoke");
       if (!managedInvoke) {
         throw new Error("managed_agent.invoke was not attached to the GUI turn surface");
@@ -741,7 +740,6 @@ describe("GUI gateway managed control", () => {
         },
       });
       assertManagedToolResult(toolResult);
-      await input.turnCapture?.finish?.(session.id);
 
       expect(toolResult.isError).toBe(false);
       expect(toolResult.output).toContain("GUI child review completed.");
@@ -1005,7 +1003,7 @@ describe("GUI gateway managed control", () => {
       );
       expect(managedLifecycleFrames).toEqual([]);
       expect(sessionEventFrames.some((frame) => frame.event?.kind === "cost_updated")).toBe(true);
-      expect(sessionEventFrames.some((frame) => frame.event?.kind === "lifecycle_attribution_recorded")).toBe(false);
+      expect(sessionEventFrames.some((frame) => frame.event?.kind === "lifecycle_attribution_recorded")).toBe(true);
       expect(createProvider).toHaveBeenCalledTimes(1);
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
@@ -1255,7 +1253,6 @@ describe("GUI gateway managed control", () => {
         userId: "operator-1",
         systemPrompt: "You are a helpful assistant.",
       });
-      await input.turnCapture?.start?.(session.id, 10);
       const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
       if (!startManagedAgent) {
         throw new Error("managed_agent.start was not attached to the GUI turn surface");
@@ -1296,7 +1293,6 @@ describe("GUI gateway managed control", () => {
       deniedMetadata = denied.metadata as Record<string, unknown>;
       deniedInvocationId = String(deniedMetadata.invocationId);
       await input.sessionRegistry.save(session);
-      await input.turnCapture?.finish?.(session.id);
       return {
         ok: true,
         result: {
@@ -2240,7 +2236,6 @@ describe("GUI gateway managed control", () => {
         userId: "operator-1",
         systemPrompt: "You are a helpful assistant.",
       });
-      await input.turnCapture?.start?.(session.id, 10);
       const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
       if (!startManagedAgent) {
         throw new Error("managed_agent.start was not attached to the GUI turn surface");
@@ -2264,7 +2259,6 @@ describe("GUI gateway managed control", () => {
       }
       startedInvocationId = (toolResult.metadata as { invocationId: string }).invocationId;
       await input.sessionRegistry.save(session);
-      await input.turnCapture?.finish?.(session.id);
       return {
         ok: true,
         result: {

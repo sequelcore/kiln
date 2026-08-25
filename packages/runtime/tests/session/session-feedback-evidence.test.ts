@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { createSessionEvent } from "@kilnai/core/events";
 import type { FeedbackEvidenceSelection } from "@kilnai/core/feedback";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { collectRuntimeFeedbackEvidence } from "../../src/session/session-feedback-evidence.js";
 
 describe("runtime session feedback evidence", () => {
-  it("collects selected session summary, tool failure, command output, file change, and diagnostic evidence", () => {
+  it("collects selected session summary, tool failure, command output, file change, and diagnostic evidence", async () => {
     const session = createSession();
     session.addUserMessage(textParts("Run the typecheck."));
     session.addAssistantMessage(textParts("I will run it."));
@@ -18,7 +18,7 @@ describe("runtime session feedback evidence", () => {
       lastSummary: "Typecheck failed after feedback contract changes.",
     });
 
-    appendCanonicalTurnEvents({
+    await projectCanonicalTurnForTest({
       session,
       channel: "cli",
       userMessageContent: "Run the typecheck.",

@@ -59,6 +59,7 @@ export interface OperatorTurnTuiDispatchPayload {
   readonly systemPrompt: string;
   readonly message: Extract<GuiOutboundFrame, { type: "message" }>;
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+  readonly abortSignal?: AbortSignal;
   readonly operatorTimeZone?: string;
 }
 

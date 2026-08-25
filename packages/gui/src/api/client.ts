@@ -54,7 +54,6 @@ import {
   ExecutionRouteCatalogSchema,
   projectOperatorResourceReadPresentation,
 } from "@kilnai/gateway-contracts";
-import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
 export type {
   GuiDashboardSnapshot,
@@ -419,13 +418,6 @@ export class GuiGatewayClient {
     }
 
     return null;
-  }
-
-  createSessionClient(options: Omit<GuiSessionClientOptions, "resolveCandidateBaseUrls">): GuiSessionClient {
-    return new GuiSessionClient({
-      ...options,
-      resolveCandidateBaseUrls: () => this.resolveCandidateBaseUrls(),
-    });
   }
 
   resolveCandidateBaseUrls(): string[] {
@@ -901,11 +893,5 @@ function isTelemetrySnapshot(value: unknown): value is GuiTelemetrySnapshot {
     && typeof value.entropy === "number"
   );
 }
-
-export {
-  GuiSessionClient,
-  type GuiInboundFrame,
-  type GuiSessionConnectionState,
-} from "./session-client.js";
 
 export type { GuiContinuationInfo, GuiSessionDetail };

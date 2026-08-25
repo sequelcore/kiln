@@ -1,14 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   IncompatibleTranscriptError,
   SessionStore,
   TranscriptStore,
 } from "../../src/wrapper/session-store.js";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionRecord } from "../../src/wrapper/session-store.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
+
+async function appendTranscript(
+  store: TranscriptStore,
+  sessionId: string,
+  event: Parameters<TranscriptStore["appendManyNext"]>[1][number],
+): Promise<void> {
+  await store.appendManyNext(sessionId, [event]);
+}
 
 function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -219,7 +227,7 @@ describe("TranscriptStore", () => {
       task: "interactive",
       startedAt: "2026-04-23T03:50:00.000Z",
     });
-    await store.append(sessionId, {
+    await appendTranscript(store, sessionId, {
       eventId: "evt-1",
       kilnSessionId: sessionId,
       sequence: 1,
@@ -313,6 +321,187 @@ describe("TranscriptStore", () => {
       "evt-managed-requested",
       "evt-managed-started",
     ]);
+  });
+
+  it("does not reread historical transcript content for a steady incremental append", async () => {
+    const sessionId = "incremental-index";
+    await store.appendNext(sessionId, {
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "first" },
+    });
+    const readTranscript = vi.spyOn(store, "readTranscript");
+    await store.appendNext(sessionId, {
+      eventId: "evt-2",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.001Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "second" },
+    });
+    expect(readTranscript).not.toHaveBeenCalled();
+    readTranscript.mockRestore();
+  });
+
+  it("serializes competing store instances and allocates distinct sequences", async () => {
+    const sessionId = "cross-process-sequence";
+    const competingStore = new TranscriptStore(state);
+    await Promise.all([
+      store.appendNext(sessionId, {
+        eventId: "evt-a",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.000Z",
+        kind: "user_message",
+        source: { actor: "user", surface: "cli" },
+        payload: { content: "a" },
+      }),
+      competingStore.appendNext(sessionId, {
+        eventId: "evt-b",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.001Z",
+        kind: "user_message",
+        source: { actor: "user", surface: "cli" },
+        payload: { content: "b" },
+      }),
+    ]);
+    expect((await store.readTranscript(sessionId)).map((event) => event.sequence)).toEqual([1, 2]);
+  });
+
+  it("serializes competing session-index projections without losing another session", async () => {
+    const sessionStore = new SessionStore(state);
+    const competingStore = new SessionStore(state);
+    await Promise.all([
+      sessionStore.replaceSnapshot(makeRecord({ sessionId: "index-a", cost: 0.1 }), { updateContinuationTarget: false }),
+      competingStore.replaceSnapshot(makeRecord({ sessionId: "index-b", cost: 0.2 }), { updateContinuationTarget: false }),
+    ]);
+    expect((await sessionStore.list()).map((record) => record.sessionId).sort()).toEqual(["index-a", "index-b"]);
+  });
+
+  it("rebuilds the derived index after a canonical append settles without index settlement", async () => {
+    const sessionId = "rebuild-index";
+    await store.appendNext(sessionId, {
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "first" },
+    });
+    const transcriptPath = join(store.sessionDir(sessionId), "transcript.jsonl");
+    await appendFile(transcriptPath, `${JSON.stringify({
+      eventId: "evt-crashed",
+      kilnSessionId: sessionId,
+      sequence: 2,
+      timestamp: "2026-05-28T04:40:00.001Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "settled before index" },
+    })}\n`, "utf8");
+    const appended = await store.appendNext(sessionId, {
+      eventId: "evt-3",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.002Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "third" },
+    });
+    expect(appended?.sequence).toBe(3);
+  });
+
+  it("rejects a conflicting retry for an existing event identity", async () => {
+    const sessionId = "event-conflict";
+    await store.appendNext(sessionId, {
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "original" },
+    });
+    await expect(store.appendNext(sessionId, {
+      eventId: "evt-1",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.001Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "different" },
+    })).rejects.toBeInstanceOf(IncompatibleTranscriptError);
+  });
+
+  it("fails closed when one batch reuses an event identity with different content", async () => {
+    const sessionId = "batch-event-conflict";
+    await expect(store.appendManyNext(sessionId, [
+      {
+        eventId: "evt-duplicate",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.000Z",
+        kind: "user_message",
+        source: { actor: "user", surface: "cli" },
+        payload: { content: "first" },
+      },
+      {
+        eventId: "evt-duplicate",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.001Z",
+        kind: "user_message",
+        source: { actor: "user", surface: "cli" },
+        payload: { content: "second" },
+      },
+    ])).rejects.toBeInstanceOf(IncompatibleTranscriptError);
+    await expect(store.readTranscript(sessionId)).resolves.toEqual([]);
+  });
+
+  it("uses the JSON-persisted fingerprint so omitted and undefined fields retry idempotently", async () => {
+    const sessionId = "normalized-fingerprint";
+    const [appended] = await store.appendManyNext(sessionId, [
+      {
+        eventId: "evt-normalized",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.000Z",
+        kind: "user_message",
+        source: { actor: "user", surface: "cli" },
+        payload: { content: "same", optional: undefined },
+      },
+      {
+        eventId: "evt-normalized",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.000Z",
+        kind: "user_message",
+        source: { actor: "user", surface: "cli", component: undefined },
+        payload: { content: "same" },
+      },
+    ]);
+    expect(appended).toMatchObject({ eventId: "evt-normalized", sequence: 1 });
+    await expect(store.readTranscript(sessionId)).resolves.toHaveLength(1);
+  });
+
+  it("repairs only an incomplete final JSONL record and rejects interior corruption", async () => {
+    const sessionId = "crash-tail";
+    await store.appendNext(sessionId, {
+      eventId: "evt-valid",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.000Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "valid" },
+    });
+    const transcriptPath = join(store.sessionDir(sessionId), "transcript.jsonl");
+    await appendFile(transcriptPath, '{"eventId":"evt-partial"', "utf8");
+    await expect(store.readTranscript(sessionId)).resolves.toHaveLength(1);
+    await expect(store.appendNext(sessionId, {
+      eventId: "evt-after-recovery",
+      kilnSessionId: sessionId,
+      timestamp: "2026-05-28T04:40:00.002Z",
+      kind: "user_message",
+      source: { actor: "user", surface: "cli" },
+      payload: { content: "after" },
+    })).resolves.toMatchObject({ sequence: 2 });
+
+    await appendFile(transcriptPath, '{"eventId":"evt-interior"}\n', "utf8");
+    await expect(store.readTranscript(sessionId)).rejects.toBeInstanceOf(IncompatibleTranscriptError);
   });
 
   it("accumulates provider token usage across transcript finalization calls", async () => {

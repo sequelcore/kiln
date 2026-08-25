@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderRequestEvidence } from "@kilnai/core/events";
-import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 
@@ -46,7 +46,7 @@ const providerRequest: ProviderRequestEvidence = {
 };
 
 describe("runtime final effective prompt observation", () => {
-  it("appends exactly one observation before turn completion", () => {
+  it("appends exactly one observation before turn completion", async () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -54,7 +54,7 @@ describe("runtime final effective prompt observation", () => {
       systemPrompt: "Private system prompt.",
     });
 
-    const events = appendCanonicalTurnEvents({
+    const events = await projectCanonicalTurnForTest({
       session,
       channel: "gui",
       userMessageContent: "Private user message.",
