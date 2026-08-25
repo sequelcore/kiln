@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
-import type { InvocationAdmission } from "@kilnai/core";
+import type { InvocationAdmission } from "@kilnai/core/engine";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import {
   assertRuntimeHostToolEnforcement,
