@@ -18,6 +18,7 @@ import {
   EffectivePromptObservationSchema,
   formatEffectivePromptObservation,
 } from "./effective-prompt-observation.js";
+import { presentToolActionTitle } from "./tool-activity-presentation.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
@@ -1975,31 +1976,6 @@ function multimodalRoutedPresentation(payload: Record<string, unknown>): Operato
   };
 }
 
-type ToolActionPhase = "running" | "success" | "error";
-
-function commonToolActionTitle(toolName: string, phase: ToolActionPhase): string | null {
-  const normalized = toolName.toLowerCase();
-  const titles = (
-    normalized === "web_search" || normalized === "search"
-      ? ["Searching the web", "Searched the web", "Web search failed"]
-      : normalized === "shell" || normalized === "shell_command" || normalized === "bash"
-        ? ["Running command", "Ran command", "Command failed"]
-        : normalized === "rg" || normalized === "grep"
-          ? ["Searching files", "Searched files", "File search failed"]
-          : normalized === "read" || normalized === "read_file" || normalized === "read_many" || normalized === "resource_read"
-            ? ["Reading files", "Read files", "Failed to read files"]
-            : normalized === "patch" || normalized === "write" || normalized === "edit"
-              ? ["Editing files", "Edited files", "File edit failed"]
-              : normalized === "browser_navigate"
-                ? ["Opening page", "Opened page", "Page navigation failed"]
-                : normalized === "browser_observe"
-                  ? ["Inspecting page", "Inspected page", "Page inspection failed"]
-                  : null
-  ) satisfies readonly [string, string, string] | null;
-  if (!titles) return null;
-  return titles[phase === "running" ? 0 : phase === "success" ? 1 : 2];
-}
-
 function toolStartedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const toolName = readString(payload.toolName) ?? "tool";
   const input = asRecord(payload.input) ?? payload;
@@ -2013,7 +1989,7 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   }
   addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
-    title: commonToolActionTitle(toolName, "running") ?? `Using ${toolName}`,
+    title: presentToolActionTitle(toolName, "running"),
     summary: managedInvocationSummary ? `${managedInvocationSummary} · Execution in progress` : "Execution in progress",
     compactText: managedInvocationSummary ?? toolName,
     tone: "running",
@@ -2086,8 +2062,7 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   const taskState = workItemTaskEventState(taskStatus);
   return {
     title: taskState?.title
-      ?? commonToolActionTitle(toolName, isError ? "error" : "success")
-      ?? `${isError ? "Failed" : "Completed"} ${toolName}`,
+      ?? presentToolActionTitle(toolName, isError ? "error" : "success"),
     summary: summary ?? undefined,
     compactText: summary ?? managedInvocationSummary ?? toolName,
     tone: taskState?.tone ?? (!isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error"),

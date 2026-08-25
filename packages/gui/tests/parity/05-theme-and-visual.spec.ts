@@ -198,7 +198,9 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const activeBeams = page.locator('[data-role="active-tool-beam"]');
     await expect(activeBeams).toHaveCount(0);
 
-    const actionGroup = page.getByRole("button", { name: "2 actions. Show actions" });
+    const actionGroup = page.getByRole("button", {
+      name: "Repository inspection needs attention. 2 actions. Show details",
+    });
     await expect(actionGroup).toBeVisible({ timeout: 5_000 });
     await actionGroup.click();
 
@@ -272,6 +274,11 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await composer.fill("structured diagnostic visual check");
     await composer.press("Enter");
 
+    const actionGroup = page.getByRole("button", {
+      name: "Actions need attention. 1 action. Show details",
+    });
+    await expect(actionGroup).toBeVisible({ timeout: 15_000 });
+    await actionGroup.click();
     const header = page.getByRole("button", { name: /goal\.create\. Failed\./u });
     await expect(header).toBeVisible({ timeout: 15_000 });
     const tool = header.locator("..");
@@ -309,6 +316,11 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.getByRole("button", { name: /work_item\.(?:update|execution\.start)/u })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
+    const inspectionGroup = page.getByRole("button", {
+      name: "Repository inspection needs attention. 1 action. Show details",
+    });
+    await expect(inspectionGroup).toBeVisible();
+    await inspectionGroup.click();
     const readHeader = page.getByRole("button", { name: /Failed to read files\. Failed\./u });
     await expect(readHeader).toBeVisible();
     const readTool = readHeader.locator("..");

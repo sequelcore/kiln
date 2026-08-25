@@ -14,9 +14,9 @@ import {
   type ScrollBoxRenderable,
 } from "@opentui/core";
 import {
-  formatOperatorEventValue,
   ContextUsageProjectionSchema,
   operatorIdentityInitials,
+  presentToolActionTitle,
   projectManagedAgentIdentity,
   projectOperatorGovernedWorkItemSnapshot,
   type OperatorSessionTurnOutcome,
@@ -169,7 +169,7 @@ export async function handleTextDelta(
 }
 
 /**
- * Handles tool_use events - displays tool in chat with input preview and updates sidebar count.
+ * Handles tool_use events with operator-facing action language and updates sidebar count.
  */
 export function handleToolUse(
   ctx: HandlerContext,
@@ -177,19 +177,7 @@ export function handleToolUse(
   input?: unknown,
   toolCallId?: string,
 ): void {
-  // Format input as inline preview: [key=value, ...]
-  let inputPreview = "";
-  if (input && typeof input === "object") {
-    const entries = Object.entries(input as Record<string, unknown>).slice(0, 3);
-    inputPreview = entries
-      .map(([k, v]) => {
-        const vStr = formatOperatorEventValue(v) ?? "";
-        return vStr.length > 20 ? `${k}=${vStr.slice(0, 17)}...` : `${k}=${vStr}`;
-      })
-      .join(", ");
-    if (inputPreview) inputPreview = " [" + inputPreview + "]";
-  }
-
+  const actionTitle = presentToolActionTitle(toolName, "running");
   const toolMsg = createMessage("tool", "", toolName);
   toolMsg.toolCallId = toolCallId;
   const msgBox = new BoxRenderable(ctx.renderer, {
@@ -204,7 +192,7 @@ export function handleToolUse(
   });
   ctx.chatScrollBox.content.add(msgBox);
   const node = new TextRenderable(ctx.renderer, {
-    content: t`${fg(ctx.theme().toolFg)("⟳ " + (toolName ?? "tool"))}${fg(ctx.theme().textMuted)(inputPreview)}`,
+    content: t`${fg(ctx.theme().toolFg)("⟳ ")}${fg(ctx.theme().textMuted)(actionTitle)}`,
     width: "100%",
   });
   msgBox.add(node);
@@ -213,8 +201,7 @@ export function handleToolUse(
 
   update(ctx.state, "currentActivity", {
     phase: "executing",
-    toolName,
-    details: "running",
+    details: actionTitle,
   });
 
   ctx.state.toolCallCounts[toolName] = (ctx.state.toolCallCounts[toolName] ?? 0) + 1;
@@ -242,6 +229,7 @@ export function handleToolResult(
   output: string,
   toolCallId?: string,
 ): void {
+  const actionTitle = presentToolActionTitle(toolName, "success");
   const truncated = output && output.length > 60
     ? output.slice(0, 57) + "..."
     : output;
@@ -250,13 +238,12 @@ export function handleToolResult(
   );
   if (entry) {
     entry.msg.content = truncated;
-    entry.node.content = t`${fg(ctx.theme().toolFg)("⟳ " + (entry.msg.toolName ?? "tool"))}`;
+    entry.node.content = t`${fg(ctx.theme().toolFg)("✓ ")}${fg(ctx.theme().textMuted)(actionTitle)}`;
   }
 
   update(ctx.state, "currentActivity", {
     phase: "executing",
-    toolName,
-    details: truncated,
+    details: actionTitle,
   });
 }
 
@@ -405,7 +392,8 @@ export function handleToolOutput(
   const combined = `${entry.msg.content}${output}`;
   entry.msg.content = combined.length > 4_096 ? combined.slice(-4_096) : combined;
   const visible = entry.msg.content.split(/\r?\n/u).slice(-8).join("\n").trimEnd();
-  entry.node.content = t`${fg(ctx.theme().toolFg)("âŸ³ " + toolName)}${visible ? `\n${visible}` : ""}`;
+  const actionTitle = presentToolActionTitle(toolName, "running");
+  entry.node.content = t`${fg(ctx.theme().toolFg)("⟳ ")}${fg(ctx.theme().textMuted)(actionTitle)}${visible ? `\n${visible}` : ""}`;
   update(ctx.state, "messages", [...ctx.state.messages]);
 }
 

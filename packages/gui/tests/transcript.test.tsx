@@ -135,7 +135,7 @@ describe("Transcript", () => {
     expect(document.querySelector('[data-role="workflow-activity"] [class*="animate-spin"]')).not.toBeInTheDocument();
     expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
     expect(screen.getByText("2 / 2")).toBeVisible();
-    const scopedActions = screen.getByRole("button", { name: "1 action. Show actions" });
+    const scopedActions = screen.getByRole("button", { name: "Inspected repository. 1 action. Show details" });
     expect(scopedActions).toBeVisible();
     expect(screen.queryByText(/Read transcript\.tsx/u)).not.toBeInTheDocument();
     fireEvent.click(scopedActions);
@@ -268,7 +268,7 @@ describe("Transcript", () => {
       <Transcript
         entries={[
           messageEntry("1", "user", "Inspect the repository"),
-          ...["read", "list", "search"].map((tool, index): TimelineEntry => ({
+          ...["read", "list", "grep"].map((tool, index): TimelineEntry => ({
             id: `timeline:event:${tool}`,
             type: "event",
             eventKind: index === 2 ? "tool_call_started" : "tool_call_completed",
@@ -286,7 +286,10 @@ describe("Transcript", () => {
     const group = document.querySelector('[data-slot="ai-tool-group"]');
     expect(group).toHaveAttribute("data-presentation", "trace");
     expect(group).toHaveAttribute("data-framing", "none");
-    expect(screen.getByRole("button", { name: "Working · 3 actions. Hide actions" })).toBeVisible();
+    const activitySummary = screen.getByRole("button", { name: "Inspecting repository. 3 actions. Show details" });
+    expect(activitySummary).toBeVisible();
+    expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
+    fireEvent.click(activitySummary);
     expect(within(screen.getByRole("list", { name: "Tool activity" })).getAllByRole("listitem")).toHaveLength(3);
     expect(document.querySelectorAll('[data-slot="ai-tool"]')).toHaveLength(3);
     expect(screen.queryByLabelText("JSON output")).not.toBeInTheDocument();
@@ -311,8 +314,8 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "2 actions. Show actions" })).toBeVisible();
-    expect(screen.queryByText(/Working/u)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspected repository. 2 actions. Show details" })).toBeVisible();
+    expect(screen.queryByText("Completed")).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
   });
 
@@ -336,7 +339,7 @@ describe("Transcript", () => {
     );
 
     expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "2 actions. Show actions" })).toHaveTextContent("2 failed");
+    expect(screen.getByRole("button", { name: "Repository inspection needs attention. 2 actions. Show details" })).toBeVisible();
     expect(document.querySelectorAll('[data-role="tool"]')).toHaveLength(0);
   });
 
@@ -390,6 +393,7 @@ describe("Transcript", () => {
     );
 
     expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Inspecting repository. 2 actions. Show details" }));
     const tools = document.querySelectorAll('[data-slot="ai-tool"]');
     expect(tools).toHaveLength(4);
     expect(document.querySelectorAll('[data-slot="ai-tool-header"]')).toHaveLength(4);
@@ -612,7 +616,7 @@ describe("Transcript", () => {
       .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
 
-    fireEvent.click(within(rows[1]!).getByRole("button", { name: "2 actions. Show actions" }));
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Work completed. 2 actions. Show details" }));
     expect(rows[1]).toHaveTextContent("read");
     expect(rows[1]).toHaveTextContent("patch");
     fireEvent.click(within(rows[1]!).getByRole("button", { name: /read\. Completed\. Show details/u }));
@@ -1595,7 +1599,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "2 actions. Show actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Work completed. 2 actions. Show details" }));
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.getAllByText("55 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
 

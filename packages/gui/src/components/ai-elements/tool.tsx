@@ -98,7 +98,7 @@ export function ToolHeader({
         </span>
       ) : <span className="flex-1" />}
       <time
-        className="hidden shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70 sm:inline"
+        className="sr-only"
         dateTime={dateTime}
         title={dateTime}
       >

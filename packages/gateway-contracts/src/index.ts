@@ -457,6 +457,16 @@ export {
 } from "./conversation-turn-projection.js";
 
 export type {
+  ToolActionPhase,
+  ToolActivitySummary,
+  ToolActivitySummaryInput,
+} from "./tool-activity-presentation.js";
+export {
+  presentToolActionTitle,
+  projectToolActivitySummary,
+} from "./tool-activity-presentation.js";
+
+export type {
   ManagedAgentOperatorReplayEnvelope,
   OperatorCockpitAttachTarget,
   OperatorCockpitAttachConnectionKind,

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Ansi from "ansi-to-react";
 import { CheckIcon, CopyIcon, TerminalIcon, Trash2Icon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes } from "react";
+import type { ComponentProps, ComponentType, HTMLAttributes } from "react";
 import {
   createContext,
   useCallback,
@@ -14,6 +14,20 @@ import {
   useRef,
   useState,
 } from "react";
+
+type AnsiComponent = ComponentType<{ readonly children?: string }>;
+
+function resolveAnsiComponent(moduleValue: unknown): AnsiComponent {
+  let candidate = moduleValue;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof candidate === "function") return candidate as AnsiComponent;
+    if (typeof candidate !== "object" || candidate === null || !("default" in candidate)) break;
+    candidate = candidate.default;
+  }
+  throw new TypeError("ansi-to-react did not expose a React component");
+}
+
+const AnsiComponent = resolveAnsiComponent(Ansi);
 
 interface TerminalContextType {
   output: string;
@@ -223,7 +237,7 @@ export const TerminalContent = ({
     >
       {children ?? (
         <pre className="whitespace-pre-wrap break-words">
-          <Ansi>{output}</Ansi>
+          <AnsiComponent>{output}</AnsiComponent>
           {isStreaming && (
             <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current motion-reduce:animate-none" aria-hidden="true" />
           )}

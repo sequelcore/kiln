@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   projectConversationTurnItems,
+  projectToolActivitySummary,
   type ConversationProjectionInput,
   type ConversationProjectionItem,
   formatOperatorEventValue,
@@ -1165,19 +1166,17 @@ function ToolActivityGroupRow(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
-  const active = props.entries.some((entry) => entry.tone === "running");
-  const open = operatorOpen ?? active;
-  const completedCount = props.entries.filter((entry) => entry.tone === "success").length;
-  const failedCount = props.entries.filter((entry) => entry.tone === "error").length;
+  const open = operatorOpen ?? false;
+  const summary = projectToolActivitySummary(props.entries.map((entry) => ({
+    tone: entry.tone,
+    toolName: toolEventIdentifier(entry),
+  })));
   return (
     <OperationalTranscriptSurface dataRole="tool-group" kind="tool">
       <ToolGroup
-        active={active}
-        completedCount={completedCount}
-        failedCount={failedCount}
         onOpenChange={setOperatorOpen}
         open={open}
-        totalCount={props.entries.length}
+        summary={summary}
       >
         {props.entries.map((entry) => (
           <ToolGroupItem key={entry.id}>
@@ -1504,19 +1503,17 @@ function WorkflowToolActivityGroup(props: {
   readonly tools: readonly WorkflowToolCallActivity[];
 }) {
   const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
-  const active = props.tools.some((tool) => tool.state === "running");
-  const completedCount = props.tools.filter((tool) => tool.state === "completed").length;
-  const failedCount = props.tools.filter((tool) => tool.state === "failed").length;
-  const open = operatorOpen ?? active;
+  const open = operatorOpen ?? false;
+  const summary = projectToolActivitySummary(props.tools.map((tool) => ({
+    tone: tool.state === "running" ? "running" : tool.state === "failed" ? "error" : "success",
+    toolName: tool.toolName,
+  })));
   return (
     <div className={props.className} data-role="workflow-tool-activity">
       <ToolGroup
-        active={active}
-        completedCount={completedCount}
-        failedCount={failedCount}
         onOpenChange={setOperatorOpen}
         open={open}
-        totalCount={props.tools.length}
+        summary={summary}
       >
         {props.tools.map((tool) => {
           const Icon = tool.state === "running" ? LoaderCircle : tool.state === "failed" ? CircleAlert : CheckCircle2;

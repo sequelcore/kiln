@@ -1376,19 +1376,12 @@ export async function startTui(
     if (state.status === "running") {
       const activity = state.currentActivity;
       const icon = activity.phase ? (PHASE_ICONS[activity.phase] ?? "") : "";
-      const tool = activity.toolName ? `: ${activity.toolName}` : "";
-      const details =
-        activity.details && activity.details.length > 40
-          ? ` (${activity.details.slice(0, 37)}...)`
-          : activity.details
-            ? ` (${activity.details})`
-            : "";
-
       const spinner =
         SPINNER_FRAMES[spinnerIndex % SPINNER_FRAMES.length] ?? "⠋";
 
       if (activity.phase) {
-        ui.commandBarStatus.content = t`${fg(currentTheme.accent)(spinner)} ${fg(currentTheme.text)(icon + activity.phase + tool + details)}`;
+        const activityLabel = activity.details ?? activity.toolName ?? activity.phase;
+        ui.commandBarStatus.content = t`${fg(currentTheme.accent)(spinner)} ${fg(currentTheme.text)(icon + activityLabel)}`;
       } else {
         ui.commandBarStatus.content = t`${fg(currentTheme.accent)(spinner)} ${fg(currentTheme.textMuted)("thinking")}`;
       }

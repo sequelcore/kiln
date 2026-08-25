@@ -329,6 +329,7 @@ function BrowserUsePanel(props: {
             <div
               aria-label="Live browser viewport"
               data-testid="browser-live-viewport"
+              role="group"
               className="relative block max-h-full max-w-full overflow-hidden rounded-md border border-border/70 bg-background shadow-sm"
               style={{
                 aspectRatio: `${liveViewportFrame.width} / ${liveViewportFrame.height}`,
