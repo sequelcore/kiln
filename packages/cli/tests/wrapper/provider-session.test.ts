@@ -2692,6 +2692,38 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
+  it("reports the sanitized provider cause without retrying a claimed model round", async () => {
+    const providerError = new KilnError(
+      "PROVIDER_UNAVAILABLE",
+      "Codex OAuth request failed",
+      {
+        context: { status: 400, responseBody: "invalid tool schema" },
+        retryable: true,
+      },
+    );
+    const committedError = new Error(
+      "The Runtime model round was claimed; its provider outcome is not safely replayable.",
+      { cause: providerError },
+    );
+    committedError.name = "RuntimeModelRoundCommittedError";
+    runtimeMocks.processMessage.mockRejectedValueOnce(committedError);
+
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-luna",
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "continue governed execution" }));
+
+    expect(events).toContainEqual({
+      type: "error",
+      code: "EXECUTABLE_SESSION_ERROR",
+      message: "The Runtime model round was claimed; its provider outcome is not safely replayable. Cause: Codex OAuth request failed (status 400: invalid tool schema)",
+      isRetryable: false,
+    });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+  });
+
   it("includes credential pool exhaustion outcome and provider cause in streaming errors", async () => {
     const providerError = new Error("openrouter API error 429: free-model rate limit");
     const errStream = (async function* () {

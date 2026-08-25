@@ -1211,11 +1211,14 @@ export class ProviderSession implements IKilnSession {
   }
 }
 
-function isRuntimeModelRoundCommittedError(error: unknown): boolean {
+function isRuntimeModelRoundCommittedError(error: unknown): error is Error {
   return error instanceof Error && error.name === "RuntimeModelRoundCommittedError";
 }
 
 function formatExecutableSessionError(error: unknown): string {
+  if (isRuntimeModelRoundCommittedError(error) && error.cause !== undefined) {
+    return `${error.message} Cause: ${formatExecutableSessionError(error.cause)}`;
+  }
   if (error instanceof AllCredentialsExhaustedError) {
     return formatCredentialPoolExhaustion(error);
   }
