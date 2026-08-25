@@ -1,12 +1,13 @@
 # 00 - Source Stability
 
-Status: Ready
+Status: Blocked
 Priority: Urgent
-Execution: implementation has reached Slice 4's first attended
-issuance/enforcement path. Slice 4 / issue #52 still needs genuine runtime
-attestation. Slice 3 / issue #97 still needs an operator-authorized live run on
-an intended clean candidate, and Slice 2 / issue #100 still needs operator-owned
-quarantine deletion. Slices 5 and 6 remain queued in order.
+Execution: Slices 0, 1, 3, 4, and 5 are complete, and the Slice 6 clean source
+candidate passes every declared credential-free promotion gate on Windows x64.
+The only remaining adoption condition is Slice 2 / issue #100's physical
+deletion of one exact inactive operator quarantine. The execution harness blocks
+that recursive delete before PowerShell starts, so issue #103 cannot record the
+final exact supported commit until the operator removes it.
 Created: 2026-08-23
 
 ## Objective
@@ -129,9 +130,9 @@ remaining operator deletion is the final adoption condition.
 
 ### Slice 3 - Recovery And Live Validation
 
-Status: Code and integration complete; operator-authorized live validation is
-pending on an intended clean candidate. Live entrypoints remain separately
-authorized from portable deterministic fixtures.
+Status: Complete. Portable deterministic evidence and an operator-authorized
+Codex live run both passed on an intended clean candidate. Live entrypoints
+remain separately authorized from portable deterministic fixtures.
 
 Complete [issue #97](https://github.com/sequelcore/kiln/issues/97): deterministic
 crash, restart, replay, cancellation, settlement, stale-evidence, and corrupt-
@@ -159,21 +160,22 @@ sanitized candidate and executor provenance in one atomically replaced private
 report, bounds output and process-tree settlement, fails closed on unauthorized
 or uncataloged assertions, and never claims release readiness.
 
-At the Slice 3 implementation checkpoint, the full credential-free root test,
-typecheck, build, startup-profile, documentation, and diff gates passed.
-Independent Sol-high review reported no HIGH or MEDIUM findings. No live
-provider run was authorized or executed, so issue #97 remains lifecycle-open.
-Transport disconnect, credential expiry, and capacity exhaustion remain
-explicit manifest-v1 planned omissions; they block full or exact live-coverage
-claims but do not replace the required authorized run of the implemented proof
-set.
+The authorized clean-candidate run executed and passed three representative
+Codex cases: fixture-isolated write, read-boundary enforcement, and approved
+write. Nine implementation variants were omitted because their provider routes
+were not authorized, and transport disconnect, credential expiry, and capacity
+exhaustion remain three explicit planned omissions. The private report records
+the candidate, executor provenance, executed/failed/skipped/omitted counts, and
+cleanup truth without persisting credentials or operator paths in the
+repository. These omissions prohibit full-matrix and release-readiness claims;
+they do not invalidate the required representative live recovery evidence.
 
 ### Slice 4 - Trusted Runtime Evidence
 
-Status: Operator policy ratified; passive lease evidence, the legacy
-durable-authority cutoff, and the first attended issuance/enforcement path are
-complete. Genuine runtime attestation remains in progress under
-[issue #52](https://github.com/sequelcore/kiln/issues/52).
+Status: Complete for the supported Codex boundary under
+[issue #52](https://github.com/sequelcore/kiln/issues/52). Operator policy,
+passive lease evidence, the legacy durable-authority cutoff, attended
+issuance/enforcement, and genuine runtime attestation are implemented.
 
 The audit rejected route-derived authority as effective-runtime proof and
 found that full-access consent currently overstates applied enforcement. The
@@ -207,17 +209,20 @@ economic-routed, non-Codex direct-provider, and native CLI-harness paths remain
 fail-closed until they gain an equivalent operator-owned issuance and
 enforcement boundary.
 
-Checkpoint verification on 2026-08-24 passed the full Runtime lane (3,331
-passed, five skipped), full CLI lane (2,589 passed, one skipped), root
-typecheck, documentation validation, and diff checks. Independent Sol-high
-review reported no remaining findings after focused reruns of the attended
-Runtime boundary (30/30) and CLI approval boundary (41/41). No live provider
-call was authorized or executed.
+Codex attestation starts an ephemeral, content-free `thread/start` against the
+exact admitted app-server version and binds the observed executable digest,
+process id, protocol, version, hashed thread identity, and component-scoped
+approval/filesystem/network proof into one short-lived receipt. Aggregate or
+forged proof is rejected. `kiln config verify-runtime codex` refreshes that
+receipt; CLI, GUI, TUI, and doctor consume the same integrity projection. A
+clean supported configuration can reach `current-verified`. Native permission
+semantics that cannot be represented exactly remain
+`unsupported-semantic-translation` rather than being overstated as proven.
 
-Produce effective-runtime permission observation and make the admitted
-integrity states reachable without weakening fail-closed behavior. Lease
-possession is authorization evidence only and never counts as runtime
-attestation or makes `current-verified` reachable by itself.
+The supported proof is exact for Codex app-server `0.149.1`. Claude Code and
+OpenCode do not yet supply equivalent genuine runtime attestation. Lease
+possession remains authorization evidence only and never counts as runtime
+attestation.
 
 Exit gate: `kiln doctor` has no permanently unresolvable permission action on a
 clean supported machine, and CLI, TUI, GUI, and doctor project the same
@@ -225,7 +230,7 @@ integrity result.
 
 ### Slice 5 - Supported Operator Surface Consistency
 
-Status: Queued behind the stability-critical slices.
+Status: Complete for the supported CLI, TUI, and GUI source surfaces.
 
 Close [issue #81](https://github.com/sequelcore/kiln/issues/81), then the
 remaining shared projection boundary in
@@ -237,9 +242,19 @@ by the explicitly supported source surfaces.
 Exit gate: supported surfaces consume canonical sanitized account-usage and
 Session lifecycle evidence without deriving authority or freshness locally.
 
+MCP account usage now refreshes the Codex provider owner, retains expired
+evidence as explicitly stale instead of collapsing it to missing, and reports
+distinct provider failure and credential-unavailable actions. Gateway Contracts
+owns the canonical event ordering, deduplication, approval identity, tool/file,
+route, usage, goal/work-item, terminal, and presentation reduction consumed by
+GUI replay/live state and TUI projection. Runtime owns the process-local
+`idle`/`running` lifecycle revision and freshness window; stale observations
+become `unknown` rather than being derived by a surface.
+
 ### Slice 6 - Source Support And Release Handoff
 
-Status: Blocked on prior promotion gates.
+Status: Verified candidate; blocked only on Slice 2's operator quarantine
+deletion before the exact supported commit is recorded in issue #103.
 
 Use [issue #103](https://github.com/sequelcore/kiln/issues/103) to name the
 exact supported source branch and commit, supported surfaces, and limitations.
@@ -251,6 +266,22 @@ clean-install, and registry gates in the release runbook.
 Exit gate: a clean synthetic checkout can follow the documented source path on
 every admitted platform, and no package or tag is described as available
 without registry evidence.
+
+The candidate source decision admits branch `dev` on Windows 11 x64 with Git
+and Bun `1.4.0`. The named local operator surfaces are CLI, TUI, and GUI; normal
+GUI startup remains loopback-only. A clean detached checkout passed frozen
+dependency installation, root help, full typecheck, the canonical root test
+chain, build, documentation validation, startup-profile tests, and a real GUI
+startup profile. The root chain reported 385 script tests, 4,152 foundation
+tests, 3,339 Runtime tests with five intentional skips, 2,617 CLI tests with one
+intentional skip, and 761 surface tests.
+
+Provider credentials are not part of the source setup contract. The supported
+runtime-integrity proof is the exact Codex boundary described in Slice 4;
+Claude/OpenCode attestation, unattended/background/nested trusted execution,
+remote GUI exposure, non-Windows platforms, installable packages, tags,
+provisional `@kilnai/*` coordinates, and full live-matrix coverage are excluded.
+Issue #104 retains the separate installable-candidate contract.
 
 ## Dependency Rules
 

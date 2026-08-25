@@ -16,7 +16,7 @@ runtime, gateway contracts, core, or CLI layer first.
 | SSH or terminal-first work | TUI via `kiln tui` | Best fit when a browser is unavailable, terminal workflow is preferred, or a remote shell is the control channel. |
 | Automation and scripts | CLI via `kiln` | Best fit for one-shot runs, CI, scheduled jobs, config sync, auth, and machine-readable output. |
 | Code navigation and review | IDE surface | Best fit for inline diffs, jump-to-definition, editor-native context, and focused review. |
-| Remote team operation | Remote GUI behind a gateway | Best fit for long-running supervised work, shared visibility, and browser access from another machine. |
+| Remote team operation | Not supported by the source baseline | Remote connectivity requires the separately queued Connect identity and transport work. |
 | Chat or alert integrations | Gateway channel or connector | Best fit for Discord, Slack, webhook, or product-channel notifications and lightweight operator actions. |
 
 The current repository is source-only. From its root, invoke the CLI entrypoint
@@ -29,6 +29,19 @@ bun packages/cli/src/index.ts --help
 There is no supported global package installation for this source state. The
 project and package names are provisional. Surface-specific guides show the
 source commands and their additional requirements.
+
+The verified source candidate is branch `dev` on Windows 11 x64 with Bun
+`1.4.0`; issue [#103](https://github.com/sequelcore/kiln/issues/103) records the
+exact supported commit when its final operator-local cleanup gate closes. The
+admitted local surfaces are CLI, TUI, and GUI. Remote GUI exposure, macOS,
+Linux, native desktop, package installation, unpublished tags, and provisional
+`@kilnai/*` coordinates are not supported by this baseline.
+
+Credential-free startup does not imply every provider route is admitted.
+Genuine runtime permission attestation is exact only for Codex app-server
+`0.149.1`; Claude Code and OpenCode remain limitation-bearing, and unattended,
+background, or nested trusted execution fails closed without an equivalent
+operator-owned proof boundary.
 
 ## GUI
 

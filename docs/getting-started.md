@@ -14,7 +14,13 @@ You need:
 - Git;
 - Bun 1.4.0, matching `packageManager` in the root `package.json` and CI, for
   repository commands and short-lived CLI execution; and
-- a shell on Windows, macOS, or Linux.
+- Windows 11 x64 and PowerShell or another Windows shell.
+
+The verified source candidate is branch `dev`. Issue
+[#103](https://github.com/sequelcore/kiln/issues/103) will record the exact
+supported commit after its final operator-local cleanup gate closes. macOS and
+Linux remain unadmitted until they pass the same clean-source gates; do not
+infer support from portable unit fixtures or CI syntax.
 
 The persistent Model Gateway does not inherit that ambient Bun as its service
 host. The current source-only Windows preview can adopt the operator's one
@@ -29,11 +35,15 @@ but they are not needed for this tutorial.
 ## Clone the repository
 
 ```bash
-git clone https://github.com/sequelcore/kiln.git
+git clone --branch dev https://github.com/sequelcore/kiln.git
 cd kiln
+git rev-parse HEAD
 ```
 
-All remaining commands run from the repository root unless stated otherwise.
+Compare the printed revision with the exact commit recorded in issue #103 once
+that issue is closed. Do not rely on the repository default branch, a moving
+`dev` head, an unpublished tag, or an `@kilnai/*` package version. All remaining
+commands run from the repository root unless stated otherwise.
 
 ## Run commands from source
 
@@ -100,6 +110,13 @@ does not represent the project test contract.
 Some browser and live-provider checks are intentionally separate because they
 require installed browsers, credentials, quota, or native harnesses. The
 contributing guide names those gates and when they apply.
+
+The admitted local source surfaces are CLI, TUI, and GUI. Normal GUI startup is
+loopback-only. Provider credentials are optional and are not part of clean
+setup. Genuine permission attestation is currently exact only for Codex
+app-server `0.149.1`; Claude Code and OpenCode do not expose the same proof.
+Unattended/background/nested trusted execution, remote GUI exposure, and full
+live-provider matrix coverage are explicit exclusions.
 
 ## Choose what to do next
 

@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [00 - Source Stability](00-source-stability.md) | Ready | Urgent | Resume Slice 4 / [#52](https://github.com/sequelcore/kiln/issues/52) with genuine Codex runtime attestation after the completed attended issuance/enforcement checkpoint, then advance Slices 5 and 6. Slice 3 / [#97](https://github.com/sequelcore/kiln/issues/97) still needs an authorized clean-candidate live run; Slice 2 / [#100](https://github.com/sequelcore/kiln/issues/100) still needs operator-owned quarantine deletion. |
+| 1 | [00 - Source Stability](00-source-stability.md) | Blocked | Urgent | All code, deterministic, live-representative, build, typecheck, docs, help, and startup gates pass on the Windows x64 `dev` candidate. The execution harness blocks the one remaining action: operator-owned deletion of the exact inactive quarantine for [#100](https://github.com/sequelcore/kiln/issues/100). Record the final commit in [#103](https://github.com/sequelcore/kiln/issues/103) immediately afterward. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Queued | Normal | Reassess pairing only after Roadmap 00 names a supported source baseline. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 00 and Roadmap 08 identity. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |

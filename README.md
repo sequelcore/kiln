@@ -17,7 +17,10 @@
 > Kiln is under active development and currently supported only from source.
 > There is no supported installable release for this repository state. The
 > project name and `@kilnai/*` package coordinates are provisional and are
-> expected to change before the next public release.
+> expected to change before the next public release. The verified source
+> candidate is branch `dev` on Windows 11 x64; issue
+> [#103](https://github.com/sequelcore/kiln/issues/103) will name its exact
+> supported commit after the remaining operator-local cleanup gate closes.
 
 Kiln gives applications, operators, and native coding harnesses one place to
 decide what AI work may run, which target and account may execute it, what
@@ -76,18 +79,23 @@ tree.
 
 ## Evaluate Kiln from source
 
-You need [Git](https://git-scm.com/) and
-[Bun 1.4.0](https://bun.sh/docs/installation).
+The admitted candidate requires Windows 11 x64,
+[Git](https://git-scm.com/), and [Bun 1.4.0](https://bun.sh/docs/installation).
+macOS, Linux, remote GUI exposure, and installable package or tag workflows are
+not part of this source baseline.
 
 ```bash
-git clone https://github.com/sequelcore/kiln.git
+git clone --branch dev https://github.com/sequelcore/kiln.git
 cd kiln
+git rev-parse HEAD
 bun install --frozen-lockfile
 bun packages/cli/src/index.ts --help
 bun run typecheck
 ```
 
-The help command is the safest first execution: it does not require provider
+Compare the printed commit with the exact baseline recorded in issue #103 once
+that issue is closed; do not rely on the repository's default branch. The help
+command is the safest first execution: it does not require provider
 credentials or native harness configuration. Run the broader repository gates
 before submitting a change:
 
