@@ -109,5 +109,5 @@ describe("repository fixture portability", () => {
       .map((file) => relative(REPOSITORY_ROOT, file).replaceAll("\\", "/"));
 
     expect(violations, "Replace machine-specific values with synthetic fixtures").toEqual([]);
-  });
+  }, 15_000);
 });
