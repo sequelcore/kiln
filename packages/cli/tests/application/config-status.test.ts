@@ -1056,7 +1056,7 @@ describe("config-status", () => {
         targetId: "codex-config",
         permissionIntegrity: expect.objectContaining({
           harness: "codex",
-          classification: "effective-policy-unproven",
+          classification: "partial-observation",
           effectiveRuntime: expect.objectContaining({
             profile: "trusted-full-access",
             source: "runtime-observation",
@@ -1069,7 +1069,7 @@ describe("config-status", () => {
     expect(snapshot.permissionIntegrity).toEqual([
       expect.objectContaining({
         harness: "codex",
-        classification: "effective-policy-unproven",
+        classification: "partial-observation",
       }),
     ]);
     expect(snapshot.setup.permissionIntegrity).toEqual(snapshot.permissionIntegrity);
@@ -1089,7 +1089,7 @@ describe("config-status", () => {
       permissionIntegrity: [
         expect.objectContaining({
           harness: "codex",
-          classification: "effective-policy-unproven",
+          classification: "partial-observation",
         }),
       ],
     });

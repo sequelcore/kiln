@@ -15,7 +15,7 @@ import type { ExecutionSessionEvent } from "@kilnai/core/events";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {
   return {
-    recordRequested: async (draft: any) => { await onRequest(draft.profile); return { schema: "kiln.runtime-permission-evidence", version: 2, kind: "requested", harness: draft.harness, sessionDigest: "a".repeat(64), targetId: "opencode-config", projectionDigest: "b".repeat(64), effectivePolicyDigest: "c".repeat(64), profile: draft.profile, source: "runtime-request", proof: "inferred", requestedAt: draft.requestedAt.toISOString() } as const; },
+    recordRequested: async (draft: any) => { await onRequest(draft.profile); return { schema: "kiln.runtime-permission-evidence", version: 3, kind: "requested", harness: draft.harness, sessionDigest: "a".repeat(64), targetId: "opencode-config", projectionDigest: "b".repeat(64), effectivePolicyDigest: "c".repeat(64), profile: draft.profile, source: "runtime-request", proof: "inferred", requestedAt: draft.requestedAt.toISOString(), components: { approvalControl: { requestedDigest: "d".repeat(64) }, filesystemSandbox: { requestedDigest: "e".repeat(64) }, networkBoundary: { requestedDigest: "f".repeat(64) } } } as const; },
     recordObserved: async (requested: any, input: any) => { onObserved?.(); return { ...requested, kind: "observed", requestDigest: "d".repeat(64), source: "runtime-observation", proof: input.proof, observedAt: input.observedAt.toISOString(), verifiedAt: input.observedAt.toISOString() }; },
   } as any;
 }

@@ -15,6 +15,7 @@ import { ConfigMutationStore } from "../application/config-mutation-store.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
 import { configSettingKeys } from "../application/config-setting-descriptors.js";
+import { attestCodexRuntimePermissions } from "../application/codex-runtime-permission-attestation.js";
 import type { KilnConfigMutationOperation } from "@kilnai/gateway-contracts";
 import {
   KILN_CONFIG_SETUP_ACTIONS,
@@ -94,6 +95,22 @@ export async function configCommand(
       break;
     }
 
+    case "verify-runtime": {
+      const harness = readPositionalArgs(args)[0];
+      if (harness !== "codex") {
+        console.error("Usage: kiln config verify-runtime codex [--project <path>]");
+        process.exitCode = 1;
+        return;
+      }
+      try {
+        console.log(JSON.stringify(await attestCodexRuntimePermissions({ projectPath: root }), null, 2));
+      } catch (error) {
+        console.error(`Runtime attestation failed: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+      break;
+    }
+
     case "approve": {
       const proposalId = readPositionalArgs(args)[0];
       if (!proposalId) {
@@ -165,6 +182,7 @@ function printConfigHelp(): void {
   console.log("  settings [query]  Print searchable settings (optionally --modified)");
   console.log("  explain <identity> Explain one effective field and its provenance");
   console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
+  console.log("  verify-runtime codex Run a content-free, version-bound Codex runtime attestation");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
   console.log("  reset [--global] <key> Reset one setting to inherited/default state");

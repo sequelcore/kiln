@@ -137,7 +137,20 @@ describe("runtime permission evidence", () => {
         requestedAt: new Date(at.getTime() + 1),
       }),
     );
-    await store.recordObserved(first, { observedAt: new Date(at.getTime() + 2), proof: "proven" });
+    await store.recordObserved(first, {
+      observedAt: new Date(at.getTime() + 2),
+      componentValues: {
+        approvalControl: "approval:on-request",
+        filesystemSandbox: "sandbox:read-only",
+        networkBoundary: "network:restricted",
+      },
+      runtimeIdentity: {
+        protocol: "codex-app-server-v2",
+        executableDigest: "e".repeat(64),
+        processId: 42,
+        threadDigest: "f".repeat(64),
+      },
+    });
     expect(
       (await store.readLatestExact({ harness: "codex", targetId: "codex-config", projectionDigest }))?.observed,
     ).toBeUndefined();

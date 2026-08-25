@@ -8,7 +8,7 @@ import {
   formatVoiceAudioOutputForTerminal,
   formatPresentationIntentAsText,
   operatorEventTargetsSurface,
-  presentOperatorSessionEvent,
+  projectOperatorSessionEvents,
   projectVoiceAudioOutputParts,
   type ExecutionRouteCatalog,
   type AvailableModelCatalog,
@@ -89,7 +89,8 @@ function workItemActivityInput(payload: Record<string, unknown>): unknown {
 
 function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInternal | null {
   const payload = asRecord(event.payload) ?? {};
-  const presentation = presentOperatorSessionEvent(event);
+  const presentation = projectOperatorSessionEvents([event]).presentedEvents[0]?.presentation;
+  if (!presentation) return null;
   if (!operatorEventTargetsSurface(presentation, "activity_panel")) {
     return null;
   }

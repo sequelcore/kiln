@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   OperatorSessionHistoryResponseSchema,
   projectOperatorSessionSummary,
+  resolveOperatorSessionLiveLifecycle,
 } from "../src/operator-session-summary.js";
 
 describe("operator session summary projection", () => {
@@ -120,5 +121,30 @@ describe("operator session summary projection", () => {
         costUsd: 0,
       }],
     }).success).toBe(false);
+  });
+
+  it("projects runtime-owned lifecycle separately from historical outcome and expires it explicitly", () => {
+    const liveLifecycle = {
+      state: "running" as const,
+      source: "runtime-session" as const,
+      revision: 4,
+      observedAt: "2026-08-25T08:00:00.000Z",
+      validUntil: "2026-08-25T08:00:05.000Z",
+    };
+    const summary = projectOperatorSessionSummary({
+      transcript: {
+        sessionId: "session-live",
+        task: "Run one turn",
+        startedAt: "2026-08-25T07:59:00.000Z",
+        lastTurnOutcome: "failed",
+      },
+      liveLifecycle,
+    });
+
+    expect(summary).toMatchObject({ lastTurnOutcome: "failed", liveLifecycle });
+    expect(resolveOperatorSessionLiveLifecycle(summary.liveLifecycle, new Date("2026-08-25T08:00:05.000Z")))
+      .toEqual({ state: "running", freshness: "current" });
+    expect(resolveOperatorSessionLiveLifecycle(summary.liveLifecycle, new Date("2026-08-25T08:00:05.001Z")))
+      .toEqual({ state: "unknown", freshness: "stale" });
   });
 });

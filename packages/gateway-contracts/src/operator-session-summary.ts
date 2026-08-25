@@ -9,6 +9,28 @@ export const OperatorSessionTurnOutcomeSchema = z.enum([
 
 export type OperatorSessionTurnOutcome = z.infer<typeof OperatorSessionTurnOutcomeSchema>;
 
+export const OperatorSessionLiveLifecycleStateSchema = z.enum(["idle", "running"]);
+export type OperatorSessionLiveLifecycleState = z.infer<typeof OperatorSessionLiveLifecycleStateSchema>;
+
+export interface OperatorSessionLiveLifecycle {
+  readonly state: OperatorSessionLiveLifecycleState;
+  readonly source: "runtime-session";
+  readonly revision: number;
+  readonly observedAt: string;
+  readonly validUntil: string;
+}
+
+export const OperatorSessionLiveLifecycleSchema: z.ZodType<OperatorSessionLiveLifecycle> = z.object({
+  state: OperatorSessionLiveLifecycleStateSchema,
+  source: z.literal("runtime-session"),
+  revision: z.number().int().nonnegative(),
+  observedAt: z.string().datetime({ offset: true }),
+  validUntil: z.string().datetime({ offset: true }),
+}).refine((value) => Date.parse(value.validUntil) >= Date.parse(value.observedAt), {
+  message: "Session lifecycle validity cannot precede observation.",
+  path: ["validUntil"],
+});
+
 export interface OperatorSessionRouteIdentity {
   readonly routeId: string;
   /** Derived execution evidence; routeId remains the identity authority. */
@@ -25,6 +47,7 @@ export interface OperatorSessionSummary {
   readonly routesUsed: readonly string[];
   readonly lastRoute?: OperatorSessionRouteIdentity;
   readonly lastTurnOutcome?: OperatorSessionTurnOutcome;
+  readonly liveLifecycle?: OperatorSessionLiveLifecycle;
   readonly updatedAt: string;
   readonly costUsd: number;
 }
@@ -47,6 +70,7 @@ export const OperatorSessionSummarySchema: z.ZodType<OperatorSessionSummary> = z
   routesUsed: z.array(z.string().trim().min(1)),
   lastRoute: OperatorSessionRouteIdentitySchema.optional(),
   lastTurnOutcome: OperatorSessionTurnOutcomeSchema.optional(),
+  liveLifecycle: OperatorSessionLiveLifecycleSchema.optional(),
   updatedAt: z.string().datetime({ offset: true }),
   costUsd: z.number().finite().nonnegative(),
 });
@@ -91,6 +115,19 @@ export interface OperatorSessionLedgerEvidence {
 export interface OperatorSessionSummaryProjectionInput {
   readonly transcript: OperatorSessionTranscriptEvidence;
   readonly ledger?: OperatorSessionLedgerEvidence;
+  readonly liveLifecycle?: OperatorSessionLiveLifecycle;
+}
+
+export function resolveOperatorSessionLiveLifecycle(
+  lifecycle: OperatorSessionLiveLifecycle | undefined,
+  now = new Date(),
+): { readonly state: OperatorSessionLiveLifecycleState | "unknown"; readonly freshness: "current" | "stale" } {
+  if (lifecycle === undefined) return { state: "unknown", freshness: "stale" };
+  const time = now.getTime();
+  const current = time >= Date.parse(lifecycle.observedAt) && time <= Date.parse(lifecycle.validUntil);
+  return current
+    ? { state: lifecycle.state, freshness: "current" }
+    : { state: "unknown", freshness: "stale" };
 }
 
 function meaningful(value: string | undefined): string | undefined {
@@ -168,6 +205,7 @@ export function projectOperatorSessionSummary(
       },
     } : {}),
     ...(transcript.lastTurnOutcome ? { lastTurnOutcome: transcript.lastTurnOutcome } : {}),
+    ...(input.liveLifecycle ? { liveLifecycle: input.liveLifecycle } : {}),
     updatedAt: latestTimestamp(transcriptTimestamp, ledger?.completedAt),
     costUsd,
   });

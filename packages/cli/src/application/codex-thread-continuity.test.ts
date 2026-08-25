@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { type CodexThreadContinuityTransport, runCodexThreadContinuityProof } from "./codex-thread-continuity.js";
+import {
+  type CodexThreadContinuityTransport,
+  runCodexRuntimePermissionAttestationProof,
+  runCodexThreadContinuityProof,
+} from "./codex-thread-continuity.js";
 
 interface JsonObject {
   readonly [key: string]: unknown;
@@ -22,6 +26,64 @@ function scriptedTransport(
 }
 
 describe("Codex thread continuity proof", () => {
+  it("starts one ephemeral content-free thread and returns exact applied permission components", async () => {
+    const transport = scriptedTransport((request) => {
+      if (request.method === "initialize") return { id: request.id, result: {} };
+      if (request.method === "thread/start") {
+        return {
+          id: request.id,
+          result: {
+            thread: { id: "ephemeral-thread", turns: [{ content: "must-not-project" }] },
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            cwd: "C:/project",
+            model: "gpt-5.6-sol",
+            modelProvider: "openai",
+            sandbox: { type: "readOnly", networkAccess: false },
+          },
+        };
+      }
+      throw new Error("unexpected request");
+    });
+
+    await expect(runCodexRuntimePermissionAttestationProof({
+      transport,
+      cwd: "C:/project",
+      timeoutMs: 1_000,
+    })).resolves.toEqual({
+      protocol: "codex-app-server-v2",
+      threadId: "ephemeral-thread",
+      approvalMode: "on-request",
+      sandboxMode: "read-only",
+      networkAccess: "restricted",
+    });
+    expect(transport.writes.at(-1)).toEqual({
+      method: "thread/start",
+      id: 2,
+      params: { cwd: "C:/project", ephemeral: true },
+    });
+    expect(JSON.stringify(transport.writes)).not.toContain("must-not-project");
+  });
+
+  it("fails closed on an unsupported granular approval or external sandbox response", async () => {
+    const transport = scriptedTransport((request) => request.method === "initialize"
+      ? { id: request.id, result: {} }
+      : {
+          id: request.id,
+          result: {
+            thread: { id: "thread" },
+            approvalPolicy: { granular: { rules: true, sandbox_approval: true, mcp_elicitations: true } },
+            sandbox: { type: "externalSandbox", networkAccess: "restricted" },
+          },
+        });
+
+    await expect(runCodexRuntimePermissionAttestationProof({
+      transport,
+      cwd: "C:/project",
+      timeoutMs: 1_000,
+    })).rejects.toMatchObject({ code: "protocol" });
+  });
+
   it("performs the v2 handshake and lists bounded pages without provider filtering or content", async () => {
     const transport = scriptedTransport((request) => {
       if (request.method === "initialize") {

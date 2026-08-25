@@ -995,7 +995,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
     <SessionList
       sessions={sessionList}
       selectedSessionId={selectedSessionId}
-      continuity={sessionContinuity}
       loadState={sessionHistoryLoadState}
       onRetryLoad={() => void sessionsQuery.refetch()}
       onSelect={(sessionId) => {

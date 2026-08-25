@@ -39,12 +39,13 @@ function routeFromSessionEvents(session: RuntimeSession): {
   };
 }
 
-export function projectAppGatewayOperatorSessionSummary(session: RuntimeSession): OperatorSessionSummary {
+export function projectAppGatewayOperatorSessionSummary(session: RuntimeSession, now = new Date()): OperatorSessionSummary {
   const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
   const summary = firstUserMessage ? extractText(firstUserMessage.parts).trim() : "";
   const evidence = routeFromSessionEvents(session);
   const route = evidence.lastRoute;
   return projectOperatorSessionSummary({
+    liveLifecycle: session.observeLiveLifecycle(now),
     transcript: {
       sessionId: session.id,
       ...(route ? { routeId: route.routeId } : {}),
@@ -64,8 +65,9 @@ export function projectAppGatewayOperatorSessionSummary(session: RuntimeSession)
 
 export function projectAppGatewayOperatorSessionHistory(
   sessions: readonly RuntimeSession[],
+  now = new Date(),
 ): readonly OperatorSessionSummary[] {
   return sessions
-    .map(projectAppGatewayOperatorSessionSummary)
+    .map((session) => projectAppGatewayOperatorSessionSummary(session, now))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }

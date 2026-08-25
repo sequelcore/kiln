@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getGuiProviderMetadata, type OperatorSessionSummary } from "@kilnai/gateway-contracts";
-import { ChevronRight, CircleAlert, CirclePause, CircleX, LoaderCircle, Plus, Search, Unplug, X } from "lucide-react";
+import { getGuiProviderMetadata, resolveOperatorSessionLiveLifecycle, type OperatorSessionSummary } from "@kilnai/gateway-contracts";
+import { ChevronRight, CircleAlert, CirclePause, CircleX, LoaderCircle, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { ProviderGlyph } from "@/components/provider-glyph";
-import type { SessionContinuity } from "@/lib/session-continuity";
 import {
   persistCollapsedSessionGroupIds,
   readCollapsedSessionGroupIds,
@@ -18,14 +17,13 @@ export type SessionHistoryLoadState = "loading" | "empty" | "ready" | "stale-err
 interface SessionListProps {
   readonly sessions: readonly OperatorSessionSummary[];
   readonly selectedSessionId: string | null;
-  readonly continuity: SessionContinuity;
   readonly loadState: SessionHistoryLoadState;
   readonly onRetryLoad?: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly onStartNewSession: () => void;
 }
 
-type SessionIndicator = "running" | "background" | "paused" | "failed" | "cancelled";
+type SessionIndicator = "running" | "paused" | "failed" | "cancelled";
 
 interface SessionEntry {
   readonly session: OperatorSessionSummary;
@@ -107,7 +105,7 @@ function groupSessionEntries(entries: readonly SessionEntry[]): readonly Session
   const groups = new Map<SessionHistoryGroupId, SessionEntry[]>();
 
   for (const entry of entries) {
-    const id = entry.indicator === "running" || entry.indicator === "background"
+    const id = entry.indicator === "running"
       ? "active"
       : entry.indicator === "paused" || entry.indicator === "failed"
         ? "needs-attention"
@@ -125,10 +123,8 @@ function groupSessionEntries(entries: readonly SessionEntry[]): readonly Session
 
 function resolveSessionIndicator(
   session: OperatorSessionSummary,
-  continuity: SessionContinuity,
 ): SessionIndicator | null {
-  if (continuity.detachedSessionIds.includes(session.sessionId)) return "background";
-  if (continuity.liveSessionId === session.sessionId && continuity.status === "running") return "running";
+  if (resolveOperatorSessionLiveLifecycle(session.liveLifecycle).state === "running") return "running";
   if (
     session.lastTurnOutcome === "paused"
     || session.lastTurnOutcome === "failed"
@@ -144,7 +140,7 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
   const label = `${visibleLabel} session`;
   const className = state === "failed"
     ? "text-destructive"
-    : state === "background" || state === "cancelled"
+    : state === "cancelled"
       ? "text-muted-foreground"
       : state === "paused"
         ? "text-warning"
@@ -160,8 +156,6 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
     >
       {state === "running" ? (
         <LoaderCircle aria-hidden="true" />
-      ) : state === "background" ? (
-        <Unplug aria-hidden="true" />
       ) : state === "paused" ? (
         <CirclePause aria-hidden="true" />
       ) : state === "cancelled" ? (
@@ -260,8 +254,8 @@ export function SessionList(props: SessionListProps) {
   const collapsedOperationalMembershipRef = useRef<ReadonlyMap<SessionHistoryGroupId, ReadonlySet<string>>>(new Map());
   const visibleSessions = useMemo(() => filterSessions(props.sessions, query), [props.sessions, query]);
   const visibleEntries = useMemo(
-    () => visibleSessions.map((session) => ({ session, indicator: resolveSessionIndicator(session, props.continuity) })),
-    [props.continuity, visibleSessions],
+    () => visibleSessions.map((session) => ({ session, indicator: resolveSessionIndicator(session) })),
+    [visibleSessions],
   );
   const sessionGroups = useMemo(() => groupSessionEntries(visibleEntries), [visibleEntries]);
   const searching = query.trim().length > 0;

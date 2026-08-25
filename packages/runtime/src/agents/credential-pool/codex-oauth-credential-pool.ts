@@ -392,6 +392,10 @@ export class CodexOAuthCredentialPoolService {
     return this.usageStore.list(CODEX_OAUTH_POOL_PROVIDER_ID, now);
   }
 
+  async listRetainedUsage(): Promise<readonly ProviderUsageSnapshot[]> {
+    return this.usageStore.listRetained(CODEX_OAUTH_POOL_PROVIDER_ID);
+  }
+
   /** Opt-in identity lookup decoded from already-local token claims; never fetched from the provider. */
   async listCredentialEmails(): Promise<ReadonlyMap<string, string>> {
     const credentials = await this.readCredentials();

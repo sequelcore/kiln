@@ -1370,6 +1370,13 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     && !assembled.perCallConfig?.runtimeModelRoundDispatch) {
     throw new Error("App Gateway admitted provider turns require a durable Runtime model-round claim.");
   }
+  const liveTurnId = readExecutionTurnId(assembled.perCallConfig);
+  const liveLifecycle = state.session as RuntimeSession & {
+    beginLiveTurn?: (turnId: string) => void;
+    settleLiveTurn?: (turnId: string) => void;
+  };
+  liveLifecycle.beginLiveTurn?.(liveTurnId);
+  try {
   const orchestration = await invokeOrchestratorWithLedgerCapture(ctx, state, assembled);
   const runtimeFinalOutputText = extractText(orchestration.result.parts);
 
@@ -1410,5 +1417,8 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     }
     await ctx.turnCapture?.abort?.(state.session.id);
     throw error;
+  }
+  } finally {
+    liveLifecycle.settleLiveTurn?.(liveTurnId);
   }
 }

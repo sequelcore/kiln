@@ -5,6 +5,7 @@ import type {
   ContextUsageProjection,
 } from "@kilnai/gateway-contracts";
 import {
+  canonicalOperatorSessionEvents,
   ContextUsageProjectionSchema,
   presentOperatorEventPayload,
   VerifiedEfficiencyEvidenceProjectionSchema,
@@ -40,11 +41,9 @@ import type { Message, TimelineEntry, TimelineEventEntry, ToolCallEntry } from "
 /**
  * One-shot batch replay of a loaded `GuiSessionDetail`'s persisted event log
  * into the store's live-shaped state (messages, timeline entries, counters).
- * Distinct concern from the reusable per-event-kind primitives in
- * `session-event-projection`: this module owns the full ordered event-log
- * walk and its running accumulators, and its per-kind branches structurally
- * duplicate the live reducer in `turn-streaming-slice`'s `onSessionEvent` by
- * design — see the split report for why that duplication is left in place.
+ * Canonical ordering, identity, evidence, and presentation semantics are
+ * supplied by the shared gateway-contracts reducer. This module only walks
+ * that projection to construct replaceable GUI layout state.
  * Pure, no store dependency.
  */
 
@@ -76,7 +75,7 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let browserSessionState: GuiBrowserSessionState | null = null;
   let contextUsage: ContextUsageProjection | null = null;
 
-  for (const event of detail.events) {
+  for (const event of canonicalOperatorSessionEvents(detail.events)) {
     const payload = isObjectRecord(event.payload) ? event.payload : {};
 
     if (event.kind === "user_message") {

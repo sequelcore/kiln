@@ -4,7 +4,12 @@
  */
 
 import { t, fg } from "@opentui/core";
-import { formatContextUsageProjection, operatorIdentityInitials, projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
+import {
+  formatContextUsageProjection,
+  operatorIdentityInitials,
+  projectAgentProfileIdentity,
+  resolveOperatorSessionLiveLifecycle,
+} from "@kilnai/gateway-contracts";
 import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
 import type { ReactiveState, Message, PendingApproval, WorkItem } from "./state.js";
 import { formatManagedAgentCockpitLines } from "./managed-agent-cockpit.js";
@@ -168,8 +173,10 @@ function fmtSession(s: OperatorSessionSummary, selected: boolean): string {
   const costStr = `$${s.costUsd.toFixed(2)}`;
   const title = s.title.length > 14 ? s.title.slice(0, 14) + "…" : s.title;
   const route = s.lastRoute ? `[${s.lastRoute.provider}] ` : "";
+  const lifecycle = resolveOperatorSessionLiveLifecycle(s.liveLifecycle);
+  const live = lifecycle.state === "running" ? " [RUNNING]" : "";
   const prefix = selected ? "▶ " : "  ";
-  return `${prefix}${route}${date} ${costStr}\n    ${title}`;
+  return `${prefix}${route}${date} ${costStr}${live}\n    ${title}`;
 }
 
 /**

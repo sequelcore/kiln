@@ -2,7 +2,10 @@ import type {
   GuiSessionEvent,
   OperatorSessionEventKind,
 } from "@kilnai/gateway-contracts";
-import { presentOperatorEventPayload } from "@kilnai/gateway-contracts";
+import {
+  canonicalOperatorSessionEvents,
+  presentOperatorEventPayload,
+} from "@kilnai/gateway-contracts";
 import { isObjectRecord, readString } from "./unknown-value.js";
 import type { ChangedFileEntry, TimelineEventEntry } from "./session-timeline-types.js";
 
@@ -141,18 +144,9 @@ export function appendSessionEvent(
   events: readonly GuiSessionEvent[],
   event: GuiSessionEvent,
 ): readonly GuiSessionEvent[] {
-  if (events.some((candidate) => candidate.eventId === event.eventId)) {
-    return events;
-  }
-  return [...events, event].toSorted((a, b) => {
-    const sequenceCompare = a.sequence - b.sequence;
-    return sequenceCompare === 0 ? a.eventId.localeCompare(b.eventId) : sequenceCompare;
-  });
+  return canonicalOperatorSessionEvents([...events, event]);
 }
 
 export function canonicalSessionEvents(events: readonly GuiSessionEvent[]): readonly GuiSessionEvent[] {
-  return events.reduce<readonly GuiSessionEvent[]>(
-    (canonical, event) => appendSessionEvent(canonical, event),
-    [],
-  );
+  return canonicalOperatorSessionEvents(events);
 }

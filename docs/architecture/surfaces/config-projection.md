@@ -408,6 +408,18 @@ uses Kiln's governed proposal, approval, and apply lifecycle. Conversely, an
 operator-approved personal trusted profile is not unexplained drift when the
 authorization evidence is current and scoped to the local operator.
 
+Codex app-server `0.149.1` provides the first genuine Runtime observation
+producer through `kiln config verify-runtime codex`. The producer starts one
+content-free ephemeral thread, sends no turn or model prompt, and records the
+approval policy, filesystem sandbox, and network-access components reported by
+that exact app-server process. Evidence is bound to the requested component
+digests, executable SHA-256 digest, process ID, hashed thread identity,
+protocol, Runtime version, and freshness window. Every component must be
+`proven` for aggregate proof to be `proven`; an aggregate label supplied
+without component and runtime identity evidence is rejected. Other native
+harness observations remain inferred until an equivalent producer exists, and
+a different Codex version fails closed until its protocol contract is admitted.
+
 Kiln's own attended operator surface has a narrower, enforceable meaning. When
 an operator explicitly selects Full Access for a GUI turn, the attached Kiln
 runtime records `operator_interactive` execution use and applies session,

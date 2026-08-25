@@ -1,8 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { projectAppGatewayOperatorSessionSummary } from "../../src/gateway/app-gateway-operator-session-history.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { deserializeSession, serializeSession } from "../../src/session/persistence/session-serializer.js";
 
 describe("App Gateway operator session history", () => {
+  it("projects process-local live lifecycle with revisioned freshness and no restart inference", () => {
+    const session = new RuntimeSession({
+      sessionId: "session-live",
+      appName: "support",
+      tenantId: "tenant-1",
+      userId: "user-1",
+      systemPrompt: "Help the operator.",
+    });
+    const now = new Date("2026-08-25T08:00:00.000Z");
+
+    expect(projectAppGatewayOperatorSessionSummary(session, now).liveLifecycle).toEqual({
+      state: "idle",
+      source: "runtime-session",
+      revision: 0,
+      observedAt: "2026-08-25T08:00:00.000Z",
+      validUntil: "2026-08-25T08:00:05.000Z",
+    });
+    session.beginLiveTurn("turn-1");
+    session.beginLiveTurn("turn-1");
+    expect(projectAppGatewayOperatorSessionSummary(session, now).liveLifecycle).toMatchObject({ state: "running", revision: 1 });
+    session.settleLiveTurn("turn-1");
+    session.settleLiveTurn("turn-1");
+    expect(projectAppGatewayOperatorSessionSummary(session, now).liveLifecycle).toMatchObject({ state: "idle", revision: 2 });
+
+    const restored = deserializeSession(serializeSession(session));
+    expect(projectAppGatewayOperatorSessionSummary(restored, now).liveLifecycle).toMatchObject({ state: "idle", revision: 0 });
+  });
+
   it("projects exact latest route, terminal outcome, and accumulated cost from canonical events", () => {
     const session = new RuntimeSession({
       sessionId: "session-1",

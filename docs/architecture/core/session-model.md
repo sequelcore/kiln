@@ -123,7 +123,14 @@ Operator surfaces consume one `OperatorSessionSummary` contract from
 ledger, and runtime-event evidence; it is not a GUI-owned session model. The
 projection carries the Kiln session ID, title and optional summary, tags,
 providers used, latest evidenced provider/model route, latest terminal turn
-outcome, update time, and accumulated cost.
+outcome, update time, accumulated cost, and an optional Runtime-owned live
+lifecycle observation. `liveLifecycle` is process-local evidence with an
+explicit monotonic revision, `observedAt`, and `validUntil`; consumers resolve
+an observation after `validUntil` to `unknown` rather than retaining a stale
+`running` label. `running` means at least one exact Runtime turn is unsettled,
+while `idle` means none are unsettled at observation time. It is not serialized
+as durable Session state, so restart begins with fresh `idle` evidence rather
+than inferring activity from historical events.
 
 Route identity is atomic evidence. A provider from one observation must never
 be combined with a model from an older observation, and a surface must not
@@ -169,6 +176,15 @@ Runtime activity is part of the session model. Tools, approvals, changed files,
 diff previews, cost updates, provider routing, assistant deltas, continuity
 decisions, governed work items, and turn completion are emitted as canonical
 operator session events.
+
+`@kilnai/gateway-contracts` owns canonical event reduction as well as event
+presentation. The reducer deduplicates by immutable `eventId`, orders by
+`sequence` and `eventId`, and projects canonical approval IDs, scoped tool-call
+identity, file changes, cost and token evidence, routes, continuity, goals,
+work items, and terminal outcome. Incremental live delivery and batch replay
+consume that same reducer. GUI Zustand and TUI state are replaceable view
+caches: they translate the shared projection into surface layout and
+interaction state but do not own event meaning or execution truth.
 
 Approvals have their own canonical identity. `approval_requested` creates an
 `approvalId`; `approval_resolved` and all operator response frames must carry

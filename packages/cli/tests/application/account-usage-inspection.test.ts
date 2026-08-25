@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defineExecutionCatalog, type ProviderUsageSnapshot } from "@kilnai/core/agents";
 import { createAccountUsageInspectionService } from "../../src/application/account-usage-inspection.js";
 
@@ -29,5 +29,67 @@ describe("account usage inspection", () => {
       expect.objectContaining({ accountId: "plus", credentialId: "credential-plus", freshness: "fresh", availability: "exhausted", eligibleRoutes: [] }),
     ]);
     expect(JSON.stringify(result)).not.toMatch(/email|access_token|refresh_token|fileIdentity|path|raw/i);
+  });
+
+  it("refreshes provider usage before projecting the canonical sanitized snapshot", async () => {
+    const refreshProviderUsage = vi.fn(async () => usage);
+    const service = createAccountUsageInspectionService({
+      readExecutionCatalog: () => catalog,
+      readProviderUsage: async () => [],
+      refreshProviderUsage,
+      listCredentialIds: async () => ["credential-plus", "credential-free"],
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    const result = await service.inspect();
+
+    expect(refreshProviderUsage).toHaveBeenCalledWith("codex-oauth");
+    expect(result.accounts).toEqual([
+      expect.objectContaining({ accountId: "free", evidenceState: "fresh", operatorAction: "none" }),
+      expect.objectContaining({ accountId: "plus", evidenceState: "fresh", operatorAction: "wait-for-provider-reset" }),
+    ]);
+  });
+
+  it.each([
+    ["provider-request-failed", "provider-failed", "retry-provider-usage-refresh"],
+    ["provider-response-unusable", "provider-failed", "retry-provider-usage-refresh"],
+    ["credential-unavailable", "credential-unavailable", "repair-provider-credential"],
+  ] as const)("keeps %s distinct from missing evidence", async (source, evidenceState, operatorAction) => {
+    const failed = usage.map((snapshot) => ({
+      ...snapshot,
+      availability: "unknown" as const,
+      source,
+      confidence: "unknown" as const,
+    }));
+    const service = createAccountUsageInspectionService({
+      readExecutionCatalog: () => catalog,
+      readProviderUsage: async () => [],
+      refreshProviderUsage: async () => failed,
+      listCredentialIds: async () => ["credential-plus", "credential-free"],
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    expect((await service.inspect()).accounts).toEqual([
+      expect.objectContaining({ evidenceState, operatorAction, freshness: "fresh", source }),
+      expect.objectContaining({ evidenceState, operatorAction, freshness: "fresh", source }),
+    ]);
+  });
+
+  it("projects retained expired evidence as stale when refresh is unavailable", async () => {
+    const expired = usage.map((snapshot) => ({
+      ...snapshot,
+      validUntil: "2026-07-22T11:59:59.000Z",
+    }));
+    const service = createAccountUsageInspectionService({
+      readExecutionCatalog: () => catalog,
+      readProviderUsage: async () => expired,
+      listCredentialIds: async () => ["credential-plus", "credential-free"],
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    expect((await service.inspect()).accounts).toEqual([
+      expect.objectContaining({ evidenceState: "stale", freshness: "stale", operatorAction: "refresh-provider-usage" }),
+      expect.objectContaining({ evidenceState: "stale", freshness: "stale", operatorAction: "refresh-provider-usage" }),
+    ]);
   });
 });

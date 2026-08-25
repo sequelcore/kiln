@@ -1,7 +1,9 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import {
+  type CodexRuntimePermissionAttestationProof,
   type CodexThreadContinuityProof,
   type CodexThreadContinuityTransport,
+  runCodexRuntimePermissionAttestationProof,
   runCodexThreadContinuityProof,
 } from "./codex-thread-continuity.js";
 
@@ -25,19 +27,53 @@ export interface CodexAppServerThreadContinuityInput {
   readonly exitTimeoutMs?: number;
 }
 
+export interface CodexAppServerRuntimePermissionAttestationInput {
+  readonly executable: string;
+  readonly cwd: string;
+  readonly timeoutMs?: number;
+  readonly spawnProcess?: (executable: string) => ChildProcessWithoutNullStreams;
+  readonly exitTimeoutMs?: number;
+}
+
+export interface CodexAppServerRuntimePermissionAttestation {
+  readonly processId: number;
+  readonly proof: CodexRuntimePermissionAttestationProof;
+}
+
+export async function runCodexAppServerRuntimePermissionAttestation(
+  input: CodexAppServerRuntimePermissionAttestationInput,
+): Promise<CodexAppServerRuntimePermissionAttestation> {
+  assertExecutable(input.executable);
+  const child = (input.spawnProcess ?? spawnCodexAppServer)(input.executable);
+  if (child.pid === undefined || !Number.isSafeInteger(child.pid) || child.pid <= 0) {
+    if ((child.exitCode ?? null) === null && (child.signalCode ?? null) === null) child.kill("SIGKILL");
+    throw new Error("Codex app-server process identity is unavailable.");
+  }
+  const exited = observeExit(child);
+  const transport = createProcessTransport(child);
+  let proof: CodexRuntimePermissionAttestationProof | undefined;
+  let proofFailure: unknown;
+  try {
+    proof = await runCodexRuntimePermissionAttestationProof({
+      transport,
+      cwd: input.cwd,
+      timeoutMs: input.timeoutMs ?? APP_SERVER_PROOF_TIMEOUT_MS,
+    });
+  } catch (error) {
+    proofFailure = error;
+  }
+  await terminateAndConfirm(child, exited, input.exitTimeoutMs);
+  if (proofFailure !== undefined) throw proofFailure;
+  if (proof === undefined) throw new Error("Codex runtime permission attestation produced no result.");
+  return { processId: child.pid, proof };
+}
+
 export async function runCodexAppServerThreadContinuity(
   input: CodexAppServerThreadContinuityInput,
 ): Promise<CodexThreadContinuityProof> {
-  if (!input.executable.trim() || /[\0\r\n]/u.test(input.executable)) {
-    throw new Error("Codex app-server executable is invalid.");
-  }
+  assertExecutable(input.executable);
   const child = (input.spawnProcess ?? spawnCodexAppServer)(input.executable);
-  const exited = new Promise<void>((resolve) => {
-    child.once("close", () => resolve());
-    child.once("error", () => {
-      if (child.pid === undefined) resolve();
-    });
-  });
+  const exited = observeExit(child);
   const transport = createProcessTransport(child);
   let proof: CodexThreadContinuityProof | undefined;
   let proofFailure: unknown;
@@ -52,17 +88,38 @@ export async function runCodexAppServerThreadContinuity(
   } catch (error) {
     proofFailure = error;
   }
-  if ((child.exitCode ?? null) === null && (child.signalCode ?? null) === null) child.kill("SIGKILL");
-  const exitConfirmed = await Promise.race([
-    exited.then(() => true),
-    new Promise<false>((resolve) =>
-      setTimeout(() => resolve(false), input.exitTimeoutMs ?? APP_SERVER_EXIT_TIMEOUT_MS),
-    ),
-  ]);
-  if (!exitConfirmed) throw new Error("Codex app-server process did not terminate after the continuity proof.");
+  await terminateAndConfirm(child, exited, input.exitTimeoutMs);
   if (proofFailure !== undefined) throw proofFailure;
   if (proof === undefined) throw new Error("Codex thread continuity proof produced no result.");
   return proof;
+}
+
+function assertExecutable(executable: string): void {
+  if (!executable.trim() || /[\0\r\n]/u.test(executable)) {
+    throw new Error("Codex app-server executable is invalid.");
+  }
+}
+
+function observeExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  return new Promise<void>((resolve) => {
+    child.once("close", () => resolve());
+    child.once("error", () => {
+      if (child.pid === undefined) resolve();
+    });
+  });
+}
+
+async function terminateAndConfirm(
+  child: ChildProcessWithoutNullStreams,
+  exited: Promise<void>,
+  exitTimeoutMs = APP_SERVER_EXIT_TIMEOUT_MS,
+): Promise<void> {
+  if ((child.exitCode ?? null) === null && (child.signalCode ?? null) === null) child.kill("SIGKILL");
+  const exitConfirmed = await Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), exitTimeoutMs)),
+  ]);
+  if (!exitConfirmed) throw new Error("Codex app-server process did not terminate after the proof.");
 }
 
 function spawnCodexAppServer(executable: string): ChildProcessWithoutNullStreams {

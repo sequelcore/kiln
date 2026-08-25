@@ -405,7 +405,7 @@ describe("NativeHarnessMcpTools", () => {
   it("returns sanitized account usage without accepting account selection arguments", async () => {
     const inspect = vi.fn<AccountUsageInspectionService["inspect"]>(async () => ({
       operation: "account-usage",
-      accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", source: "provider-endpoint", confidence: "authoritative", eligibleRoutes: ["codex-managed"] }],
+      accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", evidenceState: "fresh", source: "provider-endpoint", confidence: "authoritative", operatorAction: "none", eligibleRoutes: ["codex-managed"] }],
       evidence: { authority: "global-execution-catalog", observedAt: OBSERVED_AT },
     }));
     const server = new NativeHarnessMcpTools({ harness: "codex", accountUsage: { inspect } });

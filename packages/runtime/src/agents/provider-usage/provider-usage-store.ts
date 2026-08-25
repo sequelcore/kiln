@@ -27,6 +27,11 @@ export class InMemoryProviderUsageStore {
       (provider === undefined || snapshot.provider === provider) && isFresh(snapshot, now));
   }
 
+  listRetained(provider?: string): readonly ProviderUsageSnapshot[] {
+    return [...this.snapshots.values()].filter((snapshot) =>
+      provider === undefined || snapshot.provider === provider);
+  }
+
   remove(provider: string, credentialId: string): void {
     this.snapshots.delete(key(provider, credentialId));
   }

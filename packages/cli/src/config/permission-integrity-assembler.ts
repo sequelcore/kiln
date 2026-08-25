@@ -46,6 +46,9 @@ export function assembleRuntimePermissionIntegrity(input: {
   const timestampMatches = observation?.observedAt === observation?.verifiedAt;
   const ageMs = observation ? now.getTime() - Date.parse(observation.verifiedAt) : Number.NaN;
   const isCurrent = timestampMatches && ageMs >= 0 && ageMs <= ttlMs;
+  const componentProofIsComplete = observation !== undefined
+    && observation.runtimeIdentity !== undefined
+    && Object.values(observation.components).every((component) => component.proof === "proven");
   const effectiveRuntime =
     matchesBinding && observation
       ? {
@@ -54,7 +57,7 @@ export function assembleRuntimePermissionIntegrity(input: {
           observedAt: observation.observedAt,
           verifiedAt: observation.verifiedAt,
           freshness: isCurrent ? ("current" as const) : ("stale" as const),
-          proof: observation.proof,
+          proof: observation.proof === "proven" && !componentProofIsComplete ? "inferred" as const : observation.proof,
         }
       : undefined;
   const classified = classifyTrustedExecutionIntegrity({
@@ -67,7 +70,7 @@ export function assembleRuntimePermissionIntegrity(input: {
     authorization: integrity.authorization,
     semanticLoss: integrity.semanticLoss,
     semanticLimitations,
-    observation: "complete",
+    observation: observation?.proof === "inferred" && semanticLimitations.length === 0 ? "partial" : "complete",
   });
   const projectPath = input.projectPath;
   const limitationAcceptanceReader =

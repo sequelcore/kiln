@@ -73,6 +73,30 @@ function makeContext(
 }
 
 describe("admitted-turn configuration revision", () => {
+  it("publishes live lifecycle only while the Runtime-owned turn is executing", async () => {
+    const sessionRegistry = new SessionRegistry();
+    const observedStates: string[] = [];
+    const processMessage = vi.fn(async () => {
+      observedStates.push((await sessionRegistry.getById("lifecycle-session"))!.observeLiveLifecycle().state);
+      return {
+        parts: textParts("done"), inputTokens: 1, outputTokens: 1,
+        cacheReadTokens: 0, cacheWriteTokens: 0, queued: false, outcome: "completed" as const,
+      };
+    });
+    const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
+
+    await processAdmittedTurn(makeContext(orchestrator, sessionRegistry, () => ({
+      revisionSetId: "R1",
+      revisions: { route: "route-R1" },
+    }), { sessionId: "lifecycle-session" }));
+
+    expect(observedStates).toEqual(["running"]);
+    expect((await sessionRegistry.getById("lifecycle-session"))!.observeLiveLifecycle()).toMatchObject({
+      state: "idle",
+      revision: 2,
+    });
+  });
+
   it("uses the revision captured with route admission and never rereads the live provider", async () => {
     const processMessage = vi.fn().mockResolvedValue({
       parts: textParts("done"), inputTokens: 1, outputTokens: 1,

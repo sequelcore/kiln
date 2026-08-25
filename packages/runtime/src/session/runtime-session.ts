@@ -5,6 +5,7 @@ import type {
   ContentPart,
 } from "@kilnai/core";
 import { compareSessionEvents, extractText } from "@kilnai/core";
+import type { OperatorSessionLiveLifecycle } from "@kilnai/gateway-contracts";
 import type { SessionMode } from "./session-mode.js";
 import { transitionSessionMode } from "./session-mode.js";
 import {
@@ -102,6 +103,8 @@ export class RuntimeSession {
   private _sessionEvents: CanonicalSessionEvent[] = [];
   private _runtimeConfigurationRevision: RuntimeConfigurationRevisionSnapshot | undefined;
   private _runtimeSessionAuthorityFacet: RuntimeSessionAuthorityFacet | undefined;
+  private readonly _liveTurnIds = new Set<string>();
+  private _liveLifecycleRevision = 0;
 
   constructor(config: RuntimeSessionConfig) {
     this.appName = config.appName;
@@ -116,6 +119,30 @@ export class RuntimeSession {
 
   get lastActivityAt(): Date {
     return this._lastActivityAt;
+  }
+
+  beginLiveTurn(turnId: string): void {
+    const normalized = requireLiveTurnId(turnId);
+    if (this._liveTurnIds.has(normalized)) return;
+    this._liveTurnIds.add(normalized);
+    this._liveLifecycleRevision += 1;
+  }
+
+  settleLiveTurn(turnId: string): void {
+    const normalized = requireLiveTurnId(turnId);
+    if (!this._liveTurnIds.delete(normalized)) return;
+    this._liveLifecycleRevision += 1;
+  }
+
+  observeLiveLifecycle(now = new Date(), ttlMs = 5_000): OperatorSessionLiveLifecycle {
+    if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error("Session lifecycle TTL must be a positive safe integer.");
+    return {
+      state: this._liveTurnIds.size > 0 ? "running" : "idle",
+      source: "runtime-session",
+      revision: this._liveLifecycleRevision,
+      observedAt: now.toISOString(),
+      validUntil: new Date(now.getTime() + ttlMs).toISOString(),
+    };
   }
 
   get isExpired(): boolean {
@@ -471,6 +498,12 @@ export class RuntimeSession {
     }
     this._version++;
   }
+}
+
+function requireLiveTurnId(value: string): string {
+  const normalized = value.trim();
+  if (!normalized || /[\0\r\n]/u.test(normalized)) throw new Error("Live turn identity is invalid.");
+  return normalized;
 }
 
 function sameRuntimeConfigurationRevision(

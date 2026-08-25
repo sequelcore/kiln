@@ -2,7 +2,16 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionList } from "../src/components/session-list.js";
-import { deriveSessionContinuity } from "../src/lib/session-continuity.js";
+
+function runningLifecycle(revision = 1) {
+  return {
+    state: "running" as const,
+    source: "runtime-session" as const,
+    revision,
+    observedAt: "2026-01-01T00:00:00.000Z",
+    validUntil: "2099-01-01T00:00:00.000Z",
+  };
+}
 
 const sessions = [
   {
@@ -39,20 +48,12 @@ function renderSessionList(input?: {
   onStartNewSession?: () => void;
 }) {
   const selectedSessionId = input?.selectedSessionId ?? "session-1";
-  const continuationTargetId = input?.continuationTargetId ?? null;
+  const projectedSessions = (input?.sessions ?? sessions).map((session) =>
+    session.sessionId === input?.liveSessionId ? { ...session, liveLifecycle: runningLifecycle() } : session);
   return render(
     <SessionList
-      sessions={input?.sessions ?? sessions}
+      sessions={projectedSessions}
       selectedSessionId={selectedSessionId}
-      continuity={deriveSessionContinuity({
-        status: input?.status ?? "ready",
-        selectedSessionId,
-        liveSessionId: input?.liveSessionId ?? null,
-        continuationTargetId,
-        messageCount: 0,
-        sessionEventCount: 0,
-        detachedSessionIds: input?.detachedSessionIds ?? [],
-      })}
       loadState={input?.loadState ?? "ready"}
       onSelect={input?.onSelect ?? (() => {})}
       onStartNewSession={input?.onStartNewSession ?? (() => {})}
@@ -105,9 +106,8 @@ describe("SessionList", () => {
     });
 
     expect(screen.getByLabelText("Running session")).toBeInTheDocument();
-    expect(screen.getByLabelText("Background session")).toBeInTheDocument();
     expect(screen.getByText("Running")).toBeVisible();
-    expect(screen.getByText("Background")).toBeVisible();
+    expect(screen.queryByText("Background")).not.toBeInTheDocument();
     expect(screen.queryByText("Detached")).not.toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -192,19 +192,10 @@ describe("SessionList", () => {
     rerender(
       <SessionList
         sessions={[
-          { ...sessions[0], sessionId: "live", title: "Live execution" },
-          { ...sessions[1], sessionId: "new-live", title: "New live execution" },
+          { ...sessions[0], sessionId: "live", title: "Live execution", liveLifecycle: runningLifecycle(1) },
+          { ...sessions[1], sessionId: "new-live", title: "New live execution", liveLifecycle: runningLifecycle(1) },
         ]}
         selectedSessionId={null}
-        continuity={deriveSessionContinuity({
-          status: "running",
-          selectedSessionId: null,
-          liveSessionId: "live",
-          continuationTargetId: null,
-          messageCount: 0,
-          sessionEventCount: 0,
-          detachedSessionIds: ["new-live"],
-        })}
         loadState="ready"
         onSelect={() => {}}
         onStartNewSession={() => {}}
@@ -380,15 +371,6 @@ describe("SessionList", () => {
       <SessionList
         sessions={[]}
         selectedSessionId={null}
-        continuity={deriveSessionContinuity({
-          status: "ready",
-          selectedSessionId: null,
-          liveSessionId: null,
-          continuationTargetId: null,
-          messageCount: 0,
-          sessionEventCount: 0,
-          detachedSessionIds: [],
-        })}
         loadState="loading"
         onSelect={() => {}}
         onStartNewSession={() => {}}
@@ -401,15 +383,6 @@ describe("SessionList", () => {
       <SessionList
         sessions={sessions}
         selectedSessionId={null}
-        continuity={deriveSessionContinuity({
-          status: "ready",
-          selectedSessionId: null,
-          liveSessionId: null,
-          continuationTargetId: null,
-          messageCount: 0,
-          sessionEventCount: 0,
-          detachedSessionIds: [],
-        })}
         loadState="stale-error"
         onRetryLoad={() => {}}
         onSelect={() => {}}

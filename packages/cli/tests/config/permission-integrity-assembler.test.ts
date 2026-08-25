@@ -41,6 +41,16 @@ function evidence(
   observedAt = now.toISOString(),
   proof: "proven" | "inferred" = "proven",
 ) {
+  const requestedComponents = {
+    approvalControl: { requestedDigest: "1".repeat(64) },
+    filesystemSandbox: { requestedDigest: "2".repeat(64) },
+    networkBoundary: { requestedDigest: "3".repeat(64) },
+  } as const;
+  const observedComponents = {
+    approvalControl: { ...requestedComponents.approvalControl, observedDigest: "1".repeat(64), proof },
+    filesystemSandbox: { ...requestedComponents.filesystemSandbox, observedDigest: "2".repeat(64), proof },
+    networkBoundary: { ...requestedComponents.networkBoundary, observedDigest: "3".repeat(64), proof },
+  } as const;
   const binding = {
     harness: "codex" as const,
     sessionDigest: "b".repeat(64),
@@ -52,16 +62,17 @@ function evidence(
   return {
     requested: {
       schema: "kiln.runtime-permission-evidence" as const,
-      version: 2 as const,
+      version: 3 as const,
       kind: "requested" as const,
       ...binding,
       source: "runtime-request" as const,
       proof: "inferred" as const,
       requestedAt: observedAt,
+      components: requestedComponents,
     },
     observed: {
       schema: "kiln.runtime-permission-evidence" as const,
-      version: 2 as const,
+      version: 3 as const,
       kind: "observed" as const,
       ...binding,
       requestDigest: "d".repeat(64),
@@ -70,6 +81,13 @@ function evidence(
       requestedAt: observedAt,
       observedAt,
       verifiedAt: observedAt,
+      components: observedComponents,
+      ...(proof === "proven" ? { runtimeIdentity: {
+        protocol: "codex-app-server-v2" as const,
+        executableDigest: "4".repeat(64),
+        processId: 42,
+        threadDigest: "5".repeat(64),
+      } } : {}),
     },
   };
 }
@@ -243,7 +261,29 @@ describe("permission integrity runtime assembler", () => {
         projectionDigest,
         now,
       }).classification,
-    ).toBe("effective-policy-unproven");
+    ).toBe("partial-observation");
+  });
+
+  it("does not accept aggregate proven evidence without every component and runtime identity", () => {
+    const incomplete = evidence("restricted");
+    const result = assemble({
+      integrity: projected("restricted"),
+      evidence: {
+        ...incomplete,
+        observed: {
+          ...incomplete.observed,
+          runtimeIdentity: undefined,
+          components: {
+            ...incomplete.observed.components,
+            networkBoundary: { ...incomplete.observed.components.networkBoundary, proof: "inferred" },
+          },
+        },
+      },
+      targetId,
+      projectionDigest,
+      now,
+    });
+    expect(result.classification).not.toBe("current-verified");
   });
 
   it("suppresses only recurring remediation for an exact current OpenCode limitation acceptance", () => {

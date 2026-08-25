@@ -816,14 +816,33 @@ export type { EffectivePromptObservation } from "./effective-prompt-observation.
 
 export {
   OperatorSessionHistoryResponseSchema,
+  OperatorSessionLiveLifecycleSchema,
+  OperatorSessionLiveLifecycleStateSchema,
   OperatorSessionRouteIdentitySchema,
   OperatorSessionSummarySchema,
   OperatorSessionTurnOutcomeSchema,
   projectOperatorSessionSummary,
+  resolveOperatorSessionLiveLifecycle,
 } from "./operator-session-summary.js";
+
+export {
+  applyOperatorSessionEvent,
+  canonicalOperatorSessionEvents,
+  projectOperatorSessionEvents,
+  projectedEventsForSurface,
+} from "./operator-session-projection.js";
+export type {
+  OperatorChangedFileProjection,
+  OperatorPendingApprovalProjection,
+  OperatorProjectedEvent,
+  OperatorSessionProjection,
+  OperatorToolCallProjection,
+} from "./operator-session-projection.js";
 export type {
   OperatorSessionHistoryResponse,
   OperatorSessionLedgerEvidence,
+  OperatorSessionLiveLifecycle,
+  OperatorSessionLiveLifecycleState,
   OperatorSessionRouteIdentity,
   OperatorSessionSummary,
   OperatorSessionSummaryProjectionInput,

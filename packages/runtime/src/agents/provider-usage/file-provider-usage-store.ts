@@ -7,6 +7,7 @@ export interface ProviderUsageStore {
   put(snapshot: ProviderUsageSnapshot): void | Promise<void>;
   get(provider: string, credentialId: string, now?: Date): ProviderUsageSnapshot | undefined | Promise<ProviderUsageSnapshot | undefined>;
   list(provider?: string, now?: Date): readonly ProviderUsageSnapshot[] | Promise<readonly ProviderUsageSnapshot[]>;
+  listRetained(provider?: string): readonly ProviderUsageSnapshot[] | Promise<readonly ProviderUsageSnapshot[]>;
   remove(provider: string, credentialId: string): void | Promise<void>;
 }
 
@@ -30,6 +31,10 @@ export class FileProviderUsageStore implements ProviderUsageStore {
   async list(provider?: string, now = new Date()): Promise<readonly ProviderUsageSnapshot[]> {
     if (provider === undefined) return [];
     return (await this.readProvider(provider)).filter((entry) => Date.parse(entry.validUntil) > now.getTime());
+  }
+
+  async listRetained(provider?: string): Promise<readonly ProviderUsageSnapshot[]> {
+    return provider === undefined ? [] : this.readProvider(provider);
   }
 
   async remove(provider: string, credentialId: string): Promise<void> {

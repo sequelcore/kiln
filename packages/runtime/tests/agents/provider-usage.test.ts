@@ -550,6 +550,27 @@ describe("provider usage store", () => {
 });
 
 describe("Codex provider usage reader", () => {
+  it("retains expired file-backed snapshots for honest diagnostic projection", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "kiln-provider-usage-retained-"));
+    try {
+      const store = new FileProviderUsageStore({ rootDir });
+      await store.put(parseCodexProviderUsage({
+        provider: "codex-oauth",
+        credentialId: "credential-retained",
+        observedAt: OBSERVED_AT,
+        validUntil: VALID_UNTIL,
+        body: { rate_limit: { allowed: true, limit_reached: false } },
+      }));
+
+      await expect(store.list("codex-oauth", new Date("2026-07-22T12:06:00.000Z"))).resolves.toEqual([]);
+      await expect(store.listRetained("codex-oauth")).resolves.toEqual([
+        expect.objectContaining({ credentialId: "credential-retained", validUntil: VALID_UNTIL }),
+      ]);
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves the selected credential immediately before the request and persists only sanitized evidence", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "kiln-provider-usage-"));
     try {

@@ -54,11 +54,10 @@ function settledRouteMode(state: SessionStore): "auto" | "user" {
  * lives here rather than in approval-goal because its body only flips
  * plan-mode and turn state.
  *
- * `onSessionEvent`'s per-event-kind branches below structurally duplicate
- * `session-detail-replay`'s per-event-kind branches (live reducer vs. batch
- * replay of the same event kinds). That duplication predates this split and
- * consolidating it is out of scope for a behavior-preserving decomposition —
- * see the split report.
+ * Canonical event ordering, deduplication, identity, evidence, and
+ * presentation semantics are owned by the gateway-contracts projection.
+ * The handlers below translate that shared projection into transient GUI
+ * layout and interaction state; they are not session or execution authority.
  */
 
 type Api = Pick<StoreApi<SessionStore>, "setState" | "getState">;

@@ -59,6 +59,21 @@ export interface CodexThreadContinuityProof {
   readonly resume: CodexThreadContinuityResumeProof | null;
 }
 
+export interface CodexRuntimePermissionAttestationProofInput {
+  readonly transport: CodexThreadContinuityTransport;
+  readonly cwd: string;
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface CodexRuntimePermissionAttestationProof {
+  readonly protocol: "codex-app-server-v2";
+  readonly threadId: string;
+  readonly approvalMode: "never" | "on-request" | "untrusted";
+  readonly sandboxMode: "read-only" | "workspace-write" | "danger-full-access";
+  readonly networkAccess: "restricted" | "enabled";
+}
+
 interface JsonObject {
   readonly [key: string]: unknown;
 }
@@ -209,6 +224,67 @@ export async function runCodexThreadContinuityProof(
   }
 }
 
+/**
+ * Start one ephemeral thread without a turn and read back the policy applied by
+ * that exact app-server connection. No prompt, thread content, or provider
+ * response is requested or returned.
+ */
+export async function runCodexRuntimePermissionAttestationProof(
+  input: CodexRuntimePermissionAttestationProofInput,
+): Promise<CodexRuntimePermissionAttestationProof> {
+  const timeoutMs = boundedInteger(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, "timeoutMs", 1, MAX_TIMEOUT_MS);
+  if (!input.transport || typeof input.transport.sendLine !== "function" || typeof input.transport.readLine !== "function") {
+    throw new CodexThreadContinuityError("invalid_input", "Codex runtime attestation transport is invalid.");
+  }
+  if (!isSafeText(input.cwd, 32_768) || input.cwd.trim() !== input.cwd) {
+    throw new CodexThreadContinuityError("invalid_input", "Codex runtime attestation cwd is invalid.");
+  }
+
+  const controller = new AbortController();
+  let abortedByCaller = false;
+  const onCallerAbort = (): void => {
+    abortedByCaller = true;
+    controller.abort();
+  };
+  if (input.signal?.aborted) onCallerAbort();
+  else input.signal?.addEventListener("abort", onCallerAbort, { once: true });
+
+  const deadline = Date.now() + timeoutMs;
+  let nextRequestId = 1;
+  try {
+    await request(
+      input.transport,
+      controller,
+      deadline,
+      "initialize",
+      { clientInfo: { name: "kiln", title: "Kiln", version: pkg.version }, capabilities: null },
+      () => abortedByCaller,
+      () => nextRequestId++,
+    );
+    await sendNotification(input.transport, controller, deadline, "initialized", () => abortedByCaller);
+    const result = await request(
+      input.transport,
+      controller,
+      deadline,
+      "thread/start",
+      { cwd: input.cwd, ephemeral: true },
+      () => abortedByCaller,
+      () => nextRequestId++,
+    );
+    return parseRuntimePermissionAttestation(result);
+  } catch (error) {
+    if (error instanceof CodexThreadContinuityError) throw error;
+    if (abortedByCaller) {
+      throw new CodexThreadContinuityError("aborted", "Codex runtime permission attestation was aborted.");
+    }
+    throw new CodexThreadContinuityError("transport", "Codex app-server transport failed.");
+  } finally {
+    input.signal?.removeEventListener("abort", onCallerAbort);
+    controller.abort();
+    await cleanupTransport(input.transport);
+  }
+}
+
 async function request(
   transport: CodexThreadContinuityTransport,
   controller: AbortController,
@@ -298,6 +374,44 @@ function parseResumeProof(value: unknown, expectedThreadId: string): CodexThread
     modelProvider: "kiln",
     exactThreadId: true,
   };
+}
+
+function parseRuntimePermissionAttestation(value: unknown): CodexRuntimePermissionAttestationProof {
+  const result = asRecord(value);
+  const thread = asRecord(result.thread);
+  if (!isSafeText(thread.id, 512)) throw protocolError();
+  if (result.approvalPolicy !== "never" && result.approvalPolicy !== "on-request" && result.approvalPolicy !== "untrusted") {
+    throw protocolError();
+  }
+  const sandbox = asRecord(result.sandbox);
+  if (sandbox.type === "dangerFullAccess") {
+    return {
+      protocol: "codex-app-server-v2",
+      threadId: thread.id,
+      approvalMode: result.approvalPolicy,
+      sandboxMode: "danger-full-access",
+      networkAccess: "enabled",
+    };
+  }
+  if (sandbox.type === "readOnly" && (sandbox.networkAccess === undefined || typeof sandbox.networkAccess === "boolean")) {
+    return {
+      protocol: "codex-app-server-v2",
+      threadId: thread.id,
+      approvalMode: result.approvalPolicy,
+      sandboxMode: "read-only",
+      networkAccess: sandbox.networkAccess === true ? "enabled" : "restricted",
+    };
+  }
+  if (sandbox.type === "workspaceWrite" && (sandbox.networkAccess === undefined || typeof sandbox.networkAccess === "boolean")) {
+    return {
+      protocol: "codex-app-server-v2",
+      threadId: thread.id,
+      approvalMode: result.approvalPolicy,
+      sandboxMode: "workspace-write",
+      networkAccess: sandbox.networkAccess === true ? "enabled" : "restricted",
+    };
+  }
+  throw protocolError();
 }
 
 async function boundedCall<T>(
