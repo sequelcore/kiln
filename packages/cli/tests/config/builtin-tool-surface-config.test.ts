@@ -215,7 +215,10 @@ describe("builtin tool surface config", () => {
       tools: [{ tool: "WebFetch", action: "deny" }],
       commands: [{ pattern: "rm *", action: "deny" }],
       fileGovernance: { denyGlobs: ["**/.env"] },
-      dataFirewall: [{ destination: "external-mcp", action: "deny" }],
+      dataFirewall: [
+        { destination: "external-mcp", action: "deny" },
+        { destination: "logs", action: "redact" },
+      ],
     } as const;
     const admission = createConfiguredInvocationAdmission(policy);
     const effect = {
@@ -241,6 +244,15 @@ describe("builtin tool surface config", () => {
       toolInput: { url: "https://unknown.example" },
       resolvedEffect: { ...effect, dataEgress: "project-data" },
     }).allowed).toBe(false);
+    expect(admission.authorize({
+      toolName: "log",
+      toolInput: { destination: "logs" },
+      resolvedEffect: { ...effect, dataEgress: "metadata" },
+    })).toMatchObject({
+      allowed: false,
+      requiresApproval: false,
+      reason: expect.stringContaining("requires redaction"),
+    });
     expect(assertConfiguredInvocationAdmission(admission, policy)).toBe(admission);
     expect(() => assertConfiguredInvocationAdmission({ authorize: admission.authorize }, policy))
       .toThrow(/counterfeit/iu);

@@ -130,9 +130,15 @@ function firstString(input: Readonly<Record<string, unknown>>, keys: readonly st
 }
 
 function combinePermissionDecisions(
-  decisions: readonly { action: string; source: string; match?: { reason?: string } }[],
+  decisions: readonly {
+    action: string;
+    source: string;
+    dataFirewallAction?: "allow" | "redact" | "deny";
+    match?: { reason?: string };
+  }[],
 ): AuthorityDescriptor {
   const forbidden = decisions.filter((decision) => decision.action === "deny" || decision.action === "forbid");
+  const requiresRedaction = decisions.filter((decision) => decision.dataFirewallAction === "redact");
   const approval = decisions.filter((decision) => decision.action === "ask" || decision.action === "require-approval");
   if (forbidden.length > 0) {
     return {
@@ -140,6 +146,14 @@ function combinePermissionDecisions(
       allowed: false,
       requiresApproval: false,
       reason: forbidden.map(formatPermissionDecision).join("; "),
+    };
+  }
+  if (requiresRedaction.length > 0) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: false,
+      reason: "Data firewall requires redaction; invocation is denied until a preventive redactor owns this destination.",
     };
   }
   if (approval.length > 0) {

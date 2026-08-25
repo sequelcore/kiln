@@ -168,9 +168,11 @@ before provider construction, and immediately before each builtin or MCP
 effect. A missing, copied, stale, broader, or revision-mismatched capability is
 a known pre-provider rejection; it launches nothing and is durably settled as
 failed. Permission categories without an actual host enforcement path remain
-launch blockers. Data-firewall redaction is admitted without a redactor only
-when every admitted tool has `dataEgress: none`, making the protected
-destination unreachable; any egress-capable projection remains blocked.
+launch blockers. The configured invocation admission enforces data-firewall
+denies immediately before effects. A matching `redact` decision is also denied
+at that boundary until a preventive transformation redactor owns the
+destination; it is never treated as an allow, prompt instruction, or post-hoc
+cleanup.
 
 ### 5. Prepare Dispatch
 

@@ -876,7 +876,7 @@ describe("SessionRegistry", () => {
       expect(create).not.toHaveBeenCalled();
     });
 
-    it("admits redaction rules only when the bound tool projection cannot egress data", () => {
+    it("admits redaction rules because matching destinations fail closed at invocation", () => {
       const create = vi.fn(() => makeMockSession("openai"));
       const registry = new SessionRegistry([{
         id: "openai", deliberationTransport: "none" as const, costTier: "high",
@@ -885,11 +885,11 @@ describe("SessionRegistry", () => {
 
       expect(registry.createSession("openai", hostEnforcedProviderConfig(HOST_NO_EGRESS_REDACTION_POLICY)))
         .toBeDefined();
-      expect(() => registry.createSession(
+      expect(registry.createSession(
         "openai",
         hostEnforcedProviderConfig(HOST_NO_EGRESS_REDACTION_POLICY, "metadata"),
-      )).toThrow(/unsupported data-firewall redact/iu);
-      expect(create).toHaveBeenCalledTimes(1);
+      )).toBeDefined();
+      expect(create).toHaveBeenCalledTimes(2);
     });
 
     it("keeps unimplemented agent-scope rules as launch blockers", () => {
