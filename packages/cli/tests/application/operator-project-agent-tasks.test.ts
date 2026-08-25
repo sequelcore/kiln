@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -256,7 +257,7 @@ describe("operator project agent-task production composition", () => {
       expect(readConfigStatusSnapshot).toHaveBeenLastCalledWith(expect.objectContaining({ view: "effective" }));
     } finally {
       await composition.close();
-      rmSync(projectRoot, { recursive: true, force: true });
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });
 
@@ -298,7 +299,7 @@ describe("operator project agent-task production composition", () => {
       recoverInvocations.mockRestore();
       recoverInterrupted.mockRestore();
       recoverCommitments.mockRestore();
-      rmSync(projectRoot, { recursive: true, force: true });
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });
 
@@ -329,7 +330,7 @@ describe("operator project agent-task production composition", () => {
     } finally {
       recoverInvocations.mockRestore();
       closeAuthority.mockRestore();
-      rmSync(projectRoot, { recursive: true, force: true });
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });
 
@@ -396,7 +397,7 @@ describe("operator project agent-task production composition", () => {
       if (defaultTargetAuthority) mockedReadGlobalExecutionTargetAuthority.mockImplementation(defaultTargetAuthority);
       recoverInvocations.mockRestore();
       closeInvocationService.mockRestore();
-      rmSync(projectRoot, { recursive: true, force: true });
+      await rm(projectRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   });
 
