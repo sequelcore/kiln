@@ -43,6 +43,14 @@ Stable boundaries are documented in
 [Agent Context](../architecture/context/agent-context.md). The research and source
 basis lives in
 [Prompt Component And Response Governance](../research/active/prompt-component-governance.md).
+That basis now combines a direct Claude Code production regression, official
+OpenAI and Anthropic evaluation guidance, prompt-sensitivity and long-context
+studies, skill-retrieval limits, privacy-oriented OpenTelemetry guidance, and
+revision-pinned Codex, OpenCode, and Gemini CLI source. It supports the need
+for model-and-harness-specific evaluation, component ablation, bounded
+disclosure, and content-free observation. It does not externally validate
+Kiln's exact manifest, hash, or event design; those remain Kiln-owned contracts
+that must pass the gates below.
 
 ## Goals
 
@@ -145,7 +153,7 @@ prompt-fallback profile is promoted without Slice 2 evaluation.
 
 ### Slice 2 - Evaluation And Ablation
 
-Status: Research behind Slice 1.
+Status: Research basis complete; implementation pending.
 
 Execution owner: [issue #95](https://github.com/sequelcore/kiln/issues/95) for
 the cross-harness communication-default evaluation. The broader prompt-component
@@ -156,15 +164,18 @@ scope, applicability, expected token cost, and eval suite identity. Build
 representative task fixtures (repository discovery, tool use, malformed tool
 recovery, editing, safety, exact-date research, concise response preferences,
 long-form technical explanation). Evaluate current and candidate prompts per
-admitted model family and route, and run component-removal ablations, not only
-whole-prompt comparisons. Define statistical and operational promotion
-thresholds before collecting release evidence.
+admitted model, provider route, snapshot, and harness revision. Run repeated
+trials and component-removal ablations, not only whole-prompt comparisons.
+Prioritize task outcome, required-content preservation, correctness, and safety
+before style, length, tokens, or cache behavior. Define statistical and
+operational promotion thresholds before collecting release evidence.
 
 Acceptance: a prompt change cannot become a default from snapshot, string, or
 token-count tests alone; baseline, candidate, and removal-ablation inputs are
 replayable by manifest hash and config identity; model-family regressions
 remain visible so aggregate improvement cannot hide a material route-specific
-regression; the previously reverted executable-tool reduction is reconsidered
+regression; source limitations and a predeclared no-promotion outcome are
+recorded; the previously reverted executable-tool reduction is reconsidered
 only through this gate.
 
 For communication candidates, the evaluation must separate operator profile,
