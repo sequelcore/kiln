@@ -394,6 +394,52 @@ describe("runSession tool permission gating", () => {
     expect(reportFailure).not.toHaveBeenCalled();
   });
 
+  it("normalizes an empty tool root path to the governed workspace root", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+    const postToolUse = vi.fn();
+    const session = createSessionFromEvents([
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Tree", input: { path: "" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Tree", output: "ok" },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+    ]);
+    const permissionPolicy = {
+      approval: "on-request" as const,
+      sandbox: "read-only" as const,
+      tools: [{ tool: "Tree", action: "allow" as const }],
+      fileGovernance: { allowGlobs: ["."] },
+    };
+
+    const result = await runSession({
+      governedGoalTools: "forbidden",
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: { task: "test", permissionPolicy },
+      permissionPolicy,
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse,
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(true);
+    expect(preToolUse).toHaveBeenCalledWith("Tree");
+    expect(postToolUse).toHaveBeenCalledWith("Tree");
+    expect(reportSuccess).toHaveBeenCalledWith("claude");
+    expect(reportFailure).not.toHaveBeenCalled();
+  });
+
   it("denied tool_use remains a hard prohibition", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();

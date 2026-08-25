@@ -597,8 +597,8 @@ function extractCommandFromToolInput(input: unknown): string | undefined {
 function extractFilePathFromToolInput(input: unknown): string | undefined {
   if (typeof input !== "object" || input === null) return undefined;
   const withPath = input as { filePath?: unknown; path?: unknown };
-  if (typeof withPath.filePath === "string") return withPath.filePath;
-  if (typeof withPath.path === "string") return withPath.path;
+  if (typeof withPath.filePath === "string") return withPath.filePath.length === 0 ? "." : withPath.filePath;
+  if (typeof withPath.path === "string") return withPath.path.length === 0 ? "." : withPath.path;
   return undefined;
 }
 
