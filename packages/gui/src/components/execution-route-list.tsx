@@ -25,6 +25,7 @@ export function ExecutionRouteList(props: {
   readonly routes: readonly ExecutionRoutePickerRow[];
   readonly activeRouteId: string | null | undefined;
   readonly activeAccountOverrideId: string | null | undefined;
+  readonly selectionPending: boolean;
   readonly onSelect: (selection: { routeId: string; accountOverrideId?: string }) => void;
   readonly onRepair: (request: ExecutionRouteRepairRequest) => void | Promise<void>;
 }) {
@@ -54,7 +55,7 @@ export function ExecutionRouteList(props: {
                 <CommandItem
                   value={route.routeId}
                   aria-label={name}
-                  disabled={unavailable}
+                  disabled={unavailable || props.selectionPending}
                   onSelect={() => props.onSelect({ routeId: route.routeId })}
                   className="items-start rounded-lg px-2.5 py-2.5"
                 >
@@ -84,6 +85,7 @@ export function ExecutionRouteList(props: {
                     onPointerDown={(event) => event.stopPropagation()}
                   >
                     <Select
+                      disabled={props.selectionPending}
                       value={activeAccount}
                       onValueChange={(accountOverrideId) => props.onSelect({
                         routeId: route.routeId,
@@ -123,6 +125,7 @@ export function ExecutionRouteList(props: {
                         type="button"
                         size="xs"
                         variant="ghost"
+                        disabled={props.selectionPending}
                         onClick={() => {
                           void props.onRepair({ routeId: route.routeId, providerId: route.providerId, action });
                         }}

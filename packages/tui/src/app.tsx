@@ -1013,6 +1013,7 @@ export async function startTui(
         throw new Error(getRouteReason(selectedRoute) ?? "Execution target is unavailable");
       }
 
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Selecting execution target ${selectedRoute.label}…`)}`;
       const session = await createSession();
       const switchExecutionRoute =
         (
@@ -1041,6 +1042,7 @@ export async function startTui(
       update(state, "executionRoutePickerIndex", routePickerState.routeIndex);
       renderSidebarProvider(state, currentTheme, ui, domain);
       renderSidebarContinuation(state, currentTheme, ui);
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Execution target selected: ${selectedRoute.label}`)}`;
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim().length > 0

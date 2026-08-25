@@ -1,6 +1,5 @@
 import type {
   ExecutionRouteCatalog,
-  ExecutionRouteCatalogEntry,
   ExecutionRouteRepairAction,
   ExecutionRouteReasonCode,
   ExecutionRouteSelectionIntent,
@@ -30,30 +29,4 @@ export type OperatorExecutionRouteAdmissionResult =
 export interface OperatorExecutionRouteSelectionPort {
   getCatalog(): Promise<ExecutionRouteCatalog>;
   admit(intent: ExecutionRouteSelectionIntent): Promise<OperatorExecutionRouteAdmissionResult>;
-}
-
-export function rejectUnavailableExecutionRoute(
-  catalog: ExecutionRouteCatalog,
-  intent: ExecutionRouteSelectionIntent,
-): OperatorExecutionRouteAdmissionResult | undefined {
-  const route = catalog.routes.find(({ routeId }) => routeId === intent.routeId);
-  if (!route) {
-    return { ok: false, reasonCode: "route-not-configured", reason: `Execution route '${intent.routeId}' is not configured.`, repairActions: ["refresh-route-catalog", "review-route-configuration"] };
-  }
-  if (route.availability !== "available") {
-    return unavailable(route);
-  }
-  if (intent.accountOverrideId && !route.accountOverrideIds?.includes(intent.accountOverrideId)) {
-    return { ok: false, reasonCode: "account-unavailable", reason: `Account override '${intent.accountOverrideId}' is not available for route '${route.routeId}'.`, repairActions: ["check-account", "select-another-route"] };
-  }
-  return undefined;
-}
-
-function unavailable(route: ExecutionRouteCatalogEntry): OperatorExecutionRouteAdmissionResult {
-  return {
-    ok: false,
-    reasonCode: route.reasonCodes[0] ?? "unknown",
-    reason: `Execution route '${route.routeId}' is ${route.availability}.`,
-    repairActions: route.repairActions,
-  };
 }

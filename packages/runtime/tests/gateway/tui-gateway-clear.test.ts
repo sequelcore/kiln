@@ -649,6 +649,56 @@ describe("TUI gateway startup discovery", () => {
 });
 
 describe("TUI gateway execution-route catalog", () => {
+  it("admits a selection without rescanning the execution-route catalog", async () => {
+    vi.resetModules();
+    stubBunServe();
+    const executionRouteSelection = {
+      getCatalog: vi.fn(async () => ({ routes: [] })),
+      admit: vi.fn(async () => ({
+        ok: true as const,
+        admission: { routeId: "opencode-gpt-5", providerId: "opencode", providerModelId: "openai/gpt-5" },
+      })),
+    };
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }));
+    const sessionManager = makeSessionManager();
+    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+      ...makeTuiTestRouting(sessionManager),
+      executionRouteSelection,
+    });
+
+    try {
+      const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "execution_route",
+          requestId: "select-opencode",
+          routeId: "opencode-gpt-5",
+        }),
+      }), wsCtx);
+
+      expect(executionRouteSelection.getCatalog).not.toHaveBeenCalled();
+      expect(executionRouteSelection.admit).toHaveBeenCalledWith(expect.objectContaining({
+        requestId: "select-opencode",
+        routeId: "opencode-gpt-5",
+      }));
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "execution_route_changed",
+        routeId: "opencode-gpt-5",
+        requestId: "select-opencode",
+        providerId: "opencode",
+        providerModelId: "openai/gpt-5",
+      }));
+    } finally {
+      discoverySpy.mockRestore();
+      gateway.shutdown();
+    }
+  });
+
   it("refreshes the execution-route catalog on request without reconnecting", async () => {
     vi.resetModules();
     stubBunServe();

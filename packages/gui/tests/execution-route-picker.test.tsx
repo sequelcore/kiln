@@ -57,6 +57,32 @@ describe("ExecutionRoutePicker", () => {
     expect(onRepair).toHaveBeenNthCalledWith(2, { routeId: "offline", providerId: "private-provider", action: "refresh-route-catalog" });
   });
 
+  it("shows authoritative selection progress, prevents concurrent selection, and reports failure", () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <ExecutionRoutePicker
+        catalog={catalog}
+        selectionStatus={{ state: "selecting", routeId: "luna" }}
+        onSelect={onSelect}
+        onRepair={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Selecting Luna");
+    fireEvent.click(screen.getByRole("option", { name: /Luna, Exact account/ }));
+    expect(onSelect).not.toHaveBeenCalled();
+
+    rerender(
+      <ExecutionRoutePicker
+        catalog={catalog}
+        selectionStatus={{ state: "failed", message: "Selected account is unavailable." }}
+        onSelect={onSelect}
+        onRepair={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Selected account is unavailable.");
+  });
+
   it("keeps an unknown provider named all separate from the all-providers filter", () => {
     render(<ExecutionRoutePicker catalog={{ routes: [{
       routeId: "custom",

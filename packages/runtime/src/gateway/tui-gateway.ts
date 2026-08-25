@@ -96,10 +96,7 @@ import type {
   RuntimeTurnFileChange,
   RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
-import {
-  rejectUnavailableExecutionRoute,
-  type OperatorExecutionRouteSelectionPort,
-} from "./operator-execution-route-selection.js";
+import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
 import {
   fingerprintOperatorTurnIntent,
   type OperatorSessionAuthorityAdmissionBridge,
@@ -978,9 +975,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
             if (frame.type === "execution_route") {
               const selectionFrame = frame as { readonly type: "execution_route"; readonly requestId: string; readonly routeId: string; readonly accountOverrideId?: string };
-              const catalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
-              const localRejection = rejectUnavailableExecutionRoute(catalog, selectionFrame);
-              const admission = localRejection ?? await options.executionRouteSelection?.admit(selectionFrame) ?? { ok: false as const, reasonCode: "route-evidence-pending" as const, reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const };
+              const admission = await options.executionRouteSelection?.admit(selectionFrame) ?? { ok: false as const, reasonCode: "route-evidence-pending" as const, reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const };
               if (!admission.ok) {
                 ws.send(JSON.stringify({ type: "execution_route_change_failed", routeId: selectionFrame.routeId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions }));
                 return;

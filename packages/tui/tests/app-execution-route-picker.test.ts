@@ -529,12 +529,14 @@ describe("TUI execution-route picker", () => {
       expect(harness.switchExecutionRoute).toHaveBeenCalledWith("openai-gpt-5");
       expect(harness.state?.currentProvider).toBe("claude");
       expect(harness.state?.currentModel).toBe("claude-sonnet-4-6");
+      expect(harness.ui?.commandBarStatus.content).toContain("Selecting execution target OpenAI GPT-5");
 
       resolveSwitch?.("openai-gpt-5");
       await flushUi();
 
       expect(harness.state?.currentProvider).toBe("openai");
       expect(harness.state?.currentModel).toBe("gpt-5.4");
+      expect(harness.ui?.commandBarStatus.content).toContain("Execution target selected: OpenAI GPT-5");
     } finally {
       resolveSwitch?.("openai-gpt-5");
       harness.renderer?.destroy();

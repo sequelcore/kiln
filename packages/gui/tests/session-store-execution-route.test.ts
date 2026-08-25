@@ -25,6 +25,13 @@ const route = (overrides: Partial<Pick<AutomaticRoute, "availability" | "reasonC
 
 describe("session-store execution target selection", () => {
   beforeEach(() => { localStorage.clear(); useSessionStore.setState({ outboundSend: null, executionRouteSelecting: false, executionRouteSelectionTarget: null, activeRouteId: null, activeAccountOverrideId: null, providerOperationFailure: null, executionRouteCatalog: { routes: [] }, executionTargetWizardResult: null }); });
+  it("reports selection failure when no gateway connection is active", () => {
+    expect(useSessionStore.getState().selectExecutionRoute("terra")).toBe(false);
+    expect(useSessionStore.getState().providerOperationFailure).toMatchObject({
+      operation: "select-route",
+      message: "Execution target selection requires an active gateway connection.",
+    });
+  });
   it("sends an admitted route with an exact account override", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);

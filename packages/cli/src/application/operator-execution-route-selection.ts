@@ -35,27 +35,68 @@ export function createOperatorExecutionRouteSelectionPort(input: {
     admit: async (intent: ExecutionRouteSelectionIntent) => {
       const snapshot = input.readConfigSnapshot();
       const capturedCatalog = catalog(snapshot.config);
-      const projected = await projectCatalog(capturedCatalog, input.resolveAccountAvailability, snapshot.revision);
-      const rejected = rejectUnavailableExecutionRoute(projected, intent);
-      if (rejected) return rejected;
+      let admitted: ReturnType<typeof admitOperatorExecutionIntent>;
       try {
-        const admitted = admitOperatorExecutionIntent(capturedCatalog, intent);
-        return {
-          ok: true,
-          admission: {
-            routeId: admitted.routeId,
-            providerId: admitted.providerId,
-            providerModelId: admitted.providerModelId,
-          },
-        };
+        admitted = admitOperatorExecutionIntent(capturedCatalog, intent);
       } catch (error) {
+        const configuredRoute = capturedCatalog.routes.some((route) => route.id === intent.routeId);
+        if (configuredRoute && intent.accountOverrideId !== undefined) {
+          return {
+            ok: false,
+            reasonCode: "account-unavailable",
+            reason: error instanceof Error ? error.message : "Execution account admission failed.",
+            repairActions: ["check-account", "refresh-route-catalog"],
+          };
+        }
         return {
           ok: false,
           reasonCode: "route-not-configured",
-          reason: error instanceof Error ? error.message : "Execution target admission failed.",
+          reason: `Execution target '${intent.routeId}' is not configured.`,
           repairActions: ["review-route-configuration"],
         };
       }
+      let accountAvailability: readonly OperatorExecutionRouteAccountAvailability[];
+      try {
+        accountAvailability = await input.resolveAccountAvailability({
+          admission: admitted,
+          catalog: capturedCatalog,
+          configurationRevision: {
+            revisionSetId: snapshot.revision,
+            revisions: { global: snapshot.revision },
+          },
+        });
+      } catch (error) {
+        return {
+          ok: false,
+          reasonCode: "route-evidence-pending",
+          reason: error instanceof Error ? error.message : "Execution target availability could not be resolved.",
+          repairActions: ["refresh-route-catalog"],
+        };
+      }
+      const admittedAccountIds = admitted.accountSelection.mode === "automatic"
+        ? admitted.accountSelection.eligibleAccountIds
+        : [admitted.accountSelection.accountId];
+      const admittedAccountAvailability = admittedAccountIds.map((accountId) => (
+        accountAvailability.find((account) => account.accountId === accountId)
+        ?? { accountId, available: false, reasonCodes: ["missing-credentials"] as const }
+      ));
+      if (!admittedAccountAvailability.some(isExecutableAccountAvailability)) {
+        const reasonCodes = routeReasonCodes(admittedAccountAvailability);
+        return {
+          ok: false,
+          reasonCode: reasonCodes[0] ?? "route-evidence-pending",
+          reason: `Execution target '${intent.routeId}' is unavailable.`,
+          repairActions: repairActionsFor(reasonCodes),
+        };
+      }
+      return {
+        ok: true,
+        admission: {
+          routeId: admitted.routeId,
+          providerId: admitted.providerId,
+          providerModelId: admitted.providerModelId,
+        },
+      };
     },
   };
 }
@@ -165,34 +206,4 @@ function repairActionsFor(reasonCodes: readonly ExecutionRouteReasonCode[]) {
     return ["select-another-route", "retry-route", "refresh-route-catalog"] as const;
   }
   return ["check-account", "refresh-route-catalog"] as const;
-}
-
-function rejectUnavailableExecutionRoute(
-  catalog: ExecutionRouteCatalog,
-  intent: ExecutionRouteSelectionIntent,
-) {
-  const route = catalog.routes.find((candidate) => candidate.routeId === intent.routeId);
-  if (!route) {
-    return {
-      ok: false as const,
-      reasonCode: "route-not-configured" as const,
-      reason: `Execution target '${intent.routeId}' is not configured.`,
-      repairActions: ["review-route-configuration"] as const,
-    };
-  }
-  if (intent.accountOverrideId && (route.accountSelection.mode !== "automatic" || !route.accountOverrideIds?.includes(intent.accountOverrideId))) {
-    return {
-      ok: false as const,
-      reasonCode: "account-unavailable" as const,
-      reason: `Account override '${intent.accountOverrideId}' is not executable for route '${intent.routeId}'.`,
-      repairActions: ["check-account", "refresh-route-catalog"] as const,
-    };
-  }
-  if (route.availability === "available") return undefined;
-  return {
-    ok: false as const,
-    reasonCode: route.reasonCodes[0] ?? "route-evidence-pending" as const,
-    reason: `Execution target '${intent.routeId}' is unavailable.`,
-    repairActions: route.repairActions,
-  };
 }

@@ -91,6 +91,7 @@ describe("GUI gateway execution routing", () => {
         routeId: "claude-default",
         requestId: "request-claude",
       });
+      expect(executionRouteSelection.getCatalog).not.toHaveBeenCalled();
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
         type: "execution_route_changed",
         routeId: "claude-default",

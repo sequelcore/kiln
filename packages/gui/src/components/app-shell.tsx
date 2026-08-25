@@ -54,7 +54,7 @@ import { createAppShellCommandExecutor } from "./app-shell-command-actions.js";
 import { buildComposerTurnOptions } from "./app-shell-composer-submission.js";
 import { createExecutionRoutePickerActions } from "./app-shell-execution-route-actions.js";
 import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
-import { ExecutionRoutePicker } from "./execution-route-picker.js";
+import { ExecutionRoutePicker, type ExecutionRouteSelectionStatus } from "./execution-route-picker.js";
 import { ModelSelector } from "./ai-elements/model-selector.js";
 import { ProviderGlyph } from "./provider-glyph.js";
 import {
@@ -302,6 +302,9 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const executionRouteCatalog = useSessionStore((state) => state.executionRouteCatalog ?? EMPTY_EXECUTION_ROUTE_CATALOG);
   const activeRouteId = useSessionStore((state) => state.activeRouteId);
   const activeAccountOverrideId = useSessionStore((state) => state.activeAccountOverrideId);
+  const executionRouteSelecting = useSessionStore((state) => state.executionRouteSelecting);
+  const executionRouteSelectionTarget = useSessionStore((state) => state.executionRouteSelectionTarget);
+  const providerOperationFailure = useSessionStore((state) => state.providerOperationFailure);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const liveSessionId = useSessionStore((state) => state.liveSessionId);
@@ -1036,8 +1039,15 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const drawerLabels = resolveDrawerLabels(mobileDrawerMode);
   const executionRoutePickerActions = createExecutionRoutePickerActions({
     selectExecutionRoute,
-    readFailure: () => useSessionStore.getState().providerOperationFailure,
   });
+  const executionRouteSelectionStatus: ExecutionRouteSelectionStatus = executionRouteSelecting && executionRouteSelectionTarget
+    ? {
+        state: "selecting",
+        routeId: executionRouteSelectionTarget.routeId,
+      }
+    : providerOperationFailure?.operation === "select-route"
+      ? { state: "failed", message: providerOperationFailure.message }
+      : { state: "idle" };
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -1434,11 +1444,14 @@ function useAppShellRuntimeView(props: AppShellProps) {
               catalog={executionRouteCatalog}
               activeRouteId={activeRouteId}
               activeAccountOverrideId={activeAccountOverrideId}
+              selectionStatus={executionRouteSelectionStatus}
               onSelect={(selection) => {
                 void executionRoutePickerActions.onSelectRoute(
                   selection.routeId,
                   selection.accountOverrideId,
-                ).then(() => setIsExecutionRoutePickerOpen(false));
+                ).then((result) => {
+                  if (result.status === "selected") setIsExecutionRoutePickerOpen(false);
+                });
               }}
               onRepair={(request) => {
                 switch (request.action) {

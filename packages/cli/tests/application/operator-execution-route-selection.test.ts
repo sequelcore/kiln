@@ -24,6 +24,56 @@ describe("operator execution target selection", () => {
     expect(readConfigSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves availability only for the selected route during admission", async () => {
+    const config = managedAgentIntentConfig();
+    const baseCatalog = syntheticExecutionCatalog(config)!;
+    const resolveAccountAvailability = vi.fn(async () => (
+      [{ accountId: "codex-account", available: true, reasonCodes: [] as const }]
+    ));
+    const port = createOperatorExecutionRouteSelectionPort({
+      readConfigSnapshot: () => ({ config, revision: `sha256:${"a".repeat(64)}` }),
+      readExecutionCatalog: () => ({
+        ...baseCatalog,
+        routes: [
+          ...baseCatalog.routes,
+          { ...baseCatalog.routes[0]!, id: "unrelated-route", label: "Unrelated route" },
+        ],
+      }),
+      resolveAccountAvailability,
+    });
+
+    await expect(port.admit({ routeId: "codex-standard" })).resolves.toMatchObject({
+      ok: true,
+      admission: { routeId: "codex-standard" },
+    });
+    expect(resolveAccountAvailability).toHaveBeenCalledTimes(1);
+    expect(resolveAccountAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      admission: expect.objectContaining({ routeId: "codex-standard" }),
+    }));
+  });
+
+  it("rejects unknown routes and ineligible account overrides before resolving availability", async () => {
+    const resolveAccountAvailability = vi.fn(async () => (
+      [{ accountId: "codex-account", available: true, reasonCodes: [] as const }]
+    ));
+    const port = createOperatorExecutionRouteSelectionPort({
+      readConfigSnapshot: () => ({ config: managedAgentIntentConfig(), revision: `sha256:${"a".repeat(64)}` }),
+      readExecutionCatalog,
+      resolveAccountAvailability,
+    });
+
+    await expect(port.admit({ routeId: "missing" })).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "route-not-configured",
+      reason: "Execution target 'missing' is not configured.",
+    });
+    await expect(port.admit({ routeId: "codex-standard", accountOverrideId: "personal" })).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "account-unavailable",
+    });
+    expect(resolveAccountAvailability).not.toHaveBeenCalled();
+  });
+
   it("projects route availability from the configured account candidates", async () => {
     const accountAvailability = { current: [] as { accountId: string; available: boolean; reasonCodes: readonly any[] }[] };
     const resolveAccountAvailability = vi.fn(async ({ admission }: {

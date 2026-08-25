@@ -137,10 +137,7 @@ import {
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
-import {
-  rejectUnavailableExecutionRoute,
-  type OperatorExecutionRouteSelectionPort,
-} from "./operator-execution-route-selection.js";
+import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
 import {
   fingerprintOperatorTurnIntent,
   type OperatorTurnDispatchPort,
@@ -1447,9 +1444,7 @@ function wireOperatorTransport(
 
             if (frame.type === "execution_route") {
               const selectionFrame = frame as Extract<GuiOutboundFrame, { type: "execution_route" }>;
-              const catalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
-              const localRejection = rejectUnavailableExecutionRoute(catalog, selectionFrame);
-              const admission = localRejection ?? await input.executionRouteSelection?.admit(selectionFrame) ?? {
+              const admission = await input.executionRouteSelection?.admit(selectionFrame) ?? {
                 ok: false as const, reasonCode: "route-evidence-pending" as const,
                 reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const,
               };

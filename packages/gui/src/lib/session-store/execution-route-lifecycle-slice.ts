@@ -74,7 +74,10 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
 
   selectExecutionRoute: (routeId, accountOverrideId) => {
     const state = get();
-    if (!state.outboundSend) return false;
+    if (!state.outboundSend) {
+      set({ providerOperationFailure: { operation: "select-route", message: "Execution target selection requires an active gateway connection." } });
+      return false;
+    }
     const route = state.executionRouteCatalog.routes.find((candidate) => candidate.routeId === routeId);
     if (route?.availability !== "available" || (accountOverrideId && !route.accountOverrideIds?.includes(accountOverrideId))) {
       set({ providerOperationFailure: { operation: "select-route", message: route ? `Execution target '${routeId}' is ${route.availability}.` : `Execution target '${routeId}' is unavailable.` } });
