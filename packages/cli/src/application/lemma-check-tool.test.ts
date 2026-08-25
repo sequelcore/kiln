@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createLemmaCheckTool,
+  type LemmaCheckOutput,
   type LemmaCheckQualificationResult,
   type LemmaCheckSubprocessRequest,
   type LemmaCheckSubprocessResult,
@@ -29,8 +30,10 @@ describe("lemma_check", () => {
   it("exposes an empty-only model schema and fixes the candidate/tool arguments at the host", async () => {
     const fixture = createFixture();
     const requests: LemmaCheckSubprocessRequest[] = [];
+    const observations: LemmaCheckOutput[] = [];
     const tool = createLemmaCheckTool(fixture.workspacePath, {
       ...fixture.options,
+      recordObservation: (observation) => observations.push(observation),
       runner: async (request) => {
         requests.push(request);
         return successfulSubprocess(fixture.qualificationResult);
@@ -47,6 +50,11 @@ describe("lemma_check", () => {
 
     const result = await tool.execute({ name: "lemma_check", input: {} });
     expect(result.isError).toBe(false);
+    expect(observations).toEqual([expect.objectContaining({
+      kind: "pipeline_passed",
+      status: "passed",
+      stage: "complete",
+    })]);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.args).toEqual(expect.arrayContaining([
       expect.stringContaining("lemma-script-qualification"),
@@ -61,6 +69,8 @@ describe("lemma_check", () => {
     const rejected = await tool.execute({ name: "lemma_check", input: { file: "other.ts" } });
     expect(rejected.isError).toBe(true);
     expect(JSON.parse(rejected.output)).toMatchObject({ stage: "input", status: "failed" });
+    expect(observations).toHaveLength(2);
+    expect(observations[1]).toMatchObject({ kind: "invalid_input", stage: "input", status: "failed" });
     expect(requests).toHaveLength(1);
   });
 

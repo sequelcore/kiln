@@ -24,6 +24,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   closeManagedAccountRuntimeComposition: vi.fn(),
   closeMemoryRepository: vi.fn(),
   createDefaultRegistry: vi.fn(),
+  createLemmaCheckTool: vi.fn(),
   createBenchmarkAuthorityWorkspaceLease: vi.fn(() => ({
     rootPath: join(tmpdir(), "kiln-test-benchmark-authority"),
     cleanup: vi.fn(),
@@ -190,6 +191,11 @@ vi.mock("../../src/application/benchmark-authority-workspace.js", () => ({
 vi.mock("../../src/application/private-formal-screening-package.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/application/private-formal-screening-package.js")>()),
   createPrivateFormalScreeningWorkspaceLease: benchmarkExecutorMocks.createPrivateFormalScreeningWorkspaceLease,
+}));
+
+vi.mock("../../src/application/lemma-check-tool.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/application/lemma-check-tool.js")>()),
+  createLemmaCheckTool: benchmarkExecutorMocks.createLemmaCheckTool,
 }));
 
 vi.mock("../../src/application/benchmark-backend-verifier.js", async (importOriginal) => ({
@@ -424,6 +430,12 @@ describe("createBenchmarkSessionExecutor", () => {
       registry: {},
       worktreeManager: {},
     });
+    benchmarkExecutorMocks.createLemmaCheckTool.mockImplementation(() => ({
+      name: "lemma_check",
+      description: "Synthetic lemma check.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      execute: vi.fn(),
+    }));
     benchmarkExecutorMocks.createSessionBuiltinToolOptions.mockImplementation((options) => ({
       ...options,
       artifactResources: { store: {} },
@@ -1099,41 +1111,57 @@ describe("createBenchmarkSessionExecutor", () => {
     );
     const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
     if (!defaultRun) throw new Error("benchmark run mock was not initialized");
-    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (input) => ({
-      ...await defaultRun(input),
-      transcript: [{
-        seq: 1,
-        ts: "2026-08-20T00:00:00.000Z",
-        event: {
-          type: "tool_result",
-          toolName: "lemma_check",
-          toolCallId: "lemma-1",
-          toolCallScopeId: "scope-1",
-          output: JSON.stringify({
-            kind: "pipeline_passed",
-            status: "passed",
-            stage: "complete",
-            versions: {
-              lemmaScript: { expected: "0.6.0", observed: "0.6.0" },
-              dafny: { expected: "4.11.0", observed: "4.11.0" },
-            },
-            digests: {
-              source: FORMAL_SOURCE_AFTER,
-              generated: "sha256:" + "e".repeat(64),
-              lemmaScriptExecutable: "sha256:" + "f".repeat(64),
-              dafnyExecutable: "sha256:" + "1".repeat(64),
-              dependencyBinding: "sha256:" + "2".repeat(64),
-            },
-            processes: [],
-            policyEligible: true,
-            diagnosticCodes: [],
-            verification: { correctnessChecks: { total: 1, passed: 1, failed: 0, inconclusive: 0 } },
-            semanticEquivalence: "unresolved",
-            benchmarkReady: false,
-          }),
-        },
-      }],
+    const observation = {
+      kind: "pipeline_passed",
+      status: "passed",
+      stage: "complete",
+      versions: {
+        lemmaScript: { expected: "0.6.0", observed: "0.6.0" },
+        dafny: { expected: "4.11.0", observed: "4.11.0" },
+      },
+      digests: {
+        source: FORMAL_SOURCE_AFTER,
+        generated: "sha256:" + "e".repeat(64),
+        lemmaScriptExecutable: "sha256:" + "f".repeat(64),
+        dafnyExecutable: "sha256:" + "1".repeat(64),
+        dependencyBinding: "sha256:" + "2".repeat(64),
+      },
+      processes: [],
+      policyEligible: true,
+      diagnosticCodes: [],
+      verification: { correctnessChecks: { total: 1, passed: 1, failed: 0, inconclusive: 0 } },
+      semanticEquivalence: "unresolved",
+      benchmarkReady: false,
+    } as const;
+    benchmarkExecutorMocks.createLemmaCheckTool.mockImplementationOnce((
+      _workspacePath: string,
+      toolOptions: { readonly recordObservation?: (value: typeof observation) => void },
+    ) => ({
+      name: "lemma_check",
+      description: "Synthetic lemma check.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      execute: async () => {
+        toolOptions.recordObservation?.(observation);
+        return { output: JSON.stringify(observation), isError: false };
+      },
     }));
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (input: {
+      readonly sessionConfig: {
+        readonly builtinToolOptions: {
+          readonly additionalTools?: readonly {
+            readonly name: string;
+            execute(input: { readonly name: string; readonly input: Record<string, unknown> }): Promise<unknown>;
+          }[];
+        };
+      };
+    }) => {
+      const lemmaCheck = input.sessionConfig.builtinToolOptions.additionalTools?.find(
+        (tool) => tool.name === "lemma_check",
+      );
+      if (!lemmaCheck) throw new Error("lemma_check was not projected");
+      await lemmaCheck.execute({ name: "lemma_check", input: {} });
+      return defaultRun(input);
+    });
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: { targetId: "benchmark-codex", accountOverrideIds: ["subscription-a"] },

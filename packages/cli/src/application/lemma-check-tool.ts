@@ -102,6 +102,8 @@ export interface LemmaCheckToolOptions {
   readonly requiredFunctionNames: readonly string[];
   readonly toolchain: LemmaCheckToolchain;
   readonly timeoutMs: number;
+  /** Host-only evidence sink; receives the exact compact result returned by this invocation. */
+  readonly recordObservation?: (observation: LemmaCheckOutput) => void;
   /** Host-only test/packaging override; never model input. */
   readonly qualificationScriptPath?: string;
   /** Injectable subprocess runner. Production defaults to a Bun child process. */
@@ -237,6 +239,7 @@ export class LemmaCheckTool implements DevTool {
 
   async execute(input: ToolInput): Promise<ToolResult> {
     const output = await this.screen(input);
+    this.options.recordObservation?.(output);
     return {
       output: JSON.stringify(output),
       isError: output.status !== "passed",

@@ -107,6 +107,7 @@ import {
 import {
   createLemmaCheckTool,
 } from "./lemma-check-tool.js";
+import type { LemmaCheckOutput } from "./lemma-check-tool.js";
 import type {
   PrivateFormalScreeningCaseFacts,
   PrivateFormalScreeningPackageFacts,
@@ -459,6 +460,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     benchmarkCleanupRegistry.register(async () => boundedWork.close());
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
+    const capturedLemmaCheckObservations: LemmaCheckOutput[] = [];
     const baseBuiltinToolOptions = {
       ...sessionBuiltinToolOptions,
       workItemStore,
@@ -471,6 +473,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               requiredFunctionNames: formalScreeningCase.requiredFunctionNames,
               toolchain: options.formalScreeningConfig,
               timeoutMs: LEMMA_CHECK_TIMEOUT_MS,
+              recordObservation: (observation) => capturedLemmaCheckObservations.push(observation),
             })]
           : []),
       ],
@@ -746,7 +749,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       || result.successfulModelId !== effectiveModel
     );
     const lemmaCheckObservations = isFormalScreening
-      ? result.transcript.flatMap((entry) => parseLemmaCheckObservation(entry.event))
+      ? capturedLemmaCheckObservations.flatMap(parseLemmaCheckObservation)
       : [];
     const finalSourceHash = observedVerification?.changes.changed.find(
       (entry) => entry.path === "src/solution.ts",
@@ -1002,26 +1005,13 @@ function computeFormalVerifierHash(screeningCase: PrivateFormalScreeningCaseFact
   });
 }
 
-function parseLemmaCheckObservation(event: {
-  readonly type: string;
-  readonly toolName?: string;
-  readonly output?: unknown;
-}): readonly [Record<string, unknown>] | readonly [] {
-  if (event.type !== "tool_result" || event.toolName !== "lemma_check" || typeof event.output !== "string") {
+function parseLemmaCheckObservation(observation: unknown): readonly [Record<string, unknown>] | readonly [] {
+  if (!isRecord(observation) || typeof observation.kind !== "string" || typeof observation.status !== "string"
+    || typeof observation.stage !== "string" || observation.semanticEquivalence !== "unresolved"
+    || observation.benchmarkReady !== false || !isRecord(observation.digests)) {
     return [];
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(event.output);
-  } catch {
-    return [];
-  }
-  if (!isRecord(parsed) || typeof parsed.kind !== "string" || typeof parsed.status !== "string"
-    || typeof parsed.stage !== "string" || parsed.semanticEquivalence !== "unresolved"
-    || parsed.benchmarkReady !== false || !isRecord(parsed.digests)) {
-    return [];
-  }
-  return [parsed];
+  return [observation];
 }
 
 function isPassedLemmaCheckObservation(
