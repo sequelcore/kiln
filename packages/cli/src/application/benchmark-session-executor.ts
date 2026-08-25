@@ -212,6 +212,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
   return async (input, context) => {
     const startedAt = Date.now();
     const isFormalScreening = context.profile.id === "kiln-formal-verification-pilot";
+    const recordedRepeatIndex = isFormalScreening ? context.runIndex : context.repeatIndex;
     const formalScreeningCase = isFormalScreening
       ? resolveFormalScreeningCase(options, context)
       : undefined;
@@ -800,7 +801,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       metadata: {
         activeAgentId: context.profile.id,
         runIndex: context.runIndex,
-        repeatIndex: context.repeatIndex,
+        repeatIndex: recordedRepeatIndex,
         providerId: result.successfulProviderId,
         modelId: result.successfulModelId,
         // The route the trial asked for, recorded alongside the route it got.
@@ -864,7 +865,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         metadata: {
           activeAgentId: context.profile.id,
           runIndex: context.runIndex,
-          repeatIndex: context.repeatIndex,
+          repeatIndex: recordedRepeatIndex,
           sessionSucceeded: false,
           diagnostics: ["Canonical execution account route was unavailable before provider dispatch."],
           ...(expectedRouteId ? { expectedRouteId } : {}),

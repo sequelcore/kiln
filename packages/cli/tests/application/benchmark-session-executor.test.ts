@@ -1010,6 +1010,60 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(result.metadata?.formalScreeningBudget).toMatchObject({ maxToolCalls: 24 });
   });
 
+  it("records the scheduled formal protocol slot when an invalid trial does not advance the generic repeat", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (input) => ({
+      ...await defaultRun(input),
+      toolCallCount: 25,
+    }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { targetId: "benchmark-codex", accountOverrideIds: ["subscription-a"] },
+      formalScreeningPackage: FORMAL_PACKAGE,
+      formalScreeningConfig: FORMAL_CONFIG,
+    });
+
+    const result = await executor("Implement the private task.", makeBenchmarkContext({
+      id: "formal-pair-1-C0",
+      input: "Implement the private task.",
+      metadata: { formalScreeningArm: "C0" },
+    }, { id: "kiln-formal-verification-pilot" }, { runIndex: 1, repeatIndex: 0 }));
+
+    expect(result.trial).toEqual({ status: "invalid", reason: "budget" });
+    expect(result.metadata).toMatchObject({ runIndex: 1, repeatIndex: 1 });
+  });
+
+  it("preserves the scheduled formal protocol slot when routing fails before dispatch", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const unavailable = new Error("sensitive account details must not escape");
+    unavailable.name = "OperatorSessionExecutionRoutingError";
+    benchmarkExecutorMocks.runSession.mockRejectedValueOnce(unavailable);
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { targetId: "benchmark-codex", accountOverrideIds: ["subscription-a"] },
+      formalScreeningPackage: FORMAL_PACKAGE,
+      formalScreeningConfig: FORMAL_CONFIG,
+    });
+
+    const result = await executor("Implement the private task.", makeBenchmarkContext({
+      id: "formal-pair-1-C0",
+      input: "Implement the private task.",
+      metadata: { formalScreeningArm: "C0" },
+    }, { id: "kiln-formal-verification-pilot" }, { runIndex: 1, repeatIndex: 0 }));
+
+    expect(result.trial).toEqual({ status: "invalid", reason: "account-route-unavailable" });
+    expect(result.metadata).toMatchObject({ runIndex: 1, repeatIndex: 1 });
+    expect(JSON.stringify(result)).not.toContain("sensitive account details");
+  });
+
   it("invalidates a formal trial without complete route identity binding", async () => {
     benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
