@@ -26,26 +26,6 @@ const OBSERVE_WORKSPACE: ActionEffectEnvelope = {
   idempotency: "idempotent",
 };
 
-const BASH_DESTRUCTIVE: ActionEffectEnvelope = {
-  operation: "mutate",
-  boundaries: ["process", "workspace", "machine"],
-  reversibility: "irreversible",
-  dataEgress: "none",
-  identityUse: "none",
-  consequences: ["local-state", "security"],
-  idempotency: "non-idempotent",
-};
-
-const BASH_NETWORK: ActionEffectEnvelope = {
-  operation: "mutate",
-  boundaries: ["process", "workspace", "network", "external-system"],
-  reversibility: "irreversible",
-  dataEgress: "unknown",
-  identityUse: "unknown",
-  consequences: ["external-state", "security"],
-  idempotency: "unknown",
-};
-
 const PATCH_APPLY: ActionEffectEnvelope = {
   operation: "mutate",
   boundaries: ["process", "workspace"],
@@ -158,7 +138,7 @@ const MONITOR_START_MUTATION: ActionEffectEnvelope = {
 
 const dangerousCommandDetector = new DeterministicDangerousCommandDetector();
 
-const bashResolver: InvocationEffectResolver = (_toolName, input, _envelope) => {
+const bashResolver: InvocationEffectResolver = (_toolName, input, envelope) => {
   const command = typeof input.command === "string" ? input.command : "";
   if (!command.trim()) {
     return OBSERVE_PROCESS;
@@ -167,13 +147,7 @@ const bashResolver: InvocationEffectResolver = (_toolName, input, _envelope) => 
   if (decision.action === "allow") {
     return OBSERVE_WORKSPACE;
   }
-  if (decision.reasonCode === "download_execute") {
-    return BASH_NETWORK;
-  }
-  if (decision.reasonCode === "destructive_unix" || decision.reasonCode === "destructive_windows") {
-    return BASH_DESTRUCTIVE;
-  }
-  return _envelope;
+  return envelope;
 };
 
 const patchResolver: InvocationEffectResolver = (_toolName, input, _envelope) => {

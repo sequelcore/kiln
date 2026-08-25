@@ -65,14 +65,33 @@ const FILE_MUTATION_COMPENSATABLE: ActionEffectEnvelope = {
   idempotency: "conditionally-idempotent" as IdempotencyType,
 };
 
-const SHELL_COMMAND: ActionEffectEnvelope = {
+/**
+ * Concrete worst-case ceiling for an arbitrary shell command.
+ *
+ * Admission happens before command input exists, so the catalog cannot rely on
+ * invocation-time classification to complete this declaration. The invocation
+ * resolver may narrow deterministically read-only commands beneath this ceiling.
+ */
+const SHELL_COMMAND_CEILING: ActionEffectEnvelope = {
   operation: "mutate" as OperationType,
-  boundaries: ["process", "workspace", "machine", "network", "external-system"] as readonly BoundaryType[],
-  reversibility: "unknown" as ReversibilityType,
-  dataEgress: "unknown" as DataEgressType,
-  identityUse: "unknown" as IdentityUseType,
-  consequences: ["local-state", "external-state", "security", "unknown"] as readonly ConsequenceType[],
-  idempotency: "unknown" as IdempotencyType,
+  boundaries: [
+    "process",
+    "workspace",
+    "machine",
+    "network",
+    "external-system",
+  ] as readonly BoundaryType[],
+  reversibility: "irreversible" as ReversibilityType,
+  dataEgress: "sensitive-data" as DataEgressType,
+  identityUse: "privileged" as IdentityUseType,
+  consequences: [
+    "local-state",
+    "external-state",
+    "financial",
+    "legal",
+    "security",
+  ] as readonly ConsequenceType[],
+  idempotency: "non-idempotent" as IdempotencyType,
 };
 
 const WEB_OBSERVE: ActionEffectEnvelope = {
@@ -236,7 +255,7 @@ const VERIFIER_EXECUTION: ActionEffectEnvelope = {
  */
 export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnvelope> = {
   // --- Shell and file tools ---
-  bash: SHELL_COMMAND,
+  bash: SHELL_COMMAND_CEILING,
   read: OBSERVE_NONE_EGRESS,
   read_many: {
     operation: "observe" as OperationType,

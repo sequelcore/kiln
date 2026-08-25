@@ -42,6 +42,7 @@ import { collectRuntimeFormalVerificationObservations } from "../../src/work-gov
 import { SqliteBoundedWorkAuthority } from "../../src/work-governance/index.js";
 import type { RuntimeFormalVerificationObservation } from "../../src/work-governance/index.js";
 import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-invocation/phase-recovery.js";
+import { projectToolPermissionAdmissionFromPerCallConfig } from "../../src/session/effective-authority-admission-bundle.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
@@ -1634,12 +1635,21 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(config.toolAllowlist?.has("write")).toBe(true);
     expect(config.toolAllowlist?.has("edit")).toBe(true);
     expect(config.toolAllowlist?.has("patch")).toBe(true);
+    expect(config.toolAllowlist?.has("bash")).toBe(true);
     expect(config.toolAuthority?.get("write")).toMatchObject({
       level: 4,
       allowed: true,
       requiresApproval: false,
       reason: "Governed destructive execution admitted by effective turn authority.",
     });
+
+    const admission = projectToolPermissionAdmissionFromPerCallConfig({
+      candidateToolNames: runtimeSurface.toolDefinitions.map((tool) => tool.name),
+      config,
+    });
+    expect(
+      admission.allowedToolPermissions.some((permission) => permission.toolName === "bash"),
+    ).toBe(true);
   });
 
   it("keeps effectiveTurnAuthority in lockstep with returned allowlist and authority map", () => {
