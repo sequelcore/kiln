@@ -22,7 +22,9 @@ interface AppShellFrameHandlerInput {
   readonly onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   readonly onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   readonly onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
+  readonly onProviderCatalogState: (frame: Extract<GuiInboundFrame, { type: "provider_catalog_state" }>) => void;
   readonly onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
+  readonly onExecutionRoutesRefreshFailed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refresh_failed" }>) => void;
   readonly onExecutionTargetWizardResult: (frame: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>) => void;
   readonly onExecConfirmed: () => void;
   readonly onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
@@ -109,8 +111,14 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
       case "provider_auth_failed":
         input.onProviderAuthFailed(frame);
         return;
+      case "provider_catalog_state":
+        input.onProviderCatalogState(frame);
+        return;
       case "execution_routes_refreshed":
         input.onExecutionRoutesRefreshed(frame);
+        return;
+      case "execution_routes_refresh_failed":
+        input.onExecutionRoutesRefreshFailed(frame);
         return;
       case "execution_target_wizard_result":
         input.onExecutionTargetWizardResult(frame);

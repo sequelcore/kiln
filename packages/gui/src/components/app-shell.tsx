@@ -304,6 +304,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const activeAccountOverrideId = useSessionStore((state) => state.activeAccountOverrideId);
   const executionRouteSelecting = useSessionStore((state) => state.executionRouteSelecting);
   const executionRouteSelectionTarget = useSessionStore((state) => state.executionRouteSelectionTarget);
+  const executionRouteRefresh = useSessionStore((state) => state.executionRouteRefresh);
   const providerOperationFailure = useSessionStore((state) => state.providerOperationFailure);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
@@ -330,6 +331,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const executionTargetWizardResult = useSessionStore((state) => state.executionTargetWizardResult);
   const outboundSend = useSessionStore((state) => state.outboundSend);
   const onExecutionRoutesRefreshed = useSessionStore((state) => state.onExecutionRoutesRefreshed);
+  const onExecutionRoutesRefreshFailed = useSessionStore((state) => state.onExecutionRoutesRefreshFailed);
   const onExecutionTargetWizardResult = useSessionStore((state) => state.onExecutionTargetWizardResult);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
@@ -342,6 +344,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const onExecutionRouteChangeFailed = useSessionStore((state) => state.onExecutionRouteChangeFailed);
   const onProviderAuthStarted = useSessionStore((state) => state.onProviderAuthStarted);
   const onProviderAuthCompleted = useSessionStore((state) => state.onProviderAuthCompleted);
+  const onProviderCatalogState = useSessionStore((state) => state.onProviderCatalogState);
   const onProviderAuthFailed = useSessionStore((state) => state.onProviderAuthFailed);
   const onExecConfirmed = useSessionStore((state) => state.onExecConfirmed);
   const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
@@ -361,6 +364,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
   const selectExecutionRoute = useSessionStore((state) => state.selectExecutionRoute);
+  const refreshExecutionRoutes = useSessionStore((state) => state.refreshExecutionRoutes);
   const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
@@ -628,7 +632,9 @@ function useAppShellRuntimeView(props: AppShellProps) {
       onProviderAuthStarted,
       onProviderAuthCompleted,
       onProviderAuthFailed,
+      onProviderCatalogState,
       onExecutionRoutesRefreshed,
+      onExecutionRoutesRefreshFailed,
       onExecutionTargetWizardResult,
       onExecConfirmed,
       onActivityPhase,
@@ -916,9 +922,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
     setGatewayReady(false);
     setGatewayAttempt((count) => count + 1);
     markProviderCatalogRefreshing();
-    if (wsState === "open") {
-      send({ type: "refresh_execution_routes" });
-    }
+    if (wsState === "open") refreshExecutionRoutes();
     void dashboardQuery.refetch();
   };
 
@@ -1123,9 +1127,9 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   catalogRevision={executionRouteCatalog.revision}
                   wizardResult={executionTargetWizardResult}
                   send={outboundSend}
+                  refreshStatus={executionRouteRefresh}
                   onRefresh={outboundSend ? () => {
-                    markProviderCatalogRefreshing();
-                    outboundSend({ type: "refresh_execution_routes" });
+                    refreshExecutionRoutes();
                   } : undefined}
                 />
               ) : settingsSection === "health" ? (
@@ -1444,6 +1448,11 @@ function useAppShellRuntimeView(props: AppShellProps) {
               activeRouteId={activeRouteId}
               activeAccountOverrideId={activeAccountOverrideId}
               selectionStatus={executionRouteSelectionStatus}
+              refreshStatus={executionRouteRefresh.state === "refreshing"
+                ? { state: "refreshing" }
+                : executionRouteRefresh.state === "failed"
+                  ? { state: "failed", message: executionRouteRefresh.message }
+                  : { state: "idle" }}
               onSelect={(selection) => {
                 void executionRoutePickerActions.onSelectRoute(
                   selection.routeId,
@@ -1458,8 +1467,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
                     authenticateProvider(request.providerId);
                     return;
                   case "refresh-route-catalog":
-                    markProviderCatalogRefreshing();
-                    send({ type: "refresh_execution_routes" });
+                    refreshExecutionRoutes();
                     return;
                 }
               }}

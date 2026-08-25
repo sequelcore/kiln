@@ -1,11 +1,12 @@
 import type { StateCreator } from "zustand";
 import { clearStoredContinuationTarget, persistPlanMode, readStoredPlanMode, writeStoredExecutionRouteSelection } from "./session-store-persistence.js";
 import { resolveStoredExecutionRouteSelectionRestore } from "./execution-route-selection-restore.js";
-import { nextExecutionRouteSelectionRequestId, nextProviderAuthRequestId } from "./provider-request-correlation.js";
+import { nextExecutionRouteRefreshRequestId, nextExecutionRouteSelectionRequestId, nextProviderAuthRequestId } from "./provider-request-correlation.js";
 import { normalizeProviderDescriptors } from "./provider-catalog-projection.js";
 import type { ExecutionRouteLifecycleActions, SessionStore } from "./session-store-state.js";
 
 const ROUTE_SELECTION_TIMEOUT_MS = 5_000;
+const ROUTE_REFRESH_TIMEOUT_MS = 15_000;
 const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 
 export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], [], ExecutionRouteLifecycleActions> = (set, get) => ({
@@ -15,6 +16,7 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
   onWelcome: (frame) => {
     const state = get();
     if (state.executionRouteSelectionTimeoutId) clearTimeout(state.executionRouteSelectionTimeoutId);
+    if (state.executionRouteRefreshTimeoutId) clearTimeout(state.executionRouteRefreshTimeoutId);
     if (state.providerAuthTimeoutId) clearTimeout(state.providerAuthTimeoutId);
     const planMode = readStoredPlanMode() ?? (frame.executionMode === "plan");
     clearStoredContinuationTarget();
@@ -25,12 +27,14 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
       authorityStatus: frame.authorityStatus ?? state.authorityStatus,
       planMode,
       status: "ready",
-      providerCatalogStatus: "ready",
+      providerCatalogStatus: "pending",
       providerCatalogError: null,
       providerOperationFailure: null,
       executionRouteSelecting: false,
       executionRouteSelectionTarget: null,
       executionRouteSelectionTimeoutId: null,
+      executionRouteRefresh: { state: "idle" },
+      executionRouteRefreshTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,
@@ -43,9 +47,52 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
   },
 
   onExecutionRoutesRefreshed: (frame) => {
-    set({ executionRouteCatalog: frame.executionRouteCatalog, availableModels: frame.availableModels, providerCatalogStatus: "ready", providerCatalogError: null });
+    const state = get();
+    const refreshMatches = state.executionRouteRefresh.state === "refreshing"
+      && state.executionRouteRefresh.requestId === frame.requestId;
+    if (!refreshMatches) return;
+    if (state.executionRouteRefreshTimeoutId) clearTimeout(state.executionRouteRefreshTimeoutId);
+    set({
+      executionRouteCatalog: frame.executionRouteCatalog,
+      availableModels: frame.availableModels,
+      ...(state.providerCatalogStatus !== "ready" ? { providerCatalogStatus: "ready" as const, providerCatalogError: null } : {}),
+      executionRouteRefresh: { state: "idle" },
+      executionRouteRefreshTimeoutId: null,
+    });
     const restore = resolveStoredExecutionRouteSelectionRestore(get());
     if (restore) get().selectExecutionRoute(restore.routeId, restore.accountOverrideId);
+  },
+
+  onProviderCatalogState: (frame) => {
+    if (frame.status === "error") {
+      set({ providerCatalogStatus: "error", providerCatalogError: frame.message });
+      return;
+    }
+    if (frame.status !== "ready") {
+      set({ providerCatalogStatus: frame.status, providerCatalogError: null });
+      return;
+    }
+    set({
+      providerCatalogStatus: "ready",
+      providerCatalogError: null,
+      providerDiscovery: frame.providerDiscovery,
+      providerModelDiscovery: frame.providerModelDiscovery,
+      executionRouteCatalog: frame.executionRouteCatalog,
+      availableModels: frame.availableModels,
+    });
+    const restore = resolveStoredExecutionRouteSelectionRestore(get());
+    if (restore) get().selectExecutionRoute(restore.routeId, restore.accountOverrideId);
+  },
+
+  onExecutionRoutesRefreshFailed: (frame) => {
+    const state = get();
+    if (state.executionRouteRefresh.state !== "refreshing" || state.executionRouteRefresh.requestId !== frame.requestId) return;
+    if (state.executionRouteRefreshTimeoutId) clearTimeout(state.executionRouteRefreshTimeoutId);
+    set({
+      executionRouteRefresh: { state: "failed", message: frame.message },
+      executionRouteRefreshTimeoutId: null,
+      ...(state.providerCatalogStatus !== "ready" ? { providerCatalogStatus: "error" as const, providerCatalogError: frame.message } : {}),
+    });
   },
 
   onExecutionTargetWizardResult: (frame) => {
@@ -93,6 +140,37 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
     set({ executionRouteSelecting: true, executionRouteSelectionTarget: { routeId, ...(accountOverrideId ? { accountOverrideId } : {}), requestId }, executionRouteSelectionTimeoutId: timeoutId, providerOperationFailure: null });
     try { state.outboundSend({ type: "execution_route", routeId, ...(accountOverrideId ? { accountOverrideId } : {}), requestId }); }
     catch (error) { clearTimeout(timeoutId); set({ executionRouteSelecting: false, executionRouteSelectionTarget: null, executionRouteSelectionTimeoutId: null, providerOperationFailure: { operation: "select-route", requestId, message: error instanceof Error ? error.message : "Execution-route selection failed." } }); return false; }
+    return true;
+  },
+
+  refreshExecutionRoutes: () => {
+    const state = get();
+    if (!state.outboundSend || state.executionRouteRefresh.state === "refreshing") return false;
+    if (state.executionRouteRefreshTimeoutId) clearTimeout(state.executionRouteRefreshTimeoutId);
+    const requestId = nextExecutionRouteRefreshRequestId();
+    const timeoutId = setTimeout(() => {
+      const latest = get();
+      if (latest.executionRouteRefresh.state !== "refreshing" || latest.executionRouteRefresh.requestId !== requestId) return;
+      const message = "Execution target refresh timed out. Please retry.";
+      set({
+        executionRouteRefresh: { state: "failed", message },
+        executionRouteRefreshTimeoutId: null,
+        ...(latest.providerCatalogStatus !== "ready" ? { providerCatalogStatus: "error" as const, providerCatalogError: message } : {}),
+      });
+    }, ROUTE_REFRESH_TIMEOUT_MS);
+    set({ executionRouteRefresh: { state: "refreshing", requestId }, executionRouteRefreshTimeoutId: timeoutId });
+    try {
+      state.outboundSend({ type: "refresh_execution_routes", requestId });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const message = error instanceof Error ? error.message : "Execution target refresh failed.";
+      set({
+        executionRouteRefresh: { state: "failed", message },
+        executionRouteRefreshTimeoutId: null,
+        ...(state.providerCatalogStatus !== "ready" ? { providerCatalogStatus: "error" as const, providerCatalogError: message } : {}),
+      });
+      return false;
+    }
     return true;
   },
 

@@ -49,6 +49,9 @@ export const createConnectionLifecycleSlice: StateCreator<
     if (state.executionRouteSelectionTimeoutId) {
       clearTimeout(state.executionRouteSelectionTimeoutId);
     }
+    if (state.executionRouteRefreshTimeoutId) {
+      clearTimeout(state.executionRouteRefreshTimeoutId);
+    }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
     }
@@ -86,6 +89,8 @@ export const createConnectionLifecycleSlice: StateCreator<
       executionRouteSelecting: false,
       executionRouteSelectionTarget: null,
       executionRouteSelectionTimeoutId: null,
+      executionRouteRefresh: { state: "idle" },
+      executionRouteRefreshTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,
@@ -137,6 +142,9 @@ export const createConnectionLifecycleSlice: StateCreator<
     if (state.executionRouteSelectionTimeoutId) {
       clearTimeout(state.executionRouteSelectionTimeoutId);
     }
+    if (state.executionRouteRefreshTimeoutId) {
+      clearTimeout(state.executionRouteRefreshTimeoutId);
+    }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
     }
@@ -159,6 +167,8 @@ export const createConnectionLifecycleSlice: StateCreator<
       executionRouteSelecting: false,
       executionRouteSelectionTarget: null,
       executionRouteSelectionTimeoutId: null,
+      executionRouteRefresh: { state: "idle" },
+      executionRouteRefreshTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,

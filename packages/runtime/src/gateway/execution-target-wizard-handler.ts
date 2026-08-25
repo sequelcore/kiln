@@ -12,7 +12,6 @@ import { createHash } from "node:crypto";
 import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
 
 type WizardResultFrame = Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>;
-type ExecutionRoutesRefreshedFrame = Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>;
 const DEFAULT_MANAGED_DISCOVERY_VALIDITY_MS = 365 * 24 * 60 * 60 * 1_000;
 
 export interface ExecutionTargetWizardDiscoveryEvidence {
@@ -58,7 +57,7 @@ export async function handleExecutionTargetWizard(input: {
     evidence: ExecutionTargetWizardDiscoveryEvidence,
   ) => Promise<ExecutionTargetWizardApplicationResult>;
   readonly readExecutionRouteCatalog: () => Promise<ExecutionRouteCatalog>;
-}): Promise<readonly (WizardResultFrame | ExecutionRoutesRefreshedFrame)[]> {
+}): Promise<readonly WizardResultFrame[]> {
   if (input.operatorAuthorized !== true) {
     return [executionTargetWizardDeniedResult(input.frame)];
   }
@@ -155,13 +154,7 @@ export async function handleExecutionTargetWizard(input: {
       discovery: input.discovery,
       executionRouteCatalog,
     });
-    return [
-      {
-        type: "execution_routes_refreshed",
-        executionRouteCatalog,
-        availableModels: refreshedAvailableModels,
-      },
-      {
+    return [{
         type: "execution_target_wizard_result",
         requestId: parsed.data.requestId,
         status: "created",
@@ -172,8 +165,7 @@ export async function handleExecutionTargetWizard(input: {
         proposal: result.proposal,
         executionRouteCatalog,
         availableModels: refreshedAvailableModels,
-      },
-    ];
+      }];
   } catch {
     return [rejectedResult(parsed.data.requestId, {
       code: "TARGET_CREATE_REJECTED",

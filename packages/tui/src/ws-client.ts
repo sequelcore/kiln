@@ -7,6 +7,7 @@ import type {
   GuiProviderDiscoveryResult,
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
+  GuiProviderCatalogStateFrame,
   ExecutionRouteCatalog,
   AvailableModelCatalog,
   ExecutionRouteChangeFailed,
@@ -108,11 +109,14 @@ export type TuiInboundFrame =
     }
   | GuiProviderAuthCompleted
   | GuiProviderAuthFailed
+  | GuiProviderCatalogStateFrame
   | {
       type: "execution_routes_refreshed";
+      requestId: string;
       executionRouteCatalog: ExecutionRouteCatalog;
       availableModels: AvailableModelCatalog;
     }
+  | { type: "execution_routes_refresh_failed"; requestId: string; message: string }
   | ExecutionRouteChanged
   | ExecutionRouteChangeFailed
   | {
@@ -138,7 +142,7 @@ export type TuiOutboundFrame =
     }
   | { type: "voice_synthesis_request"; requestId: string; sourceMessageId: string }
   | { type: "clear" }
-  | { type: "refresh_execution_routes" }
+  | { type: "refresh_execution_routes"; requestId: string }
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
   | ({ type: "execution_route"; requestId: string } & ExecutionRouteSelectionIntent)
   | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }

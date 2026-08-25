@@ -364,6 +364,7 @@ export type {
   GuiProviderAuthDeviceCodeStarted,
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
+  GuiProviderCatalogStateFrame,
   GuiTelemetrySnapshot,
   GuiAppDescriptor,
   GuiAppTenantDescriptor,

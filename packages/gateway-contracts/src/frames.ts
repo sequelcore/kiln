@@ -731,6 +731,27 @@ export interface OperatorManagedEconomicRouteIdentity {
   readonly priceClass?: OperatorManagedEconomicBillingClass;
 }
 
+/** Runtime-owned provider catalog lifecycle published independently of socket readiness. */
+export type GuiProviderCatalogStateFrame =
+  | {
+      readonly type: "provider_catalog_state";
+      readonly status: "pending" | "refreshing";
+    }
+  | {
+      readonly type: "provider_catalog_state";
+      readonly status: "ready";
+      readonly models: Record<string, string[]>;
+      readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+      readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
+      readonly executionRouteCatalog: ExecutionRouteCatalog;
+      readonly availableModels: AvailableModelCatalog;
+    }
+  | {
+      readonly type: "provider_catalog_state";
+      readonly status: "error";
+      readonly message: string;
+    };
+
 // Mirrors, does not import, @kilnai/core's SessionManagedEconomicAccountIdentity.
 export interface OperatorManagedEconomicAccountIdentity {
   readonly kind: "account-bound" | "accountless";
@@ -1164,7 +1185,7 @@ export type GuiOutboundFrame =
       reason?: string;
     }
   | { type: "clear" }
-  | { type: "refresh_execution_routes" }
+  | { type: "refresh_execution_routes"; requestId: string }
   | {
       type: "provider_auth";
       provider: string;
@@ -1280,10 +1301,17 @@ export type GuiInboundFrame =
     | GuiProviderAuthDeviceCodeStarted
     | GuiProviderAuthCompleted
     | GuiProviderAuthFailed
+    | GuiProviderCatalogStateFrame
     | {
       type: "execution_routes_refreshed";
+      requestId: string;
       executionRouteCatalog: ExecutionRouteCatalog;
       availableModels: AvailableModelCatalog;
+    }
+    | {
+      type: "execution_routes_refresh_failed";
+      requestId: string;
+      message: string;
     }
     | ExecutionTargetWizardResult
     | ExecutionRouteChanged

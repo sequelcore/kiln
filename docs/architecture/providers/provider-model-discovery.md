@@ -166,6 +166,14 @@ same snapshot updates GUI and TUI route availability. Normal dashboard reads,
 socket opens, execution-route selection, and prompt admission then reuse fresh
 discovery results instead of re-probing every provider on every turn.
 
+Socket `welcome` establishes only the operator session and transport. Each GUI
+and TUI connection separately receives the current `provider_catalog_state`;
+the runtime publishes a terminal `ready` projection containing provider,
+model, available-model, and execution-route evidence when background discovery
+settles, or an explicit `error` projection when it fails. A surface must not
+interpret `welcome` as provider discovery completion or require manual refresh
+to receive the background result.
+
 Fresh background discovery replaces the stale projection and rewrites the
 project cache. Stale startup projections are never written back as cache data
 and are never authoritative route evidence.

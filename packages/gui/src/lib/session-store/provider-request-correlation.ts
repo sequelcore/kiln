@@ -5,11 +5,17 @@
  */
 
 let executionRouteSelectionRequestOrdinal = 0;
+let executionRouteRefreshRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
 
 export function nextExecutionRouteSelectionRequestId(): string {
   executionRouteSelectionRequestOrdinal += 1;
   return `execution-route-selection:${Date.now()}:${executionRouteSelectionRequestOrdinal}`;
+}
+
+export function nextExecutionRouteRefreshRequestId(): string {
+  executionRouteRefreshRequestOrdinal += 1;
+  return `execution-route-refresh:${Date.now()}:${executionRouteRefreshRequestOrdinal}`;
 }
 
 export function nextProviderAuthRequestId(): string {

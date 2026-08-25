@@ -19,7 +19,9 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onProviderAuthStarted: vi.fn(),
     onProviderAuthCompleted: vi.fn(),
     onProviderAuthFailed: vi.fn(),
+    onProviderCatalogState: vi.fn(),
     onExecutionRoutesRefreshed: vi.fn(),
+    onExecutionRoutesRefreshFailed: vi.fn(),
     onExecutionTargetWizardResult: vi.fn(),
     onExecConfirmed: vi.fn(),
     onActivityPhase: vi.fn(),
@@ -85,6 +87,34 @@ describe("createAppShellFrameHandler", () => {
 
     expect(input.onProviderAuthCompleted).toHaveBeenCalledTimes(1);
     expect(input.onExecutionRoutesRefreshed).not.toHaveBeenCalled();
+  });
+
+  it("routes provider catalog lifecycle frames to the catalog owner", () => {
+    const input = createInput();
+    const handleFrame = createAppShellFrameHandler(input);
+
+    handleFrame({ type: "provider_catalog_state", status: "pending" });
+
+    expect(input.onProviderCatalogState).toHaveBeenCalledWith({
+      type: "provider_catalog_state",
+      status: "pending",
+    });
+  });
+
+  it("routes execution-route refresh failures to the refresh lifecycle owner", () => {
+    const input = createInput();
+    const handleFrame = createAppShellFrameHandler(input);
+
+    handleFrame({
+      type: "execution_routes_refresh_failed",
+      requestId: "refresh-1",
+      message: "Provider discovery timed out.",
+    });
+
+    expect(input.onExecutionRoutesRefreshFailed).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "refresh-1",
+    }));
+    expect(input.onError).not.toHaveBeenCalled();
   });
 
   it("routes managed-agent control results to the cockpit owner", () => {

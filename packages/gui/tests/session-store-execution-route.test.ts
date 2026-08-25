@@ -24,7 +24,7 @@ const route = (overrides: Partial<Pick<AutomaticRoute, "availability" | "reasonC
 });
 
 describe("session-store execution target selection", () => {
-  beforeEach(() => { localStorage.clear(); useSessionStore.setState({ outboundSend: null, executionRouteSelecting: false, executionRouteSelectionTarget: null, activeRouteId: null, activeAccountOverrideId: null, providerOperationFailure: null, executionRouteCatalog: { routes: [] }, executionTargetWizardResult: null }); });
+  beforeEach(() => { localStorage.clear(); useSessionStore.setState({ outboundSend: null, executionRouteSelecting: false, executionRouteSelectionTarget: null, executionRouteRefresh: { state: "idle" }, executionRouteRefreshTimeoutId: null, activeRouteId: null, activeAccountOverrideId: null, providerOperationFailure: null, executionRouteCatalog: { routes: [] }, executionTargetWizardResult: null }); });
   it("reports selection failure when no gateway connection is active", () => {
     expect(useSessionStore.getState().selectExecutionRoute("terra")).toBe(false);
     expect(useSessionStore.getState().providerOperationFailure).toMatchObject({
@@ -91,6 +91,89 @@ describe("session-store execution target selection", () => {
     useSessionStore.getState().onProviderAuthCompleted(frame);
 
     expect(useSessionStore.getState().executionRouteCatalog.routes[0]?.availability).toBe("available");
+  });
+  it("keeps startup pending until the runtime publishes fresh provider catalog evidence", () => {
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      executionRouteCatalog: { routes: [] },
+      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
+    });
+    expect(useSessionStore.getState().providerCatalogStatus).toBe("pending");
+
+    useSessionStore.getState().onProviderCatalogState({
+      type: "provider_catalog_state",
+      status: "ready",
+      models: { "codex-oauth": ["gpt"] },
+      providerDiscovery: [],
+      providerModelDiscovery: {
+        catalogEvidence: {
+          status: "complete",
+          source: { kind: "test", id: "startup-publication" },
+          observedAt: "2026-08-25T00:00:01.000Z",
+          counts: { total: 0, returned: 0, omitted: 0 },
+        },
+        entries: [],
+      },
+      executionRouteCatalog: { routes: [route()] },
+      availableModels: { observedAt: "2026-08-25T00:00:01.000Z", entries: [] },
+    });
+
+    expect(useSessionStore.getState()).toMatchObject({
+      providerCatalogStatus: "ready",
+      providerCatalogError: null,
+      executionRouteCatalog: { routes: [expect.objectContaining({ routeId: "terra" })] },
+    });
+  });
+  it("correlates an in-place route refresh without changing bootstrap state", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ providerCatalogStatus: "ready" });
+
+    expect(useSessionStore.getState().refreshExecutionRoutes()).toBe(true);
+    const request = send.mock.calls[0]?.[0] as { readonly type: string; readonly requestId: string };
+    expect(request).toMatchObject({ type: "refresh_execution_routes" });
+    expect(useSessionStore.getState()).toMatchObject({
+      providerCatalogStatus: "ready",
+      executionRouteRefresh: { state: "refreshing", requestId: request.requestId },
+    });
+
+    useSessionStore.getState().onExecutionRoutesRefreshed({
+      type: "execution_routes_refreshed",
+      requestId: "stale-refresh",
+      executionRouteCatalog: { routes: [] },
+      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
+    });
+    expect(useSessionStore.getState().executionRouteRefresh.state).toBe("refreshing");
+
+    useSessionStore.getState().onExecutionRoutesRefreshed({
+      type: "execution_routes_refreshed",
+      requestId: request.requestId,
+      executionRouteCatalog: { routes: [route()] },
+      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
+    });
+    expect(useSessionStore.getState()).toMatchObject({
+      providerCatalogStatus: "ready",
+      executionRouteRefresh: { state: "idle" },
+    });
+    expect(useSessionStore.getState().executionRouteCatalog.routes[0]?.routeId).toBe("terra");
+  });
+  it("keeps a correlated route-refresh failure local to the refresh control", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ providerCatalogStatus: "ready" });
+    useSessionStore.getState().refreshExecutionRoutes();
+    const request = send.mock.calls[0]?.[0] as { readonly requestId: string };
+
+    useSessionStore.getState().onExecutionRoutesRefreshFailed({
+      type: "execution_routes_refresh_failed",
+      requestId: request.requestId,
+      message: "Provider discovery timed out.",
+    });
+
+    expect(useSessionStore.getState()).toMatchObject({
+      providerCatalogStatus: "ready",
+      executionRouteRefresh: { state: "failed", message: "Provider discovery timed out." },
+    });
   });
   it("stores wizard outcomes and adopts catalogs only after creation", () => {
     useSessionStore.setState({ executionRouteCatalog: { routes: [] }, availableModels: null });

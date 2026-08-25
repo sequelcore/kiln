@@ -12,6 +12,10 @@ export type ExecutionRouteSelectionStatus =
   | { readonly state: "idle" }
   | { readonly state: "selecting"; readonly routeId: string }
   | { readonly state: "failed"; readonly message: string };
+export type ExecutionRouteRefreshStatus =
+  | { readonly state: "idle" }
+  | { readonly state: "refreshing" }
+  | { readonly state: "failed"; readonly message: string };
 type PickerState = { readonly query: string; readonly brandId: string | null; readonly access: ExecutionRouteAccessFilter };
 type PickerAction = { readonly type: "query"; readonly query: string } | { readonly type: "brand"; readonly brandId: string | null } | { readonly type: "access"; readonly access: ExecutionRouteAccessFilter };
 function reducer(state: PickerState, action: PickerAction): PickerState {
@@ -25,6 +29,7 @@ export function ExecutionRoutePicker(props: {
   readonly activeRouteId?: string | null;
   readonly activeAccountOverrideId?: string | null;
   readonly selectionStatus?: ExecutionRouteSelectionStatus;
+  readonly refreshStatus?: ExecutionRouteRefreshStatus;
   readonly onSelect: (selection: { routeId: string; accountOverrideId?: string }) => void;
   readonly onRepair: (request: ExecutionRouteRepairRequest) => void | Promise<void>;
 }) {
@@ -32,6 +37,7 @@ export function ExecutionRoutePicker(props: {
   const [state, dispatch] = useReducer(reducer, { query: "", brandId: null, access: "all" });
   const routes = useMemo(() => filterExecutionRouteOptions(rows, state), [rows, state]);
   const selectionStatus = props.selectionStatus ?? { state: "idle" };
+  const refreshStatus = props.refreshStatus ?? { state: "idle" };
   const selectedRouteLabel = selectionStatus.state === "selecting"
     ? rows.find((route) => route.routeId === selectionStatus.routeId)?.label ?? selectionStatus.routeId
     : null;
@@ -51,7 +57,17 @@ export function ExecutionRoutePicker(props: {
             {selectionStatus.message}
           </div>
         ) : null}
-        <ExecutionRouteList routes={routes} activeRouteId={props.activeRouteId} activeAccountOverrideId={props.activeAccountOverrideId} selectionPending={selectionStatus.state === "selecting"} onSelect={props.onSelect} onRepair={props.onRepair} />
+        {refreshStatus.state === "refreshing" ? (
+          <div role="status" aria-live="polite" className="border-b border-border/70 px-2.5 py-2 text-xs text-muted-foreground">
+            Refreshing execution targets…
+          </div>
+        ) : null}
+        {refreshStatus.state === "failed" ? (
+          <div role="alert" className="border-b border-destructive/30 px-2.5 py-2 text-xs text-destructive">
+            Execution target refresh failed: {refreshStatus.message}
+          </div>
+        ) : null}
+        <ExecutionRouteList routes={routes} activeRouteId={props.activeRouteId} activeAccountOverrideId={props.activeAccountOverrideId} selectionPending={selectionStatus.state === "selecting" || refreshStatus.state === "refreshing"} onSelect={props.onSelect} onRepair={props.onRepair} />
       </div>
     </div>
   </ModelSelectorCommand>;

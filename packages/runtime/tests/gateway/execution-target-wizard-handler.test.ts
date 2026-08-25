@@ -178,8 +178,8 @@ describe("handleExecutionTargetWizard", () => {
       readExecutionRouteCatalog: async () => createdCatalog,
     });
 
-    expect(frames.map((frame) => frame.type)).toEqual(["execution_routes_refreshed", "execution_target_wizard_result"]);
-    expect(frames[1]).toMatchObject({
+    expect(frames.map((frame) => frame.type)).toEqual(["execution_target_wizard_result"]);
+    expect(frames[0]).toMatchObject({
       status: "created",
       code: "EXECUTION_TARGET_CREATED",
       revision: createdRevision,

@@ -32,6 +32,10 @@ interface AvailableModelsPanelProps {
   readonly wizardResult?: WizardResult | null;
   readonly send: ((frame: GuiOutboundFrame) => void) | null;
   readonly onRefresh?: () => void;
+  readonly refreshStatus?:
+    | { readonly state: "idle" }
+    | { readonly state: "refreshing" }
+    | { readonly state: "failed"; readonly message: string };
 }
 
 const CLASSIFICATIONS: readonly Classification[] = ["public", "internal", "confidential", "restricted"];
@@ -242,8 +246,15 @@ export function AvailableModelsPanel(props: AvailableModelsPanelProps) {
           <p className="text-sm text-muted-foreground">Create an execution target from current Runtime discovery evidence.</p>
           {props.catalog ? <p className="text-xs text-muted-foreground">Observed {new Date(props.catalog.observedAt).toLocaleString()}</p> : null}
         </div>
-        {props.onRefresh ? <Button type="button" variant="outline" size="sm" onClick={props.onRefresh}><RefreshCwIcon />Refresh models</Button> : null}
+        {props.onRefresh ? <Button type="button" variant="outline" size="sm" disabled={props.refreshStatus?.state === "refreshing"} onClick={props.onRefresh}><RefreshCwIcon />{props.refreshStatus?.state === "refreshing" ? "Refreshing models…" : "Refresh models"}</Button> : null}
       </header>
+
+      {props.refreshStatus?.state === "failed" ? (
+        <Alert variant="destructive">
+          <AlertTitle>Model refresh failed</AlertTitle>
+          <AlertDescription>{props.refreshStatus.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {feedback ? <p role="status" className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">{feedback}</p> : null}
       {!props.catalog ? (

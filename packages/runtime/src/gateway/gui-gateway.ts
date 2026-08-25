@@ -39,7 +39,8 @@ import { ApprovalGateRegistry } from "./approval-registry.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
-import { createProviderCatalogService } from "./provider-catalog-service.js";
+import { createProviderCatalogService, type ProviderCatalogSnapshot } from "./provider-catalog-service.js";
+import { projectProviderCatalogStateFrame } from "./provider-catalog-state-frame.js";
 import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
 import { executionTargetWizardDeniedResult, handleExecutionTargetWizard } from "./execution-target-wizard-handler.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
@@ -713,8 +714,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       transport: transportOptions,
       initialDiscovery: operatorDiscovery ?? [],
       getDiscovery: async (discoveryOptions) => (await refreshOperatorDiscovery(discoveryOptions)) ?? [],
-      getDiscoverySnapshot: getOperatorDiscoverySnapshot,
-      onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
+      getDiscoverySnapshot: () => operatorCatalog!.snapshot(),
+      onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe(listener) ?? (() => {}),
       builtinToolOptions,
       managedInvocation,
       boundedWork: options.boundedWork,
@@ -753,6 +754,19 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
             workingDirectory: options.workingDirectory,
             domainLabel: options.domainLabel,
             authorityStatus: guiAuthorityStatus,
+          } satisfies GuiInboundFrame));
+          const providerModelDiscovery = projectGuiProviderModelDiscovery([]);
+          ws.send(JSON.stringify({
+            type: "provider_catalog_state",
+            status: "ready",
+            models: {},
+            providerDiscovery: [],
+            providerModelDiscovery,
+            executionRouteCatalog,
+            availableModels: projectAvailableModelCatalogForExecutionRoutes({
+              discovery: providerModelDiscovery,
+              executionRouteCatalog,
+            }),
           } satisfies GuiInboundFrame));
         },
         onClose() {
@@ -829,8 +843,8 @@ function wireOperatorTransport(
     transport: OperatorGuiSessionTransportOptions;
     initialDiscovery: readonly GuiProviderDiscoveryResult[];
     getDiscovery: (options?: { readonly force?: boolean }) => Promise<readonly GuiProviderDiscoveryResult[]>;
-    getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
-    onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
+    getDiscoverySnapshot: () => ProviderCatalogSnapshot<readonly GuiProviderDiscoveryResult[]>;
+    onDiscoveryUpdated: (listener: (snapshot: ProviderCatalogSnapshot<readonly GuiProviderDiscoveryResult[]>) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
     managedInvocation?: ManagedInvocationToolAttachment;
     boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
@@ -1228,10 +1242,16 @@ function wireOperatorTransport(
         discovery = [...nextDiscovery];
         return discovery;
       };
+      let correlatedDiscoveryRefreshDepth = 0;
       const refreshDiscovery = async (
         options?: { readonly force?: boolean },
       ): Promise<readonly GuiProviderDiscoveryResult[]> => {
-        return applyDiscovery(await input.getDiscovery(options).catch(() => []));
+        correlatedDiscoveryRefreshDepth += 1;
+        try {
+          return applyDiscovery(await input.getDiscovery(options));
+        } finally {
+          correlatedDiscoveryRefreshDepth -= 1;
+        }
       };
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
@@ -1256,11 +1276,32 @@ function wireOperatorTransport(
           if (activeSession) {
             activityStreamer.forwardSessionEvents(activeSession.sessionEvents);
           }
-          unsubscribeDiscovery?.();
-          unsubscribeDiscovery = input.onDiscoveryUpdated((currentDiscovery) => {
-            applyDiscovery(currentDiscovery);
-          });
           const catalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+          const catalogSnapshot = input.getDiscoverySnapshot();
+          applyDiscovery(catalogSnapshot.discovery);
+          const initialCatalogState = await projectProviderCatalogStateFrame(
+            catalogSnapshot,
+            async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
+            catalog,
+          );
+          unsubscribeDiscovery?.();
+          unsubscribeDiscovery = input.onDiscoveryUpdated((snapshot) => {
+            applyDiscovery(snapshot.discovery);
+            if (correlatedDiscoveryRefreshDepth > 0) return;
+            void projectProviderCatalogStateFrame(
+              snapshot,
+              async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
+            ).then((frame) => {
+              if (operatorSocket === ws) ws.send(JSON.stringify(frame satisfies GuiInboundFrame));
+            }).catch((error: unknown) => {
+              if (operatorSocket !== ws) return;
+              ws.send(JSON.stringify({
+                type: "provider_catalog_state",
+                status: "error",
+                message: error instanceof Error ? error.message : "Provider catalog projection failed.",
+              } satisfies GuiInboundFrame));
+            });
+          });
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(
             buildGuiTurnPerCallConfig("", undefined, builtinToolSurface),
           );
@@ -1275,6 +1316,7 @@ function wireOperatorTransport(
             domainLabel: input.transport.domainLabel,
             authorityStatus: guiAuthorityStatus,
           } satisfies GuiInboundFrame));
+          ws.send(JSON.stringify(initialCatalogState satisfies GuiInboundFrame));
         },
 
         async onMessage(event: MessageEvent, ws: WSContext) {
@@ -1312,14 +1354,29 @@ function wireOperatorTransport(
             }
 
             if (frame.type === "refresh_execution_routes") {
-              const executionRouteCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
-              ws.send(JSON.stringify({
-                type: "execution_routes_refreshed",
-                executionRouteCatalog,
-                availableModels: projectAvailableModelCatalogForExecutionRoutes({
-                  discovery: projectGuiProviderModelDiscovery(discovery), executionRouteCatalog,
-                }),
-              } satisfies GuiInboundFrame));
+              const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
+              if (!requestId) {
+                ws.send(JSON.stringify({ type: "error", message: "Execution target refresh requires requestId." } satisfies GuiInboundFrame));
+                return;
+              }
+              try {
+                const currentDiscovery = await refreshDiscovery({ force: true });
+                const executionRouteCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+                ws.send(JSON.stringify({
+                  type: "execution_routes_refreshed",
+                  requestId,
+                  executionRouteCatalog,
+                  availableModels: projectAvailableModelCatalogForExecutionRoutes({
+                    discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
+                  }),
+                } satisfies GuiInboundFrame));
+              } catch (error) {
+                ws.send(JSON.stringify({
+                  type: "execution_routes_refresh_failed",
+                  requestId,
+                  message: error instanceof Error ? error.message : "Execution target refresh failed.",
+                } satisfies GuiInboundFrame));
+              }
               return;
             }
 

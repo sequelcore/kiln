@@ -284,6 +284,7 @@ describe("GatewaySession execution-route switching", () => {
       && (JSON.parse(payload) as { type?: string }).type === "refresh_execution_routes"
     ));
     expect(refreshFrame).toBeDefined();
+    const refreshRequest = JSON.parse(refreshFrame?.[0] as string) as { readonly requestId: string };
 
     const executionRouteCatalog = {
       routes: [{
@@ -299,11 +300,42 @@ describe("GatewaySession execution-route switching", () => {
     } as const;
     ws.simulateMessage(JSON.stringify({
       type: "execution_routes_refreshed",
+      requestId: refreshRequest.requestId,
       executionRouteCatalog,
+      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
     }));
 
     await expect(promise).resolves.toBeUndefined();
     expect(session.executionRouteCatalog).toEqual(executionRouteCatalog);
+    await session.dispose();
+  });
+
+  it("rejects only the correlated execution-route refresh failure", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0]!;
+    ws.simulateOpen();
+
+    const promise = session.refreshExecutionRoutes();
+    await Promise.resolve();
+    const payload = ws.send.mock.calls.find(([candidate]) => (
+      typeof candidate === "string"
+      && candidate !== "ping"
+      && (JSON.parse(candidate) as { type?: string }).type === "refresh_execution_routes"
+    ))?.[0] as string;
+    const request = JSON.parse(payload) as { readonly requestId: string };
+
+    ws.simulateMessage(JSON.stringify({
+      type: "execution_routes_refresh_failed",
+      requestId: "stale-refresh",
+      message: "stale failure",
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "execution_routes_refresh_failed",
+      requestId: request.requestId,
+      message: "Provider discovery timed out.",
+    }));
+
+    await expect(promise).rejects.toThrow("Provider discovery timed out.");
     await session.dispose();
   });
 });
@@ -1231,6 +1263,37 @@ describe("GatewaySession provider authentication", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it("adopts provider catalog evidence published after the welcome frame", async () => {
+    const onWelcome = vi.fn();
+    const session = new GatewaySession("ws://localhost:4801/tui/ws", onWelcome);
+    const ws = wsInstances[0]!;
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: "welcome",
+      executionRouteCatalog: { routes: [] },
+      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "provider_catalog_state",
+      status: "ready",
+      models: { "codex-oauth": ["gpt"] },
+      providerDiscovery: [],
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
+      executionRouteCatalog: { routes: [] },
+      availableModels: { observedAt: "2026-08-25T00:00:01.000Z", entries: [] },
+    }));
+
+    expect(onWelcome).toHaveBeenLastCalledWith(
+      { routes: [] },
+      { "codex-oauth": ["gpt"] },
+      [],
+      EMPTY_PROVIDER_MODEL_DISCOVERY,
+      { observedAt: "2026-08-25T00:00:01.000Z", entries: [] },
+      { status: "ready" },
+    );
+    await session.dispose();
   });
 
   it("sends provider_auth and resolves matching completion", async () => {

@@ -22,6 +22,82 @@ const {guiOperatorTransportDefaults, createGuiDist, waitForCondition, makeGuiOpe
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
 
 describe("GUI gateway execution routing", () => {
+  it("publishes fresh startup discovery to an already-open surface", async () => {
+    const distDir = createGuiDist();
+    let resolveDiscovery: ((discovery: ReturnType<typeof makeGuiOperatorDiscoveryFromModels>) => void) | undefined;
+    let discoveryResolved = false;
+    const pendingDiscovery = new Promise<ReturnType<typeof makeGuiOperatorDiscoveryFromModels>>((resolve) => {
+      resolveDiscovery = resolve;
+    });
+    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
+      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
+        routes: discoveryResolved ? [{
+          routeId: "codex-auto",
+          label: "Codex Auto Review",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.6-sol",
+          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          availability: "available" as const,
+          reasonCodes: [],
+          repairActions: [],
+        }] : [],
+      })),
+      admit: vi.fn(),
+    };
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop: vi.fn(),
+      })),
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        discoverOperatorProviders: () => pendingDiscovery,
+        executionRouteSelection,
+        operatorTransport: {
+          ...guiOperatorTransportDefaults,
+          sessionManager: {
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-startup" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      expect(mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
+        type: "provider_catalog_state",
+        status: "pending",
+      });
+
+      discoveryResolved = true;
+      resolveDiscovery?.(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.6-sol"] }));
+      await waitForCondition(
+        () => mockWs.send.mock.calls.some(([payload]) => {
+          const frame = JSON.parse(payload as string) as { type?: string; status?: string };
+          return frame.type === "provider_catalog_state" && frame.status === "ready";
+        }),
+        "Expected background provider discovery to publish a ready catalog frame.",
+      );
+      const readyFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as Record<string, unknown>)
+        .find((frame) => frame.type === "provider_catalog_state" && frame.status === "ready");
+      expect(readyFrame).toMatchObject({
+        executionRouteCatalog: { routes: [expect.objectContaining({ routeId: "codex-auto" })] },
+        models: { "codex-oauth": ["gpt-5.6-sol"] },
+      });
+    } finally {
+      resolveDiscovery?.([]);
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("acknowledges admitted execution-route selections", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -277,7 +353,7 @@ describe("GUI gateway execution routing", () => {
       routeAvailable = true;
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_execution_routes" }),
+          data: JSON.stringify({ type: "refresh_execution_routes", requestId: "refresh-available" }),
         }),
         wsCtx,
       );
@@ -285,10 +361,24 @@ describe("GUI gateway execution routing", () => {
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
       expect(outboundFrames).toContainEqual(expect.objectContaining({
         type: "execution_routes_refreshed",
+        requestId: "refresh-available",
         executionRouteCatalog: {
           routes: [expect.objectContaining({ routeId: "openai-gpt", availability: "available" })],
         },
       }));
+
+      vi.mocked(executionRouteSelection.getCatalog).mockRejectedValueOnce(new Error("Account evidence unavailable."));
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "refresh_execution_routes", requestId: "refresh-failed" }),
+        }),
+        wsCtx,
+      );
+      expect(mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
+        type: "execution_routes_refresh_failed",
+        requestId: "refresh-failed",
+        message: "Account evidence unavailable.",
+      });
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
@@ -374,7 +464,7 @@ describe("GUI gateway execution routing", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection();
       await handlers.onOpen!(new Event("open"), wsCtx);
 
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
+      expect(mockWs.send).toHaveBeenCalledTimes(2);
 
       const welcomeCall = mockWs.send.mock.calls[0]!;
       const welcomeFrame = JSON.parse(welcomeCall[0]) as {
@@ -384,6 +474,11 @@ describe("GUI gateway execution routing", () => {
 
       expect(welcomeFrame.type).toBe("welcome");
       expect(welcomeFrame.executionRouteCatalog?.routes ?? []).toEqual([]);
+      expect(JSON.parse(mockWs.send.mock.calls[1]![0] as string)).toMatchObject({
+        type: "provider_catalog_state",
+        status: "ready",
+        executionRouteCatalog: { routes: [] },
+      });
     } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
@@ -463,7 +558,7 @@ describe("GUI gateway execution routing", () => {
       routeAvailable = false;
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_execution_routes" }),
+          data: JSON.stringify({ type: "refresh_execution_routes", requestId: "refresh-unavailable" }),
         }),
         wsCtx,
       );
@@ -478,6 +573,7 @@ describe("GUI gateway execution routing", () => {
 
       expect(refreshFrame).toMatchObject({
         type: "execution_routes_refreshed",
+        requestId: "refresh-unavailable",
         executionRouteCatalog: {
           routes: [expect.objectContaining({
             routeId: "openai-gpt",

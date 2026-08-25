@@ -100,8 +100,13 @@ account, or construct an adapter.
 Runtime owns selection and commitment in its shared local capacity authority.
 Automatic policies gate safety, health, quota, and live capacity before
 economics and pressure. Managed agents and Model Gateway virtual models name
-the same canonical `targetId`. Neither consumer copies
-an account list, credential, or economics route.
+the same canonical `targetId`. Neither consumer copies an account list,
+credential, or economics route.
+
+GUI and TUI target refreshes use one
+Runtime-owned, request-correlated operation. Runtime refreshes provider
+discovery and route availability before returning the catalog; stale success
+or failure frames cannot settle or replace a newer surface request.
 
 The committed binding contains one route ID, account ID, credential ID, and
 credential revision. Adapter construction accepts only that binding and

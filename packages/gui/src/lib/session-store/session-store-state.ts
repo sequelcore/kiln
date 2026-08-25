@@ -68,6 +68,11 @@ export interface ProviderOperationFailure {
   readonly requestId?: string;
 }
 
+export type ExecutionRouteRefresh =
+  | { readonly state: "idle" }
+  | { readonly state: "refreshing"; readonly requestId: string }
+  | { readonly state: "failed"; readonly message: string };
+
 export interface GoalControlFailure {
   readonly requestId: string;
   readonly goalRunId: string;
@@ -143,6 +148,7 @@ export interface SessionStoreState {
   readonly approvalResponsesPending: readonly ApprovalResponsePending[];
   readonly executionRouteSelecting: boolean;
   readonly executionRouteSelectionTarget: PendingExecutionRouteSelection | null;
+  readonly executionRouteRefresh: ExecutionRouteRefresh;
   readonly providerAuthenticating: boolean;
   readonly providerAuthTarget: ProviderAuthTarget | null;
   readonly providerAuthMessage: string | null;
@@ -155,6 +161,7 @@ export interface SessionStoreState {
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly executionRouteSelectionTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly executionRouteRefreshTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerAuthTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly activityPhase: ActivityPhase;
 }
@@ -204,7 +211,9 @@ export interface ExecutionRouteLifecycleActions {
   markProviderCatalogRefreshing: () => void;
   markProviderCatalogError: (message: string) => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
+  onProviderCatalogState: (frame: Extract<GuiInboundFrame, { type: "provider_catalog_state" }>) => void;
   onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
+  onExecutionRoutesRefreshFailed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refresh_failed" }>) => void;
   onExecutionTargetWizardResult: (frame: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>) => void;
   onExecutionRouteChanged: (frame: Extract<GuiInboundFrame, { type: "execution_route_changed" }>) => void;
   onExecutionRouteChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_route_change_failed" }>) => void;
@@ -212,6 +221,7 @@ export interface ExecutionRouteLifecycleActions {
   onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
   selectExecutionRoute: (routeId: string, accountOverrideId?: string) => boolean;
+  refreshExecutionRoutes: () => boolean;
   authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
 }
 

@@ -63,6 +63,7 @@ const initialState: SessionStoreState = {
   approvalResponsesPending: [],
   executionRouteSelecting: false,
   executionRouteSelectionTarget: null,
+  executionRouteRefresh: { state: "idle" },
   providerAuthenticating: false,
   providerAuthTarget: null,
   providerAuthMessage: null,
@@ -75,6 +76,7 @@ const initialState: SessionStoreState = {
   outboundSend: null,
   clearTimeoutId: null,
   executionRouteSelectionTimeoutId: null,
+  executionRouteRefreshTimeoutId: null,
   providerAuthTimeoutId: null,
   activityPhase: "idle",
 };

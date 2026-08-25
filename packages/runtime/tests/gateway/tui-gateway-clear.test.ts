@@ -656,6 +656,22 @@ describe("TUI gateway startup discovery", () => {
         headers: { origin: "https://attacker.invalid" },
       }));
       expect(browserHandshake.status).toBe(403);
+
+      const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-startup" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      expect(mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
+        type: "provider_catalog_state",
+        status: "pending",
+      });
+
+      resolveDiscovery?.(makeTuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.6-sol"] }));
+      resolveDiscovery = undefined;
+      await vi.waitFor(() => {
+        expect(mockWs.send.mock.calls.some(([payload]) => {
+          const frame = JSON.parse(payload as string) as { type?: string; status?: string };
+          return frame.type === "provider_catalog_state" && frame.status === "ready";
+        })).toBe(true);
+      });
     } finally {
       resolveDiscovery?.([]);
       await flushAsyncWork();
@@ -759,6 +775,7 @@ describe("TUI gateway execution-route catalog", () => {
         new MessageEvent("message", {
           data: JSON.stringify({
             type: "refresh_execution_routes",
+            requestId: "refresh-available",
           }),
         }),
         wsCtx,
@@ -768,6 +785,7 @@ describe("TUI gateway execution-route catalog", () => {
       expect(outboundFrames).toEqual(expect.arrayContaining([
         expect.objectContaining({
           type: "execution_routes_refreshed",
+          requestId: "refresh-available",
           executionRouteCatalog: {
             routes: [expect.objectContaining({ routeId: "opencode-gpt-5", availability: "available" })],
           },
@@ -1227,4 +1245,3 @@ describe("TUI gateway message fail-closed behavior", () => {
     }
   });
 });
-

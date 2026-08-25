@@ -236,6 +236,23 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           } satisfies GuiInboundFrame));
+          ws.send(JSON.stringify({
+            type: "provider_catalog_state",
+            status: "ready",
+            models: {},
+            providerDiscovery: [],
+            providerModelDiscovery: {
+              catalogEvidence: {
+                status: "complete",
+                source: { kind: "app-gateway", id: "attach-mode" },
+                observedAt: availableModels.observedAt,
+                counts: { total: 0, returned: 0, omitted: 0 },
+              },
+              entries: [],
+            },
+            executionRouteCatalog: { routes: [] },
+            availableModels,
+          } satisfies GuiInboundFrame));
         },
         async onMessage(event: MessageEvent, ws: WSContext) {
           if (event.data === "ping") {
@@ -267,6 +284,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             const availableModels = { observedAt: new Date().toISOString(), entries: [] } as const;
             ws.send(JSON.stringify({
               type: "execution_routes_refreshed",
+              requestId: frame.requestId,
               executionRouteCatalog: { routes: [] },
               availableModels,
             } satisfies GuiInboundFrame));

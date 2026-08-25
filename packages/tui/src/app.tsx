@@ -117,6 +117,7 @@ export async function startTui(
   proposeSettingsMutation?: (request: KilnSettingsProposalRequest) => Promise<KilnSettingsProposalProjection>,
   applySettingsMutation?: (request: KilnSettingsApplyRequest) => Promise<KilnSettingsMutationResult>,
   approveSettingsProposal?: (proposalId: string) => Promise<string>,
+  providerCatalogStateRef?: { current: { status: GuiProviderCatalogStatus; error: string | null } },
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -169,8 +170,8 @@ export async function startTui(
   };
   let providerDiscovery = providerDiscoveryRef?.current ?? [];
   let providerModelDiscovery = providerModelDiscoveryRef?.current ?? null;
-  let providerCatalogStatus: GuiProviderCatalogStatus = "ready";
-  let providerCatalogError: string | null = null;
+  let providerCatalogStatus: GuiProviderCatalogStatus = providerCatalogStateRef?.current.status ?? "ready";
+  let providerCatalogError: string | null = providerCatalogStateRef?.current.error ?? null;
 
   const isDeliberationLevel = (value: unknown): value is DeliberationLevelId => (
     typeof value === "string" && /^[a-z0-9][a-z0-9._:-]{0,63}$/.test(value)
@@ -227,6 +228,8 @@ export async function startTui(
       if (models) {
         providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
         providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
+        providerCatalogStatus = providerCatalogStateRef?.current.status ?? providerCatalogStatus;
+        providerCatalogError = providerCatalogStateRef?.current.error ?? null;
         syncDeliberationLevel();
         if (executionRoutePicker) {
           renderExecutionRoutePicker();
@@ -578,6 +581,7 @@ export async function startTui(
   function markProviderCatalog(status: GuiProviderCatalogStatus, error: string | null = null): void {
     providerCatalogStatus = status;
     providerCatalogError = error;
+    if (providerCatalogStateRef) providerCatalogStateRef.current = { status, error };
     if (executionRoutePicker) {
       renderExecutionRoutePicker();
     }

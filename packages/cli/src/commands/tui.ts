@@ -96,6 +96,7 @@ import {
   parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
   type GuiProviderDiscoveryResult,
+  type GuiProviderCatalogStatus,
   type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import {
@@ -220,6 +221,7 @@ interface TuiBootstrapResult {
   readonly providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] };
   readonly providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null };
   readonly executionRouteCatalogRef: { current: ExecutionRouteCatalog | null };
+  readonly providerCatalogStateRef: { current: { status: GuiProviderCatalogStatus; error: string | null } };
   readonly refreshProviderDiscovery?: () => Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -1165,6 +1167,9 @@ async function bootstrapGatewaySession(
   const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = {
     current: await options.executionRouteSelection.getCatalog(),
   };
+  const providerCatalogStateRef = {
+    current: { status: "pending" as GuiProviderCatalogStatus, error: null as string | null },
+  };
 
   let session: GatewaySession | null = null;
   const createSession = async (): Promise<SessionLike> => {
@@ -1176,13 +1181,21 @@ async function bootstrapGatewaySession(
           models?: Record<string, string[]>,
           discovery?: readonly GuiProviderDiscoveryResult[],
           providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
+          _availableModels?: import("@kilnai/gateway-contracts").AvailableModelCatalog,
+          providerCatalogState?: { readonly status: GuiProviderCatalogStatus; readonly error?: string },
         ) => {
           executionRouteCatalogRef.current = executionRouteCatalog;
           if (models) {
             providerModelsRef.current = models;
           }
-          providerDiscoveryRef.current = discovery ?? [];
-          providerModelDiscoveryRef.current = providerModelDiscovery ?? null;
+          if (discovery) providerDiscoveryRef.current = discovery;
+          if (providerModelDiscovery) providerModelDiscoveryRef.current = providerModelDiscovery;
+          if (providerCatalogState) {
+            providerCatalogStateRef.current = {
+              status: providerCatalogState.status,
+              error: providerCatalogState.error ?? null,
+            };
+          }
           providerModelsRef.current = projectEligibleTuiProviderModels(
             providerModelDiscoveryRef.current,
             providerDiscoveryRef.current,
@@ -1200,6 +1213,7 @@ async function bootstrapGatewaySession(
     providerDiscoveryRef,
     providerModelDiscoveryRef,
     executionRouteCatalogRef,
+    providerCatalogStateRef,
     shutdown: async () => {
       const failures: unknown[] = [];
       for (const close of [
@@ -1335,6 +1349,7 @@ async function bootstrapDirectSession(
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
   const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = { current: null };
   const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = { current: null };
+  const providerCatalogStateRef = { current: { status: "pending" as GuiProviderCatalogStatus, error: null as string | null } };
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveGuiOperatorDiscoveryResults(
       getRuntimeProviderAvailability(options.registry),
@@ -1374,6 +1389,7 @@ async function bootstrapDirectSession(
   };
   providerCatalog.subscribe((snapshot) => {
     applyProviderDiscovery(snapshot.discovery);
+    providerCatalogStateRef.current = { status: snapshot.status, error: snapshot.error ?? null };
   });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
   options.startupProfiler?.mark("direct-provider-catalog-refresh-started");
@@ -1474,6 +1490,7 @@ async function bootstrapDirectSession(
     providerDiscoveryRef,
     providerModelDiscoveryRef,
     executionRouteCatalogRef,
+    providerCatalogStateRef,
     refreshProviderDiscovery: async () => {
       await refreshProviderModels({ force: true });
     },
@@ -1932,6 +1949,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       if (!approval) throw new Error("Settings proposal does not require approval.");
       return approval.approvalId;
     },
+    bootstrap.providerCatalogStateRef,
     );
   } finally {
     for (const [ev, handler] of handlers) process.off(ev, handler);

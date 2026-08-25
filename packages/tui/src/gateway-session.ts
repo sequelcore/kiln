@@ -14,6 +14,7 @@ import {
   type AvailableModelCatalog,
   type ExecutionRouteSelectionIntent,
   type GuiProviderDiscoveryResult,
+  type GuiProviderCatalogStatus,
   type GuiProviderModelDiscoveryProjection,
   type OperatorTurnRequestedAuthority,
   type OperatorSessionEvent,
@@ -32,6 +33,7 @@ const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 
 const STOP = Symbol("STOP");
 let executionRouteRequestOrdinal = 0;
+let executionRouteRefreshRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
 
 type QueueItem = SessionEventInternal | typeof STOP;
@@ -39,6 +41,11 @@ type QueueItem = SessionEventInternal | typeof STOP;
 function nextExecutionRouteRequestId(): string {
   executionRouteRequestOrdinal += 1;
   return `execution-route:${Date.now()}:${executionRouteRequestOrdinal}`;
+}
+
+function nextExecutionRouteRefreshRequestId(): string {
+  executionRouteRefreshRequestOrdinal += 1;
+  return `execution-route-refresh:${Date.now()}:${executionRouteRefreshRequestOrdinal}`;
 }
 
 function nextProviderAuthRequestId(): string {
@@ -289,6 +296,7 @@ export class GatewaySession implements SessionLike {
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
     providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
     availableModels?: AvailableModelCatalog,
+    providerCatalogState?: { readonly status: GuiProviderCatalogStatus; readonly error?: string },
   ) => void) | null = null;
 
   /** Pending queue items for the current turn. Set while a turn is in flight. */
@@ -309,7 +317,7 @@ export class GatewaySession implements SessionLike {
   } | null = null;
 
   /** Pending route catalog refresh callbacks — set while waiting for route refresh. */
-  private executionRouteRefreshCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
+  private executionRouteRefreshCallbacks: { requestId: string; resolve: () => void; reject: (err: Error) => void } | null = null;
 
   /** Pending provider auth callbacks — set while waiting for provider_auth_completed. */
   private providerAuthCallbacks: {
@@ -328,6 +336,7 @@ export class GatewaySession implements SessionLike {
       providerDiscovery?: readonly GuiProviderDiscoveryResult[],
       providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
       availableModels?: AvailableModelCatalog,
+      providerCatalogState?: { readonly status: GuiProviderCatalogStatus; readonly error?: string },
     ) => void,
   ) {
     this.userId = `kiln-tui-${randomUUID()}`;
@@ -475,12 +484,14 @@ export class GatewaySession implements SessionLike {
   async refreshExecutionRoutes(): Promise<void> {
     await this.waitForConnection();
     return new Promise<void>((resolve, reject) => {
+      const requestId = nextExecutionRouteRefreshRequestId();
       const timeout = setTimeout(() => {
         this.executionRouteRefreshCallbacks = null;
         reject(new Error("Execution target refresh timed out"));
       }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
 
       this.executionRouteRefreshCallbacks = {
+        requestId,
         resolve: () => {
           clearTimeout(timeout);
           this.executionRouteRefreshCallbacks = null;
@@ -493,7 +504,7 @@ export class GatewaySession implements SessionLike {
         },
       };
 
-      this.client.send({ type: "refresh_execution_routes" });
+      this.client.send({ type: "refresh_execution_routes", requestId });
     });
   }
 
@@ -626,11 +637,6 @@ export class GatewaySession implements SessionLike {
         this.executionRouteCallbacks = null;
         pendingRouteSelection.reject(new Error(frame.message));
       }
-      const pendingRouteRefresh = this.executionRouteRefreshCallbacks;
-      if (pendingRouteRefresh) {
-        this.executionRouteRefreshCallbacks = null;
-        pendingRouteRefresh.reject(new Error(frame.message));
-      }
       const pendingProviderAuth = this.providerAuthCallbacks;
       if (pendingProviderAuth) {
         this.providerAuthCallbacks = null;
@@ -675,11 +681,43 @@ export class GatewaySession implements SessionLike {
       if ("executionMode" in frame) {
         this._planMode = frame.executionMode === "plan";
       }
+    } else if (frame.type === "provider_catalog_state") {
+      if (frame.status === "ready") {
+        this._executionRouteCatalog = frame.executionRouteCatalog;
+        this._availableModels = frame.availableModels;
+        this.onWelcome?.(
+          frame.executionRouteCatalog,
+          frame.models,
+          frame.providerDiscovery,
+          frame.providerModelDiscovery,
+          frame.availableModels,
+          { status: "ready" },
+        );
+      } else {
+        this.onWelcome?.(
+          this._executionRouteCatalog,
+          undefined,
+          undefined,
+          undefined,
+          this._availableModels ?? undefined,
+          frame.status === "error"
+            ? { status: "error", error: frame.message }
+            : { status: frame.status },
+        );
+      }
     } else if (frame.type === "execution_routes_refreshed") {
-      this._executionRouteCatalog = frame.executionRouteCatalog;
-      this._availableModels = frame.availableModels;
-      this.onWelcome?.(frame.executionRouteCatalog, undefined, undefined, undefined, frame.availableModels);
-      this.executionRouteRefreshCallbacks?.resolve();
+      const pending = this.executionRouteRefreshCallbacks;
+      if (pending?.requestId === frame.requestId) {
+        this._executionRouteCatalog = frame.executionRouteCatalog;
+        this._availableModels = frame.availableModels;
+        this.onWelcome?.(frame.executionRouteCatalog, undefined, undefined, undefined, frame.availableModels);
+        pending.resolve();
+      }
+    } else if (frame.type === "execution_routes_refresh_failed") {
+      const pending = this.executionRouteRefreshCallbacks;
+      if (pending?.requestId === frame.requestId) {
+        pending.reject(new Error(frame.message));
+      }
     } else if (frame.type === "provider_auth_started") {
       const pending = this.providerAuthCallbacks;
       if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
@@ -712,6 +750,7 @@ export class GatewaySession implements SessionLike {
         discovery: frame.providerDiscovery.find((entry) => entry.provider === frame.provider),
       });
       this._executionRouteCatalog = frame.executionRouteCatalog;
+      this._availableModels = frame.availableModels;
       this.onWelcome?.(
         frame.executionRouteCatalog,
         frame.models,

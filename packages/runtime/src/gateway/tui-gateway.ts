@@ -90,6 +90,7 @@ import {
 import { OperatorActivityStreamer } from "./operator-activity-streamer.js";
 import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
+import { projectProviderCatalogStateFrame } from "./provider-catalog-state-frame.js";
 import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
@@ -784,6 +785,17 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       const userId = c.req.query("userId") ?? crypto.randomUUID();
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
+      let correlatedDiscoveryRefreshDepth = 0;
+      const refreshDiscoveryForRequest = async (
+        refreshOptions?: { readonly force?: boolean },
+      ): Promise<readonly GuiProviderDiscoveryResult[]> => {
+        correlatedDiscoveryRefreshDepth += 1;
+        try {
+          return await refreshDiscovery(refreshOptions);
+        } finally {
+          correlatedDiscoveryRefreshDepth -= 1;
+        }
+      };
       let selectedRouteIntent: { readonly routeId: string; readonly accountOverrideId?: string } | undefined;
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame));
@@ -798,16 +810,6 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           if (activeSession) {
             activityStreamer.forwardSessionEvents(activeSession.sessionEvents);
           }
-          unsubscribeDiscovery?.();
-          unsubscribeDiscovery = providerCatalog.subscribe((snapshot) => {
-            const currentDiscovery = applyDiscovery(snapshot.discovery);
-            ws.send(JSON.stringify({
-              type: "providers_refreshed",
-              providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-              models: projectGuiOperatorModels(currentDiscovery),
-              providerDiscovery: currentDiscovery,
-            }));
-          });
           const activeProvider = options.sessionManager.getProvider();
           const storedModel = options.sessionManager.getModel().trim();
           const currentDiscovery = readDiscovery();
@@ -832,6 +834,30 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           );
           const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
           const providerModelDiscovery = projectGuiProviderModelDiscovery(currentDiscovery);
+          const catalogSnapshot = providerCatalog.snapshot();
+          const initialCatalogState = await projectProviderCatalogStateFrame(
+            catalogSnapshot,
+            async () => options.executionRouteSelection?.getCatalog() ?? { routes: [] },
+            executionRouteCatalog,
+          );
+          unsubscribeDiscovery?.();
+          unsubscribeDiscovery = providerCatalog.subscribe((snapshot) => {
+            applyDiscovery(snapshot.discovery);
+            if (correlatedDiscoveryRefreshDepth > 0) return;
+            void projectProviderCatalogStateFrame(
+              snapshot,
+              async () => options.executionRouteSelection?.getCatalog() ?? { routes: [] },
+            ).then((frame) => {
+              if (operatorSocket === ws) ws.send(JSON.stringify(frame satisfies GuiInboundFrame));
+            }).catch((error: unknown) => {
+              if (operatorSocket !== ws) return;
+              ws.send(JSON.stringify({
+                type: "provider_catalog_state",
+                status: "error",
+                message: error instanceof Error ? error.message : "Provider catalog projection failed.",
+              } satisfies GuiInboundFrame));
+            });
+          });
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
             executionRouteCatalog,
             availableModels: projectAvailableModelCatalogForExecutionRoutes({ discovery: providerModelDiscovery, executionRouteCatalog }),
@@ -841,6 +867,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             executionMode: options.executionMode ?? "execute",
             authorityStatus,
           })));
+          ws.send(JSON.stringify(initialCatalogState satisfies GuiInboundFrame));
         },
 
         async onMessage(event: MessageEvent, ws: WSContext) {
@@ -873,14 +900,24 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             }
 
             if (frame.type === "refresh_execution_routes") {
-              const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
-              ws.send(JSON.stringify({
-                type: "execution_routes_refreshed",
-                executionRouteCatalog,
-                availableModels: projectAvailableModelCatalogForExecutionRoutes({
-                  discovery: projectGuiProviderModelDiscovery(readDiscovery()), executionRouteCatalog,
-                }),
-              }));
+              try {
+                const currentDiscovery = await refreshDiscoveryForRequest({ force: true });
+                const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+                ws.send(JSON.stringify({
+                  type: "execution_routes_refreshed",
+                  requestId: frame.requestId,
+                  executionRouteCatalog,
+                  availableModels: projectAvailableModelCatalogForExecutionRoutes({
+                    discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
+                  }),
+                } satisfies GuiInboundFrame));
+              } catch (error) {
+                ws.send(JSON.stringify({
+                  type: "execution_routes_refresh_failed",
+                  requestId: frame.requestId,
+                  message: error instanceof Error ? error.message : "Execution target refresh failed.",
+                } satisfies GuiInboundFrame));
+              }
               return;
             }
 
@@ -937,7 +974,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 provider: auth.provider,
                 requestId: auth.requestId,
               });
-              const currentDiscovery = await refreshDiscovery({ force: true });
+              const currentDiscovery = await refreshDiscoveryForRequest({ force: true });
               const providerDiscovery = currentDiscovery.find((entry) => entry.provider === auth.provider);
               tuiProviderAuthDebug("discovery refreshed after auth", {
                 provider: auth.provider,

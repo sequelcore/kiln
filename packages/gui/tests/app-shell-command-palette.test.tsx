@@ -313,6 +313,8 @@ function resetStore(): void {
     outboundSend: null,
     clearTimeoutId: null,
     executionRouteSelectionTimeoutId: null,
+    executionRouteRefresh: { state: "idle" },
+    executionRouteRefreshTimeoutId: null,
     providerAuthTimeoutId: null,
     activityPhase: "idle",
   });
@@ -920,6 +922,17 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(await screen.findByRole("status", { name: "Runtime bootstrap" })).toBeInTheDocument();
     expect(screen.getByText("Starting Kiln…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New Session" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a post-bootstrap execution-target refresh inside the active surface", async () => {
+    useSessionStore.setState({ executionRouteRefresh: { state: "refreshing", requestId: "refresh-1" } });
+    render(<AppShell />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run execution-target command" }));
+
+    expect(await screen.findByText("Refreshing execution targets…")).toBeInTheDocument();
+    expect(screen.getByText("Transcript")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Runtime bootstrap" })).not.toBeInTheDocument();
   });
 
   it("retries gateway health when runtime bootstrap is blocked by provider discovery failure", async () => {
