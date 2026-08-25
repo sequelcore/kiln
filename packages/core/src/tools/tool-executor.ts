@@ -15,6 +15,7 @@ import type {
   ToolAuthorizer,
   ToolExecutionResult,
 } from "../engine/domain/tool-execution.js";
+import { meetAuthorityDescriptors } from "../engine/domain/tool-execution.js";
 import { KilnError } from "../engine/errors.js";
 import { ActionEffectAuthorizer } from "../security/action-effect-authorizer.js";
 import type { DevTool, DevToolExecutionContext, ToolResult } from "./domain/tool.js";
@@ -46,6 +47,15 @@ export interface DevToolExecutionResult extends ToolExecutionResult {
   readonly toolName: string;
   readonly resolvedEffect: ResolvedInvocationEffect;
   readonly authority: AuthorityDescriptor;
+}
+
+export interface AdmittedDevToolExecutionRequest {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+  readonly authority: AuthorityDescriptor;
+  readonly resolvedEffect: ResolvedInvocationEffect;
+  readonly sandbox?: unknown;
+  readonly executionContext?: DevToolExecutionContext;
 }
 
 export interface DevToolAuthorizationDecision {
@@ -277,6 +287,49 @@ export class DevToolExecutionBridge {
     return { toolName: tool.name, resolvedEffect, ...decision };
   }
 
+  /** Executes an invocation whose exact effect and authority were admitted by an outer runtime owner. */
+  async executeAdmitted(request: AdmittedDevToolExecutionRequest): Promise<DevToolExecutionResult> {
+    const tool = this.registry.lookup(request.name);
+    if (!tool) {
+      throw new KilnError("INTERNAL_ERROR", `Tool "${request.name}" is not registered`, {
+        context: { toolName: request.name },
+        retryable: false,
+      });
+    }
+    if (!isAuthorityDescriptor(request.authority) || !request.authority.allowed || request.authority.requiresApproval) {
+      const reason = isAuthorityDescriptor(request.authority)
+        ? request.authority.reason
+        : "Admitted tool execution requires final allowing authority.";
+      throw new KilnError("TOOL_AUTHORIZATION_DENIED", reason, {
+        context: { toolName: request.name, authority: request.authority },
+        retryable: false,
+      });
+    }
+
+    const startedAt = Date.now();
+    const result = await tool.execute(
+      { name: request.name, input: request.input },
+      request.sandbox,
+      request.executionContext,
+    );
+    const linkedResult = this.resourceLinker?.link({ toolName: request.name, input: request.input, result }) ?? result;
+    if (!isToolResult(linkedResult)) {
+      throw new KilnError("INTERNAL_ERROR", `Tool "${request.name}" returned an invalid result shape`, {
+        context: { toolName: request.name, resultType: typeof linkedResult },
+        retryable: false,
+      });
+    }
+    return {
+      result: linkedResult,
+      attempts: 1,
+      durationMs: Date.now() - startedAt,
+      fallbackUsed: false,
+      toolName: request.name,
+      resolvedEffect: request.resolvedEffect,
+      authority: request.authority,
+    };
+  }
+
   private resolveInvocationEffect(
     tool: DevTool,
     input: Record<string, unknown>,
@@ -299,32 +352,6 @@ export class DevToolExecutionBridge {
       });
     }
   }
-}
-
-function meetAuthorityDescriptors(
-  descriptors: readonly AuthorityDescriptor[],
-): AuthorityDescriptor {
-  const [first] = descriptors;
-  if (!first) {
-    return {
-      level: 4,
-      allowed: false,
-      requiresApproval: false,
-      reason: "No authority decision was available; execution denied",
-    };
-  }
-  const blocking = descriptors.filter((descriptor) => !descriptor.allowed);
-  const requiresApproval = descriptors.some((descriptor) => descriptor.requiresApproval);
-  const level = descriptors.reduce<AuthorizationLevel>(
-    (maximum, descriptor) => descriptor.level > maximum ? descriptor.level : maximum,
-    first.level,
-  );
-  return {
-    level,
-    allowed: blocking.length === 0,
-    requiresApproval,
-    reason: descriptors.map((descriptor) => descriptor.reason).join("; "),
-  };
 }
 
 function isToolResult(value: unknown): value is ToolResult {

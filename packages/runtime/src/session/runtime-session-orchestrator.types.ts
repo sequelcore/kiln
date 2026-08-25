@@ -17,6 +17,7 @@ import type {
   ExecutionBillingMode,
   ExecutionSessionBindingEvidence,
   KilnMcpClient,
+  InvocationAdmission,
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityProfile,
   ManagedAgentInvocationContextMode,
@@ -114,6 +115,8 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly sandbox?: unknown;
   readonly allowedToolNames?: readonly string[];
   readonly authority?: AuthorityDescriptor;
+  /** Exact invocation effect resolved and admitted by the Runtime owner. */
+  readonly resolvedEffect?: ResolvedInvocationEffect;
   /** Process-local attended authority evidence; never persisted or cloned. */
   readonly attendedTrustedExecution?: ManagedAttendedTrustedExecutionContext;
   /** Process-local attended session owner; forwarded without consumption. */
@@ -364,6 +367,8 @@ export interface PerCallToolConfig {
   readonly initialToolChoice?: ToolChoiceOption;
   readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
+  /** Input-sensitive configured policy evaluated by Runtime before any action claim. */
+  readonly toolInvocationAdmission?: InvocationAdmission;
   readonly toolCallMetadata?: ReadonlyMap<string, RuntimeToolCallMetadataResolver>;
   readonly modelOverride?: {
     readonly provider: string;

@@ -25,6 +25,7 @@ import {
   externalToolFailureMetadata,
   getInvalidToolInputDetails,
   isFileToolResultMetadata,
+  meetAuthorityDescriptors,
   normalizeToolCall,
   resolveInvocationEffect,
 } from "@kilnai/core";
@@ -630,7 +631,12 @@ export class RuntimeSessionToolExecutor {
         const resolvedEffect = effectResolution.effect;
         const consequential =
           isMcpToolName(normalizedToolCall.name) || !effectResolution.trusted || resolvedEffect.operation !== "observe";
-        const authResult = this.resolveAuthorization(normalizedToolCall.name, resolvedEffect, perCallConfig);
+        const authResult = this.resolveAuthorization(
+          normalizedToolCall.name,
+          normalizedToolCall.input,
+          resolvedEffect,
+          perCallConfig,
+        );
         let executionAuthority = authResult;
         if (authResult) {
           this.emitToolAuthorized(
@@ -1101,6 +1107,7 @@ export class RuntimeSessionToolExecutor {
 
   private resolveAuthorization(
     toolName: string,
+    toolInput: Record<string, unknown>,
     resolvedEffect: ResolvedInvocationEffect,
     perCallConfig?: PerCallToolConfig,
   ): AuthorityDescriptor | undefined {
@@ -1114,6 +1121,7 @@ export class RuntimeSessionToolExecutor {
       };
     }
     const authority = this.resolveStaticAuthority(toolName, perCallConfig);
+    let runtimeAuthority: AuthorityDescriptor | undefined;
     if (authority !== undefined) {
       if (!this.isAuthorityDescriptor(authority)) {
         return {
@@ -1126,16 +1134,43 @@ export class RuntimeSessionToolExecutor {
       const declaredEffect = admittedPermission.effectEnvelope;
       const narrowedAuthority = authorityFromResolvedInvocationEffect(authority, resolvedEffect, declaredEffect);
       if (narrowedAuthority) {
-        return narrowedAuthority;
+        runtimeAuthority = narrowedAuthority;
+      } else {
+        runtimeAuthority = {
+          level: authority.level,
+          allowed: authority.allowed,
+          requiresApproval: authority.requiresApproval,
+          reason: authority.reason,
+        };
       }
+    }
+    if (!runtimeAuthority || !perCallConfig?.toolInvocationAdmission) return runtimeAuthority;
+
+    let configuredAuthority: unknown;
+    try {
+      configuredAuthority = perCallConfig.toolInvocationAdmission.authorize({
+        toolName,
+        toolInput,
+        resolvedEffect,
+        callerBound: runtimeAuthority,
+      });
+    } catch (error) {
       return {
-        level: authority.level,
-        allowed: authority.allowed,
-        requiresApproval: authority.requiresApproval,
-        reason: authority.reason,
+        level: 4,
+        allowed: false,
+        requiresApproval: false,
+        reason: `Configured invocation admission failed: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    return undefined;
+    if (!this.isAuthorityDescriptor(configuredAuthority)) {
+      return {
+        level: 4,
+        allowed: false,
+        requiresApproval: false,
+        reason: "Configured invocation admission returned an invalid authority descriptor.",
+      };
+    }
+    return meetAuthorityDescriptors([runtimeAuthority, configuredAuthority]);
   }
 
   private resolveInvocationEffectWithTrust(
@@ -1456,6 +1491,7 @@ export class RuntimeSessionToolExecutor {
       }
       const prepared = this.prepareToolInvocation(
         toolCall,
+        resolvedEffect,
         perCallConfig,
         authority,
         formalVerificationObservations,
@@ -1505,16 +1541,37 @@ export class RuntimeSessionToolExecutor {
       const executor = (name: string, input: Record<string, unknown>) => {
         const attempt = { id: toolCall.id, name, input };
         this.assertAttendedTrustedExecutionUse(perCallConfig, attempt, resolvedEffect);
-        return this.executeTool(attempt, perCallConfig, authority, formalVerificationObservations);
+        return this.executeTool(
+          attempt,
+          resolvedEffect,
+          perCallConfig,
+          authority,
+          formalVerificationObservations,
+        );
       };
       const fallbackExecutor = capability.retry.fallback
         ? (name: string, input: Record<string, unknown>) => {
             const attempt = { id: toolCall.id, name, input };
-            this.assertAttendedTrustedExecutionUse(perCallConfig, attempt, resolvedEffect);
+            const fallbackEffect = this.resolveInvocationEffectWithTrust(name, input, perCallConfig);
+            const fallbackAuthority = this.resolveAuthorization(name, input, fallbackEffect.effect, perCallConfig);
+            if (
+              !fallbackEffect.trusted
+              || fallbackEffect.effect.operation !== "observe"
+              || stableRuntimeJson(fallbackEffect.effect) !== stableRuntimeJson(resolvedEffect)
+              || !fallbackAuthority?.allowed
+              || fallbackAuthority.requiresApproval
+              || fallbackAuthority.level !== authority?.level
+            ) {
+              throw new Error(
+                `Runtime tool fallback "${name}" must preserve the admitted observable effect and final authority.`,
+              );
+            }
+            this.assertAttendedTrustedExecutionUse(perCallConfig, attempt, fallbackEffect.effect);
             return this.executeTool(
               attempt,
+              fallbackEffect.effect,
               perCallConfig,
-              readExecutionToolAuthority(perCallConfig, name),
+              fallbackAuthority,
               formalVerificationObservations,
             );
           }
@@ -1531,7 +1588,13 @@ export class RuntimeSessionToolExecutor {
       retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
     } else {
       this.assertAttendedTrustedExecutionUse(perCallConfig, toolCall, resolvedEffect);
-      resultValueRaw = await this.executeTool(toolCall, perCallConfig, authority, formalVerificationObservations);
+      resultValueRaw = await this.executeTool(
+        toolCall,
+        resolvedEffect,
+        perCallConfig,
+        authority,
+        formalVerificationObservations,
+      );
     }
 
     return {
@@ -1762,15 +1825,23 @@ export class RuntimeSessionToolExecutor {
 
   private async executeTool(
     toolCall: ToolCall,
+    resolvedEffect: ResolvedInvocationEffect,
     perCallConfig?: PerCallToolConfig,
     authority?: AuthorityDescriptor,
     formalVerificationObservations: readonly RuntimeFormalVerificationObservation[] = [],
   ): Promise<unknown> {
-    return this.prepareToolInvocation(toolCall, perCallConfig, authority, formalVerificationObservations).invoke();
+    return this.prepareToolInvocation(
+      toolCall,
+      resolvedEffect,
+      perCallConfig,
+      authority,
+      formalVerificationObservations,
+    ).invoke();
   }
 
   private prepareToolInvocation(
     toolCall: ToolCall,
+    resolvedEffect: ResolvedInvocationEffect,
     perCallConfig?: PerCallToolConfig,
     authority?: AuthorityDescriptor,
     formalVerificationObservations: readonly RuntimeFormalVerificationObservation[] = [],
@@ -1817,6 +1888,7 @@ export class RuntimeSessionToolExecutor {
             ? { allowedToolNames: [...readExecutionToolAllowlist(perCallConfig)!] }
             : {}),
           ...(authority ? { authority } : {}),
+          resolvedEffect,
           ...(perCallConfig?.attendedTrustedExecution !== undefined
             ? { attendedTrustedExecution: perCallConfig.attendedTrustedExecution }
             : {}),

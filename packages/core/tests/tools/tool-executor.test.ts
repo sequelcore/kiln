@@ -199,6 +199,45 @@ describe("DevToolExecutionBridge", () => {
     })).rejects.toMatchObject({ code: "TOOL_AUTHORIZATION_DENIED" });
   });
 
+  it("executes an outer-admitted invocation without re-running standalone authority policy", async () => {
+    const execute = vi.fn(async () => ({ output: "ok", isError: false }));
+    const registry = new DevToolRegistry();
+    registry.register(makeTool("write", execute, WORKSPACE_MUTATION_EFFECT));
+    const bridge = new DevToolExecutionBridge({
+      registry,
+      invocationAdmission: {
+        authorize: () => ({
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Standalone policy must not be re-run after outer admission.",
+        }),
+      },
+    });
+    const authority = {
+      level: 4 as const,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Outer runtime admitted this exact invocation.",
+    };
+
+    const result = await bridge.executeAdmitted({
+      name: "write",
+      input: { filePath: "x.txt", content: "x" },
+      authority,
+      resolvedEffect: WORKSPACE_MUTATION_EFFECT,
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      result: { output: "ok", isError: false },
+      attempts: 1,
+      fallbackUsed: false,
+      resolvedEffect: WORKSPACE_MUTATION_EFFECT,
+      authority,
+    });
+  });
+
   it("blocks when configured admission denies despite an allowing caller bound", async () => {
     const execute = vi.fn(async () => ({ output: "must not execute", isError: false }));
     const registry = new DevToolRegistry();

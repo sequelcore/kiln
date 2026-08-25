@@ -29,6 +29,33 @@ export interface AuthorityDescriptor {
   readonly reason: string;
 }
 
+/** Conjunctive authority composition: every participating owner must allow the invocation. */
+export function meetAuthorityDescriptors(
+  descriptors: readonly AuthorityDescriptor[],
+): AuthorityDescriptor {
+  const [first] = descriptors;
+  if (!first) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: false,
+      reason: "No authority decision was available; execution denied",
+    };
+  }
+  const blocking = descriptors.filter((descriptor) => !descriptor.allowed);
+  const requiresApproval = descriptors.some((descriptor) => descriptor.requiresApproval);
+  const level = descriptors.reduce<AuthorizationLevel>(
+    (maximum, descriptor) => descriptor.level > maximum ? descriptor.level : maximum,
+    first.level,
+  );
+  return {
+    level,
+    allowed: blocking.length === 0,
+    requiresApproval,
+    reason: descriptors.map((descriptor) => descriptor.reason).join("; "),
+  };
+}
+
 /** Classification of a tool execution error */
 export type ToolErrorType = "validation" | "transient" | "fatal";
 

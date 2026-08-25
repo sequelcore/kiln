@@ -240,6 +240,22 @@ describe("builtin tool surface config", () => {
       resolvedEffect: { ...effect, dataEgress: "project-data" },
     }).allowed).toBe(false);
   });
+
+  it("does not synthesize a second default permission owner for runtime-attached sessions", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-runtime-authority-owner-"));
+    try {
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        memoryAuthority: {
+          modelFacingSession: true,
+          caller: { kind: "operator_surface", id: "gui" },
+        },
+      });
+
+      expect(options.invocationAdmission).toBeUndefined();
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
 });
 
 function appConfig(): KilnAppConfig {

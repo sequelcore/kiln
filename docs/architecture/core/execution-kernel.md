@@ -114,6 +114,14 @@ route, data policy, budget, approvals, and effect ceiling. Core owns pure
 policy and selection values; Runtime composes them through their named
 authorities. A surface or adapter cannot manufacture an admitted attempt.
 
+Runtime-attached built-in tools follow that same ownership boundary. Runtime
+evaluates persisted tool authority and any input-sensitive configured
+invocation admission before the action claim, then passes the exact resolved
+effect and final allowing authority to Core's admitted-execution port. Core's
+standalone execution port retains its own authorization for MCP and other
+callers that have no Runtime admission; it is never re-entered after a Runtime
+claim.
+
 ### 2. Acquire
 
 The workload acquires capacity, economic commitments, and required resource

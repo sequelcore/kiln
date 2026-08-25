@@ -33,6 +33,7 @@ import type {
 } from "../../src/agents/managed-invocation/runtime-tool/types.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+import { withAdmittedRuntimeCalls } from "./attached-runtime-admission-fixture.js";
 
 export const TEST_HANDOFF_PROVENANCE = {
   delivery: "runtime-generated",
@@ -130,19 +131,10 @@ export function createAttachedRuntimeBuiltinToolSurface(
         requestedAuthority: "read_only",
       } satisfies EffectiveTurnAuthoritySnapshot;
   if (!managedInvocation || testEffectiveTurnAuthority === undefined) return surface;
-  const callBuiltinTools = new Map<string, typeof surface.callBuiltinTools extends ReadonlyMap<string, infer E> ? E : never>();
-  for (const [toolName, executor] of surface.callBuiltinTools) {
-    callBuiltinTools.set(toolName, async (input, context) => {
-      if (!context) return executor(input, context);
-      return executor(input, {
-        ...context,
-        ...(context.effectiveTurnAuthority
-          ? { effectiveTurnAuthority: context.effectiveTurnAuthority }
-          : { effectiveTurnAuthority: testEffectiveTurnAuthority }),
-      });
-    });
-  }
-  return { ...surface, callBuiltinTools };
+  return withAdmittedRuntimeCalls(surface, {
+    effectiveTurnAuthority: testEffectiveTurnAuthority,
+    preserveMissingContext: true,
+  });
 }
 
 export function makeSession(sessionId = "session-parent"): RuntimeSession {

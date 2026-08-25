@@ -4,6 +4,10 @@ import { textParts, type AuthorityDescriptor, type Capability, type RateLimiter,
 import { EventBus, type ApprovalRequestedEvent, type ToolCalledEvent, type ToolResultEvent } from "@kilnai/core/events";
 import { type KilnMcpClient } from "@kilnai/core/mcp";
 import { ToolResultSanitizer as RealToolResultSanitizer, type SafetyPipeline, type ToolResultSanitizer } from "@kilnai/core/safety";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSessionOrchestrationSurface, RuntimeSessionOrchestrator, type PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -631,6 +635,109 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
           },
         }),
       );
+    });
+
+    it("executes an admitted real builtin write without re-authorizing after the action claim", async () => {
+      const workspace = await mkdtemp(join(tmpdir(), "kiln-runtime-write-"));
+      const surface = createAttachedRuntimeBuiltinToolSurface();
+      const provider = makeToolCallProvider({
+        id: "tc-write-real",
+        name: "write",
+        input: { filePath: "alive.txt", content: "i am alive\n" },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: surface.toolDefinitions,
+        builtinTools: surface.callBuiltinTools,
+        capabilityMap: surface.capabilities,
+      });
+
+      try {
+        const result = await orchestrator.processMessage(
+          makeSession(),
+          textParts("write the file"),
+          undefined,
+          undefined,
+          {
+            workingDirectory: workspace,
+            toolAuthority: new Map([[
+              "write",
+              {
+                level: 4,
+                allowed: true,
+                requiresApproval: false,
+                reason: "Governed destructive execution admitted by effective turn authority.",
+              },
+            ]]),
+          },
+        );
+
+        await expect(readFile(join(workspace, "alive.txt"), "utf8")).resolves.toBe("i am alive\n");
+        expect(result.toolExecutions).toEqual([
+          expect.objectContaining({ toolName: "write", success: true }),
+        ]);
+      } finally {
+        await surface.dispose();
+        await rm(workspace, { recursive: true, force: true });
+      }
+    });
+
+    it("applies configured invocation admission before claiming a consequential tool action", async () => {
+      const provider = makeToolCallProvider({
+        id: "tc-config-denied",
+        name: "write",
+        input: { filePath: "denied.txt", content: "must not execute" },
+      });
+      const write = vi.fn().mockResolvedValue({ output: "wrote", isError: false });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes a file", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["write", write]]),
+        capabilityMap: new Map([[
+          "write",
+          { name: "write", description: "Writes a file", schema: {}, tags: [], effectEnvelope: MUTATION_EFFECT },
+        ]]),
+      });
+      const config = {
+        toolAuthority: new Map([[
+          "write",
+          {
+            level: 4 as const,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Persisted runtime admission allows write.",
+          },
+        ]]),
+        toolInvocationAdmission: {
+          authorize: vi.fn().mockReturnValue({
+            level: 4,
+            allowed: false,
+            requiresApproval: false,
+            reason: "Configured policy denies this path.",
+          }),
+        },
+      } as PerCallToolConfig & {
+        readonly toolInvocationAdmission: {
+          authorize(input: unknown): AuthorityDescriptor;
+        };
+      };
+
+      const result = await orchestrator.processMessage(
+        makeSession(),
+        textParts("write the denied file"),
+        undefined,
+        undefined,
+        config,
+      );
+
+      expect(write).not.toHaveBeenCalled();
+      expect(result.toolExecutions).toEqual([
+        expect.objectContaining({
+          toolName: "write",
+          success: false,
+          output: expect.stringContaining("Configured policy denies this path."),
+        }),
+      ]);
     });
 
     it("fails closed when the canonical admission bundle is absent", async () => {

@@ -130,6 +130,7 @@ export type {
   ToolExecutionRequest,
   ToolExecutionResult,
 } from "./domain/tool-execution.js";
+export { meetAuthorityDescriptors } from "./domain/tool-execution.js";
 export type {
   OperationType,
   BoundaryType,

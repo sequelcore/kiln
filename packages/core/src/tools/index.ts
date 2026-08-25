@@ -469,6 +469,7 @@ export {
   projectDevToolCapabilities,
 } from "./default-tool-surface.js";
 export type {
+  AdmittedDevToolExecutionRequest,
   DevToolExecutionBridgeOptions,
   DevToolAuthorizationDecision,
   DevToolExecutionRequest,

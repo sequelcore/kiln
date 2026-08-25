@@ -46,6 +46,7 @@ import { projectToolPermissionAdmissionFromPerCallConfig } from "../../src/sessi
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+import { withAdmittedRuntimeCalls } from "./attached-runtime-admission-fixture.js";
 
 const TEST_HANDOFF_PROVENANCE = {
   delivery: "runtime-generated",
@@ -162,50 +163,42 @@ function createAttachedRuntimeBuiltinToolSurface(
 ) {
   const { testEffectiveTurnAuthority, ...surfaceOptions } = options;
   const managed = surfaceOptions.managedInvocation;
-  if (!managed) return createRuntimeBuiltinToolSurface(surfaceOptions);
-  const attachment = "options" in managed && "callerIdentity" in managed
-    ? managed
-    : {
-        options: managed,
-        callerIdentity: {
-          kind: "kiln-runtime" as const,
-          surface: "runtime-test",
-          attachmentId: "attachment:runtime-test",
-        },
-      };
+  const attachment = managed
+    ? "options" in managed && "callerIdentity" in managed
+      ? managed
+      : {
+          options: managed,
+          callerIdentity: {
+            kind: "kiln-runtime" as const,
+            surface: "runtime-test",
+            attachmentId: "attachment:runtime-test",
+          },
+        }
+    : undefined;
   const surface = createRuntimeBuiltinToolSurface({
     ...surfaceOptions,
-    managedInvocation: {
-      ...attachment,
-      boundedWorkAdmission: attachment.boundedWorkAdmission ?? (options.boundedWork ? undefined : () => ({
-        admitted: true as const,
-        workspaceAuthority: { allowedPaths: ["/workspace/kiln"], deniedPaths: [] },
-        lifecycle: {
-          markDispatched: () => undefined,
-          releaseBeforeDispatch: () => undefined,
-          settleTerminal: () => undefined,
-          settleUnknown: () => undefined,
-        },
-      })),
-    },
+    ...(attachment
+      ? {
+          managedInvocation: {
+            ...attachment,
+            boundedWorkAdmission: attachment.boundedWorkAdmission ?? (options.boundedWork ? undefined : () => ({
+              admitted: true as const,
+              workspaceAuthority: { allowedPaths: ["/workspace/kiln"], deniedPaths: [] },
+              lifecycle: {
+                markDispatched: () => undefined,
+                releaseBeforeDispatch: () => undefined,
+                settleTerminal: () => undefined,
+                settleUnknown: () => undefined,
+              },
+            })),
+          },
+        }
+      : {}),
   });
   const authority = testEffectiveTurnAuthority === null
     ? undefined
     : testEffectiveTurnAuthority ?? TEST_PARENT_AUTHORITY;
-  if (!authority) return surface;
-  const callBuiltinTools = new Map<string, typeof surface.callBuiltinTools extends ReadonlyMap<string, infer E> ? E : never>();
-  for (const [toolName, executor] of surface.callBuiltinTools) {
-    callBuiltinTools.set(toolName, async (input, context) => {
-      if (!context) return executor(input, context);
-      return executor(input, {
-        ...context,
-        ...(context.effectiveTurnAuthority
-          ? { effectiveTurnAuthority: context.effectiveTurnAuthority }
-          : { effectiveTurnAuthority: authority }),
-      });
-    });
-  }
-  return { ...surface, callBuiltinTools };
+  return withAdmittedRuntimeCalls(surface, { effectiveTurnAuthority: authority });
 }
 
 function projectToolDefinitions(
@@ -1308,6 +1301,30 @@ expect(admittedToolNames).not.toContain("write");
       toolCount: admittedToolNames.length,
       deniedToolCount: projectedToolNames.length - admittedToolNames.length,
     });
+  });
+
+  it("projects configured invocation admission into the runtime pre-claim policy boundary", () => {
+    const toolInvocationAdmission = {
+      authorize: vi.fn().mockReturnValue({
+        level: 1,
+        allowed: true,
+        requiresApproval: false,
+        reason: "Configured policy allows invocation.",
+      }),
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { invocationAdmission: toolInvocationAdmission },
+    });
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+    });
+
+    expect(runtimeSurface.toolInvocationAdmission).toBe(toolInvocationAdmission);
+    expect(config.toolInvocationAdmission).toBe(toolInvocationAdmission);
   });
 
   it("fails closed for non-executable provider profiles and exposes no tools", () => {
@@ -3808,7 +3825,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       .rejects.toThrow("Managed invocation recovery requires a non-empty tool call id.");
   });
 
-  it("fails closed when recovery is invoked without tool execution context", async () => {
+  it("fails closed when an attached runtime tool is invoked without admission context", async () => {
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
@@ -3863,7 +3880,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         expectedEvidence: ["managed-agent-review"],
         executionPhase,
       });
-      const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      const runtimeSurface = createRuntimeBuiltinToolSurface({
         builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
         managedInvocation: unavailableManagedInvocation,
       });
@@ -3878,7 +3895,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const workItemStoreOne = new WorkItemStore();
     workItemStoreOne.upsert(workItem);
     await expect(triggerFailure(workItemStoreOne, goalRunStoreOne))
-      .rejects.toThrow("Managed invocation recovery requires a non-empty tool call id.");
+      .rejects.toThrow("requires admitted authority and resolved effect evidence");
   });
 
   it("scopes the recovery id by the stable phase identity, not the same-run loop position, so a replay after an earlier phase already persisted derives the identical id", async () => {

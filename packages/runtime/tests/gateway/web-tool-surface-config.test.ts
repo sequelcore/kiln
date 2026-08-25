@@ -5,6 +5,7 @@ import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
+import { withAdmittedRuntimeCalls } from "./attached-runtime-admission-fixture.js";
 
 function webToolOptions(): DefaultBuiltinToolRegistryOptions {
   const networkPolicy = new SandboxPolicy({
@@ -46,9 +47,11 @@ function webToolOptions(): DefaultBuiltinToolRegistryOptions {
 
 describe("attached runtime web tool configuration", () => {
   it("uses configured core web options in runtime executors and per-call tool projection", async () => {
-    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions: webToolOptions(),
-    });
+    const runtimeSurface = withAdmittedRuntimeCalls(
+      createAttachedRuntimeBuiltinToolSurface({
+        builtinToolOptions: webToolOptions(),
+      }),
+    );
 
     const search = runtimeSurface.callBuiltinTools.get("web_search");
     expect(search).toBeDefined();

@@ -11,6 +11,7 @@ import type {
   DiscoveredDirectProviderModelCapabilities,
   ManagedAgentAdmissionProfile,
   ManagedAgentCallerAttachmentIdentity,
+  InvocationAdmission,
   ToolDefinition,
   ToolResultMetadata,
   ToolResourceDisplayDescriptor,
@@ -110,6 +111,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   readonly materializableCapabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly toolInvocationAdmission?: InvocationAdmission;
   readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>;
   readonly analysisStateStore?: AnalysisStateStore;
   readonly authorityStateStore?: AuthorityStateStore;
@@ -477,6 +479,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const baseSurface = options.builtinToolOptions || requiresPlanningStores
       ? buildRuntimeSurface(coreSurface, {
         requireSessionStores: requiresPlanningStores,
+        ...(options.builtinToolOptions?.invocationAdmission
+          ? { toolInvocationAdmission: options.builtinToolOptions.invocationAdmission }
+          : {}),
       })
     : DEFAULT_BUILTIN_TOOL_SURFACE;
   const managedInvocation = managedInvocationAttachment
@@ -684,6 +689,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolAuthority: strictToolAllowlist
       ? filterMapByAllowlist(toolAuthority, strictToolAllowlist) ?? new Map()
       : toolAuthority,
+    ...(baseSurface.toolInvocationAdmission
+      ? { toolInvocationAdmission: baseSurface.toolInvocationAdmission }
+      : {}),
     toolCallMetadata: strictToolAllowlist
       ? filterMapByAllowlist(toolCallMetadata, strictToolAllowlist) ?? new Map()
       : toolCallMetadata,
@@ -1618,6 +1626,7 @@ function buildRuntimeSurface(
   coreSurface: DefaultBuiltinToolSurface,
   options: {
     readonly requireSessionStores?: boolean;
+    readonly toolInvocationAdmission?: InvocationAdmission;
   } = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const analysisStateStore = coreSurface.analysisStateStore;
@@ -1635,6 +1644,9 @@ function buildRuntimeSurface(
     materializableTools: new Map(materializableToolDefinitions.map((tool) => [tool.name, tool] as const)),
     materializableCapabilities: projectDevToolCapabilities(coreSurface.registry.list()),
     toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
+    ...(options.toolInvocationAdmission
+      ? { toolInvocationAdmission: options.toolInvocationAdmission }
+      : {}),
     toolCallMetadata: new Map(),
     analysisStateStore,
     authorityStateStore,
@@ -1710,10 +1722,16 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ?? (executionMode === "plan"
       ? createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" })
       : DEFAULT_BUILTIN_TOOL_SURFACE);
+  const runtimeConfig: RuntimeAuthorityAdmissionCandidateConfig = {
+    ...config,
+    ...(builtinToolSurface.toolInvocationAdmission
+      ? { toolInvocationAdmission: builtinToolSurface.toolInvocationAdmission }
+      : {}),
+  };
 
   if (profile?.executionMode !== "kiln-executable") {
     const failClosedConfig: RuntimeAuthorityAdmissionCandidateConfig = {
-      ...config,
+      ...runtimeConfig,
       additionalTools: builtinToolSurface.toolDefinitions,
       toolAuthority: new Map(),
       perCallCapabilities: builtinToolSurface.capabilities,
@@ -1737,7 +1755,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       ? builtinToolSurface
       : createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
     return recordRuntimeAuthoritySnapshot(planSurface, projectEffectiveTurnAuthorityPerCallConfig({
-      config: buildPlanModePerCallConfig(config, planSurface),
+      config: buildPlanModePerCallConfig(runtimeConfig, planSurface),
       executionMode,
       sourcePolicy: "plan_mode_projection",
       reason: "Plan mode narrows the runtime surface to planning and read-only tools.",
@@ -1746,7 +1764,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     })!);
   }
   const executeConfig: RuntimeAuthorityAdmissionCandidateConfig = {
-    ...config,
+    ...runtimeConfig,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
     toolAuthority: buildEffectiveRuntimeToolAuthority({
       baseAuthority: builtinToolSurface.toolAuthority,
@@ -1971,6 +1989,11 @@ function buildBuiltinToolExecutors(
   for (const tool of surface.registry.list()) {
     const toolName = tool.name;
     executors.set(toolName, async (input, context) => {
+      if (!context?.authority || !context.resolvedEffect) {
+        throw new Error(`Runtime builtin tool "${toolName}" requires admitted authority and resolved effect evidence.`);
+      }
+      const authority = context.authority;
+      const resolvedEffect = context.resolvedEffect;
       const sandbox = mergeToolSandboxContext(context?.sandbox, context?.allowedToolNames);
       const executionContext = createCoreToolExecutionContext(
         toolName,
@@ -1978,10 +2001,11 @@ function buildBuiltinToolExecutors(
         context,
         tool,
       );
-      const execute = () => surface.bridge.execute({
+      const execute = () => surface.bridge.executeAdmitted({
         name: toolName,
         input,
-        ...(context?.authority ? { authority: context.authority } : {}),
+        authority,
+        resolvedEffect,
         ...(sandbox !== undefined ? { sandbox } : {}),
         ...(executionContext ? { executionContext } : {}),
       });

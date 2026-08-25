@@ -16,7 +16,6 @@ import { readGlobalConfig, type KilnGlobalConfig } from "./global-config.js";
 import { resolveFormalVerificationConfiguration } from "./formal-verification-config.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
-import { resolveModelFacingPermissionPolicy } from "./model-facing-permission-policy.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
@@ -167,9 +166,7 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     loadConfiguredInteractiveUseToolSurfaceOptions(appConfig, projectPath, { artifactStore }),
   ]);
   const merged = mergeBuiltinToolSurfaceOptions(webOptions, interactiveOptions);
-  const invocationPolicy = options.memoryAuthority?.modelFacingSession === true
-    ? resolveModelFacingPermissionPolicy(options.memoryAuthority.permissionPolicy)
-    : options.memoryAuthority?.permissionPolicy;
+  const invocationPolicy = options.memoryAuthority?.permissionPolicy;
   const resourceProviders = [
     ...(merged.resourceProviders ?? []),
     new ExternalEngagementResourceProvider(
