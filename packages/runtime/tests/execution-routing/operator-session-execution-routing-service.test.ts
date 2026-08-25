@@ -350,7 +350,9 @@ describe("OperatorSessionExecutionRoutingService", () => {
   it("keeps an exact override inside automatic policy and passes it through the same gates", async () => {
     const { routing, authority } = service({ candidates: { resolve: vi.fn(async () => [{ candidate: candidate("personal", { health: "unhealthy" }), lease: leaseBinding("personal") }, { candidate: candidate("work"), lease: leaseBinding("work") }]) } });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra", accountOverrideId: "personal" }, payload: undefined })).rejects.toThrow(/no eligible account/i);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra", accountOverrideId: "personal" }, payload: undefined })).rejects.toMatchObject({
+      routingFailureCode: "health-unhealthy",
+    });
 
     expect(authority.acquireAccountCapacity).not.toHaveBeenCalled();
   });

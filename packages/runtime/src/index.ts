@@ -457,6 +457,7 @@ export type {
   OperatorSessionExecutionDispatch,
   OperatorSessionExecutionRequest,
   OperatorSessionExecutionResult,
+  OperatorSessionExecutionRoutingFailureCode,
   OperatorSessionExecutionRoutingServiceOptions,
   OperatorSessionResolvedCredential,
 } from "./execution-routing/operator-session-execution-routing-service.js";

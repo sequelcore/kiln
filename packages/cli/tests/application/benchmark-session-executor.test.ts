@@ -1102,6 +1102,10 @@ describe("createBenchmarkSessionExecutor", () => {
     }, { id: "kiln-formal-verification-pilot" }));
 
     expect(result.trial).toEqual({ status: "invalid", reason: "execution-identity-mismatch" });
+    const dispatched = benchmarkExecutorMocks.runSession.mock.calls.at(-1)?.[0] as {
+      readonly sessionConfig?: { readonly task?: string };
+    } | undefined;
+    expect(dispatched?.sessionConfig?.task).not.toContain("Treatment protocol:");
   });
 
   it("records only a well-formed final-digest lemma observation", async () => {
@@ -1183,6 +1187,12 @@ describe("createBenchmarkSessionExecutor", () => {
         digests: expect.objectContaining({ source: FORMAL_SOURCE_AFTER }),
       }),
     ]);
+    const dispatched = benchmarkExecutorMocks.runSession.mock.calls.at(-1)?.[0] as {
+      readonly sessionConfig?: { readonly task?: string };
+    } | undefined;
+    expect(dispatched?.sessionConfig?.task).toContain(
+      "Treatment protocol: after the final candidate edit, invoke lemma_check before finishing.",
+    );
     expect(JSON.stringify(result.metadata)).not.toContain("private/formal");
     expect(JSON.stringify(result.metadata)).not.toContain("test(\"one\"");
   });
@@ -1648,6 +1658,7 @@ describe("createBenchmarkSessionExecutor", () => {
   it("records canonical account-capacity denial as an invalid infrastructure trial", async () => {
     const error = new Error("sensitive account details must not escape");
     error.name = "OperatorSessionExecutionRoutingError";
+    Object.assign(error, { routingFailureCode: "quota-unknown" });
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
       makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
     );
@@ -1670,6 +1681,7 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(result.metadata?.diagnostics).toEqual([
       "Canonical execution account route was unavailable before provider dispatch.",
     ]);
+    expect(result.metadata?.routingFailureCode).toBe("quota-unknown");
     expect(JSON.stringify(result)).not.toContain("sensitive account details");
   });
 

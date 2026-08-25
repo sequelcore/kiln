@@ -277,6 +277,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? [
           "Benchmark workspace isolation: the current workspace root is already the complete synthetic fixture.",
           "Use paths relative to this workspace root. Do not prepend the fixture declaration or inspect parent directories.",
+          ...(isFormalScreening && formalScreeningArm === "T" ? [
+            "Treatment protocol: after the final candidate edit, invoke lemma_check before finishing.",
+            "If lemma_check does not pass, revise the candidate from its compact feedback and invoke it again; do not report completion without a passed result.",
+          ] : []),
           "",
           input,
         ].join("\n")
@@ -858,6 +862,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     };
     } catch (error) {
       if (!(error instanceof Error) || error.name !== "OperatorSessionExecutionRoutingError") throw error;
+      const routingFailureCode = readOperatorSessionRoutingFailureCode(error);
       return {
         output: "",
         durationMs: Date.now() - startedAt,
@@ -871,6 +876,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           repeatIndex: recordedRepeatIndex,
           sessionSucceeded: false,
           diagnostics: ["Canonical execution account route was unavailable before provider dispatch."],
+          ...(routingFailureCode ? { routingFailureCode } : {}),
           ...(expectedRouteId ? { expectedRouteId } : {}),
           ...(scheduledAccountOverrideId ? { expectedAccountId: scheduledAccountOverrideId } : {}),
           ...(scheduledAccountOverrideId ? { scheduledAccountId: scheduledAccountOverrideId } : {}),
@@ -1047,6 +1053,22 @@ function readLemmaCheckDependencyBinding(observation: Record<string, unknown>): 
 
 function isSha256Digest(value: unknown): value is string {
   return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+const OPERATOR_SESSION_ROUTING_FAILURE_CODES = new Set([
+  "safety-ineligible",
+  "health-unhealthy",
+  "quota-exhausted",
+  "quota-unknown",
+  "capacity-exhausted",
+  "no-account-candidate",
+  "multiple-account-rejections",
+  "unclassified",
+]);
+
+function readOperatorSessionRoutingFailureCode(error: Error): string | undefined {
+  const code = (error as Error & { readonly routingFailureCode?: unknown }).routingFailureCode;
+  return typeof code === "string" && OPERATOR_SESSION_ROUTING_FAILURE_CODES.has(code) ? code : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

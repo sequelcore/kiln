@@ -4,6 +4,7 @@ import {
   selectAdmittedExecutionAccount,
   type AdmittedExecutionRoute,
   type ExecutionAccountAdmissionCandidate,
+  type ExecutionAccountAdmissionRejectionReason,
   type ExecutionCatalog,
   type ExecutionSessionBindingEvidence,
   type OperatorExecutionIntent,
@@ -181,8 +182,21 @@ export interface OperatorSessionCommittedExecutionEvidence {
   readonly status: "completed" | "unknown";
 }
 
+export type OperatorSessionExecutionRoutingFailureCode =
+  | ExecutionAccountAdmissionRejectionReason
+  | "no-account-candidate"
+  | "multiple-account-rejections"
+  | "unclassified";
+
 export class OperatorSessionExecutionRoutingError extends Error {
   override name = "OperatorSessionExecutionRoutingError";
+
+  constructor(
+    message: string,
+    readonly routingFailureCode: OperatorSessionExecutionRoutingFailureCode = "unclassified",
+  ) {
+    super(message);
+  }
 }
 
 /** Known cancellation before the committed bridge begins provider/effect dispatch. */
@@ -451,7 +465,15 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
           .map(({ candidate }) => candidate),
       );
       if (selection.kind !== "selected") {
-        throw new OperatorSessionExecutionRoutingError("No eligible account is available for the admitted operator route.");
+        const routingFailureCode = selection.rejected.length === 0
+          ? "no-account-candidate"
+          : selection.rejected.length === 1
+            ? selection.rejected[0]!.reason
+            : "multiple-account-rejections";
+        throw new OperatorSessionExecutionRoutingError(
+          "No eligible account is available for the admitted operator route.",
+          routingFailureCode,
+        );
       }
       const selected = candidates.find(({ candidate }) => candidate.accountId === selection.accountId);
       if (!selected) throw new OperatorSessionExecutionRoutingError("The selected account has no lease binding.");
