@@ -67,6 +67,7 @@ The current build ships these built-in theme names:
 
 - `phosphor`
 - `vesper`
+- `sequel`
 - `automata`
 
 Use any of them with `--theme <name>`.

@@ -49,7 +49,7 @@ therefore returns an explicit capability error. Durable changes belong to the
 human settings/config path.
 
 The GUI Appearance page owns mode and per-scheme selection. Built-in themes
-are Automata, Phosphor, and Vesper. Kiln does not yet have a canonical custom
+are Automata, Phosphor, Sequel, and Vesper. Kiln does not yet have a canonical custom
 theme store, so create/import controls are intentionally absent; adding them
 requires a single catalog owner with bounded parsing, atomic writes, revisions,
 and a secret-free snapshot rather than browser-owned files.

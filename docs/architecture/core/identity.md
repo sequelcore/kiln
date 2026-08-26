@@ -120,9 +120,10 @@ The canonical expression is Phosphor:
   collapsing into undifferentiated green
 - compact typography, hairline dividers, and persistent semantic status cues
 
-Vesper is the high-clarity alternate dark expression. Automata is the
-parchment-and-ink light expression. They are deliberately different working
-environments, not luminance tweaks of one neutral palette. All three are
+Vesper is the high-clarity alternate dark expression. Sequel is the warm-black,
+ivory, and sand company expression. Automata is the parchment-and-ink light
+expression. They are deliberately different working environments, not
+luminance tweaks of one neutral palette. All four are
 complete semantic projections of one operator-theme contract. Normal text,
 muted text, placeholders, controls, actions, surface-specific text, and status
 indicators must satisfy executable contrast and sRGB-gamut gates; visual

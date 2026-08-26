@@ -9,8 +9,9 @@ function color(lightness: number, chroma: number, hue: number): OperatorColor {
   return { lightness, chroma, hue };
 }
 
-// The three curated palettes are adapted from the operator-selected themes at
-// https://github.com/SunkenInTime/t3-themes and are stored canonically in OKLCH.
+// Automata, Phosphor, and Vesper are adapted from the operator-selected themes
+// at https://github.com/SunkenInTime/t3-themes. Sequel projects the company
+// palette into the same semantic contract. All colors are canonical OKLCH.
 export const OPERATOR_THEME_PALETTES: Readonly<Record<ConcreteOperatorThemeName, OperatorThemePalette>> = {
   phosphor: {
     appearance: "dark",
@@ -105,6 +106,102 @@ export const OPERATOR_THEME_PALETTES: Readonly<Record<ConcreteOperatorThemeName,
         color: color(0.670042, 0.086287, 297.481),
         foreground: color(0.880303, 0.03077, 342.696),
         surface: color(0.23366, 0.026081, 338.196),
+      },
+    },
+  },
+  sequel: {
+    appearance: "dark",
+    surface: {
+      canvas: color(0.134409, 0, 0),
+      chrome: color(0.134409, 0, 0),
+      default: color(0.17801, 0.004347, 84.592),
+      raised: color(0.223248, 0.006496, 78.189),
+      overlay: color(0.274533, 0.008476, 75.236),
+      border: color(0.342747, 0.011651, 78.159),
+      input: color(0.386277, 0.01552, 75.153),
+    },
+    text: {
+      default: color(0.958261, 0.011099, 89.723),
+      muted: color(0.760449, 0.019151, 78.211),
+      placeholder: color(0.836192, 0.017544, 76.091),
+      secondaryLabel: color(0.91753, 0.012053, 79.782),
+      iconMuted: color(0.62022, 0.020103, 78.169),
+    },
+    control: {
+      focus: color(0.727669, 0.036017, 80.228),
+      accent: color(0.727669, 0.036017, 80.228),
+      accentForeground: color(0.134409, 0, 0),
+      secondary: color(0.274533, 0.008476, 75.236),
+      secondaryForeground: color(0.958261, 0.011099, 89.723),
+      muted: color(0.274533, 0.008476, 75.236),
+      mutedForeground: color(0.760449, 0.019151, 78.211),
+      accentSurface: color(0.320524, 0.017621, 77.991),
+      accentSurfaceForeground: color(0.958261, 0.011099, 89.723),
+    },
+    conversation: {
+      message: {
+        surface: color(0.196912, 0.006692, 78.159),
+        foreground: color(0.958261, 0.011099, 89.723),
+        action: color(0.727669, 0.036017, 80.228),
+        actionForeground: color(0.134409, 0, 0),
+        actionHover: color(0.778896, 0.034286, 79.214),
+      },
+      code: {
+        background: color(0.17801, 0.004347, 84.592),
+        foreground: color(0.91753, 0.012053, 79.782),
+      },
+    },
+    sidebar: {
+      background: color(0.155143, 0.002705, 67.627),
+      foreground: color(0.958261, 0.011099, 89.723),
+      mutedForeground: color(0.760449, 0.019151, 78.211),
+      control: color(0.236931, 0.008778, 75.182),
+      hover: color(0.274533, 0.008476, 75.236),
+      active: color(0.308941, 0.016336, 75.02),
+      selected: color(0.308941, 0.016336, 75.02),
+      border: color(0.342747, 0.011651, 78.159),
+    },
+    toolbar: {
+      background: color(0.134409, 0, 0),
+      foreground: color(0.91753, 0.012053, 79.782),
+      border: color(0.342747, 0.011651, 78.159),
+      control: color(0.274533, 0.008476, 75.236),
+      controlForeground: color(0.91753, 0.012053, 79.782),
+      hover: color(0.320524, 0.017621, 77.991),
+    },
+    terminal: {
+      background: color(0.134409, 0, 0),
+      foreground: color(0.958261, 0.011099, 89.723),
+      cursor: color(0.727669, 0.036017, 80.228),
+      selection: color(0.348637, 0.019409, 76.763),
+      scrollbar: color(0.307662, 0.010489, 73.525),
+      scrollbarHover: color(0.413155, 0.017345, 74.187),
+    },
+    status: {
+      error: {
+        color: color(0.752439, 0.085745, 27.393),
+        foreground: color(0.900787, 0.03517, 26.546),
+        surface: color(0.27761, 0.04064, 22.385),
+      },
+      warning: {
+        color: color(0.781061, 0.10008, 85.155),
+        foreground: color(0.8908, 0.07649, 85.512),
+        surface: color(0.284792, 0.031409, 76.299),
+      },
+      update: {
+        color: color(0.727669, 0.036017, 80.228),
+        foreground: color(0.958261, 0.011099, 89.723),
+        surface: color(0.320524, 0.017621, 77.991),
+      },
+      success: {
+        color: color(0.768474, 0.076741, 149.874),
+        foreground: color(0.913355, 0.042743, 150.557),
+        surface: color(0.287953, 0.035669, 151.953),
+      },
+      info: {
+        color: color(0.748917, 0.04765, 229.095),
+        foreground: color(0.920406, 0.020485, 224.31),
+        surface: color(0.279054, 0.021932, 226.29),
       },
     },
   },
@@ -313,6 +410,13 @@ export const PHOSPHOR_OPERATOR_THEME: OperatorThemeDefinition = {
   variants: { dark: OPERATOR_THEME_PALETTES.phosphor },
 };
 
+export const SEQUEL_OPERATOR_THEME: OperatorThemeDefinition = {
+  schemaVersion: 1,
+  id: "sequel",
+  label: "Sequel",
+  variants: { dark: OPERATOR_THEME_PALETTES.sequel },
+};
+
 export const VESPER_OPERATOR_THEME: OperatorThemeDefinition = {
   schemaVersion: 1,
   id: "vesper",
@@ -324,4 +428,5 @@ export const OPERATOR_THEME_DEFINITIONS: readonly [
   OperatorThemeDefinition,
   OperatorThemeDefinition,
   OperatorThemeDefinition,
-] = [AUTOMATA_OPERATOR_THEME, PHOSPHOR_OPERATOR_THEME, VESPER_OPERATOR_THEME];
+  OperatorThemeDefinition,
+] = [AUTOMATA_OPERATOR_THEME, PHOSPHOR_OPERATOR_THEME, SEQUEL_OPERATOR_THEME, VESPER_OPERATOR_THEME];

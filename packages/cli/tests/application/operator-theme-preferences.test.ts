@@ -8,6 +8,7 @@ import {
 describe("operator theme preferences", () => {
   it("admits only explicit built-in launch overrides", () => {
     expect(parseOperatorThemePreference("vesper")).toBe("vesper");
+    expect(parseOperatorThemePreference("sequel")).toBe("sequel");
     expect(parseOperatorThemePreference(undefined)).toBeUndefined();
     expect(parseOperatorThemePreference("invalid-theme")).toBeUndefined();
   });

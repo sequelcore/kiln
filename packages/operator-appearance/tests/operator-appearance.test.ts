@@ -17,6 +17,7 @@ import {
   PHOSPHOR_OPERATOR_THEME,
   parseOperatorAppearancePreference,
   resolveOperatorAppearance,
+  SEQUEL_OPERATOR_THEME,
   VESPER_OPERATOR_THEME,
   validateSemanticAdjacencyContrast,
 } from "../src/index.js";
@@ -35,11 +36,12 @@ function collectColors(value: unknown): OperatorColor[] {
 }
 
 describe("operator appearance public policy", () => {
-  it("publishes the three curated definitions and fixed polarity fallbacks", () => {
-    expect(OPERATOR_THEME_NAMES).toEqual(["automata", "phosphor", "vesper"]);
-    expect(OPERATOR_THEME_DEFINITIONS.map((theme) => theme.id)).toEqual(["automata", "phosphor", "vesper"]);
+  it("publishes the curated definitions and fixed polarity fallbacks", () => {
+    expect(OPERATOR_THEME_NAMES).toEqual(["automata", "phosphor", "sequel", "vesper"]);
+    expect(OPERATOR_THEME_DEFINITIONS.map((theme) => theme.id)).toEqual(["automata", "phosphor", "sequel", "vesper"]);
     expect(AUTOMATA_OPERATOR_THEME.variants.light?.appearance).toBe("light");
     expect(PHOSPHOR_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
+    expect(SEQUEL_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
     expect(VESPER_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
     expect(FIXED_FALLBACK_OPERATOR_THEME_IDS).toEqual({ light: "automata", dark: "phosphor" });
     expect(DEFAULT_OPERATOR_APPEARANCE_PREFERENCE).toEqual({
@@ -59,6 +61,12 @@ describe("operator appearance public policy", () => {
     expect(operatorColorToHex(phosphor.terminal.cursor)).toBe("#3dff7c");
     expect(operatorColorToHex(phosphor.status.update.surface)).toBe("#37152b");
     expect(operatorColorToCss(phosphor.control.accent)).toMatch(/^oklch\(/);
+
+    const sequel = OPERATOR_THEME_PALETTES.sequel;
+    expect(operatorColorToHex(sequel.surface.canvas)).toBe("#080808");
+    expect(operatorColorToHex(sequel.text.default)).toBe("#f4f1e9");
+    expect(operatorColorToHex(sequel.control.accent)).toBe("#b3a58e");
+    expect(operatorColorToHex(sequel.surface.overlay)).toBe("#2a2723");
 
     for (const palette of Object.values(OPERATOR_THEME_PALETTES)) {
       for (const color of collectColors(palette)) {

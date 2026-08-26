@@ -136,7 +136,7 @@ OS changes while mode is `system`. Its versioned localStorage value is only a
 startup cache; the settings snapshot remains authoritative.
 
 GUI and TUI consume the pure `@kilnai/operator-appearance` catalog. The built-in
-themes are `phosphor`, `vesper`, and `automata`; system behavior is a mode, not a
+themes are `phosphor`, `sequel`, `vesper`, and `automata`; system behavior is a mode, not a
 theme identity. Connected executable providers may call `operator_set_theme`
 for a live session override. That tool cannot persist configuration. Durable
 changes require the human Settings page or `kiln config set --global`.

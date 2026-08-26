@@ -112,7 +112,7 @@ export interface OperatorThemeDefinition {
   };
 }
 
-export type OperatorThemeName = "automata" | "phosphor" | "vesper";
+export type OperatorThemeName = "automata" | "phosphor" | "sequel" | "vesper";
 export type ConcreteOperatorThemeName = OperatorThemeName;
 
 export type OperatorAppearanceResolution =

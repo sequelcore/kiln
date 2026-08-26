@@ -73,6 +73,20 @@ describe("AppearanceSettingsPage", () => {
     expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("offers the shared Sequel theme for dark mode", () => {
+    render(
+      <AppearanceSettingsPage
+        snapshot={snapshot()}
+        loading={false}
+        error={null}
+        onSave={vi.fn(async () => undefined)}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Use Sequel for dark mode" })).toBeInTheDocument();
+  });
+
   it("restores the canonical appearance and exposes a recoverable inline failure", async () => {
     render(
       <AppearanceSettingsPage

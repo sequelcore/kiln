@@ -4,12 +4,12 @@
  */
 
 import {
+  isOperatorThemeName,
   OPERATOR_THEME_DEFINITIONS_BY_ID,
   OPERATOR_THEME_NAMES,
-  isOperatorThemeName,
-  operatorColorToHex,
   type OperatorThemeName,
   type OperatorThemePalette,
+  operatorColorToHex,
 } from "@kilnai/operator-appearance";
 
 export interface KilnTheme {
@@ -65,16 +65,21 @@ function createTheme(palette: OperatorThemePalette): KilnTheme {
 }
 
 const phosphorPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
+const sequelPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.sequel.variants.dark;
 const vesperPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.vesper.variants.dark;
 const automataPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.automata.variants.light;
-if (!phosphorPalette || !vesperPalette || !automataPalette) throw new Error("Built-in TUI theme variants are unavailable.");
+if (!phosphorPalette || !sequelPalette || !vesperPalette || !automataPalette) {
+  throw new Error("Built-in TUI theme variants are unavailable.");
+}
 export const phosphorTheme: KilnTheme = createTheme(phosphorPalette);
+export const sequelTheme: KilnTheme = createTheme(sequelPalette);
 export const vesperTheme: KilnTheme = createTheme(vesperPalette);
 export const automataTheme: KilnTheme = createTheme(automataPalette);
 export const defaultTheme = phosphorTheme;
 
 export const themes: Record<OperatorThemeName, KilnTheme> = {
   phosphor: phosphorTheme,
+  sequel: sequelTheme,
   vesper: vesperTheme,
   automata: automataTheme,
 };
