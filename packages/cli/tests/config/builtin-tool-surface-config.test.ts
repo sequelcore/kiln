@@ -162,11 +162,18 @@ describe("builtin tool surface config", () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-quality-surface-"));
     try {
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
-        globalConfig: { version: "5", verification: { static: { quality: { typescript: ["type-integrity"] } } } },
+        globalConfig: {
+          version: "5",
+          verification: {
+            static: { quality: { typescript: ["test-integrity", "type-integrity", "complexity"] } },
+          },
+        },
       });
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
-      expect(options.qualityAnalyze).toMatchObject({ profiles: ["type-integrity"] });
+      expect(options.qualityAnalyze).toMatchObject({
+        profiles: ["type-integrity", "complexity", "test-integrity"],
+      });
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("quality_analyze");
       expect(surface.registry.has("quality_analyze")).toBe(true);
       expect(surface.toolNames).not.toContain("quality_analyze");

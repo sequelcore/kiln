@@ -8,19 +8,36 @@ export const TYPE_INTEGRITY_RULES = [
   { name: "chained-type-assertion", revision: "v1" },
   { name: "widen-then-assert", revision: "v1" },
 ] as const;
+export const COMPLEXITY_PROFILE = "complexity" as const;
+export const COMPLEXITY_PROFILE_REVISION = "v1" as const;
+export const COMPLEXITY_RULES = [{ name: "high-cyclomatic-complexity", revision: "v1" }] as const;
+export const TEST_INTEGRITY_PROFILE = "test-integrity" as const;
+export const TEST_INTEGRITY_PROFILE_REVISION = "v1" as const;
+export const TEST_INTEGRITY_RULES = [
+  { name: "focused-test", revision: "v1" },
+  { name: "empty-test-body", revision: "v1" },
+] as const;
+export const QUALITY_PROFILE_ORDER = [TYPE_INTEGRITY_PROFILE, COMPLEXITY_PROFILE, TEST_INTEGRITY_PROFILE] as const;
 
-export type QualityProfileName = typeof TYPE_INTEGRITY_PROFILE;
-export type QualityRuleName = (typeof TYPE_INTEGRITY_RULES)[number]["name"];
+export type QualityProfileName = (typeof QUALITY_PROFILE_ORDER)[number];
+export type QualityRuleName =
+  | (typeof TYPE_INTEGRITY_RULES)[number]["name"]
+  | (typeof COMPLEXITY_RULES)[number]["name"]
+  | (typeof TEST_INTEGRITY_RULES)[number]["name"];
+export interface QualityRuleIdentity {
+  readonly name: QualityRuleName;
+  readonly revision: "v1";
+}
 export interface QualityAnalysisDiagnostic {
-  readonly rule: { readonly name: QualityRuleName; readonly revision: "v1" };
+  readonly rule: QualityRuleIdentity;
   readonly message: string;
   readonly line: number;
   readonly column: number;
 }
 export interface QualityAnalysisProfileObservation {
   readonly name: QualityProfileName;
-  readonly revision: typeof TYPE_INTEGRITY_PROFILE_REVISION;
-  readonly rules: typeof TYPE_INTEGRITY_RULES;
+  readonly revision: "v1";
+  readonly rules: readonly QualityRuleIdentity[];
   readonly diagnostics: readonly QualityAnalysisDiagnostic[];
 }
 export interface QualityAnalysisObservation {
@@ -92,9 +109,16 @@ export function parseQualityAnalysisObservation(value: unknown): QualityAnalysis
     { path: value.artifact.path, contentDigest: value.artifact.contentDigest },
   ]);
   if (!artifact) throw new Error("quality artifact is required");
-  if (!Array.isArray(value.profiles) || value.profiles.length !== 1)
-    throw new Error("quality analysis must contain exactly one configured profile");
+  if (
+    !Array.isArray(value.profiles) ||
+    value.profiles.length < 1 ||
+    value.profiles.length > QUALITY_PROFILE_ORDER.length
+  )
+    throw new Error("quality analysis must contain between one and three configured profiles");
   const profiles = value.profiles.map(parseProfile);
+  const profileOrder = profiles.map((profile) => QUALITY_PROFILE_ORDER.indexOf(profile.name));
+  if (profileOrder.some((position, index) => index > 0 && position <= profileOrder[index - 1]!))
+    throw new Error("quality profiles must be unique and follow canonical order");
   const diagnosticCount = profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
   if (value.outcome !== "no_diagnostics" && value.outcome !== "diagnostics")
     throw new Error("quality analysis outcome is invalid");
@@ -126,11 +150,12 @@ function parseProfile(value: unknown): QualityAnalysisProfileObservation {
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, ["name", "revision", "rules", "diagnostics"]) ||
-    value.name !== TYPE_INTEGRITY_PROFILE ||
-    value.revision !== TYPE_INTEGRITY_PROFILE_REVISION
+    !isQualityProfileName(value.name) ||
+    value.revision !== "v1"
   )
     throw new Error("quality profile identity is invalid");
-  if (!Array.isArray(value.rules) || JSON.stringify(value.rules) !== JSON.stringify(TYPE_INTEGRITY_RULES))
+  const expectedRules = rulesForProfile(value.name);
+  if (!Array.isArray(value.rules) || JSON.stringify(value.rules) !== JSON.stringify(expectedRules))
     throw new Error("quality profile rules are incomplete or out of order");
   if (!Array.isArray(value.diagnostics) || value.diagnostics.length > 1_000)
     throw new Error("quality diagnostics must contain at most 1000 entries");
@@ -144,7 +169,7 @@ function parseProfile(value: unknown): QualityAnalysisProfileObservation {
       throw new Error("quality diagnostic has an invalid shape");
     const rawRule = entry.rule;
     if (
-      !TYPE_INTEGRITY_RULES.some((rule) => rule.name === rawRule.name && rule.revision === rawRule.revision) ||
+      !expectedRules.some((rule) => rule.name === rawRule.name && rule.revision === rawRule.revision) ||
       !isNonEmptyString(entry.message) ||
       entry.message.length > 4_000 ||
       !isPositiveInteger(entry.line) ||
@@ -159,11 +184,25 @@ function parseProfile(value: unknown): QualityAnalysisProfileObservation {
     });
   });
   return Object.freeze({
-    name: TYPE_INTEGRITY_PROFILE,
-    revision: TYPE_INTEGRITY_PROFILE_REVISION,
-    rules: TYPE_INTEGRITY_RULES,
+    name: value.name,
+    revision: "v1",
+    rules: expectedRules,
     diagnostics: Object.freeze(diagnostics),
   });
+}
+
+export function rulesForQualityProfile(name: QualityProfileName): readonly QualityRuleIdentity[] {
+  return rulesForProfile(name);
+}
+
+function rulesForProfile(name: QualityProfileName): readonly QualityRuleIdentity[] {
+  if (name === TYPE_INTEGRITY_PROFILE) return TYPE_INTEGRITY_RULES;
+  if (name === COMPLEXITY_PROFILE) return COMPLEXITY_RULES;
+  return TEST_INTEGRITY_RULES;
+}
+
+function isQualityProfileName(value: unknown): value is QualityProfileName {
+  return typeof value === "string" && QUALITY_PROFILE_ORDER.some((profile) => profile === value);
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, required: readonly string[]): boolean {

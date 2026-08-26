@@ -480,10 +480,22 @@
               "properties": {
                 "typescript": {
                   "items": {
-                    "const": "type-integrity",
-                    "type": "string"
+                    "anyOf": [
+                      {
+                        "const": "type-integrity",
+                        "type": "string"
+                      },
+                      {
+                        "const": "complexity",
+                        "type": "string"
+                      },
+                      {
+                        "const": "test-integrity",
+                        "type": "string"
+                      }
+                    ]
                   },
-                  "maxItems": 1,
+                  "maxItems": 3,
                   "minItems": 1,
                   "type": "array",
                   "uniqueItems": true

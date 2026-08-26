@@ -12,9 +12,11 @@ the supplied skills, their upstream repositories, empirical papers, large-lab
 deployments, adverse evidence, and the operator's existing global skills and
 Sequel doctrine.
 
-Kiln admits `quality_analyze` as an opt-in static producer. The first profile is
-`type-integrity/v1`; it contains only chained type assertion and
-widen-then-assert diagnostics. The tool is facts-only, candidate-bound, and
+Kiln admits `quality_analyze` as an opt-in static producer. Its closed profiles
+are `type-integrity/v1`, `complexity/v1`, and `test-integrity/v1`. Complexity
+reports per-function classic cyclomatic complexity above 20 as an investigation
+signal. Test integrity reports focused Vitest calls and literally empty enabled
+test bodies. The tool is facts-only, candidate-bound, and
 agent-invocable once configured. It does not identify AI authorship, compute a
 quality score, repair code, gate completion, or map itself to Assurance.
 
@@ -79,8 +81,10 @@ must not expose an AI-authorship score.
 ## Profile boundaries
 
 - `type-integrity`: deterministic TypeScript syntax; admitted now.
-- `complexity`: possible later signal profile, never a universal hard gate.
-- `test-integrity`: possible later profile after language-specific calibration.
+- `complexity`: admitted as a TypeScript signal profile, never a universal hard gate.
+- `test-integrity`: admitted narrowly for imported Vitest `only` calls and
+  literally empty enabled test callbacks. Disabled/conditional tests, mocks,
+  delegated assertions, and mere absence of `expect` are intentionally excluded.
 - structural erosion and patch minimality: repository/diff/trajectory review,
   not a single-file parser concern.
 - prose and research quality: inferential domain profiles with preservation
@@ -107,6 +111,13 @@ substitutes.
 - anti-slop: https://github.com/dmmulroy/anti-slop
 - Oxlint JavaScript plugin status: https://oxc.rs/docs/guide/usage/linter/js-plugins.html
 - Oxlint complexity rule: https://oxc.rs/docs/guide/usage/linter/rules/eslint/complexity
+- McCabe's original cyclomatic-complexity paper: https://ics.uci.edu/~jajones/INF102-S18/readings/03_mccabe.pdf
+- NIST structured testing publication 500-235: https://www.nist.gov/publications/structured-testing-testing-methodology-using-cyclomatic-complexity-metric
+- ESLint complexity rule and threshold semantics: https://eslint.org/docs/latest/rules/complexity
+- Vitest test API (`only`, `skip`, `todo`, conditional tests): https://vitest.dev/api/test.html
+- Vitest `allowOnly` CI behavior: https://vitest.dev/config/allowonly
+- Vitest test filtering guidance: https://vitest.dev/guide/filtering
+- Official Vitest ESLint plugin rule catalog: https://github.com/vitest-dev/eslint-plugin-vitest
 - Thermo-Nuclear review: https://www.skills.sh/shaneholloman/cursor-plugins/thermo-nuclear-code-quality-review
 - Slopkit benchmark: https://github.com/ehmo/slopkit/blob/main/skills/slopbeth/BENCHMARKS.md
 - LAMP: https://arxiv.org/abs/2409.14509

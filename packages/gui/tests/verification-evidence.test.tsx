@@ -34,6 +34,28 @@ describe("VerificationEvidence", () => {
                 },
               ],
             },
+            {
+              name: "complexity",
+              revision: "v1",
+              rules: [{ name: "high-cyclomatic-complexity", revision: "v1" }],
+              diagnostics: [
+                {
+                  rule: { name: "high-cyclomatic-complexity", revision: "v1" },
+                  message: "route has cyclomatic complexity 21; review its control flow.",
+                  line: 4,
+                  column: 1,
+                },
+              ],
+            },
+            {
+              name: "test-integrity",
+              revision: "v1",
+              rules: [
+                { name: "focused-test", revision: "v1" },
+                { name: "empty-test-body", revision: "v1" },
+              ],
+              diagnostics: [],
+            },
           ],
           authority: { kind: "evidence_only", establishes: [] },
         }}
@@ -42,6 +64,9 @@ describe("VerificationEvidence", () => {
     expect(screen.getByText("Kiln Quality 3.0.0-beta.1")).toBeInTheDocument();
     expect(document.querySelector('[data-verification-engine-fallback="kiln-quality"]')).toHaveTextContent("KQ");
     expect(screen.getByText("type-integrity/v1")).toBeInTheDocument();
+    expect(screen.getByText("complexity/v1")).toBeInTheDocument();
+    expect(screen.getByText("test-integrity/v1")).toBeInTheDocument();
+    expect(screen.getAllByText("high-cyclomatic-complexity/v1")).toHaveLength(2);
     expect(screen.getByText("widen-then-assert/v1")).toBeInTheDocument();
     expect(screen.getByText("Assurance is a separate decision")).toBeInTheDocument();
     expect(screen.queryByText(/quality passed/iu)).not.toBeInTheDocument();

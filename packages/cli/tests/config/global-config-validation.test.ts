@@ -14,7 +14,7 @@ describe("validateGlobalConfig root fields", () => {
   it("admits only the closed TypeScript quality profile list", () => {
     expect(() => validateGlobalConfig({
       ...baseConfig(),
-      verification: { static: { quality: { typescript: ["type-integrity"] } } },
+      verification: { static: { quality: { typescript: ["type-integrity", "complexity", "test-integrity"] } } },
     })).not.toThrow();
     expect(() => validateGlobalConfig({
       ...baseConfig(),
@@ -23,6 +23,10 @@ describe("validateGlobalConfig root fields", () => {
     expect(() => validateGlobalConfig({
       ...baseConfig(),
       verification: { static: { quality: { typescript: ["anti-slop"] } } } as never,
+    })).toThrow(/verification\.static\.quality\.typescript/iu);
+    expect(() => validateGlobalConfig({
+      ...baseConfig(),
+      verification: { static: { quality: { typescript: [] } } },
     })).toThrow(/verification\.static\.quality\.typescript/iu);
   });
 

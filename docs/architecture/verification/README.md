@@ -37,7 +37,7 @@ not a second selection or trust authority.
 | --- | --- | --- | --- | --- |
 | Formal | Dafny | `formal_verify` | Selectively available; consumed by bounded-work Assurance | Facts only |
 | Static | Oxlint | `static_analyze` | Experimental opt-in producer; current calibration does not justify Assurance | Facts only |
-| Static artifact quality | Kiln Quality + TypeScript parser | `quality_analyze` | Experimental opt-in `type-integrity/v1` producer | Facts only |
+| Static artifact quality | Kiln Quality + TypeScript parser | `quality_analyze` | Experimental opt-in closed-profile producer | Facts only |
 | Inferential review | Gentle AI 2.4.0 | `gentle_review` | Experimental opt-in, read-only status producer | Facts only; never Assurance or Runtime authority |
 
 `static_analyze` is intentionally narrow. It analyzes one immutable copied
@@ -53,9 +53,13 @@ lint policy remains owned by the project's normal lint command; Kiln does not
 silently reinterpret that policy as assurance evidence.
 
 `quality_analyze` examines one TypeScript artifact with every configured
-applicable profile. Its first closed profile, `type-integrity/v1`, diagnoses
-chained type assertions and the more specific widen-then-assert pattern without
-double reporting. It parses in-process with the exact runtime
+profile. `type-integrity/v1` diagnoses chained type assertions and the more
+specific widen-then-assert pattern without double reporting. `complexity/v1`
+reports classic per-function cyclomatic complexity above 20 as a review signal;
+it does not call the function defective. `test-integrity/v1` reports imported
+Vitest `only` calls and literally empty enabled test callbacks. It deliberately
+does not condemn disabled or conditional tests, mocks, delegated assertions, or
+tests merely lacking a direct `expect` call. It parses in-process with the exact runtime
 `@typescript/typescript6` compatibility dependency. The wrapper and its
 underlying TypeScript `6.0.3` parser are both pinned so a
 published install cannot float the parser behind the recorded profile revision.
@@ -87,6 +91,8 @@ verification:
     quality:
       typescript:
         - type-integrity
+        - complexity
+        - test-integrity
   inferential:
     gentleAi:
       executable: C:/tools/gentle-ai.exe

@@ -74,13 +74,20 @@ describe("TUI verification presentation", () => {
       candidate: { digest, subjects: [{ path: "policy.ts", contentDigest: digest }] },
       artifactKind: "typescript",
       outcome: "diagnostics",
-      profiles: [{ name: "type-integrity", revision: "v1", rules: [{ name: "chained-type-assertion", revision: "v1" }, { name: "widen-then-assert", revision: "v1" }], diagnostics: [{ rule: { name: "widen-then-assert", revision: "v1" }, message: "Avoid widening through unknown.", line: 3, column: 14 }] }],
+      profiles: [
+        { name: "type-integrity", revision: "v1", rules: [{ name: "chained-type-assertion", revision: "v1" }, { name: "widen-then-assert", revision: "v1" }], diagnostics: [{ rule: { name: "widen-then-assert", revision: "v1" }, message: "Avoid widening through unknown.", line: 3, column: 14 }] },
+        { name: "complexity", revision: "v1", rules: [{ name: "high-cyclomatic-complexity", revision: "v1" }], diagnostics: [{ rule: { name: "high-cyclomatic-complexity", revision: "v1" }, message: "route has cyclomatic complexity 21.", line: 5, column: 1 }] },
+        { name: "test-integrity", revision: "v1", rules: [{ name: "focused-test", revision: "v1" }, { name: "empty-test-body", revision: "v1" }], diagnostics: [] },
+      ],
       authority: { kind: "evidence_only", establishes: [] },
     };
     const output = formatVerificationPresentationAsText(verification);
     expect(output).toContain("diagnostics · Kiln Quality 3.0.0-beta.1");
     expect(output).toContain("type-integrity/v1 · 2 rules");
     expect(output).toContain("widen-then-assert/v1 · policy.ts:3:14");
+    expect(output).toContain("complexity/v1 · 1 rules");
+    expect(output).toContain("high-cyclomatic-complexity/v1 · policy.ts:5:1");
+    expect(output).toContain("test-integrity/v1 · 2 rules");
     expect(output).toContain("Assurance: separate decision · evidence only");
     expect(output).not.toMatch(/quality passed/iu);
   });

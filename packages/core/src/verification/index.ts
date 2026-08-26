@@ -32,18 +32,27 @@ export {
 } from "./static/observation.js";
 export {
   QUALITY_ANALYSIS_OBSERVATION_SCHEMA,
+  COMPLEXITY_PROFILE,
+  COMPLEXITY_PROFILE_REVISION,
+  COMPLEXITY_RULES,
+  QUALITY_PROFILE_ORDER,
+  TEST_INTEGRITY_PROFILE,
+  TEST_INTEGRITY_PROFILE_REVISION,
+  TEST_INTEGRITY_RULES,
   TYPESCRIPT_QUALITY_ARTIFACT,
   TYPE_INTEGRITY_PROFILE,
   TYPE_INTEGRITY_PROFILE_REVISION,
   TYPE_INTEGRITY_RULES,
   parseQualityAnalysisObservation,
   qualityAnalysisObservation,
+  rulesForQualityProfile,
 } from "./static/quality-observation.js";
 export type {
   QualityAnalysisDiagnostic,
   QualityAnalysisObservation,
   QualityAnalysisProfileObservation,
   QualityProfileName,
+  QualityRuleIdentity,
   QualityRuleName,
 } from "./static/quality-observation.js";
 export type {

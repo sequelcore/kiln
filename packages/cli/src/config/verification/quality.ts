@@ -1,4 +1,4 @@
-import type { QualityAnalyzeToolOptions } from "@kilnai/core";
+import { QUALITY_PROFILE_ORDER, type QualityAnalyzeToolOptions } from "@kilnai/core";
 import { RUNNING_CLI_VERSION } from "../../build-identity.js";
 import type { KilnGlobalConfig } from "../global-config.js";
 
@@ -19,5 +19,10 @@ export function resolveQualityAnalysisConfiguration(
       },
     };
   }
-  return { options: { profiles: ["type-integrity"], analyzerVersion: RUNNING_CLI_VERSION } };
+  return {
+    options: {
+      profiles: QUALITY_PROFILE_ORDER.filter((profile) => profiles.includes(profile)),
+      analyzerVersion: RUNNING_CLI_VERSION,
+    },
+  };
 }

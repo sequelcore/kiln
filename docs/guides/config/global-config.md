@@ -156,6 +156,8 @@ verification:
     quality:
       typescript:
         - type-integrity
+        - complexity
+        - test-integrity
   inferential:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
@@ -180,11 +182,14 @@ is evidence only; it does not satisfy an Assurance obligation or authorize an
 action by itself.
 
 `quality_analyze` is registered only when
-`verification.static.quality.typescript` contains `type-integrity`. It analyzes
-one `.ts`, `.tsx`, `.mts`, or `.cts` artifact with the closed profile compiled
-into that Kiln release. The agent supplies only `file`; profile, rule, severity,
-threshold, suppression, and fix selection remain operator/release owned. "No
-configured quality diagnostics" is not an overall quality pass.
+`verification.static.quality.typescript` contains one or more unique compiled
+profiles: `type-integrity`, `complexity`, and `test-integrity`. Kiln normalizes
+them to canonical execution order and analyzes one `.ts`, `.tsx`, `.mts`, or
+`.cts` artifact. The agent supplies only `file`; profile, rule, severity,
+threshold, suppression, and fix selection remain operator/release owned.
+Complexity is an investigation signal, not a hard gate. Test integrity is
+intentionally limited to focused Vitest calls and literally empty enabled test
+bodies. "No configured quality diagnostics" is not an overall quality pass.
 
 `gentle_review` is a read-only observer for the exact Gentle AI candidate named
 by `baseTree` and `targetIdentity`. Kiln requires capabilities v2.2/status v5,

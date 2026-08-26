@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { QUALITY_PROFILE_ORDER } from "@kilnai/core";
 import { KilnYamlError } from "../../kiln-yaml.js";
 import { isRecord, rejectUnknownFields } from "../global-config/admission/shared.js";
 
@@ -18,11 +19,25 @@ function validateInferentialReview(value: unknown): void {
   if (!isRecord(value)) throw new KilnYamlError("verification.inferential must be an object");
   rejectUnknownFields(value, ["gentleAi"], "verification.inferential");
   if (!isRecord(value.gentleAi)) throw new KilnYamlError("verification.inferential.gentleAi must be an object");
-  rejectUnknownFields(value.gentleAi, ["executable", "expectedVersion", "expectedExecutableDigest", "expectedBuildRevision"], "verification.inferential.gentleAi");
-  if (typeof value.gentleAi.executable !== "string" || value.gentleAi.executable.trim().length === 0) throw new KilnYamlError("verification.inferential.gentleAi.executable must be a non-empty string");
-  if (typeof value.gentleAi.expectedVersion !== "string" || !isCanonicalVersion(value.gentleAi.expectedVersion)) throw new KilnYamlError("verification.inferential.gentleAi.expectedVersion must be a canonical version");
-  if (typeof value.gentleAi.expectedExecutableDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value.gentleAi.expectedExecutableDigest)) throw new KilnYamlError("verification.inferential.gentleAi.expectedExecutableDigest must be a sha256 digest");
-  if (typeof value.gentleAi.expectedBuildRevision !== "string" || !/^[a-f0-9]{40}$/u.test(value.gentleAi.expectedBuildRevision)) throw new KilnYamlError("verification.inferential.gentleAi.expectedBuildRevision must be a Git revision");
+  rejectUnknownFields(
+    value.gentleAi,
+    ["executable", "expectedVersion", "expectedExecutableDigest", "expectedBuildRevision"],
+    "verification.inferential.gentleAi",
+  );
+  if (typeof value.gentleAi.executable !== "string" || value.gentleAi.executable.trim().length === 0)
+    throw new KilnYamlError("verification.inferential.gentleAi.executable must be a non-empty string");
+  if (typeof value.gentleAi.expectedVersion !== "string" || !isCanonicalVersion(value.gentleAi.expectedVersion))
+    throw new KilnYamlError("verification.inferential.gentleAi.expectedVersion must be a canonical version");
+  if (
+    typeof value.gentleAi.expectedExecutableDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/u.test(value.gentleAi.expectedExecutableDigest)
+  )
+    throw new KilnYamlError("verification.inferential.gentleAi.expectedExecutableDigest must be a sha256 digest");
+  if (
+    typeof value.gentleAi.expectedBuildRevision !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(value.gentleAi.expectedBuildRevision)
+  )
+    throw new KilnYamlError("verification.inferential.gentleAi.expectedBuildRevision must be a Git revision");
 }
 
 function validateFormalVerification(value: unknown): void {
@@ -66,12 +81,15 @@ function validateFormalVerification(value: unknown): void {
 function validateStaticAnalysis(value: unknown): void {
   if (!isRecord(value)) throw new KilnYamlError("verification.static must be an object");
   rejectUnknownFields(value, ["oxlint", "quality"], "verification.static");
-  if (value.oxlint === undefined && value.quality === undefined) throw new KilnYamlError("verification.static must configure oxlint or quality");
+  if (value.oxlint === undefined && value.quality === undefined)
+    throw new KilnYamlError("verification.static must configure oxlint or quality");
   if (value.oxlint !== undefined) {
     if (!isRecord(value.oxlint)) throw new KilnYamlError("verification.static.oxlint must be an object");
     rejectUnknownFields(value.oxlint, ["executable", "expectedVersion"], "verification.static.oxlint");
-    if (typeof value.oxlint.executable !== "string" || value.oxlint.executable.trim().length === 0) throw new KilnYamlError("verification.static.oxlint.executable must be a non-empty string");
-    if (typeof value.oxlint.expectedVersion !== "string" || !isCanonicalVersion(value.oxlint.expectedVersion)) throw new KilnYamlError("verification.static.oxlint.expectedVersion must be a canonical version");
+    if (typeof value.oxlint.executable !== "string" || value.oxlint.executable.trim().length === 0)
+      throw new KilnYamlError("verification.static.oxlint.executable must be a non-empty string");
+    if (typeof value.oxlint.expectedVersion !== "string" || !isCanonicalVersion(value.oxlint.expectedVersion))
+      throw new KilnYamlError("verification.static.oxlint.expectedVersion must be a canonical version");
   }
   if (value.quality !== undefined) validateQualityAnalysis(value.quality);
 }
@@ -79,8 +97,16 @@ function validateStaticAnalysis(value: unknown): void {
 function validateQualityAnalysis(value: unknown): void {
   if (!isRecord(value)) throw new KilnYamlError("verification.static.quality must be an object");
   rejectUnknownFields(value, ["typescript"], "verification.static.quality");
-  if (!Array.isArray(value.typescript) || value.typescript.length !== 1 || value.typescript[0] !== "type-integrity") {
-    throw new KilnYamlError("verification.static.quality.typescript must contain exactly type-integrity");
+  if (
+    !Array.isArray(value.typescript) ||
+    value.typescript.length < 1 ||
+    value.typescript.length > QUALITY_PROFILE_ORDER.length ||
+    new Set(value.typescript).size !== value.typescript.length ||
+    value.typescript.some((profile) => !QUALITY_PROFILE_ORDER.some((candidate) => candidate === profile))
+  ) {
+    throw new KilnYamlError(
+      `verification.static.quality.typescript must contain one or more unique compiled profiles: ${QUALITY_PROFILE_ORDER.join(", ")}`,
+    );
   }
 }
 

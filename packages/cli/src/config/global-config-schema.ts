@@ -1,8 +1,12 @@
-import type { CommunicationIntent, ModelGatewayConfig, VoiceConfig } from "@kilnai/core";
+import {
+  type CommunicationIntent,
+  type ModelGatewayConfig,
+  QUALITY_PROFILE_ORDER,
+  type VoiceConfig,
+} from "@kilnai/core";
 import { type ObjectOptions, type Static, type TObject, type TProperties, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { describeRunningCliBuild } from "../build-identity.js";
-import { KilnYamlError } from "../kiln-yaml-types.js";
 import type {
   KilnAuthorityProfileConfig,
   KilnDeliberationPolicyConfig,
@@ -19,6 +23,7 @@ import type {
   KilnYamlWebNetPolicy,
   KilnYamlWebSearchProvider,
 } from "../kiln-yaml-types.js";
+import { KilnYamlError } from "../kiln-yaml-types.js";
 
 export const GLOBAL_CONFIG_SCHEMA_REVISION = 2;
 export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v2.json";
@@ -124,7 +129,16 @@ const oxlint = strictObject({
   expectedVersion: Type.Readonly(nonEmptyString),
 });
 const qualityAnalysis = strictObject({
-  typescript: Type.Readonly(Type.Array(Type.Literal("type-integrity"), { minItems: 1, maxItems: 1, uniqueItems: true })),
+  typescript: Type.Readonly(
+    Type.Array(
+      Type.Union([
+        Type.Literal(QUALITY_PROFILE_ORDER[0]),
+        Type.Literal(QUALITY_PROFILE_ORDER[1]),
+        Type.Literal(QUALITY_PROFILE_ORDER[2]),
+      ]),
+      { minItems: 1, maxItems: QUALITY_PROFILE_ORDER.length, uniqueItems: true },
+    ),
+  ),
 });
 const staticAnalysis = strictObject(
   { oxlint: Type.ReadonlyOptional(oxlint), quality: Type.ReadonlyOptional(qualityAnalysis) },

@@ -1867,17 +1867,22 @@ function projectQualityVerificationPresentation(
   const path = readString(artifact?.path);
   const digest = readString(artifact?.contentDigest);
   const outcome = readString(metadata.outcome);
-  if (readString(analyzer?.name) !== "kiln-quality" || readString(parser?.name) !== "@typescript/typescript6" || !engineVersion || !parserVersion || readString(artifact?.kind) !== "typescript" || !path || !isCanonicalSha256(digest) || (outcome !== "no_diagnostics" && outcome !== "diagnostics") || !Array.isArray(metadata.profiles) || metadata.profiles.length !== 1) return undefined;
+  if (readString(analyzer?.name) !== "kiln-quality" || readString(parser?.name) !== "@typescript/typescript6" || !engineVersion || !parserVersion || readString(artifact?.kind) !== "typescript" || !path || !isCanonicalSha256(digest) || (outcome !== "no_diagnostics" && outcome !== "diagnostics") || !Array.isArray(metadata.profiles) || metadata.profiles.length < 1 || metadata.profiles.length > QUALITY_PROFILE_CONTRACTS.length) return undefined;
+  let previousProfileIndex = -1;
   const profiles = metadata.profiles.flatMap((entry): ToolResultQualityProfilePresentation[] => {
     const profile = asRecord(entry);
-    if (readString(profile?.name) !== "type-integrity" || readString(profile?.revision) !== "v1" || !Array.isArray(profile?.rules) || !Array.isArray(profile?.diagnostics)) return [];
+    const profileName = readString(profile?.name);
+    const profileIndex = QUALITY_PROFILE_CONTRACTS.findIndex((candidate) => candidate.name === profileName);
+    const contract = QUALITY_PROFILE_CONTRACTS[profileIndex];
+    if (!contract || profileIndex <= previousProfileIndex || readString(profile?.revision) !== "v1" || !Array.isArray(profile?.rules) || !Array.isArray(profile?.diagnostics)) return [];
+    previousProfileIndex = profileIndex;
     const rules = profile.rules.flatMap((ruleEntry) => {
       const rule = asRecord(ruleEntry);
       const name = readString(rule?.name);
       const revision = readString(rule?.revision);
       return name && revision ? [{ name, revision }] : [];
     });
-    if (rules.length !== 2 || rules[0]?.name !== "chained-type-assertion" || rules[1]?.name !== "widen-then-assert" || rules.some((rule) => rule.revision !== "v1")) return [];
+    if (rules.length !== contract.rules.length || rules.some((rule, index) => rule.name !== contract.rules[index] || rule.revision !== "v1")) return [];
     const diagnostics = profile.diagnostics.flatMap((diagnosticEntry): ToolResultQualityDiagnosticPresentation[] => {
       const diagnostic = asRecord(diagnosticEntry);
       const rule = asRecord(diagnostic?.rule);
@@ -1890,7 +1895,7 @@ function projectQualityVerificationPresentation(
       return [{ rule: { name, revision }, message, line, column }];
     });
     if (diagnostics.length !== profile.diagnostics.length) return [];
-    return [{ name: "type-integrity", revision: "v1", rules, diagnostics }];
+    return [{ name: contract.name, revision: "v1", rules, diagnostics }];
   });
   if (profiles.length !== metadata.profiles.length) return undefined;
   const diagnosticCount = profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
@@ -1914,6 +1919,12 @@ function projectQualityVerificationPresentation(
     raw: toolResultRawAvailability(resourceLinks),
   };
 }
+
+const QUALITY_PROFILE_CONTRACTS = [
+  { name: "type-integrity", rules: ["chained-type-assertion", "widen-then-assert"] },
+  { name: "complexity", rules: ["high-cyclomatic-complexity"] },
+  { name: "test-integrity", rules: ["focused-test", "empty-test-body"] },
+] as const;
 
 function projectVerificationPresentation(
   metadata: Record<string, unknown> | undefined,

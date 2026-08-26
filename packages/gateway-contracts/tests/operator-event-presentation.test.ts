@@ -133,19 +133,33 @@ describe("operator event presentation", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "quality-1",
       toolName: "quality_analyze",
-      output: JSON.stringify({ output: "1 configured quality diagnostic.", isError: false, metadata: {
+      output: JSON.stringify({ output: "3 configured quality diagnostics.", isError: false, metadata: {
         schema: "kiln.quality-analysis-observation/v1",
         toolName: "quality_analyze",
         kind: "static_quality_analysis",
         analyzer: { name: "kiln-quality", version: "3.0.0-beta.1", parser: { name: "@typescript/typescript6", version: "6.0.3" } },
         artifact: { kind: "typescript", path: "policy.ts", contentDigest: digest },
         outcome: "diagnostics",
-        profiles: [{
-          name: "type-integrity",
-          revision: "v1",
-          rules: [{ name: "chained-type-assertion", revision: "v1" }, { name: "widen-then-assert", revision: "v1" }],
-          diagnostics: [{ rule: { name: "widen-then-assert", revision: "v1" }, message: "Avoid widening through unknown before asserting a narrower type.", line: 2, column: 15 }],
-        }],
+        profiles: [
+          {
+            name: "type-integrity",
+            revision: "v1",
+            rules: [{ name: "chained-type-assertion", revision: "v1" }, { name: "widen-then-assert", revision: "v1" }],
+            diagnostics: [{ rule: { name: "widen-then-assert", revision: "v1" }, message: "Avoid widening through unknown before asserting a narrower type.", line: 2, column: 15 }],
+          },
+          {
+            name: "complexity",
+            revision: "v1",
+            rules: [{ name: "high-cyclomatic-complexity", revision: "v1" }],
+            diagnostics: [{ rule: { name: "high-cyclomatic-complexity", revision: "v1" }, message: "route has cyclomatic complexity 21; review its control flow.", line: 4, column: 1 }],
+          },
+          {
+            name: "test-integrity",
+            revision: "v1",
+            rules: [{ name: "focused-test", revision: "v1" }, { name: "empty-test-body", revision: "v1" }],
+            diagnostics: [{ rule: { name: "focused-test", revision: "v1" }, message: "Focused Vitest call excludes other collected tests.", line: 8, column: 1 }],
+          },
+        ],
         establishes: [],
       }}),
       status: { state: "succeeded" },
@@ -153,7 +167,7 @@ describe("operator event presentation", () => {
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "verification",
       title: "TypeScript quality analysis",
-      summary: "1 configured quality diagnostic",
+      summary: "3 configured quality diagnostics",
       verification: {
         kind: "quality",
         engine: { name: "kiln-quality", version: "3.0.0-beta.1", parser: { name: "@typescript/typescript6", version: "6.0.3" } },
@@ -161,6 +175,14 @@ describe("operator event presentation", () => {
         outcome: "diagnostics",
         authority: { kind: "evidence_only", establishes: [] },
       },
+    });
+    expect(presentation.toolPresentation?.verification).toMatchObject({
+      kind: "quality",
+      profiles: [
+        { name: "type-integrity", revision: "v1" },
+        { name: "complexity", revision: "v1" },
+        { name: "test-integrity", revision: "v1" },
+      ],
     });
     expect(JSON.stringify(presentation.toolPresentation)).not.toMatch(/quality passed/iu);
   });

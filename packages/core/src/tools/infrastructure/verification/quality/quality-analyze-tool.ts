@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, sep } from "node:path";
+import { QUALITY_PROFILE_ORDER, type QualityProfileName } from "../../../../verification/static/quality-observation.js";
 import { type DevTool, TOOL_SCHEMAS, type ToolInput, type ToolResult } from "../../../domain/tool.js";
 import { getBuiltinEffectEnvelope } from "../../../domain/tool-effect-envelopes.js";
 import { qualityAnalysisToolMetadata } from "../../../domain/tool-result-metadata.js";
@@ -18,7 +19,7 @@ const MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
 
 export interface QualityAnalyzeToolOptions {
-  readonly profiles: readonly ["type-integrity"];
+  readonly profiles: readonly QualityProfileName[];
   readonly analyzerVersion: string;
 }
 
@@ -34,8 +35,8 @@ export function createQualityAnalyzeTool(options: QualityAnalyzeToolOptions): De
     async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
       const file = requireString(input, "file");
       if (!file.ok) return file.result;
-      if (options.profiles.length !== 1 || options.profiles[0] !== "type-integrity")
-        return toErrorResult("quality analysis requires the compiled type-integrity profile");
+      if (!hasValidProfiles(options.profiles))
+        return toErrorResult("quality analysis requires unique compiled profiles in canonical order");
       if (options.analyzerVersion.trim().length === 0) return toErrorResult("quality analyzer version is required");
       const sandboxContext = getSandboxContext(sandbox);
       if (!sandboxContext?.cwd) return toErrorResult("quality analysis requires sandbox.cwd to bind artifact coverage");
@@ -56,7 +57,7 @@ export function createQualityAnalyzeTool(options: QualityAnalyzeToolOptions): De
         const source = await readFile(sourcePath);
         const artifactPath = toPosixPath(relative(sandboxRoot, sourcePath));
         const sourceText = new TextDecoder("utf-8", { fatal: true }).decode(source);
-        const analysis = analyzeTypeScriptQuality(artifactPath, sourceText);
+        const analysis = analyzeTypeScriptQuality(artifactPath, sourceText, options.profiles);
         const diagnostics = analysis.profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
         const metadata = qualityAnalysisToolMetadata({
           analyzer: {
@@ -74,7 +75,7 @@ export function createQualityAnalyzeTool(options: QualityAnalyzeToolOptions): De
         });
         const output =
           diagnostics === 0
-            ? "No configured quality diagnostics. This is evidence from type-integrity/v1 only; it does not establish overall quality or accept the work."
+            ? "No configured quality diagnostics. This evidence is limited to the configured profiles; it does not establish overall quality or accept the work."
             : `${diagnostics} configured quality diagnostic${diagnostics === 1 ? "" : "s"}. This is evidence only; it does not accept the work.`;
         return toSuccessResult(output, metadata);
       } catch (error) {
@@ -84,6 +85,15 @@ export function createQualityAnalyzeTool(options: QualityAnalyzeToolOptions): De
       }
     },
   };
+}
+
+function hasValidProfiles(profiles: readonly QualityProfileName[]): boolean {
+  if (profiles.length < 1 || profiles.length > QUALITY_PROFILE_ORDER.length) return false;
+  return profiles.every((profile, index) => {
+    const position = QUALITY_PROFILE_ORDER.indexOf(profile);
+    const previous = index === 0 ? -1 : QUALITY_PROFILE_ORDER.indexOf(profiles[index - 1]!);
+    return position >= 0 && position > previous;
+  });
 }
 
 function isWithin(root: string, candidate: string): boolean {
