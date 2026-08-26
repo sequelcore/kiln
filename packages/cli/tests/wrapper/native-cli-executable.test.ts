@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveNativeCliExecutable } from "../../src/wrapper/native-cli-executable.js";
 
+const { execFileSyncMock } = vi.hoisted(() => ({ execFileSyncMock: vi.fn(() => "") }));
+
+vi.mock("node:child_process", () => ({ execFileSync: execFileSyncMock }));
+
 describe("resolveNativeCliExecutable", () => {
   it("prefers a spawnable Windows executable over command shims", () => {
     const verify = vi.fn(() => true);
@@ -29,6 +33,18 @@ describe("resolveNativeCliExecutable", () => {
       fallbackPaths: ["C:\\Users\\test\\.codex\\.sandbox-bin\\codex.exe"],
       verify: () => true,
     })).toBe("C:\\Users\\test\\.codex\\.sandbox-bin\\codex.exe");
+  });
+
+  it("does not query PATH when the Windows command is already an absolute native executable", () => {
+    const executable = "C:\\Tools\\gentle-ai.exe";
+
+    expect(resolveNativeCliExecutable({
+      command: executable,
+      platform: "win32",
+      fallbackPaths: [executable],
+      verify: () => true,
+    })).toBe(executable);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 
   it("fails clearly when Windows exposes only non-spawnable shims", () => {

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { win32 } from "node:path";
 
 export interface ResolveNativeCliExecutableInput {
   readonly command: string;
@@ -10,7 +11,10 @@ export interface ResolveNativeCliExecutableInput {
 
 export function resolveNativeCliExecutable(input: ResolveNativeCliExecutableInput): string {
   const platform = input.platform ?? process.platform;
-  const discoveredPaths = input.discoveredPaths ?? discoverExecutablePaths(input.command, platform);
+  const discoveredPaths = input.discoveredPaths
+    ?? (platform === "win32" && win32.isAbsolute(input.command) && isSpawnableWindowsExecutable(input.command)
+      ? []
+      : discoverExecutablePaths(input.command, platform));
   const candidates = platform === "win32"
     ? unique([...input.fallbackPaths, ...discoveredPaths]).filter(isSpawnableWindowsExecutable)
     : unique([input.command, ...discoveredPaths, ...input.fallbackPaths]);
