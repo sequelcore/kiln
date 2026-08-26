@@ -15,8 +15,8 @@ ui:
   appearance:
     mode: system
     themeByScheme:
-      light: automata
-      dark: phosphor
+      light: tesota
+      dark: tesota
 ```
 
 `mode` is `system`, `light`, or `dark`. Both scheme selections are always
@@ -35,9 +35,10 @@ v5 in place.
 The resolver takes `(preference, catalog, observedScheme)` and returns the
 effective scheme, theme, palette, and explicit fallback evidence. The GUI can
 observe the operating-system color scheme and re-resolves `system` changes.
-The TUI cannot do so reliably, therefore `system` resolves to the documented
-dark fallback. A surface may adapt semantic colors to CSS or terminal-safe
-sRGB, but may not own another palette. Inline code, fenced code, source
+The TUI cannot do so reliably, therefore `system` resolves to Tesota's dark
+variant. Tesota is the fixed fallback for both schemes. A surface may adapt
+semantic colors to CSS or terminal-safe sRGB, but may not own another palette.
+Inline code, fenced code, source
 viewers, and terminal output consume their canonical foreground/background
 pairs. Renderer-specific syntax scopes may map to existing semantic roles, but
 must not introduce fixed light or dark editor palettes.
@@ -49,7 +50,8 @@ therefore returns an explicit capability error. Durable changes belong to the
 human settings/config path.
 
 The GUI Appearance page owns mode and per-scheme selection. Built-in themes
-are Automata, Phosphor, Sequel, and Vesper. Kiln does not yet have a canonical custom
+are Automata, Phosphor, Sequel, Tesota, and Vesper. Tesota provides both light
+and dark variants and is the default for both schemes. Kiln does not yet have a canonical custom
 theme store, so create/import controls are intentionally absent; adding them
 requires a single catalog owner with bounded parsing, atomic writes, revisions,
 and a secret-free snapshot rather than browser-owned files.

@@ -1,6 +1,10 @@
+import {
+  OPERATOR_THEME_DEFINITIONS_BY_ID,
+  OPERATOR_THEME_NAMES,
+  operatorColorToHex,
+} from "@kilnai/operator-appearance";
 import { describe, expect, it } from "vitest";
-import { OPERATOR_THEME_DEFINITIONS_BY_ID, OPERATOR_THEME_NAMES, operatorColorToHex } from "@kilnai/operator-appearance";
-import { getTheme, themeNames, themes } from "../src/theme.js";
+import { defaultTheme, getTheme, getThemeName, getThemeScheme, themeNames, themes } from "../src/theme.js";
 
 describe("TUI themes", () => {
   it("uses the shared operator theme catalog", () => {
@@ -8,6 +12,16 @@ describe("TUI themes", () => {
     for (const name of OPERATOR_THEME_NAMES) {
       expect(themes[name]).toBeDefined();
     }
+  });
+
+  it("uses dark Tesota as the deterministic terminal default and exposes its light variant", () => {
+    const tesota = OPERATOR_THEME_DEFINITIONS_BY_ID.tesota;
+    expect(defaultTheme.background).toBe(operatorColorToHex(tesota.variants.dark!.surface.canvas));
+    const light = getTheme("tesota", "light");
+    expect(light.background).toBe(operatorColorToHex(tesota.variants.light!.surface.canvas));
+    expect(getThemeName(light)).toBe("tesota");
+    expect(getThemeScheme(light)).toBe("light");
+    expect(getThemeScheme(defaultTheme)).toBe("dark");
   });
 
   it("adapts the shared operator theme palette without duplicating color values", () => {

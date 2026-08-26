@@ -3,9 +3,14 @@ import {
   createCliOperatorThemeController,
   parseOperatorThemePreference,
   resolveTuiThemePreference,
+  resolveTuiThemeScheme,
 } from "../../src/application/operator-theme-preferences.js";
 
 describe("operator theme preferences", () => {
+  it("uses Tesota when no durable appearance is available", () => {
+    expect(resolveTuiThemePreference(undefined, null)).toBe("tesota");
+    expect(resolveTuiThemeScheme(undefined, null)).toBe("dark");
+  });
   it("admits only explicit built-in launch overrides", () => {
     expect(parseOperatorThemePreference("vesper")).toBe("vesper");
     expect(parseOperatorThemePreference("sequel")).toBe("sequel");
@@ -21,6 +26,8 @@ describe("operator theme preferences", () => {
 
     expect(resolveTuiThemePreference("invalid-theme", appearance)).toBe("vesper");
     expect(resolveTuiThemePreference("phosphor", appearance)).toBe("phosphor");
+    expect(resolveTuiThemeScheme("invalid-theme", { ...appearance, mode: "light" })).toBe("light");
+    expect(resolveTuiThemeScheme("phosphor", appearance)).toBeUndefined();
   });
 
   it("keeps the model-callable CLI theme controller session-only", async () => {

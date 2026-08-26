@@ -155,8 +155,8 @@ owner. Generated editor-schema and descriptor projections are committed under
 | `verification.formal.dafny.executable` | G | I | H ref | exact operator selection | session | supported |
 | `verification.formal.dafny.expectedVersion` | G | I | H | exact match | session | supported |
 | `ui.appearance.mode` | G | I | L | `system` | hot | supported |
-| `ui.appearance.themeByScheme.light` | G | I | L | `automata` | hot | supported |
-| `ui.appearance.themeByScheme.dark` | G | I | L | `phosphor` | hot | supported |
+| `ui.appearance.themeByScheme.light` | G | I | L | `tesota` | hot | supported |
+| `ui.appearance.themeByScheme.dark` | G | I | L | `tesota` | hot | supported |
 | `ui.targetSelection.targetId` | GR | I | H | admitted direct target | session | supported |
 | `ui.targetSelection.accountOverrideId` | GR | I | H | eligible automatic target account | session | supported |
 | `components.include[]` | G | I | M | central default baseline | reconcile | supported |

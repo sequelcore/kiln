@@ -32,6 +32,7 @@ import type {
 import {
   DEFAULT_OPERATOR_APPEARANCE_PREFERENCE,
   isOperatorAppearancePreference,
+  OPERATOR_THEME_DEFINITIONS_BY_ID,
   type OperatorAppearancePreference,
   type OperatorThemeName,
 } from "@kilnai/operator-appearance";
@@ -445,15 +446,31 @@ export class GuiGatewayClient {
     }
   }
 
-  async saveThemePreference(theme: OperatorThemeName): Promise<OperatorAppearancePreference> {
+  async saveThemePreference(
+    theme: OperatorThemeName,
+    scheme?: "light" | "dark",
+  ): Promise<OperatorAppearancePreference> {
     const snapshot = await this.loadSettings();
     const value = snapshot.entries.find((entry) => entry.key === "ui.appearance")?.effective.value;
     const current = isOperatorAppearancePreference(value)
       ? value
       : DEFAULT_OPERATOR_APPEARANCE_PREFERENCE;
-    const preference: OperatorAppearancePreference = theme === "automata"
-      ? { mode: "light", themeByScheme: { ...current.themeByScheme, light: theme } }
-      : { mode: "dark", themeByScheme: { ...current.themeByScheme, dark: theme } };
+    const definition = OPERATOR_THEME_DEFINITIONS_BY_ID[theme];
+    const selectedScheme = scheme
+      ?? (definition.variants.light && !definition.variants.dark
+        ? "light"
+        : definition.variants.dark && !definition.variants.light
+          ? "dark"
+          : current.mode === "light" || current.mode === "dark"
+            ? current.mode
+            : "dark");
+    if (!definition.variants[selectedScheme]) {
+      throw new Error(`Theme '${theme}' does not provide a ${selectedScheme} variant.`);
+    }
+    const preference: OperatorAppearancePreference = {
+      mode: selectedScheme,
+      themeByScheme: { ...current.themeByScheme, [selectedScheme]: theme },
+    };
     await this.saveAppearancePreference(preference, snapshot.revisions.global ?? "absent");
     return preference;
   }

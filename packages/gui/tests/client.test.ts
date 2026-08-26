@@ -236,6 +236,18 @@ describe("GuiGatewayClient", () => {
       expectedRevision: revision,
       value: { mode: "dark", themeByScheme: { light: "automata", dark: "vesper" } },
     });
+
+    await expect(client.saveThemePreference("tesota", "light")).resolves.toEqual({
+      mode: "light",
+      themeByScheme: { light: "tesota", dark: "phosphor" },
+    });
+    expect(propose).toHaveBeenLastCalledWith({
+      operation: "setting.set",
+      scope: "global",
+      key: "ui.appearance",
+      expectedRevision: revision,
+      value: { mode: "light", themeByScheme: { light: "tesota", dark: "phosphor" } },
+    });
   });
 
   it("fails closed without a committed session target", async () => {

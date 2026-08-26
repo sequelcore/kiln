@@ -18,6 +18,7 @@ import {
   parseOperatorAppearancePreference,
   resolveOperatorAppearance,
   SEQUEL_OPERATOR_THEME,
+  TESOTA_OPERATOR_THEME,
   VESPER_OPERATOR_THEME,
   validateSemanticAdjacencyContrast,
 } from "../src/index.js";
@@ -37,16 +38,24 @@ function collectColors(value: unknown): OperatorColor[] {
 
 describe("operator appearance public policy", () => {
   it("publishes the curated definitions and fixed polarity fallbacks", () => {
-    expect(OPERATOR_THEME_NAMES).toEqual(["automata", "phosphor", "sequel", "vesper"]);
-    expect(OPERATOR_THEME_DEFINITIONS.map((theme) => theme.id)).toEqual(["automata", "phosphor", "sequel", "vesper"]);
+    expect(OPERATOR_THEME_NAMES).toEqual(["automata", "phosphor", "sequel", "tesota", "vesper"]);
+    expect(OPERATOR_THEME_DEFINITIONS.map((theme) => theme.id)).toEqual([
+      "automata",
+      "phosphor",
+      "sequel",
+      "tesota",
+      "vesper",
+    ]);
     expect(AUTOMATA_OPERATOR_THEME.variants.light?.appearance).toBe("light");
     expect(PHOSPHOR_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
     expect(SEQUEL_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
+    expect(TESOTA_OPERATOR_THEME.variants.light?.appearance).toBe("light");
+    expect(TESOTA_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
     expect(VESPER_OPERATOR_THEME.variants.dark?.appearance).toBe("dark");
-    expect(FIXED_FALLBACK_OPERATOR_THEME_IDS).toEqual({ light: "automata", dark: "phosphor" });
+    expect(FIXED_FALLBACK_OPERATOR_THEME_IDS).toEqual({ light: "tesota", dark: "tesota" });
     expect(DEFAULT_OPERATOR_APPEARANCE_PREFERENCE).toEqual({
       mode: "system",
-      themeByScheme: { light: "automata", dark: "phosphor" },
+      themeByScheme: { light: "tesota", dark: "tesota" },
     });
   });
 
@@ -67,6 +76,14 @@ describe("operator appearance public policy", () => {
     expect(operatorColorToHex(sequel.text.default)).toBe("#f4f1e9");
     expect(operatorColorToHex(sequel.control.accent)).toBe("#b3a58e");
     expect(operatorColorToHex(sequel.surface.overlay)).toBe("#2a2723");
+
+    const tesotaLight = TESOTA_OPERATOR_THEME.variants.light;
+    const tesotaDark = TESOTA_OPERATOR_THEME.variants.dark;
+    if (!tesotaLight || !tesotaDark) throw new Error("Tesota must provide both palette variants.");
+    expect(operatorColorToHex(tesotaLight.surface.canvas)).toBe("#edede5");
+    expect(operatorColorToHex(tesotaLight.control.accent)).toBe("#6d4b78");
+    expect(operatorColorToHex(tesotaDark.surface.canvas)).toBe("#101313");
+    expect(operatorColorToHex(tesotaDark.control.accent)).toBe("#c6a8d2");
 
     for (const palette of Object.values(OPERATOR_THEME_PALETTES)) {
       for (const color of collectColors(palette)) {
@@ -138,8 +155,8 @@ describe("operator appearance public policy", () => {
     expect(result).toMatchObject({
       status: "system-observation-unavailable",
       scheme: "dark",
-      themeId: "phosphor",
-      fallbackThemeId: "phosphor",
+      themeId: "tesota",
+      fallbackThemeId: "tesota",
       fallback: true,
     });
   });
@@ -154,8 +171,8 @@ describe("operator appearance public policy", () => {
       status: "selected-theme-unavailable",
       scheme: "light",
       requestedThemeId: "missing",
-      themeId: "automata",
-      fallbackThemeId: "automata",
+      themeId: "tesota",
+      fallbackThemeId: "tesota",
     });
 
     const missingVariant = resolveOperatorAppearance(
@@ -167,8 +184,8 @@ describe("operator appearance public policy", () => {
       status: "selected-theme-unavailable",
       scheme: "light",
       requestedThemeId: "vesper",
-      themeId: "automata",
-      fallbackThemeId: "automata",
+      themeId: "tesota",
+      fallbackThemeId: "tesota",
     });
   });
 

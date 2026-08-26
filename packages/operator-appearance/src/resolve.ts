@@ -56,7 +56,7 @@ function fallbackResolution(
       scheme: "dark",
       themeId: fallbackTheme.id,
       requestedThemeId: null,
-      fallbackThemeId: "phosphor",
+      fallbackThemeId,
       fallback: true,
       theme: fallbackTheme,
       palette: fallbackPalette,
@@ -79,8 +79,8 @@ function fallbackResolution(
 
 /**
  * Resolves an appearance preference without reading environment, DOM, config,
- * or lifecycle state. The built-in Automata/Phosphor pair is the fixed
- * deterministic fallback for unavailable selections.
+ * or lifecycle state. Tesota is the fixed deterministic fallback for both
+ * color schemes.
  */
 export function resolveOperatorAppearance(
   preference: OperatorAppearancePreference,

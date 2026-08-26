@@ -82,7 +82,7 @@ import {
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { PersistedProviderTokenUsage, PersistedTranscriptEvent, PersistedTranscriptEventDraft } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
-import { GatewaySession, defaultTheme, waitForGateway, themes } from "@kilnai/tui";
+import { GatewaySession, defaultTheme, getTheme, waitForGateway } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import {
   GUI_PROVIDER_DISPLAY_ORDER,
@@ -102,7 +102,7 @@ import {
 import {
   isOperatorThemeName,
 } from "@kilnai/operator-appearance";
-import { resolveTuiThemePreference } from "../application/operator-theme-preferences.js";
+import { resolveTuiThemePreference, resolveTuiThemeScheme } from "../application/operator-theme-preferences.js";
 import {
   assertScopedExecutionSessionToolEvent,
   GoalRunStore,
@@ -1851,7 +1851,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const appearance = resolveGlobalUiAppearance(globalConfig);
   const requestedTheme = resolveTuiThemePreference(flags.theme, appearance ?? null);
-  const resolvedTheme = isOperatorThemeName(requestedTheme) ? themes[requestedTheme] : defaultTheme;
+  const resolvedTheme = isOperatorThemeName(requestedTheme)
+    ? getTheme(requestedTheme, resolveTuiThemeScheme(flags.theme, appearance ?? null))
+    : defaultTheme;
 
   // Session list loader for sidebar browser
   async function loadOperatorSessionHistory() {

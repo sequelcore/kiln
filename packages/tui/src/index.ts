@@ -6,5 +6,17 @@ export type { TuiSettingsCommand, TuiSettingsMutationCommand } from "./settings-
 export { buildSettingsProposalRequest, parseSettingsCommand } from "./settings-command.js";
 export { formatSettingsSnapshot } from "./settings-format.js";
 export type { KilnTheme } from "./theme.js";
-export { automataTheme, defaultTheme, phosphorTheme, sequelTheme, themes, vesperTheme } from "./theme.js";
+export {
+  automataTheme,
+  defaultTheme,
+  getTheme,
+  getThemeName,
+  getThemeScheme,
+  phosphorTheme,
+  sequelTheme,
+  tesotaLightTheme,
+  tesotaTheme,
+  themes,
+  vesperTheme,
+} from "./theme.js";
 export type { SessionEvent, SessionLike, TuiConfig } from "./types.js";

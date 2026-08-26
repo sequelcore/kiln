@@ -137,8 +137,8 @@ export function ComposerFrame(props: {
   readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const kilnTheme = useUiStore((state) => state.theme);
-  const beamTheme = resolveBorderBeamTheme(kilnTheme);
+  const colorScheme = useUiStore((state) => state.scheme);
+  const beamTheme = resolveBorderBeamTheme(colorScheme);
   const phase = props.activity?.phase ?? "idle";
   const previousPhase = useRef<ActivityPhase>(phase);
   const completedStreamingResponse = previousPhase.current === "streaming" && phase === "idle" && props.status === "ready";

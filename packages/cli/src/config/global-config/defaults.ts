@@ -25,8 +25,8 @@ export function defaultGlobalConfig(): KilnGlobalConfig {
       appearance: {
         mode: "system",
         themeByScheme: {
-          light: "automata",
-          dark: "phosphor",
+          light: "tesota",
+          dark: "tesota",
         },
       },
     },
@@ -58,6 +58,8 @@ export function resolveGlobalDefaultModel(config: KilnGlobalConfig | null | unde
   return config.targetCatalog?.targets.find((target) => target.id === targetId)?.providerModelId;
 }
 
-export function resolveGlobalUiAppearance(config: KilnGlobalConfig | null | undefined): KilnGlobalUiAppearance | undefined {
+export function resolveGlobalUiAppearance(
+  config: KilnGlobalConfig | null | undefined,
+): KilnGlobalUiAppearance | undefined {
   return config?.ui?.appearance;
 }

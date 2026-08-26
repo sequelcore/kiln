@@ -61,13 +61,14 @@ launch selector for `kiln run` and `kiln plan`, not GUI or TUI.
 
 ## Themes
 
-The TUI exports `KilnTheme`, `defaultTheme`, and the named `themes` map from `packages/tui/src/theme.ts`. The default theme is `phosphor`.
+The TUI exports `KilnTheme`, `defaultTheme`, and the named `themes` map from `packages/tui/src/theme.ts`. The default is Tesota's dark variant because the terminal cannot reliably observe the operating-system scheme.
 
 The current build ships these built-in theme names:
 
 - `phosphor`
 - `vesper`
 - `sequel`
+- `tesota`
 - `automata`
 
 Use any of them with `--theme <name>`.

@@ -42,6 +42,16 @@ describe("operator theme projection", () => {
     expect(document.documentElement.style.colorScheme).toBe("dark");
   });
 
+  it("preserves the visible polarity when a session selects dual-variant Tesota", () => {
+    document.documentElement.dataset.theme = "light";
+    applyOperatorTheme("tesota", document.documentElement);
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+
+    document.documentElement.dataset.theme = "dark";
+    applyOperatorTheme("tesota", document.documentElement);
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
+
   it("projects renderer-safe colors from the same semantic source", () => {
     applyOperatorTheme("vesper", document.documentElement);
     const palette = resolveAppliedOperatorThemePalette(document.documentElement);
@@ -49,15 +59,17 @@ describe("operator theme projection", () => {
 
     expect(variables["--kiln-canvas"]).toMatch(/^#[\da-f]{6}$/);
     expect(variables["--kiln-accent"]).toMatch(/^#[\da-f]{6}$/);
-    expect(variables["--kiln-canvas"]).not.toBe(
-      projectOperatorThemeHexVariables(phosphor)["--kiln-canvas"],
-    );
+    expect(variables["--kiln-canvas"]).not.toBe(projectOperatorThemeHexVariables(phosphor)["--kiln-canvas"]);
   });
 
   it("resolves system mode against the observed system polarity", () => {
     const listener = vi.fn();
     document.documentElement.addEventListener(OPERATOR_THEME_APPLIED_EVENT, listener);
-    applyOperatorAppearance({ mode: "system", themeByScheme: { light: "automata", dark: "phosphor" } }, "light", document.documentElement);
+    applyOperatorAppearance(
+      { mode: "system", themeByScheme: { light: "automata", dark: "phosphor" } },
+      "light",
+      document.documentElement,
+    );
 
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
     expect(document.documentElement).toHaveAttribute("data-kiln-theme", "automata");

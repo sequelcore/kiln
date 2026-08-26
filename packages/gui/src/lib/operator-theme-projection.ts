@@ -1,15 +1,15 @@
 import {
+  isOperatorThemeName,
   OPERATOR_THEME_DEFINITIONS,
   OPERATOR_THEME_DEFINITIONS_BY_ID,
-  isOperatorThemeName,
+  type OperatorAppearancePreference,
+  type OperatorAppearanceResolution,
+  type OperatorColor,
+  type OperatorThemeName,
+  type OperatorThemePalette,
   operatorColorToCss,
   operatorColorToHex,
   resolveOperatorAppearance,
-  type OperatorColor,
-  type OperatorAppearancePreference,
-  type OperatorAppearanceResolution,
-  type OperatorThemeName,
-  type OperatorThemePalette,
 } from "@kilnai/operator-appearance";
 
 export const OPERATOR_THEME_APPLIED_EVENT = "kiln:operator-theme-applied";
@@ -95,25 +95,24 @@ export function projectOperatorThemeHexVariables(palette: OperatorThemePalette):
   return projectOperatorThemeVariables(palette, operatorColorToHex);
 }
 
-export function resolveAppliedOperatorThemePalette(
-  root: HTMLElement,
-): OperatorThemePalette {
-  const theme = isOperatorThemeName(root.dataset.kilnTheme)
-    ? root.dataset.kilnTheme
-    : "phosphor" as const;
+export function resolveAppliedOperatorThemePalette(root: HTMLElement): OperatorThemePalette {
+  const theme = isOperatorThemeName(root.dataset.kilnTheme) ? root.dataset.kilnTheme : ("tesota" as const);
   const definition = OPERATOR_THEME_DEFINITIONS_BY_ID[theme];
-  const palette = definition.variants[root.dataset.theme === "light" ? "light" : "dark"]
-    ?? OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
-  if (!palette) throw new Error("Built-in dark fallback is unavailable.");
+  const palette =
+    definition.variants[root.dataset.theme === "light" ? "light" : "dark"] ??
+    OPERATOR_THEME_DEFINITIONS_BY_ID.tesota.variants.dark;
+  if (!palette) throw new Error("Built-in Tesota dark fallback is unavailable.");
   return palette;
 }
 
-export function applyOperatorTheme(
-  theme: OperatorThemeName,
-  root: HTMLElement = document.documentElement,
-): void {
+export function applyOperatorTheme(theme: OperatorThemeName, root: HTMLElement = document.documentElement): void {
   const definition = OPERATOR_THEME_DEFINITIONS_BY_ID[theme];
-  const palette = definition.variants.light ?? definition.variants.dark;
+  const visibleScheme =
+    root.dataset.theme === "light" || root.dataset.theme === "dark" ? root.dataset.theme : undefined;
+  const palette =
+    (visibleScheme ? definition.variants[visibleScheme] : undefined) ??
+    definition.variants.dark ??
+    definition.variants.light;
   if (!palette) throw new Error(`Theme '${theme}' has no applicable variant.`);
   applyResolvedPalette(theme, palette, root);
 }
@@ -131,11 +130,7 @@ export function applyOperatorAppearance(
   return resolution;
 }
 
-function applyResolvedPalette(
-  theme: OperatorThemeName,
-  palette: OperatorThemePalette,
-  root: HTMLElement,
-): void {
+function applyResolvedPalette(theme: OperatorThemeName, palette: OperatorThemePalette, root: HTMLElement): void {
   root.dataset.theme = palette.appearance;
   root.dataset.kilnTheme = theme;
   root.style.colorScheme = palette.appearance;

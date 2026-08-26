@@ -43,8 +43,8 @@ function activeWorkItemId(items: readonly WorkItemEntry[]): string | null {
 }
 
 export function WorkItemsPanel(props: WorkItemsPanelProps) {
-  const kilnTheme = useUiStore((state) => state.theme);
-  const beamTheme = resolveBorderBeamTheme(kilnTheme);
+  const colorScheme = useUiStore((state) => state.scheme);
+  const beamTheme = resolveBorderBeamTheme(colorScheme);
   const emphasizedWorkItemId = activeWorkItemId(props.items);
   if (props.items.length === 0) {
     return (

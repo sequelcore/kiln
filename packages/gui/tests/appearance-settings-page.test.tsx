@@ -85,6 +85,8 @@ describe("AppearanceSettingsPage", () => {
     );
 
     expect(screen.getByRole("button", { name: "Use Sequel for dark mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use Tesota for light mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use Tesota for dark mode" })).toBeInTheDocument();
   });
 
   it("restores the canonical appearance and exposes a recoverable inline failure", async () => {

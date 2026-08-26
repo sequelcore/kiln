@@ -1741,7 +1741,7 @@ describe("global-config", () => {
       ui: {
         appearance: {
           mode: "system",
-          themeByScheme: { light: "automata", dark: "phosphor" },
+          themeByScheme: { light: "tesota", dark: "tesota" },
         },
       },
       components: {

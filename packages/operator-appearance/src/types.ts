@@ -112,8 +112,8 @@ export interface OperatorThemeDefinition {
   };
 }
 
-export type OperatorThemeName = "automata" | "phosphor" | "sequel" | "vesper";
-export type ConcreteOperatorThemeName = OperatorThemeName;
+export type OperatorThemeName = "automata" | "phosphor" | "sequel" | "tesota" | "vesper";
+export type ConcreteOperatorThemeName = "automata" | "phosphor" | "sequel" | "tesota-light" | "tesota-dark" | "vesper";
 
 export type OperatorAppearanceResolution =
   | OperatorAppearanceResolved
@@ -136,7 +136,7 @@ export interface OperatorAppearanceSystemObservationUnavailable {
   readonly scheme: "dark";
   readonly themeId: string;
   readonly requestedThemeId: null;
-  readonly fallbackThemeId: "phosphor";
+  readonly fallbackThemeId: "tesota";
   readonly fallback: true;
   readonly theme: OperatorThemeDefinition;
   readonly palette: OperatorThemePalette;
@@ -147,7 +147,7 @@ export interface OperatorAppearanceSelectedThemeUnavailable {
   readonly scheme: ColorScheme;
   readonly themeId: string;
   readonly requestedThemeId: string;
-  readonly fallbackThemeId: "automata" | "phosphor";
+  readonly fallbackThemeId: "tesota";
   readonly fallback: true;
   readonly theme: OperatorThemeDefinition;
   readonly palette: OperatorThemePalette;

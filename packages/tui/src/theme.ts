@@ -4,6 +4,7 @@
  */
 
 import {
+  type ColorScheme,
   isOperatorThemeName,
   OPERATOR_THEME_DEFINITIONS_BY_ID,
   OPERATOR_THEME_NAMES,
@@ -66,27 +67,49 @@ function createTheme(palette: OperatorThemePalette): KilnTheme {
 
 const phosphorPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.phosphor.variants.dark;
 const sequelPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.sequel.variants.dark;
+const tesotaDarkPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.tesota.variants.dark;
+const tesotaLightPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.tesota.variants.light;
 const vesperPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.vesper.variants.dark;
 const automataPalette = OPERATOR_THEME_DEFINITIONS_BY_ID.automata.variants.light;
-if (!phosphorPalette || !sequelPalette || !vesperPalette || !automataPalette) {
+if (
+  !phosphorPalette ||
+  !sequelPalette ||
+  !tesotaDarkPalette ||
+  !tesotaLightPalette ||
+  !vesperPalette ||
+  !automataPalette
+) {
   throw new Error("Built-in TUI theme variants are unavailable.");
 }
 export const phosphorTheme: KilnTheme = createTheme(phosphorPalette);
 export const sequelTheme: KilnTheme = createTheme(sequelPalette);
+export const tesotaTheme: KilnTheme = createTheme(tesotaDarkPalette);
+export const tesotaLightTheme: KilnTheme = createTheme(tesotaLightPalette);
 export const vesperTheme: KilnTheme = createTheme(vesperPalette);
 export const automataTheme: KilnTheme = createTheme(automataPalette);
-export const defaultTheme = phosphorTheme;
+export const defaultTheme = tesotaTheme;
 
 export const themes: Record<OperatorThemeName, KilnTheme> = {
   phosphor: phosphorTheme,
   sequel: sequelTheme,
+  tesota: tesotaTheme,
   vesper: vesperTheme,
   automata: automataTheme,
 };
 
-export function getTheme(name?: string): KilnTheme {
-  if (!name || !isOperatorThemeName(name)) return themes.phosphor;
+export function getTheme(name?: string, scheme?: ColorScheme): KilnTheme {
+  if (!name || !isOperatorThemeName(name)) return themes.tesota;
+  if (name === "tesota" && scheme === "light") return tesotaLightTheme;
   return themes[name];
+}
+
+export function getThemeName(theme: KilnTheme): OperatorThemeName | undefined {
+  if (theme === tesotaLightTheme) return "tesota";
+  return OPERATOR_THEME_NAMES.find((name) => themes[name] === theme);
+}
+
+export function getThemeScheme(theme: KilnTheme): ColorScheme {
+  return theme === automataTheme || theme === tesotaLightTheme ? "light" : "dark";
 }
 
 export function themeNames(): OperatorThemeName[] {

@@ -1,3 +1,4 @@
+import type { ColorScheme } from "@kilnai/operator-appearance";
 import {
   isOperatorThemeName,
   OPERATOR_THEME_DEFINITIONS,
@@ -19,9 +20,18 @@ export function resolveTuiThemePreference(
 ): OperatorThemePreference {
   const override = parseOperatorThemePreference(requestedTheme);
   if (override) return override;
-  if (!appearance) return "phosphor";
+  if (!appearance) return "tesota";
   const resolved = resolveOperatorAppearance(appearance, OPERATOR_THEME_DEFINITIONS, null).themeId;
-  return isOperatorThemeName(resolved) ? resolved : "phosphor";
+  return isOperatorThemeName(resolved) ? resolved : "tesota";
+}
+
+export function resolveTuiThemeScheme(
+  requestedTheme: string | undefined,
+  appearance: KilnGlobalUiAppearance | null,
+): ColorScheme | undefined {
+  if (parseOperatorThemePreference(requestedTheme)) return undefined;
+  if (!appearance) return "dark";
+  return resolveOperatorAppearance(appearance, OPERATOR_THEME_DEFINITIONS, null).scheme;
 }
 
 export function createCliOperatorThemeController(_projectPath: string = process.cwd()): OperatorSurfaceThemeController {

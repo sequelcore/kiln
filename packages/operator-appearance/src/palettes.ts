@@ -11,7 +11,9 @@ function color(lightness: number, chroma: number, hue: number): OperatorColor {
 
 // Automata, Phosphor, and Vesper are adapted from the operator-selected themes
 // at https://github.com/SunkenInTime/t3-themes. Sequel projects the company
-// palette into the same semantic contract. All colors are canonical OKLCH.
+// palette into the same semantic contract. Tesota's ironwood neutrals,
+// gray-green leaf, and pale-lavender bloom accents are original to Kiln. All
+// colors are canonical OKLCH.
 export const OPERATOR_THEME_PALETTES: Readonly<Record<ConcreteOperatorThemeName, OperatorThemePalette>> = {
   phosphor: {
     appearance: "dark",
@@ -197,6 +199,198 @@ export const OPERATOR_THEME_PALETTES: Readonly<Record<ConcreteOperatorThemeName,
         color: color(0.768474, 0.076741, 149.874),
         foreground: color(0.913355, 0.042743, 150.557),
         surface: color(0.287953, 0.035669, 151.953),
+      },
+      info: {
+        color: color(0.748917, 0.04765, 229.095),
+        foreground: color(0.920406, 0.020485, 224.31),
+        surface: color(0.279054, 0.021932, 226.29),
+      },
+    },
+  },
+  "tesota-light": {
+    appearance: "light",
+    surface: {
+      canvas: color(0.944, 0.011, 106.602),
+      chrome: color(0.944, 0.011, 106.602),
+      default: color(0.914, 0.013, 102.03),
+      raised: color(0.961, 0.01, 93.569),
+      overlay: color(0.879, 0.016, 106.728),
+      border: color(0.72, 0.016, 106.728),
+      input: color(0.8, 0.016, 106.728),
+    },
+    text: {
+      default: color(0.25, 0.006, 56.109),
+      muted: color(0.49, 0.016, 120.59),
+      placeholder: color(0.39, 0.016, 120.59),
+      secondaryLabel: color(0.49, 0.016, 120.59),
+      iconMuted: color(0.49, 0.016, 120.59),
+    },
+    control: {
+      focus: color(0.468, 0.082, 317.661),
+      accent: color(0.468, 0.082, 317.661),
+      accentForeground: color(0.98, 0.009, 84.572),
+      secondary: color(0.879, 0.016, 106.728),
+      secondaryForeground: color(0.25, 0.006, 56.109),
+      muted: color(0.879, 0.016, 106.728),
+      mutedForeground: color(0.49, 0.016, 120.59),
+      accentSurface: color(0.84, 0.035, 317.661),
+      accentSurfaceForeground: color(0.36, 0.065, 317.661),
+    },
+    conversation: {
+      message: {
+        surface: color(0.914, 0.013, 102.03),
+        foreground: color(0.25, 0.006, 56.109),
+        action: color(0.468, 0.082, 317.661),
+        actionForeground: color(0.98, 0.009, 84.572),
+        actionHover: color(0.41, 0.082, 317.661),
+      },
+      code: {
+        background: color(0.961, 0.01, 93.569),
+        foreground: color(0.25, 0.006, 56.109),
+      },
+    },
+    sidebar: {
+      background: color(0.9, 0.014, 106.728),
+      foreground: color(0.25, 0.006, 56.109),
+      mutedForeground: color(0.49, 0.016, 120.59),
+      control: color(0.86, 0.02, 317.661),
+      hover: color(0.84, 0.025, 317.661),
+      active: color(0.81, 0.03, 317.661),
+      selected: color(0.81, 0.03, 317.661),
+      border: color(0.72, 0.016, 106.728),
+    },
+    toolbar: {
+      background: color(0.944, 0.011, 106.602),
+      foreground: color(0.25, 0.006, 56.109),
+      border: color(0.72, 0.016, 106.728),
+      control: color(0.879, 0.016, 106.728),
+      controlForeground: color(0.25, 0.006, 56.109),
+      hover: color(0.84, 0.025, 317.661),
+    },
+    terminal: {
+      background: color(0.944, 0.011, 106.602),
+      foreground: color(0.25, 0.006, 56.109),
+      cursor: color(0.468, 0.082, 317.661),
+      selection: color(0.81, 0.03, 317.661),
+      scrollbar: color(0.72, 0.016, 106.728),
+      scrollbarHover: color(0.62, 0.03, 317.661),
+    },
+    status: {
+      error: {
+        color: color(0.497547, 0.127408, 31.25),
+        foreground: color(0.367965, 0.094192, 30.26),
+        surface: color(0.794341, 0.039978, 63.404),
+      },
+      warning: {
+        color: color(0.490874, 0.073277, 94.478),
+        foreground: color(0.432712, 0.066255, 94.854),
+        surface: color(0.817106, 0.051792, 97.489),
+      },
+      update: {
+        color: color(0.468, 0.082, 317.661),
+        foreground: color(0.36, 0.065, 317.661),
+        surface: color(0.84, 0.035, 317.661),
+      },
+      success: {
+        color: color(0.473, 0.044, 139.191),
+        foreground: color(0.36, 0.044, 139.191),
+        surface: color(0.82, 0.035, 139.191),
+      },
+      info: {
+        color: color(0.454461, 0.028526, 227.122),
+        foreground: color(0.380317, 0.030406, 226.323),
+        surface: color(0.805982, 0.011127, 189.761),
+      },
+    },
+  },
+  "tesota-dark": {
+    appearance: "dark",
+    surface: {
+      canvas: color(0.183, 0.005, 196.746),
+      chrome: color(0.183, 0.005, 196.746),
+      default: color(0.216, 0.004, 128.675),
+      raised: color(0.262, 0.009, 116.224),
+      overlay: color(0.304, 0.011, 99.233),
+      border: color(0.39, 0.012, 99.233),
+      input: color(0.32, 0.012, 99.233),
+    },
+    text: {
+      default: color(0.95, 0.011, 84.579),
+      muted: color(0.777, 0.018, 99.676),
+      placeholder: color(0.72, 0.018, 99.676),
+      secondaryLabel: color(0.86, 0.014, 99.676),
+      iconMuted: color(0.64, 0.018, 99.676),
+    },
+    control: {
+      focus: color(0.772, 0.067, 316.261),
+      accent: color(0.772, 0.067, 316.261),
+      accentForeground: color(0.192, 0.016, 316.274),
+      secondary: color(0.304, 0.011, 99.233),
+      secondaryForeground: color(0.95, 0.011, 84.579),
+      muted: color(0.304, 0.011, 99.233),
+      mutedForeground: color(0.777, 0.018, 99.676),
+      accentSurface: color(0.29, 0.03, 316.261),
+      accentSurfaceForeground: color(0.9, 0.035, 316.261),
+    },
+    conversation: {
+      message: {
+        surface: color(0.242, 0.008, 116.224),
+        foreground: color(0.95, 0.011, 84.579),
+        action: color(0.772, 0.067, 316.261),
+        actionForeground: color(0.192, 0.016, 316.274),
+        actionHover: color(0.82, 0.06, 316.261),
+      },
+      code: {
+        background: color(0.183, 0.005, 196.746),
+        foreground: color(0.95, 0.011, 84.579),
+      },
+    },
+    sidebar: {
+      background: color(0.2, 0.005, 128.675),
+      foreground: color(0.95, 0.011, 84.579),
+      mutedForeground: color(0.777, 0.018, 99.676),
+      control: color(0.27, 0.018, 316.261),
+      hover: color(0.3, 0.025, 316.261),
+      active: color(0.33, 0.03, 316.261),
+      selected: color(0.33, 0.03, 316.261),
+      border: color(0.39, 0.012, 99.233),
+    },
+    toolbar: {
+      background: color(0.183, 0.005, 196.746),
+      foreground: color(0.95, 0.011, 84.579),
+      border: color(0.39, 0.012, 99.233),
+      control: color(0.304, 0.011, 99.233),
+      controlForeground: color(0.95, 0.011, 84.579),
+      hover: color(0.33, 0.03, 316.261),
+    },
+    terminal: {
+      background: color(0.183, 0.005, 196.746),
+      foreground: color(0.95, 0.011, 84.579),
+      cursor: color(0.772, 0.067, 316.261),
+      selection: color(0.36, 0.04, 316.261),
+      scrollbar: color(0.304, 0.011, 99.233),
+      scrollbarHover: color(0.43, 0.03, 316.261),
+    },
+    status: {
+      error: {
+        color: color(0.752439, 0.085745, 27.393),
+        foreground: color(0.900787, 0.03517, 26.546),
+        surface: color(0.27761, 0.04064, 22.385),
+      },
+      warning: {
+        color: color(0.781061, 0.10008, 85.155),
+        foreground: color(0.8908, 0.07649, 85.512),
+        surface: color(0.284792, 0.031409, 76.299),
+      },
+      update: {
+        color: color(0.772, 0.067, 316.261),
+        foreground: color(0.9, 0.035, 316.261),
+        surface: color(0.29, 0.03, 316.261),
+      },
+      success: {
+        color: color(0.731, 0.053, 135.203),
+        foreground: color(0.9, 0.035, 135.203),
+        surface: color(0.29, 0.03, 135.203),
       },
       info: {
         color: color(0.748917, 0.04765, 229.095),
@@ -417,6 +611,16 @@ export const SEQUEL_OPERATOR_THEME: OperatorThemeDefinition = {
   variants: { dark: OPERATOR_THEME_PALETTES.sequel },
 };
 
+export const TESOTA_OPERATOR_THEME: OperatorThemeDefinition = {
+  schemaVersion: 1,
+  id: "tesota",
+  label: "Tesota",
+  variants: {
+    light: OPERATOR_THEME_PALETTES["tesota-light"],
+    dark: OPERATOR_THEME_PALETTES["tesota-dark"],
+  },
+};
+
 export const VESPER_OPERATOR_THEME: OperatorThemeDefinition = {
   schemaVersion: 1,
   id: "vesper",
@@ -429,4 +633,11 @@ export const OPERATOR_THEME_DEFINITIONS: readonly [
   OperatorThemeDefinition,
   OperatorThemeDefinition,
   OperatorThemeDefinition,
-] = [AUTOMATA_OPERATOR_THEME, PHOSPHOR_OPERATOR_THEME, SEQUEL_OPERATOR_THEME, VESPER_OPERATOR_THEME];
+  OperatorThemeDefinition,
+] = [
+  AUTOMATA_OPERATOR_THEME,
+  PHOSPHOR_OPERATOR_THEME,
+  SEQUEL_OPERATOR_THEME,
+  TESOTA_OPERATOR_THEME,
+  VESPER_OPERATOR_THEME,
+];

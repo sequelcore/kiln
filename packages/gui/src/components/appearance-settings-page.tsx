@@ -35,8 +35,9 @@ function snapshotPreference(snapshot: KilnSettingsSnapshot | null): OperatorAppe
 }
 
 function ModePreview({ mode }: { readonly mode: AppearanceMode }) {
-  const light = OPERATOR_THEME_DEFINITIONS.find((theme) => theme.id === "automata")?.variants.light;
-  const dark = OPERATOR_THEME_DEFINITIONS.find((theme) => theme.id === "phosphor")?.variants.dark;
+  const tesota = OPERATOR_THEME_DEFINITIONS.find((theme) => theme.id === "tesota");
+  const light = tesota?.variants.light;
+  const dark = tesota?.variants.dark;
   if (!light || !dark) return null;
   const palette = mode === "light" ? light : dark;
   const backgroundImage =

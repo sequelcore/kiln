@@ -136,8 +136,9 @@ OS changes while mode is `system`. Its versioned localStorage value is only a
 startup cache; the settings snapshot remains authoritative.
 
 GUI and TUI consume the pure `@kilnai/operator-appearance` catalog. The built-in
-themes are `phosphor`, `sequel`, `vesper`, and `automata`; system behavior is a mode, not a
-theme identity. Connected executable providers may call `operator_set_theme`
+themes are `phosphor`, `sequel`, `tesota`, `vesper`, and `automata`. Tesota has
+light and dark variants and is the default for both schemes; system behavior is
+a mode, not a theme identity. Connected executable providers may call `operator_set_theme`
 for a live session override. That tool cannot persist configuration. Durable
 changes require the human Settings page or `kiln config set --global`.
 
@@ -188,7 +189,7 @@ surface roles for elevation and selection, border roles for separation and
 focus, action roles for controls, and the complete status triplet for success,
 warning, danger, or information surfaces. Terminal, canvas, and WebGL widgets
 must use the renderer-safe hex projection instead of parsing CSS `oklch()` or
-carrying fallback colors. This keeps Phosphor, Vesper, Automata, and system-mode
+carrying fallback colors. This keeps Tesota, Phosphor, Sequel, Vesper, Automata, and system-mode
 resolution coherent across native DOM and non-DOM renderers.
 
 AI Elements are source-owned composition primitives in this repository, not a

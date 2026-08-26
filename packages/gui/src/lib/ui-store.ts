@@ -1,4 +1,5 @@
 import {
+  type ColorScheme,
   DEFAULT_OPERATOR_APPEARANCE_PREFERENCE,
   isOperatorAppearancePreference,
   isOperatorThemeName,
@@ -14,6 +15,7 @@ export type KilnTheme = OperatorThemeName;
 interface UiState {
   readonly preference: OperatorAppearancePreference;
   readonly theme: KilnTheme;
+  readonly scheme: ColorScheme;
   readonly sessionTheme: KilnTheme | null;
   syncAppearancePreference: (preference: OperatorAppearancePreference) => void;
   setAppearancePreference: (preference: OperatorAppearancePreference) => void;
@@ -38,15 +40,21 @@ function cacheCanonicalPreference(preference: OperatorAppearancePreference): voi
   );
 }
 
-function applyCanonicalPreference(preference: OperatorAppearancePreference): KilnTheme {
+function applyCanonicalPreference(preference: OperatorAppearancePreference): {
+  readonly theme: KilnTheme;
+  readonly scheme: ColorScheme;
+} {
   const resolution = applyOperatorAppearance(preference, observedScheme());
   if (!isOperatorThemeName(resolution.themeId)) {
     throw new Error(`Resolved theme '${resolution.themeId}' is not available in the GUI catalog.`);
   }
-  return resolution.themeId;
+  return { theme: resolution.themeId, scheme: resolution.scheme };
 }
 
-function setupSystemObservation(preference: OperatorAppearancePreference, apply: (theme: KilnTheme) => void): void {
+function setupSystemObservation(
+  preference: OperatorAppearancePreference,
+  apply: (selection: { readonly theme: KilnTheme; readonly scheme: ColorScheme }) => void,
+): void {
   systemSchemeCleanup?.();
   systemSchemeCleanup = null;
   if (preference.mode !== "system") return;
@@ -76,15 +84,18 @@ function readCachedPreference(): OperatorAppearancePreference {
 
 const bootstrapPreference = readCachedPreference();
 const bootstrapSessionTheme = readGuiLaunchTheme(window.location.search);
-const bootstrapTheme = bootstrapSessionTheme ?? applyCanonicalPreference(bootstrapPreference);
+const bootstrapSelection = applyCanonicalPreference(bootstrapPreference);
 if (bootstrapSessionTheme) applyOperatorTheme(bootstrapSessionTheme);
+const bootstrapTheme = bootstrapSessionTheme ?? bootstrapSelection.theme;
+const bootstrapScheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
 
 export const useUiStore = create<UiState>((set, get) => {
-  const applyObserved = (theme: KilnTheme) => set({ theme });
+  const applyObserved = (selection: { readonly theme: KilnTheme; readonly scheme: ColorScheme }) => set(selection);
   if (!bootstrapSessionTheme) setupSystemObservation(bootstrapPreference, applyObserved);
   return {
     preference: bootstrapPreference,
     theme: bootstrapTheme,
+    scheme: bootstrapScheme,
     sessionTheme: bootstrapSessionTheme,
     syncAppearancePreference: (preference) => {
       if (!isOperatorAppearancePreference(preference)) return;
@@ -94,36 +105,44 @@ export const useUiStore = create<UiState>((set, get) => {
         systemSchemeCleanup?.();
         systemSchemeCleanup = null;
         applyOperatorTheme(sessionTheme);
-        set({ preference, theme: sessionTheme });
+        set({
+          preference,
+          theme: sessionTheme,
+          scheme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+        });
         return;
       }
-      const theme = applyCanonicalPreference(preference);
-      set({ preference, theme });
+      const selection = applyCanonicalPreference(preference);
+      set({ preference, ...selection });
       setupSystemObservation(preference, applyObserved);
     },
     setAppearancePreference: (preference) => {
       if (!isOperatorAppearancePreference(preference)) return;
       cacheCanonicalPreference(preference);
-      const theme = applyCanonicalPreference(preference);
-      set({ preference, theme, sessionTheme: null });
+      const selection = applyCanonicalPreference(preference);
+      set({ preference, ...selection, sessionTheme: null });
       setupSystemObservation(preference, applyObserved);
     },
     previewAppearance: (preference) => {
       if (!isOperatorAppearancePreference(preference)) return;
       systemSchemeCleanup?.();
       systemSchemeCleanup = null;
-      set({ theme: applyCanonicalPreference(preference) });
+      set(applyCanonicalPreference(preference));
     },
     setTheme: (theme) => {
       systemSchemeCleanup?.();
       systemSchemeCleanup = null;
       applyOperatorTheme(theme);
-      set({ theme, sessionTheme: theme });
+      set({
+        theme,
+        scheme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+        sessionTheme: theme,
+      });
     },
     clearSessionTheme: () => {
       const preference = get().preference;
-      const theme = applyCanonicalPreference(preference);
-      set({ theme, sessionTheme: null });
+      const selection = applyCanonicalPreference(preference);
+      set({ ...selection, sessionTheme: null });
       setupSystemObservation(preference, applyObserved);
     },
   };

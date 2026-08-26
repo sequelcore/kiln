@@ -33,7 +33,13 @@ import type { SessionLike } from "./types.js";
 import type { Message, DeliberationLevelId, ContinuationSidebarInfo, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
-import { defaultTheme, themeNames as listThemeNames, themes } from "./theme.js";
+import {
+  defaultTheme,
+  getTheme,
+  getThemeName,
+  getThemeScheme,
+  themeNames as listThemeNames,
+} from "./theme.js";
 import { formatSetupSnapshot } from "./setup-format.js";
 import { formatSettingsSnapshot } from "./settings-format.js";
 import { buildSettingsProposalRequest, parseSettingsCommand } from "./settings-command.js";
@@ -261,8 +267,7 @@ export async function startTui(
     pollRouteCatalog();
   }
 
-  const themeNames = listThemeNames() as Array<keyof typeof themes>;
-  const themeValues = Object.values(themes);
+  const themeNames = listThemeNames();
 
   const { t, fg } = await import("@opentui/core");
 
@@ -422,10 +427,7 @@ export async function startTui(
     if (!themeName) {
       return { ok: false, error: `Unknown theme '${request.theme}'.` };
     }
-    const requestedTheme = themes[themeName];
-    if (!requestedTheme) {
-      return { ok: false, error: `Unknown theme '${request.theme}'.` };
-    }
+    const requestedTheme = getTheme(themeName, getThemeScheme(currentTheme));
     applyTheme(requestedTheme);
     ui.commandBarStatus.content = t`${fg(currentTheme.accent)(
       `Theme: ${OPERATOR_THEME_LABELS[themeName]}`,
@@ -1221,9 +1223,7 @@ export async function startTui(
     if (themePicker) return;
 
     themePickerOpen = true;
-    const currentName =
-      themeNames.find((name) => themes[name] === currentTheme) ??
-      "phosphor";
+    const currentName = getThemeName(currentTheme) ?? "tesota";
     localThemeIndex = Math.max(0, themeNames.indexOf(currentName));
 
     themePicker = createThemePicker(
@@ -1243,7 +1243,7 @@ export async function startTui(
     if (!apply) {
       const selectedThemeName = themeNames[localThemeIndex];
       const selectedTheme = selectedThemeName
-        ? themes[selectedThemeName]
+        ? getTheme(selectedThemeName, getThemeScheme(currentTheme))
         : undefined;
       applyTheme(selectedTheme ?? defaultTheme);
     }
@@ -1269,8 +1269,9 @@ export async function startTui(
         }
       }
 
-      if (localThemeIndex >= 0 && localThemeIndex < themeValues.length) {
-        const previewTheme = themeValues[localThemeIndex];
+      if (localThemeIndex >= 0 && localThemeIndex < themeNames.length) {
+        const previewName = themeNames[localThemeIndex];
+        const previewTheme = previewName ? getTheme(previewName, getThemeScheme(currentTheme)) : undefined;
         if (previewTheme) {
           applyTheme(previewTheme);
         }

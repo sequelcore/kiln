@@ -611,7 +611,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
   const persistThemePreference = async (theme: OperatorThemeName): Promise<void> => {
-    const preference = await gatewayClient.saveThemePreference(theme);
+    const preference = await gatewayClient.saveThemePreference(theme, useUiStore.getState().scheme);
     setAppearancePreference(preference);
   };
 
