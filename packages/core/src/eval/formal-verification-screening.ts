@@ -46,12 +46,20 @@ export interface FormalVerificationScreeningObservation {
   readonly budgetHash: string;
   readonly toolProjectionHash: string;
   readonly verifierHash: string;
+  /** Host-observed dependency binding for the sealed qualifier, required in both arms. */
+  readonly sealedToolchainHash: string;
   /** Runtime-observed dependency binding; treatment-only and stable across T. */
   readonly treatmentToolchainHash?: string;
   readonly hiddenOracleExhaustive: boolean;
   /** Host-owned lemma_check/toolchain fact; required only for treatment. */
   readonly lemmaCheckPassed?: boolean;
   readonly hiddenPassed: boolean;
+  /** Host-owned post-hoc qualification of the final candidate; observed for both arms. */
+  readonly sealedDafnyPassed: boolean;
+  /** Exact `//@` contract directives still match the frozen fixture. */
+  readonly contractDigestUnchanged: boolean;
+  /** The sealed pipeline admitted no forbidden trust mechanism. */
+  readonly trustPolicyClean: boolean;
 }
 
 export interface FormalVerificationScreeningOptions {
@@ -109,11 +117,17 @@ export interface FormalVerificationScreeningReconciliation {
 export interface FormalVerificationScreeningArmMetrics {
   readonly validTrialCount: number;
   readonly invalidTrialCount: number;
-  /** Hidden oracle pass rate among mechanically valid trials only. */
-  readonly pass1: number;
+  /** Hidden functional oracle pass rate among mechanically valid trials. */
+  readonly hiddenPass1: number;
+  /** Final-candidate sealed Dafny pass rate among mechanically valid trials. */
+  readonly sealedDafnyPass1: number;
+  readonly contractIntegrityRate: number;
+  readonly trustPolicyCleanRate: number;
+  /** Primary qualified-correct rate: all four independent outcome facts pass. */
+  readonly qualifiedPass1: number;
   /** Number of planned pair slots whose two repeats are both valid. */
   readonly validPairCount: number;
-  /** Number of valid pairs whose two repeats both passed the hidden oracle. */
+  /** Number of valid pairs whose two repeats were both qualified-correct. */
   readonly passingPairCount: number;
   /** pass2 = passingPairCount / validPairCount (zero when no pair is valid). */
   readonly pass2: number;
@@ -138,7 +152,7 @@ export interface FormalVerificationScreeningGates {
 }
 
 export interface FormalVerificationScreeningReport {
-  readonly policyId: "formal-verification-screening-v1";
+  readonly policyId: "formal-verification-screening-v2";
   readonly k: typeof FORMAL_VERIFICATION_SCREENING_K;
   readonly plannedPairCount: typeof FORMAL_VERIFICATION_SCREENING_PAIR_COUNT;
   readonly plannedRepeatCount: typeof FORMAL_VERIFICATION_SCREENING_K;
@@ -185,10 +199,14 @@ interface NormalizedObservation {
   readonly budgetHash?: string;
   readonly toolProjectionHash?: string;
   readonly verifierHash?: string;
+  readonly sealedToolchainHash?: string;
   readonly treatmentToolchainHash?: string;
   readonly hiddenOracleExhaustive: unknown;
   readonly lemmaCheckPassed: unknown;
   readonly hiddenPassed: unknown;
+  readonly sealedDafnyPassed: unknown;
+  readonly contractDigestUnchanged: unknown;
+  readonly trustPolicyClean: unknown;
 }
 
 interface SlotEvaluation {
@@ -217,6 +235,7 @@ const HASH_FIELDS = [
   "budgetHash",
   "toolProjectionHash",
   "verifierHash",
+  "sealedToolchainHash",
 ] as const;
 
 const IDENTITY_FIELDS = [
@@ -232,6 +251,7 @@ const CROSS_ARM_FIELDS = [
   "protocolHash",
   "budgetHash",
   "verifierHash",
+  "sealedToolchainHash",
   "expectedRoute",
   "expectedProvider",
   "expectedModel",
@@ -415,7 +435,7 @@ export function evaluateFormalVerificationScreening(
   const gates: FormalVerificationScreeningGates = {
     completeValidBlocks: completeValidBlockRate >= 0.9,
     invalid: invalidTrialRate <= 0.1,
-    c0Pass1: armMetrics.C0.pass1 >= 0.2 && armMetrics.C0.pass1 <= 0.8,
+    c0Pass1: armMetrics.C0.qualifiedPass1 >= 0.2 && armMetrics.C0.qualifiedPass1 <= 0.8,
     c0OracleExhaustive: c0Facts.length === plannedBlocks.length
       && c0Facts.every((fact) => fact.hiddenOracleExhaustive === true),
     c0LemmaIsolation: c0Facts.every((fact) => fact.lemmaCheckPassed !== true),
@@ -440,7 +460,7 @@ export function evaluateFormalVerificationScreening(
   const issues = buildIssues(reconciliation, finalGates);
 
   return {
-    policyId: "formal-verification-screening-v1",
+    policyId: "formal-verification-screening-v2",
     k: FORMAL_VERIFICATION_SCREENING_K,
     plannedPairCount: FORMAL_VERIFICATION_SCREENING_PAIR_COUNT,
     plannedRepeatCount: FORMAL_VERIFICATION_SCREENING_K,
@@ -449,7 +469,7 @@ export function evaluateFormalVerificationScreening(
     comparisonHash: comparisonHash(plan.pairIds, normalized),
     reconciliation,
     arms: armMetrics,
-    pass1: { C0: armMetrics.C0.pass1, T: armMetrics.T.pass1 },
+    pass1: { C0: armMetrics.C0.qualifiedPass1, T: armMetrics.T.qualifiedPass1 },
     pass2: { C0: pass2Details.C0.rate, T: pass2Details.T.rate },
     pass2Details,
     invalidCompleteBlockRate,
@@ -530,10 +550,14 @@ function normalizeObservation(value: unknown, index: number): NormalizedObservat
     budgetHash: nonEmptyString(input.budgetHash),
     toolProjectionHash: nonEmptyString(input.toolProjectionHash),
     verifierHash: nonEmptyString(input.verifierHash),
+    sealedToolchainHash: nonEmptyString(input.sealedToolchainHash),
     treatmentToolchainHash: nonEmptyString(input.treatmentToolchainHash),
     hiddenOracleExhaustive: input.hiddenOracleExhaustive,
     lemmaCheckPassed: input.lemmaCheckPassed,
     hiddenPassed: input.hiddenPassed,
+    sealedDafnyPassed: input.sealedDafnyPassed,
+    contractDigestUnchanged: input.contractDigestUnchanged,
+    trustPolicyClean: input.trustPolicyClean,
   };
 }
 
@@ -594,6 +618,12 @@ function collectObservationIssues(
     invalidTrials.push(itemId ?? `observation-${observation.index}`);
     blockIssues.push(`${itemId ?? "observation"} hidden oracle is not exhaustive`);
   }
+  for (const field of ["sealedDafnyPassed", "contractDigestUnchanged", "trustPolicyClean"] as const) {
+    if (typeof observation[field] !== "boolean") {
+      invalidTrials.push(itemId ?? `observation-${observation.index}`);
+      blockIssues.push(`${itemId ?? "observation"} is missing sealed ${field}`);
+    }
+  }
   if (arm === "T" && observation.lemmaCheckPassed !== true) {
     invalidTrials.push(itemId ?? `observation-${observation.index}`);
     blockIssues.push(`${itemId ?? "observation"} treatment lemma_check/toolchain fact is not passed`);
@@ -601,6 +631,19 @@ function collectObservationIssues(
   if (arm === "T" && observation.treatmentToolchainHash === undefined) {
     identityMissing.push({ blockKey, itemId, arm, field: "treatmentToolchainHash" });
     blockIssues.push(`${itemId ?? "observation"} is missing treatmentToolchainHash`);
+  }
+  if (arm === "T" && observation.treatmentToolchainHash !== undefined
+    && observation.sealedToolchainHash !== undefined
+    && observation.treatmentToolchainHash !== observation.sealedToolchainHash) {
+    identityMismatches.push({
+      blockKey,
+      itemId,
+      arm,
+      field: "treatmentToolchainHash",
+      expected: observation.sealedToolchainHash,
+      observed: observation.treatmentToolchainHash,
+    });
+    blockIssues.push(`${itemId ?? "observation"} treatment and sealed toolchain identities differ`);
   }
   if (arm === "C0" && observation.treatmentToolchainHash !== undefined) {
     invalidTrials.push(itemId ?? `observation-${observation.index}`);
@@ -646,9 +689,13 @@ function observationOwnValidity(
 ): boolean {
   if (observation.valid !== true || observation.fallbackUsed !== false) return false;
   if (observation.hiddenOracleExhaustive !== true) return false;
+  if (typeof observation.sealedDafnyPassed !== "boolean"
+    || typeof observation.contractDigestUnchanged !== "boolean"
+    || typeof observation.trustPolicyClean !== "boolean") return false;
   if (arm === "T" && observation.lemmaCheckPassed !== true) return false;
   if (arm === "C0" && observation.lemmaCheckPassed === true) return false;
   if (arm === "T" && observation.treatmentToolchainHash === undefined) return false;
+  if (arm === "T" && observation.treatmentToolchainHash !== observation.sealedToolchainHash) return false;
   if (arm === "C0" && observation.treatmentToolchainHash !== undefined) return false;
   if (observation.itemId === undefined || observation.pairId === undefined) return false;
   if (!isScreeningRepeatIndex(observation.repeatIndex)) return false;
@@ -771,6 +818,32 @@ function collectProjectionIssues(
       });
     }
   }
+  const sealedEntries = observations.filter((observation) =>
+    isScreeningArm(observation.arm)
+    && isScreeningRepeatIndex(observation.repeatIndex)
+    && observation.pairId !== undefined
+    && plannedPairIds.has(observation.pairId)
+    && observation.sealedToolchainHash !== undefined);
+  const expectedSealedToolchainHash = sealedEntries[0]?.sealedToolchainHash;
+  if (expectedSealedToolchainHash !== undefined) {
+    for (const observation of sealedEntries) {
+      if (observation.sealedToolchainHash === expectedSealedToolchainHash
+        || observation.pairId === undefined
+        || !isScreeningArm(observation.arm)
+        || !isScreeningRepeatIndex(observation.repeatIndex)) continue;
+      const blockKey = screeningBlockKey(observation.pairId, observation.repeatIndex);
+      const issues = issuesByBlock.get(blockKey) ?? [];
+      issues.push(`${observation.arm} sealedToolchainHash is not stable`);
+      issuesByBlock.set(blockKey, issues);
+      identityMismatches.push({
+        blockKey,
+        arm: observation.arm,
+        field: "sealedToolchainHash",
+        expected: expectedSealedToolchainHash,
+        observed: observation.sealedToolchainHash,
+      });
+    }
+  }
   return issuesByBlock;
 }
 
@@ -804,17 +877,31 @@ function calculateArmMetrics(
     .filter((observation): observation is NormalizedObservation => observation !== undefined);
   const validTrialCount = validFacts.length;
   const invalidTrialCount = evaluations.length - validTrialCount;
-  const passedTrialCount = validFacts.filter((observation) => observation.hiddenPassed === true).length;
-  const pass1 = ratio(passedTrialCount, validTrialCount);
+  const hiddenPassedTrialCount = validFacts.filter((observation) => observation.hiddenPassed === true).length;
+  const sealedDafnyPassedTrialCount = validFacts.filter((observation) => observation.sealedDafnyPassed === true).length;
+  const contractIntactTrialCount = validFacts.filter((observation) => observation.contractDigestUnchanged === true).length;
+  const trustPolicyCleanTrialCount = validFacts.filter((observation) => observation.trustPolicyClean === true).length;
+  const qualifiedPassedTrialCount = validFacts.filter(isQualifiedCorrect).length;
   const pairDetails = pass2DetailsFor(evaluations, arm);
   return {
     validTrialCount,
     invalidTrialCount,
-    pass1,
+    hiddenPass1: ratio(hiddenPassedTrialCount, validTrialCount),
+    sealedDafnyPass1: ratio(sealedDafnyPassedTrialCount, validTrialCount),
+    contractIntegrityRate: ratio(contractIntactTrialCount, validTrialCount),
+    trustPolicyCleanRate: ratio(trustPolicyCleanTrialCount, validTrialCount),
+    qualifiedPass1: ratio(qualifiedPassedTrialCount, validTrialCount),
     validPairCount: pairDetails.validPairCount,
     passingPairCount: pairDetails.passingPairCount,
     pass2: pairDetails.rate,
   };
+}
+
+function isQualifiedCorrect(observation: NormalizedObservation): boolean {
+  return observation.hiddenPassed === true
+    && observation.sealedDafnyPassed === true
+    && observation.contractDigestUnchanged === true
+    && observation.trustPolicyClean === true;
 }
 
 function pass2DetailsFor(
@@ -840,7 +927,9 @@ function pass2DetailsFor(
       && second.slots[arm].valid;
     if (!valid) continue;
     validPairCount += 1;
-    if (firstFact?.hiddenPassed === true && secondFact?.hiddenPassed === true) passingPairCount += 1;
+    if (firstFact && secondFact && isQualifiedCorrect(firstFact) && isQualifiedCorrect(secondFact)) {
+      passingPairCount += 1;
+    }
   }
   return {
     validPairCount,
@@ -883,7 +972,7 @@ function buildIssues(
   if (reconciliation.identityMismatches.length > 0) issues.push("identity evidence does not reconcile");
   if (!gates.completeValidBlocks) issues.push("fewer than 90% of planned blocks are complete and valid");
   if (!gates.invalid) issues.push("invalid expected trial slots exceed 10%");
-  if (!gates.c0Pass1) issues.push("C0 pass1 is outside the inclusive 0.20-0.80 screening range");
+  if (!gates.c0Pass1) issues.push("C0 qualified-correct pass1 is outside the inclusive 0.20-0.80 screening range");
   if (!gates.c0OracleExhaustive) issues.push("C0 hidden oracle is not exhaustive for every planned trial");
   if (!gates.c0LemmaIsolation) issues.push("C0 contains treatment-only lemma_check/toolchain evidence");
   if (!gates.treatmentMechanicallySound) issues.push("T is not mechanically sound");
@@ -895,7 +984,7 @@ function comparisonHash(
   observations: readonly NormalizedObservation[],
 ): string {
   const canonical = {
-    policyId: "formal-verification-screening-v1",
+    policyId: "formal-verification-screening-v2",
     k: FORMAL_VERIFICATION_SCREENING_K,
     pairIds: [...pairIds].sort(),
     repeatIndices: [...FORMAL_VERIFICATION_SCREENING_REPEAT_INDICES],
@@ -915,6 +1004,7 @@ function comparisonHash(
         budgetHash: observation.budgetHash,
         toolProjectionHash: observation.toolProjectionHash,
         verifierHash: observation.verifierHash,
+        sealedToolchainHash: observation.sealedToolchainHash,
         treatmentToolchainHash: observation.treatmentToolchainHash,
       }))
       .sort((left, right) => stableStringify(left).localeCompare(stableStringify(right))),

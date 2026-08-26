@@ -16,11 +16,12 @@ product behavior.
 8. [Tool Execution and Trust](tool-execution-and-trust.md)
 9. [Coordination Intelligence](coordination-intelligence.md)
 10. [Work Governance and Verification](work-governance-and-verification.md)
-11. [Skill Capability Governance](skill-capability-governance.md)
-12. [Engineering Review Practice](engineering-review-practice.md)
-13. [Agent Security and Authority](agent-security-and-authority.md)
-14. [Communication Standards](communication-standards.md)
-15. [Governance and Reproducibility](governance-and-reproducibility.md)
-16. [Instruction and Doctrine Evidence](instruction-and-doctrine-evidence.md)
+11. [Verification Producer Evidence](verification-producers.md)
+12. [Skill Capability Governance](skill-capability-governance.md)
+13. [Engineering Review Practice](engineering-review-practice.md)
+14. [Agent Security and Authority](agent-security-and-authority.md)
+15. [Communication Standards](communication-standards.md)
+16. [Governance and Reproducibility](governance-and-reproducibility.md)
+17. [Instruction and Doctrine Evidence](instruction-and-doctrine-evidence.md)
 
 For current contracts, use the [architecture index](../../architecture/README.md).

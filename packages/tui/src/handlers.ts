@@ -21,6 +21,7 @@ import {
   projectOperatorGovernedWorkItemSnapshot,
   type OperatorSessionTurnOutcome,
   type OperatorSessionEvent,
+  type ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { ReactiveState, Message, ContinuationSidebarInfo, PendingApproval, WorkItem } from "./state.js";
@@ -40,6 +41,7 @@ import {
   applyTuiMarkdownCodeMaterial,
   createTuiMarkdownNodeRenderer,
 } from "./markdown-code-material.js";
+import { formatVerificationPresentationAsText } from "./verification-presentation.js";
 
 /**
  * Context object passed to all handlers.
@@ -228,8 +230,12 @@ export function handleToolResult(
   toolName: string,
   output: string,
   toolCallId?: string,
+  toolPresentation?: ToolResultPresentation,
 ): void {
   const actionTitle = presentToolActionTitle(toolName, "success");
+  const verificationOutput = toolPresentation?.verification
+    ? formatVerificationPresentationAsText(toolPresentation.verification)
+    : undefined;
   const truncated = output && output.length > 60
     ? output.slice(0, 57) + "..."
     : output;
@@ -237,8 +243,10 @@ export function handleToolResult(
     (n) => n.msg.role === "tool" && (toolCallId ? n.msg.toolCallId === toolCallId : n.msg.toolName === toolName)
   );
   if (entry) {
-    entry.msg.content = truncated;
-    entry.node.content = t`${fg(ctx.theme().toolFg)("✓ ")}${fg(ctx.theme().textMuted)(actionTitle)}`;
+    entry.msg.content = verificationOutput ?? truncated;
+    entry.node.content = verificationOutput
+      ? t`${fg(ctx.theme().toolFg)("✓ ")}${fg(ctx.theme().text)(actionTitle)}\n${fg(ctx.theme().textMuted)(verificationOutput)}`
+      : t`${fg(ctx.theme().toolFg)("✓ ")}${fg(ctx.theme().textMuted)(actionTitle)}`;
   }
 
   update(ctx.state, "currentActivity", {
@@ -300,7 +308,7 @@ export function handleActivity(
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
   renderSidebarApprovals?: () => void,
-  event?: { sessionId?: string; turnId?: string; approvalId?: string; toolCallId?: string; stream?: "stdout" | "stderr"; chunkIndex?: number; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionEvent?: OperatorSessionEvent }
+  event?: { sessionId?: string; turnId?: string; approvalId?: string; toolCallId?: string; stream?: "stdout" | "stderr"; chunkIndex?: number; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
@@ -328,7 +336,7 @@ export function handleActivity(
   } else if (activity === "tool_output" && toolName && output !== undefined && event?.toolCallId) {
     handleToolOutput(ctx, toolName, event.toolCallId, output);
   } else if (activity === "tool_result" && toolName && output) {
-    handleToolResult(ctx, toolName, output, event?.toolCallId);
+    handleToolResult(ctx, toolName, output, event?.toolCallId, event?.toolPresentation);
   } else if (activity === "file_changed") {
     const path = (event as { path?: string }).path;
     const changeType = (event as { changeType?: "created" | "modified" | "deleted" }).changeType;

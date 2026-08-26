@@ -39,6 +39,11 @@ meaning and terminal outcome.
 - Terminal state survives reload and restored-session projection.
 - Structured output is preferred when supplied by shared contracts; readable
   bounded raw evidence remains available where required.
+- Formal, static, and inferential verification observations render through the
+  shared `verification` presentation contract. GUI and TUI preserve engine,
+  candidate identity, covered subjects, producer-specific outcomes, and the
+  facts-only authority boundary; neither surface derives Assurance acceptance
+  from a producer result.
 - Managed-agent, provider, skill, permission, and capability diagnostics are
   rendered from shared evidence and are never inferred by GUI components.
 - Late events from another session cannot mutate the selected session view.

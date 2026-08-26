@@ -44,6 +44,7 @@ export type ToolResultOutputKind =
   | "task"
   | "work_item"
   | "goal"
+  | "verification"
   | "diagnostic"
   | "form"
   | "empty";
@@ -122,6 +123,92 @@ export interface ToolResultGoalPresentation {
   readonly evidence: readonly ToolResultGoalEvidencePresentation[];
 }
 
+export interface ToolResultVerificationSubjectPresentation {
+  readonly path: string;
+  readonly contentDigest?: string;
+}
+
+export interface ToolResultVerificationEnginePresentation {
+  readonly name: string;
+  readonly version: string;
+  readonly buildRevision?: string;
+}
+
+export interface ToolResultVerificationAuthorityPresentation {
+  readonly kind: "evidence_only";
+  readonly establishes: readonly [];
+}
+
+export interface ToolResultFormalCheckPresentation {
+  readonly label: string;
+  readonly outcome: "proved" | "refuted" | "unresolved";
+  readonly detail?: string;
+  readonly durationMs: number;
+  readonly resourceCount: number;
+}
+
+export interface ToolResultFormalVerificationPresentation {
+  readonly kind: "formal";
+  readonly engine: ToolResultVerificationEnginePresentation;
+  readonly candidate: {
+    readonly digest: string;
+    readonly subjects: readonly ToolResultVerificationSubjectPresentation[];
+  };
+  readonly outcome: "proved" | "refuted" | "unresolved";
+  readonly totals: {
+    readonly total: number;
+    readonly proved: number;
+    readonly refuted: number;
+    readonly unresolved: number;
+  };
+  readonly checks: readonly ToolResultFormalCheckPresentation[];
+  readonly authority: ToolResultVerificationAuthorityPresentation;
+}
+
+export interface ToolResultStaticDiagnosticPresentation {
+  readonly rule?: string;
+  readonly severity: "error" | "warning";
+  readonly message: string;
+  readonly file: string;
+  readonly line?: number;
+  readonly column?: number;
+}
+
+export interface ToolResultStaticVerificationPresentation {
+  readonly kind: "static";
+  readonly engine: ToolResultVerificationEnginePresentation;
+  readonly candidate: {
+    readonly digest: string;
+    readonly subjects: readonly ToolResultVerificationSubjectPresentation[];
+  };
+  readonly outcome: "clean" | "violations";
+  readonly profile: { readonly id: string; readonly rulesAnalyzed: number };
+  readonly diagnostics: readonly ToolResultStaticDiagnosticPresentation[];
+  readonly authority: ToolResultVerificationAuthorityPresentation;
+}
+
+export interface ToolResultInferentialVerificationPresentation {
+  readonly kind: "inferential";
+  readonly engine: ToolResultVerificationEnginePresentation;
+  readonly candidate: {
+    readonly digest: string;
+    readonly subjects: readonly ToolResultVerificationSubjectPresentation[];
+  };
+  readonly outcome: {
+    readonly applicability: string;
+    readonly action: string;
+    readonly replayability: string;
+    readonly nextTransition?: { readonly kind: "execute" | "collect" | "stop"; readonly reasonCode: string };
+  };
+  readonly receipt: { readonly status: string; readonly identity?: string };
+  readonly authority: ToolResultVerificationAuthorityPresentation;
+}
+
+export type ToolResultVerificationPresentation =
+  | ToolResultFormalVerificationPresentation
+  | ToolResultStaticVerificationPresentation
+  | ToolResultInferentialVerificationPresentation;
+
 export interface ToolResultPreview {
   readonly text: string;
   readonly truncated?: boolean;
@@ -168,6 +255,7 @@ export interface ToolResultPresentation {
   readonly task?: ToolResultTaskPresentation;
   readonly workItem?: ToolResultWorkItemPresentation;
   readonly goal?: ToolResultGoalPresentation;
+  readonly verification?: ToolResultVerificationPresentation;
   readonly diagnostic?: ToolResultDiagnosticPresentation;
   readonly raw: ToolResultRawAvailability;
 }
@@ -1483,6 +1571,276 @@ function readGoalEvidence(value: unknown): readonly ToolResultGoalEvidencePresen
   });
 }
 
+const VERIFICATION_AUTHORITY = {
+  kind: "evidence_only",
+  establishes: [],
+} as const satisfies ToolResultVerificationAuthorityPresentation;
+
+function readVerificationSubjects(value: unknown): readonly ToolResultVerificationSubjectPresentation[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const subjects = value.flatMap((entry) => {
+    const record = asRecord(entry);
+    const path = readString(record?.path);
+    const contentDigest = readString(record?.contentDigest);
+    return path ? [{ path, ...(contentDigest ? { contentDigest } : {}) }] : [];
+  });
+  return subjects.length === value.length ? subjects : null;
+}
+
+function hasEmptyAuthorityClaims(metadata: Record<string, unknown>): boolean {
+  return Array.isArray(metadata.establishes) && metadata.establishes.length === 0;
+}
+
+function isCanonicalSha256(value: string | null | undefined): value is string {
+  return value !== undefined && value !== null && /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+
+function isNonNegativeSafeInteger(value: number | null): value is number {
+  return value !== null && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value: number | null): value is number {
+  return value !== null && Number.isSafeInteger(value) && value > 0;
+}
+
+function projectFormalVerificationPresentation(
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | undefined {
+  if (
+    readString(metadata.schema) !== "kiln.formal-verification-observation/v3"
+    || readString(metadata.toolName) !== "formal_verify"
+    || readString(metadata.kind) !== "formal_verification"
+    || !hasEmptyAuthorityClaims(metadata)
+  ) return undefined;
+  const verifier = asRecord(metadata.verifier);
+  const artifact = asRecord(metadata.artifact);
+  const engineName = readString(verifier?.name);
+  const engineVersion = readString(verifier?.version);
+  const digest = readString(artifact?.contentDigest);
+  const subjects = readVerificationSubjects(metadata.subjects);
+  if (
+    engineName !== "dafny"
+    || !engineVersion
+    || !isCanonicalSha256(digest)
+    || !subjects
+    || subjects.some((subject) => !isCanonicalSha256(subject.contentDigest))
+    || !Array.isArray(metadata.checks)
+    || metadata.checks.length === 0
+  ) {
+    return undefined;
+  }
+  const checks = metadata.checks.flatMap((entry): ToolResultFormalCheckPresentation[] => {
+    const record = asRecord(entry);
+    const label = readString(record?.symbol);
+    const outcome = readString(record?.outcome);
+    const checkKind = readString(record?.check);
+    const detail = readString(record?.detail);
+    const durationMs = readNumber(record?.durationMs);
+    const resourceCount = readNumber(record?.resourceCount);
+    if (
+      !label
+      || checkKind !== "correctness"
+      || (outcome !== "proved" && outcome !== "refuted" && outcome !== "unresolved")
+      || !isNonNegativeSafeInteger(durationMs)
+      || !isNonNegativeSafeInteger(resourceCount)
+      || (outcome === "proved" && detail !== null)
+      || (outcome !== "proved" && detail === null)
+    ) return [];
+    return [{
+      label,
+      outcome,
+      ...(detail ? { detail } : {}),
+      durationMs,
+      resourceCount,
+    }];
+  });
+  if (checks.length !== metadata.checks.length) return undefined;
+  const proved = checks.filter((check) => check.outcome === "proved").length;
+  const refuted = checks.filter((check) => check.outcome === "refuted").length;
+  const unresolved = checks.filter((check) => check.outcome === "unresolved").length;
+  const resourceCount = checks.reduce((total, check) => total + check.resourceCount, 0);
+  const outcome = refuted > 0 ? "refuted" : unresolved > 0 ? "unresolved" : "proved";
+  const summary = `${proved}/${checks.length} obligations proved · ${resourceCount.toLocaleString("en-US")} RU`;
+  return {
+    outputKind: "verification",
+    classification: toolResultClassification("tool-metadata", "formal verification observation identifies candidate-bound proof evidence", { confidence: "high" }),
+    title: "Dafny formal verification",
+    summary,
+    fields: [
+      { label: "Engine", value: `${engineName} ${engineVersion}` },
+      { label: "Candidate", value: digest },
+      { label: "Assurance", value: "Separate decision" },
+    ],
+    verification: {
+      kind: "formal",
+      engine: { name: engineName, version: engineVersion },
+      candidate: { digest, subjects },
+      outcome,
+      totals: { total: checks.length, proved, refuted, unresolved },
+      checks,
+      authority: VERIFICATION_AUTHORITY,
+    },
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectStaticVerificationPresentation(
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | undefined {
+  if (
+    readString(metadata.schema) !== "kiln.static-analysis-observation/v1"
+    || readString(metadata.toolName) !== "static_analyze"
+    || readString(metadata.kind) !== "static_analysis"
+    || !hasEmptyAuthorityClaims(metadata)
+  ) return undefined;
+  const analyzer = asRecord(metadata.analyzer);
+  const profile = asRecord(metadata.profile);
+  const engineName = readString(analyzer?.name);
+  const engineVersion = readString(analyzer?.version);
+  const profileId = readString(profile?.id);
+  const rulesAnalyzed = readNumber(profile?.rulesAnalyzed);
+  const outcome = readString(metadata.outcome);
+  const subjects = readVerificationSubjects(metadata.subjects);
+  const digest = subjects?.[0]?.contentDigest;
+  if (
+    engineName !== "oxlint"
+    || !engineVersion
+    || !profileId
+    || !isPositiveSafeInteger(rulesAnalyzed)
+    || (outcome !== "clean" && outcome !== "violations")
+    || !subjects
+    || subjects.length !== 1
+    || !isCanonicalSha256(digest)
+    || !Array.isArray(metadata.diagnostics)
+  ) return undefined;
+  const diagnostics = metadata.diagnostics.flatMap((entry): ToolResultStaticDiagnosticPresentation[] => {
+    const record = asRecord(entry);
+    const rule = readString(record?.rule);
+    const severity = readString(record?.severity);
+    const message = readString(record?.message);
+    const file = readString(record?.file);
+    const line = record?.line === undefined ? null : readNumber(record.line);
+    const column = record?.column === undefined ? null : readNumber(record.column);
+    if (
+      (severity !== "error" && severity !== "warning")
+      || !message
+      || !file
+      || (line !== null && !isPositiveSafeInteger(line))
+      || (column !== null && (!isPositiveSafeInteger(column) || line === null))
+    ) return [];
+    return [{
+      ...(rule ? { rule } : {}),
+      severity,
+      message,
+      file,
+      ...(line !== null ? { line } : {}),
+      ...(column !== null ? { column } : {}),
+    }];
+  });
+  if (diagnostics.length !== metadata.diagnostics.length) return undefined;
+  if ((outcome === "clean") !== (diagnostics.length === 0)) return undefined;
+  const summary = outcome === "clean"
+    ? `${rulesAnalyzed} rules · no diagnostics`
+    : `${diagnostics.length} diagnostic${diagnostics.length === 1 ? "" : "s"} across ${rulesAnalyzed} rules`;
+  return {
+    outputKind: "verification",
+    classification: toolResultClassification("tool-metadata", "static analysis observation identifies candidate-bound diagnostic evidence", { confidence: "high" }),
+    title: "Oxlint static analysis",
+    summary,
+    fields: [
+      { label: "Engine", value: `${engineName} ${engineVersion}` },
+      { label: "Candidate", value: digest },
+      { label: "Assurance", value: "Separate decision" },
+    ],
+    verification: {
+      kind: "static",
+      engine: { name: engineName, version: engineVersion },
+      candidate: { digest, subjects },
+      outcome,
+      profile: { id: profileId, rulesAnalyzed },
+      diagnostics,
+      authority: VERIFICATION_AUTHORITY,
+    },
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectInferentialVerificationPresentation(
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | undefined {
+  if (
+    readString(metadata.schema) !== "kiln.gentle-review-observation/v1"
+    || readString(metadata.toolName) !== "gentle_review"
+    || readString(metadata.kind) !== "inferential_review"
+    || !hasEmptyAuthorityClaims(metadata)
+    || !Array.isArray(metadata.findings)
+    || metadata.findings.length !== 0
+  ) return undefined;
+  const engine = asRecord(metadata.engine);
+  const candidate = asRecord(metadata.candidate);
+  const receipt = asRecord(metadata.receipt);
+  const outcome = asRecord(metadata.outcome);
+  const nextTransition = asRecord(outcome?.nextTransition);
+  const engineName = readString(engine?.name);
+  const engineVersion = readString(engine?.version);
+  const buildRevision = readString(engine?.buildRevision);
+  const digest = readString(candidate?.targetIdentity);
+  const paths = readStringList(candidate?.paths);
+  const applicability = readString(outcome?.applicability);
+  const action = readString(outcome?.action);
+  const replayability = readString(outcome?.replayability);
+  const receiptStatus = readString(receipt?.status);
+  const receiptIdentity = readString(receipt?.identity);
+  if (engineName !== "gentle-ai" || !engineVersion || !isCanonicalSha256(digest) || paths.length === 0 || !applicability || !action || !replayability || !receiptStatus) {
+    return undefined;
+  }
+  const transitionKind = readString(nextTransition?.kind);
+  const transitionReason = readString(nextTransition?.reasonCode);
+  const transition: ToolResultInferentialVerificationPresentation["outcome"]["nextTransition"] =
+    transitionReason && (transitionKind === "execute" || transitionKind === "collect" || transitionKind === "stop")
+      ? { kind: transitionKind, reasonCode: transitionReason }
+      : undefined;
+  const subjects = paths.map((path) => ({ path }));
+  return {
+    outputKind: "verification",
+    classification: toolResultClassification("tool-metadata", "inferential review observation identifies candidate-bound provider status", { confidence: "high" }),
+    title: "Gentle AI review status",
+    summary: `${applicability} · ${action} · receipt ${receiptStatus}`,
+    fields: [
+      { label: "Engine", value: `${engineName} ${engineVersion}` },
+      { label: "Candidate", value: digest },
+      { label: "Assurance", value: "Separate decision" },
+    ],
+    verification: {
+      kind: "inferential",
+      engine: { name: engineName, version: engineVersion, ...(buildRevision ? { buildRevision } : {}) },
+      candidate: { digest, subjects },
+      outcome: { applicability, action, replayability, ...(transition ? { nextTransition: transition } : {}) },
+      receipt: { status: receiptStatus, ...(receiptIdentity ? { identity: receiptIdentity } : {}) },
+      authority: VERIFICATION_AUTHORITY,
+    },
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function projectVerificationPresentation(
+  metadata: Record<string, unknown> | undefined,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | undefined {
+  if (!metadata) return undefined;
+  const kind = readString(metadata.kind);
+  if (kind === "formal_verification") return projectFormalVerificationPresentation(metadata, resourceLinks);
+  if (kind === "static_analysis") return projectStaticVerificationPresentation(metadata, resourceLinks);
+  if (kind === "inferential_review") return projectInferentialVerificationPresentation(metadata, resourceLinks);
+  return undefined;
+}
+
 function projectFailedToolPresentation(
   toolName: string,
   output: string | undefined,
@@ -1594,6 +1952,12 @@ function projectToolResultPresentation(
         confidence: "medium",
       })
     : undefined;
+  const verificationPresentation = toolResultIsError(payload)
+    ? undefined
+    : projectVerificationPresentation(metadata, resourceLinks);
+  if (verificationPresentation) {
+    return verificationPresentation;
+  }
   const diagnosticPresentation = projectDiagnosticToolPresentation(output);
   if (diagnosticPresentation) {
     return diagnosticPresentation;

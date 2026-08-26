@@ -74,23 +74,11 @@ const FILE_MUTATION_COMPENSATABLE: ActionEffectEnvelope = {
  */
 const SHELL_COMMAND_CEILING: ActionEffectEnvelope = {
   operation: "mutate" as OperationType,
-  boundaries: [
-    "process",
-    "workspace",
-    "machine",
-    "network",
-    "external-system",
-  ] as readonly BoundaryType[],
+  boundaries: ["process", "workspace", "machine", "network", "external-system"] as readonly BoundaryType[],
   reversibility: "irreversible" as ReversibilityType,
   dataEgress: "sensitive-data" as DataEgressType,
   identityUse: "privileged" as IdentityUseType,
-  consequences: [
-    "local-state",
-    "external-state",
-    "financial",
-    "legal",
-    "security",
-  ] as readonly ConsequenceType[],
+  consequences: ["local-state", "external-state", "financial", "legal", "security"] as readonly ConsequenceType[],
   idempotency: "non-idempotent" as IdempotencyType,
 };
 
@@ -441,6 +429,8 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
 
   // --- Verification ---
   formal_verify: VERIFIER_EXECUTION,
+  static_analyze: VERIFIER_EXECUTION,
+  gentle_review: VERIFIER_EXECUTION,
 } as const;
 
 /**

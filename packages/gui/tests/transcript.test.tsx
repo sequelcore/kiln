@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Transcript } from "../src/components/transcript.js";
+import { ToolEvidence, Transcript } from "../src/components/transcript.js";
 import type { Message, TimelineEntry } from "../src/lib/session-store/index.js";
 import {
   projectWorkflowActivity,
@@ -56,6 +56,89 @@ function workflowEvent(
 }
 
 describe("Transcript", () => {
+  it("renders formal verification obligations, proof effort, candidate identity, and the Assurance boundary", () => {
+    const digest = `sha256:${"a".repeat(64)}`;
+    render(<ToolEvidence presentation={{
+      outputKind: "verification",
+      classification: syntheticToolClassification,
+      title: "Dafny formal verification",
+      summary: "1/2 obligations proved · 2,760 RU",
+      fields: [],
+      verification: {
+        kind: "formal",
+        engine: { name: "dafny", version: "4.11.0" },
+        candidate: { digest, subjects: [{ path: "policy.dfy", contentDigest: digest }] },
+        outcome: "refuted",
+        totals: { total: 2, proved: 1, refuted: 1, unresolved: 0 },
+        checks: [
+          { label: "Allow", outcome: "proved", durationMs: 12, resourceCount: 1_840 },
+          { label: "Deny", outcome: "refuted", detail: "postcondition might not hold", durationMs: 8, resourceCount: 920 },
+        ],
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+      raw: { available: false },
+    }} />);
+
+    expect(screen.getByText("Dafny 4.11.0")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 obligations proved")).toBeInTheDocument();
+    expect(screen.getByText("Allow")).toBeInTheDocument();
+    expect(screen.getByText("1,840 RU")).toBeInTheDocument();
+    expect(screen.getByText("Deny")).toBeInTheDocument();
+    expect(screen.getByText("postcondition might not hold")).toBeInTheDocument();
+    expect(screen.getByText("Assurance is a separate decision")).toBeInTheDocument();
+    expect(screen.getByText(`${digest.slice(0, 19)}…${digest.slice(-8)}`)).toBeInTheDocument();
+  });
+
+  it("renders Oxlint diagnostics as verification evidence", () => {
+    const digest = `sha256:${"b".repeat(64)}`;
+    render(<ToolEvidence presentation={{
+      outputKind: "verification",
+      classification: syntheticToolClassification,
+      title: "Oxlint static analysis",
+      fields: [],
+      verification: {
+        kind: "static",
+        engine: { name: "oxlint", version: "1.80.0" },
+        candidate: { digest, subjects: [{ path: "policy.ts", contentDigest: digest }] },
+        outcome: "violations",
+        profile: { id: "oxlint.correctness+suspicious/v1", rulesAnalyzed: 245 },
+        diagnostics: [{ rule: "no-unused-vars", severity: "warning", message: "Unused parameter", file: "policy.ts", line: 4, column: 8 }],
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+      raw: { available: false },
+    }} />);
+
+    expect(screen.getByText("Oxlint 1.80.0")).toBeInTheDocument();
+    expect(screen.getByText("1 diagnostic across 245 rules")).toBeInTheDocument();
+    expect(screen.getByText("no-unused-vars")).toBeInTheDocument();
+    expect(screen.getByText("policy.ts:4:8")).toBeInTheDocument();
+  });
+
+  it("renders Gentle review status without inventing findings or acceptance", () => {
+    const digest = `sha256:${"c".repeat(64)}`;
+    render(<ToolEvidence presentation={{
+      outputKind: "verification",
+      classification: syntheticToolClassification,
+      title: "Gentle AI review status",
+      fields: [],
+      verification: {
+        kind: "inferential",
+        engine: { name: "gentle-ai", version: "2.4.0", buildRevision: "301fb2ad" },
+        candidate: { digest, subjects: [{ path: "policy.ts" }] },
+        outcome: { applicability: "current_target", action: "collect", replayability: "exact", nextTransition: { kind: "collect", reasonCode: "review_pending" } },
+        receipt: { status: "pending" },
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+      raw: { available: false },
+    }} />);
+
+    expect(screen.getByText("Gentle AI 2.4.0")).toBeInTheDocument();
+    expect(screen.getAllByText("current target")).toHaveLength(2);
+    expect(screen.getByText("collect")).toBeInTheDocument();
+    expect(screen.getByText("Receipt pending")).toBeInTheDocument();
+    expect(screen.queryByText(/approved/iu)).not.toBeInTheDocument();
+  });
+
   it("renders one identity-stable workflow container instead of repeated lifecycle rows", () => {
     const workItem = (status: "pending" | "completed", providedEvidence: readonly string[]) => ({
       id: "work-1",

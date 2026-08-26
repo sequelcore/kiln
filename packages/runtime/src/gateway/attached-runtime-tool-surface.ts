@@ -46,12 +46,12 @@ import { OPERATOR_THEME_NAMES, isOperatorThemeName } from "@kilnai/operator-appe
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
   OPERATOR_ADOPTION_DECISION_TRANSPORT,
-  parseFormalVerificationToolResultMetadata,
   type DevToolExecutionContext,
   type FormalVerificationFinishExecutionScope,
   type FormalVerificationFinishTransportEnvelope,
   type FormalVerificationFinishTransportObservation,
 } from "@kilnai/core/tools";
+import { parseFormalVerificationObservation } from "@kilnai/core/verification";
 import type {
   OperatorSurfaceController,
   OperatorSurfaceThemeController,
@@ -2124,7 +2124,7 @@ function createFormalVerificationFinishTransport(
     if (!observationScope || !sameFormalVerificationFinishScope(observationScope, executionScope)) return undefined;
     let metadata: FormalVerificationTransportMetadata;
     try {
-      metadata = parseFormalVerificationToolResultMetadata(observation.metadata);
+      metadata = parseFormalVerificationObservation(observation.metadata);
     } catch {
       return undefined;
     }

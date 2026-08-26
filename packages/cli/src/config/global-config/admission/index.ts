@@ -36,7 +36,7 @@ import {
   validateOperatorVoice,
 } from "./operator-preferences.js";
 import { validateSkills } from "./skill-policy.js";
-import { validateGlobalVerification } from "./verification.js";
+import { validateGlobalVerification } from "../../verification/admission.js";
 import { validateWorkGovernance } from "./work-governance.js";
 import {
   isRecord,

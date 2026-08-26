@@ -577,7 +577,7 @@ describe("attached runtime builtin tool surface", () => {
       verifier: { name: "dafny", version: "4.11.0" },
       artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
       subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
-      checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+      checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
     });
     const observation = makeBrandedFormalVerificationObservation(
       executionScope,
@@ -667,7 +667,7 @@ describe("attached runtime builtin tool surface", () => {
         verifier: { name: "dafny", version: "4.11.0" },
         artifact: { contentDigest: `sha256:${"b".repeat(64)}` },
         subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
-        checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+        checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
       }),
     );
     await finishTool.execute({ name: finishTool.name, input: {} }, undefined, {
@@ -733,7 +733,7 @@ describe("attached runtime builtin tool surface", () => {
         verifier: { name: "dafny", version: "4.12.0" },
         artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
         subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
-        checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+        checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
       }),
     });
     const conflictingContext: RuntimeBuiltinToolExecutionContext = {

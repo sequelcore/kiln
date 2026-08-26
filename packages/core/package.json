@@ -120,6 +120,10 @@
       "types": "./dist/verification/index.d.ts",
       "import": "./dist/verification/index.js"
     },
+    "./quality-gates": {
+      "types": "./dist/quality-gates/index.d.ts",
+      "import": "./dist/quality-gates/index.js"
+    },
     "./work-governance": {
       "types": "./dist/work-governance/index.d.ts",
       "import": "./dist/work-governance/index.js"

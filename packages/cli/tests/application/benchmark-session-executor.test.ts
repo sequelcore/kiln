@@ -11,7 +11,7 @@ import {
 import type {
   PrivateFormalScreeningCaseFacts,
   PrivateFormalScreeningPackageFacts,
-} from "../../src/application/private-formal-screening-package.js";
+} from "../../src/application/benchmarks/formal-screening/package-loader.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
@@ -25,6 +25,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   closeMemoryRepository: vi.fn(),
   createDefaultRegistry: vi.fn(),
   createLemmaCheckTool: vi.fn(),
+  qualifyLemmaCandidateSealed: vi.fn(),
   createBenchmarkAuthorityWorkspaceLease: vi.fn(() => ({
     rootPath: join(tmpdir(), "kiln-test-benchmark-authority"),
     cleanup: vi.fn(),
@@ -188,18 +189,19 @@ vi.mock("../../src/application/benchmark-authority-workspace.js", () => ({
   createBenchmarkAuthorityWorkspaceLease: benchmarkExecutorMocks.createBenchmarkAuthorityWorkspaceLease,
 }));
 
-vi.mock("../../src/application/private-formal-screening-package.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/application/private-formal-screening-package.js")>()),
+vi.mock("../../src/application/benchmarks/formal-screening/package-loader.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/application/benchmarks/formal-screening/package-loader.js")>()),
   createPrivateFormalScreeningWorkspaceLease: benchmarkExecutorMocks.createPrivateFormalScreeningWorkspaceLease,
 }));
 
-vi.mock("../../src/application/lemma-check-tool.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/application/lemma-check-tool.js")>()),
+vi.mock("../../src/application/verification/formal/lemma-check-tool.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/application/verification/formal/lemma-check-tool.js")>()),
   createLemmaCheckTool: benchmarkExecutorMocks.createLemmaCheckTool,
+  qualifyLemmaCandidateSealed: benchmarkExecutorMocks.qualifyLemmaCandidateSealed,
 }));
 
-vi.mock("../../src/application/benchmark-backend-verifier.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/application/benchmark-backend-verifier.js")>()),
+vi.mock("../../src/application/benchmarks/formal-screening/backend-verifier.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/application/benchmarks/formal-screening/backend-verifier.js")>()),
   verifyBackendBenchmarkLease: benchmarkExecutorMocks.verifyBackendBenchmarkLease,
 }));
 
@@ -291,6 +293,7 @@ const MOCK_APP_CONFIG = {
 const FORMAL_SOURCE_BEFORE = "sha256:" + "a".repeat(64);
 const FORMAL_SOURCE_AFTER = "sha256:" + "b".repeat(64);
 const FORMAL_HIDDEN_DIGEST = "sha256:" + "c".repeat(64);
+const FORMAL_LEASE_ROOT = join(tmpdir(), "kiln-test-private-formal-lease");
 const FORMAL_CASES = ["C0", "T"].map((arm) => ({
   id: `formal-pair-1-${arm}`,
   pairId: "pair-1",
@@ -393,9 +396,15 @@ describe("createBenchmarkSessionExecutor", () => {
       },
     }));
     mkdirSync(join(tmpdir(), "kiln-test-benchmark-authority"), { recursive: true });
+    mkdirSync(join(FORMAL_LEASE_ROOT, "src"), { recursive: true });
+    writeFileSync(
+      join(FORMAL_LEASE_ROOT, "src", "solution.ts"),
+      "export function solve(): boolean {\n  //@ ensures \\result === true\n  return true;\n}\n",
+      "utf8",
+    );
     benchmarkExecutorMocks.createPrivateFormalScreeningWorkspaceLease.mockImplementation(() => ({
       leaseId: "benchmark-write:test",
-      rootPath: "C:/temp/private-formal-lease",
+      rootPath: FORMAL_LEASE_ROOT,
       bridgeRootPath: "C:/temp/private-formal-bridge",
       canonicalHash: "sha256:" + "d".repeat(64),
       initialSnapshot: { files: [] },
@@ -412,6 +421,7 @@ describe("createBenchmarkSessionExecutor", () => {
       verifierVersion: "2",
       benchmarkCaseId: input.benchmarkCase.id,
       status: "passed",
+      infrastructureFailure: false,
       testDigest: input.benchmarkCase.hiddenTestDigest,
       runner: {
         kind: "docker",
@@ -436,6 +446,32 @@ describe("createBenchmarkSessionExecutor", () => {
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       execute: vi.fn(),
     }));
+    benchmarkExecutorMocks.qualifyLemmaCandidateSealed.mockResolvedValue({
+      kind: "pipeline_passed",
+      status: "passed",
+      stage: "complete",
+      versions: {
+        lemmaScript: { expected: "0.6.0", observed: "0.6.0" },
+        dafny: { expected: "4.11.0", observed: "4.11.0" },
+      },
+      digests: {
+        source: FORMAL_SOURCE_AFTER,
+        generated: "sha256:" + "e".repeat(64),
+        lemmaScriptExecutable: "sha256:" + "f".repeat(64),
+        dafnyExecutable: "sha256:" + "1".repeat(64),
+        dependencyBinding: "sha256:" + "2".repeat(64),
+      },
+      processes: [],
+      policyEligible: true,
+      diagnosticCodes: [],
+      verification: {
+        status: "passed",
+        correctnessChecks: { total: 1, passed: 1, failed: 0, inconclusive: 0 },
+        diagnostics: 0,
+      },
+      semanticEquivalence: "unresolved",
+      benchmarkReady: false,
+    });
     benchmarkExecutorMocks.createSessionBuiltinToolOptions.mockImplementation((options) => ({
       ...options,
       artifactResources: { store: {} },
@@ -595,6 +631,7 @@ describe("createBenchmarkSessionExecutor", () => {
   });
 
   afterEach(() => {
+    rmSync(FORMAL_LEASE_ROOT, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
 
@@ -957,11 +994,19 @@ describe("createBenchmarkSessionExecutor", () => {
       lemmaCheckObservations: [],
       lemmaCheckPassed: false,
       hiddenOracleExhaustive: true,
+      sealedDafnyPassed: true,
+      sealedToolchainHash: "sha256:" + "2".repeat(64),
+      contractDigestUnchanged: true,
+      trustPolicyClean: true,
     });
     expect(treatment.metadata).toMatchObject({
       formalScreeningArm: "T",
       lemmaCheckObservations: [],
       lemmaCheckPassed: false,
+      sealedDafnyPassed: true,
+      sealedToolchainHash: "sha256:" + "2".repeat(64),
+      contractDigestUnchanged: true,
+      trustPolicyClean: true,
       formalScreeningBudget: { toolRounds: 8, maxToolCalls: 24, maxTotalTokens: 64000, wallClockMs: 600000 },
     });
     expect((benchmarkExecutorMocks.createSessionBuiltinToolOptions.mock.calls.at(-2)?.[0].additionalTools ?? [])
@@ -972,6 +1017,7 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(control.metadata?.toolProjectionHash).not.toBe(treatment.metadata?.toolProjectionHash);
     expect(control.metadata?.verifierHash).toBe(treatment.metadata?.verifierHash);
     expect(benchmarkExecutorMocks.createPrivateFormalScreeningWorkspaceLease).toHaveBeenCalledTimes(2);
+    expect(benchmarkExecutorMocks.qualifyLemmaCandidateSealed).toHaveBeenCalledTimes(2);
   });
 
   it("requires one account and refuses formal account fallback", async () => {
@@ -993,6 +1039,159 @@ describe("createBenchmarkSessionExecutor", () => {
       metadata: { formalScreeningArm: "C0" },
     }, { id: "kiln-formal-verification-pilot" }))).rejects.toThrow(/exactly one accountOverrideId/u);
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
+  });
+
+  it("keeps a sealed policy rejection in the denominator as a valid model outcome", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    benchmarkExecutorMocks.qualifyLemmaCandidateSealed.mockResolvedValueOnce({
+      kind: "policy_ineligible",
+      status: "ineligible",
+      stage: "policy",
+      versions: {
+        lemmaScript: { expected: "0.6.0", observed: "0.6.0" },
+        dafny: { expected: "4.11.0", observed: "4.11.0" },
+      },
+      digests: { source: FORMAL_SOURCE_AFTER, dependencyBinding: "sha256:" + "2".repeat(64) },
+      processes: [],
+      policyEligible: false,
+      diagnosticCodes: ["numeric-semantics"],
+      semanticEquivalence: "unresolved",
+      benchmarkReady: false,
+    });
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mockImplementationOnce(() => ({
+      dispatch: async (payload: object) => ({
+        ...await defaultRun(payload),
+        successfulProviderId: "codex-oauth",
+        executionBindings: [{
+          status: "bound",
+          routeId: "benchmark-codex",
+          accountId: "subscription-a",
+          credentialId: "credential-a",
+          credentialRevision: "revision-a",
+        }],
+      }),
+      close: vi.fn(),
+    }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { targetId: "benchmark-codex", accountOverrideIds: ["subscription-a"] },
+      formalScreeningPackage: FORMAL_PACKAGE,
+      formalScreeningConfig: FORMAL_CONFIG,
+    });
+
+    const result = await executor("Implement the private task.", makeBenchmarkContext({
+      id: "formal-pair-1-C0",
+      input: "Implement the private task.",
+      metadata: { formalScreeningArm: "C0" },
+    }, { id: "kiln-formal-verification-pilot" }));
+
+    expect(result.trial).toEqual({ status: "valid" });
+    expect(result.metadata).toMatchObject({
+      sealedDafnyPassed: false,
+      contractDigestUnchanged: true,
+      trustPolicyClean: false,
+    });
+  });
+
+  it("invalidates a formal trial when the hidden verifier infrastructure is unavailable", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const defaultVerification = benchmarkExecutorMocks.verifyBackendBenchmarkLease.getMockImplementation();
+    if (!defaultVerification) throw new Error("backend verification mock was not initialized");
+    benchmarkExecutorMocks.verifyBackendBenchmarkLease.mockImplementationOnce(async (input) => ({
+      ...await defaultVerification(input),
+      status: "failed",
+      infrastructureFailure: true,
+    }));
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mockImplementationOnce(() => ({
+      dispatch: async (payload: object) => ({
+        ...await defaultRun(payload),
+        successfulProviderId: "codex-oauth",
+        executionBindings: [{
+          status: "bound",
+          routeId: "benchmark-codex",
+          accountId: "subscription-a",
+          credentialId: "credential-a",
+          credentialRevision: "revision-a",
+        }],
+      }),
+      close: vi.fn(),
+    }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { targetId: "benchmark-codex", accountOverrideIds: ["subscription-a"] },
+      formalScreeningPackage: FORMAL_PACKAGE,
+      formalScreeningConfig: FORMAL_CONFIG,
+    });
+
+    const result = await executor("Implement the private task.", makeBenchmarkContext({
+      id: "formal-pair-1-C0",
+      input: "Implement the private task.",
+      metadata: { formalScreeningArm: "C0" },
+    }, { id: "kiln-formal-verification-pilot" }));
+
+    expect(result.trial).toEqual({ status: "invalid", reason: "hidden-verifier-infrastructure" });
+  });
+
+  it("invalidates a trial when the sealed qualifier itself times out", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    benchmarkExecutorMocks.qualifyLemmaCandidateSealed.mockResolvedValueOnce({
+      kind: "pipeline_failed",
+      status: "failed",
+      stage: "timeout",
+      versions: {
+        lemmaScript: { expected: "0.6.0", observed: null },
+        dafny: { expected: "4.11.0", observed: null },
+      },
+      digests: {},
+      processes: [],
+      policyEligible: false,
+      diagnosticCodes: ["timeout"],
+      semanticEquivalence: "unresolved",
+      benchmarkReady: false,
+    });
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mockImplementationOnce(() => ({
+      dispatch: async (payload: object) => ({
+        ...await defaultRun(payload),
+        successfulProviderId: "codex-oauth",
+        executionBindings: [{
+          status: "bound",
+          routeId: "benchmark-codex",
+          accountId: "subscription-a",
+          credentialId: "credential-a",
+          credentialRevision: "revision-a",
+        }],
+      }),
+      close: vi.fn(),
+    }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { targetId: "benchmark-codex", accountOverrideIds: ["subscription-a"] },
+      formalScreeningPackage: FORMAL_PACKAGE,
+      formalScreeningConfig: FORMAL_CONFIG,
+    });
+
+    const result = await executor("Implement the private task.", makeBenchmarkContext({
+      id: "formal-pair-1-C0",
+      input: "Implement the private task.",
+      metadata: { formalScreeningArm: "C0" },
+    }, { id: "kiln-formal-verification-pilot" }));
+
+    expect(result.trial).toEqual({ status: "invalid", reason: "sealed-qualification-infrastructure" });
   });
 
   it("invalidates a formal trial that exceeds its fixed tool budget", async () => {

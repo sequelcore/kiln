@@ -1,15 +1,10 @@
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 const INTERNAL_SCOPE = "@kilnai/";
-const DEPENDENCY_SECTIONS = [
-  "dependencies",
-  "peerDependencies",
-  "optionalDependencies",
-  "devDependencies",
-] as const;
+const DEPENDENCY_SECTIONS = ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"] as const;
 const PUBLISH_ORDER_SECTIONS = ["dependencies", "peerDependencies", "optionalDependencies"] as const;
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const BETA_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.(0|[1-9]\d*)$/;
@@ -75,13 +70,9 @@ export interface RegistryPackageState {
   readonly channelVersion: string | null;
 }
 
-export function assertTrustedPublishingEnvironment(
-  env: Readonly<Record<string, string | undefined>>,
-): void {
+export function assertTrustedPublishingEnvironment(env: Readonly<Record<string, string | undefined>>): void {
   if (env.NODE_AUTH_TOKEN || env.NPM_TOKEN) {
-    throw new Error(
-      "Token-based npm publishing is forbidden; use npm trusted publishing with GitHub OIDC",
-    );
+    throw new Error("Token-based npm publishing is forbidden; use npm trusted publishing with GitHub OIDC");
   }
   if (env.GITHUB_ACTIONS !== "true") {
     throw new Error("npm publishing is restricted to the canonical GitHub Actions workflow");
@@ -102,21 +93,13 @@ export function parseReleaseRef(ref: string): ReleaseIdentity {
   if (BETA_SEMVER.test(version)) {
     return { version, distTag: "beta" };
   }
-  throw new Error(
-    `Release ref '${ref}' must be strict SemVer vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-beta.NUMBER`,
-  );
+  throw new Error(`Release ref '${ref}' must be strict SemVer vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-beta.NUMBER`);
 }
 
-export function inferReleaseIdentity(
-  records: readonly PackageRecord[],
-): ReleaseIdentity {
+export function inferReleaseIdentity(records: readonly PackageRecord[]): ReleaseIdentity {
   const publishedVersions = new Set(
     records
-      .filter(
-        ({ manifest }) =>
-          manifest.private !== true &&
-          manifest.name?.startsWith(INTERNAL_SCOPE),
-      )
+      .filter(({ manifest }) => manifest.private !== true && manifest.name?.startsWith(INTERNAL_SCOPE))
       .map(({ manifest }) => manifest.version),
   );
 
@@ -135,7 +118,9 @@ export function inferReleaseIdentity(
 export async function discoverPackages(packagesRoot: string): Promise<PackageRecord[]> {
   const entries = await readdir(packagesRoot, { withFileTypes: true });
   const records: PackageRecord[] = [];
-  for (const entry of entries.filter((candidate) => candidate.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of entries
+    .filter((candidate) => candidate.isDirectory())
+    .sort((a, b) => a.name.localeCompare(b.name))) {
     const manifestPath = join(packagesRoot, entry.name, "package.json");
     try {
       const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as PackageManifest;
@@ -149,10 +134,7 @@ export async function discoverPackages(packagesRoot: string): Promise<PackageRec
   return records;
 }
 
-export function buildReleasePlan(
-  records: readonly PackageRecord[],
-  identity: ReleaseIdentity,
-): ReleasePlan {
+export function buildReleasePlan(records: readonly PackageRecord[], identity: ReleaseIdentity): ReleasePlan {
   const published = records.filter(
     ({ manifest }) => manifest.private !== true && manifest.name?.startsWith(INTERNAL_SCOPE),
   );
@@ -169,9 +151,7 @@ export function buildReleasePlan(
   for (const record of published) {
     const { manifest } = record;
     if (manifest.version !== identity.version) {
-      failures.push(
-        `${manifest.name}: release cohort version must be ${identity.version}, found ${manifest.version}`,
-      );
+      failures.push(`${manifest.name}: release cohort version must be ${identity.version}, found ${manifest.version}`);
     }
     if (!manifest.files || manifest.files.length === 0) {
       failures.push(`${manifest.name}: publishable packages must declare a non-empty files allowlist`);
@@ -180,14 +160,9 @@ export function buildReleasePlan(
       failures.push(`${manifest.name}: publishConfig.access must be public`);
     }
     if (manifest.files?.includes("dist") && manifest.scripts?.build === "tsc") {
-      failures.push(
-        `${manifest.name}: published TypeScript output must be cleaned before tsc`,
-      );
+      failures.push(`${manifest.name}: published TypeScript output must be cleaned before tsc`);
     }
-    if (
-      manifest.name === "@kilnai/gui" &&
-      Object.keys(manifest.dependencies ?? {}).length > 0
-    ) {
+    if (manifest.name === "@kilnai/gui" && Object.keys(manifest.dependencies ?? {}).length > 0) {
       failures.push("@kilnai/gui: static distribution must not declare runtime dependencies");
     }
     for (const section of DEPENDENCY_SECTIONS) {
@@ -195,9 +170,7 @@ export function buildReleasePlan(
         if (dependency.startsWith(INTERNAL_SCOPE) && !byName.has(dependency)) {
           failures.push(`${manifest.name}: ${section} references missing release package ${dependency}`);
         } else if (dependency.startsWith(INTERNAL_SCOPE) && range !== identity.version) {
-          failures.push(
-            `${manifest.name}: ${section}.${dependency} must equal ${identity.version}, found ${range}`,
-          );
+          failures.push(`${manifest.name}: ${section}.${dependency} must equal ${identity.version}, found ${range}`);
         }
       }
     }
@@ -206,11 +179,7 @@ export function buildReleasePlan(
     throw new Error(failures.join("\n"));
   }
 
-  const ordered = orderPackageRecords(
-    published,
-    PUBLISH_ORDER_SECTIONS,
-    "Release package",
-  );
+  const ordered = orderPackageRecords(published, PUBLISH_ORDER_SECTIONS, "Release package");
 
   return {
     ...identity,
@@ -226,9 +195,7 @@ export function buildReleasePlan(
   };
 }
 
-export function buildWorkspaceOrder(
-  records: readonly PackageRecord[],
-): readonly WorkspaceBuild[] {
+export function buildWorkspaceOrder(records: readonly PackageRecord[]): readonly WorkspaceBuild[] {
   return orderPackageRecords(records, DEPENDENCY_SECTIONS, "Workspace build")
     .filter((record) => typeof record.manifest.scripts?.build === "string")
     .map((record) => ({
@@ -237,11 +204,7 @@ export function buildWorkspaceOrder(
     }));
 }
 
-export async function prepareStaging(
-  plan: ReleasePlan,
-  packagesRoot: string,
-  stageRoot: string,
-): Promise<void> {
+export async function prepareStaging(plan: ReleasePlan, packagesRoot: string, stageRoot: string): Promise<void> {
   assertSafeStagingPath(packagesRoot, stageRoot);
   await rm(stageRoot, { recursive: true, force: true });
   await mkdir(stageRoot, { recursive: true });
@@ -279,10 +242,7 @@ export function validateRegistryState(
       `${local.name}@${local.version} exists with integrity ${registry.versionIntegrity}, expected ${local.integrity}`,
     );
   }
-  if (
-    registry.channelVersion !== null &&
-    compareVersions(registry.channelVersion, local.version) > 0
-  ) {
+  if (registry.channelVersion !== null && compareVersions(registry.channelVersion, local.version) > 0) {
     throw new Error(
       `${local.name}: refusing ${distTag} channel rollback from ${registry.channelVersion} to ${local.version}`,
     );
@@ -298,10 +258,7 @@ export async function calculateIntegrity(tarballPath: string): Promise<string> {
   return `sha512-${hash.digest("base64")}`;
 }
 
-export function assertCompleteBundle(
-  plan: ReleasePlan,
-  tarballs: readonly ReleaseTarball[],
-): void {
+export function assertCompleteBundle(plan: ReleasePlan, tarballs: readonly ReleaseTarball[]): void {
   const expected = new Map(plan.packages.map((pkg) => [pkg.name, pkg.version]));
   const found = new Map<string, string>();
   const failures: string[] = [];
@@ -330,19 +287,26 @@ export function assertCompleteBundle(
   }
 }
 
-export function assertPackedLegalFiles(
-  pkg: ReleasePackage,
-  packedPaths: readonly string[],
-): void {
+export function assertPackedLegalFiles(pkg: ReleasePackage, packedPaths: readonly string[]): void {
   const paths = new Set(packedPaths.map((path) => path.replaceAll("\\", "/")));
-  const required = [
-    "LICENSE",
-    "NOTICE",
-    ...(pkg.os || pkg.cpu ? ["THIRD_PARTY_NOTICES.md"] : []),
-  ];
+  const required = ["LICENSE", "NOTICE", ...(pkg.os || pkg.cpu ? ["THIRD_PARTY_NOTICES.md"] : [])];
   const missing = required.filter((path) => !paths.has(path));
   if (missing.length > 0) {
     throw new Error(`${pkg.name}: packed tarball is missing ${missing.join(", ")}`);
+  }
+  const forbidden = [...paths].filter((path) =>
+    path
+      .split("/")
+      .some(
+        (segment) =>
+          segment === ".kiln-private" ||
+          segment.startsWith("task-temp-") ||
+          segment.startsWith("HANDOFF-") ||
+          segment === "external-responses",
+      ),
+  );
+  if (forbidden.length > 0) {
+    throw new Error(`${pkg.name}: packed tarball contains private workflow material: ${forbidden.join(", ")}`);
   }
 }
 
@@ -354,11 +318,7 @@ export function selectInstallTarballs(
 ): ReleaseTarball[] {
   const byName = new Map(tarballs.map((tarball) => [tarball.name, tarball]));
   const selected = plan.packages
-    .filter(
-      (pkg) =>
-        (!pkg.os || pkg.os.includes(platform)) &&
-        (!pkg.cpu || pkg.cpu.includes(arch)),
-    )
+    .filter((pkg) => (!pkg.os || pkg.os.includes(platform)) && (!pkg.cpu || pkg.cpu.includes(arch)))
     .map((pkg) => byName.get(pkg.name))
     .filter((tarball): tarball is ReleaseTarball => tarball !== undefined);
   if (selected.length === 0) {

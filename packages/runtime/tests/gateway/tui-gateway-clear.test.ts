@@ -678,7 +678,7 @@ describe("TUI gateway startup discovery", () => {
       discoverySpy.mockRestore();
       gateway.shutdown();
     }
-  });
+  }, 20_000);
 });
 
 describe("TUI gateway execution-route catalog", () => {

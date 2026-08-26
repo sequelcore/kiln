@@ -8,6 +8,126 @@ import {
 import { managedAccountLeaseSettledEvent } from "./fixtures/managed-account-lease.js";
 
 describe("operator event presentation", () => {
+  it("projects Dafny observations as formal verification evidence with proof effort", () => {
+    const digest = `sha256:${"a".repeat(64)}`;
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "formal-1",
+      toolName: "formal_verify",
+      output: JSON.stringify({
+        output: "1/2 correctness checks discharged.",
+        isError: false,
+        metadata: {
+          schema: "kiln.formal-verification-observation/v3",
+          toolName: "formal_verify",
+          kind: "formal_verification",
+          verifier: { name: "dafny", version: "4.11.0" },
+          artifact: { contentDigest: digest },
+          subjects: [{ path: "policy.dfy", contentDigest: digest }],
+          checks: [
+            { symbol: "Allow", check: "correctness", outcome: "proved", durationMs: 12, resourceCount: 1_840 },
+            { symbol: "Deny", check: "correctness", outcome: "refuted", detail: "postcondition might not hold", durationMs: 8, resourceCount: 920 },
+          ],
+          establishes: [],
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "verification",
+      title: "Dafny formal verification",
+      verification: {
+        kind: "formal",
+        engine: { name: "dafny", version: "4.11.0" },
+        candidate: { digest, subjects: [{ path: "policy.dfy", contentDigest: digest }] },
+        outcome: "refuted",
+        totals: { total: 2, proved: 1, refuted: 1, unresolved: 0 },
+        checks: [
+          { label: "Allow", outcome: "proved", durationMs: 12, resourceCount: 1_840 },
+          { label: "Deny", outcome: "refuted", detail: "postcondition might not hold", durationMs: 8, resourceCount: 920 },
+        ],
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+    });
+  });
+
+  it("projects Oxlint observations as static verification evidence", () => {
+    const digest = `sha256:${"b".repeat(64)}`;
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "static-1",
+      toolName: "static_analyze",
+      output: JSON.stringify({
+        output: "1 diagnostic.",
+        isError: false,
+        metadata: {
+          schema: "kiln.static-analysis-observation/v1",
+          toolName: "static_analyze",
+          kind: "static_analysis",
+          analyzer: { name: "oxlint", version: "1.80.0" },
+          profile: { id: "oxlint.correctness+suspicious/v1", rulesAnalyzed: 245 },
+          outcome: "violations",
+          subjects: [{ path: "policy.ts", contentDigest: digest }],
+          diagnostics: [{ rule: "no-unused-vars", severity: "warning", message: "Unused parameter", file: "policy.ts", line: 4, column: 8 }],
+          establishes: [],
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "verification",
+      title: "Oxlint static analysis",
+      verification: {
+        kind: "static",
+        engine: { name: "oxlint", version: "1.80.0" },
+        candidate: { digest, subjects: [{ path: "policy.ts", contentDigest: digest }] },
+        outcome: "violations",
+        profile: { id: "oxlint.correctness+suspicious/v1", rulesAnalyzed: 245 },
+        diagnostics: [{ rule: "no-unused-vars", severity: "warning", message: "Unused parameter", file: "policy.ts", line: 4, column: 8 }],
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+    });
+  });
+
+  it("projects Gentle status as inferential review evidence without inventing findings", () => {
+    const digest = `sha256:${"c".repeat(64)}`;
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "gentle-1",
+      toolName: "gentle_review",
+      output: JSON.stringify({
+        output: "Review status observed.",
+        isError: false,
+        metadata: {
+          schema: "kiln.gentle-review-observation/v1",
+          toolName: "gentle_review",
+          kind: "inferential_review",
+          engine: { name: "gentle-ai", version: "2.4.0", executableDigest: digest, buildRevision: "301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb" },
+          contract: { id: "gentle-ai.review-integration/v2", protocol: { major: 2, minor: 2 }, capabilitiesSchema: "gentle-ai.review-integration.capabilities/v2.2", statusSchema: "gentle-ai.review-integration.status/v5" },
+          candidate: { targetIdentity: digest, projection: "workspace", baseTree: "a".repeat(40), candidateTree: "b".repeat(40), pathsDigest: `sha256:${"d".repeat(64)}`, paths: ["policy.ts"] },
+          receipt: { status: "pending" },
+          outcome: { applicability: "current_target", action: "collect", replayability: "exact", nextTransition: { kind: "collect", reasonCode: "review_pending" } },
+          findings: [],
+          establishes: [],
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "verification",
+      title: "Gentle AI review status",
+      verification: {
+        kind: "inferential",
+        engine: { name: "gentle-ai", version: "2.4.0" },
+        candidate: { digest, subjects: [{ path: "policy.ts" }] },
+        outcome: { applicability: "current_target", action: "collect", replayability: "exact" },
+        receipt: { status: "pending" },
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+    });
+    expect(JSON.stringify(presentation.toolPresentation)).not.toContain("findings");
+  });
+
   it("presents canonical managed account affinity commit evidence", () => {
     const completed = structuredClone(managedAccountLeaseSettledEvent);
     const payload = completed.payload as Record<string, unknown> & {

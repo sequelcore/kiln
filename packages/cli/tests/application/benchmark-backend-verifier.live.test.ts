@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { verifyBackendBenchmarkLease } from "../../src/application/benchmark-backend-verifier.js";
+import { verifyBackendBenchmarkLease } from "../../src/application/benchmarks/formal-screening/backend-verifier.js";
 import {
   BACKEND_BENCHMARK_CASES,
   type BackendBenchmarkCaseId,

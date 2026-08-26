@@ -738,6 +738,9 @@ export type {
   ToolResultDiagnosticPresentation,
   ToolResultGoalEvidenceRequirementPresentation,
   ToolResultGoalPresentation,
+  ToolResultFormalCheckPresentation,
+  ToolResultFormalVerificationPresentation,
+  ToolResultInferentialVerificationPresentation,
   ToolResultOutputKind,
   ToolResultPresentation,
   ToolResultPreview,
@@ -746,6 +749,12 @@ export type {
   ToolResultTaskItemPresentation,
   ToolResultTaskPresentation,
   ToolResultTaskStatus,
+  ToolResultStaticDiagnosticPresentation,
+  ToolResultStaticVerificationPresentation,
+  ToolResultVerificationAuthorityPresentation,
+  ToolResultVerificationEnginePresentation,
+  ToolResultVerificationPresentation,
+  ToolResultVerificationSubjectPresentation,
   ToolResultWorkItemPresentation,
 } from "./operator-event-presentation.js";
 

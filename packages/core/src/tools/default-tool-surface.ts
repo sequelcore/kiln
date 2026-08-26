@@ -1,41 +1,35 @@
 import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
+import type { InvocationAdmission } from "../engine/domain/tool-execution.js";
 import type { EventBus } from "../events/index.js";
-import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } from "../memory/resources/index.js";
-import { GoalRunStore, WorkItemStore } from "../work-governance/index.js";
-import { MemoryMutationService } from "../memory/service.js";
 import type { MemoryRepository } from "../memory/repository.js";
+import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } from "../memory/resources/index.js";
+import { MemoryMutationService } from "../memory/service.js";
+import type { GoalRunStore, WorkItemStore } from "../work-governance/index.js";
+import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./domain/tool.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
+import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
+import { DevToolRegistry } from "./domain/tool-registry.js";
 import {
   ToolResourceNotificationHub,
   type ToolResourceNotificationHubOptions,
 } from "./domain/tool-resource-notifications.js";
-import { ToolResourceRegistry, type ToolResourceProvider } from "./domain/tool-resource-registry.js";
-import { DevToolRegistry } from "./domain/tool-registry.js";
-import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./domain/tool.js";
-import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
-import { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
-import {
-  AnalysisStateStore,
-  type AnalysisStateStoreOptions,
-} from "./infrastructure/analysis-state-store.js";
-import {
-  AuthorityStateStore,
-  type AuthorityStateStoreOptions,
-} from "./infrastructure/authority-state-store.js";
+import { type ToolResourceProvider, ToolResourceRegistry } from "./domain/tool-resource-registry.js";
+import { AnalysisStateStore, type AnalysisStateStoreOptions } from "./infrastructure/analysis-state-store.js";
 import {
   ArtifactResourceProvider,
-  MemoryArtifactResourceStore,
   type ArtifactResourceStore,
+  MemoryArtifactResourceStore,
 } from "./infrastructure/artifact-resource-store.js";
+import { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
+import { AuthorityStateStore, type AuthorityStateStoreOptions } from "./infrastructure/authority-state-store.js";
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
 import { CodeIntelligenceTool, type CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
-import { createFormalVerifyTool, type FormalVerifyToolOptions } from "./infrastructure/formal-verify-tool.js";
+import { createFormalVerifyTool, type FormalVerifyToolOptions } from "./infrastructure/verification/dafny/formal-verify-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
-import { JsonQueryTool, type JsonQueryToolOptions } from "./infrastructure/json-query-tool.js";
 import {
   BrowserClickTool,
   BrowserKeypressTool,
@@ -45,8 +39,8 @@ import {
   BrowserSessionStartTool,
   BrowserSessionStopTool,
   BrowserTypeTool,
-  ComputerCloseApplicationTool,
   ComputerClickTool,
+  ComputerCloseApplicationTool,
   ComputerFocusApplicationTool,
   ComputerKeypressTool,
   ComputerMinimizeApplicationTool,
@@ -55,31 +49,34 @@ import {
   ComputerTypeTool,
   type InteractiveUseToolOptions,
 } from "./infrastructure/interactive-use-tool.js";
+import { JsonQueryTool, type JsonQueryToolOptions } from "./infrastructure/json-query-tool.js";
 import { MemorySaveTool, type MemorySaveToolCallerContext } from "./infrastructure/memory-save-tool.js";
 import { MemorySearchTool } from "./infrastructure/memory-search-tool.js";
 import {
   MonitorListTool,
   MonitorReadTool,
   MonitorRegistry,
+  type MonitorRegistryOptions,
   MonitorStartTool,
   MonitorStopTool,
-  type MonitorRegistryOptions,
 } from "./infrastructure/monitor-tools.js";
 import { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
-import { OperatorElicitationTool, type OperatorElicitationToolOptions } from "./infrastructure/operator-elicitation-tool.js";
+import {
+  OperatorElicitationTool,
+  type OperatorElicitationToolOptions,
+} from "./infrastructure/operator-elicitation-tool.js";
 import { PatchTool } from "./infrastructure/patch-tool.js";
+import { PlanStateStore, type PlanStateStoreOptions } from "./infrastructure/plan-state-store.js";
 import { ReadManyTool } from "./infrastructure/read-many-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
 import { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
 import {
-  PlanStateStore,
-  type PlanStateStoreOptions,
-} from "./infrastructure/plan-state-store.js";
-import {
-  type SpecificationStateStoreOptions,
   SpecificationStateStore,
+  type SpecificationStateStoreOptions,
 } from "./infrastructure/specification-state-store.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
+import { createStaticAnalyzeTool, type StaticAnalyzeToolOptions } from "./infrastructure/verification/oxlint/static-analyze-tool.js";
+import { createGentleReviewTool, type GentleReviewToolOptions } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
 import {
   TaskListTool,
   TaskStateStore,
@@ -92,10 +89,12 @@ import { ViewImageTool } from "./infrastructure/view-image-tool.js";
 import { WebExtractTool, type WebExtractToolOptions } from "./infrastructure/web-extract-tool.js";
 import { WebFetchTool, type WebFetchToolOptions } from "./infrastructure/web-fetch-tool.js";
 import { WebSearchTool, type WebSearchToolOptions } from "./infrastructure/web-search-tool.js";
-import { WorkspaceResourceProvider, type WorkspaceResourceProviderOptions } from "./infrastructure/workspace-resource-provider.js";
+import {
+  WorkspaceResourceProvider,
+  type WorkspaceResourceProviderOptions,
+} from "./infrastructure/workspace-resource-provider.js";
 import { WriteTool } from "./infrastructure/write-tool.js";
 import { DevToolExecutionBridge } from "./tool-executor.js";
-import type { InvocationAdmission } from "../engine/domain/tool-execution.js";
 
 export interface DevToolSchemaProjection {
   readonly name: string;
@@ -124,6 +123,10 @@ export interface DefaultBuiltinToolRegistryOptions {
    * only fail is worse than an absent one.
    */
   readonly formalVerify?: FormalVerifyToolOptions;
+  /** Fixed-profile Oxlint producer. Absent unless explicitly configured. */
+  readonly staticAnalyze?: StaticAnalyzeToolOptions;
+  /** Read-only, exact-candidate Gentle AI status observer. */
+  readonly gentleReview?: GentleReviewToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly monitor?: MonitorRegistryOptions;
   readonly monitorRegistry?: MonitorRegistry;
@@ -208,35 +211,47 @@ export function createSessionBuiltinToolOptions(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): DefaultBuiltinToolRegistryOptions {
   const resourceNotifications = resolveResourceNotificationHub(options.resourceNotifications);
-  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry({
-    ...options.monitor,
-    resourceNotifications,
-  });
+  const monitorRegistry =
+    options.monitorRegistry ??
+    new MonitorRegistry({
+      ...options.monitor,
+      resourceNotifications,
+    });
   monitorRegistry.setResourceChangeNotifier(resourceNotifications);
-  const taskStateStore = options.taskStateStore ?? new TaskStateStore({
-    ...options.taskState,
-    resourceNotifications,
-  });
+  const taskStateStore =
+    options.taskStateStore ??
+    new TaskStateStore({
+      ...options.taskState,
+      resourceNotifications,
+    });
   taskStateStore.setResourceChangeNotifier(resourceNotifications);
-  const analysisStateStore = options.analysisStateStore ?? new AnalysisStateStore({
-    ...options.analysisState,
-    resourceNotifications,
-  });
+  const analysisStateStore =
+    options.analysisStateStore ??
+    new AnalysisStateStore({
+      ...options.analysisState,
+      resourceNotifications,
+    });
   analysisStateStore.setResourceChangeNotifier(resourceNotifications);
-  const authorityStateStore = options.authorityStateStore ?? new AuthorityStateStore({
-    ...options.authorityState,
-    resourceNotifications,
-  });
+  const authorityStateStore =
+    options.authorityStateStore ??
+    new AuthorityStateStore({
+      ...options.authorityState,
+      resourceNotifications,
+    });
   authorityStateStore.setResourceChangeNotifier(resourceNotifications);
-  const planStateStore = options.planStateStore ?? new PlanStateStore({
-    ...options.planState,
-    resourceNotifications,
-  });
+  const planStateStore =
+    options.planStateStore ??
+    new PlanStateStore({
+      ...options.planState,
+      resourceNotifications,
+    });
   planStateStore.setResourceChangeNotifier(resourceNotifications);
-  const specificationStateStore = options.specificationStateStore ?? new SpecificationStateStore({
-    ...options.specificationState,
-    resourceNotifications,
-  });
+  const specificationStateStore =
+    options.specificationStateStore ??
+    new SpecificationStateStore({
+      ...options.specificationState,
+      resourceNotifications,
+    });
   specificationStateStore.setResourceChangeNotifier(resourceNotifications);
   const workItemStore = options.workItemStore;
   workItemStore?.setResourceChangeNotifier(resourceNotifications);
@@ -260,20 +275,14 @@ export function createSessionBuiltinToolOptions(
   };
 }
 
-export function createDefaultBuiltinTools(
-  options: DefaultBuiltinToolRegistryOptions = {},
-): readonly DevTool[] {
+export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOptions = {}): readonly DevTool[] {
   let catalog = new ToolCatalogIndex([]);
   const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
   const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
   const memoryMutationCallerContext = resolveMemoryMutationCallerContext(options);
   const artifactStore = options.artifactResources?.store;
-  const browserUse = artifactStore
-    ? { ...(options.browserUse ?? {}), artifactStore }
-    : options.browserUse;
-  const computerUse = artifactStore
-    ? { ...(options.computerUse ?? {}), artifactStore }
-    : options.computerUse;
+  const browserUse = artifactStore ? { ...(options.browserUse ?? {}), artifactStore } : options.browserUse;
+  const computerUse = artifactStore ? { ...(options.computerUse ?? {}), artifactStore } : options.computerUse;
   const tools = [
     new BashTool(options.bash),
     new ReadTool(),
@@ -326,15 +335,15 @@ export function createDefaultBuiltinTools(
     new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     ...(options.formalVerify ? [createFormalVerifyTool(options.formalVerify)] : []),
+    ...(options.staticAnalyze ? [createStaticAnalyzeTool(options.staticAnalyze)] : []),
+    ...(options.gentleReview ? [createGentleReviewTool(options.gentleReview)] : []),
     ...(options.additionalTools ?? []),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);
   return tools;
 }
 
-export function createDefaultBuiltinToolRegistry(
-  options: DefaultBuiltinToolRegistryOptions = {},
-): DevToolRegistry {
+export function createDefaultBuiltinToolRegistry(options: DefaultBuiltinToolRegistryOptions = {}): DevToolRegistry {
   const registry = new DevToolRegistry();
   for (const tool of createDefaultBuiltinTools(options)) {
     registry.register(tool);
@@ -346,50 +355,58 @@ export function createDefaultBuiltinToolSurface(
   options: DefaultBuiltinToolRegistryOptions = {},
 ): DefaultBuiltinToolSurface {
   const resourceNotifications = resolveResourceNotificationHub(options.resourceNotifications);
-  const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry({
-    ...options.monitor,
-    resourceNotifications,
-  });
+  const monitorRegistry =
+    options.monitorRegistry ??
+    new MonitorRegistry({
+      ...options.monitor,
+      resourceNotifications,
+    });
   if (options.monitorRegistry) {
     options.monitorRegistry.setResourceChangeNotifier(resourceNotifications);
   }
-  const taskStateStore = options.taskStateStore ?? new TaskStateStore({
-    ...options.taskState,
-    resourceNotifications,
-  });
+  const taskStateStore =
+    options.taskStateStore ??
+    new TaskStateStore({
+      ...options.taskState,
+      resourceNotifications,
+    });
   if (options.taskStateStore) {
     options.taskStateStore.setResourceChangeNotifier(resourceNotifications);
   }
-  const analysisStateStore = options.analysisStateStore
-    ?? (options.analysisState
+  const analysisStateStore =
+    options.analysisStateStore ??
+    (options.analysisState
       ? new AnalysisStateStore({
-        ...options.analysisState,
-        resourceNotifications,
-      })
+          ...options.analysisState,
+          resourceNotifications,
+        })
       : undefined);
   options.analysisStateStore?.setResourceChangeNotifier(resourceNotifications);
-  const authorityStateStore = options.authorityStateStore
-    ?? (options.authorityState
+  const authorityStateStore =
+    options.authorityStateStore ??
+    (options.authorityState
       ? new AuthorityStateStore({
-        ...options.authorityState,
-        resourceNotifications,
-      })
+          ...options.authorityState,
+          resourceNotifications,
+        })
       : undefined);
   options.authorityStateStore?.setResourceChangeNotifier(resourceNotifications);
-  const planStateStore = options.planStateStore
-    ?? (options.planState
+  const planStateStore =
+    options.planStateStore ??
+    (options.planState
       ? new PlanStateStore({
-        ...options.planState,
-        resourceNotifications,
-      })
+          ...options.planState,
+          resourceNotifications,
+        })
       : undefined);
   options.planStateStore?.setResourceChangeNotifier(resourceNotifications);
-  const specificationStateStore = options.specificationStateStore
-    ?? (options.specificationState
+  const specificationStateStore =
+    options.specificationStateStore ??
+    (options.specificationState
       ? new SpecificationStateStore({
-        ...options.specificationState,
-        resourceNotifications,
-      })
+          ...options.specificationState,
+          resourceNotifications,
+        })
       : undefined);
   options.specificationStateStore?.setResourceChangeNotifier(resourceNotifications);
   const workItemStore = options.workItemStore;
@@ -414,9 +431,7 @@ export function createDefaultBuiltinToolSurface(
   };
   const canonicalRegistry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const tools = projectTools(canonicalRegistry.list(), options.toolProjection);
-  const registry = options.toolProjection?.mode === "strict"
-    ? createRegistryFromTools(tools)
-    : canonicalRegistry;
+  const registry = options.toolProjection?.mode === "strict" ? createRegistryFromTools(tools) : canonicalRegistry;
   const catalog = ToolCatalogIndex.fromTools(registry.list());
   const resourceProviders = [
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
@@ -463,9 +478,7 @@ export function createDefaultBuiltinToolSurface(
   };
 }
 
-export function projectDevToolSchemas(
-  tools: readonly DevTool[],
-): readonly DevToolSchemaProjection[] {
+export function projectDevToolSchemas(tools: readonly DevTool[]): readonly DevToolSchemaProjection[] {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -474,9 +487,7 @@ export function projectDevToolSchemas(
   }));
 }
 
-export function projectDevToolDefinitions(
-  tools: readonly DevTool[],
-): readonly ToolDefinition[] {
+export function projectDevToolDefinitions(tools: readonly DevTool[]): readonly ToolDefinition[] {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -486,9 +497,7 @@ export function projectDevToolDefinitions(
   }));
 }
 
-export function projectDevToolCapabilities(
-  tools: readonly DevTool[],
-): ReadonlyMap<string, Capability> {
+export function projectDevToolCapabilities(tools: readonly DevTool[]): ReadonlyMap<string, Capability> {
   const capabilityMap = new Map<string, Capability>();
   for (const tool of tools) {
     capabilityMap.set(tool.name, {
@@ -529,9 +538,7 @@ function createRegistryFromTools(tools: readonly DevTool[]): DevToolRegistry {
 function resolveResourceNotificationHub(
   options: ToolResourceNotificationHub | ToolResourceNotificationHubOptions | undefined,
 ): ToolResourceNotificationHub {
-  return options instanceof ToolResourceNotificationHub
-    ? options
-    : new ToolResourceNotificationHub(options);
+  return options instanceof ToolResourceNotificationHub ? options : new ToolResourceNotificationHub(options);
 }
 
 function resolveMemoryMutationService(

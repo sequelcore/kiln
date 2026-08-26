@@ -42,13 +42,13 @@ import {
   hashPrivateFormalScreeningTree,
   loadPrivateFormalScreeningPackage,
   type PrivateFormalScreeningPackageFacts,
-} from "../application/private-formal-screening-package.js";
+} from "../application/benchmarks/formal-screening/package-loader.js";
 import {
   BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
   BACKEND_VERIFIER_ID,
   BACKEND_VERIFIER_IMAGE,
   BACKEND_VERIFIER_VERSION,
-} from "../application/benchmark-backend-verifier.js";
+} from "../application/benchmarks/formal-screening/backend-verifier.js";
 import { BACKEND_BENCHMARK_CASES } from "../application/benchmark-backend-cases.js";
 import {
   FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS,
@@ -618,6 +618,7 @@ function resolveFormalScreeningDependencies(
   const packageFacts = loadPrivateFormalScreeningPackage({
     packagePath: config.privatePackagePath,
     repositoryRoot,
+    repositoryPrivateRoot: join(repositoryRoot, ".kiln-private"),
   });
   return { package: packageFacts, config };
 }
@@ -828,6 +829,10 @@ function projectFormalScreeningObservations(
       budgetHash: readStringFromMetadata(metadata, ["budgetHash", "formalScreeningBudgetHash"]),
       toolProjectionHash: readStringFromMetadata(metadata, ["toolProjectionHash", "formalScreeningToolProjectionHash"]),
       verifierHash: readStringFromMetadata(metadata, ["verifierHash", "formalScreeningVerifierHash"]),
+      sealedToolchainHash: readStringFromMetadata(metadata, [
+        "sealedToolchainHash",
+        "formalScreeningSealedToolchainHash",
+      ]),
       treatmentToolchainHash: readStringFromMetadata(metadata, [
         "treatmentToolchainHash",
         "formalScreeningTreatmentToolchainHash",
@@ -835,6 +840,12 @@ function projectFormalScreeningObservations(
       hiddenOracleExhaustive: readBooleanFromMetadata(metadata, ["hiddenOracleExhaustive", "formalScreeningHiddenOracleExhaustive"]),
       lemmaCheckPassed: readBooleanFromMetadata(metadata, ["lemmaCheckPassed", "formalScreeningLemmaCheckPassed"]),
       hiddenPassed: hiddenScore?.score === 1,
+      sealedDafnyPassed: readBooleanFromMetadata(metadata, ["sealedDafnyPassed", "formalScreeningSealedDafnyPassed"]),
+      contractDigestUnchanged: readBooleanFromMetadata(metadata, [
+        "contractDigestUnchanged",
+        "formalScreeningContractDigestUnchanged",
+      ]),
+      trustPolicyClean: readBooleanFromMetadata(metadata, ["trustPolicyClean", "formalScreeningTrustPolicyClean"]),
     };
   }));
 }

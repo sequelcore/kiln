@@ -1,6 +1,5 @@
 // Engine domain: developer tool types for Phase 9a (native runtime)
 
-import type { ToolResultMetadata } from "./tool-result-metadata.js";
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
   type FormalVerificationFinishTransportEnvelope,
@@ -9,11 +8,13 @@ import {
   OPERATOR_ADOPTION_DECISION_TRANSPORT,
   type OperatorAdoptionDecisionTransport,
 } from "./operator-adoption-decision-transport.js";
+import type { ToolResultMetadata } from "./tool-result-metadata.js";
 
 const OUTPUT_VERBOSITY_PROPERTY = {
   type: "string",
   enum: ["raw", "structured", "summary"],
-  description: "Controls ToolResult.output shape. raw preserves the compact default, structured returns JSON, summary returns a bounded rollup.",
+  description:
+    "Controls ToolResult.output shape. raw preserves the compact default, structured returns JSON, summary returns a bounded rollup.",
 } as const;
 
 const INTERACTIVE_SESSION_ID_PROPERTY = {
@@ -25,7 +26,11 @@ const INTERACTIVE_TARGET_PROPERTY = {
   type: "object",
   properties: {
     ref: { type: "string", description: "Provider-issued stable element reference." },
-    selector: { type: "string", description: "CSS, UIA, or provider-supported selector. Windows UIA supports forms such as #automationId, type=button;title=OK, or JSON {\"type\":\"button\",\"title\":\"OK\"}." },
+    selector: {
+      type: "string",
+      description:
+        'CSS, UIA, or provider-supported selector. Windows UIA supports forms such as #automationId, type=button;title=OK, or JSON {"type":"button","title":"OK"}.',
+    },
     x: { type: "number", description: "Viewport or screen X coordinate." },
     y: { type: "number", description: "Viewport or screen Y coordinate." },
   },
@@ -41,7 +46,8 @@ const INTERACTIVE_TIMEOUT_PROPERTY = {
 
 const TEMPORAL_EVENT_REQUIREMENT_PROPERTY = {
   type: "object",
-  description: "Required for exact-date event claims. Demands semantic consensus from at least two independent sources.",
+  description:
+    "Required for exact-date event claims. Demands semantic consensus from at least two independent sources.",
   properties: {
     exactLocalDate: { type: "string", description: "Operator-local event date in YYYY-MM-DD form." },
     requiredIdentityTerms: {
@@ -59,7 +65,8 @@ const TEMPORAL_EVENT_REQUIREMENT_PROPERTY = {
 
 const COMPUTER_APPLICATION_PROPERTY = {
   type: "string",
-  description: "Target application name from interactiveUse.allowedApplications. Prefer this over relying on the active window.",
+  description:
+    "Target application name from interactiveUse.allowedApplications. Prefer this over relying on the active window.",
 } as const;
 
 const COMPUTER_WINDOW_TITLE_PROPERTY = {
@@ -137,23 +144,23 @@ export const DEV_TOOL_OUTPUT_SCHEMA = {
 
 export type ToolResultContentPart =
   | {
-    readonly type: "text";
-    readonly text: string;
-  }
+      readonly type: "text";
+      readonly text: string;
+    }
   | {
-    readonly type: "image";
-    readonly data: string;
-    readonly mimeType: string;
-  }
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    }
   | {
-    readonly type: "resource_link";
-    readonly uri: string;
-    readonly name: string;
-    readonly description?: string;
-    readonly mimeType?: string;
-    readonly size?: number;
-    readonly annotations?: Record<string, unknown>;
-  };
+      readonly type: "resource_link";
+      readonly uri: string;
+      readonly name: string;
+      readonly description?: string;
+      readonly mimeType?: string;
+      readonly size?: number;
+      readonly annotations?: Record<string, unknown>;
+    };
 
 export interface DevTool {
   readonly name: string;
@@ -212,7 +219,9 @@ export type DevToolName =
   | "resource_list"
   | "resource_template_list"
   | "resource_read"
-  | "formal_verify";
+  | "formal_verify"
+  | "static_analyze"
+  | "gentle_review";
 
 export const TOOL_SCHEMAS: Record<
   DevToolName,
@@ -224,7 +233,8 @@ export const TOOL_SCHEMAS: Record<
 > = {
   bash: {
     name: "bash",
-    description: "Run a Bash shell command in the current workspace when no purpose-built tool exists. Always pass a JSON object with a non-empty command string. Use the git tool for Git subcommands instead of bash.",
+    description:
+      "Run a Bash shell command in the current workspace when no purpose-built tool exists. Always pass a JSON object with a non-empty command string. Use the git tool for Git subcommands instead of bash.",
     inputSchema: {
       type: "object",
       properties: {
@@ -268,7 +278,8 @@ export const TOOL_SCHEMAS: Record<
   },
   read_many: {
     name: "read_many",
-    description: "Read a bounded deterministic packet of text files. Always pass a JSON object with paths and optional include, exclude, recursive, respectGitIgnore, useDefaultExcludes, maxFiles, maxBytes, or verbosity.",
+    description:
+      "Read a bounded deterministic packet of text files. Always pass a JSON object with paths and optional include, exclude, recursive, respectGitIgnore, useDefaultExcludes, maxFiles, maxBytes, or verbosity.",
     inputSchema: {
       type: "object",
       properties: {
@@ -298,7 +309,8 @@ export const TOOL_SCHEMAS: Record<
         },
         useDefaultExcludes: {
           type: "boolean",
-          description: "When true, skips default nuisance directories such as .git, dist, build, coverage, and node_modules. Defaults to true.",
+          description:
+            "When true, skips default nuisance directories such as .git, dist, build, coverage, and node_modules. Defaults to true.",
         },
         maxFiles: {
           type: "number",
@@ -364,7 +376,8 @@ export const TOOL_SCHEMAS: Record<
   },
   patch: {
     name: "patch",
-    description: "Apply a structured patch document to files. Always pass a JSON object with patch and optional dryRun.",
+    description:
+      "Apply a structured patch document to files. Always pass a JSON object with patch and optional dryRun.",
     inputSchema: {
       type: "object",
       properties: {
@@ -405,7 +418,8 @@ export const TOOL_SCHEMAS: Record<
   },
   tree: {
     name: "tree",
-    description: "Return a compact directory tree. Always pass a JSON object with optional path, depth, and includeFiles.",
+    description:
+      "Return a compact directory tree. Always pass a JSON object with optional path, depth, and includeFiles.",
     inputSchema: {
       type: "object",
       properties: {
@@ -429,7 +443,8 @@ export const TOOL_SCHEMAS: Record<
   },
   view_image: {
     name: "view_image",
-    description: "Read an image file and return model-consumable image content. Always pass a JSON object with path and optional detail.",
+    description:
+      "Read an image file and return model-consumable image content. Always pass a JSON object with path and optional detail.",
     inputSchema: {
       type: "object",
       properties: {
@@ -450,7 +465,8 @@ export const TOOL_SCHEMAS: Record<
   },
   ocr_image: {
     name: "ocr_image",
-    description: "Extract text from an image file using the configured OCR backend. Always pass a JSON object with path and optional language.",
+    description:
+      "Extract text from an image file using the configured OCR backend. Always pass a JSON object with path and optional language.",
     inputSchema: {
       type: "object",
       properties: {
@@ -470,7 +486,8 @@ export const TOOL_SCHEMAS: Record<
   },
   web_search: {
     name: "web_search",
-    description: "Search the web through the configured provider. For exact-date events, begin with broad discovery, pass temporalRequirement, broaden once if evidence is insufficient, then extract strong candidates. The tool fails closed unless independent sources agree on date, identities, and completed status. Publication freshness is not event-date evidence.",
+    description:
+      "Search the web through the configured provider. For exact-date events, begin with broad discovery, pass temporalRequirement, broaden once if evidence is insufficient, then extract strong candidates. The tool fails closed unless independent sources agree on date, identities, and completed status. Publication freshness is not event-date evidence.",
     inputSchema: {
       type: "object",
       properties: {
@@ -482,7 +499,8 @@ export const TOOL_SCHEMAS: Record<
         domains: {
           type: "array",
           items: { type: "string" },
-          description: "Optional hard domain allowlist that narrows the active network policy. Use only when the operator or source-authority policy requires these domains; do not invent a discovery shortlist.",
+          description:
+            "Optional hard domain allowlist that narrows the active network policy. Use only when the operator or source-authority policy requires these domains; do not invent a discovery shortlist.",
         },
         recencyDays: {
           type: "number",
@@ -490,12 +508,14 @@ export const TOOL_SCHEMAS: Record<
         },
         freshnessRequired: {
           type: "boolean",
-          description: "When true, reject unless the provider enforces publication recency. Do not enable solely because an event date is recent; temporalRequirement verifies the event date.",
+          description:
+            "When true, reject unless the provider enforces publication recency. Do not enable solely because an event date is recent; temporalRequirement verifies the event date.",
         },
         topic: {
           type: "string",
           enum: ["general", "news", "finance", "research"],
-          description: "Provider-neutral search topic. Exact-date event discovery defaults to general so fixture, result, and official pages are not excluded.",
+          description:
+            "Provider-neutral search topic. Exact-date event discovery defaults to general so fixture, result, and official pages are not excluded.",
         },
         quality: {
           type: "string",
@@ -505,12 +525,14 @@ export const TOOL_SCHEMAS: Record<
         startDate: {
           type: "string",
           pattern: "^\\d{4}-\\d{2}-\\d{2}$",
-          description: "Optional inclusive publication start date in YYYY-MM-DD format. Never copy an event date here unless publication on that date is itself required.",
+          description:
+            "Optional inclusive publication start date in YYYY-MM-DD format. Never copy an event date here unless publication on that date is itself required.",
         },
         endDate: {
           type: "string",
           pattern: "^\\d{4}-\\d{2}-\\d{2}$",
-          description: "Optional inclusive publication end date in YYYY-MM-DD format. Never copy an event date here unless publication on that date is itself required.",
+          description:
+            "Optional inclusive publication end date in YYYY-MM-DD format. Never copy an event date here unless publication on that date is itself required.",
         },
         country: {
           type: "string",
@@ -523,14 +545,16 @@ export const TOOL_SCHEMAS: Record<
         },
         targetingRequired: {
           type: "boolean",
-          description: "When true, country and language targeting are hard requirements. Otherwise unsupported targeting is omitted and audited as a preference.",
+          description:
+            "When true, country and language targeting are hard requirements. Otherwise unsupported targeting is omitted and audited as a preference.",
         },
         exactPhrases: {
           type: "array",
           items: { type: "string" },
           minItems: 1,
           maxItems: 10,
-          description: "Optional literal phrases that the selected provider must enforce. Do not use for ordinary entity names already present in the query.",
+          description:
+            "Optional literal phrases that the selected provider must enforce. Do not use for ordinary entity names already present in the query.",
         },
         temporalRequirement: TEMPORAL_EVENT_REQUIREMENT_PROPERTY,
         maxResults: {
@@ -545,7 +569,8 @@ export const TOOL_SCHEMAS: Record<
   },
   web_fetch: {
     name: "web_fetch",
-    description: "Fetch and sanitize text content from an allowed HTTP(S) URL. Always pass a JSON object with url and optional maxBytes, timeout, or verbosity.",
+    description:
+      "Fetch and sanitize text content from an allowed HTTP(S) URL. Always pass a JSON object with url and optional maxBytes, timeout, or verbosity.",
     inputSchema: {
       type: "object",
       properties: {
@@ -571,7 +596,8 @@ export const TOOL_SCHEMAS: Record<
   },
   web_extract: {
     name: "web_extract",
-    description: "Extract readable text or markdown from one or more allowed HTTP(S) URLs. For exact-date event claims, pass temporalRequirement to verify full page contents from independent sources.",
+    description:
+      "Extract readable text or markdown from one or more allowed HTTP(S) URLs. For exact-date event claims, pass temporalRequirement to verify full page contents from independent sources.",
     inputSchema: {
       type: "object",
       properties: {
@@ -600,7 +626,8 @@ export const TOOL_SCHEMAS: Record<
   },
   browser_session_start: {
     name: "browser_session_start",
-    description: "Start or attach to a governed browser automation session. Always pass a JSON object with optional sessionId, url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. Set recordArtifacts=true when the user asks for a QA/showcase video, recording, captions, or editor-ready artifacts. Providers attach to an existing sessionId or active session instead of opening duplicate browser sessions.",
+    description:
+      "Start or attach to a governed browser automation session. Always pass a JSON object with optional sessionId, url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. Set recordArtifacts=true when the user asks for a QA/showcase video, recording, captions, or editor-ready artifacts. Providers attach to an existing sessionId or active session instead of opening duplicate browser sessions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -623,11 +650,13 @@ export const TOOL_SCHEMAS: Record<
         },
         recordArtifacts: {
           type: "boolean",
-          description: "When true, request recorder capture, rendered video, captions, and editor-ready artifacts from the provider.",
+          description:
+            "When true, request recorder capture, rendered video, captions, and editor-ready artifacts from the provider.",
         },
         headless: {
           type: "boolean",
-          description: "When false, request a visible browser window from providers that support it. Defaults to provider policy.",
+          description:
+            "When false, request a visible browser window from providers that support it. Defaults to provider policy.",
         },
         timeout: INTERACTIVE_TIMEOUT_PROPERTY,
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
@@ -657,7 +686,8 @@ export const TOOL_SCHEMAS: Record<
   },
   browser_observe: {
     name: "browser_observe",
-    description: "Capture the current governed browser observation with optional screenshot, DOM, accessibility, console, and network artifact links.",
+    description:
+      "Capture the current governed browser observation with optional screenshot, DOM, accessibility, console, and network artifact links.",
     inputSchema: {
       type: "object",
       properties: {
@@ -744,7 +774,8 @@ export const TOOL_SCHEMAS: Record<
   },
   browser_session_stop: {
     name: "browser_session_stop",
-    description: "Stop a governed browser automation session and finalize artifacts. When the session was started with recordArtifacts=true, this returns recorder proof, rendered video, captions, and editor-ready artifact links. Prefer explicit cleanup before the final answer for one-off browser tasks.",
+    description:
+      "Stop a governed browser automation session and finalize artifacts. When the session was started with recordArtifacts=true, this returns recorder proof, rendered video, captions, and editor-ready artifact links. Prefer explicit cleanup before the final answer for one-off browser tasks.",
     inputSchema: {
       type: "object",
       properties: {
@@ -874,7 +905,8 @@ export const TOOL_SCHEMAS: Record<
   },
   computer_close_application: {
     name: "computer_close_application",
-    description: "Gracefully close an allowed desktop application or window. Providers should avoid force-kill behavior unless a separate explicit policy allows it.",
+    description:
+      "Gracefully close an allowed desktop application or window. Providers should avoid force-kill behavior unless a separate explicit policy allows it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -889,7 +921,8 @@ export const TOOL_SCHEMAS: Record<
   },
   grep: {
     name: "grep",
-    description: "Search file content by pattern. Always pass a JSON object with a non-empty pattern string and optional path, glob, outputMode, or maxResults.",
+    description:
+      "Search file content by pattern. Always pass a JSON object with a non-empty pattern string and optional path, glob, outputMode, or maxResults.",
     inputSchema: {
       type: "object",
       properties: {
@@ -909,13 +942,15 @@ export const TOOL_SCHEMAS: Record<
         outputMode: {
           type: "string",
           enum: ["content", "files_with_matches", "count"],
-          description: "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
+          description:
+            "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
         },
         temporalRequirement: TEMPORAL_EVENT_REQUIREMENT_PROPERTY,
         matchMode: {
           type: "string",
           enum: ["auto", "regex", "literal"],
-          description: "auto treats valid patterns as regular expressions and falls back to literal matching for invalid regex syntax; regex is strict; literal searches fixed strings.",
+          description:
+            "auto treats valid patterns as regular expressions and falls back to literal matching for invalid regex syntax; regex is strict; literal searches fixed strings.",
         },
         maxResults: {
           type: "number",
@@ -929,7 +964,8 @@ export const TOOL_SCHEMAS: Record<
   },
   glob: {
     name: "glob",
-    description: "Match files by glob pattern. Always pass a JSON object with a non-empty pattern string and optional path. Brace alternates such as **/*.{ts,tsx,css} are supported.",
+    description:
+      "Match files by glob pattern. Always pass a JSON object with a non-empty pattern string and optional path. Brace alternates such as **/*.{ts,tsx,css} are supported.",
     inputSchema: {
       type: "object",
       properties: {
@@ -950,7 +986,8 @@ export const TOOL_SCHEMAS: Record<
   },
   json_query: {
     name: "json_query",
-    description: "Query JSON data with jq. Always pass a JSON object with a non-empty filter and exactly one source: inline json or a file path.",
+    description:
+      "Query JSON data with jq. Always pass a JSON object with a non-empty filter and exactly one source: inline json or a file path.",
     inputSchema: {
       type: "object",
       properties: {
@@ -979,7 +1016,8 @@ export const TOOL_SCHEMAS: Record<
   },
   git: {
     name: "git",
-    description: "Run a read-only git inspection subcommand. Always pass a JSON object with a non-empty subcommand string and optional args array. Mutating subcommands such as add, checkout, commit, reset, push, and pull are denied.",
+    description:
+      "Run a read-only git inspection subcommand. Always pass a JSON object with a non-empty subcommand string and optional args array. Mutating subcommands such as add, checkout, commit, reset, push, and pull are denied.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1000,7 +1038,8 @@ export const TOOL_SCHEMAS: Record<
   },
   code_intelligence: {
     name: "code_intelligence",
-    description: "Query configured language-server adapters for definitions, references, hover, symbols, diagnostics, implementations, and call hierarchy.",
+    description:
+      "Query configured language-server adapters for definitions, references, hover, symbols, diagnostics, implementations, and call hierarchy.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1058,7 +1097,8 @@ export const TOOL_SCHEMAS: Record<
   },
   monitor_start: {
     name: "monitor_start",
-    description: "Start a monitored long-running shell command. Always pass a JSON object with command and optional cwd, name, timeout, or verbosity.",
+    description:
+      "Start a monitored long-running shell command. Always pass a JSON object with command and optional cwd, name, timeout, or verbosity.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1088,7 +1128,8 @@ export const TOOL_SCHEMAS: Record<
   },
   monitor_read: {
     name: "monitor_read",
-    description: "Read bounded output events from a monitored command. Always pass a JSON object with id and optional sinceSequence, limit, or verbosity.",
+    description:
+      "Read bounded output events from a monitored command. Always pass a JSON object with id and optional sinceSequence, limit, or verbosity.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1168,7 +1209,8 @@ export const TOOL_SCHEMAS: Record<
   },
   task_update: {
     name: "task_update",
-    description: "Create or update shared session-local task state. Always pass a JSON object with title, status, and optional id, details, dependsOn, or verbosity.",
+    description:
+      "Create or update shared session-local task state. Always pass a JSON object with title, status, and optional id, details, dependsOn, or verbosity.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1203,14 +1245,16 @@ export const TOOL_SCHEMAS: Record<
   },
   operator_elicit: {
     name: "operator_elicit",
-    description: "Ask the operator for bounded input through a consumer-provided elicitation surface. Use URL mode for sensitive handoffs.",
+    description:
+      "Ask the operator for bounded input through a consumer-provided elicitation surface. Use URL mode for sensitive handoffs.",
     inputSchema: {
       type: "object",
       properties: {
         mode: {
           type: "string",
           enum: ["form", "url"],
-          description: "Elicitation mode. form collects bounded non-sensitive values; url hands the operator to an HTTPS surface.",
+          description:
+            "Elicitation mode. form collects bounded non-sensitive values; url hands the operator to an HTTPS surface.",
         },
         message: {
           type: "string",
@@ -1237,7 +1281,8 @@ export const TOOL_SCHEMAS: Record<
   },
   tool_catalog_search: {
     name: "tool_catalog_search",
-    description: "Search the shared Kiln tool catalog by exact name, prefix, tags, or lexical query. Use this before requesting hidden deferred tools.",
+    description:
+      "Search the shared Kiln tool catalog by exact name, prefix, tags, or lexical query. Use this before requesting hidden deferred tools.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1274,7 +1319,8 @@ export const TOOL_SCHEMAS: Record<
   },
   memory_search: {
     name: "memory_search",
-    description: "Search governed Memory Lattice records through the native memory read surface. Returns bounded graph evidence and resource URIs.",
+    description:
+      "Search governed Memory Lattice records through the native memory read surface. Returns bounded graph evidence and resource URIs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1312,14 +1358,16 @@ export const TOOL_SCHEMAS: Record<
   },
   memory_save: {
     name: "memory_save",
-    description: "Save one governed memory record through the core MemoryMutationService. Requires explicit scope, layer, content, and provenance.",
+    description:
+      "Save one governed memory record through the core MemoryMutationService. Requires explicit scope, layer, content, and provenance.",
     inputSchema: {
       type: "object",
       properties: {
         id: {
           type: "string",
           minLength: 1,
-          description: "Optional stable record ID. Supplying an existing ID updates that record through the mutation service.",
+          description:
+            "Optional stable record ID. Supplying an existing ID updates that record through the mutation service.",
         },
         layer: {
           type: "string",
@@ -1415,7 +1463,8 @@ export const TOOL_SCHEMAS: Record<
   },
   resource_list: {
     name: "resource_list",
-    description: "List shared Kiln resources available to the current session. Use cursor unchanged to continue pagination.",
+    description:
+      "List shared Kiln resources available to the current session. Use cursor unchanged to continue pagination.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1425,7 +1474,8 @@ export const TOOL_SCHEMAS: Record<
         },
         limit: {
           type: "number",
-          description: "Maximum resources to return. Defaults to the registry page size and caps at the registry maximum.",
+          description:
+            "Maximum resources to return. Defaults to the registry page size and caps at the registry maximum.",
         },
       },
       required: [],
@@ -1434,7 +1484,8 @@ export const TOOL_SCHEMAS: Record<
   },
   resource_template_list: {
     name: "resource_template_list",
-    description: "List shared Kiln resource templates available to the current session. Use cursor unchanged to continue pagination.",
+    description:
+      "List shared Kiln resource templates available to the current session. Use cursor unchanged to continue pagination.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1444,7 +1495,8 @@ export const TOOL_SCHEMAS: Record<
         },
         limit: {
           type: "number",
-          description: "Maximum resource templates to return. Defaults to the registry page size and caps at the registry maximum.",
+          description:
+            "Maximum resource templates to return. Defaults to the registry page size and caps at the registry maximum.",
         },
       },
       required: [],
@@ -1453,7 +1505,8 @@ export const TOOL_SCHEMAS: Record<
   },
   resource_read: {
     name: "resource_read",
-    description: "Read one bounded page from a kiln:// resource URI in the shared resource registry. Use nextCursor unchanged to continue pagination.",
+    description:
+      "Read one bounded page from a kiln:// resource URI in the shared resource registry. Use nextCursor unchanged to continue pagination.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1468,7 +1521,8 @@ export const TOOL_SCHEMAS: Record<
         },
         limit: {
           type: "number",
-          description: "Maximum resource units to return. Text resources page by line; binary resources page by decoded byte.",
+          description:
+            "Maximum resource units to return. Text resources page by line; binary resources page by decoded byte.",
         },
       },
       required: ["uri"],
@@ -1489,6 +1543,36 @@ export const TOOL_SCHEMAS: Record<
         },
       },
       required: ["file"],
+      additionalProperties: false,
+    },
+  },
+  static_analyze: {
+    name: "static_analyze",
+    description:
+      "Run the fixed Oxlint correctness+suspicious profile over one immutable source copy and report diagnostics. This reports analyzer output only: it does not accept work, load repository lint policy, or decide which acceptance criterion the observation satisfies.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: {
+          type: "string",
+          minLength: 1,
+          description: "Path to one JavaScript or TypeScript source file, relative to the workspace root.",
+        },
+      },
+      required: ["file"],
+      additionalProperties: false,
+    },
+  },
+  gentle_review: {
+    name: "gentle_review",
+    description: "Observe Gentle AI review status for one exact workspace-overlay candidate. The configured executable, v2.2 capabilities, base tree, and target identity must all match. This is inferential evidence only: it does not start, finalize, repair, or accept a review.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseTree: { type: "string", pattern: "^[a-f0-9]{40,64}$", description: "Exact Git base tree used to identify the workspace-overlay candidate." },
+        targetIdentity: { type: "string", pattern: "^sha256:[a-f0-9]{64}$", description: "Expected Gentle AI target identity for the candidate." },
+      },
+      required: ["baseTree", "targetIdentity"],
       additionalProperties: false,
     },
   },

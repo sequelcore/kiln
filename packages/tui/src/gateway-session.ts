@@ -22,6 +22,7 @@ import {
 import type { SessionLike } from "./types.js";
 import type { SessionEventInternal } from "./types.js";
 import { applyTuiOperatorThemeRequest } from "./operator-theme-handler.js";
+import { formatVerificationPresentationAsText } from "./verification-presentation.js";
 import { TuiWsClient } from "./ws-client.js";
 import type { TuiInboundFrame } from "./ws-client.js";
 
@@ -146,9 +147,11 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       activity: "tool_result",
       toolName,
       toolCallId: readString(payload.toolCallId) ?? undefined,
-      output: presentation.toolPresentation?.presentationIntent
-        ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
-        : presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      output: presentation.toolPresentation?.verification
+        ? formatVerificationPresentationAsText(presentation.toolPresentation.verification)
+        : presentation.toolPresentation?.presentationIntent
+          ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
+          : presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
       metadata,
       resourceLinks: presentation.toolPresentation?.resourceLinks,
       toolUsage: payload.toolUsage,

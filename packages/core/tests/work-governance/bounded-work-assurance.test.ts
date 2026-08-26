@@ -13,7 +13,7 @@ import {
 } from "../../src/work-governance/index.js";
 import { boundedWorkDigest } from "../../src/work-governance/bounded-work-content.js";
 import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
-import type { FormalVerificationOutcome } from "../../src/tools/domain/tool-result-metadata.js";
+import type { FormalVerificationOutcome } from "../../src/verification/formal/observation.js";
 
 const sha = (value: string): string => boundedWorkDigest(value);
 
@@ -112,6 +112,8 @@ const evidenceFor = (
         check: "correctness" as const,
         outcome,
         ...(outcome === "proved" ? {} : { detail: "not proved" }),
+        durationMs: 0,
+        resourceCount: 0,
       })),
       subjects,
     }),

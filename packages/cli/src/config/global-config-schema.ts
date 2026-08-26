@@ -1,21 +1,17 @@
-import { Type, type ObjectOptions, type Static, type TObject, type TProperties, type TSchema } from "@sinclair/typebox";
+import type { CommunicationIntent, ModelGatewayConfig, VoiceConfig } from "@kilnai/core";
+import { type ObjectOptions, type Static, type TObject, type TProperties, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import type {
-  CommunicationIntent,
-  ModelGatewayConfig,
-  VoiceConfig,
-} from "@kilnai/core";
 import { describeRunningCliBuild } from "../build-identity.js";
 import { KilnYamlError } from "../kiln-yaml.js";
 import type {
   KilnAuthorityProfileConfig,
   KilnDeliberationPolicyConfig,
+  KilnExternalCatalogPolicy,
   KilnHooksConfig,
   KilnManagedAgentsConfig,
   KilnModelTaskSuitabilityOverride,
   KilnTargetCatalogIntentConfig,
   KilnWorkGovernanceConfig,
-  KilnExternalCatalogPolicy,
   KilnYamlInteractiveUseConfig,
   KilnYamlMcp,
   KilnYamlPermissions,
@@ -59,13 +55,16 @@ function governedExternal<T>(semanticOwner: string, options: ObjectOptions = {})
 }
 
 const nonEmptyString = Type.String({ minLength: 1 });
-const identity = strictObject({
-  name: Type.ReadonlyOptional(nonEmptyString),
-  timezone: Type.ReadonlyOptional(nonEmptyString),
-}, {
-  "x-kiln-semantic-owner": "operator-preferences",
-  "x-kiln-activation": "hot",
-});
+const identity = strictObject(
+  {
+    name: Type.ReadonlyOptional(nonEmptyString),
+    timezone: Type.ReadonlyOptional(nonEmptyString),
+  },
+  {
+    "x-kiln-semantic-owner": "operator-preferences",
+    "x-kiln-activation": "hot",
+  },
+);
 const engineBilling = Type.Union([
   Type.Literal("subscription"),
   Type.Literal("plus-quota"),
@@ -88,12 +87,16 @@ const permissionCeiling = strictObject({
 });
 const web = strictObject({
   enabled: Type.ReadonlyOptional(Type.Boolean()),
-  netPolicy: Type.ReadonlyOptional(Type.Unsafe<KilnYamlWebNetPolicy>(Type.Union([
-    Type.Literal("none"),
-    Type.Literal("documentation"),
-    Type.Literal("package-managers"),
-    Type.Literal("full"),
-  ]))),
+  netPolicy: Type.ReadonlyOptional(
+    Type.Unsafe<KilnYamlWebNetPolicy>(
+      Type.Union([
+        Type.Literal("none"),
+        Type.Literal("documentation"),
+        Type.Literal("package-managers"),
+        Type.Literal("full"),
+      ]),
+    ),
+  ),
   allowedDomains: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
   searchProvider: Type.ReadonlyOptional(Type.Unsafe<KilnYamlWebSearchProvider>(Type.Unknown())),
   searchFallbackProviders: Type.ReadonlyOptional(Type.Array(Type.Unsafe<KilnYamlWebSearchProvider>(Type.Unknown()))),
@@ -116,7 +119,26 @@ const formalVerification = strictObject({
   dafny: Type.Readonly(dafny),
   screening: Type.ReadonlyOptional(formalScreening),
 });
-const verification = strictObject({ formal: Type.Readonly(formalVerification) });
+const oxlint = strictObject({
+  executable: Type.Readonly(nonEmptyString),
+  expectedVersion: Type.Readonly(nonEmptyString),
+});
+const staticAnalysis = strictObject({ oxlint: Type.Readonly(oxlint) });
+const gentleAi = strictObject({
+  executable: Type.Readonly(nonEmptyString),
+  expectedVersion: Type.Readonly(nonEmptyString),
+  expectedExecutableDigest: Type.Readonly(Type.String({ pattern: "^sha256:[a-f0-9]{64}$" })),
+  expectedBuildRevision: Type.Readonly(Type.String({ pattern: "^[a-f0-9]{40}$" })),
+});
+const inferentialReview = strictObject({ gentleAi: Type.Readonly(gentleAi) });
+const verification = strictObject(
+  {
+    formal: Type.ReadonlyOptional(formalVerification),
+    static: Type.ReadonlyOptional(staticAnalysis),
+    inferential: Type.ReadonlyOptional(inferentialReview),
+  },
+  { minProperties: 1 },
+);
 const uiTargetSelection = strictObject({
   targetId: Type.Readonly(nonEmptyString),
   accountOverrideId: Type.ReadonlyOptional(nonEmptyString),
@@ -126,110 +148,141 @@ const appearanceThemeByScheme = strictObject({
   dark: Type.Readonly(nonEmptyString),
 });
 const appearance = strictObject({
-  mode: Type.Readonly(Type.Union([
-    Type.Literal("system"),
-    Type.Literal("light"),
-    Type.Literal("dark"),
-  ])),
+  mode: Type.Readonly(Type.Union([Type.Literal("system"), Type.Literal("light"), Type.Literal("dark")])),
   themeByScheme: Type.Readonly(appearanceThemeByScheme),
 });
-const ui = strictObject({
-  appearance: Type.ReadonlyOptional(appearance),
-  targetSelection: Type.ReadonlyOptional(uiTargetSelection),
-}, {
-  "x-kiln-semantic-owner": "operator-preferences",
-  "x-kiln-activation": "hot",
-});
+const ui = strictObject(
+  {
+    appearance: Type.ReadonlyOptional(appearance),
+    targetSelection: Type.ReadonlyOptional(uiTargetSelection),
+  },
+  {
+    "x-kiln-semantic-owner": "operator-preferences",
+    "x-kiln-activation": "hot",
+  },
+);
 const components = strictObject({ include: Type.ReadonlyOptional(Type.Array(nonEmptyString)) });
-const skillVisibility = Type.Union([
-  Type.Literal("implicit"),
-  Type.Literal("explicit-only"),
-  Type.Literal("disabled"),
-]);
-const builtinSkills = strictObject({
-  enabled: Type.ReadonlyOptional(Type.Boolean()),
-  include: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
-  exclude: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
-}, {
-  "x-kiln-semantic-owner": "skill-catalog",
-  "x-kiln-authority-impact": "authority-bearing",
-  "x-kiln-activation": "reconcile",
-});
-const skillSelection = strictObject({
-  mode: Type.ReadonlyOptional(Type.Union([Type.Literal("advisory"), Type.Literal("auto")])),
-}, {
-  "x-kiln-semantic-owner": "skill-catalog",
-  "x-kiln-authority-impact": "authority-bearing",
-  "x-kiln-activation": "next-session",
-});
-const skillVisibilityConfig = strictObject({
-  default: Type.ReadonlyOptional(skillVisibility),
-  overrides: Type.ReadonlyOptional(Type.Record(Type.String(), skillVisibility)),
-}, {
-  "x-kiln-semantic-owner": "skill-catalog",
-  "x-kiln-authority-impact": "authority-bearing",
-  "x-kiln-activation": "reconcile",
-});
-const skills = strictObject({
-  builtin: Type.ReadonlyOptional(builtinSkills),
-  selection: Type.ReadonlyOptional(skillSelection),
-  visibility: Type.ReadonlyOptional(skillVisibilityConfig),
-  externalCatalog: Type.ReadonlyOptional(governedExternal<KilnExternalCatalogPolicy>("skill-catalog", {
+const skillVisibility = Type.Union([Type.Literal("implicit"), Type.Literal("explicit-only"), Type.Literal("disabled")]);
+const builtinSkills = strictObject(
+  {
+    enabled: Type.ReadonlyOptional(Type.Boolean()),
+    include: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
+    exclude: Type.ReadonlyOptional(Type.Array(nonEmptyString)),
+  },
+  {
+    "x-kiln-semantic-owner": "skill-catalog",
+    "x-kiln-authority-impact": "authority-bearing",
     "x-kiln-activation": "reconcile",
-  })),
-}, {
-  "x-kiln-semantic-owner": "skill-catalog",
-  "x-kiln-authority-impact": "authority-bearing",
-  "x-kiln-activation": "reconcile",
-});
-
-export const GLOBAL_CONFIG_SCHEMA = strictObject({
-  version: Type.Readonly(Type.Literal(CANONICAL_GLOBAL_CONFIG_VERSION)),
-  identity: Type.ReadonlyOptional(identity),
-  activeInstructionProfiles: Type.ReadonlyOptional(Type.Array(nonEmptyString, {
-    "x-kiln-semantic-owner": "instruction-profiles",
-    "x-kiln-activation": "reconcile",
-  })),
-  workGovernance: Type.ReadonlyOptional(governedExternal<KilnWorkGovernanceConfig>("work-governance", {
-    "x-kiln-activation": "next-turn",
-  })),
-  engines: Type.ReadonlyOptional(Type.Record(Type.String(), engine)),
-  targetCatalog: Type.ReadonlyOptional(governedExternal<KilnTargetCatalogIntentConfig>("execution-routing")),
-  targetRouting: Type.ReadonlyOptional(targetRouting),
-  authorityProfiles: Type.ReadonlyOptional(governedExternal<readonly KilnAuthorityProfileConfig[]>("authority-profiles")),
-  sessionTurnBudget: Type.ReadonlyOptional(sessionTurnBudget),
-  permissions: Type.ReadonlyOptional(governedExternal<KilnYamlPermissions>("configured-permissions")),
-  permissionCeiling: Type.ReadonlyOptional(permissionCeiling),
-  mcp: Type.ReadonlyOptional(governedExternal<KilnYamlMcp>("mcp-configuration", { "x-kiln-sensitivity": "secret-reference" })),
-  hooks: Type.ReadonlyOptional(governedExternal<KilnHooksConfig>("hook-configuration")),
-  managedAgents: Type.ReadonlyOptional(governedExternal<KilnManagedAgentsConfig>("managed-agent-configuration")),
-  modelTaskSuitability: Type.ReadonlyOptional(governedExternal<readonly KilnModelTaskSuitabilityOverride[]>("model-task-suitability")),
-  deliberationPolicy: Type.ReadonlyOptional(governedExternal<KilnDeliberationPolicyConfig>("deliberation-policy")),
-  communication: Type.ReadonlyOptional(governedExternal<CommunicationIntent>("communication-policy")),
-  web: Type.ReadonlyOptional(web),
-  interactiveUse: Type.ReadonlyOptional(governedExternal<KilnYamlInteractiveUseConfig>("interactive-use", {
+  },
+);
+const skillSelection = strictObject(
+  {
+    mode: Type.ReadonlyOptional(Type.Union([Type.Literal("advisory"), Type.Literal("auto")])),
+  },
+  {
+    "x-kiln-semantic-owner": "skill-catalog",
+    "x-kiln-authority-impact": "authority-bearing",
     "x-kiln-activation": "next-session",
-  })),
-  verification: Type.ReadonlyOptional(verification),
-  ui: Type.ReadonlyOptional(ui),
-  skills: Type.ReadonlyOptional(skills),
-  components: Type.ReadonlyOptional(components),
-  operatorVoice: Type.ReadonlyOptional(governedExternal<VoiceConfig>("voice", { "x-kiln-sensitivity": "secret-reference" })),
-  modelGateway: Type.ReadonlyOptional(governedExternal<ModelGatewayConfig>("model-gateway", { "x-kiln-activation": "restart-required", "x-kiln-sensitivity": "secret-reference" })),
-}, {
-  $id: GLOBAL_CONFIG_SCHEMA_ID,
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  title: "Kiln global configuration",
-  description: "Canonical structural schema for ~/.kiln/config.yaml.",
-  "x-kiln-schema-revision": GLOBAL_CONFIG_SCHEMA_REVISION,
-  "x-kiln-structural-owner": "global-configuration",
-  "x-kiln-semantic-owner": "global-configuration",
-  "x-kiln-scope": "global",
-  "x-kiln-sensitivity": "public",
-  "x-kiln-authority-impact": "none",
-  "x-kiln-activation": "next-session",
-  "x-kiln-default-posture": "omitted",
-});
+  },
+);
+const skillVisibilityConfig = strictObject(
+  {
+    default: Type.ReadonlyOptional(skillVisibility),
+    overrides: Type.ReadonlyOptional(Type.Record(Type.String(), skillVisibility)),
+  },
+  {
+    "x-kiln-semantic-owner": "skill-catalog",
+    "x-kiln-authority-impact": "authority-bearing",
+    "x-kiln-activation": "reconcile",
+  },
+);
+const skills = strictObject(
+  {
+    builtin: Type.ReadonlyOptional(builtinSkills),
+    selection: Type.ReadonlyOptional(skillSelection),
+    visibility: Type.ReadonlyOptional(skillVisibilityConfig),
+    externalCatalog: Type.ReadonlyOptional(
+      governedExternal<KilnExternalCatalogPolicy>("skill-catalog", {
+        "x-kiln-activation": "reconcile",
+      }),
+    ),
+  },
+  {
+    "x-kiln-semantic-owner": "skill-catalog",
+    "x-kiln-authority-impact": "authority-bearing",
+    "x-kiln-activation": "reconcile",
+  },
+);
+
+export const GLOBAL_CONFIG_SCHEMA = strictObject(
+  {
+    version: Type.Readonly(Type.Literal(CANONICAL_GLOBAL_CONFIG_VERSION)),
+    identity: Type.ReadonlyOptional(identity),
+    activeInstructionProfiles: Type.ReadonlyOptional(
+      Type.Array(nonEmptyString, {
+        "x-kiln-semantic-owner": "instruction-profiles",
+        "x-kiln-activation": "reconcile",
+      }),
+    ),
+    workGovernance: Type.ReadonlyOptional(
+      governedExternal<KilnWorkGovernanceConfig>("work-governance", {
+        "x-kiln-activation": "next-turn",
+      }),
+    ),
+    engines: Type.ReadonlyOptional(Type.Record(Type.String(), engine)),
+    targetCatalog: Type.ReadonlyOptional(governedExternal<KilnTargetCatalogIntentConfig>("execution-routing")),
+    targetRouting: Type.ReadonlyOptional(targetRouting),
+    authorityProfiles: Type.ReadonlyOptional(
+      governedExternal<readonly KilnAuthorityProfileConfig[]>("authority-profiles"),
+    ),
+    sessionTurnBudget: Type.ReadonlyOptional(sessionTurnBudget),
+    permissions: Type.ReadonlyOptional(governedExternal<KilnYamlPermissions>("configured-permissions")),
+    permissionCeiling: Type.ReadonlyOptional(permissionCeiling),
+    mcp: Type.ReadonlyOptional(
+      governedExternal<KilnYamlMcp>("mcp-configuration", { "x-kiln-sensitivity": "secret-reference" }),
+    ),
+    hooks: Type.ReadonlyOptional(governedExternal<KilnHooksConfig>("hook-configuration")),
+    managedAgents: Type.ReadonlyOptional(governedExternal<KilnManagedAgentsConfig>("managed-agent-configuration")),
+    modelTaskSuitability: Type.ReadonlyOptional(
+      governedExternal<readonly KilnModelTaskSuitabilityOverride[]>("model-task-suitability"),
+    ),
+    deliberationPolicy: Type.ReadonlyOptional(governedExternal<KilnDeliberationPolicyConfig>("deliberation-policy")),
+    communication: Type.ReadonlyOptional(governedExternal<CommunicationIntent>("communication-policy")),
+    web: Type.ReadonlyOptional(web),
+    interactiveUse: Type.ReadonlyOptional(
+      governedExternal<KilnYamlInteractiveUseConfig>("interactive-use", {
+        "x-kiln-activation": "next-session",
+      }),
+    ),
+    verification: Type.ReadonlyOptional(verification),
+    ui: Type.ReadonlyOptional(ui),
+    skills: Type.ReadonlyOptional(skills),
+    components: Type.ReadonlyOptional(components),
+    operatorVoice: Type.ReadonlyOptional(
+      governedExternal<VoiceConfig>("voice", { "x-kiln-sensitivity": "secret-reference" }),
+    ),
+    modelGateway: Type.ReadonlyOptional(
+      governedExternal<ModelGatewayConfig>("model-gateway", {
+        "x-kiln-activation": "restart-required",
+        "x-kiln-sensitivity": "secret-reference",
+      }),
+    ),
+  },
+  {
+    $id: GLOBAL_CONFIG_SCHEMA_ID,
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "Kiln global configuration",
+    description: "Canonical structural schema for ~/.kiln/config.yaml.",
+    "x-kiln-schema-revision": GLOBAL_CONFIG_SCHEMA_REVISION,
+    "x-kiln-structural-owner": "global-configuration",
+    "x-kiln-semantic-owner": "global-configuration",
+    "x-kiln-scope": "global",
+    "x-kiln-sensitivity": "public",
+    "x-kiln-authority-impact": "none",
+    "x-kiln-activation": "next-session",
+    "x-kiln-default-posture": "omitted",
+  },
+);
 
 type DeepReadonly<T> = T extends readonly unknown[]
   ? ReadonlyArray<DeepReadonly<T[number]>>
@@ -256,9 +309,10 @@ export function parseGlobalConfigStructure(value: unknown, sourcePath: string): 
   const error = [...Value.Errors(GLOBAL_CONFIG_SCHEMA, value)][0];
   const path = error?.path || "/";
   const detail = error?.message === "Unexpected property" ? "unknown field" : (error?.message ?? "invalid value");
-  const buildHint = error?.message === "Unexpected property"
-    ? ` Validated by ${describeRunningCliBuild()}; if this field exists at HEAD, the running build predates it.`
-    : "";
+  const buildHint =
+    error?.message === "Unexpected property"
+      ? ` Validated by ${describeRunningCliBuild()}; if this field exists at HEAD, the running build predates it.`
+      : "";
   throw new KilnYamlError(`Invalid global config at ${path}: ${detail}.${buildHint} Source: ${sourcePath}.`);
 }
 
@@ -287,18 +341,28 @@ interface DescriptorContext {
 
 function deriveFieldDescriptors(): readonly GlobalConfigFieldDescriptor[] {
   const descriptors = new Map<string, GlobalConfigFieldDescriptor>();
-  walkChildren(GLOBAL_CONFIG_SCHEMA, "", {
-    structuralOwner: "global-configuration",
-    semanticOwner: "global-configuration",
-    sensitivity: "public",
-    authorityImpact: "none",
-    activation: "next-session",
-    defaultPosture: "omitted",
-  }, descriptors);
+  walkChildren(
+    GLOBAL_CONFIG_SCHEMA,
+    "",
+    {
+      structuralOwner: "global-configuration",
+      semanticOwner: "global-configuration",
+      sensitivity: "public",
+      authorityImpact: "none",
+      activation: "next-session",
+      defaultPosture: "omitted",
+    },
+    descriptors,
+  );
   return [...descriptors.values()].sort((left, right) => left.identity.localeCompare(right.identity));
 }
 
-function walkSchema(schema: TSchema, identity: string, inherited: DescriptorContext, descriptors: Map<string, GlobalConfigFieldDescriptor>): void {
+function walkSchema(
+  schema: TSchema,
+  identity: string,
+  inherited: DescriptorContext,
+  descriptors: Map<string, GlobalConfigFieldDescriptor>,
+): void {
   const context = descriptorContext(schema, inherited);
   descriptors.set(identity, {
     identity,
@@ -315,14 +379,22 @@ function walkSchema(schema: TSchema, identity: string, inherited: DescriptorCont
   walkChildren(schema, identity, context, descriptors);
 }
 
-function walkChildren(schema: TSchema, identity: string, context: DescriptorContext, descriptors: Map<string, GlobalConfigFieldDescriptor>): void {
+function walkChildren(
+  schema: TSchema,
+  identity: string,
+  context: DescriptorContext,
+  descriptors: Map<string, GlobalConfigFieldDescriptor>,
+): void {
   if (isRecord(schema.properties)) {
     const required = new Set(Array.isArray(schema.required) ? schema.required.filter(isString) : []);
     for (const [name, child] of Object.entries(schema.properties)) {
       if (!isSchema(child)) continue;
-      walkSchema(child, `${identity}/${escapeJsonPointer(name)}`, required.has(name)
-        ? { ...context, defaultPosture: "required" }
-        : context, descriptors);
+      walkSchema(
+        child,
+        `${identity}/${escapeJsonPointer(name)}`,
+        required.has(name) ? { ...context, defaultPosture: "required" } : context,
+        descriptors,
+      );
     }
   }
   if (isSchema(schema.items)) walkSchema(schema.items, `${identity}/*`, context, descriptors);
@@ -360,8 +432,13 @@ function authorityAnnotation(schema: TSchema): GlobalConfigAuthorityImpact | und
 
 function activationAnnotation(schema: TSchema): GlobalConfigActivation | undefined {
   const value = annotation(schema, "x-kiln-activation");
-  return value === "hot" || value === "next-turn" || value === "next-session"
-    || value === "reconcile" || value === "restart-required" ? value : undefined;
+  return value === "hot" ||
+    value === "next-turn" ||
+    value === "next-session" ||
+    value === "reconcile" ||
+    value === "restart-required"
+    ? value
+    : undefined;
 }
 
 function defaultPostureAnnotation(schema: TSchema): "omitted" | "required" | undefined {
@@ -370,7 +447,7 @@ function defaultPostureAnnotation(schema: TSchema): "omitted" | "required" | und
 }
 
 function schemaValueType(schema: TSchema): string {
-  if (Object.prototype.hasOwnProperty.call(schema, "const")) return "literal";
+  if (Object.hasOwn(schema, "const")) return "literal";
   if (Array.isArray(schema.anyOf)) return "union";
   return typeof schema.type === "string" ? schema.type : "semantic";
 }
@@ -382,9 +459,11 @@ function canonicalJson(value: unknown): string {
 function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortJson);
   if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.entries(value)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, member]) => [key, sortJson(member)]));
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, member]) => [key, sortJson(member)]),
+  );
 }
 
 function isSchema(value: unknown): value is TSchema {

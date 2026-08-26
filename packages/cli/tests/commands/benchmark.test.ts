@@ -14,7 +14,7 @@ import {
   loadPrivateFormalScreeningPackage,
   type PrivateFormalScreeningManifest,
   type PrivateFormalScreeningPackageFacts,
-} from "../../src/application/private-formal-screening-package.js";
+} from "../../src/application/benchmarks/formal-screening/package-loader.js";
 import type { ResolvedFormalScreeningConfig } from "../../src/config/formal-screening-config.js";
 
 vi.mock("../../src/application/benchmark-session-executor.js", async (importOriginal) => {
@@ -162,7 +162,7 @@ function createPrivateScreeningPackage(baseRoot: string): {
   readonly packagePath: string;
   readonly facts: PrivateFormalScreeningPackageFacts;
 } {
-  const packagePath = join(baseRoot, "private-formal-screening");
+  const packagePath = join(baseRoot, ".kiln-private", "private-formal-screening");
   mkdirSync(join(packagePath, "visible"), { recursive: true });
   mkdirSync(join(packagePath, "hidden"), { recursive: true });
   mkdirSync(join(packagePath, "oracle"), { recursive: true });
@@ -215,7 +215,7 @@ function createPrivateScreeningPackage(baseRoot: string): {
   writeFileSync(join(packagePath, "manifest.json"), `${JSON.stringify(manifest)}\n`, "utf8");
   return {
     packagePath,
-    facts: loadPrivateFormalScreeningPackage({ packagePath, repositoryRoot: REPOSITORY_ROOT }),
+    facts: loadPrivateFormalScreeningPackage({ packagePath, repositoryRoot: baseRoot }),
   };
 }
 
@@ -640,8 +640,12 @@ describe("benchmarkCommand", () => {
           budgetHash: "budget-fixed",
           toolProjectionHash: `projection-${String(arm)}`,
           verifierHash: "verifier-fixed",
+          sealedToolchainHash: sha256("dependency"),
           hiddenOracleExhaustive: true,
           lemmaCheckPassed: arm === "T",
+          sealedDafnyPassed: true,
+          contractDigestUnchanged: true,
+          trustPolicyClean: true,
           ...(arm === "T" ? { treatmentToolchainHash: sha256("dependency") } : {}),
           sessionSucceeded: true,
           toolCalls: arm === "T" ? [{ name: "read" }, { name: "lemma_check" }] : [{ name: "read" }],
@@ -650,6 +654,7 @@ describe("benchmarkCommand", () => {
             verifierVersion: "2",
             benchmarkCaseId: context.item.id,
             status: "passed",
+            infrastructureFailure: false,
             testDigest: sha256("hidden"),
             violations: [],
             tests: { exitCode: 0, passed: 1, failed: 0, timedOut: false },

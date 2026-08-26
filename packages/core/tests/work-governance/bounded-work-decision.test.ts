@@ -17,7 +17,7 @@ import { boundedWorkDigest } from "../../src/work-governance/bounded-work-conten
 import type { BoundedWorkCandidateIdentity } from "../../src/work-governance/bounded-work-candidate.js";
 import type { BoundedWorkCandidateEvidence } from "../../src/work-governance/bounded-work-evidence.js";
 import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
-import type { FormalVerificationOutcome } from "../../src/tools/domain/tool-result-metadata.js";
+import type { FormalVerificationOutcome } from "../../src/verification/formal/observation.js";
 
 const sha = (value: string): string => boundedWorkDigest(value);
 
@@ -138,7 +138,7 @@ const evidenceFor = (
       verifier: { name: "dafny", version: "4.11.0" },
       artifact: { contentDigest: sha("artifact") },
       subjects,
-      checks: [{ symbol, check: "correctness", outcome, ...(outcome === "proved" ? {} : { detail: "not proved" }) }],
+      checks: [{ symbol, check: "correctness", outcome, ...(outcome === "proved" ? {} : { detail: "not proved" }), durationMs: 0, resourceCount: 0 }],
     }),
   },
   recordedAt: "2026-08-20T12:01:00.000Z",

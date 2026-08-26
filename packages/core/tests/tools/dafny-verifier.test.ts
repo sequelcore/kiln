@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DafnyVerifier } from "../../src/tools/infrastructure/dafny-verifier.js";
 import type {
   CommandProcessRequest,
   CommandProcessResult,
   CommandProcessRunner,
   CommandProcessSink,
 } from "../../src/tools/infrastructure/command-process.js";
+import { DafnyVerifier } from "../../src/tools/infrastructure/verification/dafny/dafny-verifier.js";
 
 const CSV = [
   "TestResult.DisplayName,TestResult.Outcome,TestResult.Duration,TestResult.ResourceCount,RandomSeed",
@@ -88,11 +88,22 @@ describe("DafnyVerifier", () => {
   });
 
   it("reports failure when the executable could not run", async () => {
-    const run = await verifier(
-      new ScriptedRunner("", { error: new Error("spawn dafny ENOENT") }),
-    ).verify(request);
+    const run = await verifier(new ScriptedRunner("", { error: new Error("spawn dafny ENOENT") })).verify(request);
     expect(run.status).toBe("failed_to_run");
     expect(run.failure).toContain("ENOENT");
+  });
+
+  it("fails closed when the verifier is terminated by a signal", async () => {
+    const run = await verifier(new ScriptedRunner(JSON_LINES, { exitCode: 0, signal: "SIGKILL" })).verify(request);
+    expect(run.status).toBe("failed_to_run");
+    expect(run.log.efforts).toEqual([]);
+  });
+
+  it("fails closed when machine-readable output exceeds its bound", async () => {
+    const run = await verifier(new ScriptedRunner("x".repeat(2_000_001), { exitCode: 0 })).verify(request);
+    expect(run.status).toBe("failed_to_run");
+    expect(run.log.efforts).toEqual([]);
+    expect(run.failure).toContain("exceeded");
   });
 
   it("treats an unreadable log as failure, never as a passing run", async () => {
@@ -105,9 +116,7 @@ describe("DafnyVerifier", () => {
   });
 
   it("preserves stderr and exit code for a failing verification", async () => {
-    const run = await verifier(
-      new ScriptedRunner(JSON_LINES, { exitCode: 4 }, "boom"),
-    ).verify(request);
+    const run = await verifier(new ScriptedRunner(JSON_LINES, { exitCode: 4 }, "boom")).verify(request);
     expect(run.exitCode).toBe(4);
     expect(run.stderr).toBe("boom");
     expect(run.status).toBe("completed");

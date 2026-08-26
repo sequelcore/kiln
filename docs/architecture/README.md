@@ -219,6 +219,16 @@ Benchmark and recorded-evidence contracts.
   browser/computer capture evidence, auto-edit tracks, voice/audio, external
   editor handoff, and recorder security invariants.
 
+## Verification (`verification/`)
+
+- [`verification/README.md`](verification/README.md)
+  Canonical verification-provider boundary: engines, facts-only adapters,
+  candidate-bound observations, Assurance ownership, current Dafny/Oxlint
+  status, and the deliberate gate against premature generic abstraction.
+- [`verification/provider-boundary.md`](verification/provider-boundary.md)
+  Exact Gentle AI contract negotiation, candidate binding, failure semantics,
+  and the read-only boundary that keeps provider lifecycle out of Kiln.
+
 ## External (`external/`)
 
 - [`external/external-engagement.md`](external/external-engagement.md)

@@ -46,6 +46,7 @@
     "@types/react": "^19.0.0",
     "@vitest/coverage-v8": "^4.1.10",
     "better-sqlite3": "^12.6.2",
+    "oxlint": "1.80.0",
     "react": "^19.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

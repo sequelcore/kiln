@@ -2351,7 +2351,7 @@ function candidateBinding(goal: GoalRun, workItemId: string, attempt: WorkItemEx
           verifier: { name: "dafny", version: "4.11.0" },
           artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
           subjects,
-          checks: [{ symbol: "Test.Main", check: "correctness", outcome: "proved" }],
+          checks: [{ symbol: "Test.Main", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
         }),
       },
       recordedAt: attempt.startedAt,

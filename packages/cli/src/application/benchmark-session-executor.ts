@@ -97,24 +97,34 @@ import {
 import { createBenchmarkAuthorityWorkspaceLease } from "./benchmark-authority-workspace.js";
 import {
   verifyBackendBenchmarkLease,
-  type BackendVerifierCasePayload,
   type BackendBenchmarkVerification,
-} from "./benchmark-backend-verifier.js";
+} from "./benchmarks/formal-screening/backend-verifier.js";
 import {
   verifyFrontendBenchmarkLease,
   type FrontendBenchmarkVerification,
 } from "./benchmark-frontend-verifier.js";
 import {
   createLemmaCheckTool,
-} from "./lemma-check-tool.js";
-import type { LemmaCheckOutput } from "./lemma-check-tool.js";
-import type {
-  PrivateFormalScreeningCaseFacts,
-  PrivateFormalScreeningPackageFacts,
-} from "./private-formal-screening-package.js";
-import { createPrivateFormalScreeningWorkspaceLease } from "./private-formal-screening-package.js";
+  hasCleanLemmaTrustPolicy,
+  isLemmaQualificationInfrastructureFailure,
+  isPassedLemmaQualification,
+  qualifyLemmaCandidateSealed,
+} from "./verification/formal/lemma-check-tool.js";
+import type { LemmaCheckOutput } from "./verification/formal/lemma-check-tool.js";
+import type { PrivateFormalScreeningPackageFacts } from "./benchmarks/formal-screening/package-loader.js";
+import { createPrivateFormalScreeningWorkspaceLease } from "./benchmarks/formal-screening/package-loader.js";
 import type { ResolvedFormalScreeningConfig } from "../config/formal-screening-config.js";
-import { BACKEND_BENCHMARK_CASES } from "./benchmark-backend-cases.js";
+import {
+  computeFormalVerifierHash,
+  omitFormalVerificationCapability,
+  parseLemmaCheckObservation,
+  readFormalCandidateDigest,
+  readFormalContractDigest,
+  readLemmaCheckDependencyBinding,
+  resolveFormalScreeningCase,
+  toBackendVerifierCasePayload,
+  toPublicBackendVerifierCasePayload,
+} from "./benchmarks/formal-screening/screening-execution.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
 import { SqliteRuntimeToolActionClaimStore } from "./runtime-tool-action-claim-store.js";
@@ -133,14 +143,20 @@ export const FORMAL_SCREENING_BUDGET = Object.freeze({
 export const FORMAL_SCREENING_EXECUTION_ENVELOPE = {
   toolRounds: { max: FORMAL_SCREENING_BUDGET.toolRounds },
 } as const;
+const LEMMA_CHECK_TIMEOUT_MS = 30_000;
 const FORMAL_SCREENING_PROTOCOL_HASH = digestCanonicalValue({
   id: "kiln-formal-verification-screening-v2",
   candidatePath: "src/solution.ts",
   allowedChangedPaths: ["src/solution.ts"],
   arms: ["C0", "T"],
   toolRounds: FORMAL_SCREENING_BUDGET.toolRounds,
+  sealedQualification: {
+    arms: ["C0", "T"],
+    exposure: "host-only-post-hoc",
+    contractBinding: "exact-at-directive-lines",
+    timeoutMs: LEMMA_CHECK_TIMEOUT_MS,
+  },
 });
-const LEMMA_CHECK_TIMEOUT_MS = 30_000;
 const WRITE_BENCHMARK_PROFILE_IDS = new Set([
   "kiln-model-roster-backend-write",
   "kiln-model-roster-frontend-render",
@@ -215,7 +231,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const isFormalScreening = context.profile.id === "kiln-formal-verification-pilot";
     const recordedRepeatIndex = isFormalScreening ? context.runIndex : context.repeatIndex;
     const formalScreeningCase = isFormalScreening
-      ? resolveFormalScreeningCase(options, context)
+      ? resolveFormalScreeningCase(options.formalScreeningPackage, options.formalScreeningConfig, context)
       : undefined;
     const accountOverrideCandidates = resolveBenchmarkAccountOverrideCandidates(options.flags, context);
     const scheduledAccountOverrideId = accountOverrideCandidates[0];
@@ -252,6 +268,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createBenchmarkAuthorityWorkspaceLease()
       : undefined;
     const cwd = writeLease?.rootPath ?? benchmarkWorkspace.rootPath;
+    const initialFormalContractDigest = isFormalScreening
+      ? readFormalContractDigest(cwd)
+      : undefined;
     const authorityStateRoot = authorityLease?.rootPath ?? projectStateBinding.runtimePath;
     // Benchmark transcript/admission evidence belongs to the run artifact owner,
     // never to a synthetic fixture or a disposable workspace lease. The command
@@ -701,6 +720,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
     });
+    const modelExecutionDurationMs = Date.now() - startedAt;
     if (workspaceFixtureHash && !isFormalScreening) {
       verifyBenchmarkWorkspaceUnchanged(repositoryRoot, benchmarkWorkspace, workspaceFixtureHash);
     }
@@ -755,11 +775,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const lemmaCheckObservations = isFormalScreening
       ? capturedLemmaCheckObservations.flatMap(parseLemmaCheckObservation)
       : [];
-    const finalSourceHash = observedVerification?.changes.changed.find(
+    const changedFinalSourceHash = observedVerification?.changes.changed.find(
       (entry) => entry.path === "src/solution.ts",
     )?.afterHash;
+    const finalSourceHash = changedFinalSourceHash ?? readFormalCandidateDigest(cwd);
     const passedLemmaCheckObservations = lemmaCheckObservations.filter(
-      (observation) => isPassedLemmaCheckObservation(observation, finalSourceHash),
+      (observation) => isPassedLemmaQualification(observation, finalSourceHash),
     );
     const treatmentToolchainHashes = new Set(
       passedLemmaCheckObservations.flatMap(readLemmaCheckDependencyBinding),
@@ -771,11 +792,42 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const treatmentToolchainHash = lemmaCheckPassed
       ? [...treatmentToolchainHashes][0]
       : undefined;
+    const sealedQualificationStartedAt = Date.now();
+    const sealedQualificationObservation = isFormalScreening && formalScreeningCase && options.formalScreeningConfig
+      ? await qualifyLemmaCandidateSealed(cwd, {
+          requiredFunctionNames: formalScreeningCase.requiredFunctionNames,
+          toolchain: options.formalScreeningConfig,
+          timeoutMs: LEMMA_CHECK_TIMEOUT_MS,
+        })
+      : undefined;
+    const sealedQualificationDurationMs = sealedQualificationObservation === undefined
+      ? undefined
+      : Date.now() - sealedQualificationStartedAt;
+    const sealedDafnyPassed = sealedQualificationObservation !== undefined
+      && isPassedLemmaQualification(sealedQualificationObservation, finalSourceHash);
+    const sealedToolchainHash = sealedQualificationObservation === undefined
+      ? undefined
+      : readLemmaCheckDependencyBinding(sealedQualificationObservation)[0];
+    const finalFormalContractDigest = isFormalScreening
+      ? readFormalContractDigest(cwd)
+      : undefined;
+    const contractDigestUnchanged = initialFormalContractDigest !== undefined
+      && finalFormalContractDigest === initialFormalContractDigest;
+    const trustPolicyClean = sealedQualificationObservation !== undefined
+      && hasCleanLemmaTrustPolicy(sealedQualificationObservation);
+    const sealedQualificationInfrastructureValid = sealedQualificationObservation !== undefined
+      && !isLemmaQualificationInfrastructureFailure(sealedQualificationObservation)
+      && sealedToolchainHash !== undefined;
+    const hiddenVerificationInfrastructureValid = !isFormalScreening || (
+      observedVerification !== undefined
+      && (!("infrastructureFailure" in observedVerification)
+        || observedVerification.infrastructureFailure === false)
+    );
     const durationMs = Date.now() - startedAt;
     const budgetExceeded = isFormalScreening && (
       result.toolCallCount > FORMAL_SCREENING_BUDGET.maxToolCalls
       || result.inputTokens + result.outputTokens > FORMAL_SCREENING_BUDGET.maxTotalTokens
-      || durationMs > FORMAL_SCREENING_BUDGET.wallClockMs
+      || modelExecutionDurationMs > FORMAL_SCREENING_BUDGET.wallClockMs
     );
     const formalInfrastructureValid = !isFormalScreening || (
       !formalWallClockTimedOut
@@ -783,6 +835,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       && accountFallbackCount === 0
       && !formalExecutionIdentityMismatch
       && result.successfulProviderId !== undefined
+      && hiddenVerificationInfrastructureValid
+      && sealedQualificationInfrastructureValid
     );
     const formalVerifierHash = formalScreeningCase
       ? computeFormalVerifierHash(formalScreeningCase)
@@ -802,6 +856,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           ? { status: "invalid", reason: "account-fallback" }
           : formalExecutionIdentityMismatch || executionIdentityMismatch
             ? { status: "invalid", reason: "execution-identity-mismatch" }
+            : isFormalScreening && !hiddenVerificationInfrastructureValid
+              ? { status: "invalid", reason: "hidden-verifier-infrastructure" }
+            : isFormalScreening && !sealedQualificationInfrastructureValid
+              ? { status: "invalid", reason: "sealed-qualification-infrastructure" }
             : formalInfrastructureValid && result.successfulProviderId
              ? { status: "valid" }
              : { status: "invalid", reason: "route-unavailable" },
@@ -830,6 +888,13 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           formalScreeningArm,
           lemmaCheckObservations,
           lemmaCheckPassed,
+          sealedQualificationObservation,
+          modelExecutionDurationMs,
+          sealedQualificationDurationMs,
+          sealedDafnyPassed,
+          sealedToolchainHash,
+          contractDigestUnchanged,
+          trustPolicyClean,
           formalScreeningBudget: FORMAL_SCREENING_BUDGET,
           budgetHash: digestCanonicalValue(FORMAL_SCREENING_BUDGET),
           toolProjectionHash: digestCanonicalValue(
@@ -924,27 +989,6 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
-function resolveFormalScreeningCase(
-  options: BenchmarkSessionExecutorOptions,
-  context: BenchmarkItemExecutionContext,
-): PrivateFormalScreeningCaseFacts {
-  if (!options.formalScreeningPackage || !options.formalScreeningConfig) {
-    throw new Error("Formal screening requires formalScreeningPackage and formalScreeningConfig.");
-  }
-  const screeningCase = options.formalScreeningPackage.cases.find((candidate) => candidate.id === context.item.id);
-  if (!screeningCase) {
-    throw new Error(`Formal screening case '${context.item.id}' is not present in the private package.`);
-  }
-  const arm = context.item.metadata?.formalScreeningArm;
-  if (arm !== "C0" && arm !== "T") {
-    throw new Error("Formal screening items require an exact C0 or T formalScreeningArm.");
-  }
-  if (arm !== screeningCase.arm) {
-    throw new Error(`Formal screening arm '${arm}' does not match private case arm '${screeningCase.arm}'.`);
-  }
-  return screeningCase;
-}
-
 function resolveBenchmarkAccountOverrideCandidates(
   flags: BenchmarkSessionExecutorFlags | undefined,
   context: BenchmarkItemExecutionContext,
@@ -968,93 +1012,6 @@ function resolveBenchmarkAccountOverrideCandidates(
   return accounts.map((_, offset) => accounts[(preferredIndex + offset) % accounts.length]!);
 }
 
-function omitFormalVerificationCapability<T extends { readonly formalVerify?: unknown }>(
-  options: T,
-): Omit<T, "formalVerify"> {
-  const { formalVerify: _formalVerify, ...withoutFormalVerification } = options;
-  return withoutFormalVerification;
-}
-
-function toBackendVerifierCasePayload(screeningCase: PrivateFormalScreeningCaseFacts): BackendVerifierCasePayload {
-  return {
-    id: screeningCase.id,
-    hiddenTestSource: screeningCase.hiddenTestSource,
-    hiddenTestDigest: screeningCase.hiddenTestDigest,
-    hiddenTestCount: screeningCase.hiddenTestCount,
-  };
-}
-
-function toPublicBackendVerifierCasePayload(value: unknown): BackendVerifierCasePayload {
-  if (typeof value !== "string") {
-    throw new Error("Backend benchmark verification requires a benchmark case id.");
-  }
-  const benchmarkCase = BACKEND_BENCHMARK_CASES[value as keyof typeof BACKEND_BENCHMARK_CASES];
-  if (!benchmarkCase || benchmarkCase.id !== value) {
-    throw new Error(`Backend benchmark case '${value}' is not admitted.`);
-  }
-  return {
-    id: benchmarkCase.id,
-    hiddenTestSource: benchmarkCase.hiddenTestSource,
-    hiddenTestDigest: benchmarkCase.testDigest,
-    hiddenTestCount: benchmarkCase.testCount,
-  };
-}
-
-function computeFormalVerifierHash(screeningCase: PrivateFormalScreeningCaseFacts): string {
-  return digestCanonicalValue({
-    verifierId: "kiln.backend-write.v2",
-    verifierVersion: "2",
-    benchmarkCaseId: screeningCase.pairId,
-    testDigest: screeningCase.hiddenTestDigest,
-    hiddenTestCount: screeningCase.hiddenTestCount,
-    allowedChangedPaths: screeningCase.allowedChangedPaths,
-  });
-}
-
-function parseLemmaCheckObservation(observation: unknown): readonly [Record<string, unknown>] | readonly [] {
-  if (!isRecord(observation) || typeof observation.kind !== "string" || typeof observation.status !== "string"
-    || typeof observation.stage !== "string" || observation.semanticEquivalence !== "unresolved"
-    || observation.benchmarkReady !== false || !isRecord(observation.digests)) {
-    return [];
-  }
-  return [observation];
-}
-
-function isPassedLemmaCheckObservation(
-  observation: Record<string, unknown>,
-  finalSourceHash: string | undefined,
-): boolean {
-  const digests = isRecord(observation.digests) ? observation.digests : undefined;
-  const verification = isRecord(observation.verification) ? observation.verification : undefined;
-  const correctnessChecks = verification && isRecord(verification.correctnessChecks)
-    ? verification.correctnessChecks
-    : undefined;
-  return observation.kind === "pipeline_passed"
-    && observation.status === "passed"
-    && observation.stage === "complete"
-    && observation.policyEligible === true
-    && typeof finalSourceHash === "string"
-    && digests?.source === finalSourceHash
-    && isSha256Digest(digests.generated)
-    && isSha256Digest(digests.lemmaScriptExecutable)
-    && isSha256Digest(digests.dafnyExecutable)
-    && isSha256Digest(digests.dependencyBinding)
-    && typeof correctnessChecks?.total === "number"
-    && correctnessChecks.total > 0
-    && correctnessChecks.passed === correctnessChecks.total
-    && correctnessChecks.failed === 0
-    && correctnessChecks.inconclusive === 0;
-}
-
-function readLemmaCheckDependencyBinding(observation: Record<string, unknown>): readonly string[] {
-  const digests = isRecord(observation.digests) ? observation.digests : undefined;
-  return isSha256Digest(digests?.dependencyBinding) ? [digests.dependencyBinding] : [];
-}
-
-function isSha256Digest(value: unknown): value is string {
-  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
-}
-
 const OPERATOR_SESSION_ROUTING_FAILURE_CODES = new Set([
   "safety-ineligible",
   "health-unhealthy",
@@ -1069,10 +1026,6 @@ const OPERATOR_SESSION_ROUTING_FAILURE_CODES = new Set([
 function readOperatorSessionRoutingFailureCode(error: Error): string | undefined {
   const code = (error as Error & { readonly routingFailureCode?: unknown }).routingFailureCode;
   return typeof code === "string" && OPERATOR_SESSION_ROUTING_FAILURE_CODES.has(code) ? code : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function digestCanonicalValue(value: unknown): string {

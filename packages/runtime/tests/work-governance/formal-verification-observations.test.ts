@@ -25,7 +25,7 @@ function metadata(version = "4.11.0") {
     verifier: { name: "dafny", version },
     artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
     subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
-    checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+    checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
   });
 }
 
@@ -84,7 +84,7 @@ describe("runtime formal-verification observation collection", () => {
       toolCallId: "formal-1",
       executionScope: scope,
       metadata: {
-        schema: "kiln.formal-verification-observation/v2",
+        schema: "kiln.formal-verification-observation/v3",
         establishes: [],
       },
     });

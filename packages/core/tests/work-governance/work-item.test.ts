@@ -768,7 +768,7 @@ function assuranceFixture(overrides: AssuranceEvaluationOverrides = {}) {
         verifier: { name: "dafny", version: "4.11.0" },
         artifact: { contentDigest: digest("a") },
         subjects: [{ path: "src/Main.dfy", contentDigest: boundedWorkDigest("subject") }],
-        checks: [{ symbol: "Check.Main", check: "correctness", outcome: "proved" }],
+        checks: [{ symbol: "Check.Main", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
       }),
     },
     recordedAt: "2026-07-01T00:00:30.000Z",

@@ -33,4 +33,6 @@ Public claims require the evidence gates defined there.
 ## Tool Evaluations
 
 - [Formal Verification Pilot 2026](formal-verification-pilot-2026.md)
+- [Formal Verification Screening Retrospective 2026](formal-verification-screening-2026.md)
 - [LemmaScript Qualification Prepilot 2026](lemma-script-qualification-prepilot-2026.md)
+- [Static Analysis Calibration 2026](static-analysis-calibration-2026.md)

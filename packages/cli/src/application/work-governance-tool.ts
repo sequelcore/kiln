@@ -95,7 +95,7 @@ import {
   readBoundedWorkContract,
   readBoundedWorkContractAuthority,
 } from "./bounded-work-contract-tool-input.js";
-import { readFormalVerificationFinishTransport } from "./formal-verification-finish-transport.js";
+import { readFormalVerificationFinishTransport } from "./verification/formal/formal-verification-finish-transport.js";
 
 const TRIGGERS: readonly KilnWorkGovernanceTrigger[] = [
   "architecture",

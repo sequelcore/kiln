@@ -5,7 +5,7 @@ import {
   BACKEND_VERIFIER_IMAGE,
   verifyBackendBenchmarkLease,
   type BackendVerifierRunner,
-} from "../../src/application/benchmark-backend-verifier.js";
+} from "../../src/application/benchmarks/formal-screening/backend-verifier.js";
 import { BACKEND_BENCHMARK_CASES } from "../../src/application/benchmark-backend-cases.js";
 import { createBenchmarkWriteWorkspaceLease } from "../../src/application/benchmark-write-workspace.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
@@ -36,6 +36,7 @@ describe("verifyBackendBenchmarkLease", () => {
 
       expect(result).toMatchObject({
         status: "passed",
+        infrastructureFailure: false,
         benchmarkCaseId: CASE_ID,
         testDigest: BACKEND_BENCHMARK_CASES[CASE_ID].testDigest,
         runner: {
@@ -90,7 +91,13 @@ describe("verifyBackendBenchmarkLease", () => {
     const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
     writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
     const runner: BackendVerifierRunner = {
-      run: vi.fn(async () => ({ exitCode: 1, stdout: "TAP version 13\n# pass 3\n# fail 1\n", stderr: "", timedOut: true })),
+      run: vi.fn(async () => ({
+        exitCode: 1,
+        stdout: "TAP version 13\n# pass 3\n# fail 1\n",
+        stderr: "",
+        timedOut: true,
+        infrastructureFailure: false,
+      })),
       cleanup: vi.fn(async () => undefined),
     };
 
@@ -103,6 +110,36 @@ describe("verifyBackendBenchmarkLease", () => {
       })).resolves.toMatchObject({
         status: "failed",
         tests: { passed: 3, failed: 1, timedOut: true },
+      });
+    } finally {
+      lease.cleanup();
+    }
+  });
+
+  it("reports an unavailable container runtime as infrastructure failure", async () => {
+    const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
+    writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
+    const runner: BackendVerifierRunner = {
+      run: vi.fn(async () => ({
+        exitCode: 1,
+        stdout: "",
+        stderr: "failed to connect to the docker API",
+        timedOut: false,
+        infrastructureFailure: true,
+      })),
+      cleanup: vi.fn(async () => undefined),
+    };
+
+    try {
+      await expect(verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCase: CASE_PAYLOAD,
+        allowedChangedPaths: LEGACY_ALLOWED_CHANGED_PATHS,
+      })).resolves.toMatchObject({
+        status: "failed",
+        infrastructureFailure: true,
+        tests: { passed: 0, failed: 0, timedOut: false },
       });
     } finally {
       lease.cleanup();
@@ -144,6 +181,7 @@ function passingRunner(): BackendVerifierRunner {
       stdout: "TAP version 13\n# pass 4\n# fail 0\n",
       stderr: "",
       timedOut: false,
+      infrastructureFailure: false,
     })),
     cleanup: vi.fn(async () => undefined),
   };

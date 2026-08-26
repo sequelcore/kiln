@@ -1,4 +1,4 @@
-import type { FormalVerificationToolResultMetadata } from "./tool-result-metadata.js";
+import type { FormalVerificationObservation } from "../../verification/formal/observation.js";
 
 /**
  * Internal Runtime authority transport for the registered work-item finish
@@ -18,7 +18,7 @@ export interface FormalVerificationFinishExecutionScope {
 }
 
 export interface FormalVerificationFinishTransportObservation {
-  readonly metadata: FormalVerificationToolResultMetadata;
+  readonly metadata: FormalVerificationObservation;
   readonly toolCallScopeId: string;
   readonly toolCallId: string;
   readonly executionScope: FormalVerificationFinishExecutionScope;

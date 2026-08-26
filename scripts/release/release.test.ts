@@ -1,22 +1,21 @@
-import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertCompleteBundle,
-  assertTrustedPublishingEnvironment,
-  buildWorkspaceOrder,
   assertPackedLegalFiles,
+  assertTrustedPublishingEnvironment,
   buildReleasePlan,
+  buildWorkspaceOrder,
   calculateIntegrity,
   inferReleaseIdentity,
+  isCleanSmokeTermination,
+  type PackageRecord,
   parseReleaseRef,
   prepareStaging,
   selectInstallTarballs,
-  isCleanSmokeTermination,
   validateRegistryState,
-  type PackageRecord,
-  type RegistryPackageState,
 } from "./release.js";
 
 describe("trusted publishing environment", () => {
@@ -29,19 +28,12 @@ describe("trusted publishing environment", () => {
   it("accepts only GitHub Actions with OIDC and without registry tokens", () => {
     expect(() => assertTrustedPublishingEnvironment(oidc)).not.toThrow();
     expect(() => assertTrustedPublishingEnvironment({})).toThrow(/GitHub Actions/);
-    expect(() =>
-      assertTrustedPublishingEnvironment({ GITHUB_ACTIONS: "true" }),
-    ).toThrow(/OIDC/);
+    expect(() => assertTrustedPublishingEnvironment({ GITHUB_ACTIONS: "true" })).toThrow(/OIDC/);
   });
 
-  it.each(["NODE_AUTH_TOKEN", "NPM_TOKEN"])(
-    "rejects token-based publication through %s",
-    (name) => {
-      expect(() =>
-        assertTrustedPublishingEnvironment({ ...oidc, [name]: "forbidden" }),
-      ).toThrow(/Token-based/);
-    },
-  );
+  it.each(["NODE_AUTH_TOKEN", "NPM_TOKEN"])("rejects token-based publication through %s", (name) => {
+    expect(() => assertTrustedPublishingEnvironment({ ...oidc, [name]: "forbidden" })).toThrow(/Token-based/);
+  });
 });
 
 const packageRecord = (
@@ -87,17 +79,10 @@ describe("inferReleaseIdentity", () => {
   });
 
   it("fails closed for an empty or split public cohort", () => {
-    expect(() =>
-      inferReleaseIdentity([
-        packageRecord("@kilnai/private", {}, { private: true }),
-      ]),
-    ).toThrow(/empty/);
+    expect(() => inferReleaseIdentity([packageRecord("@kilnai/private", {}, { private: true })])).toThrow(/empty/);
 
     expect(() =>
-      inferReleaseIdentity([
-        packageRecord("@kilnai/core"),
-        packageRecord("@kilnai/cli", {}, { version: "2.1.0" }),
-      ]),
+      inferReleaseIdentity([packageRecord("@kilnai/core"), packageRecord("@kilnai/cli", {}, { version: "2.1.0" })]),
     ).toThrow(/split cohort/);
   });
 });
@@ -136,10 +121,7 @@ describe("buildReleasePlan", () => {
   it("fails closed for a split cohort, missing internal dependency, or cycle", () => {
     expect(() =>
       buildReleasePlan(
-        [
-          packageRecord("@kilnai/a"),
-          packageRecord("@kilnai/b", {}, { version: "2.1.0" }),
-        ],
+        [packageRecord("@kilnai/a"), packageRecord("@kilnai/b", {}, { version: "2.1.0" })],
         parseReleaseRef("v2.2.0-beta.1"),
       ),
     ).toThrow(/cohort/);
@@ -173,10 +155,7 @@ describe("buildReleasePlan", () => {
     for (const section of ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"] as const) {
       expect(() =>
         buildReleasePlan(
-          [
-            packageRecord("@kilnai/a", {}, { [section]: { "@kilnai/b": "^2.2.0" } }),
-            packageRecord("@kilnai/b"),
-          ],
+          [packageRecord("@kilnai/a", {}, { [section]: { "@kilnai/b": "^2.2.0" } }), packageRecord("@kilnai/b")],
           parseReleaseRef("v2.2.0-beta.1"),
         ),
       ).toThrow(new RegExp(section));
@@ -185,10 +164,7 @@ describe("buildReleasePlan", () => {
 
   it("keeps the static GUI tarball free of runtime dependencies", () => {
     expect(() =>
-      buildReleasePlan(
-        [packageRecord("@kilnai/gui", { react: "^19.0.0" })],
-        parseReleaseRef("v2.2.0-beta.1"),
-      ),
+      buildReleasePlan([packageRecord("@kilnai/gui", { react: "^19.0.0" })], parseReleaseRef("v2.2.0-beta.1")),
     ).toThrow(/static.*dependencies/i);
   });
 
@@ -205,17 +181,29 @@ describe("buildReleasePlan", () => {
 describe("buildWorkspaceOrder", () => {
   it("orders public and private builds through runtime and dev dependency edges", () => {
     const records = [
-      packageRecord("@kilnai/private-surface", { "@kilnai/react": "2.2.0-beta.1" }, {
-        private: true,
-        scripts: { build: "vite build" },
-      }),
-      packageRecord("@kilnai/react", {}, {
-        scripts: { build: "tsc" },
-        devDependencies: { "@kilnai/gateway-contracts": "2.2.0-beta.1" },
-      }),
-      packageRecord("@kilnai/gateway-contracts", {}, {
-        scripts: { build: "tsc" },
-      }),
+      packageRecord(
+        "@kilnai/private-surface",
+        { "@kilnai/react": "2.2.0-beta.1" },
+        {
+          private: true,
+          scripts: { build: "vite build" },
+        },
+      ),
+      packageRecord(
+        "@kilnai/react",
+        {},
+        {
+          scripts: { build: "tsc" },
+          devDependencies: { "@kilnai/gateway-contracts": "2.2.0-beta.1" },
+        },
+      ),
+      packageRecord(
+        "@kilnai/gateway-contracts",
+        {},
+        {
+          scripts: { build: "tsc" },
+        },
+      ),
     ];
 
     expect(buildWorkspaceOrder(records).map(({ name }) => name)).toEqual([
@@ -313,10 +301,7 @@ describe("release bundle", () => {
       "sha512-lOlQ7aSocOZWXUThS5DxbAo4HNaTBFKcgfa9QIrxPFFVFrhBfgBfwxCT+qSxPekkNkVt0lKJqyhnw6V2+pSESQ==",
     );
 
-    const plan = buildReleasePlan(
-      [packageRecord("@kilnai/core")],
-      parseReleaseRef("v2.2.0-beta.1"),
-    );
+    const plan = buildReleasePlan([packageRecord("@kilnai/core")], parseReleaseRef("v2.2.0-beta.1"));
     expect(() =>
       assertCompleteBundle(plan, [
         {
@@ -332,10 +317,12 @@ describe("release bundle", () => {
 
   it("requires LICENSE and NOTICE in every tarball and keeps platform third-party notices", () => {
     expect(() =>
-      assertPackedLegalFiles(
-        { name: "@kilnai/core", directory: "core", version: "2.2.0-beta.1" },
-        ["dist/index.js", "package.json", "LICENSE", "NOTICE"],
-      ),
+      assertPackedLegalFiles({ name: "@kilnai/core", directory: "core", version: "2.2.0-beta.1" }, [
+        "dist/index.js",
+        "package.json",
+        "LICENSE",
+        "NOTICE",
+      ]),
     ).not.toThrow();
     expect(() =>
       assertPackedLegalFiles(
@@ -350,11 +337,30 @@ describe("release bundle", () => {
       ),
     ).toThrow(/THIRD_PARTY_NOTICES/);
     expect(() =>
-      assertPackedLegalFiles(
-        { name: "@kilnai/core", directory: "core", version: "2.2.0-beta.1" },
-        ["dist/index.js", "package.json", "LICENSE"],
-      ),
+      assertPackedLegalFiles({ name: "@kilnai/core", directory: "core", version: "2.2.0-beta.1" }, [
+        "dist/index.js",
+        "package.json",
+        "LICENSE",
+      ]),
     ).toThrow(/NOTICE/);
+    expect(() =>
+      assertPackedLegalFiles({ name: "@kilnai/core", directory: "core", version: "2.2.0-beta.1" }, [
+        "dist/index.js",
+        "package.json",
+        "LICENSE",
+        "NOTICE",
+        ".kiln-private/case.json",
+      ]),
+    ).toThrow(/private workflow material/);
+    expect(() =>
+      assertPackedLegalFiles({ name: "@kilnai/core", directory: "core", version: "2.2.0-beta.1" }, [
+        "dist/index.js",
+        "package.json",
+        "LICENSE",
+        "NOTICE",
+        "HANDOFF-formal-verification.md",
+      ]),
+    ).toThrow(/private workflow material/);
   });
 
   it("installs the full portable cohort plus only the host-compatible platform tarball", () => {

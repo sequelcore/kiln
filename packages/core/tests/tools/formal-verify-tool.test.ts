@@ -8,16 +8,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createFormalVerifyTool,
   FORMAL_VERIFY_CAPABILITY,
-} from "../../src/tools/infrastructure/formal-verify-tool.js";
+} from "../../src/tools/infrastructure/verification/dafny/formal-verify-tool.js";
 import { TOOL_SCHEMAS } from "../../src/tools/domain/tool.js";
 import { createDefaultBuiltinTools } from "../../src/tools/default-tool-surface.js";
 import { BUILTIN_TOOL_EFFECT_ENVELOPES } from "../../src/tools/domain/tool-effect-envelopes.js";
 import {
-  FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
   isFormalVerificationToolResultMetadata,
   parseFormalVerificationToolResultMetadata,
   type FormalVerificationToolResultMetadata,
 } from "../../src/tools/domain/tool-result-metadata.js";
+import { FORMAL_VERIFICATION_OBSERVATION_SCHEMA } from "../../src/verification/formal/observation.js";
 import type {
   CommandProcessRequest,
   CommandProcessResult,
@@ -140,7 +140,7 @@ describe("formal_verify execution", () => {
     ).execute(call(filePath), makeSandbox(executionDir!));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("ENOENT");
-  });
+  }, 15_000);
 
   it("does not claim acceptance when a completed run discharged nothing", async () => {
     const filePath = await executionFile();
@@ -214,7 +214,7 @@ describe("formal_verify observation metadata", () => {
       verifier: { name: "dafny", version: "4.11.0" },
       artifact: { contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` },
       subjects: [{ path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` }],
-      checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
+      checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved", durationMs: 23, resourceCount: 26_991 }],
       establishes: [],
     });
     expect(metadata).not.toHaveProperty("completedAt");
@@ -559,7 +559,7 @@ describe("formal_verify observation parser", () => {
     verifier: { name: "dafny", version: "4.11.0" },
     artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
     subjects: [{ path: "policy.dfy", contentDigest: `sha256:${"b".repeat(64)}` }],
-    checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
+    checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved", durationMs: 23, resourceCount: 26_991 }],
     establishes: [],
   });
 
@@ -653,8 +653,8 @@ describe("formal_verify observation parser", () => {
     const value = {
       ...valid(),
       checks: [
-        { symbol: "zeta", check: "correctness" as const, outcome: "proved" as const },
-        { symbol: "admitPath", check: "correctness" as const, outcome: "proved" as const },
+        { symbol: "zeta", check: "correctness" as const, outcome: "proved" as const, durationMs: 1, resourceCount: 1 },
+        { symbol: "admitPath", check: "correctness" as const, outcome: "proved" as const, durationMs: 1, resourceCount: 1 },
       ],
     };
     expect(isFormalVerificationToolResultMetadata(value)).toBe(false);

@@ -1,24 +1,23 @@
-import {
-  MemoryArtifactResourceStore,
-  type DefaultBuiltinToolRegistryOptions,
-} from "@kilnai/core";
 import { join } from "node:path";
 import type { AuthorityDescriptor, InvocationAdmission } from "@kilnai/core";
+import { type DefaultBuiltinToolRegistryOptions, MemoryArtifactResourceStore } from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
-import type { KilnAppConfig } from "../config.js";
-import {
-  loadConfiguredWebToolSurfaceOptions,
-  type LoadConfiguredWebToolSurfaceOptionsInput,
-} from "./web-tools-config.js";
-import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
-import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
-import { readGlobalConfig, type KilnGlobalConfig } from "./global-config.js";
-import { resolveFormalVerificationConfiguration } from "./formal-verification-config.js";
-import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
-import { digestKilnPermissionPolicy } from "./model-facing-permission-policy.js";
-import type { KilnPermissionPolicy } from "../wrapper/session.js";
-import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { resolveProjectStateBinding } from "../application/project-state-root.js";
+import type { KilnAppConfig } from "../config.js";
+import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
+import type { KilnPermissionPolicy } from "../wrapper/session.js";
+import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
+import { resolveFormalVerificationConfiguration } from "./verification/dafny.js";
+import { type KilnGlobalConfig, readGlobalConfig } from "./global-config.js";
+import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
+import { digestKilnPermissionPolicy } from "./model-facing-permission-policy.js";
+import { resolveStaticAnalysisConfiguration } from "./verification/oxlint.js";
+import { resolveGentleAiConfiguration } from "./verification/gentle-ai.js";
+import {
+  type LoadConfiguredWebToolSurfaceOptionsInput,
+  loadConfiguredWebToolSurfaceOptions,
+} from "./web-tools-config.js";
 
 export const PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS = [
   "read",
@@ -73,8 +72,12 @@ export function observeFormalVerificationCapability(
 export interface LoadConfiguredBuiltinToolSurfaceOptionsInput extends LoadConfiguredWebToolSurfaceOptionsInput {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly runDafnyVersion?: (executable: string) => string;
+  readonly runOxlintVersion?: (executable: string) => string;
   readonly platform?: NodeJS.Platform;
   readonly discoveredPaths?: readonly string[];
+  readonly discoveredOxlintPaths?: readonly string[];
+  readonly runGentleAiVersion?: (executable: string) => string;
+  readonly discoveredGentleAiPaths?: readonly string[];
 }
 
 /**
@@ -82,9 +85,7 @@ export interface LoadConfiguredBuiltinToolSurfaceOptionsInput extends LoadConfig
  * The adapter has no approval channel: conditional decisions therefore block
  * at the Core bridge until a future caller supplies an explicit grant.
  */
-export function createConfiguredInvocationAdmission(
-  policy: KilnPermissionPolicy,
-): InvocationAdmission {
+export function createConfiguredInvocationAdmission(policy: KilnPermissionPolicy): InvocationAdmission {
   const evaluator = createPermissionEvaluator(policy);
   const admission: InvocationAdmission = {
     authorize({ toolName, toolInput, resolvedEffect }) {
@@ -97,9 +98,10 @@ export function createConfiguredInvocationAdmission(
       if (filePath !== undefined) {
         decisions.push(evaluator.evaluateFile(filePath));
       }
-      const destination = resolvedEffect.dataEgress === "none"
-        ? undefined
-        : firstString(toolInput, ["destination", "dataDestination", "url", "endpoint", "uri"]);
+      const destination =
+        resolvedEffect.dataEgress === "none"
+          ? undefined
+          : firstString(toolInput, ["destination", "dataDestination", "url", "endpoint", "uri"]);
       if (destination !== undefined) {
         decisions.push(evaluator.evaluateDestination(destination));
       }
@@ -153,7 +155,8 @@ function combinePermissionDecisions(
       level: 4,
       allowed: false,
       requiresApproval: false,
-      reason: "Data firewall requires redaction; invocation is denied until a preventive redactor owns this destination.",
+      reason:
+        "Data firewall requires redaction; invocation is denied until a preventive redactor owns this destination.",
     };
   }
   if (approval.length > 0) {
@@ -189,6 +192,19 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(options.platform === undefined ? {} : { platform: options.platform }),
     ...(options.discoveredPaths === undefined ? {} : { discoveredPaths: options.discoveredPaths }),
   });
+  const staticAnalysis = resolveStaticAnalysisConfiguration({
+    globalConfig,
+    ...(options.runOxlintVersion === undefined ? {} : { runVersion: options.runOxlintVersion }),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    ...(options.discoveredOxlintPaths === undefined ? {} : { discoveredPaths: options.discoveredOxlintPaths }),
+  });
+  const gentleReview = resolveGentleAiConfiguration({
+    globalConfig,
+    repositoryRoot: resolveProjectRoot({ explicitPath: projectPath }).rootPath,
+    ...(options.runGentleAiVersion === undefined ? {} : { runVersion: options.runGentleAiVersion }),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    ...(options.discoveredGentleAiPaths === undefined ? {} : { discoveredPaths: options.discoveredGentleAiPaths }),
+  });
   const [webOptions, interactiveOptions] = await Promise.all([
     loadConfiguredWebToolSurfaceOptions(appConfig, projectPath, {
       ...(options.memoryAuthority === undefined ? {} : { memoryAuthority: options.memoryAuthority }),
@@ -208,10 +224,10 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
   ];
   return {
     ...merged,
-    ...(invocationPolicy
-      ? { invocationAdmission: createConfiguredInvocationAdmission(invocationPolicy) }
-      : {}),
+    ...(invocationPolicy ? { invocationAdmission: createConfiguredInvocationAdmission(invocationPolicy) } : {}),
     ...(formalVerification.options === undefined ? {} : { formalVerify: formalVerification.options }),
+    ...(staticAnalysis.options === undefined ? {} : { staticAnalyze: staticAnalysis.options }),
+    ...(gentleReview.options === undefined ? {} : { gentleReview: gentleReview.options }),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,
   };
@@ -222,18 +238,13 @@ export function withProgressiveRuntimeToolProjection(
   profile: ProgressiveRuntimeToolProfile,
   additionalAlwaysOnTools: readonly string[] = [],
 ): DefaultBuiltinToolRegistryOptions {
-  const profileTools = profile === "read-only"
-    ? PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS
-    : PROGRESSIVE_RUNTIME_EXECUTION_TOOLS;
+  const profileTools =
+    profile === "read-only" ? PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS : PROGRESSIVE_RUNTIME_EXECUTION_TOOLS;
   return {
     ...options,
     toolProjection: {
       mode: "deferred",
-      alwaysOnTools: [
-        ...(options.toolProjection?.alwaysOnTools ?? []),
-        ...profileTools,
-        ...additionalAlwaysOnTools,
-      ],
+      alwaysOnTools: [...(options.toolProjection?.alwaysOnTools ?? []), ...profileTools, ...additionalAlwaysOnTools],
     },
   };
 }
@@ -242,14 +253,8 @@ export function mergeBuiltinToolSurfaceOptions(
   left: DefaultBuiltinToolRegistryOptions,
   right: DefaultBuiltinToolRegistryOptions,
 ): DefaultBuiltinToolRegistryOptions {
-  const additionalTools = [
-    ...(left.additionalTools ?? []),
-    ...(right.additionalTools ?? []),
-  ];
-  const resourceProviders = [
-    ...(left.resourceProviders ?? []),
-    ...(right.resourceProviders ?? []),
-  ];
+  const additionalTools = [...(left.additionalTools ?? []), ...(right.additionalTools ?? [])];
+  const resourceProviders = [...(left.resourceProviders ?? []), ...(right.resourceProviders ?? [])];
 
   return {
     ...left,

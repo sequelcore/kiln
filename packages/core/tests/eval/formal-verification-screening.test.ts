@@ -33,10 +33,14 @@ function observation(
     budgetHash: "budget-v1",
     toolProjectionHash: `tools-${arm}`,
     verifierHash: "verifier-v1",
+    sealedToolchainHash: "toolchain-v1",
     ...(arm === "T" ? { treatmentToolchainHash: "toolchain-v1" } : {}),
     hiddenOracleExhaustive: true,
     lemmaCheckPassed: arm === "T",
     hiddenPassed: arm === "T" || (pairId === "pair-1" && repeatIndex === 0),
+    sealedDafnyPassed: true,
+    contractDigestUnchanged: true,
+    trustPolicyClean: true,
     ...overrides,
   };
 }
@@ -57,7 +61,7 @@ describe("formal verification C0/T screening", () => {
     const report = evaluateFormalVerificationScreening(completeObservations(), { pairIds: PAIR_IDS });
 
     expect(report).toMatchObject({
-      policyId: "formal-verification-screening-v1",
+      policyId: "formal-verification-screening-v2",
       k: 2,
       plannedBlockCount: 16,
       benchmarkReady: false,
@@ -73,8 +77,20 @@ describe("formal verification C0/T screening", () => {
       },
     });
     expect(report.reconciliation.completeValidBlockCount).toBe(16);
-    expect(report.arms.C0).toMatchObject({ validTrialCount: 16, invalidTrialCount: 0, pass1: 0.5 });
-    expect(report.arms.T).toMatchObject({ validTrialCount: 16, invalidTrialCount: 0, pass1: 0.5 });
+    expect(report.arms.C0).toMatchObject({
+      validTrialCount: 16,
+      invalidTrialCount: 0,
+      hiddenPass1: 0.5,
+      sealedDafnyPass1: 1,
+      qualifiedPass1: 0.5,
+    });
+    expect(report.arms.T).toMatchObject({
+      validTrialCount: 16,
+      invalidTrialCount: 0,
+      hiddenPass1: 0.5,
+      sealedDafnyPass1: 1,
+      qualifiedPass1: 0.5,
+    });
     expect(report.pass2).toEqual({ C0: 0.5, T: 0.5 });
     expect(report.pass2Details).toEqual({
       C0: { validPairCount: 8, passingPairCount: 4, rate: 0.5 },
@@ -164,6 +180,22 @@ describe("formal verification C0/T screening", () => {
     expect(toolchainReport.reconciliation.identityMismatches).toEqual(expect.arrayContaining([
       expect.objectContaining({ blockKey: "pair-7:1", arm: "T", field: "treatmentToolchainHash" }),
     ]));
+
+    const sealedDrift = completeObservations();
+    for (const arm of ["C0", "T"] as const) {
+      const sealedIndex = sealedDrift.findIndex((fact) =>
+        fact.pairId === "pair-6" && fact.repeatIndex === 1 && fact.arm === arm);
+      sealedDrift[sealedIndex] = {
+        ...sealedDrift[sealedIndex]!,
+        sealedToolchainHash: "sealed-toolchain-drift",
+        ...(arm === "T" ? { treatmentToolchainHash: "sealed-toolchain-drift" } : {}),
+      };
+    }
+    const sealedReport = evaluateFormalVerificationScreening(sealedDrift, { pairIds: PAIR_IDS });
+    expect(sealedReport.screeningReady).toBe(false);
+    expect(sealedReport.reconciliation.identityMismatches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ blockKey: "pair-6:1", field: "sealedToolchainHash" }),
+    ]));
   });
 
   it("keeps comparisonHash canonical and independent of outcome facts", () => {
@@ -180,10 +212,52 @@ describe("formal verification C0/T screening", () => {
       observedAccount: "different-account",
       hiddenOracleExhaustive: !fact.hiddenOracleExhaustive,
       lemmaCheckPassed: !fact.lemmaCheckPassed,
+      sealedDafnyPassed: !fact.sealedDafnyPassed,
+      contractDigestUnchanged: !fact.contractDigestUnchanged,
+      trustPolicyClean: !fact.trustPolicyClean,
     }));
     const changed = evaluateFormalVerificationScreening(changedOutcome, { pairIds: PAIR_IDS });
 
     expect(baseline.comparisonHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(changed.comparisonHash).toBe(baseline.comparisonHash);
+  });
+
+  it("scores qualified correctness from independent functional, Dafny, contract, and trust facts", () => {
+    const facts = completeObservations();
+    const dafnyFailure = facts.findIndex((fact) => fact.pairId === "pair-1" && fact.arm === "C0");
+    const contractFailure = facts.findIndex((fact) => fact.pairId === "pair-2" && fact.arm === "C0");
+    const trustFailure = facts.findIndex((fact) => fact.pairId === "pair-3" && fact.arm === "C0");
+    facts[dafnyFailure] = { ...facts[dafnyFailure]!, sealedDafnyPassed: false };
+    facts[contractFailure] = { ...facts[contractFailure]!, contractDigestUnchanged: false };
+    facts[trustFailure] = { ...facts[trustFailure]!, trustPolicyClean: false };
+
+    const report = evaluateFormalVerificationScreening(facts, { pairIds: PAIR_IDS });
+
+    expect(report.arms.C0.hiddenPass1).toBe(0.5);
+    expect(report.arms.C0.qualifiedPass1).toBeLessThan(report.arms.C0.hiddenPass1);
+    expect(report.pass1.C0).toBe(report.arms.C0.qualifiedPass1);
+    expect(report.reconciliation.invalidTrialCount).toBe(0);
+  });
+
+  it("invalidates missing sealed host observations without treating a negative result as infrastructure failure", () => {
+    const missing = completeObservations();
+    const missingIndex = missing.findIndex((fact) => fact.arm === "C0");
+    missing[missingIndex] = {
+      ...missing[missingIndex]!,
+      sealedDafnyPassed: undefined as never,
+    };
+    const missingReport = evaluateFormalVerificationScreening(missing, { pairIds: PAIR_IDS });
+    expect(missingReport.reconciliation.invalidTrials).toContain(missing[missingIndex]!.itemId);
+
+    const negative = completeObservations();
+    const negativeIndex = negative.findIndex((fact) => fact.arm === "C0");
+    negative[negativeIndex] = {
+      ...negative[negativeIndex]!,
+      sealedDafnyPassed: false,
+      contractDigestUnchanged: false,
+      trustPolicyClean: false,
+    };
+    const negativeReport = evaluateFormalVerificationScreening(negative, { pairIds: PAIR_IDS });
+    expect(negativeReport.reconciliation.invalidTrials).not.toContain(negative[negativeIndex]!.itemId);
   });
 });

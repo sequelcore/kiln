@@ -17,4 +17,5 @@ dist/
 /memory/
 /.stryker-tmp/
 .kiln/
+/.kiln-private/
 packages/cli/config.json

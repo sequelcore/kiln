@@ -22,7 +22,7 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileS
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseFormalVerificationToolResultMetadata } from "../packages/core/src/tools/domain/tool-result-metadata.js";
-import { createFormalVerifyTool } from "../packages/core/src/tools/infrastructure/formal-verify-tool.js";
+import { createFormalVerifyTool } from "../packages/core/src/tools/infrastructure/verification/dafny/formal-verify-tool.js";
 import {
   adoptBoundedWorkContractRevision,
   createBoundedWorkCandidateEvidence,

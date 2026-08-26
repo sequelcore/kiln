@@ -20,7 +20,7 @@ import {
   hashPrivateFormalScreeningTree,
   loadPrivateFormalScreeningPackage,
   type PrivateFormalScreeningManifest,
-} from "../../src/application/private-formal-screening-package.js";
+} from "../../src/application/benchmarks/formal-screening/package-loader.js";
 
 const temporaryRoots: string[] = [];
 
@@ -77,25 +77,36 @@ describe("private formal screening package", () => {
       .toThrow(/one C0 and one T/u);
   });
 
-  it("rejects roots inside the repository or publish surface", () => {
+  it("admits only the repository-private root and still rejects publish surfaces", () => {
     const repositoryRoot = createTemporaryRoot("repo");
-    const privateRoot = join(repositoryRoot, "private");
+    const privateRoot = join(repositoryRoot, ".kiln-private");
     mkdirSync(privateRoot, { recursive: true });
     const { packagePath } = createManifest(privateRoot, repositoryRoot);
 
-    expect(() => loadPrivateFormalScreeningPackage({ packagePath, repositoryRoot }))
-      .toThrow(/outside the repository and publish surfaces/u);
+    expect(loadPrivateFormalScreeningPackage({ packagePath, repositoryRoot }).rootPath)
+      .toBe(packagePath);
+
+    const ordinaryRoot = join(repositoryRoot, "private");
+    mkdirSync(ordinaryRoot, { recursive: true });
+    const ordinaryPackage = createManifest(ordinaryRoot, repositoryRoot);
+    expect(() => loadPrivateFormalScreeningPackage({
+      packagePath: ordinaryPackage.packagePath,
+      repositoryRoot,
+    })).toThrow(/inside the admitted repository-private root/u);
+
+    expect(() => loadPrivateFormalScreeningPackage({
+      packagePath,
+      repositoryRoot,
+      repositoryPrivateRoot: privateRoot,
+      publishSurfaceRoots: [privateRoot],
+    })).toThrow(/outside publish surfaces/u);
 
     const externalRoot = createTemporaryRoot("external");
-    const nestedPublishRoot = join(externalRoot, "publish");
-    const packageRoot = join(nestedPublishRoot, "screening");
-    mkdirSync(packageRoot, { recursive: true });
-    const externalPackage = createManifest(packageRoot, repositoryRoot);
     expect(() => loadPrivateFormalScreeningPackage({
-      packagePath: externalPackage.packagePath,
+      packagePath,
       repositoryRoot,
-      publishSurfaceRoots: [nestedPublishRoot],
-    })).toThrow(/outside the repository and publish surfaces/u);
+      repositoryPrivateRoot: externalRoot,
+    })).toThrow(/repository-private root must remain inside the repository/u);
   });
 
   it("binds package identity to packagePath instead of a manifest-declared root", () => {
@@ -202,13 +213,15 @@ describe("private formal screening package", () => {
 });
 
 function createManifest(
-  privateRoot = createTemporaryRoot("private"),
+  suppliedPrivateRoot?: string,
   repositoryRoot = createTemporaryRoot("repository"),
 ): {
   readonly repositoryRoot: string;
   readonly packagePath: string;
   readonly manifest: PrivateFormalScreeningManifest;
 } {
+  const privateRoot = suppliedPrivateRoot
+    ?? join(repositoryRoot, ".kiln-private", "screening");
   mkdirSync(join(privateRoot, "visible"), { recursive: true });
   mkdirSync(join(privateRoot, "hidden"), { recursive: true });
   mkdirSync(join(privateRoot, "oracle"), { recursive: true });

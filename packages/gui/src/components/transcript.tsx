@@ -24,6 +24,7 @@ import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store/ind
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
 import { TranscriptTimelineEditor } from "./transcript-timeline-editor.js";
 import { TranscriptSurface } from "./transcript-surface.js";
+import { VerificationEvidence } from "./verification-evidence.js";
 import { Task, TaskContent, TaskItem, TaskTrigger, type TaskStatus } from "@/components/ai-elements/task";
 import { Tool, ToolContent, ToolHeader, type ToolState } from "@/components/ai-elements/tool";
 import { ToolGroup, ToolGroupItem } from "@/components/ai-elements/tool-group";
@@ -344,6 +345,8 @@ function toolResultContentLabel(outputKind: ToolResultOutputKind): string {
       return "Work item";
     case "goal":
       return "Goal";
+    case "verification":
+      return "Verification evidence";
     case "diagnostic":
       return "Diagnostic";
     case "diff":
@@ -684,7 +687,7 @@ export function ToolEvidence(props: {
   const contentLabel = toolResultContentLabel(presentation.outputKind);
   const preview = presentation.presentationIntent || presentation.searchResults?.length ? undefined : presentation.preview;
   const fields = presentation.fields ?? [];
-  const hasStructuredBody = presentation.diagnostic !== undefined;
+  const hasStructuredBody = presentation.diagnostic !== undefined || presentation.verification !== undefined;
   const showTitle = !hasStructuredBody
     && !fields.some((item) => item.value === presentation.title);
   return (
@@ -698,6 +701,9 @@ export function ToolEvidence(props: {
       <MetaList items={hasStructuredBody ? [] : fields} />
       {presentation.diagnostic ? (
         <ToolDiagnosticResult title={presentation.title} diagnostic={presentation.diagnostic} fields={fields} />
+      ) : null}
+      {presentation.verification ? (
+        <VerificationEvidence verification={presentation.verification} />
       ) : null}
       {presentation.presentationIntent ? (
         <PresentationIntentDetails intent={presentation.presentationIntent} />

@@ -1,5 +1,5 @@
-import { GateRunner, VerificationLoop } from "../verification/index.js";
-import type { VerificationResult, VerificationConfig, FixHandler } from "../verification/index.js";
+import { GateRunner, VerificationLoop } from "../quality-gates/index.js";
+import type { VerificationResult, VerificationConfig, FixHandler } from "../quality-gates/index.js";
 import type { EventBus } from "../events/event-bus.js";
 import type { QualityGate } from "../engine/domain/quality-gate.js";
 

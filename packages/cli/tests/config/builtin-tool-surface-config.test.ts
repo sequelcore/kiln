@@ -1,18 +1,19 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
+import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
-  createConfiguredInvocationAdmission,
   assertConfiguredInvocationAdmission,
+  createConfiguredInvocationAdmission,
   loadConfiguredBuiltinToolSurfaceOptions,
   observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../../src/config/builtin-tool-surface-config.js";
-import type { KilnAppConfig } from "../../src/config.js";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
-import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
+import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
@@ -32,9 +33,11 @@ describe("builtin tool surface config", () => {
       metric: "formal_verification",
       status: "unavailable",
     });
-    expect(observeFormalVerificationCapability({
-      formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
-    })).toEqual({
+    expect(
+      observeFormalVerificationCapability({
+        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+      }),
+    ).toEqual({
       metric: "formal_verification",
       status: "available",
     });
@@ -75,11 +78,91 @@ describe("builtin tool surface config", () => {
     }
   });
 
+  it("registers configured static analysis while keeping it deferred and independent of Dafny", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-static-surface-"));
+    try {
+      const globalConfig: KilnGlobalConfig = {
+        version: "5",
+        verification: {
+          static: {
+            oxlint: {
+              executable: "C:/tools/oxlint.exe",
+              expectedVersion: "1.80.0",
+            },
+          },
+        },
+      };
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        globalConfig,
+        runOxlintVersion: () => "Version: 1.80.0",
+        platform: "win32",
+        discoveredOxlintPaths: [],
+      });
+      const projected = withProgressiveRuntimeToolProjection(options, "execute");
+      const surface = createDefaultBuiltinToolSurface(projected);
+
+      expect(options.staticAnalyze).toEqual({
+        executable: "C:/tools/oxlint.exe",
+        analyzerVersion: "1.80.0",
+      });
+      expect(options.formalVerify).toBeUndefined();
+      expect(projected.toolProjection?.alwaysOnTools).not.toContain("static_analyze");
+      expect(surface.registry.has("static_analyze")).toBe(true);
+      expect(surface.toolNames).not.toContain("static_analyze");
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+
+  it("registers exact-provenance Gentle AI as a deferred inferential observer", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-gentle-surface-"));
+    try {
+      const executable = join(projectPath, "gentle-ai.exe");
+      const bytes = "gentle-ai fixture";
+      writeFileSync(executable, bytes);
+      const expectedExecutableDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+      const globalConfig: KilnGlobalConfig = {
+        version: "5",
+        verification: {
+          inferential: {
+            gentleAi: {
+              executable,
+              expectedVersion: "2.4.0",
+              expectedExecutableDigest,
+              expectedBuildRevision: "301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb",
+            },
+          },
+        },
+      };
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        globalConfig,
+        runGentleAiVersion: () => "gentle-ai version 2.4.0",
+        platform: "win32",
+        discoveredGentleAiPaths: [executable],
+      });
+      const projected = withProgressiveRuntimeToolProjection(options, "execute");
+      const surface = createDefaultBuiltinToolSurface(projected);
+
+      expect(options.gentleReview).toMatchObject({
+        executable,
+        expectedVersion: "2.4.0",
+        expectedExecutableDigest,
+        expectedBuildRevision: "301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb",
+        repositoryRoot: projectPath,
+      });
+      expect(projected.toolProjection?.alwaysOnTools).not.toContain("gentle_review");
+      expect(surface.registry.has("gentle_review")).toBe(true);
+      expect(surface.toolNames).not.toContain("gentle_review");
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+
   it("shares the same artifact store between browser tools and the Playwright recorder", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-builtin-recorder-"));
     try {
       const appConfig: KilnAppConfig = {
-        createRegistry: () => ({} as never),
+        createRegistry: () => ({}) as never,
         kilnYaml: {
           version: "1",
           interactiveUse: {
@@ -102,8 +185,7 @@ describe("builtin tool surface config", () => {
       };
 
       expect(options.artifactResources?.store).toBeDefined();
-      expect(provider.options?.captureRecorder?.options?.artifactStore)
-        .toBe(options.artifactResources?.store);
+      expect(provider.options?.captureRecorder?.options?.artifactStore).toBe(options.artifactResources?.store);
     } finally {
       rmSync(projectPath, { recursive: true, force: true });
     }
@@ -115,12 +197,16 @@ describe("builtin tool surface config", () => {
       vi.stubEnv("XDG_CONFIG_HOME", join(projectPath, "xdg"));
       const artifactRoot = join(resolveProjectStateBinding(projectPath).evidencePath, "external-engagement");
       mkdirSync(artifactRoot, { recursive: true });
-      writeFileSync(join(artifactRoot, "feature-intake.json"), JSON.stringify({
-        reportId: "intake-report-1",
-        generatedAt: "2026-06-24T00:00:00.000Z",
-        sourceDecisionReportId: "decision-report-1",
-        proposals: [],
-      }), "utf-8");
+      writeFileSync(
+        join(artifactRoot, "feature-intake.json"),
+        JSON.stringify({
+          reportId: "intake-report-1",
+          generatedAt: "2026-06-24T00:00:00.000Z",
+          sourceDecisionReportId: "decision-report-1",
+          proposals: [],
+        }),
+        "utf-8",
+      );
 
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath);
       const surface = createDefaultBuiltinToolSurface(options);
@@ -140,26 +226,31 @@ describe("builtin tool surface config", () => {
   });
 
   it("projects read-only runtime tools without admitting mutating capabilities", () => {
-    const surface = createDefaultBuiltinToolSurface(withProgressiveRuntimeToolProjection({
-      toolProjection: {
-        mode: "deferred",
-        alwaysOnTools: ["monitor_list"],
-      },
-      additionalTools: [
+    const surface = createDefaultBuiltinToolSurface(
+      withProgressiveRuntimeToolProjection(
         {
-          name: "work_item.update",
-          description: "Update governed work item.",
-          inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          execute: async () => ({ output: "updated", isError: false }),
+          toolProjection: {
+            mode: "deferred",
+            alwaysOnTools: ["monitor_list"],
+          },
+          additionalTools: [
+            {
+              name: "work_item.update",
+              description: "Update governed work item.",
+              inputSchema: { type: "object", properties: {}, additionalProperties: false },
+              execute: async () => ({ output: "updated", isError: false }),
+            },
+            {
+              name: "kiln_config.apply_change",
+              description: "Apply config change.",
+              inputSchema: { type: "object", properties: {}, additionalProperties: false },
+              execute: async () => ({ output: "applied", isError: false }),
+            },
+          ],
         },
-        {
-          name: "kiln_config.apply_change",
-          description: "Apply config change.",
-          inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          execute: async () => ({ output: "applied", isError: false }),
-        },
-      ],
-    }, "read-only"));
+        "read-only",
+      ),
+    );
 
     expect(surface.toolNames).toContain("tool_catalog_search");
     expect(surface.toolNames).toContain("read");
@@ -175,28 +266,33 @@ describe("builtin tool surface config", () => {
   });
 
   it("projects execution tools while deferring specialized capabilities", () => {
-    const surface = createDefaultBuiltinToolSurface(withProgressiveRuntimeToolProjection({
-      additionalTools: [
+    const surface = createDefaultBuiltinToolSurface(
+      withProgressiveRuntimeToolProjection(
         {
-          name: "work_item.update",
-          description: "Update governed work item.",
-          inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          execute: async () => ({ output: "updated", isError: false }),
+          additionalTools: [
+            {
+              name: "work_item.update",
+              description: "Update governed work item.",
+              inputSchema: { type: "object", properties: {}, additionalProperties: false },
+              execute: async () => ({ output: "updated", isError: false }),
+            },
+            {
+              name: "goal.evidence.record",
+              description: "Record goal evidence.",
+              inputSchema: { type: "object", properties: {}, additionalProperties: false },
+              execute: async () => ({ output: "recorded", isError: false }),
+            },
+            {
+              name: "goal.complete",
+              description: "Complete a goal.",
+              inputSchema: { type: "object", properties: {}, additionalProperties: false },
+              execute: async () => ({ output: "completed", isError: false }),
+            },
+          ],
         },
-        {
-          name: "goal.evidence.record",
-          description: "Record goal evidence.",
-          inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          execute: async () => ({ output: "recorded", isError: false }),
-        },
-        {
-          name: "goal.complete",
-          description: "Complete a goal.",
-          inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          execute: async () => ({ output: "completed", isError: false }),
-        },
-      ],
-    }, "execute"));
+        "execute",
+      ),
+    );
 
     expect(surface.toolNames).toContain("tool_catalog_search");
     expect(surface.toolNames).toContain("read");
@@ -232,30 +328,41 @@ describe("builtin tool surface config", () => {
     };
 
     expect(admission.authorize({ toolName: "web_fetch", toolInput: {}, resolvedEffect: effect }).allowed).toBe(false);
-    expect(admission.authorize({ toolName: "bash", toolInput: { command: "rm file" }, resolvedEffect: effect }).allowed).toBe(false);
-    expect(admission.authorize({ toolName: "read", toolInput: { path: "secrets/.env" }, resolvedEffect: effect }).allowed).toBe(false);
-    expect(admission.authorize({
-      toolName: "mcp",
-      toolInput: { destination: "external-mcp" },
-      resolvedEffect: { ...effect, dataEgress: "project-data" },
-    }).allowed).toBe(false);
-    expect(admission.authorize({
-      toolName: "custom_fetch",
-      toolInput: { url: "https://unknown.example" },
-      resolvedEffect: { ...effect, dataEgress: "project-data" },
-    }).allowed).toBe(false);
-    expect(admission.authorize({
-      toolName: "log",
-      toolInput: { destination: "logs" },
-      resolvedEffect: { ...effect, dataEgress: "metadata" },
-    })).toMatchObject({
+    expect(
+      admission.authorize({ toolName: "bash", toolInput: { command: "rm file" }, resolvedEffect: effect }).allowed,
+    ).toBe(false);
+    expect(
+      admission.authorize({ toolName: "read", toolInput: { path: "secrets/.env" }, resolvedEffect: effect }).allowed,
+    ).toBe(false);
+    expect(
+      admission.authorize({
+        toolName: "mcp",
+        toolInput: { destination: "external-mcp" },
+        resolvedEffect: { ...effect, dataEgress: "project-data" },
+      }).allowed,
+    ).toBe(false);
+    expect(
+      admission.authorize({
+        toolName: "custom_fetch",
+        toolInput: { url: "https://unknown.example" },
+        resolvedEffect: { ...effect, dataEgress: "project-data" },
+      }).allowed,
+    ).toBe(false);
+    expect(
+      admission.authorize({
+        toolName: "log",
+        toolInput: { destination: "logs" },
+        resolvedEffect: { ...effect, dataEgress: "metadata" },
+      }),
+    ).toMatchObject({
       allowed: false,
       requiresApproval: false,
       reason: expect.stringContaining("requires redaction"),
     });
     expect(assertConfiguredInvocationAdmission(admission, policy)).toBe(admission);
-    expect(() => assertConfiguredInvocationAdmission({ authorize: admission.authorize }, policy))
-      .toThrow(/counterfeit/iu);
+    expect(() => assertConfiguredInvocationAdmission({ authorize: admission.authorize }, policy)).toThrow(
+      /counterfeit/iu,
+    );
   });
 
   it("does not synthesize a second default permission owner for runtime-attached sessions", async () => {

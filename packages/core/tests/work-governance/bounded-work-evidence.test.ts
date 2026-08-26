@@ -26,7 +26,7 @@ const payload = (): FormalVerificationToolResultMetadata => formalVerificationTo
   verifier: { name: "dafny", version: "4.11.0" },
   artifact: { contentDigest: digest("a") },
   subjects: [{ path: "policy.dfy", contentDigest: digest("a") }],
-  checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
+  checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
 });
 
 const candidate = () => createBoundedWorkCandidate({

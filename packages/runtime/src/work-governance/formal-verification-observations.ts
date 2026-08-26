@@ -1,9 +1,9 @@
 import type { CanonicalSessionEvent, SessionExecutionScope } from "@kilnai/core/events";
 import {
-  isFormalVerificationToolResultMetadata,
-  parseFormalVerificationToolResultMetadata,
-  type FormalVerificationToolResultMetadata,
-} from "@kilnai/core/tools";
+  isFormalVerificationObservation,
+  parseFormalVerificationObservation,
+  type FormalVerificationObservation,
+} from "@kilnai/core/verification";
 
 interface RuntimeFormalVerificationWorkItemScope {
   readonly kind: "work_item";
@@ -27,7 +27,7 @@ type RuntimeOwnedFormalVerificationObservation = RuntimeFormalVerificationObserv
  * still establishes no acceptance criterion.
  */
 export interface RuntimeFormalVerificationObservation {
-  readonly metadata: FormalVerificationToolResultMetadata;
+  readonly metadata: FormalVerificationObservation;
   readonly toolCallScopeId: string;
   readonly toolCallId: string;
   readonly executionScope: RuntimeFormalVerificationWorkItemScope;
@@ -160,11 +160,11 @@ function parseObservation(
 
   const sourceScope = normalizeWorkItemScope(source.executionScope);
   if (!sourceScope || !sameExecutionScope(sourceScope, currentScope)) return undefined;
-  if (!isFormalVerificationToolResultMetadata(source.metadata)) return undefined;
+  if (!isFormalVerificationObservation(source.metadata)) return undefined;
 
   // The discriminator is intentionally followed by Core's parser so Runtime
   // stores the immutable normalized value, never the untrusted raw object.
-  const parsedMetadata = parseFormalVerificationToolResultMetadata(source.metadata);
+  const parsedMetadata = parseFormalVerificationObservation(source.metadata);
   const observation = {
     metadata: parsedMetadata,
     toolCallScopeId: source.toolCallScopeId,

@@ -4,7 +4,7 @@ import type { WrapperConfig } from "../../src/wrapper/index.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry, type QualityGate } from "@kilnai/core/domain";
 import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
-import type { VerificationResult } from "@kilnai/core/verification";
+import type { VerificationResult } from "@kilnai/core/quality-gates";
 
 vi.mock("node:fs", async () => {
   const actual = await vi.importActual<typeof import("node:fs")>("node:fs");

@@ -1,3 +1,16 @@
+import type { ManagedAgentExternalRuntimeAttachmentIdentity } from "../../agents/managed-invocation/index.js";
+import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
+import {
+  formalVerificationObservation,
+  parseFormalVerificationObservation,
+  type FormalVerificationObservation,
+} from "../../verification/formal/observation.js";
+import {
+  parseStaticAnalysisObservation,
+  staticAnalysisObservation,
+  type StaticAnalysisObservation,
+} from "../../verification/static/observation.js";
+import type { GentleReviewObservation } from "../../verification/inferential/gentle-review-observation.js";
 import type {
   GoalRun,
   WorkItem,
@@ -5,12 +18,6 @@ import type {
   WorkItemExecutionFailureReason,
   WorkItemStatus,
 } from "../../work-governance/index.js";
-import {
-  normalizeFormalProofSubjects,
-  type FormalProofSubject,
-} from "../../work-governance/formal-proof-subjects.js";
-import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
-import type { ManagedAgentExternalRuntimeAttachmentIdentity } from "../../agents/managed-invocation/index.js";
 import type { TemporalEventEvidenceRequirement, TemporalEvidenceDecision } from "./temporal-evidence.js";
 import type {
   WebSearchDomainPostcondition,
@@ -66,6 +73,7 @@ export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_search" | "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
 export type FormalVerifyToolName = "formal_verify";
+export type StaticAnalyzeToolName = "static_analyze";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -558,12 +566,7 @@ export interface ResourceToolResultMetadata<TToolName extends ResourceToolName =
   readonly templateCount?: number;
   readonly contentCount?: number;
   readonly mimeType?: string;
-  readonly errorCode?:
-    | "invalid_input"
-    | "not_found"
-    | "cursor_error"
-    | "registry_unavailable"
-    | "authorization_denied";
+  readonly errorCode?: "invalid_input" | "not_found" | "cursor_error" | "registry_unavailable" | "authorization_denied";
 }
 
 /**
@@ -617,49 +620,18 @@ export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = Mem
   readonly resultCount?: number;
   readonly truncated?: boolean;
   readonly resourceUri?: string;
-  readonly errorCode?: "invalid_input" | "service_unavailable" | "registry_unavailable" | "authorization_denied" | "not_found" | "repository_error";
+  readonly errorCode?:
+    | "invalid_input"
+    | "service_unavailable"
+    | "registry_unavailable"
+    | "authorization_denied"
+    | "not_found"
+    | "repository_error";
 }
 
-/** Versioned, facts-only observation emitted by the formal verifier tool. */
-export const FORMAL_VERIFICATION_OBSERVATION_SCHEMA =
-  "kiln.formal-verification-observation/v2" as const;
-
-export type FormalVerificationOutcome = "proved" | "refuted" | "unresolved";
-
-export interface FormalVerificationArtifact {
-  /** Digest of the verifier input bytes; this is not a candidate subject. */
-  readonly contentDigest: string;
-}
-
-/** Exact candidate-relative bytes covered by this verifier observation. */
-export type FormalVerificationSubject = FormalProofSubject;
-
-export interface FormalVerificationCheck {
-  readonly symbol: string;
-  readonly check: "correctness";
-  readonly outcome: FormalVerificationOutcome;
-  /** Verifier diagnostic required when the check was not proved. */
-  readonly detail?: string;
-}
-
-/**
- * What the configured Dafny verifier observed during one run.
- *
- * This arm deliberately carries no candidate path, criterion, criterionId, or
- * mapping. Runtime owns occurrence time and later evidence binding; the empty
- * `establishes` tuple makes it impossible for this first transport slice to
- * credit an acceptance criterion.
- */
-export interface FormalVerificationToolResultMetadata extends ToolResultResourceLinkMetadata {
-  readonly schema: typeof FORMAL_VERIFICATION_OBSERVATION_SCHEMA;
-  readonly toolName: "formal_verify";
-  readonly kind: "formal_verification";
-  readonly verifier: { readonly name: "dafny"; readonly version: string };
-  readonly artifact: FormalVerificationArtifact;
-  readonly subjects: readonly FormalVerificationSubject[];
-  readonly checks: readonly FormalVerificationCheck[];
-  readonly establishes: readonly [];
-}
+export type FormalVerificationToolResultMetadata = FormalVerificationObservation & ToolResultResourceLinkMetadata;
+export type StaticAnalysisToolResultMetadata = StaticAnalysisObservation & ToolResultResourceLinkMetadata;
+export type GentleReviewToolResultMetadata = GentleReviewObservation & ToolResultResourceLinkMetadata;
 
 export type ToolSpecificResultMetadata =
   | CommandToolResultMetadata
@@ -680,7 +652,9 @@ export type ToolSpecificResultMetadata =
   | MemoryToolResultMetadata
   | ResourceToolResultMetadata
   | ExternalToolFailureResultMetadata
-  | FormalVerificationToolResultMetadata;
+  | FormalVerificationToolResultMetadata
+  | StaticAnalysisToolResultMetadata
+  | GentleReviewToolResultMetadata;
 
 export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
 
@@ -720,22 +694,17 @@ export function isFileToolResultMetadata(value: unknown): value is FileToolResul
 
   const hasFilePath = typeof candidate.filePath === "string";
   const hasPatchFiles = Array.isArray((candidate as { files?: unknown }).files);
-  const isSingleFileTool = (
-    candidate.toolName === "read"
-    || candidate.toolName === "read_many"
-    || candidate.toolName === "write"
-    || candidate.toolName === "edit"
-  )
-    && (
-      candidate.operation === "read"
-      || candidate.operation === "read_many"
-      || candidate.operation === "write"
-      || candidate.operation === "edit"
-    )
-    && hasFilePath;
-  const isPatchTool = candidate.toolName === "patch"
-    && candidate.operation === "patch"
-    && hasPatchFiles;
+  const isSingleFileTool =
+    (candidate.toolName === "read" ||
+      candidate.toolName === "read_many" ||
+      candidate.toolName === "write" ||
+      candidate.toolName === "edit") &&
+    (candidate.operation === "read" ||
+      candidate.operation === "read_many" ||
+      candidate.operation === "write" ||
+      candidate.operation === "edit") &&
+    hasFilePath;
+  const isPatchTool = candidate.toolName === "patch" && candidate.operation === "patch" && hasPatchFiles;
 
   return candidate.kind === "file" && (isSingleFileTool || isPatchTool);
 }
@@ -906,67 +875,33 @@ export function resourceToolMetadata<TToolName extends ResourceToolName>(
 }
 
 export function formalVerificationToolMetadata(
-  metadata: Omit<
-    FormalVerificationToolResultMetadata,
-    "schema" | "toolName" | "kind" | "establishes"
-  >,
+  metadata: Omit<FormalVerificationToolResultMetadata, "schema" | "toolName" | "kind" | "establishes">,
 ): FormalVerificationToolResultMetadata {
-  return parseFormalVerificationToolResultMetadata({
-    schema: FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
-    toolName: "formal_verify",
-    kind: "formal_verification",
-    establishes: [],
-    ...metadata,
-  });
+  const { resourceLinks, ...observation } = metadata;
+  return withVerificationResourceLinks(formalVerificationObservation(observation), resourceLinks);
 }
 
-/** Parse and strictly validate one formal-verification observation. */
-export function parseFormalVerificationToolResultMetadata(
-  value: unknown,
-): FormalVerificationToolResultMetadata {
-  if (!isRecord(value) || !hasOnlyKeys(value, [
-    "schema",
-    "toolName",
-    "kind",
-    "verifier",
-    "artifact",
-    "subjects",
-    "checks",
-    "establishes",
-  ], ["resourceLinks"])) {
+/** Parse one tool envelope and delegate its factual contract to Core Verification. */
+export function parseFormalVerificationToolResultMetadata(value: unknown): FormalVerificationToolResultMetadata {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["schema", "toolName", "kind", "verifier", "artifact", "subjects", "checks", "establishes"], ["resourceLinks"])) {
     throw new Error("formal verification metadata has an invalid shape or extra field");
   }
-  if (value.schema !== FORMAL_VERIFICATION_OBSERVATION_SCHEMA) {
-    throw new Error(`formal verification metadata schema must be ${FORMAL_VERIFICATION_OBSERVATION_SCHEMA}`);
-  }
-  if (value.toolName !== "formal_verify" || value.kind !== "formal_verification") {
-    throw new Error("formal verification metadata identity is invalid");
-  }
-  const verifier = parseFormalVerificationVerifier(value.verifier);
-  const artifact = parseFormalVerificationArtifact(value.artifact);
-  const subjects = parseFormalVerificationSubjects(value.subjects);
-  const checks = parseFormalVerificationChecks(value.checks);
   const resourceLinks = parseFormalVerificationResourceLinks(value.resourceLinks);
-  if (!Array.isArray(value.establishes) || value.establishes.length !== 0) {
-    throw new Error("formal verification metadata establishes must be empty");
-  }
-  return freezeFormalVerificationMetadata({
-    schema: FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
-    toolName: "formal_verify",
-    kind: "formal_verification",
-    verifier,
-    artifact,
-    subjects,
-    checks,
-    establishes: [],
-    ...(resourceLinks === undefined ? {} : { resourceLinks }),
+  const observation = parseFormalVerificationObservation({
+    schema: value.schema,
+    toolName: value.toolName,
+    kind: value.kind,
+    verifier: value.verifier,
+    artifact: value.artifact,
+    subjects: value.subjects,
+    checks: value.checks,
+    establishes: value.establishes,
   });
+  return withVerificationResourceLinks(observation, resourceLinks);
 }
 
 /** Strict runtime discriminator used by Runtime when collecting observations. */
-export function isFormalVerificationToolResultMetadata(
-  value: unknown,
-): value is FormalVerificationToolResultMetadata {
+export function isFormalVerificationToolResultMetadata(value: unknown): value is FormalVerificationToolResultMetadata {
   try {
     parseFormalVerificationToolResultMetadata(value);
     return true;
@@ -975,110 +910,80 @@ export function isFormalVerificationToolResultMetadata(
   }
 }
 
-function parseFormalVerificationVerifier(value: unknown): FormalVerificationToolResultMetadata["verifier"] {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["name", "version"])) {
-    throw new Error("formal verification verifier has an invalid shape or extra field");
-  }
-  if (value.name !== "dafny") {
-    throw new Error("formal verification verifier name must be dafny");
-  }
-  if (!isNonEmptyString(value.version)) {
-    throw new Error("formal verification verifier version is required");
-  }
-  return { name: "dafny", version: value.version };
+export function staticAnalysisToolMetadata(
+  metadata: Omit<StaticAnalysisToolResultMetadata, "schema" | "toolName" | "kind" | "establishes">,
+): StaticAnalysisToolResultMetadata {
+  const { resourceLinks, ...observation } = metadata;
+  return withVerificationResourceLinks(staticAnalysisObservation(observation), resourceLinks);
 }
 
-function parseFormalVerificationArtifact(value: unknown): FormalVerificationArtifact {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["contentDigest"])) {
-    throw new Error("formal verification artifact has an invalid shape or extra field");
+/** Parse and strictly validate one static-analysis observation. */
+export function parseStaticAnalysisToolResultMetadata(value: unknown): StaticAnalysisToolResultMetadata {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(
+      value,
+      ["schema", "toolName", "kind", "analyzer", "profile", "outcome", "subjects", "diagnostics", "establishes"],
+      ["resourceLinks"],
+    )
+  ) {
+    throw new Error("static analysis metadata has an invalid shape or extra field");
   }
-  if (!isCanonicalSha256(value.contentDigest)) {
-    throw new Error("formal verification artifact contentDigest must be canonical sha256 evidence");
-  }
-  return { contentDigest: value.contentDigest };
-}
-
-function parseFormalVerificationSubjects(value: unknown): readonly FormalVerificationSubject[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("formal verification metadata subjects must be non-empty");
-  }
-  const subjects = Array.from(value, (entry) => {
-    if (!isRecord(entry) || !hasOnlyKeys(entry, ["path", "contentDigest"])) {
-      throw new Error("formal verification subject has an invalid shape or extra field");
-    }
-    if (typeof entry.path !== "string" || typeof entry.contentDigest !== "string") {
-      throw new Error("formal verification subject path and contentDigest are required");
-    }
-    return { path: entry.path, contentDigest: entry.contentDigest };
+  const resourceLinks = parseFormalVerificationResourceLinks(value.resourceLinks);
+  const observation = parseStaticAnalysisObservation({
+    schema: value.schema,
+    toolName: value.toolName,
+    kind: value.kind,
+    analyzer: value.analyzer,
+    profile: value.profile,
+    outcome: value.outcome,
+    subjects: value.subjects,
+    diagnostics: value.diagnostics,
+    establishes: value.establishes,
   });
-  const normalized = normalizeFormalProofSubjects(subjects);
-  if (normalized.length !== subjects.length || normalized.some((subject, index) => {
-    const original = subjects[index];
-    return original === undefined
-      || original.path !== subject.path
-      || original.contentDigest !== subject.contentDigest;
-  })) {
-    throw new Error("formal verification subjects must be in canonical sorted order");
-  }
-  return normalized;
+  return withVerificationResourceLinks(observation, resourceLinks);
 }
 
-function parseFormalVerificationChecks(value: unknown): readonly FormalVerificationCheck[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("formal verification metadata checks must be non-empty");
+export function isStaticAnalysisToolResultMetadata(value: unknown): value is StaticAnalysisToolResultMetadata {
+  try {
+    parseStaticAnalysisToolResultMetadata(value);
+    return true;
+  } catch {
+    return false;
   }
-  const seen = new Set<string>();
-  let previousSymbol: string | undefined;
-  const checks = Array.from(value, (entry) => {
-    if (!isRecord(entry) || !hasOnlyKeys(entry, ["symbol", "check", "outcome"], ["detail"])) {
-      throw new Error("formal verification check has an invalid shape or extra field");
-    }
-    if (!isNonEmptyString(entry.symbol) || entry.check !== "correctness") {
-      throw new Error("formal verification check identity is invalid");
-    }
-    if (entry.outcome !== "proved" && entry.outcome !== "refuted" && entry.outcome !== "unresolved") {
-      throw new Error("formal verification check outcome is invalid");
-    }
-    const symbol = entry.symbol;
-    const outcome = entry.outcome as FormalVerificationOutcome;
-    const detail = entry.detail;
-    if (detail !== undefined && !isNonEmptyString(detail)) {
-      throw new Error("formal verification check detail must be non-empty when present");
-    }
-    if (outcome === "proved" && detail !== undefined) {
-      throw new Error("formal verification proved checks must not carry detail");
-    }
-    if (outcome !== "proved" && detail === undefined) {
-      throw new Error("formal verification check detail is required when not proved");
-    }
-    if (previousSymbol !== undefined && symbol <= previousSymbol) {
-      throw new Error("formal verification checks must be in canonical sorted order");
-    }
-    previousSymbol = symbol;
-    const identity = `${symbol}/correctness`;
-    if (seen.has(identity)) {
-      throw new Error(`duplicate formal verification check ${identity}`);
-    }
-    seen.add(identity);
-    return {
-      symbol,
-      check: "correctness" as const,
-      outcome,
-      ...(detail === undefined ? {} : { detail }),
-    };
-  });
-  return checks;
 }
 
-function parseFormalVerificationResourceLinks(
-  value: unknown,
-): readonly ToolResourceLinkMetadata[] | undefined {
+function withVerificationResourceLinks(
+  observation: FormalVerificationObservation,
+  resourceLinks: readonly ToolResourceLinkMetadata[] | undefined,
+): FormalVerificationToolResultMetadata;
+function withVerificationResourceLinks(
+  observation: StaticAnalysisObservation,
+  resourceLinks: readonly ToolResourceLinkMetadata[] | undefined,
+): StaticAnalysisToolResultMetadata;
+function withVerificationResourceLinks(
+  observation: FormalVerificationObservation | StaticAnalysisObservation,
+  resourceLinks: readonly ToolResourceLinkMetadata[] | undefined,
+): FormalVerificationToolResultMetadata | StaticAnalysisToolResultMetadata {
+  const parsedLinks = parseFormalVerificationResourceLinks(resourceLinks);
+  if (parsedLinks === undefined) return observation;
+  const frozenLinks = Object.freeze(parsedLinks.map((link) => Object.freeze({ ...link })));
+  if (observation.kind === "formal_verification") {
+    return Object.freeze({ ...observation, resourceLinks: frozenLinks });
+  }
+  return Object.freeze({ ...observation, resourceLinks: frozenLinks });
+}
+
+function parseFormalVerificationResourceLinks(value: unknown): readonly ToolResourceLinkMetadata[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) {
     throw new Error("formal verification resourceLinks must be an array");
   }
   return Array.from(value, (entry) => {
-    if (!isRecord(entry) || !hasOnlyKeys(entry, ["uri", "relation"], ["title", "label", "sequence", "mimeType", "size"])) {
+    if (
+      !isRecord(entry) ||
+      !hasOnlyKeys(entry, ["uri", "relation"], ["title", "label", "sequence", "mimeType", "size"])
+    ) {
       throw new Error("formal verification resource link has an invalid shape or extra field");
     }
     if (!isNonEmptyString(entry.uri) || !isResourceLinkRelation(entry.relation)) {
@@ -1111,30 +1016,16 @@ function parseFormalVerificationResourceLinks(
   });
 }
 
-function freezeFormalVerificationMetadata(
-  value: FormalVerificationToolResultMetadata,
-): FormalVerificationToolResultMetadata {
-  return Object.freeze({
-    ...value,
-    verifier: Object.freeze({ ...value.verifier }),
-    artifact: Object.freeze({ ...value.artifact }),
-    subjects: Object.freeze(value.subjects.map((subject) => Object.freeze({ ...subject }))),
-    checks: Object.freeze(value.checks.map((check) => Object.freeze({ ...check }))),
-    establishes: Object.freeze([]) as readonly [],
-    ...(value.resourceLinks === undefined
-      ? {}
-      : { resourceLinks: Object.freeze(value.resourceLinks.map((link) => Object.freeze({ ...link }))) }),
-  });
-}
-
 function hasOnlyKeys(
   value: Record<string, unknown>,
   required: readonly string[],
   optional: readonly string[] = [],
 ): boolean {
   const keys = Object.keys(value);
-  return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
-    && keys.every((key) => required.includes(key) || optional.includes(key));
+  return (
+    required.every((key) => Object.hasOwn(value, key)) &&
+    keys.every((key) => required.includes(key) || optional.includes(key))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1146,17 +1037,11 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isResourceLinkRelation(value: unknown): value is ToolResourceLinkRelation {
-  return value === "full_output"
-    || value === "snapshot"
-    || value === "events"
-    || value === "source"
-    || value === "summary";
+  return (
+    value === "full_output" || value === "snapshot" || value === "events" || value === "source" || value === "summary"
+  );
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function isCanonicalSha256(value: unknown): value is string {
-  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
 }

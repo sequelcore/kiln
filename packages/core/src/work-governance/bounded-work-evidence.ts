@@ -1,7 +1,7 @@
 import {
-  parseFormalVerificationToolResultMetadata,
-  type FormalVerificationToolResultMetadata,
-} from "../tools/domain/tool-result-metadata.js";
+  parseFormalVerificationObservation,
+  type FormalVerificationObservation,
+} from "../verification/formal/observation.js";
 import type { BoundedWorkCandidateIdentity, BoundedWorkCandidateKind } from "./bounded-work-candidate.js";
 import {
   boundedWorkDigest,
@@ -24,7 +24,7 @@ export interface BoundedWorkRegisteredToolProducer {
 export interface BoundedWorkFormalVerificationAttestation {
   readonly schema: typeof BOUNDED_WORK_FORMAL_VERIFICATION_ATTESTATION_SCHEMA;
   readonly producer: BoundedWorkRegisteredToolProducer;
-  readonly payload: FormalVerificationToolResultMetadata;
+  readonly payload: FormalVerificationObservation;
   readonly payloadDigest: string;
   readonly establishes: readonly [];
   readonly attestationDigest: string;
@@ -32,7 +32,7 @@ export interface BoundedWorkFormalVerificationAttestation {
 
 export interface CreateBoundedWorkFormalVerificationAttestationInput {
   readonly producer: BoundedWorkRegisteredToolProducer;
-  readonly payload: FormalVerificationToolResultMetadata;
+  readonly payload: FormalVerificationObservation;
 }
 
 export interface BoundedWorkCandidateProjection {
@@ -81,7 +81,7 @@ export function createBoundedWorkFormalVerificationAttestation(
   assertRecord(input, "formal verification attestation input");
   assertExactKeys(input, ["producer", "payload"]);
   const producer = normalizeProducer(input.producer);
-  const payload = parseFormalVerificationToolResultMetadata(input.payload);
+  const payload = parseFormalVerificationObservation(input.payload);
   const payloadDigest = boundedWorkDigest(payload);
   const body = {
     schema: BOUNDED_WORK_FORMAL_VERIFICATION_ATTESTATION_SCHEMA,
@@ -107,7 +107,7 @@ export function parseBoundedWorkFormalVerificationAttestation(
 
   const producer = normalizeProducer(value.producer);
 
-  const payload = parseFormalVerificationToolResultMetadata(value.payload);
+  const payload = parseFormalVerificationObservation(value.payload);
   const payloadDigest = requireDigest(value.payloadDigest, "formal verification payloadDigest");
   const expectedPayloadDigest = boundedWorkDigest(payload);
   if (payloadDigest !== expectedPayloadDigest) {

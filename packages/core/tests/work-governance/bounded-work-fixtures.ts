@@ -91,7 +91,7 @@ export function testBoundedWorkCloseoutDecision(
         verifier: { name: "dafny", version: "4.11.0" },
         artifact: { contentDigest: digest("a") },
         subjects,
-        checks: [{ symbol: "Test.Main", check: "correctness", outcome: "proved" }],
+        checks: [{ symbol: "Test.Main", check: "correctness", outcome: "proved", durationMs: 0, resourceCount: 0 }],
       }),
     },
     recordedAt: "2026-08-12T18:02:00.000Z",

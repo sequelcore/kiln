@@ -1,6 +1,6 @@
 import type {
-  FormalVerificationToolResultMetadata,
-} from "../tools/domain/tool-result-metadata.js";
+  FormalVerificationObservation,
+} from "../verification/formal/observation.js";
 import {
   parseBoundedWorkCandidateEvidence,
   type BoundedWorkCandidateEvidence,
@@ -274,7 +274,7 @@ function evidenceProvesObligation(
 }
 
 function hasBoundCandidateSubjects(
-  payload: FormalVerificationToolResultMetadata,
+  payload: FormalVerificationObservation,
   candidateSubjects: CandidateSubjectDigests,
 ): boolean {
   const subjects = normalizeFormalProofSubjects(payload.subjects);

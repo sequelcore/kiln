@@ -137,11 +137,11 @@ settings while preserving unrelated fields. A project-level communication
 override is justified only when that repository genuinely requires a different
 response contract; it should not duplicate the operator's normal workflow.
 
-## Formal verification
+## Verification providers
 
-Dafny is a global machine capability, not project configuration. Configure the
-operator-selected executable and the exact expected version once in
-`~/.kiln/config.yaml`:
+Dafny, Oxlint, and Gentle AI are global machine capabilities, not project configuration.
+Configure only the providers the operator wants to expose, with an exact
+expected version, in `~/.kiln/config.yaml`:
 
 ```yaml
 verification:
@@ -149,21 +149,50 @@ verification:
     dafny:
       executable: dafny
       expectedVersion: 4.11.0
+  static:
+    oxlint:
+      executable: C:/tools/oxlint.exe
+      expectedVersion: 1.80.0
+  inferential:
+    gentleAi:
+      executable: C:/tools/gentle-ai.exe
+      expectedVersion: 2.4.0
+      expectedExecutableDigest: sha256:<published-platform-artifact-digest>
+      expectedBuildRevision: 301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb
 ```
 
-`executable` may be an explicit path or a bare command written by the operator.
-Kiln never discovers Dafny when this field is absent and never installs it. At
-startup Kiln executes the configured binary with `--version`, reduces accepted
-build metadata to the canonical three-part version, and registers
-`formal_verify` only when the observed version exactly matches
-`expectedVersion`. On Windows, only a native `.exe` or `.com` target is
-accepted; `.cmd` and `.bat` shims are rejected.
+The `formal`, `static`, and `inferential` arms are independent and optional. `executable` may
+be an explicit path or a bare command written by the operator. Kiln never
+discovers or installs an omitted provider. At startup it executes each
+configured binary with `--version`, reduces accepted build metadata to the
+canonical three-part version, and registers the corresponding tool only when
+the observed version exactly matches `expectedVersion`. On Windows, only a
+native `.exe` or `.com` target is accepted; `.cmd` and `.bat` shims are
+rejected.
+
+`formal_verify` emits Dafny proof evidence. `static_analyze` runs one source
+file through Kiln's fixed Oxlint `correctness + suspicious` profile and emits
+diagnostics bound to the analyzed bytes. A clean static-analysis observation
+is evidence only; it does not satisfy an Assurance obligation or authorize an
+action by itself.
+
+`gentle_review` is a read-only observer for the exact Gentle AI candidate named
+by `baseTree` and `targetIdentity`. Kiln requires capabilities v2.2/status v5,
+the exact configured binary SHA-256, version, and build revision. It does not
+start, advance, finalize, repair, or accept a Gentle review. Its receipt and
+next-transition data remain inferential evidence with `establishes: []`.
 
 A repository does not repeat the executable, version, or a `required` flag.
 Whether a particular bounded task needs formal proof is already owned by its
 adopted Assurance obligations. If those obligations exist but the validated
 global capability is unavailable, admission pauses before any work budget is
 reserved.
+
+Formal-screening packages are operator-local evaluation inputs. Keep them
+under the repository's ignored `.kiln-private/benchmarks/` root and configure
+the exact absolute package path under `verification.formal.screening`. Kiln
+rejects a configured package outside that repository-private boundary; the
+package is never a public dataset or npm publish surface.
 
 ## Targets
 

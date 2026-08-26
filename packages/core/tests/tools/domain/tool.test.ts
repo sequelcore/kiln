@@ -98,6 +98,8 @@ describe("tool domain types", () => {
       "resource_template_list",
       "resource_read",
       "formal_verify",
+      "static_analyze",
+      "gentle_review",
     ]);
   });
 

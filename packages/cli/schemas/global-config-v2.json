@@ -350,6 +350,7 @@
     },
     "verification": {
       "additionalProperties": false,
+      "minProperties": 1,
       "properties": {
         "formal": {
           "additionalProperties": false,
@@ -414,11 +415,72 @@
             "dafny"
           ],
           "type": "object"
+        },
+        "inferential": {
+          "additionalProperties": false,
+          "properties": {
+            "gentleAi": {
+              "additionalProperties": false,
+              "properties": {
+                "executable": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "expectedBuildRevision": {
+                  "pattern": "^[a-f0-9]{40}$",
+                  "type": "string"
+                },
+                "expectedExecutableDigest": {
+                  "pattern": "^sha256:[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "expectedVersion": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "executable",
+                "expectedVersion",
+                "expectedExecutableDigest",
+                "expectedBuildRevision"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "gentleAi"
+          ],
+          "type": "object"
+        },
+        "static": {
+          "additionalProperties": false,
+          "properties": {
+            "oxlint": {
+              "additionalProperties": false,
+              "properties": {
+                "executable": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "expectedVersion": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "executable",
+                "expectedVersion"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "oxlint"
+          ],
+          "type": "object"
         }
       },
-      "required": [
-        "formal"
-      ],
       "type": "object"
     },
     "version": {
