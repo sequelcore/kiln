@@ -39,7 +39,7 @@ meaning and terminal outcome.
 - Terminal state survives reload and restored-session projection.
 - Structured output is preferred when supplied by shared contracts; readable
   bounded raw evidence remains available where required.
-- Formal, static, and inferential verification observations render through the
+- Formal, static, static-quality, and inferential verification observations render through the
   shared `verification` presentation contract. GUI and TUI preserve engine,
   candidate identity, covered subjects, producer-specific outcomes, and the
   facts-only authority boundary; neither surface derives Assurance acceptance

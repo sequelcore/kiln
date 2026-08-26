@@ -14,6 +14,7 @@ import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-us
 import { digestKilnPermissionPolicy } from "./model-facing-permission-policy.js";
 import { resolveStaticAnalysisConfiguration } from "./verification/oxlint.js";
 import { resolveGentleAiConfiguration } from "./verification/gentle-ai.js";
+import { resolveQualityAnalysisConfiguration } from "./verification/quality.js";
 import {
   type LoadConfiguredWebToolSurfaceOptionsInput,
   loadConfiguredWebToolSurfaceOptions,
@@ -205,6 +206,7 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(options.platform === undefined ? {} : { platform: options.platform }),
     ...(options.discoveredGentleAiPaths === undefined ? {} : { discoveredPaths: options.discoveredGentleAiPaths }),
   });
+  const qualityAnalysis = resolveQualityAnalysisConfiguration(globalConfig);
   const [webOptions, interactiveOptions] = await Promise.all([
     loadConfiguredWebToolSurfaceOptions(appConfig, projectPath, {
       ...(options.memoryAuthority === undefined ? {} : { memoryAuthority: options.memoryAuthority }),
@@ -227,6 +229,7 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(invocationPolicy ? { invocationAdmission: createConfiguredInvocationAdmission(invocationPolicy) } : {}),
     ...(formalVerification.options === undefined ? {} : { formalVerify: formalVerification.options }),
     ...(staticAnalysis.options === undefined ? {} : { staticAnalyze: staticAnalysis.options }),
+    ...(qualityAnalysis.options === undefined ? {} : { qualityAnalyze: qualityAnalysis.options }),
     ...(gentleReview.options === undefined ? {} : { gentleReview: gentleReview.options }),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,

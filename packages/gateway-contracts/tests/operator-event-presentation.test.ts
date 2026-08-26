@@ -128,6 +128,43 @@ describe("operator event presentation", () => {
     expect(JSON.stringify(presentation.toolPresentation)).not.toContain("findings");
   });
 
+  it("projects deterministic quality profiles without inventing an overall pass", () => {
+    const digest = `sha256:${"d".repeat(64)}`;
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "quality-1",
+      toolName: "quality_analyze",
+      output: JSON.stringify({ output: "1 configured quality diagnostic.", isError: false, metadata: {
+        schema: "kiln.quality-analysis-observation/v1",
+        toolName: "quality_analyze",
+        kind: "static_quality_analysis",
+        analyzer: { name: "kiln-quality", version: "3.0.0-beta.1", parser: { name: "@typescript/typescript6", version: "6.0.3" } },
+        artifact: { kind: "typescript", path: "policy.ts", contentDigest: digest },
+        outcome: "diagnostics",
+        profiles: [{
+          name: "type-integrity",
+          revision: "v1",
+          rules: [{ name: "chained-type-assertion", revision: "v1" }, { name: "widen-then-assert", revision: "v1" }],
+          diagnostics: [{ rule: { name: "widen-then-assert", revision: "v1" }, message: "Avoid widening through unknown before asserting a narrower type.", line: 2, column: 15 }],
+        }],
+        establishes: [],
+      }}),
+      status: { state: "succeeded" },
+    });
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "verification",
+      title: "TypeScript quality analysis",
+      summary: "1 configured quality diagnostic",
+      verification: {
+        kind: "quality",
+        engine: { name: "kiln-quality", version: "3.0.0-beta.1", parser: { name: "@typescript/typescript6", version: "6.0.3" } },
+        candidate: { digest, subjects: [{ path: "policy.ts", contentDigest: digest }] },
+        outcome: "diagnostics",
+        authority: { kind: "evidence_only", establishes: [] },
+      },
+    });
+    expect(JSON.stringify(presentation.toolPresentation)).not.toMatch(/quality passed/iu);
+  });
+
   it("presents canonical managed account affinity commit evidence", () => {
     const completed = structuredClone(managedAccountLeaseSettledEvent);
     const payload = completed.payload as Record<string, unknown> & {

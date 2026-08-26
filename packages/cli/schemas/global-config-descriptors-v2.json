@@ -879,7 +879,7 @@
     {
       "activation": "next-session",
       "authorityImpact": "none",
-      "defaultPosture": "required",
+      "defaultPosture": "omitted",
       "identity": "/verification/static/oxlint",
       "schemaRevision": 2,
       "scope": "global",
@@ -911,6 +911,42 @@
       "sensitivity": "public",
       "structuralOwner": "global-configuration",
       "valueType": "string"
+    },
+    {
+      "activation": "next-session",
+      "authorityImpact": "none",
+      "defaultPosture": "omitted",
+      "identity": "/verification/static/quality",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "global-configuration",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "object"
+    },
+    {
+      "activation": "next-session",
+      "authorityImpact": "none",
+      "defaultPosture": "required",
+      "identity": "/verification/static/quality/typescript",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "global-configuration",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "array"
+    },
+    {
+      "activation": "next-session",
+      "authorityImpact": "none",
+      "defaultPosture": "required",
+      "identity": "/verification/static/quality/typescript/*",
+      "schemaRevision": 2,
+      "scope": "global",
+      "semanticOwner": "global-configuration",
+      "sensitivity": "public",
+      "structuralOwner": "global-configuration",
+      "valueType": "literal"
     },
     {
       "activation": "next-session",

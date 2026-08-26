@@ -37,6 +37,7 @@ not a second selection or trust authority.
 | --- | --- | --- | --- | --- |
 | Formal | Dafny | `formal_verify` | Selectively available; consumed by bounded-work Assurance | Facts only |
 | Static | Oxlint | `static_analyze` | Experimental opt-in producer; current calibration does not justify Assurance | Facts only |
+| Static artifact quality | Kiln Quality + TypeScript parser | `quality_analyze` | Experimental opt-in `type-integrity/v1` producer | Facts only |
 | Inferential review | Gentle AI 2.4.0 | `gentle_review` | Experimental opt-in, read-only status producer | Facts only; never Assurance or Runtime authority |
 
 `static_analyze` is intentionally narrow. It analyzes one immutable copied
@@ -50,6 +51,22 @@ Oxlint version, profile revision, number of rules, diagnostics, and outcome.
 This fixed profile is the smallest reproducible second verifier class. Project
 lint policy remains owned by the project's normal lint command; Kiln does not
 silently reinterpret that policy as assurance evidence.
+
+`quality_analyze` examines one TypeScript artifact with every configured
+applicable profile. Its first closed profile, `type-integrity/v1`, diagnoses
+chained type assertions and the more specific widen-then-assert pattern without
+double reporting. It parses in-process with the exact runtime
+`@typescript/typescript6` compatibility dependency. The wrapper and its
+underlying TypeScript `6.0.3` parser are both pinned so a
+published install cannot float the parser behind the recorded profile revision.
+It does not load `tsconfig`,
+imports, project graphs, plugins, suppressions, thresholds, fixes, or network
+resources. A parse or profile failure produces no observation.
+
+The tool name describes observable behavior rather than presumed authorship.
+`anti-slop` is research provenance, not a profile identity, and Kiln never emits
+an AI-authorship or global-quality score. Profiles are reviewed build-time Kiln
+contributions shipped in a release; there is no runtime plugin registry.
 
 ## Configuration
 
@@ -67,6 +84,9 @@ verification:
     oxlint:
       executable: C:/tools/oxlint.exe
       expectedVersion: 1.80.0
+    quality:
+      typescript:
+        - type-integrity
   inferential:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
@@ -79,6 +99,10 @@ Each producer class may be configured independently. Kiln probes
 `--version`, requires an exact canonical version match, rejects unavailable or
 non-native Windows launch paths, and omits the tool when resolution fails.
 The tools remain deferred rather than always present in model context.
+`quality_analyze` has no external executable to probe and is registered only
+when the closed TypeScript profile list is present. The agent chooses only the
+artifact path; it cannot choose profiles, rules, severities, thresholds, or
+exclusions.
 
 `gentle_review` negotiates `gentle-ai.review-integration/v2` capabilities v2.2
 and reads status v5 for an exact workspace-overlay base tree and expected
@@ -107,6 +131,8 @@ visible/private subtree overlap before creating a model-facing workspace.
 - Stale evidence cannot satisfy a current candidate.
 - Inferential model review is independent review evidence, not deterministic
   verification and not authority.
+- "No configured quality diagnostics" means only that the named profile and
+  rule revisions emitted none; it is not an overall quality pass.
 
 ## Deliberate non-generalization
 
@@ -138,5 +164,17 @@ adds no lifecycle, persistence, fallback, provider selection, or Assurance
 mapping. The remaining duplication with Dafny is intentional evidence needed
 before a real shared seam can be justified.
 
+For artifact quality, the required invariant is that a no-diagnostics
+observation is emitted only after the named rule revisions parsed the exact
+bytes. The permanent surface is one optional profile list, one tool, one strict
+observation, two syntax rules, and one exact runtime parser dependency. The
+shorter Oxlint JavaScript-plugin route was rejected because its alpha execution
+contract cannot guarantee fail-closed coverage. The compatibility parser is
+removable when the primary TypeScript compiler exposes a supported AST API or
+a simpler stable parser owns this consumer. No lifecycle, persistence, runtime
+registry, fallback, fixes, score, or Assurance mapping was added.
+
 The comparative research basis and rejected expansions are recorded in
 [Verification Producer Evidence](../../research/foundations/verification-producers.md).
+The anti-slop and benchmark calibration is recorded in
+[Artifact Quality Evidence](../../research/foundations/artifact-quality-evidence.md).

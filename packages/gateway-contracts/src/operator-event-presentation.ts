@@ -204,9 +204,34 @@ export interface ToolResultInferentialVerificationPresentation {
   readonly authority: ToolResultVerificationAuthorityPresentation;
 }
 
+export interface ToolResultQualityDiagnosticPresentation {
+  readonly rule: { readonly name: string; readonly revision: string };
+  readonly message: string;
+  readonly line: number;
+  readonly column: number;
+}
+
+export interface ToolResultQualityProfilePresentation {
+  readonly name: string;
+  readonly revision: string;
+  readonly rules: readonly { readonly name: string; readonly revision: string }[];
+  readonly diagnostics: readonly ToolResultQualityDiagnosticPresentation[];
+}
+
+export interface ToolResultQualityVerificationPresentation {
+  readonly kind: "quality";
+  readonly engine: ToolResultVerificationEnginePresentation & { readonly parser: ToolResultVerificationEnginePresentation };
+  readonly candidate: { readonly digest: string; readonly subjects: readonly ToolResultVerificationSubjectPresentation[] };
+  readonly artifactKind: "typescript";
+  readonly outcome: "no_diagnostics" | "diagnostics";
+  readonly profiles: readonly ToolResultQualityProfilePresentation[];
+  readonly authority: ToolResultVerificationAuthorityPresentation;
+}
+
 export type ToolResultVerificationPresentation =
   | ToolResultFormalVerificationPresentation
   | ToolResultStaticVerificationPresentation
+  | ToolResultQualityVerificationPresentation
   | ToolResultInferentialVerificationPresentation;
 
 export interface ToolResultPreview {
@@ -1829,6 +1854,67 @@ function projectInferentialVerificationPresentation(
   };
 }
 
+function projectQualityVerificationPresentation(
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | undefined {
+  if (readString(metadata.schema) !== "kiln.quality-analysis-observation/v1" || readString(metadata.toolName) !== "quality_analyze" || readString(metadata.kind) !== "static_quality_analysis" || !hasEmptyAuthorityClaims(metadata)) return undefined;
+  const analyzer = asRecord(metadata.analyzer);
+  const parser = asRecord(analyzer?.parser);
+  const artifact = asRecord(metadata.artifact);
+  const engineVersion = readString(analyzer?.version);
+  const parserVersion = readString(parser?.version);
+  const path = readString(artifact?.path);
+  const digest = readString(artifact?.contentDigest);
+  const outcome = readString(metadata.outcome);
+  if (readString(analyzer?.name) !== "kiln-quality" || readString(parser?.name) !== "@typescript/typescript6" || !engineVersion || !parserVersion || readString(artifact?.kind) !== "typescript" || !path || !isCanonicalSha256(digest) || (outcome !== "no_diagnostics" && outcome !== "diagnostics") || !Array.isArray(metadata.profiles) || metadata.profiles.length !== 1) return undefined;
+  const profiles = metadata.profiles.flatMap((entry): ToolResultQualityProfilePresentation[] => {
+    const profile = asRecord(entry);
+    if (readString(profile?.name) !== "type-integrity" || readString(profile?.revision) !== "v1" || !Array.isArray(profile?.rules) || !Array.isArray(profile?.diagnostics)) return [];
+    const rules = profile.rules.flatMap((ruleEntry) => {
+      const rule = asRecord(ruleEntry);
+      const name = readString(rule?.name);
+      const revision = readString(rule?.revision);
+      return name && revision ? [{ name, revision }] : [];
+    });
+    if (rules.length !== 2 || rules[0]?.name !== "chained-type-assertion" || rules[1]?.name !== "widen-then-assert" || rules.some((rule) => rule.revision !== "v1")) return [];
+    const diagnostics = profile.diagnostics.flatMap((diagnosticEntry): ToolResultQualityDiagnosticPresentation[] => {
+      const diagnostic = asRecord(diagnosticEntry);
+      const rule = asRecord(diagnostic?.rule);
+      const name = readString(rule?.name);
+      const revision = readString(rule?.revision);
+      const message = readString(diagnostic?.message);
+      const line = readNumber(diagnostic?.line);
+      const column = readNumber(diagnostic?.column);
+      if (!name || !rules.some((candidate) => candidate.name === name && candidate.revision === revision) || !revision || !message || !isPositiveSafeInteger(line) || !isPositiveSafeInteger(column)) return [];
+      return [{ rule: { name, revision }, message, line, column }];
+    });
+    if (diagnostics.length !== profile.diagnostics.length) return [];
+    return [{ name: "type-integrity", revision: "v1", rules, diagnostics }];
+  });
+  if (profiles.length !== metadata.profiles.length) return undefined;
+  const diagnosticCount = profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
+  if ((outcome === "no_diagnostics") !== (diagnosticCount === 0)) return undefined;
+  return {
+    outputKind: "verification",
+    classification: toolResultClassification("tool-metadata", "quality analysis observation identifies candidate-bound deterministic diagnostics", { confidence: "high" }),
+    title: "TypeScript quality analysis",
+    summary: outcome === "no_diagnostics" ? "No configured quality diagnostics" : `${diagnosticCount} configured quality diagnostic${diagnosticCount === 1 ? "" : "s"}`,
+    fields: [{ label: "Profiles", value: `${profiles.length}` }, { label: "Candidate", value: digest }, { label: "Assurance", value: "Separate decision" }],
+    verification: {
+      kind: "quality",
+      engine: { name: "kiln-quality", version: engineVersion, parser: { name: "@typescript/typescript6", version: parserVersion } },
+      candidate: { digest, subjects: [{ path, contentDigest: digest }] },
+      artifactKind: "typescript",
+      outcome,
+      profiles,
+      authority: VERIFICATION_AUTHORITY,
+    },
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
 function projectVerificationPresentation(
   metadata: Record<string, unknown> | undefined,
   resourceLinks: readonly ToolResultResourceLinkPresentation[],
@@ -1837,6 +1923,7 @@ function projectVerificationPresentation(
   const kind = readString(metadata.kind);
   if (kind === "formal_verification") return projectFormalVerificationPresentation(metadata, resourceLinks);
   if (kind === "static_analysis") return projectStaticVerificationPresentation(metadata, resourceLinks);
+  if (kind === "static_quality_analysis") return projectQualityVerificationPresentation(metadata, resourceLinks);
   if (kind === "inferential_review") return projectInferentialVerificationPresentation(metadata, resourceLinks);
   return undefined;
 }

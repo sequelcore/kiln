@@ -141,6 +141,18 @@ function createAuthorityDeniedMemoryReadRepository(repository: MemoryRepository)
 }
 
 describe("default builtin tool surface", () => {
+  it("registers quality_analyze only when a compiled profile is configured", () => {
+    const absent = createDefaultBuiltinToolSurface({ toolProjection: { mode: "deferred" } });
+    const configured = createDefaultBuiltinToolSurface({
+      qualityAnalyze: { profiles: ["type-integrity"], analyzerVersion: "3.0.0-beta.1" },
+      toolProjection: { mode: "deferred" },
+    });
+    expect(absent.registry.has("quality_analyze")).toBe(false);
+    expect(configured.registry.has("quality_analyze")).toBe(true);
+    expect(configured.toolNames).not.toContain("quality_analyze");
+    expect(configured.bridge.listTools().map((tool) => tool.name)).toContain("quality_analyze");
+  });
+
   it("projects one canonical builtin tool set into registry, names, definitions, capabilities, and execution bridge", () => {
     const surface = createDefaultBuiltinToolSurface();
 

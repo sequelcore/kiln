@@ -430,6 +430,15 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
   // --- Verification ---
   formal_verify: VERIFIER_EXECUTION,
   static_analyze: VERIFIER_EXECUTION,
+  quality_analyze: {
+    operation: "observe",
+    boundaries: ["process", "workspace"],
+    reversibility: "reversible",
+    dataEgress: "none",
+    identityUse: "none",
+    consequences: [],
+    idempotency: "idempotent",
+  },
   gentle_review: VERIFIER_EXECUTION,
 } as const;
 

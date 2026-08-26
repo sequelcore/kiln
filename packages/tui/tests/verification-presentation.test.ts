@@ -65,4 +65,23 @@ describe("TUI verification presentation", () => {
     expect(output).toContain("next collect · review_pending");
     expect(output).not.toMatch(/approved|findings/iu);
   });
+
+  it("formats quality profiles, parser provenance, and diagnostics", () => {
+    const digest = `sha256:${"d".repeat(64)}`;
+    const verification: ToolResultVerificationPresentation = {
+      kind: "quality",
+      engine: { name: "kiln-quality", version: "3.0.0-beta.1", parser: { name: "@typescript/typescript6", version: "6.0.3" } },
+      candidate: { digest, subjects: [{ path: "policy.ts", contentDigest: digest }] },
+      artifactKind: "typescript",
+      outcome: "diagnostics",
+      profiles: [{ name: "type-integrity", revision: "v1", rules: [{ name: "chained-type-assertion", revision: "v1" }, { name: "widen-then-assert", revision: "v1" }], diagnostics: [{ rule: { name: "widen-then-assert", revision: "v1" }, message: "Avoid widening through unknown.", line: 3, column: 14 }] }],
+      authority: { kind: "evidence_only", establishes: [] },
+    };
+    const output = formatVerificationPresentationAsText(verification);
+    expect(output).toContain("diagnostics · Kiln Quality 3.0.0-beta.1");
+    expect(output).toContain("type-integrity/v1 · 2 rules");
+    expect(output).toContain("widen-then-assert/v1 · policy.ts:3:14");
+    expect(output).toContain("Assurance: separate decision · evidence only");
+    expect(output).not.toMatch(/quality passed/iu);
+  });
 });

@@ -5,6 +5,7 @@ export function formatVerificationPresentationAsText(
 ): string {
   if (verification.kind === "formal") return formatFormal(verification);
   if (verification.kind === "static") return formatStatic(verification);
+  if (verification.kind === "quality") return formatQuality(verification);
   return formatInferential(verification);
 }
 
@@ -51,6 +52,27 @@ function formatInferential(
   ];
   if (verification.outcome.nextTransition) {
     lines.push(`next ${verification.outcome.nextTransition.kind} · ${verification.outcome.nextTransition.reasonCode}`);
+  }
+  lines.push(assuranceLine());
+  return lines.join("\n");
+}
+
+function formatQuality(
+  verification: Extract<ToolResultVerificationPresentation, { readonly kind: "quality" }>,
+): string {
+  const diagnosticCount = verification.profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
+  const lines = [
+    `${verification.outcome} · Kiln Quality ${verification.engine.version}`,
+    candidateLine(verification),
+    diagnosticCount === 0 ? "No configured quality diagnostics" : `${diagnosticCount} configured quality diagnostic${diagnosticCount === 1 ? "" : "s"}`,
+    `parser ${verification.engine.parser.name} ${verification.engine.parser.version}`,
+  ];
+  for (const profile of verification.profiles) {
+    lines.push(`${profile.name}/${profile.revision} · ${profile.rules.length} rules`);
+    lines.push(`  ${profile.rules.map((rule) => `${rule.name}/${rule.revision}`).join(", ")}`);
+    for (const diagnostic of profile.diagnostics) {
+      lines.push(`! ${diagnostic.rule.name}/${diagnostic.rule.revision} · ${verification.candidate.subjects[0]?.path}:${diagnostic.line}:${diagnostic.column} · ${diagnostic.message}`);
+    }
   }
   lines.push(assuranceLine());
   return lines.join("\n");

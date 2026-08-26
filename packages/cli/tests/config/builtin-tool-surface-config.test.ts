@@ -158,6 +158,23 @@ describe("builtin tool surface config", () => {
     }
   });
 
+  it("registers configured TypeScript quality analysis while keeping it deferred", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-quality-surface-"));
+    try {
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        globalConfig: { version: "5", verification: { static: { quality: { typescript: ["type-integrity"] } } } },
+      });
+      const projected = withProgressiveRuntimeToolProjection(options, "execute");
+      const surface = createDefaultBuiltinToolSurface(projected);
+      expect(options.qualityAnalyze).toMatchObject({ profiles: ["type-integrity"] });
+      expect(projected.toolProjection?.alwaysOnTools).not.toContain("quality_analyze");
+      expect(surface.registry.has("quality_analyze")).toBe(true);
+      expect(surface.toolNames).not.toContain("quality_analyze");
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+
   it("shares the same artifact store between browser tools and the Playwright recorder", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-builtin-recorder-"));
     try {

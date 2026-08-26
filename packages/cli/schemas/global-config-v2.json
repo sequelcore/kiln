@@ -455,6 +455,7 @@
         },
         "static": {
           "additionalProperties": false,
+          "minProperties": 1,
           "properties": {
             "oxlint": {
               "additionalProperties": false,
@@ -473,11 +474,27 @@
                 "expectedVersion"
               ],
               "type": "object"
+            },
+            "quality": {
+              "additionalProperties": false,
+              "properties": {
+                "typescript": {
+                  "items": {
+                    "const": "type-integrity",
+                    "type": "string"
+                  },
+                  "maxItems": 1,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "typescript"
+              ],
+              "type": "object"
             }
           },
-          "required": [
-            "oxlint"
-          ],
           "type": "object"
         }
       },

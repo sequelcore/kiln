@@ -30,6 +30,22 @@ export {
   parseStaticAnalysisObservation,
   staticAnalysisObservation,
 } from "./static/observation.js";
+export {
+  QUALITY_ANALYSIS_OBSERVATION_SCHEMA,
+  TYPESCRIPT_QUALITY_ARTIFACT,
+  TYPE_INTEGRITY_PROFILE,
+  TYPE_INTEGRITY_PROFILE_REVISION,
+  TYPE_INTEGRITY_RULES,
+  parseQualityAnalysisObservation,
+  qualityAnalysisObservation,
+} from "./static/quality-observation.js";
+export type {
+  QualityAnalysisDiagnostic,
+  QualityAnalysisObservation,
+  QualityAnalysisProfileObservation,
+  QualityProfileName,
+  QualityRuleName,
+} from "./static/quality-observation.js";
 export type {
   StaticAnalysisDiagnostic,
   StaticAnalysisObservation,

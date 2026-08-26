@@ -11,6 +11,21 @@ function baseConfig(): KilnGlobalConfig {
 }
 
 describe("validateGlobalConfig root fields", () => {
+  it("admits only the closed TypeScript quality profile list", () => {
+    expect(() => validateGlobalConfig({
+      ...baseConfig(),
+      verification: { static: { quality: { typescript: ["type-integrity"] } } },
+    })).not.toThrow();
+    expect(() => validateGlobalConfig({
+      ...baseConfig(),
+      verification: { static: { quality: { typescript: ["type-integrity", "type-integrity"] } } } as never,
+    })).toThrow(/verification\.static\.quality\.typescript/iu);
+    expect(() => validateGlobalConfig({
+      ...baseConfig(),
+      verification: { static: { quality: { typescript: ["anti-slop"] } } } as never,
+    })).toThrow(/verification\.static\.quality\.typescript/iu);
+  });
+
   it("accepts a versioned reviewed Codex external catalog policy and rejects ambiguous decisions", () => {
     const decision = { sourceId: "plugin:docs:pdf:.", packageDigest: `sha256:${"a".repeat(64)}` };
     const expectedFingerprint = `sha256:${"b".repeat(64)}`;

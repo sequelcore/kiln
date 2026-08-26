@@ -221,6 +221,7 @@ export type DevToolName =
   | "resource_read"
   | "formal_verify"
   | "static_analyze"
+  | "quality_analyze"
   | "gentle_review";
 
 export const TOOL_SCHEMAS: Record<
@@ -1557,6 +1558,23 @@ export const TOOL_SCHEMAS: Record<
           type: "string",
           minLength: 1,
           description: "Path to one JavaScript or TypeScript source file, relative to the workspace root.",
+        },
+      },
+      required: ["file"],
+      additionalProperties: false,
+    },
+  },
+  quality_analyze: {
+    name: "quality_analyze",
+    description:
+      "Analyze one TypeScript artifact with every configured deterministic quality profile. Reports profile revisions, rules evaluated, and diagnostics only; it does not identify AI authorship, establish overall quality, fix code, or accept work.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: {
+          type: "string",
+          minLength: 1,
+          description: "Path to one TypeScript source file, relative to the workspace root.",
         },
       },
       required: ["file"],

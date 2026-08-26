@@ -1,6 +1,7 @@
 import type {
   ToolResultFormalVerificationPresentation,
   ToolResultInferentialVerificationPresentation,
+  ToolResultQualityVerificationPresentation,
   ToolResultStaticVerificationPresentation,
   ToolResultVerificationPresentation,
 } from "@kilnai/gateway-contracts";
@@ -19,6 +20,7 @@ export function VerificationEvidence({ verification }: VerificationEvidenceProps
       <VerificationIdentity verification={verification} />
       {verification.kind === "formal" ? <FormalEvidence verification={verification} /> : null}
       {verification.kind === "static" ? <StaticEvidence verification={verification} /> : null}
+      {verification.kind === "quality" ? <QualityEvidence verification={verification} /> : null}
       {verification.kind === "inferential" ? <InferentialEvidence verification={verification} /> : null}
       <Alert>
         <AlertTitle>Assurance is a separate decision</AlertTitle>
@@ -55,6 +57,9 @@ function VerificationOutcomeBadge({ verification }: VerificationEvidenceProps) {
   }
   if (verification.kind === "static") {
     return <Badge variant={verification.outcome === "violations" ? "destructive" : "secondary"}>{verification.outcome}</Badge>;
+  }
+  if (verification.kind === "quality") {
+    return <Badge variant={verification.outcome === "diagnostics" ? "destructive" : "secondary"}>{humanize(verification.outcome)}</Badge>;
   }
   return <Badge variant="outline">{humanize(verification.outcome.applicability)}</Badge>;
 }
@@ -148,6 +153,43 @@ function InferentialEvidence({ verification }: { readonly verification: ToolResu
   );
 }
 
+function QualityEvidence({ verification }: { readonly verification: ToolResultQualityVerificationPresentation }) {
+  const diagnosticCount = verification.profiles.reduce((count, profile) => count + profile.diagnostics.length, 0);
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <p className="text-sm font-medium text-foreground">
+          {diagnosticCount === 0 ? "No configured quality diagnostics" : `${diagnosticCount} configured quality diagnostic${diagnosticCount === 1 ? "" : "s"}`}
+        </p>
+        <p className="font-mono text-xs text-muted-foreground">
+          parser {verification.engine.parser.name} {verification.engine.parser.version}
+        </p>
+      </div>
+      {verification.profiles.map((profile) => (
+        <section key={`${profile.name}/${profile.revision}`} aria-label={`${profile.name} quality profile`} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-mono text-xs font-medium text-foreground">{profile.name}/{profile.revision}</p>
+            <Badge variant="outline">{profile.rules.length} rules</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">{profile.rules.map((rule) => `${rule.name}/${rule.revision}`).join(", ")}</p>
+          {profile.diagnostics.length > 0 ? (
+            <Table aria-label={`${profile.name} diagnostics`}>
+              <TableHeader><TableRow><TableHead>Rule</TableHead><TableHead>Diagnostic</TableHead><TableHead>Location</TableHead></TableRow></TableHeader>
+              <TableBody>{profile.diagnostics.map((diagnostic) => (
+                <TableRow key={`${diagnostic.line}:${diagnostic.column}:${diagnostic.rule.name}`}>
+                  <TableCell><Badge variant="outline">{diagnostic.rule.name}/{diagnostic.rule.revision}</Badge></TableCell>
+                  <TableCell className="max-w-72 whitespace-normal text-muted-foreground">{diagnostic.message}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{verification.candidate.subjects[0]?.path}:{diagnostic.line}:{diagnostic.column}</TableCell>
+                </TableRow>
+              ))}</TableBody>
+            </Table>
+          ) : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function compactDigest(value: string): string {
   return value.length > 28 ? `${value.slice(0, 19)}…${value.slice(-8)}` : value;
 }
@@ -156,6 +198,7 @@ function engineLabel(value: string): string {
   if (value === "dafny") return "Dafny";
   if (value === "oxlint") return "Oxlint";
   if (value === "gentle-ai") return "Gentle AI";
+  if (value === "kiln-quality") return "Kiln Quality";
   return value;
 }
 

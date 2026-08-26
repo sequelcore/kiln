@@ -10,6 +10,11 @@ import {
   staticAnalysisObservation,
   type StaticAnalysisObservation,
 } from "../../verification/static/observation.js";
+import {
+  parseQualityAnalysisObservation,
+  qualityAnalysisObservation,
+  type QualityAnalysisObservation,
+} from "../../verification/static/quality-observation.js";
 import type { GentleReviewObservation } from "../../verification/inferential/gentle-review-observation.js";
 import type {
   GoalRun,
@@ -74,6 +79,7 @@ export type MemoryToolName = "memory_search" | "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
 export type FormalVerifyToolName = "formal_verify";
 export type StaticAnalyzeToolName = "static_analyze";
+export type QualityAnalyzeToolName = "quality_analyze";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -631,6 +637,7 @@ export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = Mem
 
 export type FormalVerificationToolResultMetadata = FormalVerificationObservation & ToolResultResourceLinkMetadata;
 export type StaticAnalysisToolResultMetadata = StaticAnalysisObservation & ToolResultResourceLinkMetadata;
+export type QualityAnalysisToolResultMetadata = QualityAnalysisObservation & ToolResultResourceLinkMetadata;
 export type GentleReviewToolResultMetadata = GentleReviewObservation & ToolResultResourceLinkMetadata;
 
 export type ToolSpecificResultMetadata =
@@ -654,6 +661,7 @@ export type ToolSpecificResultMetadata =
   | ExternalToolFailureResultMetadata
   | FormalVerificationToolResultMetadata
   | StaticAnalysisToolResultMetadata
+  | QualityAnalysisToolResultMetadata
   | GentleReviewToolResultMetadata;
 
 export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
@@ -951,6 +959,32 @@ export function isStaticAnalysisToolResultMetadata(value: unknown): value is Sta
   } catch {
     return false;
   }
+}
+
+export function qualityAnalysisToolMetadata(
+  metadata: Omit<QualityAnalysisToolResultMetadata, "schema" | "toolName" | "kind" | "establishes">,
+): QualityAnalysisToolResultMetadata {
+  const { resourceLinks, ...observation } = metadata;
+  return withQualityAnalysisResourceLinks(qualityAnalysisObservation(observation), resourceLinks);
+}
+
+export function parseQualityAnalysisToolResultMetadata(value: unknown): QualityAnalysisToolResultMetadata {
+  if (!isRecord(value)) throw new Error("quality analysis metadata must be an object");
+  const { resourceLinks, ...observation } = value;
+  const parsed = parseQualityAnalysisObservation(observation);
+  return withQualityAnalysisResourceLinks(parsed, parseFormalVerificationResourceLinks(resourceLinks));
+}
+
+export function isQualityAnalysisToolResultMetadata(value: unknown): value is QualityAnalysisToolResultMetadata {
+  try { parseQualityAnalysisToolResultMetadata(value); return true; } catch { return false; }
+}
+
+function withQualityAnalysisResourceLinks(
+  observation: QualityAnalysisObservation,
+  resourceLinks: readonly ToolResourceLinkMetadata[] | undefined,
+): QualityAnalysisToolResultMetadata {
+  if (resourceLinks === undefined) return observation;
+  return Object.freeze({ ...observation, resourceLinks: Object.freeze(resourceLinks.map((link) => Object.freeze({ ...link }))) });
 }
 
 function withVerificationResourceLinks(

@@ -99,6 +99,7 @@ describe("tool domain types", () => {
       "resource_read",
       "formal_verify",
       "static_analyze",
+      "quality_analyze",
       "gentle_review",
     ]);
   });
@@ -128,6 +129,7 @@ describe("tool domain types", () => {
       "resource_list",
       "resource_template_list",
       "resource_read",
+      "quality_analyze",
     ] as const) {
       const envelope = getBuiltinEffectEnvelope(toolName);
       expect(envelope?.operation).toBe("observe");

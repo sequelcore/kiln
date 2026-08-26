@@ -2,7 +2,7 @@ import type { CommunicationIntent, ModelGatewayConfig, VoiceConfig } from "@kiln
 import { type ObjectOptions, type Static, type TObject, type TProperties, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { describeRunningCliBuild } from "../build-identity.js";
-import { KilnYamlError } from "../kiln-yaml.js";
+import { KilnYamlError } from "../kiln-yaml-types.js";
 import type {
   KilnAuthorityProfileConfig,
   KilnDeliberationPolicyConfig,
@@ -123,7 +123,13 @@ const oxlint = strictObject({
   executable: Type.Readonly(nonEmptyString),
   expectedVersion: Type.Readonly(nonEmptyString),
 });
-const staticAnalysis = strictObject({ oxlint: Type.Readonly(oxlint) });
+const qualityAnalysis = strictObject({
+  typescript: Type.Readonly(Type.Array(Type.Literal("type-integrity"), { minItems: 1, maxItems: 1, uniqueItems: true })),
+});
+const staticAnalysis = strictObject(
+  { oxlint: Type.ReadonlyOptional(oxlint), quality: Type.ReadonlyOptional(qualityAnalysis) },
+  { minProperties: 1 },
+);
 const gentleAi = strictObject({
   executable: Type.Readonly(nonEmptyString),
   expectedVersion: Type.Readonly(nonEmptyString),

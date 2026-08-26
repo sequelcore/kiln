@@ -153,6 +153,9 @@ verification:
     oxlint:
       executable: C:/tools/oxlint.exe
       expectedVersion: 1.80.0
+    quality:
+      typescript:
+        - type-integrity
   inferential:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
@@ -175,6 +178,13 @@ file through Kiln's fixed Oxlint `correctness + suspicious` profile and emits
 diagnostics bound to the analyzed bytes. A clean static-analysis observation
 is evidence only; it does not satisfy an Assurance obligation or authorize an
 action by itself.
+
+`quality_analyze` is registered only when
+`verification.static.quality.typescript` contains `type-integrity`. It analyzes
+one `.ts`, `.tsx`, `.mts`, or `.cts` artifact with the closed profile compiled
+into that Kiln release. The agent supplies only `file`; profile, rule, severity,
+threshold, suppression, and fix selection remain operator/release owned. "No
+configured quality diagnostics" is not an overall quality pass.
 
 `gentle_review` is a read-only observer for the exact Gentle AI candidate named
 by `baseTree` and `targetIdentity`. Kiln requires capabilities v2.2/status v5,

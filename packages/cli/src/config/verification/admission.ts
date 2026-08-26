@@ -65,16 +65,22 @@ function validateFormalVerification(value: unknown): void {
 
 function validateStaticAnalysis(value: unknown): void {
   if (!isRecord(value)) throw new KilnYamlError("verification.static must be an object");
-  rejectUnknownFields(value, ["oxlint"], "verification.static");
-  if (!isRecord(value.oxlint)) {
-    throw new KilnYamlError("verification.static.oxlint must be an object");
+  rejectUnknownFields(value, ["oxlint", "quality"], "verification.static");
+  if (value.oxlint === undefined && value.quality === undefined) throw new KilnYamlError("verification.static must configure oxlint or quality");
+  if (value.oxlint !== undefined) {
+    if (!isRecord(value.oxlint)) throw new KilnYamlError("verification.static.oxlint must be an object");
+    rejectUnknownFields(value.oxlint, ["executable", "expectedVersion"], "verification.static.oxlint");
+    if (typeof value.oxlint.executable !== "string" || value.oxlint.executable.trim().length === 0) throw new KilnYamlError("verification.static.oxlint.executable must be a non-empty string");
+    if (typeof value.oxlint.expectedVersion !== "string" || !isCanonicalVersion(value.oxlint.expectedVersion)) throw new KilnYamlError("verification.static.oxlint.expectedVersion must be a canonical version");
   }
-  rejectUnknownFields(value.oxlint, ["executable", "expectedVersion"], "verification.static.oxlint");
-  if (typeof value.oxlint.executable !== "string" || value.oxlint.executable.trim().length === 0) {
-    throw new KilnYamlError("verification.static.oxlint.executable must be a non-empty string");
-  }
-  if (typeof value.oxlint.expectedVersion !== "string" || !isCanonicalVersion(value.oxlint.expectedVersion)) {
-    throw new KilnYamlError("verification.static.oxlint.expectedVersion must be a canonical version");
+  if (value.quality !== undefined) validateQualityAnalysis(value.quality);
+}
+
+function validateQualityAnalysis(value: unknown): void {
+  if (!isRecord(value)) throw new KilnYamlError("verification.static.quality must be an object");
+  rejectUnknownFields(value, ["typescript"], "verification.static.quality");
+  if (!Array.isArray(value.typescript) || value.typescript.length !== 1 || value.typescript[0] !== "type-integrity") {
+    throw new KilnYamlError("verification.static.quality.typescript must contain exactly type-integrity");
   }
 }
 
