@@ -42,6 +42,14 @@ The current product direction is a dense operator surface, not a generic
 dashboard: compact rows, hairline dividers, provider glyphs, clear active
 continuation state, and visible telemetry where it helps supervision.
 
+Verification-result cards use GUI-owned engine recognition. Dafny and Gentle AI
+marks are bundled locally from their MIT-licensed upstream repositories; Oxlint
+uses a Kiln-owned static-analysis pictogram because the official Oxc artwork is
+not licensed for unrestricted commercial redistribution. Unknown engines retain
+their exact contract label and receive a neutral monogram. See
+`THIRD_PARTY_NOTICES.md` for immutable source revisions, transformations,
+checksums, and bundled license texts.
+
 The visual direction follows Kiln's restrained biocybernetic cyberpunk identity:
 Phosphor dark glass, explicit control materials, precise signal color, and controlled
 ember accents. It should read as a serious control plane, not a decorative

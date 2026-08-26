@@ -80,6 +80,7 @@ describe("Transcript", () => {
     }} />);
 
     expect(screen.getByText("Dafny 4.11.0")).toBeInTheDocument();
+    expect(document.querySelector('[data-verification-engine-mark="dafny"]')).toBeInTheDocument();
     expect(screen.getByText("1 of 2 obligations proved")).toBeInTheDocument();
     expect(screen.getByText("Allow")).toBeInTheDocument();
     expect(screen.getByText("1,840 RU")).toBeInTheDocument();
@@ -109,6 +110,7 @@ describe("Transcript", () => {
     }} />);
 
     expect(screen.getByText("Oxlint 1.80.0")).toBeInTheDocument();
+    expect(document.querySelector('[data-verification-engine-mark="static-analysis"]')).toBeInTheDocument();
     expect(screen.getByText("1 diagnostic across 245 rules")).toBeInTheDocument();
     expect(screen.getByText("no-unused-vars")).toBeInTheDocument();
     expect(screen.getByText("policy.ts:4:8")).toBeInTheDocument();
@@ -133,6 +135,7 @@ describe("Transcript", () => {
     }} />);
 
     expect(screen.getByText("Gentle AI 2.4.0")).toBeInTheDocument();
+    expect(document.querySelector('[data-verification-engine-mark="gentle-ai"]')).toBeInTheDocument();
     expect(screen.getAllByText("current target")).toHaveLength(2);
     expect(screen.getByText("collect")).toBeInTheDocument();
     expect(screen.getByText("Receipt pending")).toBeInTheDocument();

@@ -40,6 +40,7 @@ describe("VerificationEvidence", () => {
       />,
     );
     expect(screen.getByText("Kiln Quality 3.0.0-beta.1")).toBeInTheDocument();
+    expect(document.querySelector('[data-verification-engine-fallback="kiln-quality"]')).toHaveTextContent("KQ");
     expect(screen.getByText("type-integrity/v1")).toBeInTheDocument();
     expect(screen.getByText("widen-then-assert/v1")).toBeInTheDocument();
     expect(screen.getByText("Assurance is a separate decision")).toBeInTheDocument();

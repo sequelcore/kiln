@@ -472,6 +472,33 @@ bundles remain inside the transcript width and expose readable fallback text
 when intent validation fails. Raw payloads remain inspector evidence rather
 than normal conversation content.
 
+Verification observations have one specialized renderer for formal, static,
+artifact-quality, and inferential evidence. The GUI maps the canonical engine
+identity to a local visual mark without adding asset paths or branding fields to
+the shared gateway contract. Dafny and Gentle AI use attributed upstream marks;
+Oxlint uses a Kiln-owned static-analysis pictogram because Oxc's official asset
+license is not suitable for unrestricted Kiln distribution. Unknown engines use
+a neutral monogram while retaining their exact text identity. A logo never
+changes the observation's authority: every card keeps the candidate digest,
+outcome, engine version, evidence details, and separate Assurance boundary.
+
+### Verification card demo
+
+Start the source GUI with `bun packages/cli/src/index.ts gui --dev`, open a new
+chat in the Kiln repository, and ask the agent to inspect the deferred verifier
+catalog before invoking the applicable producers. For example:
+
+> Find the configured verification tools. Run `static_analyze` and
+> `quality_analyze` on `packages/gui/src/components/verification-evidence.tsx`,
+> then explain the observations without treating either result as acceptance.
+
+For Dafny, name a repository-relative `.dfy` candidate and request
+`formal_verify`. `gentle_review` additionally requires a configured exact Gentle
+AI executable and an already-existing workspace-overlay candidate identified by
+its Git base tree and target SHA-256; it observes that review and does not start
+one. The tools are deferred rather than always-on, so a compliant agent resolves
+them through `tool_catalog_search` when their schemas are not already projected.
+
 The semantic navigation rail indexes projected user turns, assistant replies,
 tool executions, and failures. Keyboard or pointer activation scrolls to the
 selected canonical anchor; return-to-latest targets the final anchor. The rail

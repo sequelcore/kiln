@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { VerificationEngineMark, verificationEngineLabel } from "./verification-engine-mark.js";
 
 export interface VerificationEvidenceProps {
   readonly verification: ToolResultVerificationPresentation;
@@ -35,13 +36,16 @@ export function VerificationEvidence({ verification }: VerificationEvidenceProps
 function VerificationIdentity({ verification }: VerificationEvidenceProps) {
   return (
     <div className="grid gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-foreground">
-          {engineLabel(verification.engine.name)} {verification.engine.version}
-        </p>
-        <p className="truncate font-mono text-xs text-muted-foreground" title={verification.candidate.digest}>
-          {compactDigest(verification.candidate.digest)}
-        </p>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <VerificationEngineMark engineName={verification.engine.name} />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">
+            {verificationEngineLabel(verification.engine.name)} {verification.engine.version}
+          </p>
+          <p className="truncate font-mono text-xs text-muted-foreground" title={verification.candidate.digest}>
+            {compactDigest(verification.candidate.digest)}
+          </p>
+        </div>
       </div>
       <VerificationOutcomeBadge verification={verification} />
       <p className="min-w-0 text-xs text-muted-foreground sm:col-span-2">
@@ -192,14 +196,6 @@ function QualityEvidence({ verification }: { readonly verification: ToolResultQu
 
 function compactDigest(value: string): string {
   return value.length > 28 ? `${value.slice(0, 19)}…${value.slice(-8)}` : value;
-}
-
-function engineLabel(value: string): string {
-  if (value === "dafny") return "Dafny";
-  if (value === "oxlint") return "Oxlint";
-  if (value === "gentle-ai") return "Gentle AI";
-  if (value === "kiln-quality") return "Kiln Quality";
-  return value;
 }
 
 function humanize(value: string): string {
