@@ -9,9 +9,9 @@ import {
   readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
 import {
-  createCurrentExecutionRoute,
+  createCurrentExecutionTarget,
   parseExecutionTargetWizardRevision,
-} from "../application/current-execution-route-creation.js";
+} from "../application/current-execution-target-creation.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
@@ -88,12 +88,12 @@ import {
   type GuiProviderDescriptor,
   type ExecutionTargetWizardApplicationResult,
   executionTargetWizardDiscoveryEvidence,
-  projectAvailableModelCatalogForExecutionRoutes,
+  projectModelCatalog,
   projectGuiProviderModelDiscovery,
   resolveGuiOperatorDiscoveryResults,
 } from "@kilnai/runtime";
 import {
-  captureOperatorExecutionCatalogSnapshot,
+  captureOperatorExecutionTargetCatalogSnapshot,
   createOperatorTurnDispatchComposition,
   resolveOperatorContinuationBinding,
 } from "../application/operator-turn-dispatch-composition.js";
@@ -108,9 +108,9 @@ import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
 import { stopGuiChildProcess } from "./gui-child-process.js";
 import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
 import {
-  createOperatorExecutionRouteSelectionPort,
-  resolveOperatorStartupExecutionRoute,
-} from "../application/operator-execution-route-selection.js";
+  createOperatorExecutionTargetSelectionPort,
+  resolveOperatorStartupExecutionTarget,
+} from "../application/operator-execution-target-selection.js";
 import {
   createGuiCommandOutput,
   type GuiCommandOutput,
@@ -197,8 +197,8 @@ export async function guiCommand(
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the GUI.");
   const executionTargetAuthority = readGlobalExecutionTargetAuthority(globalConfig);
   if (!executionTargetAuthority) throw new Error("A direct target catalog is required to start the GUI.");
-  const operatorExecutionCatalog = executionTargetAuthority.executionCatalog;
-  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig, operatorExecutionCatalog);
+  const operatorExecutionTargetCatalog = executionTargetAuthority.executionCatalog;
+  const startupRoute = resolveOperatorStartupExecutionTarget(globalConfig, operatorExecutionTargetCatalog);
   const provider = parseStartupProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
   const transcriptStore = new TranscriptStore(projectStateBinding);
@@ -282,7 +282,7 @@ export async function guiCommand(
   startupProfiler.mark("builtin-tool-options-created");
   let managedRouteGlobalConfig = {
     ...globalConfig,
-    executionCatalog: operatorExecutionCatalog,
+    executionCatalog: operatorExecutionTargetCatalog,
     executionTargetEvidence: executionTargetAuthority.evidence,
   };
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
@@ -377,8 +377,8 @@ export async function guiCommand(
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd, { projectStateBinding });
   const { startGuiGateway } = await import("@kilnai/runtime");
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>({
-    initialCatalog: operatorExecutionCatalog,
-    captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
+    initialCatalog: operatorExecutionTargetCatalog,
+    captureCatalogSnapshot: () => captureOperatorExecutionTargetCatalogSnapshot({
       projectPath: cwd,
       readConfigSnapshot: readGlobalConfigSnapshot,
       readConfigurationRevision: readRuntimeConfigurationRevision,
@@ -386,7 +386,7 @@ export async function guiCommand(
     cwd,
     projectStateBinding,
   });
-  const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
+  const executionTargetSelection = createOperatorExecutionTargetSelectionPort({
     readConfigSnapshot: () => {
       const snapshot = readGlobalConfigSnapshot();
       return { config: snapshot.config ?? globalConfig, revision: snapshot.revision };
@@ -425,8 +425,8 @@ export async function guiCommand(
       : {}),
     runtimeConfigurationRevisionProvider: () => readRuntimeConfigurationRevision(cwd),
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
-    getSnapshot: async (context) => ({
-      ...await buildDashboardSnapshot(
+    getSnapshot: async (context) => {
+      const snapshot = await buildDashboardSnapshot(
         registry,
         sessionStore,
         transcriptStore,
@@ -436,9 +436,11 @@ export async function guiCommand(
         cwd,
         bootstrapContext.domainLabel,
         workspaceExplorer,
-      ),
-      executionRouteCatalog: await executionRouteSelection.getCatalog(),
-    }),
+      );
+      const discovery = projectGuiProviderModelDiscovery(context?.operatorDiscovery ?? []);
+      const configuredTargets = await executionTargetSelection.getTargets();
+      return { ...snapshot, modelCatalog: projectModelCatalog({ discovery, configuredTargets }) };
+    },
     getSetupSnapshot: async (options?: { readonly refreshSkillDiagnostics?: boolean }) => {
       const snapshot = await readConfigStatusSnapshot({
         projectPath: cwd,
@@ -474,9 +476,9 @@ export async function guiCommand(
     workingDirectory: cwd,
     domainLabel: bootstrapContext.domainLabel,
     workspaceExplorer,
-    executionRouteSelection,
+    executionTargetSelection,
     runExecutionTargetWizard: async (request, admittedEvidence): Promise<ExecutionTargetWizardApplicationResult> => {
-      const result = await createCurrentExecutionRoute({
+      const result = await createCurrentExecutionTarget({
         request,
         admittedEvidence,
         projectPath: cwd,
@@ -491,9 +493,9 @@ export async function guiCommand(
             undefined,
             projectStateBinding.kilnHome,
           ));
-          const executionRouteCatalog = await executionRouteSelection.getCatalog();
-          const catalog = projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog });
-          const currentEntry = catalog.entries.find((entry) => entry.providerId === request.discoveryIdentity.providerId
+          const configuredTargets = await executionTargetSelection.getTargets();
+          const catalog = projectModelCatalog({ discovery, configuredTargets });
+          const currentEntry = catalog.models.find((entry) => entry.providerId === request.discoveryIdentity.providerId
             && entry.providerRouteId === request.discoveryIdentity.providerRouteId
             && entry.providerModelId === request.discoveryIdentity.providerModelId);
           if (!currentEntry) throw new Error("The selected Available Models identity is no longer current.");
@@ -566,11 +568,11 @@ export async function guiCommand(
         const binding = [...(meta?.executionBindings ?? [])].reverse().find((entry) => entry.status === "bound");
         const routeId = requestedRouteId ?? binding?.routeId;
         const route = routeId
-          ? operatorExecutionCatalog.routes.find((candidate) => candidate.id === routeId)
+          ? operatorExecutionTargetCatalog.targets.find((candidate) => candidate.id === routeId)
           : undefined;
         if (!binding || !route) throw new Error("Continuation account binding is unavailable.");
         const continuation = await resolveOperatorContinuationBinding({
-          catalog: operatorExecutionCatalog,
+          catalog: operatorExecutionTargetCatalog,
           accountRuntime: operatorTurnComposition.accountRuntime,
           binding,
           requestedRouteId: route.id,
@@ -770,7 +772,7 @@ async function buildDashboardSnapshot(
   });
 
   return {
-    executionRouteCatalog: { routes: [] },
+    modelCatalog: { observedAt: new Date().toISOString(), models: [] },
     providers: providerDescriptors,
     telemetry,
     continuationInfoByProvider,

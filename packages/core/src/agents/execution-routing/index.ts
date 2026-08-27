@@ -1,20 +1,20 @@
 export type {
   ExecutionAccountEconomicsConfig,
   ExecutionPriceEvidenceConfig,
-  ExecutionRouteEconomicsConfig,
+  ExecutionTargetEconomicsConfig,
   ExecutionUnitPriceConfig,
 } from "./economics.js";
 export {
-  decideExecutionRouteDataPolicy,
+  decideExecutionTargetDataPolicy,
   defineExecutionDataClassification,
-  defineExecutionRouteDataPolicyEvidence,
+  defineExecutionTargetDataPolicyEvidence,
   EXECUTION_DATA_CLASSIFICATIONS,
 } from "./data-policy.js";
 export type {
   ExecutionDataClassification,
-  ExecutionRouteDataPolicyDecision,
-  ExecutionRouteDataPolicyEvidence,
-  ExecutionRouteDataPolicyReason,
+  ExecutionTargetDataPolicyDecision,
+  ExecutionTargetDataPolicyEvidence,
+  ExecutionTargetDataPolicyReason,
 } from "./data-policy.js";
 
 export { validateModelTurn, validateModelTurnResult } from "./model-turn.js";
@@ -73,16 +73,16 @@ export { advanceExecutionAttempt, createExecutionAttempt } from "./execution-att
 export type { ExecutionAttempt, ExecutionAttemptPhase } from "./execution-attempt.js";
 import type {
   ExecutionAccountEconomicsConfig,
-  ExecutionRouteEconomicsConfig,
+  ExecutionTargetEconomicsConfig,
 } from "./economics.js";
 import {
   validateExecutionAccountEconomics,
-  validateExecutionRouteEconomics,
+  validateExecutionTargetEconomics,
 } from "./economics.js";
 import {
-  defineExecutionRouteDataPolicyEvidence,
+  defineExecutionTargetDataPolicyEvidence,
   defineExecutionDataClassification,
-  type ExecutionRouteDataPolicyEvidence,
+  type ExecutionTargetDataPolicyEvidence,
   type ExecutionDataClassification,
 } from "./data-policy.js";
 
@@ -104,42 +104,48 @@ export interface ExecutionAccountPolicy {
   readonly strategy: "economic-least-pressure";
 }
 
-export type ExecutionRouteAccountSelection =
-  | { readonly mode: "automatic"; readonly accountPolicyId: string }
-  | { readonly mode: "exact"; readonly accountId: string };
-
-export interface ExecutionRoute {
+export interface DirectExecutionTarget {
   readonly id: string;
   readonly label: string;
   readonly providerId: string;
   readonly providerModelId: string;
-  readonly accountSelection: ExecutionRouteAccountSelection;
+  readonly accountPolicyId: string;
   readonly dataClassification: ExecutionDataClassification;
-  readonly dataPolicyEvidence: ExecutionRouteDataPolicyEvidence;
-  readonly economics: ExecutionRouteEconomicsConfig;
+  readonly dataPolicyEvidence: ExecutionTargetDataPolicyEvidence;
+  readonly economics: ExecutionTargetEconomicsConfig;
 }
 
-export interface ExecutionCatalogInput {
+export interface ExecutionTargetCatalogInput {
   readonly accounts: readonly ExecutionAccount[];
   readonly accountPolicies: readonly ExecutionAccountPolicy[];
-  readonly routes: readonly ExecutionRoute[];
+  readonly targets: readonly DirectExecutionTarget[];
 }
 
-export interface ExecutionCatalog extends ExecutionCatalogInput {}
+export interface ExecutionTargetCatalog extends ExecutionTargetCatalogInput {}
 
 export interface OperatorExecutionIntent {
-  readonly routeId: string;
-  /** A session-scoped override. It never mutates the durable route. */
+  readonly targetId: string;
+  /** A session-scoped override. It never mutates the durable target. */
   readonly accountOverrideId?: string;
 }
 
-export type AdmittedExecutionRoute = {
-  readonly routeId: string;
+export type AdmittedExecutionAccount =
+  | {
+      readonly kind: "policy";
+      readonly accountPolicyId: string;
+      readonly eligibleAccountIds: readonly string[];
+    }
+  | {
+      readonly kind: "operator-override";
+      readonly accountPolicyId: string;
+      readonly accountId: string;
+    };
+
+export type AdmittedExecutionTarget = {
+  readonly targetId: string;
   readonly providerId: string;
   readonly providerModelId: string;
-  readonly accountSelection:
-    | { readonly mode: "automatic"; readonly accountPolicyId: string; readonly eligibleAccountIds: readonly string[] }
-    | { readonly mode: "exact"; readonly accountId: string; readonly source: "route" | "operator-override" };
+  readonly accountSelection: AdmittedExecutionAccount;
 };
 
 export class ExecutionRoutingValidationError extends Error {
@@ -150,7 +156,7 @@ export class ExecutionRoutingValidationError extends Error {
  * Validates and snapshots the sole durable execution-routing vocabulary.
  * Credentials are always opaque references; no credential material enters this model.
  */
-export function defineExecutionCatalog(input: ExecutionCatalogInput): ExecutionCatalog {
+export function defineExecutionTargetCatalog(input: ExecutionTargetCatalogInput): ExecutionTargetCatalog {
   const accounts = input.accounts.map((account, index) => freeze({
     id: canonicalId(account.id, `accounts[${index}].id`),
     providerId: canonicalId(account.providerId, `accounts[${index}].providerId`),
@@ -195,35 +201,35 @@ export function defineExecutionCatalog(input: ExecutionCatalogInput): ExecutionC
   uniqueIds(accountPolicies, "accountPolicies");
   const policiesById = new Map(accountPolicies.map((policy) => [policy.id, policy]));
 
-  const routes = input.routes.map((route, index) => {
-    const providerId = canonicalId(route.providerId, `routes[${index}].providerId`);
-    const accountSelection = normalizeRouteSelection(route.accountSelection, index, accountsById, policiesById, providerId);
+  const targets = input.targets.map((target, index) => {
+    const providerId = canonicalId(target.providerId, `targets[${index}].providerId`);
+    const accountPolicyId = normalizeTargetAccountPolicy(target.accountPolicyId, index, accountsById, policiesById, providerId);
     return freeze({
-      id: canonicalId(route.id, `routes[${index}].id`),
-      label: requiredText(route.label, `routes[${index}].label`),
+      id: canonicalId(target.id, `targets[${index}].id`),
+      label: requiredText(target.label, `targets[${index}].label`),
       providerId,
-      providerModelId: requiredText(route.providerModelId, `routes[${index}].providerModelId`),
-      accountSelection,
-      dataClassification: defineExecutionDataClassification(route.dataClassification),
-      dataPolicyEvidence: validatedDataPolicyEvidence(route.dataPolicyEvidence, `routes[${index}].dataPolicyEvidence`),
+      providerModelId: requiredText(target.providerModelId, `targets[${index}].providerModelId`),
+      accountPolicyId,
+      dataClassification: defineExecutionDataClassification(target.dataClassification),
+      dataPolicyEvidence: validatedDataPolicyEvidence(target.dataPolicyEvidence, `targets[${index}].dataPolicyEvidence`),
       economics: validatedEconomics(
-        validateExecutionRouteEconomics,
-        route.economics,
-        `routes[${index}].economics`,
+        validateExecutionTargetEconomics,
+        target.economics,
+        `targets[${index}].economics`,
       ),
     });
   });
-  uniqueIds(routes, "routes");
+  uniqueIds(targets, "targets");
 
-  return freeze({ accounts: freeze(accounts), accountPolicies: freeze(accountPolicies), routes: freeze(routes) });
+  return freeze({ accounts: freeze(accounts), accountPolicies: freeze(accountPolicies), targets: freeze(targets) });
 }
 
 function validatedDataPolicyEvidence(
-  value: ExecutionRouteDataPolicyEvidence,
+  value: ExecutionTargetDataPolicyEvidence,
   field: string,
-): ExecutionRouteDataPolicyEvidence {
+): ExecutionTargetDataPolicyEvidence {
   try {
-    return defineExecutionRouteDataPolicyEvidence(value);
+    return defineExecutionTargetDataPolicyEvidence(value);
   } catch (error) {
     throw invalid(`${field} is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -231,78 +237,59 @@ function validatedDataPolicyEvidence(
 
 /** Admits a user selection without exposing a credential reference or allowing unsafe fallback. */
 export function admitOperatorExecutionIntent(
-  catalog: ExecutionCatalog,
+  catalog: ExecutionTargetCatalog,
   intent: OperatorExecutionIntent,
-): AdmittedExecutionRoute {
-  const routeId = canonicalId(intent.routeId, "intent.routeId");
-  const route = catalog.routes.find((candidate) => candidate.id === routeId);
-  if (!route) throw invalid(`intent references unknown route ${routeId}`);
+): AdmittedExecutionTarget {
+  const targetId = canonicalId(intent.targetId, "intent.targetId");
+  const target = catalog.targets.find((candidate) => candidate.id === targetId);
+  if (!target) throw invalid(`intent references unknown target ${targetId}`);
+  const accountPolicy = catalog.accountPolicies.find((candidate) => candidate.id === target.accountPolicyId);
+  if (!accountPolicy) throw invalid(`target ${target.id} references unknown account policy ${target.accountPolicyId}`);
   const overrideId = intent.accountOverrideId === undefined
     ? undefined
     : canonicalId(intent.accountOverrideId, "intent.accountOverrideId");
 
   if (overrideId !== undefined) {
-    if (route.accountSelection.mode !== "automatic") {
-      throw invalid("account overrides are only allowed for automatic routes");
-    }
-    const accountPolicyId = route.accountSelection.accountPolicyId;
-    const policy = catalog.accountPolicies.find((candidate) => candidate.id === accountPolicyId)!;
-    if (!policy.accountIds.includes(overrideId)) {
-      throw invalid(`account override ${overrideId} is not eligible for route ${route.id}`);
+    if (!accountPolicy.accountIds.includes(overrideId)) {
+      throw invalid(`account override ${overrideId} is not eligible for target ${target.id}`);
     }
     return freeze({
-      routeId: route.id,
-      providerId: route.providerId,
-      providerModelId: route.providerModelId,
-      accountSelection: freeze({ mode: "exact", accountId: overrideId, source: "operator-override" }),
-    });
-  }
-
-  if (route.accountSelection.mode === "automatic") {
-    const accountPolicyId = route.accountSelection.accountPolicyId;
-    const policy = catalog.accountPolicies.find((candidate) => candidate.id === accountPolicyId)!;
-    return freeze({
-      routeId: route.id,
-      providerId: route.providerId,
-      providerModelId: route.providerModelId,
+      targetId: target.id,
+      providerId: target.providerId,
+      providerModelId: target.providerModelId,
       accountSelection: freeze({
-        mode: "automatic",
-        accountPolicyId,
-        eligibleAccountIds: freeze([...policy.accountIds]),
+        kind: "operator-override",
+        accountPolicyId: target.accountPolicyId,
+        accountId: overrideId,
       }),
     });
   }
+
   return freeze({
-    routeId: route.id,
-    providerId: route.providerId,
-    providerModelId: route.providerModelId,
-    accountSelection: freeze({ mode: "exact", accountId: route.accountSelection.accountId, source: "route" }),
+    targetId: target.id,
+    providerId: target.providerId,
+    providerModelId: target.providerModelId,
+    accountSelection: freeze({
+      kind: "policy",
+      accountPolicyId: target.accountPolicyId,
+      eligibleAccountIds: freeze([...accountPolicy.accountIds]),
+    }),
   });
 }
 
-function normalizeRouteSelection(
-  selection: ExecutionRouteAccountSelection,
-  routeIndex: number,
+function normalizeTargetAccountPolicy(
+  accountPolicyId: string,
+  targetIndex: number,
   accountsById: ReadonlyMap<string, ExecutionAccount>,
   policiesById: ReadonlyMap<string, ExecutionAccountPolicy>,
   providerId: string,
-): ExecutionRouteAccountSelection {
-  if (selection.mode === "automatic") {
-    const accountPolicyId = canonicalId(selection.accountPolicyId, `routes[${routeIndex}].accountSelection.accountPolicyId`);
-    const policy = policiesById.get(accountPolicyId);
-    if (!policy) throw invalid(`routes[${routeIndex}] references unknown account policy ${accountPolicyId}`);
-    const policyProvider = accountsById.get(policy.accountIds[0]!)!.providerId;
-    if (policyProvider !== providerId) throw invalid(`routes[${routeIndex}] provider must match its account policy provider`);
-    return freeze({ mode: "automatic", accountPolicyId });
-  }
-  if (selection.mode === "exact") {
-    const accountId = canonicalId(selection.accountId, `routes[${routeIndex}].accountSelection.accountId`);
-    const account = accountsById.get(accountId);
-    if (!account) throw invalid(`routes[${routeIndex}] references unknown account ${accountId}`);
-    if (account.providerId !== providerId) throw invalid(`routes[${routeIndex}] provider must match its exact account provider`);
-    return freeze({ mode: "exact", accountId });
-  }
-  throw invalid(`routes[${routeIndex}].accountSelection must be automatic or exact`);
+): string {
+  const normalizedPolicyId = canonicalId(accountPolicyId, `targets[${targetIndex}].accountPolicyId`);
+  const policy = policiesById.get(normalizedPolicyId);
+  if (!policy) throw invalid(`targets[${targetIndex}] references unknown account policy ${normalizedPolicyId}`);
+  const policyProvider = accountsById.get(policy.accountIds[0]!)!.providerId;
+  if (policyProvider !== providerId) throw invalid(`targets[${targetIndex}] provider must match its account policy provider`);
+  return normalizedPolicyId;
 }
 
 function validatedEconomics<T>(

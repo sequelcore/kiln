@@ -20,7 +20,7 @@ import {
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
   type GuiDeliberationLevelId,
-  type ExecutionRouteCatalog,
+  type ModelCatalog,
   type KilnConfigSetupAction,
   type KilnConfigurationOnboardingApplyRequest,
   type OperatorWorkspaceTreeEntry,
@@ -52,9 +52,9 @@ import {
 } from "./app-shell-view-model.js";
 import { createAppShellCommandExecutor } from "./app-shell-command-actions.js";
 import { buildComposerTurnOptions } from "./app-shell-composer-submission.js";
-import { createExecutionRoutePickerActions } from "./app-shell-execution-route-actions.js";
+import { createExecutionTargetPickerActions } from "./app-shell-execution-target-actions.js";
 import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
-import { ExecutionRoutePicker, type ExecutionRouteSelectionStatus } from "./execution-route-picker.js";
+import { ModelPicker, type ModelSelectionStatus } from "./model-picker.js";
 import { ModelSelector } from "./ai-elements/model-selector.js";
 import { ProviderGlyph } from "./provider-glyph.js";
 import {
@@ -115,7 +115,7 @@ const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const REALTIME_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const EMPTY_DELIBERATION_LEVELS: readonly GuiDeliberationLevelId[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
-const EMPTY_EXECUTION_ROUTE_CATALOG: ExecutionRouteCatalog = { routes: [] };
+const EMPTY_MODEL_CATALOG: ModelCatalog = { observedAt: new Date(0).toISOString(), models: [] };
 
 const GUI_COCKPIT_INSTANCE_ID = "local-gui";
 
@@ -245,19 +245,19 @@ function useAppShellRuntimeView(props: AppShellProps) {
     dispatchCommandSurface({ type: "set-composer-query", query });
   };
   const [governedWorkItemCount, setGovernedWorkItemCount] = useState<number | null>(null);
-  const [isExecutionRoutePickerOpen, setIsExecutionRoutePickerOpen] = useState(false);
-  const [hasMountedExecutionRoutePicker, setHasMountedExecutionRoutePicker] = useState(false);
-  const executionRoutePickerAnchorRef = useRef<HTMLButtonElement | null>(null);
-  const executionRoutePickerInvokerRef = useRef<HTMLElement | null>(null);
-  const openExecutionRoutePicker = useCallback(() => {
-    if (isExecutionRoutePickerOpen) return;
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
+  const [hasMountedModelPicker, setHasMountedModelPicker] = useState(false);
+  const modelPickerAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const modelPickerInvokerRef = useRef<HTMLElement | null>(null);
+  const openModelPicker = useCallback(() => {
+    if (isModelPickerOpen) return;
     const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    executionRoutePickerInvokerRef.current = activeElement?.closest('[data-slot="command"]')
+    modelPickerInvokerRef.current = activeElement?.closest('[data-slot="command"]')
       ? document.getElementById("composer-input")
       : activeElement;
-    setHasMountedExecutionRoutePicker(true);
-    setIsExecutionRoutePickerOpen(true);
-  }, [isExecutionRoutePickerOpen]);
+    setHasMountedModelPicker(true);
+    setIsModelPickerOpen(true);
+  }, [isModelPickerOpen]);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState<MobileDrawerMode>("sessions");
@@ -299,12 +299,12 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const sessionControlFailure = useSessionStore((state) => state.sessionControlFailure);
   const providerCatalogStatus = useSessionStore((state) => state.providerCatalogStatus);
   const providerCatalogError = useSessionStore((state) => state.providerCatalogError);
-  const executionRouteCatalog = useSessionStore((state) => state.executionRouteCatalog ?? EMPTY_EXECUTION_ROUTE_CATALOG);
-  const activeRouteId = useSessionStore((state) => state.activeRouteId);
+  const modelCatalog = useSessionStore((state) => state.modelCatalog ?? EMPTY_MODEL_CATALOG);
+  const activeTargetId = useSessionStore((state) => state.activeTargetId);
   const activeAccountOverrideId = useSessionStore((state) => state.activeAccountOverrideId);
-  const executionRouteSelecting = useSessionStore((state) => state.executionRouteSelecting);
-  const executionRouteSelectionTarget = useSessionStore((state) => state.executionRouteSelectionTarget);
-  const executionRouteRefresh = useSessionStore((state) => state.executionRouteRefresh);
+  const executionTargetSelecting = useSessionStore((state) => state.executionTargetSelecting);
+  const executionTargetSelectionTarget = useSessionStore((state) => state.executionTargetSelectionTarget);
+  const modelCatalogRefresh = useSessionStore((state) => state.modelCatalogRefresh);
   const providerOperationFailure = useSessionStore((state) => state.providerOperationFailure);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
@@ -327,11 +327,10 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const markProviderCatalogRefreshing = useSessionStore((state) => state.markProviderCatalogRefreshing);
   const markProviderCatalogError = useSessionStore((state) => state.markProviderCatalogError);
   const onWelcome = useSessionStore((state) => state.onWelcome);
-  const availableModels = useSessionStore((state) => state.availableModels);
   const executionTargetWizardResult = useSessionStore((state) => state.executionTargetWizardResult);
   const outboundSend = useSessionStore((state) => state.outboundSend);
-  const onExecutionRoutesRefreshed = useSessionStore((state) => state.onExecutionRoutesRefreshed);
-  const onExecutionRoutesRefreshFailed = useSessionStore((state) => state.onExecutionRoutesRefreshFailed);
+  const onModelCatalogRefreshed = useSessionStore((state) => state.onModelCatalogRefreshed);
+  const onModelCatalogRefreshFailed = useSessionStore((state) => state.onModelCatalogRefreshFailed);
   const onExecutionTargetWizardResult = useSessionStore((state) => state.onExecutionTargetWizardResult);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
@@ -340,8 +339,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const onVoiceSynthesisFailed = useSessionStore((state) => state.onVoiceSynthesisFailed);
   const onError = useSessionStore((state) => state.onError);
   const onCleared = useSessionStore((state) => state.onCleared);
-  const onExecutionRouteChanged = useSessionStore((state) => state.onExecutionRouteChanged);
-  const onExecutionRouteChangeFailed = useSessionStore((state) => state.onExecutionRouteChangeFailed);
+  const onExecutionTargetChanged = useSessionStore((state) => state.onExecutionTargetChanged);
+  const onExecutionTargetChangeFailed = useSessionStore((state) => state.onExecutionTargetChangeFailed);
   const onProviderAuthStarted = useSessionStore((state) => state.onProviderAuthStarted);
   const onProviderAuthCompleted = useSessionStore((state) => state.onProviderAuthCompleted);
   const onProviderCatalogState = useSessionStore((state) => state.onProviderCatalogState);
@@ -363,8 +362,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const turnCancelPending = useSessionStore((state) => state.turnCancelPending);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
-  const selectExecutionRoute = useSessionStore((state) => state.selectExecutionRoute);
-  const refreshExecutionRoutes = useSessionStore((state) => state.refreshExecutionRoutes);
+  const selectExecutionTarget = useSessionStore((state) => state.selectExecutionTarget);
+  const refreshModelCatalog = useSessionStore((state) => state.refreshModelCatalog);
   const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
@@ -447,10 +446,11 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const managedAgentEconomicAttempts = localOperatorWorkspaceState.cockpitView.economicAttempts;
   const managedAgentUnprojectableEvidence = localOperatorWorkspaceState.cockpitView.unprojectableEvidence;
   const approvalCount = pendingApprovals.length;
-  const activeExecutionRoute = executionRouteCatalog.routes.find((route) => route.routeId === activeRouteId) ?? null;
-  const activeModelCapabilities = activeExecutionRoute
-    ? providerDiscovery.find((entry) => entry.provider === activeExecutionRoute.providerId)
-      ?.modelCapabilities?.[activeExecutionRoute.providerModelId]
+  const activeModel = modelCatalog.models.find((model) =>
+    model.targets.some((target) => target.targetId === activeTargetId)) ?? null;
+  const activeModelCapabilities = activeModel
+    ? providerDiscovery.find((entry) => entry.provider === activeModel.providerId)
+      ?.modelCapabilities?.[activeModel.providerModelId]
     : undefined;
   const deliberationLevelOptions = activeModelCapabilities?.deliberation?.levels.map((level) => level.id)
     ?? EMPTY_DELIBERATION_LEVELS;
@@ -555,7 +555,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
-        openExecutionRoutePicker();
+        openModelPicker();
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "1") {
         event.preventDefault();
@@ -600,13 +600,13 @@ function useAppShellRuntimeView(props: AppShellProps) {
       if (event.key === "Escape") {
         dispatchCommandSurface({ type: "close-all" });
         setDrawerOpen(false);
-        setIsExecutionRoutePickerOpen(false);
+        setIsModelPickerOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // Effect Events intentionally stay outside effect dependency arrays.
-  }, [isNarrow, isPaletteOpen, openExecutionRoutePicker, openSettings, selectWorkbenchSurface]);
+  }, [isNarrow, isPaletteOpen, openModelPicker, openSettings, selectWorkbenchSurface]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
@@ -627,14 +627,14 @@ function useAppShellRuntimeView(props: AppShellProps) {
       onVoiceSynthesisFailed,
       onError,
       onCleared,
-      onExecutionRouteChanged,
-      onExecutionRouteChangeFailed,
+      onExecutionTargetChanged,
+      onExecutionTargetChangeFailed,
       onProviderAuthStarted,
       onProviderAuthCompleted,
       onProviderAuthFailed,
       onProviderCatalogState,
-      onExecutionRoutesRefreshed,
-      onExecutionRoutesRefreshFailed,
+      onModelCatalogRefreshed,
+      onModelCatalogRefreshFailed,
       onExecutionTargetWizardResult,
       onExecConfirmed,
       onActivityPhase,
@@ -922,7 +922,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
     setGatewayReady(false);
     setGatewayAttempt((count) => count + 1);
     markProviderCatalogRefreshing();
-    if (wsState === "open") refreshExecutionRoutes();
+    if (wsState === "open") refreshModelCatalog();
     void dashboardQuery.refetch();
   };
 
@@ -943,7 +943,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
     setPaletteMode,
     setPaletteQuery,
     setPaletteOpen,
-    openExecutionRoutePicker,
+    openModelPicker,
     openConfigurationSettings: () => openSettings("general"),
     deliberationLevelOptions,
     selectedDeliberationLevel,
@@ -1040,15 +1040,15 @@ function useAppShellRuntimeView(props: AppShellProps) {
   });
   const workbenchTitle = resolveWorkbenchTitle(workbenchSurface, activeChatWorkspaceSurface);
   const drawerLabels = resolveDrawerLabels(mobileDrawerMode);
-  const executionRoutePickerActions = createExecutionRoutePickerActions({
-    selectExecutionRoute,
+  const executionTargetPickerActions = createExecutionTargetPickerActions({
+    selectExecutionTarget,
   });
-  const executionRouteSelectionStatus: ExecutionRouteSelectionStatus = executionRouteSelecting && executionRouteSelectionTarget
+  const modelSelectionStatus: ModelSelectionStatus = executionTargetSelecting && executionTargetSelectionTarget
     ? {
         state: "selecting",
-        routeId: executionRouteSelectionTarget.routeId,
+        targetId: executionTargetSelectionTarget.targetId,
       }
-    : providerOperationFailure?.operation === "select-route"
+    : providerOperationFailure?.operation === "select-target"
       ? { state: "failed", message: providerOperationFailure.message }
       : { state: "idle" };
 
@@ -1123,13 +1123,13 @@ function useAppShellRuntimeView(props: AppShellProps) {
               onApply={(request) => gatewayClient.applySettingsMutation(request)}
               leadingContent={settingsSection === "models" ? (
                 <AvailableModelsPanel
-                  catalog={availableModels}
-                  catalogRevision={executionRouteCatalog.revision}
+                  catalog={modelCatalog}
+                  catalogRevision={modelCatalog.revision}
                   wizardResult={executionTargetWizardResult}
                   send={outboundSend}
-                  refreshStatus={executionRouteRefresh}
+                  refreshStatus={modelCatalogRefresh}
                   onRefresh={outboundSend ? () => {
-                    refreshExecutionRoutes();
+                    refreshModelCatalog();
                   } : undefined}
                 />
               ) : settingsSection === "health" ? (
@@ -1314,21 +1314,21 @@ function useAppShellRuntimeView(props: AppShellProps) {
               sessionControlFailure: sessionControlFailure?.message,
               providerControl: (
                 <Button
-                  ref={executionRoutePickerAnchorRef}
+                  ref={modelPickerAnchorRef}
                   type="button"
                   variant="ghost"
                   size="sm"
-                  aria-label={`Execution target selector. Current selection: ${activeExecutionRoute?.label ?? "none"}. Click to change.`}
-                  aria-expanded={isExecutionRoutePickerOpen}
-                  aria-controls="execution-route-picker"
+                  aria-label={`Model selector. Current selection: ${activeModel?.displayName ?? activeModel?.providerModelId ?? "none"}. Click to change.`}
+                  aria-expanded={isModelPickerOpen}
+                  aria-controls="model-picker"
                   aria-haspopup="dialog"
-                  onClick={openExecutionRoutePicker}
+                  onClick={openModelPicker}
                   className="h-8 min-w-0 max-w-full shrink justify-start px-2 text-left"
                 >
-                  {activeExecutionRoute ? (
-                    <ProviderGlyph providerId={activeExecutionRoute.providerId} />
+                  {activeModel ? (
+                    <ProviderGlyph providerId={activeModel.providerId} />
                   ) : null}
-                  <span className="min-w-0 truncate">{activeExecutionRoute?.label ?? "Select execution target"}</span>
+                  <span className="min-w-0 truncate">{activeModel?.displayName ?? activeModel?.providerModelId ?? "Select model"}</span>
                 </Button>
               ),
               deliberationControl: deliberationLevelOptions.length > 0 ? (
@@ -1433,32 +1433,33 @@ function useAppShellRuntimeView(props: AppShellProps) {
         {mobileDrawerMode === "sessions" ? sessionsPanel : inspector}
       </MobileWorkbenchDrawer>}
 
-      {hasMountedExecutionRoutePicker ? (
+      {hasMountedModelPicker ? (
         <Suspense fallback={null}>
           <ModelSelector
-            open={isExecutionRoutePickerOpen}
-            onOpenChange={setIsExecutionRoutePickerOpen}
-            title="Execution target"
-            description="Choose an available execution target or an eligible account override."
-            anchor={executionRoutePickerAnchorRef}
-            finalFocus={executionRoutePickerInvokerRef}
+            open={isModelPickerOpen}
+            onOpenChange={setIsModelPickerOpen}
+            title="Models"
+            description="Search models, inspect capabilities, then choose a configured execution target."
+            anchor={modelPickerAnchorRef}
+            finalFocus={modelPickerInvokerRef}
+            contentClassName="w-[min(52rem,calc(100vw-1rem))] max-w-none"
           >
-            <ExecutionRoutePicker
-              catalog={executionRouteCatalog}
-              activeRouteId={activeRouteId}
+            <ModelPicker
+              catalog={modelCatalog}
+              activeTargetId={activeTargetId}
               activeAccountOverrideId={activeAccountOverrideId}
-              selectionStatus={executionRouteSelectionStatus}
-              refreshStatus={executionRouteRefresh.state === "refreshing"
+              selectionStatus={modelSelectionStatus}
+              refreshStatus={modelCatalogRefresh.state === "refreshing"
                 ? { state: "refreshing" }
-                : executionRouteRefresh.state === "failed"
-                  ? { state: "failed", message: executionRouteRefresh.message }
+                : modelCatalogRefresh.state === "failed"
+                  ? { state: "failed", message: modelCatalogRefresh.message }
                   : { state: "idle" }}
               onSelect={(selection) => {
-                void executionRoutePickerActions.onSelectRoute(
-                  selection.routeId,
+                void executionTargetPickerActions.onSelectTarget(
+                  selection.targetId,
                   selection.accountOverrideId,
                 ).then((result) => {
-                  if (result.status === "selected") setIsExecutionRoutePickerOpen(false);
+                  if (result.status === "selected") setIsModelPickerOpen(false);
                 });
               }}
               onRepair={(request) => {
@@ -1466,10 +1467,17 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   case "authenticate-provider":
                     authenticateProvider(request.providerId);
                     return;
-                  case "refresh-route-catalog":
-                    refreshExecutionRoutes();
+                  case "refresh-model-catalog":
+                    refreshModelCatalog();
                     return;
+                  default:
+                    openSettings("models");
+                    setIsModelPickerOpen(false);
                 }
+              }}
+              onConfigure={() => {
+                openSettings("models");
+                setIsModelPickerOpen(false);
               }}
             />
           </ModelSelector>

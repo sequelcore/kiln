@@ -307,7 +307,7 @@ function assertLiveTarget(targetId: string): { readonly authorityProfileId: stri
     || target.kind !== "direct"
     || target.providerId !== "opencode-go"
     || target.providerModelId.trim().length === 0
-    || target.accountSelection.mode !== "automatic"
+     || target.accountPolicyId.trim().length === 0
     || !authorityProfile
     || authorityProfile.tools?.writes !== true
     || authorityProfile.tools?.network !== false

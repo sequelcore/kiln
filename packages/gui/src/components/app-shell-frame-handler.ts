@@ -17,14 +17,14 @@ interface AppShellFrameHandlerInput {
   readonly onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   readonly onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
   readonly onCleared: () => void;
-  readonly onExecutionRouteChanged: (frame: Extract<GuiInboundFrame, { type: "execution_route_changed" }>) => void;
-  readonly onExecutionRouteChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_route_change_failed" }>) => void;
+  readonly onExecutionTargetChanged: (frame: Extract<GuiInboundFrame, { type: "execution_target_changed" }>) => void;
+  readonly onExecutionTargetChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_target_change_failed" }>) => void;
   readonly onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   readonly onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   readonly onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
   readonly onProviderCatalogState: (frame: Extract<GuiInboundFrame, { type: "provider_catalog_state" }>) => void;
-  readonly onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
-  readonly onExecutionRoutesRefreshFailed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refresh_failed" }>) => void;
+  readonly onModelCatalogRefreshed: (frame: Extract<GuiInboundFrame, { type: "model_catalog_refreshed" }>) => void;
+  readonly onModelCatalogRefreshFailed: (frame: Extract<GuiInboundFrame, { type: "model_catalog_refresh_failed" }>) => void;
   readonly onExecutionTargetWizardResult: (frame: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>) => void;
   readonly onExecConfirmed: () => void;
   readonly onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
@@ -96,11 +96,11 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
       case "cleared":
         input.onCleared();
         return;
-      case "execution_route_changed":
-        input.onExecutionRouteChanged(frame);
+      case "execution_target_changed":
+        input.onExecutionTargetChanged(frame);
         return;
-      case "execution_route_change_failed":
-        input.onExecutionRouteChangeFailed(frame);
+      case "execution_target_change_failed":
+        input.onExecutionTargetChangeFailed(frame);
         return;
       case "provider_auth_started":
         input.onProviderAuthStarted(frame);
@@ -114,11 +114,11 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
       case "provider_catalog_state":
         input.onProviderCatalogState(frame);
         return;
-      case "execution_routes_refreshed":
-        input.onExecutionRoutesRefreshed(frame);
+      case "model_catalog_refreshed":
+        input.onModelCatalogRefreshed(frame);
         return;
-      case "execution_routes_refresh_failed":
-        input.onExecutionRoutesRefreshFailed(frame);
+      case "model_catalog_refresh_failed":
+        input.onModelCatalogRefreshFailed(frame);
         return;
       case "execution_target_wizard_result":
         input.onExecutionTargetWizardResult(frame);

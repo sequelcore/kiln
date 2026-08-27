@@ -70,10 +70,10 @@ const operatorCompositionMocks = vi.hoisted(() => ({
   create: vi.fn(() => ({
     accountRuntime: {
       operatorSessionCandidates: {
-        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } } }) => {
-          const accountIds = admission.accountSelection.mode === "automatic"
-            ? admission.accountSelection.eligibleAccountIds ?? []
-            : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { kind: "policy"; eligibleAccountIds: readonly string[] } | { kind: "operator-override"; accountId: string } } }) => {
+          const accountIds = admission.accountSelection.kind === "policy"
+            ? admission.accountSelection.eligibleAccountIds
+            : [admission.accountSelection.accountId];
           return accountIds.map((accountId) => ({
             candidate: {
               accountId,
@@ -284,8 +284,8 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     defaultGlobalConfig: configMocks.defaultGlobalConfig,
     readGlobalConfig: configMocks.readGlobalConfig,
     readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
-    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
-      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+    readGlobalExecutionTargetCatalog: (config: Parameters<typeof fixtures.syntheticExecutionTargetCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionTargetCatalog(config) ?? undefined : undefined,
     readGlobalExecutionTargetAuthority: (config: Parameters<typeof fixtures.syntheticExecutionTargetAuthority>[0] | undefined) =>
       config ? fixtures.syntheticExecutionTargetAuthority(config) : undefined,
     resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,

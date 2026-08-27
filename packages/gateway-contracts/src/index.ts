@@ -1,18 +1,46 @@
-export type {
-  AvailableModelAvailabilityState,
-  AvailableModelCatalog,
-  AvailableModelCatalogEntry,
-  AvailableModelConfiguredRouteRef,
-  AvailableModelConfiguredState,
-  AvailableModelDiscoveryState,
-  AvailableModelEligibilityState,
-  AvailableModelReasonCode,
-} from "./available-models.js";
 export {
-  AVAILABLE_MODEL_REASON_CODES,
-  AvailableModelCatalogEntrySchema,
-  AvailableModelCatalogSchema,
-} from "./available-models.js";
+  EXECUTION_TARGET_REASON_CODES,
+  EXECUTION_TARGET_REPAIR_ACTIONS,
+  ExecutionTargetReasonCodeSchema,
+  ExecutionTargetRepairActionSchema,
+  ModelCapabilitiesSchema,
+  ExecutionTargetCostSchema,
+  ModelCatalogProvenanceSchema,
+  ModelExecutionTargetSchema,
+  ModelCatalogEntrySchema,
+  ModelCatalogSchema,
+  ExecutionTargetSelectionIntentSchema,
+} from "./model-catalog.js";
+export type {
+  ExecutionTargetAvailability,
+  ExecutionTargetReasonCode,
+  ExecutionTargetRepairAction,
+  ModelDiscoveryState,
+  ModelEligibilityState,
+  ModelAvailabilityState,
+  ModelAccess,
+  ModelModality,
+  ModelCapabilities,
+  ExecutionTargetCost,
+  ModelCatalogProvenance,
+  ModelExecutionTarget,
+  ModelCatalogEntry,
+  ModelCatalog,
+  ExecutionTargetSelectionIntent,
+  ExecutionTargetChanged,
+  ExecutionTargetChangeFailed,
+} from "./model-catalog.js";
+export {
+  projectModelCatalogItems,
+  filterModelCatalogItems,
+  modelCatalogPrimaryAction,
+} from "./model-catalog-presentation.js";
+export type {
+  ModelCatalogItem,
+  ModelCatalogPrimaryAction,
+  ModelCatalogAccessFilter,
+} from "./model-catalog-presentation.js";
+
 export type { AppGatewayRuntimeIdentity } from "./app-gateway-supervision.js";
 export {
   APP_GATEWAY_CONTROL_PROTOCOL_VERSION,
@@ -293,26 +321,8 @@ export {
 } from "./config-status.js";
 
 export type {
-  ExecutionRouteAvailability,
-  ExecutionRouteReasonCode,
-  ExecutionRouteRepairAction,
-  ExecutionRouteAccountSelectionSummary,
-  ExecutionRouteCatalogEntry,
-  ExecutionRouteCatalog,
-  ExecutionRouteSelectionIntent,
-  ExecutionRouteChanged,
-  ExecutionRouteChangeFailed,
-  ExecutionRouteThreadMeta,
-} from "./execution-route.js";
-export {
-  ExecutionRouteAvailabilitySchema,
-  ExecutionRouteReasonCodeSchema,
-  ExecutionRouteRepairActionSchema,
-  ExecutionRouteAccountSelectionSummarySchema,
-  ExecutionRouteCatalogEntrySchema,
-  ExecutionRouteCatalogSchema,
-  ExecutionRouteSelectionIntentSchema,
-} from "./execution-route.js";
+  ExecutionThreadMeta,
+} from "./execution-thread.js";
 
 export type {
   GuiProviderDescriptor,

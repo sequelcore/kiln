@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GuiGatewayClient } from "../src/api/client.js";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
+import { testModelCatalog } from "./fixtures/model-catalog.js";
 
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
@@ -52,7 +53,7 @@ vi.mock("../src/api/client.js", () => ({
 
     async loadDashboard(): ReturnType<GuiGatewayClient["loadDashboard"]> {
       return {
-        executionRouteCatalog: { routes: [] },
+        modelCatalog: testModelCatalog(),
         providers: [],
         telemetry: {
           status: "idle",

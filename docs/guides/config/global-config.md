@@ -242,7 +242,7 @@ targetCatalog:
       providerId: codex-oauth
       providerModelId: gpt-5.6-terra
       dataClassification: internal
-      accountSelection: { mode: automatic, accountPolicyId: codex-automatic }
+      accountPolicyId: codex-automatic
       economics:
         authBillingChannel: oauth-subscription
         executionMode: direct

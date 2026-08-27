@@ -4,12 +4,12 @@ import { canonicalTurnId } from "@kilnai/core/events";
 import {
   createExecutionAccountPolicyId,
   createExecutionAccountRef,
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   type ProviderAdapter,
 } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
 import { createHarnessIngressRoutes } from "../../src/gateway/harness-ingress-routes.js";
-import { FixedRouteGatewayAuthorityAdmission, type GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
+import { FixedTargetGatewayAuthorityAdmission, type GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -84,7 +84,7 @@ function makeRuntime() {
           budget: { status: "not-configured" },
           execution: {
             status: "routed",
-            route: { routeId: "route-one", providerId: "provider-one", providerModelId: "model-one", accountSelection: { mode: "exact", accountId: "account-one", source: "route" } },
+            target: { targetId: "route-one", providerId: "provider-one", providerModelId: "model-one", accountSelection: { kind: "operator-override", accountPolicyId: "policy-one", accountId: "account-one" } },
             dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
             binding: { status: "bound", routeId: "route-one", accountId: "account-one", credentialId: "credential-one", credentialRevision: "credential-r1" },
           },
@@ -121,13 +121,13 @@ async function makeRealAdmissionRuntime() {
     appName: "app-one", tenantId: "tenant-1", userId: "user-1", systemPrompt: "system", sessionId: "session-real",
   });
   await sessionRegistry.save(session);
-  const catalog = defineExecutionCatalog({
+  const catalog = defineExecutionTargetCatalog({
     accounts: [{
       id: "account-one", providerId: "provider-one", credentialId: "credential-one", maxConcurrency: 1, reservedAffinitySlots: 0,
       economics: { capacityIdentity: "capacity-one", subscriptionClass: "subscription", quotaClassId: "quota-one", creditPosture: "disabled", overagePosture: "disabled" },
     }],
     accountPolicies: [{ id: "policy-one", accountIds: ["account-one"], strategy: "economic-least-pressure" }],
-    routes: [{
+    targets: [{
       id: "route-one", label: "Harness", providerId: "provider-one", providerModelId: "model-one", dataClassification: "internal",
       dataPolicyEvidence: {
         providerId: "provider-one", providerModelId: "model-one", dataUse: "not-used", trainingPosture: "prohibited",
@@ -135,7 +135,7 @@ async function makeRealAdmissionRuntime() {
         sourceIdentity: "fixture", sourceRevision: "r1", sourceDigest: `sha256:${"c".repeat(64)}`,
         observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-01T00:00:00.000Z",
       },
-      accountSelection: { mode: "automatic", accountPolicyId: "policy-one" },
+      accountPolicyId: "policy-one",
       economics: {
         adapterCapabilityId: "provider-one", adapterCapabilityVersion: "1", authBillingChannel: "api-key", executionMode: "direct",
         serviceTier: "default", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled", overagePosture: "disabled",
@@ -168,8 +168,8 @@ async function makeRealAdmissionRuntime() {
     })),
     streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
   };
-  const gatewayAdmission = new FixedRouteGatewayAuthorityAdmission({
-    appName: "app-one", routeId: "route-one",
+  const gatewayAdmission = new FixedTargetGatewayAuthorityAdmission({
+    appName: "app-one", targetId: "route-one",
     snapshot: { catalog, configurationRevision: { revisionSetId: "harness-r1", revisions: { gateway: "r1" } } },
     sessionRegistry,
     candidates: { resolve: async () => [{

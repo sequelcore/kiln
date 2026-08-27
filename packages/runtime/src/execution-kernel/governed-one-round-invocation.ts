@@ -7,7 +7,7 @@ import {
   validateModelTurn,
   validateModelTurnResult,
   type ExecutionAttemptPhase,
-  type AdmittedExecutionRoute,
+  type AdmittedExecutionTarget,
   type ExecutionAccountAdmissionCandidate,
   type ExecutionAccountCapacitySelectionResult,
   type ExecutionAccountAffinity,
@@ -72,7 +72,7 @@ export interface GovernedOneRoundCandidateCatalog {
   list(input: Pick<GovernedOneRoundInvocationInput, "identity" | "route" | "authority"> & {
     readonly budget: TurnBudgetAdmission;
   }): Promise<{
-    readonly admission: AdmittedExecutionRoute;
+    readonly admission: AdmittedExecutionTarget;
     readonly candidates: readonly GovernedOneRoundCandidate[];
   }>;
 }
@@ -102,6 +102,9 @@ export interface GovernedOneRoundAttemptEvidenceSink {
 export interface GovernedOneRoundDispatcherResolver {
   resolve(input: {
     readonly identity: GovernedOneRoundIdentity;
+    /** Core-admitted selection target resolved before binding. */
+    readonly targetId: string;
+    /** Concrete provider-route identity retained for the post-admission binding. */
     readonly routeId: string;
     readonly accountId: string;
     readonly route: ProviderModelRouteIdentity;
@@ -125,7 +128,7 @@ export interface GovernedOneRoundAuthorityAdmissionPort {
   /** Composes the one immutable, secret-free bundle from owner decisions. */
   compose(input: {
     readonly invocation: GovernedOneRoundInvocationInput;
-    readonly admission: AdmittedExecutionRoute;
+    readonly admission: AdmittedExecutionTarget;
     readonly budget: TurnBudgetAdmission;
     readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
     readonly lease: AccountCapacityRecord;
@@ -255,14 +258,14 @@ export async function invokeGovernedOneRound(
     selectedCandidate.lease.candidate.route.providerId !== catalog.admission.providerId
     || selectedCandidate.lease.candidate.route.providerModelId !== catalog.admission.providerModelId
     || selectedCandidate.lease.candidate.route.scope !== input.route.scope
-  ) throw new GovernedOneRoundInvocationError("invalid-input", "The selected execution account lease does not match the admitted route.");
+  ) throw new GovernedOneRoundInvocationError("invalid-input", "The selected execution account lease does not match the admitted target.");
   const acquired = ports.accountCapacityAuthority.acquireAccountCapacity({
     runtimeInvocationId,
     intentFingerprint: intentFingerprint(input, catalog.admission),
     accountPolicyId: executionAccountPolicyId(catalog.admission),
     route: input.route,
     // Core has selected exactly one eligible account. Passing only that
-    // binding prevents capacity races from silently changing the route choice.
+    // binding prevents capacity races from silently changing the target choice.
     candidates: [selectedCandidate.lease],
     affinityRequest,
   });
@@ -359,13 +362,16 @@ export async function invokeGovernedOneRound(
     if (input.signal?.aborted) throw new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
     resolved = await ports.dispatcherResolver.resolve({
       identity: input.identity,
-      routeId: catalog.admission.routeId,
+      targetId: catalog.admission.targetId,
+      // routeId is retained here because the resolver creates the concrete
+      // post-admission session binding; targetId remains on the Core admission.
+      routeId: input.route.routeId,
       accountId: candidateSelection.accountId,
       route: input.route,
       lease: capacity,
     });
     if (resolved.binding.status !== "bound"
-      || resolved.binding.routeId !== catalog.admission.routeId
+      || resolved.binding.routeId !== input.route.routeId
       || resolved.binding.accountId !== candidateSelection.accountId
       || resolved.binding.credentialRevision !== capacity.credentialRevisionId) {
       throw new GovernedOneRoundInvocationError("invalid-input", "The credential binding does not match the admitted capacity lease.");
@@ -509,7 +515,7 @@ export async function invokeGovernedOneRound(
   };
 }
 
-function intentFingerprint(input: GovernedOneRoundInvocationInput, admission: AdmittedExecutionRoute): `sha256:${string}` {
+function intentFingerprint(input: GovernedOneRoundInvocationInput, admission: AdmittedExecutionTarget): `sha256:${string}` {
   return `sha256:${createHash("sha256")
     .update(
       JSON.stringify({
@@ -576,10 +582,6 @@ function validateAdmission(input: GovernedOneRoundInvocationInput): void {
   }
 }
 
-function executionAccountPolicyId(admission: AdmittedExecutionRoute) {
-  return createExecutionAccountPolicyId(
-    admission.accountSelection.mode === "automatic"
-      ? admission.accountSelection.accountPolicyId
-      : `execution-route:${admission.routeId}`,
-  );
+function executionAccountPolicyId(admission: AdmittedExecutionTarget) {
+  return createExecutionAccountPolicyId(admission.accountSelection.accountPolicyId);
 }

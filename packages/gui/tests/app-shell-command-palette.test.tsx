@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
 import type { CommandPaletteItem } from "../src/components/command-palette.js";
-import type { ExecutionRouteCatalog, GuiDashboardSnapshot } from "@kilnai/gateway-contracts";
+import type { GuiDashboardSnapshot, ModelCatalog, ModelExecutionTarget } from "@kilnai/gateway-contracts";
 
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
@@ -12,31 +12,31 @@ const waitForHealthMock = vi.fn();
 const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
-const executionRoutePickerPropsLog: Array<{
+const modelPickerPropsLog: Array<{
   open: boolean;
   anchor?: { readonly current: HTMLElement | null };
   finalFocus?: { readonly current: HTMLElement | null };
   onOpenChange: (open: boolean) => void;
 }> = [];
 const dashboardRefetchMock = vi.fn();
-const canonicalExecutionRouteCatalog = {
-  routes: [{
-    routeId: "codex-default",
-    label: "GPT 5.6",
+const canonicalModelCatalog = {
+  observedAt: "2026-08-26T16:00:00.000Z",
+  models: [{
     providerId: "codex-oauth",
+    providerRouteId: "codex-oauth:direct",
     providerModelId: "gpt-5.6",
+    displayName: "GPT 5.6",
+    family: "gpt-5",
+    access: "subscription",
+    discovery: "observed",
+    eligibility: "eligible",
     availability: "available",
-    reasonCodes: ["configured"],
-    repairActions: [],
-    accountSelection: {
-      mode: "automatic",
-      eligibleAccountCount: 1,
-      allowOperatorOverride: true,
-    },
+    provenance: [],
+    targets: [modelTarget("codex-default", "GPT 5.6")],
   }],
-} satisfies ExecutionRouteCatalog;
+} satisfies ModelCatalog;
 const dashboardData: GuiDashboardSnapshot = {
-  executionRouteCatalog: canonicalExecutionRouteCatalog,
+  modelCatalog: canonicalModelCatalog,
   providers: [],
   telemetry: {
     status: "idle" as const,
@@ -181,7 +181,7 @@ vi.mock("../src/components/ai-elements/model-selector.js", async (importOriginal
       onOpenChange: (open: boolean) => void;
       children: ReactNode;
     }) => {
-      executionRoutePickerPropsLog.push(props);
+      modelPickerPropsLog.push(props);
       return <>{props.children}</>;
     },
   };
@@ -291,8 +291,8 @@ function resetStore(): void {
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
-    executionRouteCatalog: canonicalExecutionRouteCatalog,
-    activeRouteId: "codex-default",
+    modelCatalog: canonicalModelCatalog,
+    activeTargetId: "codex-default",
     activeAccountOverrideId: null,
     sessionList: [],
     selectedSessionId: null,
@@ -312,9 +312,9 @@ function resetStore(): void {
     authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
-    executionRouteSelectionTimeoutId: null,
-    executionRouteRefresh: { state: "idle" },
-    executionRouteRefreshTimeoutId: null,
+    executionTargetSelectionTimeoutId: null,
+    modelCatalogRefresh: { state: "idle" },
+    modelCatalogRefreshTimeoutId: null,
     providerAuthTimeoutId: null,
     activityPhase: "idle",
   });
@@ -326,7 +326,7 @@ function latestPaletteProps(): { open: boolean } | undefined {
 
 describe("AppShell command palette and telemetry regressions", () => {
   beforeEach(() => {
-    executionRoutePickerPropsLog.length = 0;
+    modelPickerPropsLog.length = 0;
     vi.restoreAllMocks();
     wsState = "open";
     commandPalettePropsLog.length = 0;
@@ -390,46 +390,31 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     await waitFor(() => {
-      expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true);
+      expect(modelPickerPropsLog.at(-1)?.open).toBe(true);
     });
-    expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+    expect(modelPickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
 
     screen.getByRole("button", { name: "Switch to execute" }).focus();
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
 
-    expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+    expect(modelPickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
   });
 
   it("anchors the execution target picker to its composer control", async () => {
     render(<AppShell />);
 
-    const routeControl = await screen.findByRole("button", { name: /Execution target selector/i });
-    fireEvent.click(routeControl);
+    const modelControl = await screen.findByRole("button", { name: /Model selector/i });
+    fireEvent.click(modelControl);
 
-    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
-    expect(executionRoutePickerPropsLog.at(-1)?.anchor?.current).toBe(routeControl);
+    await waitFor(() => expect(modelPickerPropsLog.at(-1)?.open).toBe(true));
+    expect(modelPickerPropsLog.at(-1)?.anchor?.current).toBe(modelControl);
   });
 
   it("identifies the selected execution target with its provider mark", async () => {
     const { container } = render(<AppShell />);
     act(() => useSessionStore.setState({
-      activeRouteId: "codex-default",
-      executionRouteCatalog: {
-        routes: [{
-          routeId: "codex-default",
-          label: "GPT 5.6",
-          providerId: "codex-oauth",
-          providerModelId: "gpt-5.6",
-          availability: "available",
-          reasonCodes: ["configured"],
-          repairActions: [],
-          accountSelection: {
-            mode: "automatic",
-            eligibleAccountCount: 1,
-            allowOperatorOverride: true,
-          },
-        }],
-      },
+      activeTargetId: "codex-default",
+      modelCatalog: canonicalModelCatalog,
     }));
 
     const routeControl = await screen.findByRole("button", {
@@ -447,13 +432,13 @@ describe("AppShell command palette and telemetry regressions", () => {
     command.focus();
     fireEvent.click(command);
 
-    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
-    expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(screen.getByLabelText("Mock composer input"));
+    await waitFor(() => expect(modelPickerPropsLog.at(-1)?.open).toBe(true));
+    expect(modelPickerPropsLog.at(-1)?.finalFocus?.current).toBe(screen.getByLabelText("Mock composer input"));
 
-    act(() => executionRoutePickerPropsLog.at(-1)?.onOpenChange(false));
-    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(false));
+    act(() => modelPickerPropsLog.at(-1)?.onOpenChange(false));
+    await waitFor(() => expect(modelPickerPropsLog.at(-1)?.open).toBe(false));
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
-    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
+    await waitFor(() => expect(modelPickerPropsLog.at(-1)?.open).toBe(true));
   });
 
   it("keeps composer-triggered commands out of the global palette", async () => {
@@ -630,20 +615,24 @@ describe("AppShell command palette and telemetry regressions", () => {
     });
   });
 
-  it("does not let the dashboard overwrite the canonical WebSocket execution-route catalog", async () => {
+  it("does not let the dashboard overwrite the canonical WebSocket model catalog", async () => {
     dashboardQueryResult = {
       data: {
         ...dashboardData,
-        executionRouteCatalog: {
-          routes: [{
-            routeId: "openai-gpt",
-            label: "OpenAI GPT",
+        modelCatalog: {
+          observedAt: "2026-08-26T16:01:00.000Z",
+          models: [{
             providerId: "openai",
+            providerRouteId: "openai:direct",
             providerModelId: "gpt-5.4",
-            accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
+            displayName: "OpenAI GPT",
+            family: "gpt-5",
+            access: "api",
+            discovery: "observed",
+            eligibility: "eligible",
             availability: "available",
-            reasonCodes: [],
-            repairActions: [],
+            provenance: [],
+            targets: [modelTarget("openai-gpt", "OpenAI GPT")],
           }],
         },
       },
@@ -655,8 +644,8 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(useSessionStore.getState().executionRouteCatalog.routes).toEqual([
-        expect.objectContaining({ routeId: "codex-default", availability: "available" }),
+      expect(useSessionStore.getState().modelCatalog.models[0]?.targets).toEqual([
+        expect.objectContaining({ targetId: "codex-default", availability: "available" }),
       ]);
     });
   });
@@ -912,8 +901,8 @@ describe("AppShell command palette and telemetry regressions", () => {
       providerCatalogStatus: "pending",
       providerCatalogError: null,
       providers: [],
-      executionRouteCatalog: { routes: [] },
-      activeRouteId: null,
+      modelCatalog: emptyModelCatalog(),
+      activeTargetId: null,
       activeAccountOverrideId: null,
     });
 
@@ -925,12 +914,12 @@ describe("AppShell command palette and telemetry regressions", () => {
   });
 
   it("keeps a post-bootstrap execution-target refresh inside the active surface", async () => {
-    useSessionStore.setState({ executionRouteRefresh: { state: "refreshing", requestId: "refresh-1" } });
+    useSessionStore.setState({ modelCatalogRefresh: { state: "refreshing", requestId: "refresh-1" } });
     render(<AppShell />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Run execution-target command" }));
 
-    expect(await screen.findByText("Refreshing execution targets…")).toBeInTheDocument();
+    expect(await screen.findByText("Refreshing model catalog…")).toBeInTheDocument();
     expect(screen.getByText("Transcript")).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Runtime bootstrap" })).not.toBeInTheDocument();
   });
@@ -946,8 +935,8 @@ describe("AppShell command palette and telemetry regressions", () => {
       providerCatalogStatus: "error",
       providerCatalogError: "Could not load provider discovery.",
       providers: [],
-      executionRouteCatalog: { routes: [] },
-      activeRouteId: null,
+      modelCatalog: emptyModelCatalog(),
+      activeTargetId: null,
       activeAccountOverrideId: null,
     });
 
@@ -966,3 +955,21 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(dashboardRefetchMock).toHaveBeenCalled();
   });
 });
+
+function emptyModelCatalog(): ModelCatalog {
+  return { observedAt: "2026-08-26T16:00:00.000Z", models: [] };
+}
+
+function modelTarget(targetId: string, label: string): ModelExecutionTarget {
+  return {
+    targetId,
+    label,
+    access: "subscription",
+    availability: "available",
+    reasonCodes: ["configured"],
+    repairActions: [],
+    eligibleAccountCount: 1,
+    accountOverrideIds: [],
+    cost: { kind: "subscription" },
+  };
+}

@@ -1,35 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  ExecutionRouteCatalog,
   ExecutionTargetWizardProposal,
   ExecutionTargetWizardRequest,
   GuiProviderModelDiscoveryProjection,
+  ModelCatalogEntry,
 } from "@kilnai/gateway-contracts";
 import {
   executionTargetWizardDiscoveryEvidence,
   handleExecutionTargetWizard,
 } from "../../src/gateway/execution-target-wizard-handler.js";
+import type { ConfiguredModelTarget } from "../../src/gateway/model-catalog-projector.js";
 
 const revision = `sha256:${"c".repeat(64)}` as const;
 const createdRevision = `sha256:${"d".repeat(64)}` as const;
-const catalog: ExecutionRouteCatalog = { routes: [], revision };
+const configuredTargets: readonly ConfiguredModelTarget[] = [];
 
 describe("handleExecutionTargetWizard", () => {
   it("rejects an unauthenticated operator before application or catalog access", async () => {
     const runWizard = vi.fn();
-    const readExecutionRouteCatalog = vi.fn(async () => catalog);
+    const readConfiguredTargets = vi.fn(async () => configuredTargets);
 
     const frames = await handleExecutionTargetWizard({
       operatorAuthorized: false,
       frame: request(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog,
+      readConfiguredTargets,
     });
 
     expect(runWizard).not.toHaveBeenCalled();
-    expect(readExecutionRouteCatalog).not.toHaveBeenCalled();
+    expect(readConfiguredTargets).not.toHaveBeenCalled();
     expect(frames).toEqual([expect.objectContaining({
       type: "execution_target_wizard_result",
       requestId: "request-1",
@@ -44,9 +45,9 @@ describe("handleExecutionTargetWizard", () => {
       operatorAuthorized: true,
       frame: { type: "execution_target_wizard", requestId: "request-1" },
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog: async () => catalog,
+      readConfiguredTargets: async () => configuredTargets,
     });
 
     expect(runWizard).not.toHaveBeenCalled();
@@ -63,9 +64,9 @@ describe("handleExecutionTargetWizard", () => {
       operatorAuthorized: true,
       frame: request(),
       discovery: currentDiscovery,
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog: async () => catalog,
+      readConfiguredTargets: async () => configuredTargets,
     });
 
     expect(runWizard).not.toHaveBeenCalled();
@@ -79,9 +80,9 @@ describe("handleExecutionTargetWizard", () => {
       operatorAuthorized: true,
       frame: request(),
       discovery: discovery({ health: "unhealthy" }),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog: async () => catalog,
+      readConfiguredTargets: async () => configuredTargets,
     });
 
     expect(runWizard).toHaveBeenCalledTimes(1);
@@ -89,17 +90,7 @@ describe("handleExecutionTargetWizard", () => {
 
   it("assigns a bounded managed horizon when a fresh adapter observation has no explicit expiry", () => {
     const current = discovery({ omitExpiry: true, observedAt: "2098-08-13T18:00:00.000Z" });
-    const entry = {
-      providerId: "provider",
-      providerRouteId: "provider:direct",
-      providerModelId: "model",
-      discoveryState: "observed" as const,
-      eligibilityState: "eligible" as const,
-      availabilityState: "available" as const,
-      configuredState: "unconfigured" as const,
-      configuredRouteRefs: [],
-      reasonCodes: ["discovery-observed" as const],
-    };
+    const entry = catalogEntry();
 
     const evidence = executionTargetWizardDiscoveryEvidence(current, entry);
 
@@ -107,17 +98,7 @@ describe("handleExecutionTargetWizard", () => {
   });
 
   it("binds adapter capability, provenance, and observation changes into discovery evidence", () => {
-    const entry = {
-      providerId: "provider",
-      providerRouteId: "provider:direct",
-      providerModelId: "model",
-      discoveryState: "observed" as const,
-      eligibilityState: "eligible" as const,
-      availabilityState: "available" as const,
-      configuredState: "unconfigured" as const,
-      configuredRouteRefs: [],
-      reasonCodes: ["discovery-observed" as const],
-    };
+    const entry = catalogEntry();
     const withoutTools = executionTargetWizardDiscoveryEvidence(discovery({
       capabilities: { supportsFunctionTools: false, supportsRuntimeTools: false },
     }), entry);
@@ -145,21 +126,21 @@ describe("handleExecutionTargetWizard", () => {
 
   it("previews a normalized proposal without reading a post-mutation catalog", async () => {
     const runWizard = vi.fn(async () => ({ status: "previewed" as const, proposal: proposal(), message: "Review before approval." }));
-    const readExecutionRouteCatalog = vi.fn(async () => catalog);
+    const readConfiguredTargets = vi.fn(async () => configuredTargets);
     const frames = await handleExecutionTargetWizard({
       operatorAuthorized: true,
       frame: request(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog,
+      readConfiguredTargets,
     });
 
     expect(runWizard).toHaveBeenCalledWith(expect.objectContaining({ action: "preview" }), expect.objectContaining({
       entry: expect.objectContaining({ providerModelId: "model" }),
       evidenceRevision: expect.stringMatching(/^sha256:/u),
     }));
-    expect(readExecutionRouteCatalog).not.toHaveBeenCalled();
+    expect(readConfiguredTargets).not.toHaveBeenCalled();
     expect(frames).toEqual([expect.objectContaining({
       status: "previewed",
       code: "EXECUTION_TARGET_PREVIEWED",
@@ -168,14 +149,14 @@ describe("handleExecutionTargetWizard", () => {
   });
 
   it("publishes refreshed catalogs only after a created result", async () => {
-    const createdCatalog: ExecutionRouteCatalog = { routes: [], revision: createdRevision };
+    const createdTargets: readonly ConfiguredModelTarget[] = [];
     const frames = await handleExecutionTargetWizard({
       operatorAuthorized: true,
       frame: applyRequest(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard: async () => ({ status: "created", proposal: proposal("approved"), revision: createdRevision }),
-      readExecutionRouteCatalog: async () => createdCatalog,
+      readConfiguredTargets: async () => createdTargets,
     });
 
     expect(frames.map((frame) => frame.type)).toEqual(["execution_target_wizard_result"]);
@@ -183,27 +164,27 @@ describe("handleExecutionTargetWizard", () => {
       status: "created",
       code: "EXECUTION_TARGET_CREATED",
       revision: createdRevision,
-      executionRouteCatalog: createdCatalog,
+      modelCatalog: expect.objectContaining({ models: expect.any(Array) }),
     });
   });
 
   it("preserves a typed rejection without refreshing catalogs", async () => {
-    const readExecutionRouteCatalog = vi.fn(async () => catalog);
+    const readConfiguredTargets = vi.fn(async () => configuredTargets);
     const frames = await handleExecutionTargetWizard({
       operatorAuthorized: true,
       frame: applyRequest(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard: async () => ({
         status: "rejected",
         code: "TARGET_REVISION_CONFLICT",
         action: "refresh-and-retry",
         message: "Current evidence changed.",
       }),
-      readExecutionRouteCatalog,
+      readConfiguredTargets,
     });
 
-    expect(readExecutionRouteCatalog).not.toHaveBeenCalled();
+    expect(readConfiguredTargets).not.toHaveBeenCalled();
     expect(frames).toEqual([expect.objectContaining({ status: "rejected", code: "TARGET_REVISION_CONFLICT" })]);
   });
 
@@ -213,18 +194,18 @@ describe("handleExecutionTargetWizard", () => {
       proposal: proposal("approved"),
       revision: createdRevision,
     }));
-    const readExecutionRouteCatalog = vi.fn(async () => { throw new Error("must not refresh here"); });
+    const readConfiguredTargets = vi.fn(async () => { throw new Error("must not refresh here"); });
     const frames = await handleExecutionTargetWizard({
       operatorAuthorized: true,
       frame: applyRequest(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog,
+      readConfiguredTargets,
     });
 
     expect(runWizard).toHaveBeenCalledTimes(1);
-    expect(readExecutionRouteCatalog).not.toHaveBeenCalled();
+    expect(readConfiguredTargets).not.toHaveBeenCalled();
     expect(frames).toEqual([expect.objectContaining({
       status: "committed-refresh-failed",
       revision: createdRevision,
@@ -242,9 +223,9 @@ describe("handleExecutionTargetWizard", () => {
       operatorAuthorized: true,
       frame: applyRequest(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard,
-      readExecutionRouteCatalog: async () => { throw new Error("catalog unavailable"); },
+      readConfiguredTargets: async () => { throw new Error("catalog unavailable"); },
     });
 
     expect(runWizard).toHaveBeenCalledTimes(1);
@@ -261,9 +242,9 @@ describe("handleExecutionTargetWizard", () => {
       operatorAuthorized: true,
       frame: request(),
       discovery: discovery(),
-      executionRouteCatalog: catalog,
+      configuredTargets,
       runWizard: async () => { throw new Error("token=secret C:\\operator\\config"); },
-      readExecutionRouteCatalog: async () => catalog,
+      readConfiguredTargets: async () => configuredTargets,
     });
 
     expect(frames.at(-1)).toEqual(expect.objectContaining({ status: "rejected", code: "TARGET_CREATE_REJECTED" }));
@@ -303,22 +284,38 @@ function proposal(approvalStatus: "required" | "approved" = "required"): Executi
     approvalRequired: true,
     approvalStatus,
     activation: "hot",
-    owners: ["execution-routes"],
-    reconciliationTargets: ["execution-route-catalog"],
+    owners: ["execution-targets"],
+    reconciliationTargets: ["model-catalog"],
     diagnostics: [],
     rollback: { restorable: true, summary: "Remove the created target." },
     target: {
-      routeId: "provider-model",
+      targetId: "provider-model",
       label: "Provider Model",
       providerId: "provider",
       providerModelId: "model",
-      accountSelectionMode: "exact",
+      accountPolicyId: "policy-one",
+      eligibleAccountCount: 1,
       dataClassification: "public",
       billingClass: "subscription",
       capabilityPosture: "kiln-executable",
       discoveryExpiresAt: "2099-01-01T00:00:00.000Z",
       evidenceExpiresAt: "2099-01-01T00:00:00.000Z",
     },
+  };
+}
+
+function catalogEntry(): ModelCatalogEntry {
+  return {
+    providerId: "provider",
+    providerRouteId: "provider:direct",
+    providerModelId: "model",
+    access: "api",
+    family: "model",
+    discovery: "observed",
+    eligibility: "eligible",
+    availability: "available",
+    provenance: [{ field: "discovery", source: "fixture", observedAt: "2026-08-13T18:00:00.000Z" }],
+    targets: [],
   };
 }
 

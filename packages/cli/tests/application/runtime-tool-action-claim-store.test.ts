@@ -47,9 +47,9 @@ function admission() {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: { routeId: "route-1", providerId: "provider-1", providerModelId: "model-1", accountSelection: { mode: "exact", accountId: "account-1", source: "route" } },
+        target: { targetId: "target-1", providerId: "provider-1", providerModelId: "model-1", accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "account-1" } },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
-        binding: { status: "bound", routeId: "route-1", accountId: "account-1", credentialId: "credential-1", credentialRevision: "revision-1" },
+        binding: { status: "bound", routeId: "target-1", accountId: "account-1", credentialId: "credential-1", credentialRevision: "revision-1" },
       },
     },
   });

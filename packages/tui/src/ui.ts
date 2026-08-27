@@ -499,7 +499,7 @@ export function destroyThemePicker(picker: ThemePickerComponents): void {
 }
 
 /**
- * Execution-route picker overlay components.
+ * Execution-target picker overlay components.
  *
  * ARCHITECTURE NOTE:
  * title and hint live OUTSIDE the scrollBox (in a wrapper column panel) so
@@ -507,7 +507,7 @@ export function destroyThemePicker(picker: ThemePickerComponents): void {
  * scrollBox.  Only data rows are ever added to / removed from scrollBox.content.
  * This makes scrollChildIntoView() work correctly with no manual math.
  */
-export interface ExecutionRoutePickerComponents {
+export interface ExecutionTargetPickerComponents {
   scrim: InstanceType<typeof BoxRenderable>;
   /** Outer column panel that holds title + scrollBox + hint. */
   panel: InstanceType<typeof BoxRenderable>;
@@ -517,11 +517,11 @@ export interface ExecutionRoutePickerComponents {
   hint: InstanceType<typeof TextRenderable>;
   /** Live data rows currently in scrollBox.content. */
   rows: InstanceType<typeof TextRenderable>[];
-  mode: "routes" | "accounts" | "auth-key" | "auth-confirm";
+  mode: "targets" | "accounts" | "auth-key" | "auth-confirm";
 }
 
 /**
- * Creates the execution-route picker overlay shell.
+ * Creates the execution-target picker overlay shell.
  *
  * Layout (top→bottom inside panel):
  *   ┌─────────────────────────┐
@@ -532,16 +532,16 @@ export interface ExecutionRoutePickerComponents {
  *   │  hint   (TextRenderable) │  ← fixed, outside scroll
  *   └─────────────────────────┘
  *
- * Data rows are managed entirely by app.tsx via renderExecutionRoutePicker().
+ * Data rows are managed entirely by app.tsx via renderExecutionTargetPicker().
  */
-export function createExecutionRoutePicker(
+export function createExecutionTargetPicker(
   renderer: CliRenderer,
   theme: KilnTheme,
   terminalWidth: number,
   terminalHeight: number
-): ExecutionRoutePickerComponents {
+): ExecutionTargetPickerComponents {
   const scrim = new BoxRenderable(renderer, {
-    id: "execution-route-picker-scrim",
+    id: "execution-target-picker-scrim",
     position: "absolute",
     left: 0,
     top: 0,
@@ -562,7 +562,7 @@ export function createExecutionRoutePicker(
 
   // Outer column panel: border + title + scrollbox + hint
   const panel = new BoxRenderable(renderer, {
-    id: "execution-route-picker-panel",
+    id: "execution-target-picker-panel",
     flexDirection: "column",
     width: panelWidth,
     backgroundColor: theme.backgroundPanel,
@@ -573,8 +573,8 @@ export function createExecutionRoutePicker(
 
   // Title row — fixed, never scrolls
   const title = new TextRenderable(renderer, {
-    id: "execution-route-picker-title",
-    content: t`${fg(theme.accent)(" Select Execution Route ")}`,
+    id: "execution-target-picker-title",
+    content: t`${fg(theme.accent)(" Select Execution Target ")}`,
     width: "100%",
     height: 2,
   });
@@ -582,7 +582,7 @@ export function createExecutionRoutePicker(
 
   // Scrollable data area — ONLY data rows go in here
   const scrollBox = new ScrollBoxRenderable(renderer, {
-    id: "execution-route-picker-scrollbox",
+    id: "execution-target-picker-scrollbox",
     width: "100%",
     height: scrollBoxHeight,
     backgroundColor: theme.backgroundPanel,
@@ -592,7 +592,7 @@ export function createExecutionRoutePicker(
 
   // Hint row — fixed, never scrolls
   const hint = new TextRenderable(renderer, {
-    id: "execution-route-picker-hint",
+    id: "execution-target-picker-hint",
     content: t`${fg(theme.textMuted)("↑↓ navigate  Enter select  Esc cancel")}`,
     width: "100%",
     height: 2,
@@ -606,13 +606,13 @@ export function createExecutionRoutePicker(
     scrollBox,
     hint,
     rows: [],
-    mode: "routes",
+    mode: "targets",
   };
 }
 
 /**
- * Destroys execution-route picker overlay.
+ * Destroys execution-target picker overlay.
  */
-export function destroyExecutionRoutePicker(picker: ExecutionRoutePickerComponents): void {
+export function destroyExecutionTargetPicker(picker: ExecutionTargetPickerComponents): void {
   picker.scrim.destroy();
 }

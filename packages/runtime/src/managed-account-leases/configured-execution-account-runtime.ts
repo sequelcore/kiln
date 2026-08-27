@@ -4,11 +4,11 @@ import {
   createManagedEconomicAmountFromDecimal,
   isDirectProviderId,
   type ExecutionAccountRef,
-  type AdmittedExecutionRoute,
+  type AdmittedExecutionTarget,
   type DirectProviderId,
   type ExecutionAccount,
   type ExecutionAccountAdmissionCandidate,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ManagedEconomicEvidenceIdentity,
   type ManagedEconomicQuotaEvidence,
   type OneRoundModelDispatcher,
@@ -51,10 +51,10 @@ import type {
   GovernedOneRoundResolvedDispatch,
 } from "../execution-kernel/governed-one-round-invocation.js";
 import {
-  ExecutionRouteDataPolicyAuthority,
-  type ExecutionRouteDataPolicyIdentity,
-  type SanitizedExecutionRouteDataPolicyDecision,
-} from "../execution-routing/execution-route-data-policy-authority.js";
+  ExecutionTargetDataPolicyAuthority,
+  type ExecutionTargetDataPolicyIdentity,
+  type SanitizedExecutionTargetDataPolicyDecision,
+} from "../execution-routing/execution-target-data-policy-authority.js";
 import type { ProviderAdapter } from "@kilnai/core";
 
 /**
@@ -63,7 +63,7 @@ import type { ProviderAdapter } from "@kilnai/core";
  * the selected credential material.
  */
 export interface ConfiguredExecutionAccountRuntimeOptions {
-  readonly catalog: ExecutionCatalog;
+  readonly catalog: ExecutionTargetCatalog;
   /** Canonical operator Kiln home supplied by CLI composition. */
   readonly kilnHome?: string;
   readonly credentialRootDir?: string;
@@ -95,7 +95,8 @@ export type ConfiguredExecutionCredential =
   | OpenCodeExecutionCredential
   | DirectProviderExecutionCredential;
 
-export interface ConfiguredExecutionRoute {
+export interface ConfiguredExecutionTarget {
+  /** Concrete provider-route identity retained for post-admission binding. */
   readonly routeId: string;
   readonly providerId: string;
   readonly providerModelId: string;
@@ -109,8 +110,8 @@ export interface ConfiguredExecutionCandidate {
 
 export interface ConfiguredExecutionCandidatePort {
   resolve(input: {
-    readonly admission: AdmittedExecutionRoute;
-    readonly route: ConfiguredExecutionRoute;
+    readonly admission: AdmittedExecutionTarget;
+    readonly route: ConfiguredExecutionTarget;
   }): Promise<readonly ConfiguredExecutionCandidate[]>;
 }
 
@@ -133,11 +134,11 @@ type ConfiguredExecutionAccount =
   | DirectProviderExecutionAccount;
 
 interface ConfiguredCredentialResolutionInput {
-  readonly routeId: string;
+  readonly targetId: string;
   readonly accountId: string;
   readonly credentialId: string;
   readonly lease: AccountCapacityRecord;
-  readonly catalog: ExecutionCatalog;
+  readonly catalog: ExecutionTargetCatalog;
 }
 
 type ConfiguredExecutionUsageEvidence = {
@@ -156,14 +157,14 @@ type ConfiguredExecutionUsageEvidence = {
  * exact binding/adapter preparation ports used by every execution surface.
  */
 export class ConfiguredExecutionAccountRuntime {
-  #catalog: ExecutionCatalog;
+  #catalog: ExecutionTargetCatalog;
   readonly #codexPool: ConfiguredCodexExecutionAccountPool;
   readonly #openCodePool: OpenCodeCredentialPoolService;
   readonly #directPool: DirectProviderCredentialPoolService;
   readonly #env: Readonly<Record<string, string | undefined>>;
   readonly #now: () => Date;
   readonly #observeOperatorSessionCapacity?: ConfiguredExecutionAccountRuntimeOptions["observeOperatorSessionCapacity"];
-  readonly #dataPolicyAuthority: ExecutionRouteDataPolicyAuthority;
+  readonly #dataPolicyAuthority: ExecutionTargetDataPolicyAuthority;
 
   readonly operatorSessionCandidates: OperatorSessionExecutionCandidatePort;
   readonly modelGatewayCandidates: ConfiguredExecutionCandidatePort;
@@ -183,7 +184,7 @@ export class ConfiguredExecutionAccountRuntime {
     this.#env = options.env ?? process.env;
     this.#now = options.now ?? (() => new Date());
     this.#observeOperatorSessionCapacity = options.observeOperatorSessionCapacity;
-    this.#dataPolicyAuthority = new ExecutionRouteDataPolicyAuthority({ catalog: options.catalog, now: this.#now });
+    this.#dataPolicyAuthority = new ExecutionTargetDataPolicyAuthority({ catalog: options.catalog, now: this.#now });
 
     const candidates: ConfiguredExecutionCandidatePort = {
       resolve: async ({ admission, route }) => this.#resolveCandidates(admission, route),
@@ -191,20 +192,20 @@ export class ConfiguredExecutionAccountRuntime {
     this.modelGatewayCandidates = candidates;
     this.operatorSessionCandidates = {
       resolve: async ({ admission, catalog }) => {
-        const route = this.#routeForAdmission(admission, "operator-session", catalog);
-        return this.#resolveCandidates(admission, route, catalog);
+        const target = this.#targetForAdmission(admission, "operator-session", catalog);
+        return this.#resolveCandidates(admission, target, catalog);
       },
     };
     this.operatorSessionCredentials = {
       resolve: async (input) => this.#resolveCredential(input),
     };
     this.modelGatewayDispatchers = {
-      resolve: async ({ accountId, routeId, route, lease }) => this.#resolveModelGatewayDispatcher(routeId, accountId, route, lease),
+      resolve: async ({ targetId, routeId, accountId, route, lease }) => this.#resolveModelGatewayDispatcher(targetId, routeId, accountId, route, lease),
     };
   }
 
   /** Replaces the immutable catalog snapshot used by subsequent admissions. */
-  updateCatalog(catalog: ExecutionCatalog): void {
+  updateCatalog(catalog: ExecutionTargetCatalog): void {
     this.#catalog = catalog;
     this.#dataPolicyAuthority.updateCatalog(catalog);
   }
@@ -284,21 +285,21 @@ export class ConfiguredExecutionAccountRuntime {
   }
 
   async #resolveCandidates(
-    admission: AdmittedExecutionRoute,
-    route: ConfiguredExecutionRoute,
-    catalog: ExecutionCatalog = this.#catalog,
+    admission: AdmittedExecutionTarget,
+    route: ConfiguredExecutionTarget,
+    catalog: ExecutionTargetCatalog = this.#catalog,
   ): Promise<readonly ConfiguredExecutionCandidate[]> {
-    const configuredRoute = this.#routeForAdmission(admission, route.scope, catalog);
+    const configuredRoute = this.#targetForAdmission(admission, route.scope, catalog);
     if (
       configuredRoute.routeId !== route.routeId
       || configuredRoute.providerId !== route.providerId
       || configuredRoute.providerModelId !== route.providerModelId
       || configuredRoute.scope !== route.scope
     ) {
-      throw new Error("Execution candidate route does not match the admitted execution route.");
+      throw new Error("Execution candidate route does not match the admitted execution target.");
     }
-    new ExecutionRouteDataPolicyAuthority({ catalog, now: this.#now }).assertAdmitted({
-      routeId: admission.routeId,
+    new ExecutionTargetDataPolicyAuthority({ catalog, now: this.#now }).assertAdmitted({
+      targetId: admission.targetId,
       providerId: configuredRoute.providerId,
       providerModelId: configuredRoute.providerModelId,
     });
@@ -315,7 +316,7 @@ export class ConfiguredExecutionAccountRuntime {
     // Freshness must be judged against a clock captured after that observation;
     // otherwise every newly refreshed snapshot appears to come from the future.
     const evaluationTime = this.#validNow();
-    const cost = configuredRouteEconomics(catalog, admission.routeId);
+    const cost = configuredTargetEconomics(catalog, admission.targetId);
     const candidates: ConfiguredExecutionCandidate[] = [];
 
     for (const account of accounts) {
@@ -389,8 +390,8 @@ export class ConfiguredExecutionAccountRuntime {
     if (account.credentialId !== input.credentialId) {
       throw new Error("Configured execution credential identity does not match the account catalog.");
     }
-    this.#assertDataPolicyForCredential(input.routeId, account, input.lease.route, input.catalog);
-    const execution = await this.#findExecutionAccount(account);
+    this.#assertDataPolicyForCredential(input.targetId, account, input.lease.route, input.catalog);
+      const execution = await this.#findExecutionAccount(account);
     if (configuredExecutionAccountRef(account, execution) !== input.lease.accountRef) {
       throw new Error("Configured execution account identity changed after capacity admission.");
     }
@@ -406,6 +407,7 @@ export class ConfiguredExecutionAccountRuntime {
   }
 
   async #resolveModelGatewayDispatcher(
+    targetId: string,
     routeId: string,
     accountId: string,
     route: { readonly providerId: string; readonly providerModelId: string },
@@ -419,7 +421,7 @@ export class ConfiguredExecutionAccountRuntime {
       throw new Error("Configured execution route is not directly dispatchable.");
     }
     const { credential } = await this.#resolveCredential({
-      routeId,
+      targetId,
       accountId,
       credentialId: account.credentialId,
       lease,
@@ -550,36 +552,34 @@ export class ConfiguredExecutionAccountRuntime {
     return [...cached.filter(({ credentialId }) => !refreshedIds.has(credentialId)), ...refreshed];
   }
 
-  #routeForAdmission(admission: AdmittedExecutionRoute, scope: string, catalog: ExecutionCatalog = this.#catalog): ConfiguredExecutionRoute {
-    const route = catalog.routes.find(({ id }) => id === admission.routeId);
-    if (!route) throw new Error(`Execution route '${admission.routeId}' is unavailable.`);
-    if (route.providerId !== admission.providerId || route.providerModelId !== admission.providerModelId) {
-      throw new Error("Execution admission does not match the catalog route.");
+  #targetForAdmission(admission: AdmittedExecutionTarget, scope: string, catalog: ExecutionTargetCatalog = this.#catalog): ConfiguredExecutionTarget {
+    const target = catalog.targets.find(({ id }) => id === admission.targetId);
+    if (!target) throw new Error(`Execution target '${admission.targetId}' is unavailable.`);
+    if (target.providerId !== admission.providerId || target.providerModelId !== admission.providerModelId) {
+      throw new Error("Execution admission does not match the catalog target.");
     }
-    return { routeId: route.id, providerId: route.providerId, providerModelId: route.providerModelId, scope };
+    return { routeId: target.id, providerId: target.providerId, providerModelId: target.providerModelId, scope };
   }
 
   /** Returns the exact sanitized policy decision used by this configured Runtime. */
-  assertAdmittedDataPolicy(identity: ExecutionRouteDataPolicyIdentity): SanitizedExecutionRouteDataPolicyDecision {
+  assertAdmittedDataPolicy(identity: ExecutionTargetDataPolicyIdentity): SanitizedExecutionTargetDataPolicyDecision {
     return this.#dataPolicyAuthority.assertAdmitted(identity);
   }
 
-  #assertDataPolicyForCredential(routeId: string, account: ExecutionAccount, identity: ProviderModelRouteIdentity, catalog: ExecutionCatalog): void {
-    const route = catalog.routes.find(({ id }) => id === routeId);
-    if (!route) throw new Error(`Execution route '${routeId}' is unavailable.`);
-    const selection = route.accountSelection;
-    const accountAdmitted = selection.mode === "exact"
-      ? selection.accountId === account.id
-      : catalog.accountPolicies.find(({ id }) => id === selection.accountPolicyId)?.accountIds.includes(account.id) === true;
-    if (!accountAdmitted) throw new Error("Configured execution account does not belong to the committed execution route.");
-    new ExecutionRouteDataPolicyAuthority({ catalog, now: this.#now }).assertAdmitted({
-      routeId,
+  #assertDataPolicyForCredential(targetId: string, account: ExecutionAccount, identity: ProviderModelRouteIdentity, catalog: ExecutionTargetCatalog): void {
+    const target = catalog.targets.find(({ id }) => id === targetId);
+    if (!target) throw new Error(`Execution target '${targetId}' is unavailable.`);
+    const accountPolicy = catalog.accountPolicies.find(({ id }) => id === target.accountPolicyId);
+    const accountAdmitted = accountPolicy?.accountIds.includes(account.id) === true;
+    if (!accountAdmitted) throw new Error("Configured execution account does not belong to the committed execution target.");
+    new ExecutionTargetDataPolicyAuthority({ catalog, now: this.#now }).assertAdmitted({
+      targetId,
       providerId: identity.providerId,
       providerModelId: identity.providerModelId,
     });
   }
 
-  #requireAccount(accountId: string, catalog: ExecutionCatalog = this.#catalog): ExecutionAccount {
+  #requireAccount(accountId: string, catalog: ExecutionTargetCatalog = this.#catalog): ExecutionAccount {
     const account = catalog.accounts.find(({ id }) => id === accountId);
     if (!account) throw new Error(`Configured execution account '${accountId}' is unavailable.`);
     return account;
@@ -594,17 +594,17 @@ export class ConfiguredExecutionAccountRuntime {
   }
 }
 
-function admittedAccountIds(admission: AdmittedExecutionRoute): readonly string[] {
-  return admission.accountSelection.mode === "exact"
+function admittedAccountIds(admission: AdmittedExecutionTarget): readonly string[] {
+  return admission.accountSelection.kind === "operator-override"
     ? [admission.accountSelection.accountId]
     : admission.accountSelection.eligibleAccountIds;
 }
 
-function configuredRouteEconomics(catalog: ExecutionCatalog, routeId: string) {
-  const route = catalog.routes.find(({ id }) => id === routeId);
-  if (!route) throw new Error(`Execution route '${routeId}' is unavailable.`);
-  const cost = route.economics.executionEnvelope.limits[0];
-  if (!cost) throw new Error(`Execution route '${routeId}' has no executable economic envelope.`);
+function configuredTargetEconomics(catalog: ExecutionTargetCatalog, targetId: string) {
+  const target = catalog.targets.find(({ id }) => id === targetId);
+  if (!target) throw new Error(`Execution target '${targetId}' is unavailable.`);
+  const cost = target.economics.executionEnvelope.limits[0];
+  if (!cost) throw new Error(`Execution target '${targetId}' has no executable economic envelope.`);
   return cost;
 }
 

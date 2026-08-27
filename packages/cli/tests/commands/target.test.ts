@@ -108,12 +108,23 @@ describe("targetCommand", () => {
   it("prints the supplied Runtime available-model catalog without executing a provider", async () => {
     await targetAvailableModelsCommand({ readCatalog: async () => ({
       observedAt: "2026-08-13T18:00:00.000Z",
-      entries: [{ providerId: "provider", providerRouteId: "provider:direct", providerModelId: "model", discoveryState: "stale", eligibilityState: "unknown", availabilityState: "unknown", configuredState: "unconfigured", configuredRouteRefs: [], reasonCodes: ["discovery-stale", "eligibility-unknown", "availability-unknown", "route-not-configured"] }],
+      models: [{
+        providerId: "provider",
+        providerRouteId: "provider:direct",
+        providerModelId: "model",
+        access: "api" as const,
+        family: "model",
+        discovery: "stale" as const,
+        eligibility: "unknown" as const,
+        availability: "unknown" as const,
+        provenance: [],
+        targets: [],
+      }],
     }) });
     const output = consoleSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
     expect(output).toContain("Available Models:");
     expect(output).toContain("discovery=stale");
-    expect(output).toContain("configured=unconfigured");
+    expect(output).toContain("not-configured");
   });
 
   it("sanitizes discovery failures", async () => {
@@ -167,7 +178,7 @@ describe("targetCommand", () => {
     });
     await targetCreateCommand(["openrouter/org/model/variant", "--classification", "internal", "--confirm-data-policy", "--label", "Model", "--approve"], {
       requestId: () => "wizard-2",
-      readCurrent: async () => ({ ...wizardContext(), catalog: { ...wizardContext().catalog, entries: [{ ...wizardContext().catalog.entries[0]!, providerId: "openrouter", providerRouteId: "openrouter:direct", providerModelId: "org/model/variant" }] } }),
+      readCurrent: async () => ({ ...wizardContext(), catalog: { ...wizardContext().catalog, models: [{ ...wizardContext().catalog.models[0]!, providerId: "openrouter", providerRouteId: "openrouter:direct", providerModelId: "org/model/variant" }] } }),
       create,
       confirm,
     });
@@ -195,7 +206,7 @@ describe("targetCommand", () => {
   it("rejects an ambiguous selector before creation", async () => {
     const context = wizardContext();
     await expect(targetCreateCommand(["openai/gpt-4o", "--classification", "public", "--confirm-data-policy"], {
-      readCurrent: async () => ({ ...context, catalog: { ...context.catalog, entries: [context.catalog.entries[0]!, { ...context.catalog.entries[0]!, providerRouteId: "openai:secondary" }] } }),
+      readCurrent: async () => ({ ...context, catalog: { ...context.catalog, models: [context.catalog.models[0]!, { ...context.catalog.models[0]!, providerRouteId: "openai:secondary" }] } }),
       create: vi.fn(),
     })).rejects.toThrow(/ambiguous/u);
   });
@@ -238,16 +249,18 @@ function wizardContext() {
     revision: `sha256:${"d".repeat(64)}`,
     catalog: {
       observedAt: "2026-08-13T18:00:00.000Z",
-      entries: [{
+      models: [{
         providerId: "openai",
         providerRouteId: "openai:direct",
         providerModelId: "gpt-4o",
-        discoveryState: "observed" as const,
-        eligibilityState: "eligible" as const,
-        availabilityState: "unavailable" as const,
-        configuredState: "unconfigured" as const,
-        configuredRouteRefs: [],
-        reasonCodes: ["model-eligible" as const],
+        access: "api" as const,
+        family: "gpt-4o",
+        displayName: "GPT-4o",
+        discovery: "observed" as const,
+        eligibility: "eligible" as const,
+        availability: "unavailable" as const,
+        provenance: [],
+        targets: [],
       }],
     },
   };
@@ -255,11 +268,12 @@ function wizardContext() {
 
 function previewResult(request: ExecutionTargetWizardRequest): Extract<ExecutionTargetWizardResult, { readonly status: "previewed" }> {
   const target = {
-    routeId: `target-${request.discoveryIdentity.providerId}-${request.discoveryIdentity.providerModelId.replace(/[^A-Za-z0-9._-]/gu, "-")}`,
+    targetId: `target-${request.discoveryIdentity.providerId}-${request.discoveryIdentity.providerModelId.replace(/[^A-Za-z0-9._-]/gu, "-")}`,
     label: request.label ?? "Model",
     providerId: request.discoveryIdentity.providerId,
     providerModelId: request.discoveryIdentity.providerModelId,
-    accountSelectionMode: "automatic" as const,
+    accountPolicyId: "fixture-account-policy",
+    eligibleAccountCount: 1,
     dataClassification: request.dataClassification,
     billingClass: "metered" as const,
     capabilityPosture: "kiln-executable" as const,
@@ -284,7 +298,7 @@ function previewResult(request: ExecutionTargetWizardRequest): Extract<Execution
       approvalStatus: "required",
       activation: "next-session",
       owners: ["execution-routing"],
-      reconciliationTargets: ["execution-routes"],
+      reconciliationTargets: ["execution-targets"],
       diagnostics: [],
       rollback: { restorable: true, summary: "Restorable." },
       target,
@@ -304,23 +318,10 @@ function createdResult(request: Extract<ExecutionTargetWizardRequest, { readonly
     message: "Created callback fixture.",
     revision: `sha256:${"e".repeat(64)}`,
     proposal,
-    executionRouteCatalog: {
+    modelCatalog: {
       observedAt: "2026-08-13T18:00:00.000Z",
       revision: `sha256:${"e".repeat(64)}`,
-      routes: [{
-        routeId: target.routeId,
-        label: target.label,
-        providerId: target.providerId,
-        providerModelId: target.providerModelId,
-        availability: "unresolved",
-        reasonCodes: ["route-evidence-pending"],
-        repairActions: ["refresh-route-catalog"],
-        accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
-      }],
-    },
-    availableModels: {
-      observedAt: "2026-08-13T18:00:00.000Z",
-      entries: [],
+      models: [],
     },
   };
 }

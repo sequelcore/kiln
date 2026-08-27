@@ -52,7 +52,7 @@ import {
   OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
   OperatorSessionHistoryResponseSchema,
-  ExecutionRouteCatalogSchema,
+  ModelCatalogSchema,
   projectOperatorResourceReadPresentation,
 } from "@kilnai/gateway-contracts";
 
@@ -702,7 +702,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
     throw new Error("Invalid dashboard providers payload.");
   }
 
-  const executionRouteCatalog = ExecutionRouteCatalogSchema.parse(snapshot.executionRouteCatalog);
+  const modelCatalog = ModelCatalogSchema.parse(snapshot.modelCatalog);
   if (!isTelemetrySnapshot(snapshot.telemetry)) {
     throw new Error("Invalid dashboard telemetry payload.");
   }
@@ -713,7 +713,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   const apps = normalizeAppDescriptors(snapshot.apps);
   const workspaceTree = normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree);
   return {
-    executionRouteCatalog,
+    modelCatalog,
     providers: snapshot.providers,
     telemetry: snapshot.telemetry,
     continuationInfoByProvider: snapshot.continuationInfoByProvider as Record<string, GuiContinuationInfo>,

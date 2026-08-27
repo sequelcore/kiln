@@ -96,7 +96,7 @@ kiln run "Implement the login page"
 
 Useful flags:
 
-- `--route <id>` to select an admitted execution route from the global catalog
+- `--target <id>` to select an admitted execution target from the global catalog
 - `--output answer` to write only assistant content to stdout for exact-format evals
 - `--output json` to write a structured `kiln.run.output.v1` envelope
 - `--deliberation-level <id>` to request one advertised model deliberation level
@@ -141,8 +141,8 @@ The default gateway path keeps TUI conversations on the runtime session
 pipeline so provider routing, continuity, approvals, deliberation, and
 sidebar route labels reflect the actual backend used for each turn.
 
-Inside the TUI, use `/route` to choose an execution route and, for automatic
-routes, either `Automatic (Kiln)` or an eligible account override. Use
+Inside the TUI, use `/target` to choose an execution target and, when its policy
+admits multiple accounts, either `Automatic (Kiln)` or an eligible account override. Use
 `/deliberation` to cycle the admitted model's advertised levels.
 
 ### `kiln gateway`
@@ -213,8 +213,8 @@ Inspect benchmark contracts and write local evidence artifacts:
 kiln benchmark profiles
 kiln benchmark readiness --baseline ~/.kiln/projects/<krp_sha256>/benchmarks/tool.json
 kiln benchmark run-internal --profile kiln-tool-agent --output ~/.kiln/projects/<krp_sha256>/benchmarks/tool.json
-kiln benchmark run-internal --profile kiln-model-roster-backend-write --route opencode-go-glm53 --k 5 --output ~/.kiln/projects/<krp_sha256>/benchmarks/glm53-backend.json
-kiln benchmark run-internal --profile kiln-tool-agent --route codex-terra --deliberation-level-sweep low,medium,high --output ~/.kiln/projects/<krp_sha256>/benchmarks/deliberation.json
+kiln benchmark run-internal --profile kiln-model-roster-backend-write --target opencode-go-glm53 --k 5 --output ~/.kiln/projects/<krp_sha256>/benchmarks/glm53-backend.json
+kiln benchmark run-internal --profile kiln-tool-agent --target codex-terra --deliberation-level-sweep low,medium,high --output ~/.kiln/projects/<krp_sha256>/benchmarks/deliberation.json
 ```
 
 `run-internal` writes one benchmark JSON status document to stdout and stores

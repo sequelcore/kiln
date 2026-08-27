@@ -40,7 +40,7 @@ targetCatalog:
       providerId: codex-oauth
       providerModelId: gpt-5.6-codex
       dataClassification: internal
-      accountSelection: { mode: automatic, accountPolicyId: codex-standard-policy }
+      accountPolicyId: codex-standard-policy
       economics:
         authBillingChannel: oauth-subscription
         executionMode: responses-api

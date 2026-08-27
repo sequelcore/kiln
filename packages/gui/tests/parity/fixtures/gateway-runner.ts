@@ -10,25 +10,26 @@ import {
   OperatorSessionExecutionBridge,
   OperatorSessionExecutionRoutingService,
   createOperatorSessionAccountCapacityAuthority,
-  projectAvailableModelCatalogForExecutionRoutes,
+  projectModelCatalog,
   projectGuiProviderModelDiscovery,
   startGuiGateway,
   type CliSessionFactory,
   type ConfiguredExecutionCredential,
-  type OperatorExecutionRouteSelectionPort,
+  type OperatorExecutionTargetCatalogEntry,
+  type OperatorExecutionTargetSelectionPort,
   type OperatorTurnDispatchPort,
   type OperatorTurnDispatchResult,
   type OperatorTurnGuiDispatchPayload,
   type EffectiveAuthorityAdmissionBundle,
 } from "../../../../runtime/src/index.js";
 import {
-  createCurrentExecutionRoute,
+  createCurrentExecutionTarget,
   parseExecutionTargetWizardRevision,
-} from "../../../../cli/src/application/current-execution-route-creation.js";
+} from "../../../../cli/src/application/current-execution-target-creation.js";
 import {
   defineExecutionTargetEvidenceSnapshot,
   executionTargetEvidenceRevision,
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   type ExecutionTargetCatalogIntent,
   type ExecutionTargetEvidenceSnapshot,
 } from "../../../../cli/src/config/execution-target-evidence-store.js";
@@ -36,12 +37,12 @@ import {
   InMemoryContextArtifactCache,
   SqliteMemoryRepository,
   createExecutionAccountRef,
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   trustedInternalMemoryAuthority,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ManagedEconomicAmount,
   type CreateMemoryRecordInput,
-  type ExecutionCatalogInput,
+  type ExecutionTargetCatalogInput,
   type MemoryProvenance,
 } from "@kilnai/core";
 import {
@@ -54,7 +55,6 @@ import type {
   GuiSessionDetail,
   OperatorSessionSummary,
   KilnConfigSetupSnapshot,
-  ExecutionRouteCatalog,
   KilnSettingsMutationResult,
   KilnSettingsProposalProjection,
   KilnSettingsProposalRequest,
@@ -688,18 +688,15 @@ const PARITY_ECONOMIC_AMOUNT = {
 const PARITY_DIGEST = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const PARITY_CREDENTIAL_REVISION = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-function canonicalExecutionCatalogForRoute(
-  route: ExecutionRouteCatalog["routes"][number],
+function canonicalExecutionTargetCatalogForTarget(
+  target: OperatorExecutionTargetCatalogEntry,
   accountId: string,
   accountPolicyId: string,
-): ExecutionCatalog {
-  const accountSelection = route.accountSelection.mode === "automatic"
-    ? { mode: "automatic" as const, accountPolicyId }
-    : { mode: "exact" as const, accountId };
-  return defineExecutionCatalog({
+): ExecutionTargetCatalog {
+  return defineExecutionTargetCatalog({
     accounts: [{
       id: accountId,
-      providerId: route.providerId,
+      providerId: target.providerId,
       credentialId: `${accountId}-credential`,
       maxConcurrency: 2,
       reservedAffinitySlots: 0,
@@ -712,16 +709,16 @@ function canonicalExecutionCatalogForRoute(
       },
     }],
     accountPolicies: [{ id: accountPolicyId, accountIds: [accountId], strategy: "economic-least-pressure" }],
-    routes: [{
-      id: route.routeId,
-      label: route.label,
-      providerId: route.providerId,
-      providerModelId: route.providerModelId,
-      accountSelection,
+    targets: [{
+      id: target.targetId,
+      label: target.label,
+      providerId: target.providerId,
+      providerModelId: target.providerModelId,
+      accountPolicyId,
       dataClassification: "public",
       dataPolicyEvidence: {
-        providerId: route.providerId,
-        providerModelId: route.providerModelId,
+        providerId: target.providerId,
+        providerModelId: target.providerModelId,
         dataUse: "service-operation",
         trainingPosture: "prohibited",
         retention: { posture: "zero", days: 0 },
@@ -767,7 +764,7 @@ function canonicalExecutionCatalogForRoute(
 }
 
 function createDeterministicOperatorRouting(): {
-  readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
+  readonly executionTargetSelection: OperatorExecutionTargetSelectionPort;
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorAuthorityAdmissionBridge: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["operatorAuthorityAdmissionBridge"];
@@ -776,7 +773,7 @@ function createDeterministicOperatorRouting(): {
   readonly runtimeToolActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeToolActionClaims"];
   readonly runtimeMediaActionClaims: NonNullable<Parameters<typeof startGuiGateway>[0]["operatorTransport"]>["runtimeMediaActionClaims"];
   readonly runExecutionTargetWizard: NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]>;
-  readonly getExecutionRouteCatalog: () => ExecutionRouteCatalog;
+  readonly getExecutionTargets: () => readonly OperatorExecutionTargetCatalogEntry[];
 } {
   const operatorTurnExecutionBridge = new OperatorSessionExecutionBridge<
     ConfiguredExecutionCredential,
@@ -849,45 +846,42 @@ function createDeterministicOperatorRouting(): {
     accountPolicies: [{ id: accountPolicyId, accountIds: [accountId], strategy: "economic-least-pressure" }],
     targets: [],
   };
-  let executionCatalog: ExecutionCatalogInput = projectExecutionCatalogFromIntent(
+  let executionCatalog: ExecutionTargetCatalogInput = projectExecutionTargetCatalogFromIntent(
     targetIntent,
     targetEvidence,
     initialRevision,
   );
-  let routeCatalog: ExecutionRouteCatalog = {
-    observedAt: new Date().toISOString(),
-    revision: initialRevision,
-    routes: [
-      executionRoute("claude-default", "Claude", "claude", "claude-sonnet-4-6"),
-      executionRoute("codex-default", "Codex", "codex", "gpt-5.5"),
-      executionRoute("codex-sol-medium", "Sol Medium", "codex-oauth", "gpt-5.6-sol"),
-      executionRoute("opencode-default", "OpenCode", "opencode", "opencode-default"),
+  let configuredTargetRevision = initialRevision;
+  let configuredTargets: readonly OperatorExecutionTargetCatalogEntry[] = [
+      executionTarget("claude-default", "Claude", "claude", "claude-sonnet-4-6"),
+      executionTarget("codex-default", "Codex", "codex", "gpt-5.5"),
+      executionTarget("codex-sol-medium", "Sol Medium", "codex-oauth", "gpt-5.6-sol"),
+      executionTarget("opencode-default", "OpenCode", "opencode", "opencode-default"),
       {
-        ...executionRoute("deepseek-flash-unavailable", "DeepSeek Flash", "opencode-go", "deepseek-v3.2-speciale"),
+        ...executionTarget("deepseek-flash-unavailable", "DeepSeek Flash", "opencode-go", "deepseek-v3.2-speciale"),
         availability: "unavailable" as const,
         reasonCodes: ["model-unavailable"],
-        repairActions: ["refresh-route-catalog" as const],
+        repairActions: ["refresh-model-catalog" as const],
       },
-    ],
-  };
-  const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
-    getCatalog: async () => routeCatalog,
+    ];
+  const executionTargetSelection: OperatorExecutionTargetSelectionPort = {
+    getTargets: async () => configuredTargets,
     admit: async (intent) => {
-      const route = routeCatalog.routes.find(({ routeId }) => routeId === intent.routeId);
-      if (!route) {
+      const target = configuredTargets.find(({ targetId }) => targetId === intent.targetId);
+      if (!target) {
         return {
           ok: false,
-          reasonCode: "route-not-configured",
-          reason: `Execution target '${intent.routeId}' is not configured in the parity fixture.`,
-          repairActions: ["refresh-route-catalog"],
+          reasonCode: "target-not-configured",
+          reason: `Execution target '${intent.targetId}' is not configured in the parity fixture.`,
+          repairActions: ["refresh-model-catalog"],
         };
       }
       return {
         ok: true,
         admission: {
-          routeId: route.routeId,
-          providerId: route.providerId,
-          providerModelId: route.providerModelId,
+          targetId: target.targetId,
+          providerId: target.providerId,
+          providerModelId: target.providerModelId,
         },
       };
     },
@@ -900,7 +894,7 @@ function createDeterministicOperatorRouting(): {
   });
   // Keep the captured catalog immutable per dispatch; a shared mutable capture
   // could be overwritten by a later concurrent request before admission runs.
-  const createRouting = (catalog: ExecutionCatalog) => new OperatorSessionExecutionRoutingService<
+  const createRouting = (catalog: ExecutionTargetCatalog) => new OperatorSessionExecutionRoutingService<
     ConfiguredExecutionCredential,
     OperatorTurnGuiDispatchPayload,
     OperatorTurnDispatchResult
@@ -914,10 +908,10 @@ function createDeterministicOperatorRouting(): {
     },
     candidates: {
       resolve: async ({ admission, catalog: capturedCatalog }) => {
-        const accountId = admission.accountSelection.mode === "exact"
+        const accountId = admission.accountSelection.kind === "operator-override"
           ? admission.accountSelection.accountId
           : admission.accountSelection.eligibleAccountIds[0];
-        if (!accountId) throw new Error("Parity execution route has no eligible account.");
+        if (!accountId) throw new Error("Parity execution target has no eligible account.");
         const account = capturedCatalog.accounts.find((candidate) => candidate.id === accountId);
         if (!account) throw new Error(`Parity account '${accountId}' is not configured.`);
         return [{
@@ -985,13 +979,13 @@ function createDeterministicOperatorRouting(): {
     OperatorTurnDispatchResult
   > = {
     async dispatchTurn(request) {
-      const route = routeCatalog.routes.find(({ routeId }) => routeId === request.intent.routeId);
-      if (!route) throw new Error(`Execution target '${request.intent.routeId}' is not configured in the parity fixture.`);
-      const accountId = request.intent.accountOverrideId ?? `parity-${route.providerId}-account`;
-      const executionCatalog = canonicalExecutionCatalogForRoute(
-        route,
+      const target = configuredTargets.find(({ targetId }) => targetId === request.intent.targetId);
+      if (!target) throw new Error(`Execution target '${request.intent.targetId}' is not configured in the parity fixture.`);
+      const accountId = request.intent.accountOverrideId ?? `parity-${target.providerId}-account`;
+      const executionCatalog = canonicalExecutionTargetCatalogForTarget(
+        target,
         accountId,
-        `parity-${route.providerId}-policy`,
+        `parity-${target.providerId}-policy`,
       );
       return createRouting(executionCatalog).execute(request);
     },
@@ -1001,29 +995,30 @@ function createDeterministicOperatorRouting(): {
     discoveryEvidence: Parameters<NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]>>[1],
   ) => {
     const discovery = projectGuiProviderModelDiscovery(operatorDiscovery, { observedAt: discoveryEvidence.catalogObservedAt });
-    const catalog = projectAvailableModelCatalogForExecutionRoutes({
+    const catalog = projectModelCatalog({
       discovery,
-      executionRouteCatalog: routeCatalog,
+      configuredTargets,
+      revision: configuredTargetRevision,
     });
     return {
       catalog,
       executionCatalog,
       targetIntent,
       targetEvidence,
-      revision: routeCatalog.revision ?? initialRevision,
+      revision: configuredTargetRevision,
       discoveryEvidence,
     };
   };
 
   const runExecutionTargetWizard: NonNullable<Parameters<typeof startGuiGateway>[0]["runExecutionTargetWizard"]> = async (request, evidence) => {
-    const result = await createCurrentExecutionRoute({
+    const result = await createCurrentExecutionTarget({
       request,
       admittedEvidence: evidence,
       projectPath: "synthetic-parity-project",
       approvalSurface: "gui",
       resolveCurrentEvidence: () => resolveCurrentWizardEvidence(evidence),
       commit: async ({ draft, expectedRevision, currentIntent, currentEvidence, operatorApproved }) => {
-        if (!operatorApproved || expectedRevision !== routeCatalog.revision) {
+        if (!operatorApproved || expectedRevision !== configuredTargetRevision) {
           throw new Error("The parity target commit no longer matches current authority.");
         }
         if (currentIntent !== targetIntent || currentEvidence !== targetEvidence) {
@@ -1040,7 +1035,7 @@ function createDeterministicOperatorRouting(): {
           evidenceRevision: nextRevision,
           targets: [...currentIntent.targets, draft.intent],
         };
-        const nextExecutionCatalog = projectExecutionCatalogFromIntent(
+        const nextExecutionTargetCatalog = projectExecutionTargetCatalogFromIntent(
           nextIntent,
           nextEvidence,
           nextRevision,
@@ -1048,15 +1043,12 @@ function createDeterministicOperatorRouting(): {
 
         targetEvidence = nextEvidence;
         targetIntent = nextIntent;
-        executionCatalog = nextExecutionCatalog;
-        routeCatalog = {
-          observedAt: new Date().toISOString(),
-          revision: nextRevision,
-          routes: [
-            ...routeCatalog.routes,
-            executionRoute(draft.route.id, draft.route.label, draft.route.providerId, draft.route.providerModelId),
-          ],
-        };
+        executionCatalog = nextExecutionTargetCatalog;
+        configuredTargetRevision = nextRevision;
+        configuredTargets = [
+            ...configuredTargets,
+            executionTarget(draft.target.id, draft.target.label, draft.target.providerId, draft.target.providerModelId),
+          ];
         return { status: "created", revision: nextRevision };
       },
     });
@@ -1082,7 +1074,7 @@ function createDeterministicOperatorRouting(): {
   };
 
   return {
-    executionRouteSelection,
+    executionTargetSelection,
     operatorTurnDispatcher,
     operatorTurnExecutionBridge,
     operatorAuthorityAdmissionBridge,
@@ -1091,29 +1083,28 @@ function createDeterministicOperatorRouting(): {
     runtimeToolActionClaims,
     runtimeMediaActionClaims,
     runExecutionTargetWizard,
-    getExecutionRouteCatalog: () => routeCatalog,
+    getExecutionTargets: () => configuredTargets,
   };
 }
 
-function executionRoute(
-  routeId: string,
+function executionTarget(
+  targetId: string,
   label: string,
   providerId: string,
   providerModelId: string,
-) : ExecutionRouteCatalog["routes"][number] {
+) : OperatorExecutionTargetCatalogEntry {
   return {
-    routeId,
+    targetId,
     label,
     providerId,
     providerModelId,
-    accountSelection: {
-      mode: "automatic" as const,
-      eligibleAccountCount: 1,
-      allowOperatorOverride: true,
-    },
-    availability: "available" as const,
-    reasonCodes: [],
+    access: providerId === "codex-oauth" ? "subscription" : "harness",
+    availability: "available",
+    reasonCodes: ["configured"],
     repairActions: [],
+    eligibleAccountCount: 1,
+    accountOverrideIds: [],
+    cost: { kind: "subscription" },
   };
 }
 let continuationSessionId: string | null = null;
@@ -1287,7 +1278,10 @@ async function main(): Promise<void> {
         { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
       ],
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
-      executionRouteCatalog: operatorRouting.getExecutionRouteCatalog(),
+      modelCatalog: projectModelCatalog({
+        discovery: projectGuiProviderModelDiscovery(operatorDiscovery),
+        configuredTargets: operatorRouting.getExecutionTargets(),
+      }),
       continuationInfoByProvider: continuationSessionId
         ? { [activeProvider]: { strategy: "continue_session", feedbackLabel: continuationSessionId } }
         : {},
@@ -1295,7 +1289,7 @@ async function main(): Promise<void> {
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     initialOperatorDiscovery: operatorDiscovery,
     initialOperatorDiscoveryFreshness: "fresh",
-    executionRouteSelection: operatorRouting.executionRouteSelection,
+    executionTargetSelection: operatorRouting.executionTargetSelection,
     runExecutionTargetWizard: operatorRouting.runExecutionTargetWizard,
     discoverOperatorProviders: async () => operatorDiscovery,
     getSetupSnapshot: async () => setupSnapshot,

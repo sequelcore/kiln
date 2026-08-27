@@ -11,7 +11,7 @@ import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissi
 import { createGovernedOneRoundDispatchPermit } from "../../src/execution-kernel/dispatch-permit.js";
 
 const route = { routeId: "route", providerId: "fixture", providerModelId: "model", scope: "virtual:fixture" } as const;
-const admission = { routeId: "route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account", source: "route" as const } };
+const admission = { targetId: "route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { kind: "operator-override" as const, accountPolicyId: "policy", accountId: "account" } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "ok" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" };
 
 function bundle(): EffectiveAuthorityAdmissionBundle {
@@ -26,7 +26,7 @@ function bundle(): EffectiveAuthorityAdmissionBundle {
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
       effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
       budget: { status: "not-configured" },
-      execution: { status: "routed", route: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } },
+      execution: { status: "routed", target: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.targetId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } },
     },
   });
 }
@@ -48,7 +48,7 @@ function fixture() {
     candidateCatalog: { list: async () => ({ admission, candidates: [{ candidate: { accountId: "account", safety: "eligible", health: "healthy", quota: "available", capacity: "available", economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 } } }] }) },
     accountCapacityAuthority,
     attemptEvidence: { record: async (event) => { events.push(`evidence:${event.phase}`); } },
-    dispatcherResolver: { resolve: async () => { events.push(`resolve:${authority.recoverAccountCapacity()[0]?.state}`); return { dispatcher: { dispatchOneRound: async () => { events.push(`dispatch:${authority.recoverAccountCapacity()[0]?.state}`); dispatched += 1; return result; } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }; } },
+    dispatcherResolver: { resolve: async () => { events.push(`resolve:${authority.recoverAccountCapacity()[0]?.state}`); return { dispatcher: { dispatchOneRound: async () => { events.push(`dispatch:${authority.recoverAccountCapacity()[0]?.state}`); dispatched += 1; return result; } }, binding: { status: "bound", routeId: admission.targetId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }; } },
     budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
     authorityAdmission: { compose: async () => { events.push("compose"); return bundle(); } },
     admissionEvidence: { persistAndReadback: async (admitted) => { events.push("persist"); return { attemptId: "attempt", admissionId: admitted.admissionId, bundle: admitted }; } },
@@ -194,7 +194,7 @@ describe("governed one-round capacity and dispatch", () => {
 
   it("retains an unknown outcome after the one-use action claim and provider transport failure", async () => {
     const value = fixture();
-    const failure = await invokeGovernedOneRound(input(), { ...value.ports, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async () => { throw new Error("provider failed"); } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) } }).catch((error: unknown) => error);
+    const failure = await invokeGovernedOneRound(input(), { ...value.ports, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async () => { throw new Error("provider failed"); } }, binding: { status: "bound", routeId: admission.targetId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) } }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(GovernedOneRoundCommittedError);
     expect(value.authority.recoverAccountCapacity()[0]).toMatchObject({ state: "settlement-pending" });
     value.authority.close();
@@ -202,7 +202,7 @@ describe("governed one-round capacity and dispatch", () => {
 
   it("settles an exact provider rejection as terminal provider-error", async () => {
     const value = fixture();
-    const failure = await invokeGovernedOneRound(input(), { ...value.ports, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async () => { throw new ProviderDispatchTerminalError({ outcome: "provider-error", requestId: "attempt:capacity", status: 503, observedAt: "2026-08-22T00:00:00.000Z" }, new Error("provider rejected")); } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) } }).catch((error: unknown) => error);
+    const failure = await invokeGovernedOneRound(input(), { ...value.ports, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async () => { throw new ProviderDispatchTerminalError({ outcome: "provider-error", requestId: "attempt:capacity", status: 503, observedAt: "2026-08-22T00:00:00.000Z" }, new Error("provider rejected")); } }, binding: { status: "bound", routeId: admission.targetId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) } }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(GovernedOneRoundCommittedError);
     expect(value.authority.recoverAccountCapacity()).toEqual([]);
     value.authority.close();

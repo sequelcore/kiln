@@ -36,10 +36,10 @@ const operatorCompositionMocks = vi.hoisted(() => ({
   create: vi.fn(() => ({
     accountRuntime: {
       operatorSessionCandidates: {
-        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } } }) => {
-          const accountIds = admission.accountSelection.mode === "automatic"
-            ? admission.accountSelection.eligibleAccountIds ?? []
-            : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { kind: "policy"; eligibleAccountIds: readonly string[] } | { kind: "operator-override"; accountId: string } } }) => {
+          const accountIds = admission.accountSelection.kind === "policy"
+            ? admission.accountSelection.eligibleAccountIds
+            : [admission.accountSelection.accountId];
           return accountIds.map((accountId) => ({
             candidate: {
               accountId,
@@ -103,8 +103,13 @@ const runtimeMocks = vi.hoisted(() => ({
     },
     entries: discovery.flatMap((provider) => provider.models.map((model) => ({
       providerRoute: { providerId: provider.provider, providerModelId: model, scope: "provider" },
-      normalizedModel: { providerId: provider.provider, modelId: model },
+      normalizedModel: { family: model },
+      rawEvidence: { rawId: model, provenance: "test" },
+      credentialEvidence: { state: "authenticated", source: "test" },
+      entitlementEvidence: { state: "confirmed", source: "test" },
       freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      routeHealth: { status: "healthy" },
+      policyAdmission: { use: "interactive", status: "admitted" },
       eligibility: { eligible: true, reasonCodes: [] },
     }))),
   })),
@@ -267,6 +272,8 @@ const transcriptStoreMocks = vi.hoisted(() => ({
 vi.mock("@kilnai/tui", () => ({
   startTui: tuiMocks.startTui,
   waitForGateway: tuiMocks.waitForGateway,
+  defaultTheme: "phosphor",
+  getTheme: () => ({}),
   themes: { "phosphor": {} },
   kilnDark: {},
   GatewaySession: class {},
@@ -374,8 +381,8 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     ...actual,
     readGlobalConfig: configMocks.readGlobalConfig,
     readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
-    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
-      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+    readGlobalExecutionTargetCatalog: (config: Parameters<typeof fixtures.syntheticExecutionTargetCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionTargetCatalog(config) ?? undefined : undefined,
     readGlobalExecutionTargetAuthority: (config: Parameters<typeof fixtures.syntheticExecutionTargetAuthority>[0] | undefined) =>
       config ? fixtures.syntheticExecutionTargetAuthority(config) : undefined,
     resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
@@ -585,8 +592,13 @@ describe("tuiCommand startup provider catalog guard", () => {
       },
       entries: [{
         providerRoute: { providerId: "openai", providerModelId: "gpt-5.4", scope: "provider" },
-        normalizedModel: { providerId: "openai", modelId: "gpt-5.4" },
+        normalizedModel: { family: "gpt-5.4" },
+        rawEvidence: { rawId: "gpt-5.4", provenance: "test" },
+        credentialEvidence: { state: "authenticated", source: "test" },
+        entitlementEvidence: { state: "confirmed", source: "test" },
         freshness: { status: "fresh", observedAt: "2026-07-01T12:00:00.000Z" },
+        routeHealth: { status: "healthy" },
+        policyAdmission: { use: "interactive", status: "unknown" },
         eligibility: { eligible: false, reasonCodes: ["policy-not-admitted"] },
       }],
     }) as never);
@@ -600,7 +612,7 @@ describe("tuiCommand startup provider catalog guard", () => {
     }
   });
 
-  it("uses the canonical execution-route catalog to reject unavailable direct selections", async () => {
+  it("uses the canonical execution-target catalog to reject unavailable direct selections", async () => {
     process.env.KILN_TUI_TRANSPORT = "direct";
     registryMocks.providerDisplayInfo = [
       { id: "claude", group: "harness", models: [], free: false },
@@ -616,18 +628,23 @@ describe("tuiCommand startup provider catalog guard", () => {
       },
       entries: [{
         providerRoute: { providerId: "openai", providerModelId: "gpt-5.4", scope: "provider" },
-        normalizedModel: { providerId: "openai", modelId: "gpt-5.4" },
+        normalizedModel: { family: "gpt-5.4" },
+        rawEvidence: { rawId: "gpt-5.4", provenance: "test" },
+        credentialEvidence: { state: "authenticated", source: "test" },
+        entitlementEvidence: { state: "confirmed", source: "test" },
         freshness: { status: "stale", observedAt: "2026-06-01T12:00:00.000Z" },
+        routeHealth: { status: "healthy" },
+        policyAdmission: { use: "interactive", status: "unknown" },
         eligibility: { eligible: false, reasonCodes: ["stale-evidence"] },
       }],
     }) as never);
     let switchError = "";
     tuiMocks.startTui.mockImplementationOnce(async (createSession: () => Promise<unknown>) => {
       const session = await createSession() as {
-        switchExecutionRoute: (routeId: string, accountOverrideId?: string) => Promise<string>;
+        switchExecutionTarget: (targetId: string, accountOverrideId?: string) => Promise<string>;
       };
       try {
-        await session.switchExecutionRoute("openai-gpt-5");
+        await session.switchExecutionTarget("openai-gpt-5");
       } catch (error) {
         switchError = error instanceof Error ? error.message : String(error);
       }

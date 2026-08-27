@@ -8,7 +8,7 @@ import { isObjectRecord, readString } from "./unknown-value.js";
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const CONTINUATION_TARGET_KEY = "kiln.gui.continuationTarget";
-const EXECUTION_ROUTE_SELECTION_KEY = "kiln.gui.executionRouteSelection:v1";
+const EXECUTION_TARGET_SELECTION_KEY = "kiln.gui.executionTargetSelection:v2";
 
 export function readStoredPlanMode(): boolean | null {
   try {
@@ -28,16 +28,16 @@ export function persistPlanMode(value: boolean): void {
   }
 }
 
-export function readStoredExecutionRouteSelection(): { readonly routeId: string; readonly accountOverrideId?: string } | null {
+export function readStoredExecutionTargetSelection(): { readonly targetId: string; readonly accountOverrideId?: string } | null {
   try {
-    const raw = localStorage.getItem(EXECUTION_ROUTE_SELECTION_KEY);
+    const raw = localStorage.getItem(EXECUTION_TARGET_SELECTION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!isObjectRecord(parsed)) return null;
-    const routeId = readString(parsed.routeId);
-    if (!routeId) return null;
+    const targetId = readString(parsed.targetId);
+    if (!targetId) return null;
     return {
-      routeId,
+      targetId,
       ...(readString(parsed.accountOverrideId) ? { accountOverrideId: readString(parsed.accountOverrideId)! } : {}),
     };
   } catch {
@@ -45,10 +45,10 @@ export function readStoredExecutionRouteSelection(): { readonly routeId: string;
   }
 }
 
-export function writeStoredExecutionRouteSelection(routeId: string, accountOverrideId?: string): void {
+export function writeStoredExecutionTargetSelection(targetId: string, accountOverrideId?: string): void {
   try {
-    localStorage.setItem(EXECUTION_ROUTE_SELECTION_KEY, JSON.stringify({
-      routeId,
+    localStorage.setItem(EXECUTION_TARGET_SELECTION_KEY, JSON.stringify({
+      targetId,
       ...(accountOverrideId ? { accountOverrideId } : {}),
     }));
   } catch {

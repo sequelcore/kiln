@@ -5,7 +5,7 @@ import {
   readExecutionBinding,
   readExecutionConfigurationRevision,
   readExecutionOperatorAdoptionDecision,
-  readExecutionRoute,
+  readExecutionTarget,
   readExecutionToolAllowlist,
   readExecutionToolAuthority,
   readExecutionTurnAuthority,
@@ -66,11 +66,11 @@ function input(): EffectiveAuthorityAdmissionBundleInput {
       },
       execution: {
         status: "routed",
-        route: {
-          routeId: "sol",
+        target: {
+          targetId: "sol",
           providerId: "codex-oauth",
           providerModelId: "gpt-5.6-sol",
-          accountSelection: { mode: "exact", accountId: "operator", source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "policy", accountId: "operator" },
         },
         dataPolicy: {
           decision: { status: "admitted", freshness: "current", reason: "policy-admitted" },
@@ -204,8 +204,8 @@ describe("EffectiveAuthorityAdmissionBundle", () => {
     expect(readExecutionBinding(config)).toEqual(
       bundle.turn.execution.status === "routed" ? bundle.turn.execution.binding : undefined,
     );
-    expect(readExecutionRoute(config)).toEqual(
-      bundle.turn.execution.status === "routed" ? bundle.turn.execution.route : undefined,
+    expect(readExecutionTarget(config)).toEqual(
+      bundle.turn.execution.status === "routed" ? bundle.turn.execution.target : undefined,
     );
     expect(readExecutionOperatorAdoptionDecision(config)).toEqual(decision);
     expect(readExecutionTurnId(config)).toBe(turnId);
@@ -218,7 +218,7 @@ describe("EffectiveAuthorityAdmissionBundle", () => {
     expect(() => readExecutionTurnAuthority(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
     expect(() => readExecutionConfigurationRevision(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
     expect(() => readExecutionBinding(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
-    expect(() => readExecutionRoute(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
+    expect(() => readExecutionTarget(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
     expect(() => readExecutionOperatorAdoptionDecision(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
     expect(() => readExecutionTurnId(config)).toThrow(/EffectiveAuthorityAdmissionBundle is required/iu);
   });

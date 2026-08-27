@@ -64,7 +64,7 @@ const RECONCILIATION_TARGETS = [
   "native-skills",
   "native-permissions",
   "repo-shims",
-  "execution-routes",
+  "execution-targets",
 ] as const;
 
 /**

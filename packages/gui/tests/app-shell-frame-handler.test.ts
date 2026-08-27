@@ -14,14 +14,14 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onVoiceSynthesisFailed: vi.fn(),
     onError: vi.fn(),
     onCleared: vi.fn(),
-    onExecutionRouteChanged: vi.fn(),
-    onExecutionRouteChangeFailed: vi.fn(),
+    onExecutionTargetChanged: vi.fn(),
+    onExecutionTargetChangeFailed: vi.fn(),
     onProviderAuthStarted: vi.fn(),
     onProviderAuthCompleted: vi.fn(),
     onProviderAuthFailed: vi.fn(),
     onProviderCatalogState: vi.fn(),
-    onExecutionRoutesRefreshed: vi.fn(),
-    onExecutionRoutesRefreshFailed: vi.fn(),
+    onModelCatalogRefreshed: vi.fn(),
+    onModelCatalogRefreshFailed: vi.fn(),
     onExecutionTargetWizardResult: vi.fn(),
     onExecConfirmed: vi.fn(),
     onActivityPhase: vi.fn(),
@@ -76,7 +76,7 @@ describe("createAppShellFrameHandler", () => {
     });
   });
 
-  it("keeps provider authentication separate from execution-route refresh", () => {
+  it("keeps provider authentication separate from model-catalog refresh", () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
@@ -86,7 +86,7 @@ describe("createAppShellFrameHandler", () => {
     } as never);
 
     expect(input.onProviderAuthCompleted).toHaveBeenCalledTimes(1);
-    expect(input.onExecutionRoutesRefreshed).not.toHaveBeenCalled();
+    expect(input.onModelCatalogRefreshed).not.toHaveBeenCalled();
   });
 
   it("routes provider catalog lifecycle frames to the catalog owner", () => {
@@ -101,17 +101,17 @@ describe("createAppShellFrameHandler", () => {
     });
   });
 
-  it("routes execution-route refresh failures to the refresh lifecycle owner", () => {
+  it("routes model-catalog refresh failures to the refresh lifecycle owner", () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
     handleFrame({
-      type: "execution_routes_refresh_failed",
+      type: "model_catalog_refresh_failed",
       requestId: "refresh-1",
       message: "Provider discovery timed out.",
     });
 
-    expect(input.onExecutionRoutesRefreshFailed).toHaveBeenCalledWith(expect.objectContaining({
+    expect(input.onModelCatalogRefreshFailed).toHaveBeenCalledWith(expect.objectContaining({
       requestId: "refresh-1",
     }));
     expect(input.onError).not.toHaveBeenCalled();
@@ -162,17 +162,17 @@ describe("createAppShellFrameHandler", () => {
     expect(input.onSessionEvent).not.toHaveBeenCalled();
   });
 
-  it("routes execution-route and approval failures to their operation owners", () => {
+  it("routes execution-target and approval failures to their operation owners", () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
     handleFrame({
-      type: "execution_route_change_failed",
-      requestId: "execution-route-change-1",
-      routeId: "openai-gpt",
-      reasonCode: "route-health-unavailable",
-      reason: "The selected route is unavailable.",
-      repairActions: ["refresh-route-catalog"],
+      type: "execution_target_change_failed",
+      requestId: "execution-target-change-1",
+      targetId: "openai-gpt",
+      reasonCode: "target-health-unavailable",
+      reason: "The selected target is unavailable.",
+      repairActions: ["refresh-model-catalog"],
     });
     handleFrame({
       type: "approval_response_result",
@@ -183,8 +183,8 @@ describe("createAppShellFrameHandler", () => {
       reason: "Approval is no longer pending.",
     });
 
-    expect(input.onExecutionRouteChangeFailed).toHaveBeenCalledWith(expect.objectContaining({
-      requestId: "execution-route-change-1",
+    expect(input.onExecutionTargetChangeFailed).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "execution-target-change-1",
     }));
     expect(input.onApprovalResponseResult).toHaveBeenCalledWith(expect.objectContaining({
       approvalId: "approval-1",

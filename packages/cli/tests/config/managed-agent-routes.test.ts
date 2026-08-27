@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineDeliberationLevelId,
@@ -375,7 +375,7 @@ type ManagedConfigFixture = Omit<NonNullable<KilnGlobalConfig["managedAgents"]>,
 function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & ManagedAgentRouteConfigSource {
   const { targetFixtures = [], ...managedAgents } = overrides;
   const directTargets = targetFixtures.filter((target) => target.kind === "direct");
-  const executionCatalog = defineExecutionCatalog({
+  const executionCatalog = defineExecutionTargetCatalog({
     accounts: directTargets.map((target) => {
       const targetId = target.id;
       const identity = testExecutionIdentity(targetId);
@@ -399,7 +399,7 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
       accountIds: [`account:${target.id}`],
       strategy: "economic-least-pressure" as const,
     })),
-    routes: directTargets.map((target) => {
+    targets: directTargets.map((target) => {
       const targetId = target.id;
       const identity = testExecutionIdentity(targetId);
       return {
@@ -422,10 +422,7 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
           observedAt: "2026-01-01T00:00:00.000Z",
           expiresAt: "2027-01-01T00:00:00.000Z",
         },
-        accountSelection: {
-          mode: "automatic" as const,
-          accountPolicyId: `policy:${targetId}`,
-        },
+        accountPolicyId: `policy:${targetId}`,
         economics: {
           adapterCapabilityId: "test-direct-adapter",
           adapterCapabilityVersion: "1",
@@ -499,22 +496,22 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & Ma
       targets: targetFixtures.map((target) => {
         const targetId = target.id;
         if (target.kind === "direct") {
-          const route = executionCatalog.routes.find((candidate) => candidate.id === targetId)!;
+          const configuredTarget = executionCatalog.targets.find((candidate) => candidate.id === targetId)!;
           return {
             id: target.id,
             kind: "direct" as const,
-            label: route.label,
-            providerId: route.providerId,
-            providerModelId: route.providerModelId,
-            dataClassification: route.dataClassification,
-            accountSelection: route.accountSelection,
+            label: configuredTarget.label,
+            providerId: configuredTarget.providerId,
+            providerModelId: configuredTarget.providerModelId,
+            dataClassification: configuredTarget.dataClassification,
+            accountPolicyId: configuredTarget.accountPolicyId,
             economics: {
-              authBillingChannel: route.economics.authBillingChannel,
-              executionMode: route.economics.executionMode,
-              serviceTier: route.economics.serviceTier,
-              fallbackPosture: route.economics.fallbackPosture,
-              overagePosture: route.economics.overagePosture,
-              executionEnvelope: route.economics.executionEnvelope,
+              authBillingChannel: configuredTarget.economics.authBillingChannel,
+              executionMode: configuredTarget.economics.executionMode,
+              serviceTier: configuredTarget.economics.serviceTier,
+              fallbackPosture: configuredTarget.economics.fallbackPosture,
+              overagePosture: configuredTarget.economics.overagePosture,
+              executionEnvelope: configuredTarget.economics.executionEnvelope,
             },
           };
         }
@@ -3122,7 +3119,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     } as never, { modelGatewayCandidates: { resolve } } as never);
 
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
-      admission: expect.objectContaining({ routeId: canonicalTargetId }),
+      admission: expect.objectContaining({ targetId: canonicalTargetId }),
       route: expect.objectContaining({ routeId: canonicalTargetId }),
     }));
   });
@@ -3137,6 +3134,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
       }],
-    })))).toThrow(/targetId must reference an automatic direct target/u);
+    })))).toThrow(/targetId must reference a direct target/u);
   });
 });

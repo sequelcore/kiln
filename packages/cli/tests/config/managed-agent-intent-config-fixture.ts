@@ -1,7 +1,7 @@
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   executionTargetEvidenceRevision,
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   type ExecutionTargetEvidenceSnapshot,
 } from "../../src/config/execution-target-evidence-store.js";
 
@@ -66,7 +66,7 @@ export function managedAgentIntentConfig(): KilnGlobalConfig {
         providerId: "codex-oauth",
         providerModelId: "gpt-5.6-codex",
         dataClassification: "internal",
-        accountSelection: { mode: "automatic", accountPolicyId: "codex-standard-policy" },
+        accountPolicyId: "codex-standard-policy",
         economics: {
           authBillingChannel: "oauth-subscription",
           executionMode: "responses-api",
@@ -162,9 +162,9 @@ export function managedAgentTargetEvidence(): ExecutionTargetEvidenceSnapshot {
   };
 }
 
-export function managedAgentExecutionCatalog() {
+export function managedAgentExecutionTargetCatalog() {
   const config = managedAgentIntentConfig();
-  return projectExecutionCatalogFromIntent(
+  return projectExecutionTargetCatalogFromIntent(
     config.targetCatalog!,
     managedAgentTargetEvidence(),
     config.targetCatalog!.evidenceRevision,

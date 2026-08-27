@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
-  type AdmittedExecutionRoute,
+  type AdmittedExecutionTarget,
   type ArtifactResourceStore,
   type CommunicationIntentCandidate,
   type ContentPart,
@@ -18,7 +18,7 @@ import {
   type VoiceConfig,
 } from "@kilnai/core";
 import {
-  type ExecutionRouteCatalog,
+  type ModelCatalog,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
   type GuiInboundFrame,
@@ -88,10 +88,10 @@ import {
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
 import { OperatorActivityStreamer } from "./operator-activity-streamer.js";
-import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
+import type { OperatorExecutionTargetSelectionPort } from "./operator-execution-target-selection.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { projectProviderCatalogStateFrame } from "./provider-catalog-state-frame.js";
-import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
+import { projectModelCatalog } from "./model-catalog-projector.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   fingerprintOperatorTurnIntent,
@@ -137,7 +137,7 @@ export interface TuiGatewayOptions {
   /** Materializes the exact post-fence provider bound to the committed credential. */
   readonly createProvider: (input: {
     readonly credential: ConfiguredExecutionCredential;
-    readonly admission: AdmittedExecutionRoute;
+    readonly admission: AdmittedExecutionTarget;
   }) => ProviderAdapter | Promise<ProviderAdapter>;
   /** System prompt for the TUI session. Default: "You are a helpful assistant." */
   readonly systemPrompt?: string;
@@ -149,8 +149,8 @@ export interface TuiGatewayOptions {
    * Fail-open: errors are swallowed and { type: "cleared" } is still sent.
    */
   readonly onClear?: () => Promise<void>;
-  /** Route catalog projection and fail-closed admission supplied by composition. */
-  readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
+  /** Target catalog projection and fail-closed admission supplied by composition. */
+  readonly executionTargetSelection?: OperatorExecutionTargetSelectionPort;
   /** Per-turn routing authority. Picker admission is UX evidence only. */
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   /** Composition-owned bridge bound to this gateway's local orchestrator. */
@@ -309,8 +309,7 @@ export function deriveTuiDoneAuthorityStatus(
 }
 
 export function buildTuiWelcomeFramePayload(input: {
-  readonly executionRouteCatalog: ExecutionRouteCatalog;
-  readonly availableModels: import("@kilnai/gateway-contracts").AvailableModelCatalog;
+  readonly modelCatalog: ModelCatalog;
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -318,8 +317,7 @@ export function buildTuiWelcomeFramePayload(input: {
   readonly authorityStatus: TuiAuthorityStatus;
 }): {
   readonly type: "welcome";
-  readonly executionRouteCatalog: ExecutionRouteCatalog;
-  readonly availableModels: import("@kilnai/gateway-contracts").AvailableModelCatalog;
+  readonly modelCatalog: ModelCatalog;
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -328,8 +326,7 @@ export function buildTuiWelcomeFramePayload(input: {
 } {
   return {
     type: "welcome",
-    executionRouteCatalog: input.executionRouteCatalog,
-    availableModels: input.availableModels,
+    modelCatalog: input.modelCatalog,
     providerModelDiscovery: input.providerModelDiscovery,
     models: input.models,
     ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
@@ -562,10 +559,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     sessionTurnBudget: options.sessionTurnBudget,
     prepare: async ({ request, session, admission, snapshot, binding }) => {
       const payload = request.payload;
-      const route = snapshot.catalog.routes.find((candidate) => candidate.id === admission.routeId);
-      if (!route) throw new Error("The admitted operator route is absent from its captured catalog.");
+      const target = snapshot.catalog.targets.find((candidate) => candidate.id === admission.targetId);
+      if (!target) throw new Error("The admitted execution target is absent from its captured catalog.");
       const activeModelCapabilities = findProviderModelCapabilities(
-        payload.providerDiscovery, route.providerId, route.providerModelId,
+        payload.providerDiscovery, target.providerId, target.providerModelId,
       );
       const executionMode = resolveExecutionMode(payload.message.executionMode);
       const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -581,7 +578,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       try {
         const perCallConfig = {
           ...buildTuiTurnPerCallConfig(
-            route.providerId, route.providerModelId, turnBuiltinToolSurface, activeModelCapabilities,
+            target.providerId, target.providerModelId, turnBuiltinToolSurface, activeModelCapabilities,
             toCoreDeliberationIntent(payload.message.deliberationIntent), executionMode,
             resolveTuiRequestedAuthority(payload.message.requestedAuthority),
             payload.operatorTimeZone ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone }) : undefined,
@@ -704,7 +701,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         turnId: _candidateTurnId,
         operatorAdoptionDecision: _candidateAdoptionDecision,
         executionBinding: _candidateExecutionBinding,
-        admittedExecutionRoute: _candidateExecutionRoute,
+        admittedExecutionTarget: _candidateExecutionTarget,
         effectiveTurnAuthority: _candidateTurnAuthority,
         authorityContext: _candidateAuthorityContext,
         runtimeConfigurationRevision: _candidateConfigurationRevision,
@@ -796,7 +793,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           correlatedDiscoveryRefreshDepth -= 1;
         }
       };
-      let selectedRouteIntent: { readonly routeId: string; readonly accountOverrideId?: string } | undefined;
+      let selectedTargetIntent: { readonly targetId: string; readonly accountOverrideId?: string } | undefined;
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame));
       });
@@ -832,13 +829,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               activeModelCapabilities,
             ),
           );
-          const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+          const configuredTargets = await options.executionTargetSelection?.getTargets() ?? [];
           const providerModelDiscovery = projectGuiProviderModelDiscovery(currentDiscovery);
           const catalogSnapshot = providerCatalog.snapshot();
           const initialCatalogState = await projectProviderCatalogStateFrame(
             catalogSnapshot,
-            async () => options.executionRouteSelection?.getCatalog() ?? { routes: [] },
-            executionRouteCatalog,
+            async () => options.executionTargetSelection?.getTargets() ?? [],
+            configuredTargets,
           );
           unsubscribeDiscovery?.();
           unsubscribeDiscovery = providerCatalog.subscribe((snapshot) => {
@@ -846,7 +843,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             if (correlatedDiscoveryRefreshDepth > 0) return;
             void projectProviderCatalogStateFrame(
               snapshot,
-              async () => options.executionRouteSelection?.getCatalog() ?? { routes: [] },
+              async () => options.executionTargetSelection?.getTargets() ?? [],
             ).then((frame) => {
               if (operatorSocket === ws) ws.send(JSON.stringify(frame satisfies GuiInboundFrame));
             }).catch((error: unknown) => {
@@ -859,8 +856,9 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             });
           });
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
-            executionRouteCatalog,
-            availableModels: projectAvailableModelCatalogForExecutionRoutes({ discovery: providerModelDiscovery, executionRouteCatalog }),
+            modelCatalog: initialCatalogState.status === "ready"
+              ? initialCatalogState.modelCatalog
+              : projectModelCatalog({ discovery: providerModelDiscovery, configuredTargets }),
             providerModelDiscovery,
             models: currentModels,
             providerDiscovery: currentDiscovery,
@@ -899,21 +897,22 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               return;
             }
 
-            if (frame.type === "refresh_execution_routes") {
+            if (frame.type === "refresh_model_catalog") {
               try {
                 const currentDiscovery = await refreshDiscoveryForRequest({ force: true });
-                const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+                const configuredTargets = await options.executionTargetSelection?.getTargets() ?? [];
+                const modelCatalog = projectModelCatalog({
+                  discovery: projectGuiProviderModelDiscovery(currentDiscovery),
+                  configuredTargets,
+                });
                 ws.send(JSON.stringify({
-                  type: "execution_routes_refreshed",
+                  type: "model_catalog_refreshed",
                   requestId: frame.requestId,
-                  executionRouteCatalog,
-                  availableModels: projectAvailableModelCatalogForExecutionRoutes({
-                    discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
-                  }),
+                  modelCatalog,
                 } satisfies GuiInboundFrame));
               } catch (error) {
                 ws.send(JSON.stringify({
-                  type: "execution_routes_refresh_failed",
+                  type: "model_catalog_refresh_failed",
                   requestId: frame.requestId,
                   message: error instanceof Error ? error.message : "Execution target refresh failed.",
                 } satisfies GuiInboundFrame));
@@ -984,7 +983,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 reason: providerDiscovery?.reason,
                 modelCount: projectGuiOperatorModels(currentDiscovery)[auth.provider]?.length ?? 0,
               });
-              const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+              const configuredTargets = await options.executionTargetSelection?.getTargets() ?? [];
+              const modelCatalog = projectModelCatalog({
+                discovery: projectGuiProviderModelDiscovery(currentDiscovery),
+                configuredTargets,
+              });
               ws.send(JSON.stringify({
                 type: "provider_auth_completed",
                 provider: auth.provider,
@@ -992,23 +995,20 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
-                executionRouteCatalog,
-                availableModels: projectAvailableModelCatalogForExecutionRoutes({
-                  discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
-                }),
+                modelCatalog,
               }));
               return;
             }
 
-            if (frame.type === "execution_route") {
-              const selectionFrame = frame as { readonly type: "execution_route"; readonly requestId: string; readonly routeId: string; readonly accountOverrideId?: string };
-              const admission = await options.executionRouteSelection?.admit(selectionFrame) ?? { ok: false as const, reasonCode: "route-evidence-pending" as const, reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const };
+            if (frame.type === "execution_target") {
+              const selectionFrame = frame as Extract<GuiOutboundFrame, { type: "execution_target" }>;
+              const admission = await options.executionTargetSelection?.admit(selectionFrame) ?? { ok: false as const, reasonCode: "target-evidence-pending" as const, reason: "Execution target admission is unavailable.", repairActions: ["refresh-model-catalog"] as const };
               if (!admission.ok) {
-                ws.send(JSON.stringify({ type: "execution_route_change_failed", routeId: selectionFrame.routeId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions }));
+                ws.send(JSON.stringify({ type: "execution_target_change_failed", targetId: selectionFrame.targetId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions }));
                 return;
               }
-              selectedRouteIntent = { routeId: selectionFrame.routeId, ...(selectionFrame.accountOverrideId ? { accountOverrideId: selectionFrame.accountOverrideId } : {}) };
-              ws.send(JSON.stringify({ type: "execution_route_changed", routeId: admission.admission.routeId, requestId: selectionFrame.requestId, providerId: admission.admission.providerId, providerModelId: admission.admission.providerModelId }));
+              selectedTargetIntent = { targetId: selectionFrame.targetId, ...(selectionFrame.accountOverrideId ? { accountOverrideId: selectionFrame.accountOverrideId } : {}) };
+              ws.send(JSON.stringify({ type: "execution_target_changed", targetId: admission.admission.targetId, requestId: selectionFrame.requestId, providerId: admission.admission.providerId, providerModelId: admission.admission.providerModelId }));
               return;
             }
 
@@ -1165,11 +1165,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               let turnModel: string | undefined;
               try {
                 const currentDiscovery = await refreshDiscovery();
-                if (!selectedRouteIntent) {
+                if (!selectedTargetIntent) {
                   ws.send(
                     JSON.stringify({
                       type: "error",
-                      message: "No execution route selected. Choose an execution route before sending a message.",
+                      message: "No execution target selected. Choose a model before sending a message.",
                     }),
                   );
                   return;
@@ -1179,7 +1179,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                   ws.send(
                     JSON.stringify({
                       type: "error",
-                      code: "route-evidence-pending",
+                      code: "target-evidence-pending",
                       message: "Operator execution routing is unavailable.",
                     }),
                   );
@@ -1188,8 +1188,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 const executionId = crypto.randomUUID();
                 const execution = await dispatcher.dispatchTurn({
                   executionId,
-                  intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedRouteIntent }),
-                  intent: selectedRouteIntent,
+                  intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedTargetIntent }),
+                  intent: selectedTargetIntent,
                   payload: {
                     surface: "tui",
                     appName: TUI_APP_NAME,

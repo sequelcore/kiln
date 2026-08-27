@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineExecutionCatalog } from "@kilnai/core/agents";
+import { defineExecutionTargetCatalog } from "@kilnai/core/agents";
 import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import { closeGatewayResources, startGateway } from "../../src/gateway/gateway-server.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
@@ -28,7 +28,7 @@ const config: ModelGatewayConfig = {
   virtualModels: [{ id: "codex", displayName: "Codex", contextTokens: 1000, outputTokens: 100, targetId: "codex-route", capabilities: ["text"], affinity: { continuity: "none" } }],
 };
 
-const executionCatalog = defineExecutionCatalog({
+const executionCatalog = defineExecutionTargetCatalog({
   accounts: [{
     id: "primary",
     providerId: "codex-oauth",
@@ -44,14 +44,14 @@ const executionCatalog = defineExecutionCatalog({
     },
   }],
   accountPolicies: [{ id: "codex-policy", accountIds: ["primary"], strategy: "economic-least-pressure" }],
-  routes: [{
+  targets: [{
     id: "codex-route",
     label: "Codex route",
     providerId: "codex-oauth",
     providerModelId: "gpt-test",
     dataClassification: "internal",
     dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "gpt-test", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2027-01-01T00:00:00.000Z" },
-    accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" },
+    accountPolicyId: "codex-policy",
     economics: {
       adapterCapabilityId: "text",
       adapterCapabilityVersion: "1",
@@ -106,7 +106,7 @@ function listenerAuthorityBundle(): EffectiveAuthorityAdmissionBundle {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: { routeId: "codex-route", providerId: "codex-oauth", providerModelId: "gpt-test", accountSelection: { mode: "exact", accountId: "primary", source: "route" } },
+        target: { targetId: "codex-route", providerId: "codex-oauth", providerModelId: "gpt-test", accountSelection: { kind: "operator-override", accountPolicyId: "codex-policy", accountId: "primary" } },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "codex-route", accountId: "primary", credentialId: "credential-a", credentialRevision: "a".repeat(64) },
       },

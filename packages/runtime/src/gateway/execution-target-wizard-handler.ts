@@ -1,6 +1,6 @@
 import {
   ExecutionTargetWizardRequestSchema,
-  type ExecutionRouteCatalog,
+  type ModelCatalogEntry,
   type ExecutionTargetWizardProposal,
   type ExecutionTargetWizardRequest,
   type GuiInboundFrame,
@@ -9,13 +9,13 @@ import {
   type GuiProviderModelRawEvidenceSummary,
 } from "@kilnai/gateway-contracts";
 import { createHash } from "node:crypto";
-import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
+import { projectModelCatalog, type ConfiguredModelTarget } from "./model-catalog-projector.js";
 
 type WizardResultFrame = Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>;
 const DEFAULT_MANAGED_DISCOVERY_VALIDITY_MS = 365 * 24 * 60 * 60 * 1_000;
 
 export interface ExecutionTargetWizardDiscoveryEvidence {
-  readonly entry: import("@kilnai/gateway-contracts").AvailableModelCatalogEntry;
+  readonly entry: ModelCatalogEntry;
   readonly catalogObservedAt: string;
   readonly sourceObservedAt: string;
   readonly expiresAt: string;
@@ -51,12 +51,12 @@ export async function handleExecutionTargetWizard(input: {
   readonly operatorAuthorized: boolean;
   readonly frame: unknown;
   readonly discovery: GuiProviderModelDiscoveryProjection;
-  readonly executionRouteCatalog: ExecutionRouteCatalog;
+  readonly configuredTargets: readonly ConfiguredModelTarget[];
   readonly runWizard?: (
     request: ExecutionTargetWizardRequest,
     evidence: ExecutionTargetWizardDiscoveryEvidence,
   ) => Promise<ExecutionTargetWizardApplicationResult>;
-  readonly readExecutionRouteCatalog: () => Promise<ExecutionRouteCatalog>;
+  readonly readConfiguredTargets: () => Promise<readonly ConfiguredModelTarget[]>;
 }): Promise<readonly WizardResultFrame[]> {
   if (input.operatorAuthorized !== true) {
     return [executionTargetWizardDeniedResult(input.frame)];
@@ -68,11 +68,11 @@ export async function handleExecutionTargetWizard(input: {
     return [executionTargetWizardDeniedResult(input.frame)];
   }
 
-  const availableModels = projectAvailableModelCatalogForExecutionRoutes({
+  const modelCatalog = projectModelCatalog({
     discovery: input.discovery,
-    executionRouteCatalog: input.executionRouteCatalog,
+    configuredTargets: input.configuredTargets,
   });
-  const entry = availableModels.entries.find((candidate) =>
+  const entry = modelCatalog.models.find((candidate) =>
     candidate.providerId === parsed.data.discoveryIdentity.providerId
     && candidate.providerRouteId === parsed.data.discoveryIdentity.providerRouteId
     && candidate.providerModelId === parsed.data.discoveryIdentity.providerModelId
@@ -84,14 +84,14 @@ export async function handleExecutionTargetWizard(input: {
       message: "The selected model no longer matches current discovery. Select a current model and retry.",
     })];
   }
-  if (entry.discoveryState !== "observed") {
+  if (entry.discovery !== "observed") {
     return [rejectedResult(parsed.data.requestId, {
       code: "TARGET_DISCOVERY_STALE",
       action: "refresh-and-retry",
       message: "Current model discovery evidence is unavailable or stale. Refresh models and retry.",
     })];
   }
-  if (entry.eligibilityState !== "eligible") {
+  if (entry.eligibility !== "eligible") {
     return [executionTargetWizardDeniedResult(input.frame)];
   }
 
@@ -135,9 +135,9 @@ export async function handleExecutionTargetWizard(input: {
       }];
     }
 
-    let executionRouteCatalog: ExecutionRouteCatalog;
+    let configuredTargets: readonly ConfiguredModelTarget[];
     try {
-      executionRouteCatalog = await input.readExecutionRouteCatalog();
+      configuredTargets = await input.readConfiguredTargets();
     } catch {
       return [{
         type: "execution_target_wizard_result",
@@ -150,9 +150,9 @@ export async function handleExecutionTargetWizard(input: {
         proposal: result.proposal,
       }];
     }
-    const refreshedAvailableModels = projectAvailableModelCatalogForExecutionRoutes({
+    const refreshedModelCatalog = projectModelCatalog({
       discovery: input.discovery,
-      executionRouteCatalog,
+      configuredTargets,
     });
     return [{
         type: "execution_target_wizard_result",
@@ -163,8 +163,7 @@ export async function handleExecutionTargetWizard(input: {
         message: "Execution target created.",
         revision: result.revision,
         proposal: result.proposal,
-        executionRouteCatalog,
-        availableModels: refreshedAvailableModels,
+        modelCatalog: refreshedModelCatalog,
       }];
   } catch {
     return [rejectedResult(parsed.data.requestId, {
@@ -185,7 +184,7 @@ export function executionTargetWizardDeniedResult(frame: unknown): WizardResultF
 
 export function executionTargetWizardDiscoveryEvidence(
   discovery: GuiProviderModelDiscoveryProjection,
-  entry: import("@kilnai/gateway-contracts").AvailableModelCatalogEntry,
+  entry: ModelCatalogEntry,
 ): ExecutionTargetWizardDiscoveryEvidence {
   const source = discovery.entries.find((candidate) =>
     candidate.providerRoute.providerId === entry.providerId

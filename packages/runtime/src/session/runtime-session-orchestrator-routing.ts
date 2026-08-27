@@ -49,7 +49,7 @@ import type {
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
 import {
-  readExecutionRoute,
+  readExecutionTarget,
   readExecutionToolAllowlist,
 } from "./effective-authority-admission-bundle.js";
 
@@ -197,8 +197,8 @@ export async function resolveRuntimeSessionRouting(
     }
   }
 
-  const admittedRoute = readExecutionRoute(perCallConfig);
-  if (!admittedRoute) {
+  const admittedTarget = readExecutionTarget(perCallConfig);
+  if (!admittedTarget) {
     throw new Error("Runtime model execution requires a routed EffectiveAuthorityAdmissionBundle.");
   }
   // CliSubscriptionExecutor exposes a transport label, not the provider/model
@@ -206,18 +206,18 @@ export async function resolveRuntimeSessionRouting(
   // canonical identity for that already-bound transport.
   const usesCliSubscriptionAdapter = deps.provider.name.startsWith("cli-subscription:");
   const executionIdentity = resolveExecutionIdentity({
-    configuredProvider: usesCliSubscriptionAdapter ? admittedRoute?.providerId : deps.provider.name,
-    configuredModel: deps.model ?? (usesCliSubscriptionAdapter ? admittedRoute?.providerModelId : undefined),
+    configuredProvider: usesCliSubscriptionAdapter ? admittedTarget?.providerId : deps.provider.name,
+    configuredModel: deps.model ?? (usesCliSubscriptionAdapter ? admittedTarget?.providerModelId : undefined),
     routedProvider: routedProviderIdentity,
     routedModel: routedModelIdentity,
     routedCanonicalModel: routingDecision?.canonicalModel,
     routedBillingMode: routingDecision?.billingMode,
   });
-  if (admittedRoute
-    && (executionIdentity?.provider !== admittedRoute.providerId
-      || executionIdentity.model !== admittedRoute.providerModelId)) {
+  if (admittedTarget
+    && (executionIdentity?.provider !== admittedTarget.providerId
+      || executionIdentity.model !== admittedTarget.providerModelId)) {
     throw new Error(
-      `Selected provider/model ${executionIdentity?.provider ?? "unknown"}/${executionIdentity?.model ?? "unknown"} does not match admitted execution route ${admittedRoute.providerId}/${admittedRoute.providerModelId}.`,
+      `Selected provider/model ${executionIdentity?.provider ?? "unknown"}/${executionIdentity?.model ?? "unknown"} does not match admitted execution target ${admittedTarget.providerId}/${admittedTarget.providerModelId}.`,
     );
   }
 
@@ -232,7 +232,7 @@ export async function resolveRuntimeSessionRouting(
     });
   }
   if (deliberationResolution?.status === "denied") {
-    throw new Error(`Deliberation denied for the selected route: ${deliberationResolution.reason}`);
+    throw new Error(`Deliberation denied for the selected target: ${deliberationResolution.reason}`);
   }
 
   const communicationProvider = routingDecision?.provider ?? executionIdentity?.provider ?? deps.provider.name;
@@ -258,7 +258,7 @@ export async function resolveRuntimeSessionRouting(
     && communicationResolution.requested.intent.onUnsupported === "deny"
     && (communicationResolution.responseDetail.status === "unsupported"
       || communicationResolution.interactionProfile.status === "unsupported")) {
-    throw new Error("Communication intent is unsupported for the selected route.");
+    throw new Error("Communication intent is unsupported for the selected target.");
   }
 
   if (routingDecision) {

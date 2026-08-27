@@ -12,12 +12,11 @@ import {
   ContextUsageProjectionSchema,
   CommunicationIntentSchema,
   EffectivePromptObservationSchema,
-  AvailableModelCatalogSchema,
+  ModelCatalogSchema,
   ExecutionTargetWizardRequestSchema,
   ExecutionTargetWizardResultSchema,
-  ExecutionRouteCatalogSchema,
-  ExecutionRouteReasonCodeSchema,
-  ExecutionRouteRepairActionSchema,
+  ExecutionTargetReasonCodeSchema,
+  ExecutionTargetRepairActionSchema,
 } from "@kilnai/gateway-contracts";
 
 // --- Zod Schemas for frame validation ---
@@ -107,7 +106,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     reason: z.string().trim().min(1).optional(),
   }),
   z.object({ type: z.literal("clear") }),
-  z.object({ type: z.literal("refresh_execution_routes"), requestId: z.string().trim().min(1) }),
+  z.object({ type: z.literal("refresh_model_catalog"), requestId: z.string().trim().min(1) }),
   z.object({
     type: z.literal("provider_auth"),
     provider: z.string(),
@@ -116,8 +115,8 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     tier: z.enum(["go", "zen"]).optional(),
   }),
   z.object({
-    type: z.literal("execution_route"),
-    routeId: z.string().trim().min(1),
+    type: z.literal("execution_target"),
+    targetId: z.string().trim().min(1),
     accountOverrideId: z.string().trim().min(1).optional(),
     requestId: z.string().trim().min(1),
   }),
@@ -629,10 +628,9 @@ const GuiInboundFrameSchema = z.union([
   z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
   z.object({
     type: z.literal("welcome"),
-    executionRouteCatalog: ExecutionRouteCatalogSchema,
-    availableModels: AvailableModelCatalogSchema,
+    modelCatalog: ModelCatalogSchema,
     greeting: z.string().optional(),
-    activeRouteId: z.string().optional(),
+    activeTargetId: z.string().optional(),
     activeProvider: z.string().optional(),
     activeModel: z.string().optional(),
     executionMode: z.enum(["execute", "plan"]).optional(),
@@ -655,8 +653,7 @@ const GuiInboundFrameSchema = z.union([
     models: z.record(z.array(z.string())),
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
     providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
-    executionRouteCatalog: ExecutionRouteCatalogSchema,
-    availableModels: AvailableModelCatalogSchema,
+    modelCatalog: ModelCatalogSchema,
   }),
   z.object({ type: z.literal("provider_catalog_state"), status: z.literal("error"), message: z.string().trim().min(1) }),
   z.object({
@@ -684,8 +681,7 @@ const GuiInboundFrameSchema = z.union([
     models: z.record(z.array(z.string())),
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
     providers: z.array(GuiProviderDescriptorSchema).optional(),
-    executionRouteCatalog: ExecutionRouteCatalogSchema,
-    availableModels: AvailableModelCatalogSchema,
+    modelCatalog: ModelCatalogSchema,
   }),
   z.object({
     type: z.literal("provider_auth_failed"),
@@ -693,11 +689,11 @@ const GuiInboundFrameSchema = z.union([
     requestId: z.string().trim().min(1),
     message: z.string(),
   }),
-  z.object({ type: z.literal("execution_routes_refreshed"), requestId: z.string().trim().min(1), executionRouteCatalog: ExecutionRouteCatalogSchema, availableModels: AvailableModelCatalogSchema }),
-  z.object({ type: z.literal("execution_routes_refresh_failed"), requestId: z.string().trim().min(1), message: z.string().trim().min(1) }),
+  z.object({ type: z.literal("model_catalog_refreshed"), requestId: z.string().trim().min(1), modelCatalog: ModelCatalogSchema }),
+  z.object({ type: z.literal("model_catalog_refresh_failed"), requestId: z.string().trim().min(1), message: z.string().trim().min(1) }),
   ExecutionTargetWizardResultSchema,
-  z.object({ type: z.literal("execution_route_changed"), routeId: z.string().trim().min(1), requestId: z.string().trim().min(1), providerId: z.string().optional(), providerModelId: z.string().optional() }),
-  z.object({ type: z.literal("execution_route_change_failed"), routeId: z.string().trim().min(1), requestId: z.string().trim().min(1), reasonCode: ExecutionRouteReasonCodeSchema, reason: z.string(), repairActions: z.array(ExecutionRouteRepairActionSchema) }),
+  z.object({ type: z.literal("execution_target_changed"), targetId: z.string().trim().min(1), requestId: z.string().trim().min(1), providerId: z.string().optional(), providerModelId: z.string().optional() }),
+  z.object({ type: z.literal("execution_target_change_failed"), targetId: z.string().trim().min(1), requestId: z.string().trim().min(1), reasonCode: ExecutionTargetReasonCodeSchema, reason: z.string(), repairActions: z.array(ExecutionTargetRepairActionSchema) }),
   z.object({
     type: z.literal("continuation_selected"),
     sessionId: z.string().trim().min(1),
@@ -803,7 +799,7 @@ export class GuiWsClient {
 
     if (this._state === "open" && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame));
-    } else if (frame.type === "execution_route") {
+    } else if (frame.type === "execution_target") {
       throw new Error("Cannot select execution target while WebSocket is not open");
     } else if (frame.type === "provider_auth") {
       throw new Error("Cannot send provider authentication while WebSocket is not open");

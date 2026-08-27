@@ -82,8 +82,7 @@ describe("ExecutionTargetWizardResultSchema", () => {
 
   it("requires correlated honest terminal outcomes", () => {
     const catalogs = {
-      executionRouteCatalog: { routes: [], revision },
-      availableModels: { observedAt: "2026-08-13T18:00:00.000Z", entries: [] },
+      modelCatalog: { observedAt: "2026-08-13T18:00:00.000Z", revision, models: [] },
     };
     expect(ExecutionTargetWizardResultSchema.parse({
       type: "execution_target_wizard_result",
@@ -129,15 +128,16 @@ function proposal(overrides: Record<string, unknown> = {}) {
     approvalStatus: "required",
     activation: "next-session",
     owners: ["execution-routing", "execution-target-evidence"],
-    reconciliationTargets: ["execution-routes"],
+    reconciliationTargets: ["execution-targets"],
     diagnostics: [],
     rollback: { restorable: true, summary: "The previous configuration can be restored." },
     target: {
-      routeId: "route",
+      targetId: "target",
       label: "Route",
       providerId: "provider",
       providerModelId: "model",
-      accountSelectionMode: "automatic",
+      accountPolicyId: "policy",
+      eligibleAccountCount: 1,
       dataClassification: "public",
       billingClass: "subscription",
       capabilityPosture: "kiln-executable",

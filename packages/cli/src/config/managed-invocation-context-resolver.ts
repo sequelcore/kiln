@@ -10,7 +10,7 @@ import { readGlobalConfig } from "./global-config.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import { readKilnYamlFile } from "../kiln-yaml.js";
 import type { KilnModelTaskSuitabilityOverride, KilnProjectConfig, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
-import { inferRouteTask } from "./execution-route-resolver.js";
+import { inferTargetTask } from "./execution-target-resolver.js";
 import { resolveTaskSkillSelection } from "./task-skill-selection.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
@@ -86,7 +86,7 @@ export function createManagedInvocationContextResolver(
       userHome,
       skillConfig: config.skillConfig,
       selection: config.skillConfig?.selection,
-      task: inferRouteTask({
+      task: inferTargetTask({
         text: input.task,
         agentTaskAffinity,
       }),

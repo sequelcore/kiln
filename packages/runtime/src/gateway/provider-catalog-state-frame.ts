@@ -1,16 +1,22 @@
 import type {
-  ExecutionRouteCatalog,
   GuiProviderCatalogStateFrame,
   GuiProviderDiscoveryResult,
 } from "@kilnai/gateway-contracts";
-import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
+import { projectModelCatalog, type ConfiguredModelTarget } from "./model-catalog-projector.js";
+import {
+  loadModelsDevMetadata,
+  type ModelsDevMetadataLoadResult,
+} from "./models-dev-metadata-source.js";
 import { projectGuiOperatorModels, projectGuiProviderModelDiscovery } from "./gui-provider-models.js";
 import type { ProviderCatalogSnapshot } from "./provider-catalog-service.js";
 
+type MetadataLoader = () => Promise<ModelsDevMetadataLoadResult>;
+
 export async function projectProviderCatalogStateFrame(
   snapshot: ProviderCatalogSnapshot<readonly GuiProviderDiscoveryResult[]>,
-  getExecutionRouteCatalog: () => Promise<ExecutionRouteCatalog>,
-  currentExecutionRouteCatalog?: ExecutionRouteCatalog,
+  getConfiguredTargets: () => Promise<readonly ConfiguredModelTarget[]>,
+  currentConfiguredTargets?: readonly ConfiguredModelTarget[],
+  loadMetadata: MetadataLoader = loadModelsDevMetadata,
 ): Promise<GuiProviderCatalogStateFrame> {
   if (snapshot.status === "pending" || snapshot.status === "refreshing") {
     return { type: "provider_catalog_state", status: snapshot.status };
@@ -23,18 +29,19 @@ export async function projectProviderCatalogStateFrame(
     };
   }
 
-  const executionRouteCatalog = currentExecutionRouteCatalog ?? await getExecutionRouteCatalog();
+  const configuredTargets = currentConfiguredTargets ?? await getConfiguredTargets();
   const providerModelDiscovery = projectGuiProviderModelDiscovery(snapshot.discovery);
+  const metadata = await loadMetadata();
   return {
     type: "provider_catalog_state",
     status: "ready",
     models: projectGuiOperatorModels(snapshot.discovery),
     providerDiscovery: snapshot.discovery,
     providerModelDiscovery,
-    executionRouteCatalog,
-    availableModels: projectAvailableModelCatalogForExecutionRoutes({
+    modelCatalog: projectModelCatalog({
       discovery: providerModelDiscovery,
-      executionRouteCatalog,
+      configuredTargets,
+      ...(metadata.status === "available" ? { metadata: metadata.records } : {}),
     }),
   };
 }

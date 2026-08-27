@@ -4,18 +4,18 @@
  * and an opt-in console log; no store dependency.
  */
 
-let executionRouteSelectionRequestOrdinal = 0;
-let executionRouteRefreshRequestOrdinal = 0;
+let executionTargetSelectionRequestOrdinal = 0;
+let modelCatalogRefreshRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
 
-export function nextExecutionRouteSelectionRequestId(): string {
-  executionRouteSelectionRequestOrdinal += 1;
-  return `execution-route-selection:${Date.now()}:${executionRouteSelectionRequestOrdinal}`;
+export function nextExecutionTargetSelectionRequestId(): string {
+  executionTargetSelectionRequestOrdinal += 1;
+  return `execution-target-selection:${Date.now()}:${executionTargetSelectionRequestOrdinal}`;
 }
 
-export function nextExecutionRouteRefreshRequestId(): string {
-  executionRouteRefreshRequestOrdinal += 1;
-  return `execution-route-refresh:${Date.now()}:${executionRouteRefreshRequestOrdinal}`;
+export function nextModelCatalogRefreshRequestId(): string {
+  modelCatalogRefreshRequestOrdinal += 1;
+  return `model-catalog-refresh:${Date.now()}:${modelCatalogRefreshRequestOrdinal}`;
 }
 
 export function nextProviderAuthRequestId(): string {

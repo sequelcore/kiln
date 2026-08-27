@@ -85,7 +85,7 @@ export {
   readExecutionBinding,
   readExecutionConfigurationRevision,
   readExecutionOperatorAdoptionDecision,
-  readExecutionRoute,
+  readExecutionTarget,
   readExecutionToolAllowlist,
   readExecutionToolAuthority,
   readExecutionTurnAuthority,

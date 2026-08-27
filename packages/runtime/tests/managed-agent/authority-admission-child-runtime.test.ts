@@ -194,11 +194,11 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId: "openai:foundation-readonly-plan",
+        target: {
+          targetId: "openai:foundation-readonly-plan",
           providerId: "openai",
           providerModelId: "gpt-test",
-          accountSelection: { mode: "exact", accountId: "authority-test-account", source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "authority-test-account" },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {

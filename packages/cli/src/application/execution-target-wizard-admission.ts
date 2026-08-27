@@ -3,16 +3,15 @@ import {
   resolveDirectProviderExecutionProfile,
   defineExecutionDataClassification,
   type ExecutionAccount,
-  type ExecutionCatalogInput,
+  type ExecutionTargetCatalogInput,
   type ExecutionDataClassification,
-  type ExecutionRouteAccountSelection,
-  type ExecutionRouteEconomicsConfig,
+  type ExecutionTargetEconomicsConfig,
   type DiscoveredDirectProviderModelCapabilities,
 } from "@kilnai/core";
 import {
   ExecutionTargetWizardProposalSchema,
-  type AvailableModelCatalog,
-  type AvailableModelCatalogEntry,
+  type ModelCatalog,
+  type ModelCatalogEntry,
   type ExecutionTargetWizardProposal,
   type ExecutionTargetWizardRequest,
 } from "@kilnai/gateway-contracts";
@@ -21,12 +20,12 @@ import type {
   ExecutionTargetEvidenceSnapshot,
 } from "../config/execution-target-evidence-store.js";
 import {
-  completeExecutionRouteDraft,
-  startExecutionRouteDraft,
-  type CompleteExecutionRouteDraft,
-  type ExecutionRouteDraftDiscoveryEvidence,
-  type ExecutionRouteDraftMaterial,
-} from "./execution-route-draft.js";
+  completeExecutionTargetDraft,
+  startExecutionTargetDraft,
+  type CompleteExecutionTargetDraft,
+  type ExecutionTargetDraftDiscoveryEvidence,
+  type ExecutionTargetDraftMaterial,
+} from "./execution-target-draft.js";
 
 export type TargetWizardRejectionCode =
   | "TARGET_DISCOVERY_STALE"
@@ -59,7 +58,7 @@ export class ExecutionTargetWizardAdmissionError extends Error {
 }
 
 export interface ExecutionTargetWizardDiscoveryEvidence {
-  readonly entry: AvailableModelCatalogEntry;
+  readonly entry: ModelCatalogEntry;
   readonly catalogObservedAt: string;
   readonly sourceObservedAt: string;
   readonly expiresAt: string;
@@ -81,8 +80,8 @@ export interface ExecutionTargetWizardDiscoveryEvidence {
 }
 
 export interface ExecutionTargetWizardCurrentEvidence {
-  readonly catalog: AvailableModelCatalog;
-  readonly executionCatalog: ExecutionCatalogInput;
+  readonly catalog: ModelCatalog;
+  readonly executionCatalog: ExecutionTargetCatalogInput;
   readonly targetIntent: ExecutionTargetCatalogIntent;
   readonly targetEvidence: ExecutionTargetEvidenceSnapshot;
   readonly revision: string;
@@ -98,8 +97,8 @@ export interface ExecutionTargetWizardAdmissionInput {
 
 export interface AdmittedExecutionTargetWizardRequest {
   readonly proposal: ExecutionTargetWizardProposal;
-  readonly draft: CompleteExecutionRouteDraft;
-  readonly entry: AvailableModelCatalogEntry;
+  readonly draft: CompleteExecutionTargetDraft;
+  readonly entry: ModelCatalogEntry;
   readonly current: ExecutionTargetWizardCurrentEvidence;
 }
 
@@ -120,16 +119,16 @@ export function admitExecutionTargetWizardRequest(
   if (currentEvidence.materialRevision !== admittedEvidence.materialRevision) {
     throw reject("TARGET_DISCOVERY_STALE", "refresh-and-retry", "Current discovery evidence changed; refresh and preview again.");
   }
-  const exact = current.catalog.entries.find((candidate) => sameIdentity(candidate, request.discoveryIdentity));
+  const exact = current.catalog.models.find((candidate) => sameIdentity(candidate, request.discoveryIdentity));
   if (!exact
-    || exact.discoveryState !== currentEvidence.entry.discoveryState
-    || exact.eligibilityState !== currentEvidence.entry.eligibilityState) {
+    || exact.discovery !== currentEvidence.entry.discovery
+    || exact.eligibility !== currentEvidence.entry.eligibility) {
     throw reject("TARGET_DISCOVERY_STALE", "refresh-and-retry", "Current discovery and Available Models evidence no longer agree.");
   }
   if (current.catalog.observedAt !== currentEvidence.catalogObservedAt) {
     throw reject("TARGET_DISCOVERY_STALE", "refresh-and-retry", "Current discovery observation changed; refresh and preview again.");
   }
-  if (exact.discoveryState !== "observed" || exact.eligibilityState !== "eligible") {
+  if (exact.discovery !== "observed" || exact.eligibility !== "eligible") {
     throw reject("TARGET_DISCOVERY_STALE", "refresh-and-retry", "The selected model discovery is stale or not eligible.");
   }
   if (!isFuture(currentEvidence.expiresAt, input.now ?? new Date())) {
@@ -139,8 +138,8 @@ export function admitExecutionTargetWizardRequest(
     throw reject("TARGET_DATA_POLICY_UNAVAILABLE", "review-data-policy", "Operator confirmation of the data policy is required.");
   }
 
-  const draftStart = startExecutionRouteDraft(exact);
-  const routeId = createCollisionSafeRouteId(request, current.executionCatalog);
+  const draftStart = startExecutionTargetDraft(exact);
+  const targetId = createCollisionSafeRouteId(request, current.executionCatalog);
   const label = request.label?.trim() || `${request.discoveryIdentity.providerId}/${request.discoveryIdentity.providerModelId}`;
   const account = resolveAccountSelection(current.executionCatalog, request.discoveryIdentity.providerId);
   const profile = resolveDirectProviderExecutionProfile({
@@ -164,23 +163,23 @@ export function admitExecutionTargetWizardRequest(
     classification: request.dataClassification,
     evidenceContext,
   });
-  const material: ExecutionRouteDraftMaterial = {
-    routeId,
+  const material: ExecutionTargetDraftMaterial = {
+    targetId,
     label,
-    accountSelection: account.selection,
+    accountPolicyId: account.accountPolicyId,
     dataClassification: defineExecutionDataClassification(request.dataClassification),
     dataPolicyEvidence,
     economics,
   };
-  const discoveryEvidence: ExecutionRouteDraftDiscoveryEvidence = {
+  const discoveryEvidence: ExecutionTargetDraftDiscoveryEvidence = {
     evidenceIdentity: currentEvidence.evidenceIdentity,
     evidenceRevision: currentEvidence.evidenceRevision,
     observedAt: currentEvidence.sourceObservedAt,
     expiresAt: currentEvidence.expiresAt,
   };
-  let draft: CompleteExecutionRouteDraft;
+  let draft: CompleteExecutionTargetDraft;
   try {
-    draft = completeExecutionRouteDraft({
+    draft = completeExecutionTargetDraft({
       draft: draftStart,
       material,
       discoveryEvidence,
@@ -195,6 +194,7 @@ export function admitExecutionTargetWizardRequest(
     discoveryExpiresAt: currentEvidence.expiresAt,
     evidenceExpiresAt: dataPolicyEvidence.expiresAt,
     billingClass: account.billingClass,
+    eligibleAccountCount: account.accounts.length,
     capabilityPosture: profile.executionMode,
     discoveryMaterialRevision: currentEvidence.materialRevision,
   });
@@ -203,19 +203,21 @@ export function admitExecutionTargetWizardRequest(
 
 function createProposal(input: {
   readonly request: ExecutionTargetWizardRequest;
-  readonly draft: CompleteExecutionRouteDraft;
+  readonly draft: CompleteExecutionTargetDraft;
   readonly discoveryExpiresAt: string;
   readonly evidenceExpiresAt: string;
   readonly billingClass: ExecutionTargetWizardProposal["target"]["billingClass"];
+  readonly eligibleAccountCount: number;
   readonly capabilityPosture: ExecutionTargetWizardProposal["target"]["capabilityPosture"];
   readonly discoveryMaterialRevision: `sha256:${string}`;
 }): ExecutionTargetWizardProposal {
   const target = {
-    routeId: input.draft.intent.id,
+    targetId: input.draft.intent.id,
     label: input.draft.intent.label,
     providerId: input.draft.intent.providerId,
     providerModelId: input.draft.intent.providerModelId,
-    accountSelectionMode: input.draft.intent.accountSelection.mode,
+    accountPolicyId: input.draft.intent.accountPolicyId,
+    eligibleAccountCount: input.eligibleAccountCount,
     dataClassification: input.draft.intent.dataClassification,
     billingClass: input.billingClass,
     capabilityPosture: input.capabilityPosture,
@@ -233,8 +235,8 @@ function createProposal(input: {
     intent: input.draft.intent,
     target,
     discoveryMaterialRevision: input.discoveryMaterialRevision,
-    dataPolicy: dataPolicyApprovalMaterial(input.draft.route.dataPolicyEvidence),
-    economics: economicsApprovalMaterial(input.draft.route.economics),
+    dataPolicy: dataPolicyApprovalMaterial(input.draft.target.dataPolicyEvidence),
+    economics: economicsApprovalMaterial(input.draft.target.economics),
   }).slice("sha256:".length, 30)}`;
   return ExecutionTargetWizardProposalSchema.parse({
     proposalId,
@@ -247,7 +249,7 @@ function createProposal(input: {
     approvalStatus: input.request.action === "apply" ? "approved" : "required",
     activation: "next-session",
     owners: ["execution-routing", "execution-target-evidence"],
-    reconciliationTargets: ["execution-routes"],
+    reconciliationTargets: ["execution-targets"],
     diagnostics: [],
     rollback: { restorable: true, summary: "The target mutation can be restored by the governed mutation authority." },
     target,
@@ -255,7 +257,7 @@ function createProposal(input: {
 }
 
 function dataPolicyApprovalMaterial(
-  evidence: ExecutionRouteDraftMaterial["dataPolicyEvidence"],
+  evidence: ExecutionTargetDraftMaterial["dataPolicyEvidence"],
 ): Omit<typeof evidence, "sourceIdentity" | "sourceRevision" | "sourceDigest" | "observedAt" | "expiresAt"> {
   const {
     sourceIdentity: _sourceIdentity,
@@ -268,13 +270,13 @@ function dataPolicyApprovalMaterial(
   return material;
 }
 
-function economicsApprovalMaterial(economics: ExecutionRouteEconomicsConfig): unknown {
+function economicsApprovalMaterial(economics: ExecutionTargetEconomicsConfig): unknown {
   const { evidence: _sourceEvidence, ...priceEvidence } = economics.priceEvidence;
   return { ...economics, priceEvidence };
 }
 
-function resolveAccountSelection(catalog: ExecutionCatalogInput, providerId: string): {
-  readonly selection: ExecutionRouteAccountSelection;
+function resolveAccountSelection(catalog: ExecutionTargetCatalogInput, providerId: string): {
+  readonly accountPolicyId: string;
   readonly accounts: readonly ExecutionAccount[];
   readonly billingClass: ExecutionTargetWizardProposal["target"]["billingClass"];
 } {
@@ -288,20 +290,12 @@ function resolveAccountSelection(catalog: ExecutionCatalogInput, providerId: str
     const policy = policies[0]!;
     const selectedAccounts = policy.accountIds.map((id) => accountById.get(id)).filter((account): account is ExecutionAccount => account !== undefined);
     return {
-      selection: { mode: "automatic", accountPolicyId: policy.id },
+      accountPolicyId: policy.id,
       accounts: selectedAccounts,
       billingClass: consistentBillingClass(selectedAccounts),
     };
   }
-  if (policies.length > 1 || accounts.length !== 1) {
-    throw reject("TARGET_ACCOUNT_UNAVAILABLE", "configure-account", "Exactly one same-provider account policy or account is required.");
-  }
-  const account = accounts[0]!;
-  return {
-    selection: { mode: "exact", accountId: account.id },
-    accounts: [account],
-    billingClass: billingClassOf(account),
-  };
+  throw reject("TARGET_ACCOUNT_UNAVAILABLE", "configure-account", "Exactly one same-provider account policy is required.");
 }
 
 function consistentBillingClass(accounts: readonly ExecutionAccount[]): ExecutionTargetWizardProposal["target"]["billingClass"] {
@@ -349,7 +343,7 @@ function createEconomics(input: {
   readonly profile: NonNullable<ReturnType<typeof resolveDirectProviderExecutionProfile>>;
   readonly accounts: readonly ExecutionAccount[];
   readonly evidenceContext: EvidenceContext;
-}): ExecutionRouteEconomicsConfig {
+}): ExecutionTargetEconomicsConfig {
   const account = input.accounts[0];
   if (!account) throw reject("TARGET_ECONOMICS_UNAVAILABLE", "review-economics", "No configured account economics are available.");
   const billingClass = billingClassOf(account);
@@ -420,12 +414,12 @@ function createEvidenceContext(
   };
 }
 
-function createCollisionSafeRouteId(request: ExecutionTargetWizardRequest, catalog: ExecutionCatalogInput): string {
+function createCollisionSafeRouteId(request: ExecutionTargetWizardRequest, catalog: ExecutionTargetCatalogInput): string {
   const base = `target-${slug(request.discoveryIdentity.providerId)}-${slug(request.discoveryIdentity.providerModelId)}-${sha256({
     identity: request.discoveryIdentity,
     expectedRevision: request.expectedRevision,
   }).slice(7, 17)}`;
-  const used = new Set(catalog.routes.map((route) => route.id));
+  const used = new Set(catalog.targets.map((target) => target.id));
   if (!used.has(base)) return base;
   for (let index = 2; index < 10_000; index += 1) {
     const candidate = `${base}-${index}`;
@@ -434,7 +428,7 @@ function createCollisionSafeRouteId(request: ExecutionTargetWizardRequest, catal
   throw reject("TARGET_CREATE_REJECTED", "refresh-and-retry", "Unable to derive a collision-safe target identity.");
 }
 
-function sameIdentity(left: AvailableModelCatalogEntry, right: AvailableModelCatalogEntry | ExecutionTargetWizardRequest["discoveryIdentity"]): boolean {
+function sameIdentity(left: ModelCatalogEntry, right: ModelCatalogEntry | ExecutionTargetWizardRequest["discoveryIdentity"]): boolean {
   return left.providerId === right.providerId
     && left.providerRouteId === right.providerRouteId
     && left.providerModelId === right.providerModelId;

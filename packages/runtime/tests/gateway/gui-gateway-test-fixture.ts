@@ -23,8 +23,8 @@ import type {
   OperatorGuiSessionTransportOptions,
 } from "../../src/gateway/operator-gateway.js";
 import type {
-  OperatorExecutionRouteSelectionPort,
-} from "../../src/gateway/operator-execution-route-selection.js";
+  OperatorExecutionTargetSelectionPort,
+} from "../../src/gateway/operator-execution-target-selection.js";
 import {
   afterEach,
   type Mock,
@@ -146,26 +146,27 @@ const guiTestRouting = vi.hoisted(() => ({
       },
     } as unknown as import("../../src/execution-kernel/runtime-media-action-claim.js").RuntimeMediaActionClaimContext;
     const admission = {
-      routeId: "test-route",
+      targetId: "test-route",
       providerId: providerId?.trim() || "claude",
       providerModelId: providerModelId?.trim() || "claude-sonnet-4-6",
     };
-    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
-      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
-        routes: [{
-          routeId: admission.routeId,
+    const executionTargetSelection: OperatorExecutionTargetSelectionPort = {
+      getTargets: vi.fn<OperatorExecutionTargetSelectionPort["getTargets"]>(async () => ([{
+          targetId: admission.targetId,
           label: "Test route",
           providerId: admission.providerId,
           providerModelId: admission.providerModelId,
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
+          access: "api",
           availability: "available",
           reasonCodes: [],
           repairActions: [],
-        }],
-      })),
-      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async (intent) => ({
+          eligibleAccountCount: 1,
+          accountOverrideIds: [],
+          cost: { kind: "unknown" },
+        }])),
+      admit: vi.fn<OperatorExecutionTargetSelectionPort["admit"]>(async (intent) => ({
         ok: true,
-        admission: { ...admission, routeId: intent.routeId },
+        admission: { ...admission, targetId: intent.targetId },
       })),
     };
     const bridge = {
@@ -188,18 +189,18 @@ const guiTestRouting = vi.hoisted(() => ({
       dispatchTurn: vi.fn(async (request: {
         readonly executionId: string;
         readonly intentFingerprint: string;
-        readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
+        readonly intent: { readonly targetId: string; readonly accountOverrideId?: string };
         readonly payload: unknown;
       }) => {
         const accountId = request.intent.accountOverrideId ?? "test-account";
-        const selectedAdmission = { ...admission, routeId: request.intent.routeId };
+        const selectedAdmission = { ...admission, targetId: request.intent.targetId };
         const budget = await authorityHandler.preflight({ request });
         const binding = {
-          status: "bound" as const, routeId: request.intent.routeId, accountId,
+          status: "bound" as const, routeId: request.intent.targetId, accountId,
           credentialId: "test-credential", credentialRevision: "sha256:test-revision",
         };
         const snapshot = {
-          catalog: { routes: [{ id: selectedAdmission.routeId, providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId }] },
+          catalog: { targets: [{ id: selectedAdmission.targetId, label: "Test target", providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId, accountPolicyId: "test-policy", dataClassification: "public", dataPolicyEvidence: { source: "gui-test", observedAt: "2026-08-22T18:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", classification: "public" }, economics: {} }] },
           configurationRevision: { revisionSetId: "R1", revisions: { execution: "R1" } },
         };
         const dataPolicy = { decision: { status: "admitted" as const, freshness: "current" as const, reason: "test policy" } };
@@ -209,7 +210,7 @@ const guiTestRouting = vi.hoisted(() => ({
           sessionId: facets.sessionId, turnId: facets.turnId, admittedAt: "2026-08-22T18:00:00.000Z",
           configuration: { sessionRevision: facets.sessionRevision, turnRevision: snapshot.configurationRevision },
           session: facets.session,
-          turn: { ...facets.turn, budget, execution: { status: "routed", route: selectedAdmission, dataPolicy, binding } },
+          turn: { ...facets.turn, budget, execution: { status: "routed", target: { ...selectedAdmission, accountSelection: { kind: "operator-override", accountPolicyId: "test-policy", accountId } }, dataPolicy, binding } },
         });
         await authorityHandler.persist(authorityAdmission);
         let result: unknown;
@@ -233,7 +234,7 @@ const guiTestRouting = vi.hoisted(() => ({
           accountId,
           leaseId: "test-lease",
           evidence: {
-            routeId: request.intent.routeId,
+            routeId: request.intent.targetId,
             accountId,
             credentialId: "test-credential",
             credentialRevision: "sha256:test-revision",
@@ -267,7 +268,7 @@ const guiTestRouting = vi.hoisted(() => ({
       runtimeModelRoundActionClaims,
       runtimeToolActionClaims,
       runtimeMediaActionClaims,
-      executionRouteSelection,
+      executionTargetSelection,
     };
   },
 }));
@@ -322,7 +323,7 @@ vi.mock("../../src/gateway/gui-gateway.js", async (importOriginal) => {
       );
       return actual.startGuiGateway({
         ...input,
-        executionRouteSelection: input.executionRouteSelection ?? routing.executionRouteSelection as never,
+        executionTargetSelection: input.executionTargetSelection ?? routing.executionTargetSelection as never,
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           ...input.operatorTransport,
@@ -400,13 +401,13 @@ async function waitForCondition(condition: () => boolean, message: string): Prom
   throw new Error(message);
 }
 
-async function selectGuiTestExecutionRoute(
+async function selectGuiTestExecutionTarget(
   handlers: { readonly onMessage?: (event: MessageEvent, ws: never) => Promise<void> | void },
   wsCtx: unknown,
 ): Promise<void> {
   await handlers.onMessage?.(
     new MessageEvent("message", {
-      data: JSON.stringify({ type: "execution_route", routeId: "test-route", requestId: "test-route-selection" }),
+      data: JSON.stringify({ type: "execution_target", targetId: "test-route", requestId: "test-target-selection" }),
     }),
     wsCtx as never,
   );
@@ -451,6 +452,6 @@ export {
   createGuiDist,
   flushAsyncWork,
   waitForCondition,
-  selectGuiTestExecutionRoute,
+  selectGuiTestExecutionTarget,
   makeGuiOperatorDiscoveryFromModels,
 };

@@ -3,7 +3,7 @@ import { readStoredPlanMode } from "./session-store-persistence.js";
 import { createConnectionLifecycleSlice } from "./connection-lifecycle-slice.js";
 import { createSessionListSlice } from "./session-list-slice.js";
 import { createTurnStreamingSlice } from "./turn-streaming-slice.js";
-import { createExecutionRouteLifecycleSlice } from "./execution-route-lifecycle-slice.js";
+import { createExecutionTargetLifecycleSlice } from "./execution-target-lifecycle-slice.js";
 import { createInteractiveUseSlice } from "./interactive-use-slice.js";
 import { createVoiceSlice } from "./voice-slice.js";
 import { createApprovalGoalSlice } from "./approval-goal-slice.js";
@@ -34,10 +34,9 @@ const initialState: SessionStoreState = {
   providers: [],
   providerDiscovery: [],
   providerModelDiscovery: null,
-  availableModels: null,
-  executionRouteCatalog: { routes: [] },
+  modelCatalog: { observedAt: new Date(0).toISOString(), models: [] },
   executionTargetWizardResult: null,
-  activeRouteId: null,
+  activeTargetId: null,
   activeAccountOverrideId: null,
   sessionList: [],
   selectedSessionId: null,
@@ -61,9 +60,9 @@ const initialState: SessionStoreState = {
   goalControlFailure: null,
   approvalResponseFailure: null,
   approvalResponsesPending: [],
-  executionRouteSelecting: false,
-  executionRouteSelectionTarget: null,
-  executionRouteRefresh: { state: "idle" },
+  executionTargetSelecting: false,
+  executionTargetSelectionTarget: null,
+  modelCatalogRefresh: { state: "idle" },
   providerAuthenticating: false,
   providerAuthTarget: null,
   providerAuthMessage: null,
@@ -75,8 +74,8 @@ const initialState: SessionStoreState = {
   browserLiveViewportFrame: null,
   outboundSend: null,
   clearTimeoutId: null,
-  executionRouteSelectionTimeoutId: null,
-  executionRouteRefreshTimeoutId: null,
+  executionTargetSelectionTimeoutId: null,
+  modelCatalogRefreshTimeoutId: null,
   providerAuthTimeoutId: null,
   activityPhase: "idle",
 };
@@ -86,7 +85,7 @@ export const useSessionStore = create<SessionStore>()((...api) => ({
   ...createConnectionLifecycleSlice(...api),
   ...createSessionListSlice(...api),
   ...createTurnStreamingSlice(...api),
-  ...createExecutionRouteLifecycleSlice(...api),
+  ...createExecutionTargetLifecycleSlice(...api),
   ...createInteractiveUseSlice(...api),
   ...createVoiceSlice(...api),
   ...createApprovalGoalSlice(...api),

@@ -81,12 +81,12 @@ function commitGlobalConfigForTest(
   });
 }
 
-const V4_DIRECT_TARGET_INTENT_YAML =
-  "    - { id: codex-terra, kind: direct, label: Codex Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: codex-policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }";
-const V4_HARNESS_TARGET_INTENT_YAML =
+const V5_DIRECT_TARGET_INTENT_YAML =
+  "    - { id: codex-terra, kind: direct, label: Codex Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountPolicyId: codex-policy, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }";
+const V5_HARNESS_TARGET_INTENT_YAML =
   "    - { id: claude-cli, kind: harness, label: Claude CLI, providerId: claude, providerModelId: claude-opus-4-6, dataClassification: internal }";
 
-function canonicalV4GlobalYaml(): string {
+function canonicalV5GlobalYaml(): string {
   return [
     'version: "5"',
     "targetCatalog:",
@@ -94,8 +94,8 @@ function canonicalV4GlobalYaml(): string {
     "  accounts: [{ id: codex-account, providerId: codex-oauth, credentialId: codex-credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
     "  accountPolicies: [{ id: codex-policy, accountIds: [codex-account], strategy: economic-least-pressure }]",
     "  targets:",
-    V4_DIRECT_TARGET_INTENT_YAML,
-    V4_HARNESS_TARGET_INTENT_YAML,
+    V5_DIRECT_TARGET_INTENT_YAML,
+    V5_HARNESS_TARGET_INTENT_YAML,
     "authorityProfiles:",
     "  - { id: readonly-scout, admissionProfile: foundation-readonly-plan, workingDirectory: project }",
     "targetRouting: { defaultTargetId: codex-terra }",
@@ -180,7 +180,7 @@ describe("global-config", () => {
         "      providerId: codex-oauth",
         "      providerModelId: codex/gpt-5.6-terra",
         "      dataClassification: internal",
-        "      accountSelection: { mode: automatic, accountPolicyId: codex-automatic }",
+        "      accountPolicyId: codex-automatic",
         "      economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } }",
         "targetRouting:",
         "  defaultTargetId: terra",
@@ -221,10 +221,7 @@ describe("global-config", () => {
             providerId: "codex-oauth",
             providerModelId: "codex/gpt-5.6-terra",
             dataClassification: "internal",
-            accountSelection: {
-              mode: "automatic",
-              accountPolicyId: "codex-automatic",
-            },
+            accountPolicyId: "codex-automatic",
             economics: {
               authBillingChannel: "subscription",
               executionMode: "direct",
@@ -365,9 +362,9 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow(message);
   });
 
-  it("readGlobalConfig() accepts the V4 target-intent catalog and reusable authority profiles", () => {
+  it("readGlobalConfig() accepts the V5 target-intent catalog and reusable authority profiles", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(canonicalV4GlobalYaml());
+    readFileSyncMock.mockReturnValue(canonicalV5GlobalYaml());
 
     const config = readGlobalConfig();
 
@@ -446,12 +443,12 @@ describe("global-config", () => {
   it.each([
     [
       "default operator target",
-      canonicalV4GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: claude-cli"),
+      canonicalV5GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: claude-cli"),
       "targetRouting.defaultTargetId must reference a direct target",
     ],
     [
       "selected operator target",
-      canonicalV4GlobalYaml().replace(
+      canonicalV5GlobalYaml().replace(
         "targetSelection: { targetId: codex-terra",
         "targetSelection: { targetId: claude-cli",
       ),
@@ -466,15 +463,15 @@ describe("global-config", () => {
   it.each([
     [
       "target IDs",
-      canonicalV4GlobalYaml().replace(
-        V4_HARNESS_TARGET_INTENT_YAML,
-        `${V4_HARNESS_TARGET_INTENT_YAML}\n${V4_DIRECT_TARGET_INTENT_YAML}`,
+      canonicalV5GlobalYaml().replace(
+        V5_HARNESS_TARGET_INTENT_YAML,
+        `${V5_HARNESS_TARGET_INTENT_YAML}\n${V5_DIRECT_TARGET_INTENT_YAML}`,
       ),
       "targetCatalog.targets[2].id must be unique",
     ],
     [
       "authority profile IDs",
-      canonicalV4GlobalYaml().replace(
+      canonicalV5GlobalYaml().replace(
         "targetRouting: { defaultTargetId: codex-terra }",
         "  - { id: readonly-scout, admissionProfile: foundation-readonly-plan, workingDirectory: sandbox }\ntargetRouting: { defaultTargetId: codex-terra }",
       ),
@@ -490,7 +487,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects the replaced economic policy surface", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      canonicalV4GlobalYaml().replace("  intents:", "  economicPolicies: []\n  intents:"),
+      canonicalV5GlobalYaml().replace("  intents:", "  economicPolicies: []\n  intents:"),
     );
 
     expect(() => readGlobalConfig()).toThrow("Unknown managedAgents field: economicPolicies");
@@ -499,12 +496,12 @@ describe("global-config", () => {
   it.each([
     [
       "default target",
-      canonicalV4GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: missing-target"),
+      canonicalV5GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: missing-target"),
       "targetRouting.defaultTargetId references an unknown target",
     ],
     [
       "selected target",
-      canonicalV4GlobalYaml().replace(
+      canonicalV5GlobalYaml().replace(
         "targetSelection: { targetId: codex-terra",
         "targetSelection: { targetId: missing-target",
       ),
@@ -512,7 +509,7 @@ describe("global-config", () => {
     ],
     [
       "default authority profile",
-      canonicalV4GlobalYaml().replace(
+      canonicalV5GlobalYaml().replace(
         "defaultAuthorityProfileId: readonly-scout",
         "defaultAuthorityProfileId: missing-profile",
       ),
@@ -520,7 +517,7 @@ describe("global-config", () => {
     ],
     [
       "intent target",
-      canonicalV4GlobalYaml().replace("targetId: codex-terra }, model", "targetId: missing-target }, model"),
+      canonicalV5GlobalYaml().replace("targetId: codex-terra }, model", "targetId: missing-target }, model"),
       "managedAgents.intents[0].target.targetId references an unknown target",
     ],
   ])("readGlobalConfig() rejects an unknown %s reference", (_case, yaml, message) => {
@@ -553,7 +550,7 @@ describe("global-config", () => {
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: [{ id: work, providerId: codex-oauth, credentialId: work, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
         "  accountPolicies: [{ id: work-policy, accountIds: [work], strategy: economic-least-pressure }]",
-        "  targets: [{ id: terra, kind: direct, label: Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: work-policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
+        "  targets: [{ id: terra, kind: direct, label: Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountPolicyId: work-policy, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
         "targetRouting: { defaultTargetId: terra }",
         "ui:",
         "  appearance:",
@@ -1017,7 +1014,7 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow(message);
   });
 
-  it("readGlobalConfig() rejects invalid target catalog references and account selection", () => {
+  it("readGlobalConfig() rejects invalid target catalog references and account policies", () => {
     existsSyncMock.mockReturnValue(true);
     const valid = [
       'version: "5"',
@@ -1025,7 +1022,7 @@ describe("global-config", () => {
       `  evidenceRevision: sha256:${"a".repeat(64)}`,
       "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
       "  accountPolicies: [{ id: policy, accountIds: [account], strategy: economic-least-pressure }]",
-      "  targets: [{ id: route, kind: direct, label: Route, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
+      "  targets: [{ id: route, kind: direct, label: Route, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountPolicyId: policy, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
       "targetRouting: { defaultTargetId: route }",
     ].join("\n");
 
@@ -1035,7 +1032,7 @@ describe("global-config", () => {
     readFileSyncMock.mockReturnValue(
       valid.replaceAll("providerId: codex-oauth, providerModelId", "providerId: other-provider, providerModelId"),
     );
-    expect(() => readGlobalConfig()).toThrow("provider must match route providerId");
+    expect(() => readGlobalConfig()).toThrow("provider must match target providerId");
 
     readFileSyncMock.mockReturnValue(valid.replace("defaultTargetId: route", "defaultTargetId: missing"));
     expect(() => readGlobalConfig()).toThrow("targetRouting.defaultTargetId references an unknown target");
@@ -1799,10 +1796,7 @@ describe("global-config", () => {
               observedAt: "2026-01-01T00:00:00Z",
               expiresAt: "2027-01-01T00:00:00Z",
             },
-            accountSelection: {
-              mode: "automatic" as const,
-              accountPolicyId: "policy",
-            },
+            accountPolicyId: "policy",
             economics: {
               adapterCapabilityId: "adapter",
               adapterCapabilityVersion: "v1",

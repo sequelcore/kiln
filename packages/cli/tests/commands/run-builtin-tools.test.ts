@@ -85,11 +85,11 @@ function defineTestRoutedAdmission(input: {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId: input.routeId,
+        target: {
+          targetId: input.routeId,
           providerId: input.providerId,
           providerModelId: input.providerModelId,
-          accountSelection: { mode: "exact", accountId: input.accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "fixture-policy", accountId: input.accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {
@@ -188,13 +188,11 @@ const operatorCompositionMocks = vi.hoisted(() => {
           readonly id: string;
           readonly accountIds: readonly string[];
         }[];
-        readonly routes: readonly {
+        readonly targets: readonly {
           readonly id: string;
           readonly providerId: string;
           readonly providerModelId: string;
-          readonly accountSelection:
-            | { readonly mode: "automatic"; readonly accountPolicyId: string }
-            | { readonly mode: "exact"; readonly accountId: string };
+          readonly accountPolicyId: string;
         }[];
       };
     }) => {
@@ -216,40 +214,29 @@ const operatorCompositionMocks = vi.hoisted(() => {
         dispatcher: {
           dispatchTurn: vi.fn(
             async (request: {
-              readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
+              readonly intent: { readonly targetId: string; readonly accountOverrideId?: string };
               readonly payload: unknown;
             }) => {
               if (state.dispatchError) throw state.dispatchError;
-              const route = input.initialCatalog.routes.find((candidate) => candidate.id === request.intent.routeId);
-              if (!route) throw new Error("Unknown test execution target '" + request.intent.routeId + "'.");
-              const accountSelection = route.accountSelection;
-              const accountId =
-                request.intent.accountOverrideId ??
-                (accountSelection.mode === "exact"
-                  ? accountSelection.accountId
-                  : input.initialCatalog.accountPolicies.find(
-                      (policy) => policy.id === accountSelection.accountPolicyId,
-                    )?.accountIds[0]);
-              if (!accountId) throw new Error("No test account is available for route '" + route.id + "'.");
+              const target = input.initialCatalog.targets.find((candidate) => candidate.id === request.intent.targetId);
+              if (!target) throw new Error("Unknown test execution target '" + request.intent.targetId + "'.");
+              const policy = input.initialCatalog.accountPolicies.find((candidate) => candidate.id === target.accountPolicyId);
+              const accountId = request.intent.accountOverrideId ?? policy?.accountIds[0];
+              if (!accountId) throw new Error("No test account is available for target '" + target.id + "'.");
               const account = input.initialCatalog.accounts.find((candidate) => candidate.id === accountId);
               if (!account) throw new Error("Unknown test account '" + accountId + "'.");
               const admission = {
-                routeId: route.id,
-                providerId: route.providerId,
-                providerModelId: route.providerModelId,
-                accountSelection:
-                  route.accountSelection.mode === "exact"
-                    ? { mode: "exact" as const, accountId, source: "route" as const }
-                    : {
-                        mode: "automatic" as const,
-                        accountPolicyId: route.accountSelection.accountPolicyId,
-                        eligibleAccountIds: [accountId],
-                      },
+                targetId: target.id,
+                providerId: target.providerId,
+                providerModelId: target.providerModelId,
+                accountSelection: request.intent.accountOverrideId
+                  ? { kind: "operator-override" as const, accountPolicyId: target.accountPolicyId, accountId }
+                  : { kind: "policy" as const, accountPolicyId: target.accountPolicyId, eligibleAccountIds: [accountId] },
               };
               const authorityAdmission = defineTestRoutedAdmission({
-                routeId: route.id,
-                providerId: route.providerId,
-                providerModelId: route.providerModelId,
+                routeId: target.id,
+                providerId: target.providerId,
+                providerModelId: target.providerModelId,
                 accountId,
                 credentialId: account.credentialId,
                 credentialRevision: "sha256:test-revision",
@@ -259,7 +246,7 @@ const operatorCompositionMocks = vi.hoisted(() => {
                 admission,
                 binding: {
                   status: "bound",
-                  routeId: route.id,
+                  routeId: target.id,
                   accountId,
                   credentialId: account.credentialId,
                   credentialRevision: "sha256:test-revision",
@@ -277,7 +264,7 @@ const operatorCompositionMocks = vi.hoisted(() => {
                 accountId,
                 leaseId: "test-lease",
                 evidence: {
-                  routeId: route.id,
+                  routeId: target.id,
                   accountId,
                   credentialId: account.credentialId,
                   credentialRevision: "sha256:test-revision",
@@ -516,23 +503,23 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
-  readGlobalExecutionCatalog: vi.fn((config) =>
+  readGlobalExecutionTargetCatalog: vi.fn((config) =>
     config?.targetCatalog
       ? {
           accounts: config.targetCatalog.accounts,
           accountPolicies: config.targetCatalog.accountPolicies,
-          routes: config.targetCatalog.targets
+          targets: config.targetCatalog.targets
             .filter((target: { kind: string }) => target.kind === "direct")
             .map(({ kind: _kind, ...target }: { kind: string }) => target),
         }
       : undefined,
   ),
-  projectDirectExecutionCatalog: vi.fn((config) =>
+  projectDirectExecutionTargetCatalog: vi.fn((config) =>
     config?.targetCatalog
       ? {
           accounts: config.targetCatalog.accounts,
           accountPolicies: config.targetCatalog.accountPolicies,
-          routes: config.targetCatalog.targets
+          targets: config.targetCatalog.targets
             .filter((target: { kind: string }) => target.kind === "direct")
             .map(({ kind: _kind, ...target }: { kind: string }) => target),
         }

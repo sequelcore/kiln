@@ -2,10 +2,10 @@ import {
   admitOperatorExecutionIntent,
   createExecutionAccountPolicyId,
   selectAdmittedExecutionAccount,
-  type AdmittedExecutionRoute,
+  type AdmittedExecutionTarget,
   type ExecutionAccountAdmissionCandidate,
   type ExecutionAccountAdmissionRejectionReason,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ExecutionSessionBindingEvidence,
   type OperatorExecutionIntent,
 } from "@kilnai/core";
@@ -27,7 +27,7 @@ import {
   type EconomicCommitmentReference,
   type TurnBudgetAdmission,
 } from "../session/effective-authority-admission-bundle.js";
-import { evaluateExecutionTargetDataPolicy, type SanitizedExecutionRouteDataPolicyDecision } from "./execution-route-data-policy-authority.js";
+import { evaluateExecutionTargetDataPolicy, type SanitizedExecutionTargetDataPolicyDecision } from "./execution-target-data-policy-authority.js";
 
 /** Candidate evidence is prepared without resolving credential material or constructing a provider adapter. */
 export interface OperatorSessionExecutionCandidate {
@@ -37,9 +37,9 @@ export interface OperatorSessionExecutionCandidate {
 
 export interface OperatorSessionExecutionCandidatePort {
   resolve(input: {
-    readonly admission: AdmittedExecutionRoute;
+    readonly admission: AdmittedExecutionTarget;
     /** The exact catalog activated for this admission. */
-    readonly catalog: ExecutionCatalog;
+    readonly catalog: ExecutionTargetCatalog;
     /** Secret-free configuration evidence captured with the catalog. */
     readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   }): Promise<readonly OperatorSessionExecutionCandidate[]>;
@@ -48,12 +48,13 @@ export interface OperatorSessionExecutionCandidatePort {
 export interface OperatorSessionCredentialPort<Credential> {
   /** Called only after the durable account-capacity dispatch fence succeeds. */
   resolve(input: {
-    readonly routeId: string;
+    /** The admitted selection target being resolved before binding evidence is created. */
+    readonly targetId: string;
     readonly accountId: string;
     readonly credentialId: string;
     readonly lease: AccountCapacityRecord;
     /** The exact catalog and revision activated for this admission. */
-    readonly catalog: ExecutionCatalog;
+    readonly catalog: ExecutionTargetCatalog;
     readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   }): Promise<OperatorSessionResolvedCredential<Credential>>;
 }
@@ -70,8 +71,8 @@ export interface OperatorSessionResolvedCredential<Credential> {
  * Runtime owns the lifetime and prevents a second activation from interleaving
  * with the first execution's candidate, capacity, or credential admission.
  */
-export interface OperatorSessionExecutionCatalogSnapshot {
-  readonly catalog: ExecutionCatalog;
+export interface OperatorSessionExecutionTargetCatalogSnapshot {
+  readonly catalog: ExecutionTargetCatalog;
   readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
 }
 
@@ -80,9 +81,9 @@ export interface OperatorSessionExecutionCatalogSnapshot {
  * Implementations must return a Core-defined (immutable) catalog and may
  * switch their candidate/credential owner to the supplied exact snapshot.
  */
-export interface OperatorSessionExecutionCatalogSource {
-  capture(): OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
-  activate(snapshot: OperatorSessionExecutionCatalogSnapshot): void | Promise<void>;
+export interface OperatorSessionExecutionTargetCatalogSource {
+  capture(): OperatorSessionExecutionTargetCatalogSnapshot | Promise<OperatorSessionExecutionTargetCatalogSnapshot>;
+  activate(snapshot: OperatorSessionExecutionTargetCatalogSnapshot): void | Promise<void>;
 }
 
 /** Authority facets are supplied by the Runtime composition owner; execution identity is added only after fencing. */
@@ -102,10 +103,10 @@ export interface OperatorSessionAuthorityAdmissionPort<Payload = unknown> {
   }): TurnBudgetAdmission | Promise<TurnBudgetAdmission>;
   prepare(input: {
     readonly request: OperatorSessionExecutionRequest<Payload>;
-    readonly admission: AdmittedExecutionRoute;
-    readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+    readonly admission: AdmittedExecutionTarget;
+    readonly snapshot: OperatorSessionExecutionTargetCatalogSnapshot;
     readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
-    readonly dataPolicy: SanitizedExecutionRouteDataPolicyDecision;
+    readonly dataPolicy: SanitizedExecutionTargetDataPolicyDecision;
   }): OperatorSessionAuthorityAdmissionFacets | Promise<OperatorSessionAuthorityAdmissionFacets>;
   persist(bundle: EffectiveAuthorityAdmissionBundle): void | Promise<void>;
   /** Releases any pre-dispatch authority reservation after admission fails. */
@@ -113,7 +114,7 @@ export interface OperatorSessionAuthorityAdmissionPort<Payload = unknown> {
 }
 
 export interface OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result> {
-  readonly catalogSource: OperatorSessionExecutionCatalogSource;
+  readonly catalogSource: OperatorSessionExecutionTargetCatalogSource;
   readonly candidates: OperatorSessionExecutionCandidatePort;
   /** Must be a SqliteManagedAccountLeaseAuthority configured with participantKind: operator-session. */
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
@@ -139,7 +140,7 @@ export interface OperatorSessionCommittedExecution<Credential, Payload> {
   /** Routing reservation identity; distinct from the canonical Runtime turn when adoption owns that identity. */
   readonly executionId: string;
   readonly intentFingerprint: string;
-  readonly admission: AdmittedExecutionRoute;
+  readonly admission: AdmittedExecutionTarget;
   readonly accountId: string;
   readonly lease: AccountCapacityRecord;
   readonly credential: Credential;
@@ -163,14 +164,14 @@ export interface OperatorSessionExecutionRequest<Payload> {
 }
 
 export interface OperatorSessionExecutionResult<Result> {
-  readonly admission: AdmittedExecutionRoute;
+  readonly admission: AdmittedExecutionTarget;
   readonly accountId: string;
   readonly leaseId: string;
   readonly evidence: OperatorSessionCommittedExecutionEvidence;
   readonly result: Result;
 }
 
-/** Secret-free, route-based evidence intended for the common execution event stream. */
+/** Secret-free binding evidence intended for the common execution event stream. */
 export interface OperatorSessionCommittedExecutionEvidence {
   readonly routeId: string;
   readonly accountId: string;
@@ -230,9 +231,9 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
       releaseAdmission();
     };
 
-    let admission: AdmittedExecutionRoute;
-    let snapshot: OperatorSessionExecutionCatalogSnapshot;
-    let account: ExecutionCatalog["accounts"][number];
+    let admission: AdmittedExecutionTarget;
+    let snapshot: OperatorSessionExecutionTargetCatalogSnapshot;
+    let account: ExecutionTargetCatalog["accounts"][number];
     let fenceId: string;
     let fenced: AccountCapacityRecord;
     let budgetAdmission: TurnBudgetAdmission;
@@ -266,7 +267,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     let authorityAdmission: EffectiveAuthorityAdmissionBundle;
     try {
       const resolved = await this.#options.credentials.resolve({
-        routeId: admission.routeId,
+        targetId: admission.targetId,
         accountId: account.id,
         credentialId: account.credentialId,
         lease: fenced,
@@ -280,22 +281,22 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
 
       binding = Object.freeze({
         status: "bound" as const,
-        routeId: admission.routeId,
+        routeId: admission.targetId,
         accountId: account.id,
         credentialId: account.credentialId,
         credentialRevision: fenced.credentialRevisionId,
       });
-      const route = snapshot.catalog.routes.find(({ id }) => id === admission.routeId);
+      const target = snapshot.catalog.targets.find(({ id }) => id === admission.targetId);
       const dataPolicy = evaluateExecutionTargetDataPolicy({
-        routeId: admission.routeId,
+        targetId: admission.targetId,
         providerId: admission.providerId,
         providerModelId: admission.providerModelId,
-        requestedClassification: route?.dataClassification ?? "restricted",
-        evidence: route?.dataPolicyEvidence,
+        requestedClassification: target?.dataClassification ?? "restricted",
+        evidence: target?.dataPolicyEvidence,
         now: this.#now(),
       });
       if (dataPolicy.decision.status !== "admitted") {
-        throw new OperatorSessionExecutionRoutingError(`Execution route data policy denied execution: ${dataPolicy.decision.reason}.`);
+        throw new OperatorSessionExecutionRoutingError(`Execution target data policy denied execution: ${dataPolicy.decision.reason}.`);
       }
       const facets = await this.#options.authorityAdmission.prepare({ request, admission, snapshot, binding, dataPolicy });
       authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
@@ -316,7 +317,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
           budget: budgetAdmission,
           execution: {
             status: "routed",
-            route: admission,
+            target: admission,
             dataPolicy,
             binding,
             ...(facets.economicCommitment ? { economicCommitment: facets.economicCommitment } : {}),
@@ -345,7 +346,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
       throw new OperatorSessionExecutionRoutingError("Authority admission did not produce a routed execution.");
     }
     const committedBinding = authorityAdmission.turn.execution.binding;
-    const committedRoute = authorityAdmission.turn.execution.route;
+    const committedTarget = authorityAdmission.turn.execution.target;
     const committedConfigurationRevision = authorityAdmission.configuration.turnRevision;
     // Provider dispatch remains concurrent; only effective-config admission is
     // serialized through credential identity resolution and the dispatch fence.
@@ -356,7 +357,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         [operatorSessionCommitmentBrand]: operatorSessionCommitmentBrand,
         executionId: request.executionId,
         intentFingerprint: request.intentFingerprint,
-        admission: committedRoute,
+        admission: committedTarget,
         accountId: committedBinding.accountId,
         lease: fenced,
         credential,
@@ -371,11 +372,11 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         this.#settleUnknown(request.executionId, fenceId, "model-round-outcome-unknown");
         capacitySettled = true;
         return Object.freeze({
-          admission: committedRoute,
+          admission: committedTarget,
           accountId: committedBinding.accountId,
           leaseId: fenced.leaseId,
           evidence: Object.freeze({
-            routeId: committedRoute.routeId,
+            routeId: committedBinding.routeId,
             accountId: committedBinding.accountId,
             credentialId: committedBinding.credentialId,
             credentialRevision: committedBinding.credentialRevision,
@@ -394,11 +395,11 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
       );
       capacitySettled = true;
       return Object.freeze({
-        admission: committedRoute,
+        admission: committedTarget,
         accountId: committedBinding.accountId,
         leaseId: fenced.leaseId,
         evidence: Object.freeze({
-          routeId: committedRoute.routeId,
+          routeId: committedBinding.routeId,
           accountId: committedBinding.accountId,
           credentialId: committedBinding.credentialId,
           credentialRevision: committedBinding.credentialRevision,
@@ -452,10 +453,10 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
 
   #acquireSelectedCapacity(
     request: OperatorSessionExecutionRequest<Payload>,
-    admission: AdmittedExecutionRoute,
+    admission: AdmittedExecutionTarget,
     candidates: readonly OperatorSessionExecutionCandidate[],
-    catalog: ExecutionCatalog,
-  ): ExecutionCatalog["accounts"][number] {
+    catalog: ExecutionTargetCatalog,
+  ): ExecutionTargetCatalog["accounts"][number] {
     const excludedAccountIds = new Set<string>();
     while (true) {
       const selection = selectAdmittedExecutionAccount(
@@ -471,7 +472,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
             ? selection.rejected[0]!.reason
             : "multiple-account-rejections";
         throw new OperatorSessionExecutionRoutingError(
-          "No eligible account is available for the admitted operator route.",
+          "No eligible account is available for the admitted operator target.",
           routingFailureCode,
         );
       }
@@ -494,7 +495,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         throw new OperatorSessionExecutionRoutingError("The operator execution conflicts with a prior capacity intent.");
       }
       if (acquired.status === "unavailable") {
-        if (admission.accountSelection.mode === "exact") {
+        if (admission.accountSelection.kind === "operator-override") {
           throw new OperatorSessionExecutionRoutingError("The selected operator account has no available shared capacity.");
         }
         excludedAccountIds.add(selection.accountId);
@@ -532,7 +533,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     }
   }
 
-  async #captureAndNormalizeSnapshot(): Promise<OperatorSessionExecutionCatalogSnapshot> {
+  async #captureAndNormalizeSnapshot(): Promise<OperatorSessionExecutionTargetCatalogSnapshot> {
     const observed = await this.#options.catalogSource.capture();
     if (!observed || typeof observed !== "object" || !observed.catalog || !observed.configurationRevision) {
       throw new TypeError("The execution catalog source must return a catalog and configuration revision snapshot.");
@@ -544,13 +545,13 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     });
   }
 
-  #validateLeaseBinding(admission: AdmittedExecutionRoute, selected: OperatorSessionExecutionCandidate): void {
+  #validateLeaseBinding(admission: AdmittedExecutionTarget, selected: OperatorSessionExecutionCandidate): void {
     if (
       selected.lease.candidate.route.providerId !== admission.providerId
       || selected.lease.candidate.route.providerModelId !== admission.providerModelId
       || selected.lease.candidate.route.scope !== "operator-session"
     ) {
-      throw new OperatorSessionExecutionRoutingError("The selected account lease binding does not match the admitted operator route.");
+      throw new OperatorSessionExecutionRoutingError("The selected account lease binding does not match the admitted operator target.");
     }
     const expectedExecutionAccountRefPrefix = `configured:${selected.candidate.accountId}`;
     const accountRef = selected.lease.candidate.account;
@@ -593,12 +594,8 @@ export function createOperatorSessionAccountCapacityAuthority(
   return authority;
 }
 
-function accountPolicyId(admission: AdmittedExecutionRoute) {
-  return createExecutionAccountPolicyId(
-    admission.accountSelection.mode === "automatic"
-      ? admission.accountSelection.accountPolicyId
-      : `execution-route:${admission.routeId}`,
-  );
+function accountPolicyId(admission: AdmittedExecutionTarget) {
+  return createExecutionAccountPolicyId(admission.accountSelection.accountPolicyId);
 }
 
 function errorMessage(error: unknown): string {

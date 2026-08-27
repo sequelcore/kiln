@@ -1,27 +1,27 @@
 import {
   admitOperatorExecutionIntent,
-  type AdmittedExecutionRoute,
-  type ExecutionCatalog,
-  type ExecutionRoute,
+  type AdmittedExecutionTarget,
+  type DirectExecutionTarget,
+  type ExecutionTargetCatalog,
 } from "@kilnai/core";
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
 
 export interface ManagedDirectTargetAdmission {
   readonly target: Extract<ResolvedManagedTargetConfig, { readonly kind: "direct" }>;
-  readonly executionRoute: ExecutionRoute;
-  readonly admission: AdmittedExecutionRoute;
+  readonly executionTarget: DirectExecutionTarget;
+  readonly admission: AdmittedExecutionTarget;
 }
 
 export function admitManagedDirectTarget(
-  catalog: ExecutionCatalog | undefined,
+  catalog: ExecutionTargetCatalog | undefined,
   target: Extract<ResolvedManagedTargetConfig, { readonly kind: "direct" }>,
 ): ManagedDirectTargetAdmission {
   if (!catalog) throw new Error(`Managed direct target '${target.id}' requires the global target catalog.`);
-  const executionRoute = catalog.routes.find(({ id }) => id === target.id);
-  if (!executionRoute) throw new Error(`Managed direct target '${target.id}' is unavailable.`);
+  const executionTarget = catalog.targets.find(({ id }) => id === target.id);
+  if (!executionTarget) throw new Error(`Managed direct target '${target.id}' is unavailable.`);
   return {
     target,
-    executionRoute,
-    admission: admitOperatorExecutionIntent(catalog, { routeId: target.id }),
+    executionTarget,
+    admission: admitOperatorExecutionIntent(catalog, { targetId: target.id }),
   };
 }

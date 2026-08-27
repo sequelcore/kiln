@@ -6,7 +6,18 @@ import { AvailableModelsPanel } from "../src/components/available-models-panel.j
 const revision = `sha256:${"a".repeat(64)}`;
 const catalog = {
   observedAt: "2026-08-13T00:00:00.000Z",
-  entries: [{ providerId: "provider", providerRouteId: "provider:direct", providerModelId: "model", discoveryState: "observed", eligibilityState: "eligible", availabilityState: "available", configuredState: "unconfigured", configuredRouteRefs: [], reasonCodes: ["discovery-observed"] }],
+  models: [{
+    providerId: "provider",
+    providerRouteId: "provider:direct",
+    providerModelId: "model",
+    access: "api",
+    family: "model",
+    discovery: "observed",
+    eligibility: "eligible",
+    availability: "available",
+    provenance: [],
+    targets: [],
+  }],
 } as const;
 
 describe("AvailableModelsPanel", () => {
@@ -53,10 +64,10 @@ describe("AvailableModelsPanel", () => {
   });
 
   it("fails closed for stale or ineligible evidence while warning on unavailable eligible models", () => {
-    render(<AvailableModelsPanel catalog={{ ...catalog, entries: [
-      { ...catalog.entries[0], providerModelId: "stale", discoveryState: "stale" },
-      { ...catalog.entries[0], providerModelId: "ineligible", eligibilityState: "ineligible" },
-      { ...catalog.entries[0], providerModelId: "unavailable", availabilityState: "unavailable" },
+    render(<AvailableModelsPanel catalog={{ ...catalog, models: [
+      { ...catalog.models[0], providerModelId: "stale", discovery: "stale" },
+      { ...catalog.models[0], providerModelId: "ineligible", eligibility: "ineligible" },
+      { ...catalog.models[0], providerModelId: "unavailable", availability: "unavailable" },
     ] }} catalogRevision={revision} send={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Add target for provider / stale" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add target for provider / ineligible" })).toBeNull();
@@ -123,7 +134,7 @@ describe("AvailableModelsPanel", () => {
     const requestId = send.mock.calls[0]?.[0].requestId as string;
     view.rerender(<AvailableModelsPanel catalog={catalog} catalogRevision={revision} send={send} wizardResult={previewed(requestId)} />);
     fireEvent.click(screen.getByRole("button", { name: "Approve and create target" }));
-    view.rerender(<AvailableModelsPanel catalog={{ observedAt: catalog.observedAt, entries: [] }} catalogRevision={revision} send={send} wizardResult={created(requestId)} />);
+    view.rerender(<AvailableModelsPanel catalog={{ observedAt: catalog.observedAt, models: [] }} catalogRevision={revision} send={send} wizardResult={created(requestId)} />);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Available models" })));
   });
@@ -151,7 +162,7 @@ describe("AvailableModelsPanel", () => {
   });
 
   it("shows and searches safe configured labels without exposing internal route identity", () => {
-    render(<AvailableModelsPanel catalog={{ ...catalog, entries: [{ ...catalog.entries[0], configuredState: "configured", configuredRouteRefs: [{ routeId: "internal-route-id", label: "Daily coding" }] }] }} catalogRevision={revision} send={vi.fn()} />);
+    render(<AvailableModelsPanel catalog={{ ...catalog, models: [{ ...catalog.models[0], targets: [modelTarget("internal-target-id", "Daily coding")] }] }} catalogRevision={revision} send={vi.fn()} />);
     expect(screen.getByText("Configured targets: Daily coding")).toBeTruthy();
     expect(screen.queryByText("provider:direct")).toBeNull();
     expect(screen.queryByText("internal-route-id")).toBeNull();
@@ -182,10 +193,24 @@ function openAndPreview(send: ReturnType<typeof vi.fn>) {
 }
 
 function proposal(): ExecutionTargetWizardProposal {
-  return { proposalId: "proposal-1", operation: "target.create", scope: "global", status: "valid", baseRevision: revision, authorityImpact: "expands-write", approvalRequired: true, approvalStatus: "required", activation: "hot", owners: ["runtime"], reconciliationTargets: ["gui"], diagnostics: [], rollback: { restorable: true, summary: "Remove target-route." }, target: { routeId: "target-route", label: "Primary model", providerId: "provider", providerModelId: "model", accountSelectionMode: "automatic", dataClassification: "public", billingClass: "subscription", capabilityPosture: "kiln-executable", discoveryExpiresAt: "2026-09-01T00:00:00.000Z", evidenceExpiresAt: "2026-09-01T00:00:00.000Z" } };
+  return { proposalId: "proposal-1", operation: "target.create", scope: "global", status: "valid", baseRevision: revision, authorityImpact: "expands-write", approvalRequired: true, approvalStatus: "required", activation: "hot", owners: ["runtime"], reconciliationTargets: ["gui"], diagnostics: [], rollback: { restorable: true, summary: "Remove target-route." }, target: { targetId: "target-route", label: "Primary model", providerId: "provider", providerModelId: "model", accountPolicyId: "default", eligibleAccountCount: 1, dataClassification: "public", billingClass: "subscription", capabilityPosture: "kiln-executable", discoveryExpiresAt: "2026-09-01T00:00:00.000Z", evidenceExpiresAt: "2026-09-01T00:00:00.000Z" } };
 }
 
 function previewed(requestId: string): ExecutionTargetWizardResult { return { type: "execution_target_wizard_result", requestId, status: "previewed", code: "EXECUTION_TARGET_PREVIEWED", action: "approve-and-apply", message: "Preview ready.", proposal: proposal() }; }
 function rejected(requestId: string): ExecutionTargetWizardResult { return { type: "execution_target_wizard_result", requestId, status: "rejected", code: "TARGET_DISCOVERY_STALE", action: "refresh-and-retry", message: "Current model evidence changed." }; }
 function committedRefreshFailed(requestId: string): ExecutionTargetWizardResult { return { type: "execution_target_wizard_result", requestId, status: "committed-refresh-failed", code: "EXECUTION_TARGET_COMMITTED_REFRESH_FAILED", action: "refresh-catalog", message: "Target created, but the model catalog could not be refreshed.", revision, proposal: proposal() }; }
-function created(requestId: string): ExecutionTargetWizardResult { return { type: "execution_target_wizard_result", requestId, status: "created", code: "EXECUTION_TARGET_CREATED", action: "none", message: "Target created.", revision, proposal: proposal(), executionRouteCatalog: { revision, routes: [] }, availableModels: catalog }; }
+function created(requestId: string): ExecutionTargetWizardResult { return { type: "execution_target_wizard_result", requestId, status: "created", code: "EXECUTION_TARGET_CREATED", action: "none", message: "Target created.", revision, proposal: proposal(), modelCatalog: { observedAt: catalog.observedAt, revision, models: [] } }; }
+
+function modelTarget(targetId: string, label: string) {
+  return {
+    targetId,
+    label,
+    access: "api" as const,
+    availability: "available" as const,
+    reasonCodes: ["configured" as const],
+    repairActions: [],
+    eligibleAccountCount: 1,
+    accountOverrideIds: [],
+    cost: { kind: "unknown" as const },
+  };
+}

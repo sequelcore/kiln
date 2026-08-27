@@ -32,8 +32,8 @@ export {
   resolveGlobalUiAppearance,
 } from "./defaults.js";
 export {
-  projectDirectExecutionCatalog,
-  readGlobalExecutionCatalog,
+  projectDirectExecutionTargetCatalog,
+  readGlobalExecutionTargetCatalog,
   readGlobalExecutionTargetAuthority,
 } from "./admission/execution-routing.js";
 export { validateGlobalConfig } from "./admission/index.js";

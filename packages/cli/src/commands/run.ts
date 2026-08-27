@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import readline from "node:readline";
-import type { ContextArtifactCache, ExecutionCatalog } from "@kilnai/core";
+import type { ContextArtifactCache, ExecutionTargetCatalog } from "@kilnai/core";
 import {
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
@@ -57,7 +57,7 @@ import {
   projectOperatorTranscriptEntryToDraft,
   toCanonicalSessionEventPersistedTranscriptEventDraft,
 } from "../application/operator-transcript-projection.js";
-import { captureOperatorExecutionCatalogSnapshot } from "../application/operator-turn-dispatch-composition.js";
+import { captureOperatorExecutionTargetCatalogSnapshot } from "../application/operator-turn-dispatch-composition.js";
 import {
   assertPrivateStateFileTargetSync,
   ensurePrivateStateDirectorySync,
@@ -107,12 +107,12 @@ import {
 import { admittedCommunicationEvidence, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
-import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
+import { inferTargetTask, resolveExecutionTargetCandidates } from "../config/execution-target-resolver.js";
 import {
   type KilnGlobalConfig,
   readGlobalConfig,
   readGlobalConfigSnapshot,
-  readGlobalExecutionCatalog,
+  readGlobalExecutionTargetCatalog,
 } from "../config/global-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
@@ -1013,7 +1013,7 @@ export async function runCommand(
   const resolvedAppConfig: KilnAppConfig = resolvedKilnConfig
     ? { ...appConfig, kilnYaml: resolvedKilnConfig }
     : appConfig;
-  const routeTask = inferRouteTask({
+  const routeTask = inferTargetTask({
     text: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
   });
@@ -1021,14 +1021,14 @@ export async function runCommand(
   // for an unknown id, and that must still reach the caller in the output mode
   // it asked for: a consumer parsing JSON cannot distinguish a stack trace from
   // a failed run.
-  let configuredRouteCandidates: ReturnType<typeof resolveExecutionRouteCandidates>;
-  let executionCatalog: ExecutionCatalog | undefined;
+  let configuredRouteCandidates: ReturnType<typeof resolveExecutionTargetCandidates>;
+  let executionCatalog: ExecutionTargetCatalog | undefined;
   try {
-    executionCatalog = readGlobalExecutionCatalog(globalConfig);
-    configuredRouteCandidates = resolveExecutionRouteCandidates({
+    executionCatalog = readGlobalExecutionTargetCatalog(globalConfig);
+    configuredRouteCandidates = resolveExecutionTargetCandidates({
       globalConfig,
       executionCatalog,
-      routeId: flags.target,
+      targetId: flags.target,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1067,13 +1067,16 @@ export async function runCommand(
   // Routing policy may describe fallback route IDs for other surfaces, but a
   // CLI invocation commits one selected route and never retries through a
   // second provider without a separate canonical lifecycle.
-  const selectedExecutionRoute = configuredRouteCandidates[0]!;
-  const selectedRouteCandidates = [selectedExecutionRoute] as const;
+  const selectedExecutionTarget = configuredRouteCandidates[0]!;
+  const selectedRouteCandidates: readonly RunSessionRouteCandidate[] = [{
+    provider: selectedExecutionTarget.provider,
+    model: selectedExecutionTarget.model,
+  }];
   if (!executionCatalog) {
     throw new Error("A canonical execution catalog is required for CLI run.");
   }
   const managedRouteConfig = globalConfig ? { ...globalConfig, executionCatalog } : undefined;
-  const preferredProvider = selectedExecutionRoute.provider;
+  const preferredProvider = selectedExecutionTarget.provider;
   const mode = resolveMode();
   if (
     flags.requestedAuthority &&
@@ -1096,7 +1099,7 @@ export async function runCommand(
     });
     exitRunCommand(1, executionOptions);
   }
-  const effectiveModel = selectedExecutionRoute.model;
+  const effectiveModel = selectedExecutionTarget.model;
   const config = buildConfig(flags, mode, preferredProvider, resolvedKilnConfig?.permissions);
   let identityAppConfig = withWorkGovernanceContext(
     withGlobalIdentityContext(resolvedAppConfig, globalConfig),
@@ -1664,16 +1667,16 @@ export async function runCommand(
     catalog: executionCatalog,
     cwd,
     executionId: sessionId,
-    routeId: selectedExecutionRoute.routeId,
+    targetId: selectedExecutionTarget.targetId,
     configurationRevision,
     authorityAdmissionEvidenceStore: new TranscriptAuthorityAdmissionEvidenceStore(transcriptStore),
     sessionTurnBudget,
     captureCatalogSnapshot: () =>
-      captureOperatorExecutionCatalogSnapshot({
+      captureOperatorExecutionTargetCatalogSnapshot({
         projectPath: cwd,
         readConfigSnapshot: readGlobalConfigSnapshot,
         readConfigurationRevision: readRuntimeConfigurationRevision,
-        readExecutionCatalog: readGlobalExecutionCatalog,
+        readExecutionTargetCatalog: readGlobalExecutionTargetCatalog,
       }),
     ...(attendedTrustedExecutionApprovalPort === undefined
       ? {}

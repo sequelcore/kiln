@@ -18,8 +18,8 @@ import type {
   ProviderModelEligibilityRequirements,
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
-  ExecutionCatalog,
-  AdmittedExecutionRoute,
+  ExecutionTargetCatalog,
+  AdmittedExecutionTarget,
   ManagedEconomicAdoptedSnapshotExpectation,
   ManagedEconomicPriceEvidence,
   ModelDeliberationCapabilities,
@@ -116,13 +116,13 @@ interface ManagedRouteProjection {
   readonly kind: ResolvedManagedTargetConfig["kind"];
   readonly providerId: string;
   readonly providerModelId?: string;
-  readonly admission?: AdmittedExecutionRoute;
+  readonly admission?: AdmittedExecutionTarget;
 }
 
 /** Projects a resolved physical target into the Runtime route contract. */
 function projectManagedRoute(
   routeConfig: ResolvedManagedTargetConfig,
-  executionCatalog: ExecutionCatalog | undefined,
+  executionCatalog: ExecutionTargetCatalog | undefined,
 ): ManagedRouteProjection {
   if (routeConfig.kind === "direct") {
     const projection = admitManagedDirectTarget(executionCatalog, routeConfig);
@@ -270,7 +270,7 @@ export interface ManagedAgentRouteConfigSource {
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly skills?: KilnYamlSkillsConfig;
   readonly engines?: Record<string, { readonly enabled?: boolean }>;
-  readonly executionCatalog?: ExecutionCatalog;
+  readonly executionCatalog?: ExecutionTargetCatalog;
   readonly executionTargetEvidence?: ExecutionTargetEvidenceSnapshot;
   readonly targetCatalog?: KilnTargetCatalogIntentConfig;
   readonly targetRouting?: { readonly defaultTargetId: string };
@@ -281,7 +281,7 @@ export interface ManagedAgentRouteConfigSource {
 export interface ManagedAccountRuntimeComposition {
   readonly routing: ConfiguredExecutionAccountRuntime;
   readonly authority: SqliteManagedAccountLeaseAuthority;
-  updateCatalog(config: ExecutionCatalog): void;
+  updateCatalog(config: ExecutionTargetCatalog): void;
   close(): void;
 }
 
@@ -308,7 +308,7 @@ export async function projectManagedEconomicJobAdoption(
     );
   }
   const managed = config.managedAgents;
-  const executionCatalog = resolveSourceExecutionCatalog(config);
+  const executionCatalog = resolveSourceExecutionTargetCatalog(config);
   const dispatch = job.dispatch;
   const policy = deriveManagedAgentEconomicPolicies({
     managedAgents: managed,
@@ -342,10 +342,10 @@ export async function projectManagedEconomicJobAdoption(
       const domain = domains.find((entry) => entry.id === candidate.comparisonDomainId);
       const projection = routeConfig ? projectManagedRoute(routeConfig, executionCatalog) : undefined;
       const economicsRoute = projection
-        ? executionCatalog.routes.find((entry) => entry.id === projection.routeId)
+        ? executionCatalog.targets.find((entry) => entry.id === projection.routeId)
         : undefined;
       const economics = economicsRoute?.economics;
-      const configuredExecutionAccountPolicyId = projection?.admission?.accountSelection.mode === "automatic"
+      const configuredExecutionAccountPolicyId = projection?.admission?.accountSelection.kind === "policy"
         ? projection.admission.accountSelection.accountPolicyId
         : null;
       if (!routeConfig || routeConfig.kind !== "direct" || !projection || !economicsRoute || !domain || !economics) {
@@ -476,7 +476,7 @@ export async function projectManagedEconomicJobAdoption(
       );
     }
     const admission = admitManagedDirectTarget(executionCatalog, managedRoute).admission;
-    const canonicalTargetId = admission.routeId;
+    const canonicalTargetId = admission.targetId;
     const candidates = await routing.modelGatewayCandidates.resolve({
       admission,
       route: {
@@ -609,9 +609,9 @@ export async function resolveManagedInvocationToolOptions(
   if (!config || config.managedAgents?.enabled === false) {
     return { routeHealth: [] };
   }
-  const projectedExecutionCatalog = resolveSourceExecutionCatalog(config);
-  if (projectedExecutionCatalog && !config.executionCatalog) {
-    config = { ...config, executionCatalog: projectedExecutionCatalog };
+  const projectedExecutionTargetCatalog = resolveSourceExecutionTargetCatalog(config);
+  if (projectedExecutionTargetCatalog && !config.executionCatalog) {
+    config = { ...config, executionCatalog: projectedExecutionTargetCatalog };
   }
 
   const routeConfigs = resolveRouteConfigs(config);
@@ -733,7 +733,7 @@ export async function resolveManagedInvocationToolOptions(
         ? (() => {
             try {
               const projection = projectManagedRoute(routeConfig, config.executionCatalog);
-              return projection.admission?.accountSelection.mode === "automatic"
+              return projection.admission?.accountSelection.kind === "policy"
                 ? projection.admission.accountSelection.accountPolicyId
                 : undefined;
             } catch {
@@ -1020,10 +1020,10 @@ function managedEconomicCapabilitiesByRoute(
       capabilities.set(route.id, { status: "unverified" });
       continue;
     }
-    let economics: ExecutionCatalog["routes"][number]["economics"] | undefined;
+    let economics: ExecutionTargetCatalog["targets"][number]["economics"] | undefined;
     try {
       economics = projectManagedRoute(route, config.executionCatalog).admission
-        ? config.executionCatalog?.routes.find(({ id }) => id === route.id)?.economics
+        ? config.executionCatalog?.targets.find(({ id }) => id === route.id)?.economics
         : undefined;
     } catch {
       economics = undefined;
@@ -1330,7 +1330,7 @@ function resolveRouteConfigs(
     });
 }
 
-function resolveSourceExecutionCatalog(config: ManagedAgentRouteConfigSource): ExecutionCatalog | undefined {
+function resolveSourceExecutionTargetCatalog(config: ManagedAgentRouteConfigSource): ExecutionTargetCatalog | undefined {
   return config.executionCatalog;
 }
 
@@ -1618,7 +1618,7 @@ function buildRouteProfiles(
   routeConfig: ResolvedManagedTargetConfig,
   cwd: string,
   worktreeLeaseConfig: KilnManagedAgentsConfig["worktreeLease"] | undefined,
-  executionCatalog: ExecutionCatalog | undefined,
+  executionCatalog: ExecutionTargetCatalog | undefined,
 ): {
   readonly ok: true;
   readonly profiles: ManagedInvocationToolRoute["profiles"];
@@ -1682,7 +1682,7 @@ function buildReadonlyProfile(
   authorityProfileId: string,
   cwd: string,
   workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
-  executionCatalog: ExecutionCatalog | undefined,
+  executionCatalog: ExecutionTargetCatalog | undefined,
 ): ManagedInvocationRouteProfile {
   const timeout = resolveRouteTimeout(authorityProfile);
   return {
@@ -1727,7 +1727,7 @@ function buildWriteProfile(
   cwd: string,
   profile: Exclude<KilnManagedAgentProfile, "foundation-readonly-plan">,
   workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
-  executionCatalog: ExecutionCatalog | undefined,
+  executionCatalog: ExecutionTargetCatalog | undefined,
 ): {
   readonly ok: true;
   readonly profile: ManagedInvocationRouteProfile;
@@ -1949,7 +1949,7 @@ async function resolveDirectRouteConfig(
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
-    ...(target.admission?.accountSelection.mode === "automatic"
+    ...(target.admission?.accountSelection.kind === "policy"
       ? { accountPolicyId: createExecutionAccountPolicyId(target.admission.accountSelection.accountPolicyId) }
       : {}),
     routeSource: baseHealth.routeSource,
@@ -1959,7 +1959,7 @@ async function resolveDirectRouteConfig(
     capability: managedRouteCapability({
       route: routeConfig, provider, model, profiles: profileResolution.profiles, adapterKind: "direct-provider",
       settlement: { kind: "managed-economic-selection", contractVersion: "managed-economic-v1", policyIds: [routeConfig.id], pendingSettlement: "required", recovery: "required" },
-      ...(target.admission?.accountSelection.mode === "automatic"
+      ...(target.admission?.accountSelection.kind === "policy"
         ? { accountPolicyId: target.admission.accountSelection.accountPolicyId }
         : {}),
       ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
@@ -2471,7 +2471,7 @@ export function createManagedAccountRuntimeComposition(
 ): ManagedAccountRuntimeComposition | undefined {
   const hasDirectRoute = resolveRouteConfigs(config)
     .some(({ routeConfig }) => routeConfig.kind === "direct");
-  const executionCatalog = resolveSourceExecutionCatalog(config);
+  const executionCatalog = resolveSourceExecutionTargetCatalog(config);
   if (!hasDirectRoute || !executionCatalog) return undefined;
   const compositionKey = resolve(storage.compositionKey ?? cwd);
   const existing = MANAGED_ACCOUNT_COMPOSITIONS.get(compositionKey);
@@ -2573,7 +2573,7 @@ function routeUsesRuntimeSandboxLease(route: ResolvedManagedTargetConfig): boole
 
 function collectRuntimeCredentialRouteIds(
   routeConfigs: readonly ResolvedManagedTargetConfig[],
-  executionCatalog: ExecutionCatalog | undefined,
+  executionCatalog: ExecutionTargetCatalog | undefined,
 ): readonly string[] {
   const routeIds = new Set<string>();
   for (const routeConfig of routeConfigs) {
@@ -2751,13 +2751,13 @@ function isOpaqueAttachmentIdentity(value: string | undefined): value is string 
 
 function resolveCredentialRoute(
   routeConfig: ResolvedManagedTargetConfig,
-  executionCatalog: ExecutionCatalog | undefined,
+  executionCatalog: ExecutionTargetCatalog | undefined,
 ): ManagedAgentCredentialRoute {
   if (routeConfig.kind === "harness") {
     return { mode: "credentialless" };
   }
   const projection = projectManagedRoute(routeConfig, executionCatalog);
-  if (projection.admission?.accountSelection.mode === "automatic") {
+  if (projection.admission?.accountSelection.kind === "policy") {
     return {
       mode: "account-leased",
       routeId: routeConfig.id,

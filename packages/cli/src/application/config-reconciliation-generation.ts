@@ -71,7 +71,7 @@ function canonicalInputs(
     case "native-skills":
       return [globalPath, projectPathname, join(globalRoot, "skills"), binding.skillsPath];
     case "native-permissions":
-    case "execution-routes":
+    case "execution-targets":
       return [globalPath];
     case "repo-shims":
       return [

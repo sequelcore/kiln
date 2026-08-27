@@ -375,17 +375,12 @@ describe("TUI authority forwarding", () => {
     const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
       buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
     );
-    const executionRouteCatalog = { routes: [] } as const;
+    const modelCatalog = { observedAt: "2026-08-23T00:00:00.000Z", models: [] } as const;
     const providerModelDiscovery = projectGuiProviderModelDiscovery([], {
       observedAt: "2026-08-23T00:00:00.000Z",
     });
-    const availableModels = {
-      observedAt: "2026-08-23T00:00:00.000Z",
-      entries: [],
-    } as const;
     const welcome = buildTuiWelcomeFramePayload({
-      executionRouteCatalog,
-      availableModels,
+      modelCatalog,
       providerModelDiscovery,
       models: {},
       executionMode: "execute",

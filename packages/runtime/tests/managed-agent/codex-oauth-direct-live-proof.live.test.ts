@@ -522,11 +522,11 @@ function createLiveChildAuthorityAdmission(
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId: input.routeId,
+        target: {
+          targetId: input.routeId,
           providerId: "codex-oauth",
           providerModelId: input.model,
-          accountSelection: { mode: "exact", accountId: credentialBinding.accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "codex-oauth-accounts", accountId: credentialBinding.accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {

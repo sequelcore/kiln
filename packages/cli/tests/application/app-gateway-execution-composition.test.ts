@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { defineExecutionCatalog } from "@kilnai/core/agents";
+import { defineExecutionTargetCatalog } from "@kilnai/core/agents";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { createAppGatewayExecutionComposition } from "../../src/application/app-gateway-execution-composition.js";
@@ -12,7 +12,7 @@ describe("createAppGatewayExecutionComposition", () => {
   it("uses the captured canonical snapshot and persists adoption events in the project transcript", async () => {
     const projectPath = await mkdtemp(join(tmpdir(), "kiln-app-gateway-"));
     const projectStateBinding = resolveProjectStateBinding(projectPath, { kilnHome: join(projectPath, "kiln-home") });
-    const catalog = defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
+    const catalog = defineExecutionTargetCatalog({ accounts: [], accountPolicies: [], targets: [] });
     const configPath = await writeGatewayFixture(projectPath);
     const snapshot = {
       catalog,
@@ -71,7 +71,7 @@ describe("createAppGatewayExecutionComposition", () => {
       configPath,
       projectStateBinding,
       captureCatalogSnapshot: () => ({
-        catalog: defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] }),
+        catalog: defineExecutionTargetCatalog({ accounts: [], accountPolicies: [], targets: [] }),
         configurationRevision: { revisionSetId: "sha256:r1", revisions: { global: "sha256:g1" } },
       }),
       readGlobalConfigSnapshot: () => ({

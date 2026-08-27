@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   ActionEffectEnvelope,
-  AdmittedExecutionRoute,
+  AdmittedExecutionTarget,
   AuthorityDescriptor,
   EffectiveTurnAuthoritySnapshot,
   ExecutionSessionBindingEvidence,
@@ -14,7 +14,7 @@ import {
   isValidNarrowing,
   normalizeActionEffectEnvelope,
 } from "@kilnai/core";
-import type { SanitizedExecutionRouteDataPolicyDecision } from "../execution-routing/execution-route-data-policy-authority.js";
+import type { SanitizedExecutionTargetDataPolicyDecision } from "../execution-routing/execution-target-data-policy-authority.js";
 import {
   normalizeRuntimeConfigurationRevision,
   type RuntimeConfigurationRevisionSnapshot,
@@ -158,10 +158,10 @@ export function readExecutionBinding(
     : undefined;
 }
 
-export function readExecutionRoute(config: PerCallToolConfig | undefined): AdmittedExecutionRoute | undefined {
+export function readExecutionTarget(config: PerCallToolConfig | undefined): AdmittedExecutionTarget | undefined {
   const admission = requireExecutionAuthorityAdmission(config);
   return admission.turn.execution.status === "routed"
-    ? admission.turn.execution.route
+    ? admission.turn.execution.target
     : undefined;
 }
 
@@ -229,8 +229,8 @@ export type ExecutionAdmission =
   | { readonly status: "not-routed" }
   | {
       readonly status: "routed";
-      readonly route: AdmittedExecutionRoute;
-      readonly dataPolicy: SanitizedExecutionRouteDataPolicyDecision;
+      readonly target: AdmittedExecutionTarget;
+      readonly dataPolicy: SanitizedExecutionTargetDataPolicyDecision;
       readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
       readonly economicCommitment?: EconomicCommitmentReference;
     };
@@ -301,8 +301,8 @@ export function defineEffectiveAuthorityAdmissionBundle(
     if (execution.dataPolicy.decision.status !== "admitted") {
       throw new TypeError("A routed authority admission bundle requires an admitted data-policy decision.");
     }
-    if (execution.route.routeId !== execution.binding.routeId) {
-      throw new TypeError("The admitted route and execution binding route must match.");
+    if (execution.target.targetId !== execution.binding.routeId) {
+      throw new TypeError("The admitted target and execution binding route must match.");
     }
     required(execution.binding.accountId, "execution.binding.accountId");
     required(execution.binding.credentialId, "execution.binding.credentialId");
@@ -493,9 +493,9 @@ function validateOwnerReferences(input: EffectiveAuthorityAdmissionBundleInput):
   }
   const execution = input.turn.execution;
   if (execution.status === "routed") {
-    required(execution.route.routeId, "turn.execution.route.routeId");
-    required(execution.route.providerId, "turn.execution.route.providerId");
-    required(execution.route.providerModelId, "turn.execution.route.providerModelId");
+    required(execution.target.targetId, "turn.execution.target.targetId");
+    required(execution.target.providerId, "turn.execution.target.providerId");
+    required(execution.target.providerModelId, "turn.execution.target.providerModelId");
     if (execution.economicCommitment) {
       required(execution.economicCommitment.commitmentId, "turn.execution.economicCommitment.commitmentId");
       required(execution.economicCommitment.authorityRevision, "turn.execution.economicCommitment.authorityRevision");

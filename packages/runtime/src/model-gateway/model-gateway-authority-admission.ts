@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   ActionEffectEnvelope,
   EffectiveTurnAuthoritySnapshot,
-  ExecutionCatalog,
+  ExecutionTargetCatalog,
   ModelTurn,
 } from "@kilnai/core";
 import {
@@ -12,10 +12,10 @@ import {
 } from "../session/effective-authority-admission-bundle.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "../session/runtime-configuration-revision-pin.js";
 import type { GovernedOneRoundAuthorityAdmissionPort, GovernedOneRoundInvocationInput } from "../execution-kernel/governed-one-round-invocation.js";
-import { evaluateExecutionTargetDataPolicy } from "../execution-routing/execution-route-data-policy-authority.js";
+import { evaluateExecutionTargetDataPolicy } from "../execution-routing/execution-target-data-policy-authority.js";
 
 export interface ModelGatewayAuthorityAdmissionOptions {
-  readonly executionCatalog: ExecutionCatalog;
+  readonly executionCatalog: ExecutionTargetCatalog;
   readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
   readonly skillCatalog?: SkillCatalogAdmission;
   readonly now?: () => Date;
@@ -34,18 +34,18 @@ export function createModelGatewayAuthorityAdmissionPort(
   const skillCatalog = options.skillCatalog ?? defaultSkillCatalog(options.configurationRevision);
   return {
     compose: async (input) => {
-      const route = options.executionCatalog.routes.find(({ id }) => id === input.admission.routeId);
-      if (!route) throw new Error(`Execution route '${input.admission.routeId}' is unavailable.`);
+      const target = options.executionCatalog.targets.find(({ id }) => id === input.admission.targetId);
+      if (!target) throw new Error(`Execution target '${input.admission.targetId}' is unavailable.`);
       const dataPolicy = evaluateExecutionTargetDataPolicy({
-        routeId: input.admission.routeId,
+        targetId: input.admission.targetId,
         providerId: input.admission.providerId,
         providerModelId: input.admission.providerModelId,
-        requestedClassification: route.dataClassification,
-        evidence: route.dataPolicyEvidence,
+        requestedClassification: target.dataClassification,
+        evidence: target.dataPolicyEvidence,
         now: now(),
       });
       if (dataPolicy.decision.status !== "admitted") {
-        throw new Error(`Execution route data policy denied execution: ${dataPolicy.decision.reason}.`);
+        throw new Error(`Execution target data policy denied execution: ${dataPolicy.decision.reason}.`);
       }
       const authority = modelGatewayAuthority(input.invocation);
       const effectCeiling = observeOnlyEffectCeiling();
@@ -77,7 +77,7 @@ export function createModelGatewayAuthorityAdmissionPort(
           budget: input.budget,
           execution: {
             status: "routed" as const,
-            route: input.admission,
+            target: input.admission,
             dataPolicy,
             binding: input.binding,
           },

@@ -66,7 +66,7 @@ describe("managed agent route admission", () => {
             providerId: "openai",
             providerModelId: "gpt-5.3",
             dataClassification: "internal",
-            accountSelection: { mode: "automatic", accountPolicyId: "openai-policy" },
+            accountPolicyId: "openai-policy",
             economics: {
               authBillingChannel: "api-key",
               executionMode: "direct",

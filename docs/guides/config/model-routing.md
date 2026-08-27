@@ -5,7 +5,7 @@ different problems and do not fall back to one another.
 
 | Concern | Owner | Applies to |
 | --- | --- | --- |
-| Operator execution | Global V4 `targetCatalog` intent, exact managed evidence, and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
+| Operator execution | Global V5 `targetCatalog` intent, exact managed evidence, and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
 | Tenant model routing | Application `modelConfig` | That application's session orchestrator and provider pool |
 
 ## Operator targets

@@ -926,7 +926,7 @@ const KilnConfigActivationStatusRevisionSchema = z.union([
 ]);
 
 const KilnConfigActivationStatusGenerationSchema = z.object({
-  target: z.enum(["native-agents", "native-skills", "native-permissions", "repo-shims", "execution-routes"]),
+  target: z.enum(["native-agents", "native-skills", "native-permissions", "repo-shims", "execution-targets"]),
   generation: KilnConfigActivationStatusDigestSchema,
 }).strict();
 

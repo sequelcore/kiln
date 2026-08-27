@@ -402,11 +402,11 @@ function makeFixtureModelRoundAdmission(
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId,
+        target: {
+          targetId: routeId,
           providerId,
           providerModelId,
-          accountSelection: { mode: "exact", accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "fixture-policy", accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {
@@ -439,8 +439,8 @@ function fixtureModelRoundConfig(
   let providerModelId = deps.model ?? "fixture-model";
   const hasExplicitAdmittedRoute = config?.authorityAdmission?.turn.execution.status === "routed";
   if (hasExplicitAdmittedRoute && config?.authorityAdmission?.turn.execution.status === "routed") {
-    providerId = config.authorityAdmission.turn.execution.route.providerId;
-    providerModelId = config.authorityAdmission.turn.execution.route.providerModelId;
+    providerId = config.authorityAdmission.turn.execution.target.providerId;
+    providerModelId = config.authorityAdmission.turn.execution.target.providerModelId;
   }
   let admission = makeFixtureModelRoundAdmission(session, turnId, providerId, providerModelId);
   const store = makeFixtureModelRoundStore();
@@ -448,7 +448,7 @@ function fixtureModelRoundConfig(
     get admission() { return admission; },
     intentFingerprint: runtimeModelRoundEffectIdentity({ fixture: "model-routing", sessionId: session.id, turnId }),
     attemptId: `fixture-model-round-attempt:${session.id}:${turnId}`,
-    get routeId() { return admission.turn.execution.status === "routed" ? admission.turn.execution.route.routeId : ""; },
+    get routeId() { return admission.turn.execution.status === "routed" ? admission.turn.execution.binding.routeId : ""; },
     accountId: "fixture-model-round-account",
     credentialRevision: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     readAdmission: async () => admission,
@@ -1687,7 +1687,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
   });
 
-  it("rejects an operator model override that differs from the admitted execution route before provider dispatch", async () => {
+  it("rejects an operator model override that differs from the admitted execution target before provider dispatch", async () => {
     const overrideProvider = makeProvider("override");
     const session = makeSession();
     const orchestrator = new RuntimeSessionOrchestrator({
@@ -1700,12 +1700,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       modelOverride: { provider: "override", model: "override-model", source: "operator" },
       authorityAdmission: makeFixtureModelRoundAdmission(session, `${session.id}:turn:1`, "default", "default-model"),
       turnCorrelationId: `${session.id}:turn:1`,
-    })).rejects.toThrow("does not match admitted execution route");
+    })).rejects.toThrow("does not match admitted execution target");
     expect(overrideProvider.createMessage).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 
-  it("rejects an automatic routed provider that differs from the admitted execution route before provider dispatch", async () => {
+  it("rejects an automatic routed provider that differs from the admitted execution target before provider dispatch", async () => {
     const routedProvider = makeProvider("routed");
     const session = makeSession();
     const orchestrator = new RuntimeSessionOrchestrator({
@@ -1724,7 +1724,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     await expect(orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
       authorityAdmission: makeFixtureModelRoundAdmission(session, `${session.id}:turn:1`, "default", "default-model"),
       turnCorrelationId: `${session.id}:turn:1`,
-    })).rejects.toThrow("does not match admitted execution route");
+    })).rejects.toThrow("does not match admitted execution target");
     expect(routedProvider.createMessage).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });

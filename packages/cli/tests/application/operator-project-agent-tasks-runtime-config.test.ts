@@ -468,7 +468,7 @@ function openCodeGoEconomicConfig(): KilnGlobalConfig {
           id: "opencode-go-direct",
           providerId: "opencode-go",
           providerModelId: "kimi-k2.6",
-          accountSelection: { mode: "automatic" as const, accountPolicyId: "opencode-go-policy" },
+          accountPolicyId: "opencode-go-policy",
           economics: target.economics,
         };
       }),

@@ -111,7 +111,7 @@ async function prepareAttendedTrustedExecution(
       ok: false,
       result: errorResult(
         "Destructive attended trusted execution is limited to one foreground Runtime-controlled codex-oauth invocation tree.",
-        { errorCode: "attended_trusted_execution_route_unsupported", status: "denied" },
+        { errorCode: "attended_trusted_execution_target_unsupported", status: "denied" },
         MANAGED_AGENT_INVOKE_TOOL_NAME,
       ),
     };

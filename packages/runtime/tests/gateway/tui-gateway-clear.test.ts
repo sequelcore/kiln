@@ -118,26 +118,27 @@ const tuiTestRouting = vi.hoisted(() => ({
       };
     };
     const admission = {
-      routeId: "test-route",
+      targetId: "test-route",
       providerId: providerId?.trim() || "claude",
       providerModelId: providerModelId?.trim() || "claude-sonnet-4-6",
     };
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
-        routes: [{
-          routeId: admission.routeId,
+    const executionTargetSelection = {
+      getTargets: vi.fn(async () => ([{
+          targetId: admission.targetId,
           label: "Test route",
           providerId: admission.providerId,
           providerModelId: admission.providerModelId,
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
+          access: "api" as const,
           availability: "available",
           reasonCodes: [],
           repairActions: [],
-        }],
-      })),
-      admit: vi.fn(async (intent: { readonly routeId: string }) => ({
+          eligibleAccountCount: 1,
+          accountOverrideIds: [],
+          cost: { kind: "unknown" as const },
+        }])),
+      admit: vi.fn(async (intent: { readonly targetId: string }) => ({
         ok: true,
-        admission: { ...admission, routeId: intent.routeId },
+        admission: { ...admission, targetId: intent.targetId },
       })),
     };
     const bridge = {
@@ -160,18 +161,18 @@ const tuiTestRouting = vi.hoisted(() => ({
       dispatchTurn: vi.fn(async (request: {
         readonly executionId: string;
         readonly intentFingerprint: string;
-        readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
+        readonly intent: { readonly targetId: string; readonly accountOverrideId?: string };
         readonly payload: unknown;
       }) => {
         const accountId = request.intent.accountOverrideId ?? "test-account";
-        const selectedAdmission = { ...admission, routeId: request.intent.routeId };
+        const selectedAdmission = { ...admission, targetId: request.intent.targetId };
         const budget = await authorityHandler.preflight({ request });
         const binding = {
-          status: "bound" as const, routeId: request.intent.routeId, accountId,
+          status: "bound" as const, routeId: request.intent.targetId, accountId,
           credentialId: "test-credential", credentialRevision: "sha256:test-revision",
         };
         const snapshot = {
-          catalog: { routes: [{ id: selectedAdmission.routeId, providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId }] },
+          catalog: { targets: [{ id: selectedAdmission.targetId, label: "Test target", providerId: selectedAdmission.providerId, providerModelId: selectedAdmission.providerModelId, accountPolicyId: "test-policy", dataClassification: "public", dataPolicyEvidence: { source: "tui-test", observedAt: "2026-08-22T18:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", classification: "public" }, economics: {} }] },
           configurationRevision: { revisionSetId: "R1", revisions: { execution: "R1" } },
         };
         const dataPolicy = { decision: { status: "admitted" as const, freshness: "current" as const, reason: "test policy" } };
@@ -181,7 +182,7 @@ const tuiTestRouting = vi.hoisted(() => ({
           sessionId: facets.sessionId, turnId: facets.turnId, admittedAt: "2026-08-22T18:00:00.000Z",
           configuration: { sessionRevision: facets.sessionRevision, turnRevision: snapshot.configurationRevision },
           session: facets.session,
-          turn: { ...facets.turn, budget, execution: { status: "routed", route: selectedAdmission, dataPolicy, binding } },
+            turn: { ...facets.turn, budget, execution: { status: "routed", target: { ...selectedAdmission, accountSelection: { kind: "operator-override", accountPolicyId: "test-policy", accountId } }, dataPolicy, binding } },
         });
         await authorityHandler.persist(authorityAdmission);
         const result = await bridge.dispatchCommittedTurn({
@@ -199,7 +200,7 @@ const tuiTestRouting = vi.hoisted(() => ({
           accountId,
           leaseId: "test-lease",
           evidence: {
-            routeId: request.intent.routeId,
+            routeId: request.intent.targetId,
             accountId,
             credentialId: "test-credential",
             credentialRevision: "sha256:test-revision",
@@ -237,7 +238,7 @@ const tuiTestRouting = vi.hoisted(() => ({
           return bundle?.sessionId === sessionId && bundle.turnId === turnId ? bundle : undefined;
         },
       },
-      executionRouteSelection,
+      executionTargetSelection,
     };
   },
 }));
@@ -293,10 +294,10 @@ function makeSessionManager() {
 
 function makeTuiTestRouting(
   sessionManager: Pick<TuiGatewayOptions["sessionManager"], "getProvider" | "getModel">,
-): Pick<TuiGatewayOptions, "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvents"> {
+): Pick<TuiGatewayOptions, "executionTargetSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "operatorAuthorityAdmissionBridge" | "authorityAdmissionEvidenceStore" | "runtimeModelRoundActionClaims" | "runtimeToolActionClaims" | "runtimeMediaActionClaims" | "createProvider" | "persistCanonicalSessionEvents"> {
   const routing = tuiTestRouting.create(sessionManager.getProvider(), sessionManager.getModel());
   return {
-    executionRouteSelection: routing.executionRouteSelection as never,
+    executionTargetSelection: routing.executionTargetSelection as never,
     operatorTurnDispatcher: routing.operatorTurnDispatcher as never,
     operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as never,
     operatorAuthorityAdmissionBridge: routing.operatorAuthorityAdmissionBridge as never,
@@ -491,13 +492,13 @@ async function waitForTuiCondition(condition: () => boolean, message: string): P
   throw new Error(message);
 }
 
-async function selectTuiTestExecutionRoute(
+async function selectTuiTestExecutionTarget(
   handlers: { readonly onMessage?: (event: MessageEvent, ws: never) => Promise<void> | void },
   wsCtx: unknown,
 ): Promise<void> {
   await handlers.onMessage?.(
     new MessageEvent("message", {
-      data: JSON.stringify({ type: "execution_route", routeId: "test-route", requestId: "test-route-selection" }),
+      data: JSON.stringify({ type: "execution_target", targetId: "test-route", requestId: "test-target-selection" }),
     }),
     wsCtx as never,
   );
@@ -681,15 +682,15 @@ describe("TUI gateway startup discovery", () => {
   }, 20_000);
 });
 
-describe("TUI gateway execution-route catalog", () => {
-  it("admits a selection without rescanning the execution-route catalog", async () => {
+describe("TUI gateway execution target catalog", () => {
+  it("admits a selection without rescanning the model catalog", async () => {
     vi.resetModules();
     stubBunServe();
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({ routes: [] })),
+     const executionTargetSelection = {
+       getTargets: vi.fn(async () => []),
       admit: vi.fn(async () => ({
         ok: true as const,
-        admission: { routeId: "opencode-gpt-5", providerId: "opencode", providerModelId: "openai/gpt-5" },
+         admission: { targetId: "opencode-gpt-5", providerId: "opencode", providerModelId: "openai/gpt-5" },
       })),
     };
     const discoverySpy = vi
@@ -701,27 +702,27 @@ describe("TUI gateway execution-route catalog", () => {
       sessionManager,
       getProviderAvailability: () => ({ opencode: true }),
       ...makeTuiTestRouting(sessionManager),
-      executionRouteSelection,
+      executionTargetSelection,
     });
 
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onMessage!(new MessageEvent("message", {
         data: JSON.stringify({
-          type: "execution_route",
+           type: "execution_target",
           requestId: "select-opencode",
-          routeId: "opencode-gpt-5",
+           targetId: "opencode-gpt-5",
         }),
       }), wsCtx);
 
-      expect(executionRouteSelection.getCatalog).not.toHaveBeenCalled();
-      expect(executionRouteSelection.admit).toHaveBeenCalledWith(expect.objectContaining({
+       expect(executionTargetSelection.getTargets).not.toHaveBeenCalled();
+      expect(executionTargetSelection.admit).toHaveBeenCalledWith(expect.objectContaining({
         requestId: "select-opencode",
-        routeId: "opencode-gpt-5",
+         targetId: "opencode-gpt-5",
       }));
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "execution_route_changed",
-        routeId: "opencode-gpt-5",
+         type: "execution_target_changed",
+         targetId: "opencode-gpt-5",
         requestId: "select-opencode",
         providerId: "opencode",
         providerModelId: "openai/gpt-5",
@@ -732,26 +733,27 @@ describe("TUI gateway execution-route catalog", () => {
     }
   });
 
-  it("refreshes the execution-route catalog on request without reconnecting", async () => {
+  it("refreshes the model catalog on request without reconnecting", async () => {
     vi.resetModules();
     stubBunServe();
-    let routeAvailable = false;
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
-        routes: [{
-          routeId: "opencode-gpt-5",
-          label: "OpenCode GPT-5",
-          providerId: "opencode",
-          providerModelId: "openai/gpt-5",
-          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true as const },
-          availability: routeAvailable ? "available" as const : "unavailable" as const,
-          reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
-          repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
-        }],
-      })),
+     let targetAvailable = false;
+     const executionTargetSelection = {
+       getTargets: vi.fn(async () => ([{
+           targetId: "opencode-gpt-5",
+           label: "OpenCode GPT-5",
+           providerId: "opencode",
+           providerModelId: "openai/gpt-5",
+           access: "api" as const,
+           availability: targetAvailable ? "available" as const : "unavailable" as const,
+           reasonCodes: targetAvailable ? [] as const : ["missing-credentials"] as const,
+           repairActions: targetAvailable ? [] as const : ["authenticate-provider"] as const,
+           eligibleAccountCount: targetAvailable ? 1 : 0,
+           accountOverrideIds: [],
+           cost: { kind: "unknown" as const },
+         }])),
       admit: vi.fn(async () => ({
         ok: true as const,
-        admission: { routeId: "opencode-gpt-5", providerId: "opencode", providerModelId: "openai/gpt-5" },
+         admission: { targetId: "opencode-gpt-5", providerId: "opencode", providerModelId: "openai/gpt-5" },
       })),
     };
     const discoverySpy = vi
@@ -764,17 +766,17 @@ describe("TUI gateway execution-route catalog", () => {
       sessionManager,
       getProviderAvailability: () => ({ opencode: true }),
       ...makeTuiTestRouting(sessionManager),
-      executionRouteSelection,
+      executionTargetSelection,
     });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
       await handlers.onOpen?.(new Event("open"), wsCtx);
-      routeAvailable = true;
+       targetAvailable = true;
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({
-            type: "refresh_execution_routes",
+             type: "refresh_model_catalog",
             requestId: "refresh-available",
           }),
         }),
@@ -784,11 +786,9 @@ describe("TUI gateway execution-route catalog", () => {
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
       expect(outboundFrames).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          type: "execution_routes_refreshed",
+           type: "model_catalog_refreshed",
           requestId: "refresh-available",
-          executionRouteCatalog: {
-            routes: [expect.objectContaining({ routeId: "opencode-gpt-5", availability: "available" })],
-          },
+           modelCatalog: expect.objectContaining({ models: expect.any(Array) }),
         }),
       ]));
     } finally {
@@ -797,23 +797,24 @@ describe("TUI gateway execution-route catalog", () => {
     }
   });
 
-  it("includes a freshly resolved execution-route catalog after provider authentication", async () => {
+  it("includes a freshly resolved model catalog after provider authentication", async () => {
     vi.resetModules();
     stubBunServe();
-    let routeAvailable = false;
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
-        routes: [{
-          routeId: "codex-oauth-route",
+    let targetAvailable = false;
+    const executionTargetSelection = {
+      getTargets: vi.fn(async () => ([{
+          targetId: "codex-oauth-route",
           label: "Codex OAuth",
           providerId: "codex-oauth",
           providerModelId: "gpt-5.5",
-          accountSelection: { mode: "exact" as const, eligibleAccountCount: 1, allowOperatorOverride: false },
-          availability: routeAvailable ? "available" as const : "unavailable" as const,
-          reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
-          repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
-        }],
-      })),
+          access: "harness" as const,
+          availability: targetAvailable ? "available" as const : "unavailable" as const,
+          reasonCodes: targetAvailable ? [] as const : ["missing-credentials"] as const,
+          repairActions: targetAvailable ? [] as const : ["authenticate-provider"] as const,
+          eligibleAccountCount: targetAvailable ? 1 : 0,
+          accountOverrideIds: [],
+          cost: { kind: "subscription" as const },
+        }])),
       admit: vi.fn(),
     };
     const providerAuthSpy = vi
@@ -834,13 +835,13 @@ describe("TUI gateway execution-route catalog", () => {
       sessionManager,
       getProviderAvailability: () => ({ "codex-oauth": true }),
       ...makeTuiTestRouting(sessionManager),
-      executionRouteSelection: executionRouteSelection as never,
+      executionTargetSelection: executionTargetSelection as never,
     });
 
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen?.(new Event("open"), wsCtx);
-      routeAvailable = true;
+      targetAvailable = true;
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({
@@ -853,21 +854,16 @@ describe("TUI gateway execution-route catalog", () => {
       );
 
       const completion = mockWs.send.mock.calls
-        .map(([payload]) => JSON.parse(payload as string) as { type: string; executionRouteCatalog?: { routes: unknown[] } })
+        .map(([payload]) => JSON.parse(payload as string) as { type: string; modelCatalog?: { models: unknown[] } })
         .find((frame) => frame.type === "provider_auth_completed");
       expect(completion).toMatchObject({
-        executionRouteCatalog: {
-          routes: [expect.objectContaining({
-            routeId: "codex-oauth-route",
-            availability: "available",
-          })],
-        },
+        modelCatalog: expect.objectContaining({ models: expect.any(Array) }),
       });
       expect(providerAuthSpy).toHaveBeenCalledWith(expect.objectContaining({
         provider: "codex-oauth",
         requestId: "auth-route-refresh",
       }));
-      expect(executionRouteSelection.getCatalog).toHaveBeenCalledTimes(2);
+      expect(executionTargetSelection.getTargets).toHaveBeenCalledTimes(2);
     } finally {
       providerAuthSpy.mockRestore();
       discoverySpy.mockRestore();
@@ -915,7 +911,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       gateway = await startTuiGateway({ sessionManager, ...makeTuiTestRouting(sessionManager) });
       const { handlers, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen?.(new Event("open"), wsCtx);
-      await selectTuiTestExecutionRoute(handlers, wsCtx);
+      await selectTuiTestExecutionTarget(handlers, wsCtx);
       const activeMessage = handlers.onMessage?.(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
         wsCtx,
@@ -1059,7 +1055,7 @@ describe("TUI gateway message fail-closed behavior", () => {
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen?.(new Event("open"), wsCtx);
-      await selectTuiTestExecutionRoute(handlers, wsCtx);
+      await selectTuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({
@@ -1222,7 +1218,7 @@ describe("TUI gateway message fail-closed behavior", () => {
     try {
       const { handlers, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen?.(new Event("open"), wsCtx);
-      await selectTuiTestExecutionRoute(handlers, wsCtx);
+      await selectTuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start managed child" }),

@@ -1,8 +1,8 @@
-import type { ExecutionCatalog } from "@kilnai/core";
+import type { ExecutionTargetCatalog } from "@kilnai/core";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   executionTargetEvidenceRevision,
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   type ExecutionTargetEvidenceSnapshot,
 } from "../../src/config/execution-target-evidence-store.js";
 import {
@@ -53,7 +53,7 @@ export function makeOperatorSurfaceGlobalConfig(
         label: `Operator ${providerId}`,
         providerId,
         providerModelId,
-        accountSelection: { mode: "automatic", accountPolicyId: policyId },
+        accountPolicyId: policyId,
       }],
     },
     targetRouting: { defaultTargetId: targetId },
@@ -95,13 +95,13 @@ export function makeOperatorSurfaceTargetEvidence(
   };
 }
 
-export function makeOperatorSurfaceExecutionCatalog(
+export function makeOperatorSurfaceExecutionTargetCatalog(
   providerId = "codex-oauth",
   providerModelId = "gpt-5.6-codex",
   targetId = "operator-default",
-): ExecutionCatalog {
+): ExecutionTargetCatalog {
   const config = makeOperatorSurfaceGlobalConfig(providerId, providerModelId, targetId);
-  return projectExecutionCatalogFromIntent(
+  return projectExecutionTargetCatalogFromIntent(
     config.targetCatalog!,
     makeOperatorSurfaceTargetEvidence(providerId, providerModelId, targetId),
     config.targetCatalog!.evidenceRevision,

@@ -10,7 +10,7 @@ import type {
 import type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt } from "../managed-write-approvals/contracts.js";
 import type { ManagedEconomicCandidateSet } from "../agents/managed-invocation/runtime-tool/index.js";
 import type { ManagedEconomicCommitmentAcquireResult, ManagedEconomicReplayEvidence, ManagedEconomicRouteCapacity } from "../managed-account-leases/managed-account-lease-authority.js";
-import type { SanitizedExecutionRouteDataPolicyDecision } from "../execution-routing/execution-route-data-policy-authority.js";
+import type { SanitizedExecutionTargetDataPolicyDecision } from "../execution-routing/execution-target-data-policy-authority.js";
 import type { EffectiveAuthorityAdmissionBundle } from "../session/effective-authority-admission-bundle.js";
 
 
@@ -258,8 +258,8 @@ export interface AgentTaskDataPolicyProof {
   readonly routeId: string;
   readonly providerId: string;
   readonly providerModelId: string;
-  readonly decision: SanitizedExecutionRouteDataPolicyDecision["decision"];
-  readonly evidence: NonNullable<SanitizedExecutionRouteDataPolicyDecision["evidence"]>;
+  readonly decision: SanitizedExecutionTargetDataPolicyDecision["decision"];
+  readonly evidence: NonNullable<SanitizedExecutionTargetDataPolicyDecision["evidence"]>;
 }
 
 /** Safe projection of a Runtime-owned receipt. It contains identities and digests only. */

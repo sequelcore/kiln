@@ -32,8 +32,7 @@ const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
   },
   entries: [],
 };
-const EMPTY_EXECUTION_ROUTE_CATALOG = { routes: [] } as const;
-const EMPTY_AVAILABLE_MODELS = { observedAt: "2026-07-01T00:00:00.000Z", entries: [] } as const;
+const EMPTY_MODEL_CATALOG = { observedAt: "2026-07-01T00:00:00.000Z", models: [] } as const;
 const WIZARD_PROPOSAL: ExecutionTargetWizardProposal = {
   proposalId: "proposal-1",
   operation: "target.create",
@@ -48,7 +47,7 @@ const WIZARD_PROPOSAL: ExecutionTargetWizardProposal = {
   reconciliationTargets: ["gui"],
   diagnostics: [],
   rollback: { restorable: true, summary: "Remove the target." },
-  target: { routeId: "target-route", label: "Target route", providerId: "provider", providerModelId: "model", accountSelectionMode: "automatic", dataClassification: "public", billingClass: "subscription", capabilityPosture: "kiln-executable", discoveryExpiresAt: "2026-09-01T00:00:00.000Z", evidenceExpiresAt: "2026-09-01T00:00:00.000Z" },
+  target: { targetId: "target-route", label: "Target route", providerId: "provider", providerModelId: "model", accountPolicyId: "default", eligibleAccountCount: 1, dataClassification: "public", billingClass: "subscription", capabilityPosture: "kiln-executable", discoveryExpiresAt: "2026-09-01T00:00:00.000Z", evidenceExpiresAt: "2026-09-01T00:00:00.000Z" },
 };
 
 // Track created WebSocket instances for testing
@@ -421,8 +420,8 @@ describe("GuiWsClient", () => {
       client = createClient();
 
       expect(() => client.send({
-        type: "execution_route",
-        routeId: "openai-gpt-5",
+        type: "execution_target",
+        targetId: "openai-gpt-5",
         requestId: "route-switch-1",
       })).toThrow("Cannot select execution target while WebSocket is not open");
 
@@ -1144,20 +1143,20 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
-            type: "execution_route_change_failed",
-            routeId: "openai-gpt-5",
+            type: "execution_target_change_failed",
+            targetId: "openai-gpt-5",
             requestId: "route-change-1",
-            reasonCode: "route-health-unavailable",
+            reasonCode: "target-health-unavailable",
             reason: "The selected route is cooling down.",
-            repairActions: ["retry-route"],
+            repairActions: ["retry-target"],
           },
           expected: {
-            type: "execution_route_change_failed",
-            routeId: "openai-gpt-5",
+            type: "execution_target_change_failed",
+            targetId: "openai-gpt-5",
             requestId: "route-change-1",
-            reasonCode: "route-health-unavailable",
+            reasonCode: "target-health-unavailable",
             reason: "The selected route is cooling down.",
-            repairActions: ["retry-route"],
+            repairActions: ["retry-target"],
           },
         },
         {
@@ -1303,8 +1302,7 @@ describe("GuiWsClient", () => {
             providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             models: { openai: ["gpt-4"] },
             providerDiscovery: [],
-            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
-            availableModels: EMPTY_AVAILABLE_MODELS,
+            modelCatalog: EMPTY_MODEL_CATALOG,
           },
           expected: {
             type: "provider_auth_completed",
@@ -1313,23 +1311,20 @@ describe("GuiWsClient", () => {
             providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             models: { openai: ["gpt-4"] },
             providerDiscovery: [],
-            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
-            availableModels: EMPTY_AVAILABLE_MODELS,
+            modelCatalog: EMPTY_MODEL_CATALOG,
           },
         },
         {
           json: {
             type: "welcome",
-            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
-            availableModels: EMPTY_AVAILABLE_MODELS,
+            modelCatalog: EMPTY_MODEL_CATALOG,
             greeting: "Welcome!",
             executionMode: "execute",
             authorityStatus: { effective: "unknown", completeness: "partial" },
           },
           expected: {
             type: "welcome",
-            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
-            availableModels: EMPTY_AVAILABLE_MODELS,
+            modelCatalog: EMPTY_MODEL_CATALOG,
             greeting: "Welcome!",
             executionMode: "execute",
             authorityStatus: { effective: "unknown", completeness: "partial" },
@@ -1342,13 +1337,13 @@ describe("GuiWsClient", () => {
         { json: { type: "cleared" }, expected: { type: "cleared" } },
         {
           json: {
-            type: "execution_route_changed",
-            routeId: "claude-sonnet",
+            type: "execution_target_changed",
+            targetId: "claude-sonnet",
             requestId: "route-switch-1",
           },
           expected: {
-            type: "execution_route_changed",
-            routeId: "claude-sonnet",
+            type: "execution_target_changed",
+            targetId: "claude-sonnet",
             requestId: "route-switch-1",
           },
         },
@@ -1362,13 +1357,13 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
-            type: "execution_route_changed",
-            routeId: "claude-default",
+            type: "execution_target_changed",
+            targetId: "claude-default",
             requestId: "route-switch-2",
           },
           expected: {
-            type: "execution_route_changed",
-            routeId: "claude-default",
+            type: "execution_target_changed",
+            targetId: "claude-default",
             requestId: "route-switch-2",
           },
         },
@@ -1399,13 +1394,13 @@ describe("GuiWsClient", () => {
       wsInstance.simulateOpen();
 
       wsInstance.simulateMessage(JSON.stringify({
-        type: "execution_route_changed",
-        routeId: "",
+        type: "execution_target_changed",
+        targetId: "",
         requestId: "route-switch-empty",
       }));
 
       expect(onFrame).not.toHaveBeenCalledWith(expect.objectContaining({
-        type: "execution_route_changed",
+        type: "execution_target_changed",
       }));
     });
   });

@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelGatewayReplayDecision } from "../../src/model-gateway/replay-guard.js";
-import { defineExecutionCatalog, type ModelGatewayConfig } from "@kilnai/core";
+import { defineExecutionTargetCatalog, type ModelGatewayConfig } from "@kilnai/core";
 import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
 import {
   createModelGatewayExecutionRoutingPort,
@@ -20,10 +20,10 @@ const secret = "synthetic-file-backed-replay-secret-32-bytes";
 const fingerprint = { rawBody: "{}", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn", route: { providerId: "codex-oauth", providerModelId: "model", scope: "virtual:model" }, toolExecutionMode: "caller-owned" };
 const completed = { responseId: "resp_synthetic", result: { parts: [{ type: "text" as const, text: "synthetic" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" } };
 const evidence = { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-11T00:00:00.000Z", validUntil: "2027-08-11T00:00:00.000Z", confidence: "high" as const, authority: "configured" as const };
-const executionCatalog = defineExecutionCatalog({
+const executionCatalog = defineExecutionTargetCatalog({
   accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "account-capacity", subscriptionClass: "subscription", quotaClassId: "quota", creditPosture: "disabled", overagePosture: "disabled" } }],
-  accountPolicies: [],
-  routes: [{ id: "route", label: "Model", providerId: "codex-oauth", providerModelId: "model", dataClassification: "internal", dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "model", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-11T00:00:00.000Z", expiresAt: "2027-08-11T00:00:00.000Z" }, accountSelection: { mode: "exact", accountId: "account" }, economics: { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v1", authBillingChannel: "oauth-subscription", executionMode: "responses-api", serviceTier: "standard", rateCardBasis: "configured", envelopeSemantics: "configured-upper-bound", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider-cache", priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "v1", evidence }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
+  accountPolicies: [{ id: "policy", accountIds: ["account"], strategy: "economic-least-pressure" }],
+  targets: [{ id: "route", label: "Model", providerId: "codex-oauth", providerModelId: "model", dataClassification: "internal", dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "model", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-11T00:00:00.000Z", expiresAt: "2027-08-11T00:00:00.000Z" }, accountPolicyId: "policy", economics: { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v1", authBillingChannel: "oauth-subscription", executionMode: "responses-api", serviceTier: "standard", rateCardBasis: "configured", envelopeSemantics: "configured-upper-bound", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider-cache", priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "v1", evidence }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
 });
 const gatewayConfig: ModelGatewayConfig = { port: 4901, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, targetId: "route", capabilities: ["text"], affinity: { continuity: "none" } }] };
 const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: async () => [] };
@@ -40,7 +40,7 @@ function authorityBundle() {
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
       effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
       budget: { status: "not-configured" },
-      execution: { status: "routed", route: { routeId: "route", providerId: "codex-oauth", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) } },
+      execution: { status: "routed", target: { targetId: "route", providerId: "codex-oauth", providerModelId: "model", accountSelection: { kind: "operator-override", accountPolicyId: "policy", accountId: "account" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) } },
     },
   });
 }

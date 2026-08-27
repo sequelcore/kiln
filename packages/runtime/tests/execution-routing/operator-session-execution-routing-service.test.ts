@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createExecutionAccountPolicyId,
   createExecutionAccountRef,
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   type ExecutionAccountAdmissionCandidate,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
 } from "@kilnai/core/agents";
 import type { ActionEffectEnvelope, AuthorityDescriptor } from "@kilnai/core/engine";
 import {
@@ -24,17 +24,17 @@ function acceptsExecutionAccountCapacityAuthority(authority: ExecutionAccountCap
   void authority;
 }
 
-const catalog = defineExecutionCatalog({
+const catalog = defineExecutionTargetCatalog({
   accounts: [
     { id: "personal", providerId: "codex", credentialId: "credential-personal", maxConcurrency: 2, reservedAffinitySlots: 0, economics: economics() },
     { id: "work", providerId: "codex", credentialId: "credential-work", maxConcurrency: 2, reservedAffinitySlots: 0, economics: economics() },
   ],
   accountPolicies: [{ id: "codex-policy", accountIds: ["personal", "work"], strategy: "economic-least-pressure" }],
-  routes: [{
+  targets: [{
     id: "terra", label: "Terra", providerId: "codex", providerModelId: "gpt-5.6-terra",
     dataClassification: "internal",
     dataPolicyEvidence: { providerId: "codex", providerModelId: "gpt-5.6-terra", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
-    accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" }, economics: routeEconomics(),
+    accountPolicyId: "codex-policy", economics: routeEconomics(),
   }],
 });
 
@@ -133,18 +133,18 @@ function revisionSnapshot(revisionSetId: string): RuntimeConfigurationRevisionSn
   };
 }
 
-function catalogForRevision(revisionSetId: string): ExecutionCatalog {
+function catalogForRevision(revisionSetId: string): ExecutionTargetCatalog {
   const model = `gpt-5.6-${revisionSetId.toLowerCase()}`;
   const accountId = revisionSetId === "R1" ? "personal" : "work";
   const credentialId = revisionSetId === "R1" ? "credential-personal" : "credential-work";
-  return defineExecutionCatalog({
+  return defineExecutionTargetCatalog({
     accounts: [{ id: accountId, providerId: "codex", credentialId, maxConcurrency: 2, reservedAffinitySlots: 0, economics: economics() }],
     accountPolicies: [{ id: "codex-policy", accountIds: [accountId], strategy: "economic-least-pressure" }],
-    routes: [{
+    targets: [{
       id: "terra", label: "Terra", providerId: "codex", providerModelId: model,
       dataClassification: "internal",
       dataPolicyEvidence: { providerId: "codex", providerModelId: model, dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: revisionSetId, sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
-      accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" }, economics: routeEconomics(),
+      accountPolicyId: "codex-policy", economics: routeEconomics(),
     }],
   });
 }
@@ -158,7 +158,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await expect(routing.execute({
       executionId: "turn-1",
       intentFingerprint: `sha256:${"b".repeat(64)}`,
-      intent: { routeId: "terra" },
+      intent: { targetId: "terra" },
       payload: undefined,
     })).resolves.toMatchObject({ evidence: { status: "unknown" }, result: "done" });
 
@@ -188,7 +188,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await expect(routing.execute({
       executionId: "turn-1",
       intentFingerprint: `sha256:${"b".repeat(64)}`,
-      intent: { routeId: "terra" },
+      intent: { targetId: "terra" },
       payload: undefined,
     })).resolves.toMatchObject({ result: "done" });
 
@@ -214,7 +214,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await expect(routing.execute({
       executionId: "turn-1",
       intentFingerprint: `sha256:${"b".repeat(64)}`,
-      intent: { routeId: "terra" },
+      intent: { targetId: "terra" },
       payload: undefined,
     })).rejects.toThrow(/isolation failed/iu);
 
@@ -238,7 +238,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await expect(routing.execute({
       executionId: "turn-1",
       intentFingerprint: `sha256:${"b".repeat(64)}`,
-      intent: { routeId: "terra" },
+      intent: { targetId: "terra" },
       payload: undefined,
     })).rejects.toThrow(/counterfeit host enforcement/iu);
     expect(authority.settleAccountCapacity).toHaveBeenCalledWith(
@@ -265,7 +265,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     await expect(routing.execute({
       executionId: "turn-1",
       intentFingerprint: `sha256:${"b".repeat(64)}`,
-      intent: { routeId: "terra" },
+      intent: { targetId: "terra" },
       payload: undefined,
     })).rejects.toThrow(/budget|bound/i);
 
@@ -286,7 +286,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     };
     const { routing, authority, dispatch } = service({ authorityAdmission });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/prepare failed/);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).rejects.toThrow(/prepare failed/);
     expect(authority.settleAccountCapacity).toHaveBeenCalledWith("turn-1", "turn-1:dispatch", expect.objectContaining({ kind: "completed", outcome: "cancelled" }));
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -308,7 +308,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
   it("admits automatic selection in Core, leases before resolving a credential, then fences before dispatch", async () => {
     const { routing, authority, events } = service();
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).resolves.toMatchObject({
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).resolves.toMatchObject({
       result: "done",
       accountId: "personal",
       evidence: {
@@ -343,14 +343,14 @@ describe("OperatorSessionExecutionRoutingService", () => {
       },
     });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/does not match/i);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).rejects.toThrow(/does not match/i);
     expect(authority.acquireAccountCapacity).not.toHaveBeenCalled();
   });
 
   it("keeps an exact override inside automatic policy and passes it through the same gates", async () => {
     const { routing, authority } = service({ candidates: { resolve: vi.fn(async () => [{ candidate: candidate("personal", { health: "unhealthy" }), lease: leaseBinding("personal") }, { candidate: candidate("work"), lease: leaseBinding("work") }]) } });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra", accountOverrideId: "personal" }, payload: undefined })).rejects.toMatchObject({
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra", accountOverrideId: "personal" }, payload: undefined })).rejects.toMatchObject({
       routingFailureCode: "health-unhealthy",
     });
 
@@ -383,7 +383,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
       dispatch: { dispatchCommittedTurn: dispatch },
     });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).resolves.toMatchObject({ accountId: "work" });
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).resolves.toMatchObject({ accountId: "work" });
 
     expect(capacityAuthority.acquireAccountCapacity).toHaveBeenNthCalledWith(1, expect.objectContaining({ candidates: [personal] }));
     expect(capacityAuthority.acquireAccountCapacity).toHaveBeenNthCalledWith(2, expect.objectContaining({ candidates: [work] }));
@@ -404,7 +404,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
       accountCapacityAuthority: capacityAuthority,
     });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra", accountOverrideId: "personal" }, payload: undefined })).rejects.toThrow(/no available shared capacity/i);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra", accountOverrideId: "personal" }, payload: undefined })).rejects.toThrow(/no available shared capacity/i);
     expect(capacityAuthority.acquireAccountCapacity).toHaveBeenCalledOnce();
     expect(capacityAuthority.acquireAccountCapacity).toHaveBeenCalledWith(expect.objectContaining({ candidates: [personal] }));
     expect(dispatch).not.toHaveBeenCalled();
@@ -416,7 +416,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
       candidates: { resolve: vi.fn(async () => [{ candidate: candidate("personal"), lease: wrong }]) },
     });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/does not belong/i);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).rejects.toThrow(/does not belong/i);
     expect(authority.acquireAccountCapacity).not.toHaveBeenCalled();
   });
 
@@ -429,7 +429,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
     };
     const { routing, dispatch } = service({ accountCapacityAuthority: capacityAuthority });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/synthetic fence failure/);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).rejects.toThrow(/synthetic fence failure/);
     expect(capacityAuthority.releaseAccountCapacityPreFence).toHaveBeenCalledWith("turn-1");
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -448,9 +448,9 @@ describe("OperatorSessionExecutionRoutingService", () => {
     };
     const { routing } = service({ accountCapacityAuthority: capacityAuthority });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"1".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined }))
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"1".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined }))
       .rejects.toThrow(/cleanup failure/iu);
-    await expect(routing.execute({ executionId: "turn-2", intentFingerprint: `sha256:${"2".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined }))
+    await expect(routing.execute({ executionId: "turn-2", intentFingerprint: `sha256:${"2".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined }))
       .resolves.toMatchObject({ result: "done" });
   });
 
@@ -460,7 +460,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
   ])("does not dispatch when post-fence %s drifts", async (_name, resolved) => {
     const { routing, authority, dispatch } = service({ credentials: { resolve: vi.fn(async () => resolved) } });
 
-    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined })).rejects.toThrow(/does not match/i);
+    await expect(routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined })).rejects.toThrow(/does not match/i);
 
     expect(authority.fenceAccountCapacityDispatch).toHaveBeenCalledWith("turn-1", "turn-1:dispatch");
     expect(authority.settleAccountCapacity).toHaveBeenCalledWith("turn-1", "turn-1:dispatch", expect.objectContaining({ kind: "completed", outcome: "cancelled" }));
@@ -479,7 +479,7 @@ describe("OperatorSessionExecutionRoutingService", () => {
       dispatch: { dispatchCommittedTurn: vi.fn(async () => { order.push("dispatch"); return "done"; }) },
     });
 
-    await routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined });
+    await routing.execute({ executionId: "turn-1", intentFingerprint: `sha256:${"b".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined });
     expect(order).toEqual(["fence", "credential", "dispatch"]);
     expect(authority.releaseAccountCapacityPreFence).not.toHaveBeenCalled();
   });
@@ -550,8 +550,8 @@ describe("OperatorSessionExecutionRoutingService", () => {
       catalogSource,
       candidates: {
         resolve: vi.fn(async ({ admission, catalog, configurationRevision }: {
-          readonly admission: { readonly routeId: string; readonly providerModelId: string };
-          readonly catalog: ExecutionCatalog;
+          readonly admission: { readonly targetId: string; readonly providerModelId: string };
+          readonly catalog: ExecutionTargetCatalog;
           readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
         }) => {
           expect(activeRevision).toBe(configurationRevision.revisionSetId);
@@ -575,10 +575,10 @@ describe("OperatorSessionExecutionRoutingService", () => {
       dispatch: { dispatchCommittedTurn: vi.fn(async (committed) => ({ revision: committed.configurationRevision.revisionSetId, model: committed.admission.providerModelId })) },
     });
 
-    const first = routing.execute({ executionId: "turn-r1", intentFingerprint: `sha256:${"1".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined });
+    const first = routing.execute({ executionId: "turn-r1", intentFingerprint: `sha256:${"1".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined });
     await firstCaptureStarted;
     current = { catalog: r2Catalog, configurationRevision: revisionSnapshot("R2") };
-    const second = routing.execute({ executionId: "turn-r2", intentFingerprint: `sha256:${"2".repeat(64)}`, intent: { routeId: "terra" }, payload: undefined });
+    const second = routing.execute({ executionId: "turn-r2", intentFingerprint: `sha256:${"2".repeat(64)}`, intent: { targetId: "terra" }, payload: undefined });
     await Promise.resolve();
     expect(catalogSource.activate).not.toHaveBeenCalled();
     releaseFirstCapture();

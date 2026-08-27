@@ -7,8 +7,8 @@ import {
   GPT4O,
 } from "@kilnai/core/agents";
 import type {
-  OperatorExecutionRouteSelectionPort,
-} from "../../src/gateway/operator-execution-route-selection.js";
+  OperatorExecutionTargetSelectionPort,
+} from "../../src/gateway/operator-execution-target-selection.js";
 import {
   describe,
   expect,
@@ -29,19 +29,20 @@ describe("GUI gateway execution routing", () => {
     const pendingDiscovery = new Promise<ReturnType<typeof makeGuiOperatorDiscoveryFromModels>>((resolve) => {
       resolveDiscovery = resolve;
     });
-    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
-      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
-        routes: discoveryResolved ? [{
-          routeId: "codex-auto",
+    const executionTargetSelection: OperatorExecutionTargetSelectionPort = {
+      getTargets: vi.fn<OperatorExecutionTargetSelectionPort["getTargets"]>(async () => (discoveryResolved ? [{
+          targetId: "codex-auto",
           label: "Codex Auto Review",
           providerId: "codex-oauth",
           providerModelId: "gpt-5.6-sol",
-          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          access: "harness" as const,
           availability: "available" as const,
           reasonCodes: [],
           repairActions: [],
-        }] : [],
-      })),
+          eligibleAccountCount: 1,
+          accountOverrideIds: [],
+          cost: { kind: "subscription" as const },
+        }] : [])),
       admit: vi.fn(),
     };
     vi.stubGlobal("Bun", {
@@ -50,6 +51,7 @@ describe("GUI gateway execution routing", () => {
         stop: vi.fn(),
       })),
     });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })));
     const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
     let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
     try {
@@ -57,7 +59,7 @@ describe("GUI gateway execution routing", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders: () => pendingDiscovery,
-        executionRouteSelection,
+        executionTargetSelection,
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
@@ -88,7 +90,7 @@ describe("GUI gateway execution routing", () => {
         .map(([payload]) => JSON.parse(payload as string) as Record<string, unknown>)
         .find((frame) => frame.type === "provider_catalog_state" && frame.status === "ready");
       expect(readyFrame).toMatchObject({
-        executionRouteCatalog: { routes: [expect.objectContaining({ routeId: "codex-auto" })] },
+        modelCatalog: { models: [expect.objectContaining({ targets: [expect.objectContaining({ targetId: "codex-auto" })] })] },
         models: { "codex-oauth": ["gpt-5.6-sol"] },
       });
     } finally {
@@ -98,29 +100,30 @@ describe("GUI gateway execution routing", () => {
     }
   });
 
-  it("acknowledges admitted execution-route selections", async () => {
+  it("acknowledges admitted execution-target selections", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
-    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
-      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
-        routes: [{
-          routeId: "claude-default",
+    const executionTargetSelection: OperatorExecutionTargetSelectionPort = {
+      getTargets: vi.fn<OperatorExecutionTargetSelectionPort["getTargets"]>(async () => ([{
+          targetId: "claude-default",
           label: "Claude",
           providerId: "claude",
           providerModelId: "claude-sonnet-4-6",
-          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          access: "harness" as const,
           availability: "available" as const,
           reasonCodes: [],
           repairActions: [],
-        }],
-      })),
-      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async () => ({
+          eligibleAccountCount: 1,
+          accountOverrideIds: [],
+          cost: { kind: "subscription" as const },
+        }])),
+      admit: vi.fn<OperatorExecutionTargetSelectionPort["admit"]>(async () => ({
         ok: true as const,
         admission: {
-          routeId: "claude-default",
+          targetId: "claude-default",
           providerId: "claude",
           providerModelId: "claude-sonnet-4-6",
         },
@@ -141,7 +144,7 @@ describe("GUI gateway execution routing", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        executionRouteSelection,
+        executionTargetSelection,
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
@@ -156,20 +159,20 @@ describe("GUI gateway execution routing", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "execution_route", routeId: "claude-default", requestId: "request-claude" }),
+          data: JSON.stringify({ type: "execution_target", targetId: "claude-default", requestId: "request-claude" }),
         }),
         wsCtx,
       );
 
-      expect(executionRouteSelection.admit).toHaveBeenCalledWith({
-        type: "execution_route",
-        routeId: "claude-default",
+      expect(executionTargetSelection.admit).toHaveBeenCalledWith({
+        type: "execution_target",
+        targetId: "claude-default",
         requestId: "request-claude",
       });
-      expect(executionRouteSelection.getCatalog).not.toHaveBeenCalled();
+      expect(executionTargetSelection.getTargets).not.toHaveBeenCalled();
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "execution_route_changed",
-        routeId: "claude-default",
+        type: "execution_target_changed",
+        targetId: "claude-default",
         requestId: "request-claude",
         providerId: "claude",
         providerModelId: "claude-sonnet-4-6",
@@ -184,7 +187,7 @@ describe("GUI gateway execution routing", () => {
   it("rejects the execution target wizard before reading the catalog without the existing operator capability", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    const getCatalog = vi.fn(async () => ({ routes: [] }));
+    const getTargets = vi.fn(async () => []);
     const runExecutionTargetWizard = vi.fn();
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
@@ -200,7 +203,7 @@ describe("GUI gateway execution routing", () => {
         workingDirectory: distDir,
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders: async () => [],
-       executionRouteSelection: { getCatalog } as never,
+       executionTargetSelection: { getTargets } as never,
        runExecutionTargetWizard,
       operatorTransport: {
         ...guiOperatorTransportDefaults,
@@ -217,7 +220,7 @@ describe("GUI gateway execution routing", () => {
         data: JSON.stringify({ type: "execution_target_wizard", requestId: "request-unauthorized" }),
       }), wsCtx);
 
-      expect(getCatalog).not.toHaveBeenCalled();
+      expect(getTargets).not.toHaveBeenCalled();
       expect(runExecutionTargetWizard).not.toHaveBeenCalled();
       expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({
         type: "execution_target_wizard_result",
@@ -234,7 +237,7 @@ describe("GUI gateway execution routing", () => {
   it("passes an authenticated execution target wizard request through the handler boundary", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    const getCatalog = vi.fn(async () => ({ routes: [] }));
+    const getTargets = vi.fn(async () => []);
     const runExecutionTargetWizard = vi.fn();
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
@@ -250,7 +253,7 @@ describe("GUI gateway execution routing", () => {
         workingDirectory: distDir,
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders: async () => [],
-        executionRouteSelection: { getCatalog } as never,
+         executionTargetSelection: { getTargets } as never,
         runExecutionTargetWizard,
         operatorTransport: {
           ...guiOperatorTransportDefaults,
@@ -281,7 +284,7 @@ describe("GUI gateway execution routing", () => {
         }),
       }), wsCtx);
 
-      expect(getCatalog).toHaveBeenCalledTimes(1);
+      expect(getTargets).toHaveBeenCalledTimes(1);
       expect(runExecutionTargetWizard).not.toHaveBeenCalled();
       expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({
         type: "execution_target_wizard_result",
@@ -295,26 +298,27 @@ describe("GUI gateway execution routing", () => {
     }
   });
 
-  it("refreshes the execution-route catalog on request without reconnecting", async () => {
+  it("refreshes the model catalog on request without reconnecting", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    let routeAvailable = false;
-    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
-      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
-        routes: [{
-          routeId: "openai-gpt",
+    let targetAvailable = false;
+    const executionTargetSelection: OperatorExecutionTargetSelectionPort = {
+      getTargets: vi.fn<OperatorExecutionTargetSelectionPort["getTargets"]>(async () => ([{
+          targetId: "openai-gpt",
           label: "OpenAI GPT",
           providerId: "openai",
           providerModelId: GPT4O,
-          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
-          availability: routeAvailable ? "available" as const : "unavailable" as const,
-          reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
-          repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
-        }],
-      })),
-      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async () => ({
+          access: "api" as const,
+          availability: targetAvailable ? "available" as const : "unavailable" as const,
+          reasonCodes: targetAvailable ? [] as const : ["missing-credentials"] as const,
+          repairActions: targetAvailable ? [] as const : ["authenticate-provider"] as const,
+          eligibleAccountCount: targetAvailable ? 1 : 0,
+          accountOverrideIds: [],
+          cost: { kind: "metered" as const, currency: "USD" },
+        }])),
+      admit: vi.fn<OperatorExecutionTargetSelectionPort["admit"]>(async () => ({
         ok: true as const,
-        admission: { routeId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
+        admission: { targetId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
       })),
     };
     const resolveGuiOperatorDiscoverySpy = vi
@@ -335,7 +339,7 @@ describe("GUI gateway execution routing", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
        getProviderAvailability: () => ({ openai: true }),
-       executionRouteSelection,
+       executionTargetSelection,
       operatorTransport: {
         ...guiOperatorTransportDefaults,
           sessionManager: {
@@ -350,32 +354,30 @@ describe("GUI gateway execution routing", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen?.(new Event("open"), wsCtx);
 
-      routeAvailable = true;
+      targetAvailable = true;
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_execution_routes", requestId: "refresh-available" }),
+          data: JSON.stringify({ type: "refresh_model_catalog", requestId: "refresh-available" }),
         }),
         wsCtx,
       );
 
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
       expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "execution_routes_refreshed",
+        type: "model_catalog_refreshed",
         requestId: "refresh-available",
-        executionRouteCatalog: {
-          routes: [expect.objectContaining({ routeId: "openai-gpt", availability: "available" })],
-        },
+        modelCatalog: expect.objectContaining({ models: expect.any(Array) }),
       }));
 
-      vi.mocked(executionRouteSelection.getCatalog).mockRejectedValueOnce(new Error("Account evidence unavailable."));
+      vi.mocked(executionTargetSelection.getTargets).mockRejectedValueOnce(new Error("Account evidence unavailable."));
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_execution_routes", requestId: "refresh-failed" }),
+          data: JSON.stringify({ type: "refresh_model_catalog", requestId: "refresh-failed" }),
         }),
         wsCtx,
       );
       expect(mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
-        type: "execution_routes_refresh_failed",
+        type: "model_catalog_refresh_failed",
         requestId: "refresh-failed",
         message: "Account evidence unavailable.",
       });
@@ -441,7 +443,7 @@ describe("GUI gateway execution routing", () => {
     }
   });
 
-  it("does not publish execution routes in the fallback websocket welcome frame without operator transport", async () => {
+  it("does not publish execution targets in the fallback websocket welcome frame without operator transport", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     vi.stubGlobal("Bun", {
@@ -469,15 +471,15 @@ describe("GUI gateway execution routing", () => {
       const welcomeCall = mockWs.send.mock.calls[0]!;
       const welcomeFrame = JSON.parse(welcomeCall[0]) as {
         type: string;
-        executionRouteCatalog?: { routes: unknown[] };
+        modelCatalog?: { models: unknown[] };
       };
 
       expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.executionRouteCatalog?.routes ?? []).toEqual([]);
+      expect(welcomeFrame.modelCatalog?.models ?? []).toEqual([]);
       expect(JSON.parse(mockWs.send.mock.calls[1]![0] as string)).toMatchObject({
         type: "provider_catalog_state",
         status: "ready",
-        executionRouteCatalog: { routes: [] },
+        modelCatalog: { models: [] },
       });
     } finally {
       gateway?.shutdown();
@@ -485,26 +487,27 @@ describe("GUI gateway execution routing", () => {
     }
   });
 
-  it("publishes the current execution-route catalog on welcome and refresh", async () => {
+  it("publishes the current model catalog on welcome and refresh", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    let routeAvailable = true;
-    const executionRouteSelection = {
-      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
-        routes: [{
-          routeId: "openai-gpt",
+    let targetAvailable = true;
+    const executionTargetSelection = {
+      getTargets: vi.fn<OperatorExecutionTargetSelectionPort["getTargets"]>(async () => ([{
+          targetId: "openai-gpt",
           label: "OpenAI GPT",
           providerId: "openai",
           providerModelId: GPT4O,
-          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
-          availability: routeAvailable ? "available" as const : "unavailable" as const,
-          reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
-          repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
-        }],
-      })),
-      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async () => ({
+          access: "api" as const,
+          availability: targetAvailable ? "available" as const : "unavailable" as const,
+          reasonCodes: targetAvailable ? [] as const : ["missing-credentials"] as const,
+          repairActions: targetAvailable ? [] as const : ["authenticate-provider"] as const,
+          eligibleAccountCount: targetAvailable ? 1 : 0,
+          accountOverrideIds: [],
+          cost: { kind: "metered" as const, currency: "USD" },
+        }])),
+      admit: vi.fn<OperatorExecutionTargetSelectionPort["admit"]>(async () => ({
         ok: true as const,
-        admission: { routeId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
+        admission: { targetId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
       })),
     };
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
@@ -528,7 +531,7 @@ describe("GUI gateway execution routing", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         getProviderAvailability: () => ({ openai: true }),
-        executionRouteSelection,
+        executionTargetSelection,
         operatorTransport: {
           ...guiOperatorTransportDefaults,
           sessionManager: {
@@ -545,43 +548,43 @@ describe("GUI gateway execution routing", () => {
       const welcomeCall = mockWs.send.mock.calls[0]!;
       const welcomeFrame = JSON.parse(welcomeCall[0]) as {
         type: string;
-        executionRouteCatalog: {
-          routes: Array<{ routeId: string; availability: string }>;
+        modelCatalog: {
+          models: Array<{ targets: Array<{ targetId: string; availability: string }> }>;
         };
       };
 
       expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.executionRouteCatalog.routes).toEqual([
-        expect.objectContaining({ routeId: "openai-gpt", availability: "available" }),
+      expect(welcomeFrame.modelCatalog.models.flatMap((model) => model.targets)).toEqual([
+        expect.objectContaining({ targetId: "openai-gpt", availability: "available" }),
       ]);
 
-      routeAvailable = false;
+      targetAvailable = false;
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_execution_routes", requestId: "refresh-unavailable" }),
+          data: JSON.stringify({ type: "refresh_model_catalog", requestId: "refresh-unavailable" }),
         }),
         wsCtx,
       );
       const refreshFrame = mockWs.send.mock.calls
         .map(([payload]) => JSON.parse(payload as string) as {
           type: string;
-          executionRouteCatalog?: {
-            routes: Array<{ routeId: string; availability: string; reasonCodes: string[]; repairActions: string[] }>;
+          modelCatalog?: {
+            models: Array<{ targets: Array<{ targetId: string; availability: string; reasonCodes: string[]; repairActions: string[] }> }>;
           };
         })
-        .find((frame) => frame.type === "execution_routes_refreshed");
+        .find((frame) => frame.type === "model_catalog_refreshed");
 
       expect(refreshFrame).toMatchObject({
-        type: "execution_routes_refreshed",
+        type: "model_catalog_refreshed",
         requestId: "refresh-unavailable",
-        executionRouteCatalog: {
-          routes: [expect.objectContaining({
-            routeId: "openai-gpt",
+        modelCatalog: expect.objectContaining({
+          models: [expect.objectContaining({ targets: [expect.objectContaining({
+            targetId: "openai-gpt",
             availability: "unavailable",
             reasonCodes: ["missing-credentials"],
             repairActions: ["authenticate-provider"],
-          })],
-        },
+          })] })],
+        }),
       });
     } finally {
       gateway?.shutdown();

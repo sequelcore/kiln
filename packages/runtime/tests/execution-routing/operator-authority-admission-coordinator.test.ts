@@ -16,7 +16,7 @@ const READ_EFFECT: ActionEffectEnvelope = {
 };
 
 function request(executionId = "turn-1"): OperatorSessionExecutionRequest<{ readonly text: string }> {
-  return { executionId, intentFingerprint: `sha256:${"a".repeat(64)}`, intent: { routeId: "route-1" }, payload: { text: "hello" } };
+  return { executionId, intentFingerprint: `sha256:${"a".repeat(64)}`, intent: { targetId: "route-1" }, payload: { text: "hello" } };
 }
 
 function facets(sessionId: string, turnId = "turn-1"): OperatorSessionAuthorityAdmissionFacets {
@@ -62,10 +62,10 @@ function prepareInput(turnRequest: ReturnType<typeof request>) {
   return {
     request: turnRequest,
     admission: {
-      routeId: "route-1",
+      targetId: "route-1",
       providerId: "provider",
       providerModelId: "model",
-      accountSelection: { mode: "exact", accountId: "account", source: "route" },
+      accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "account" },
     },
     snapshot: { catalog: {} as never, configurationRevision: REVISION },
     binding: { status: "bound", routeId: "route-1", accountId: "account", credentialId: "cred", credentialRevision: "c1" },

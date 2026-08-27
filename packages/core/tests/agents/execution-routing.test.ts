@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   admitOperatorExecutionIntent,
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   selectAdmittedExecutionAccount,
   type ExecutionAccountAdmissionCandidate,
 } from "../../src/agents/execution-routing/index.js";
@@ -32,7 +32,7 @@ const accountEconomics = {
   overagePosture: "disabled" as const,
 };
 
-const routeEconomics = {
+const targetEconomics = {
   adapterCapabilityId: "fixture-adapter",
   adapterCapabilityVersion: "v1",
   authBillingChannel: "fixture-auth",
@@ -70,16 +70,17 @@ const dataPolicyEvidence = (providerId: string, providerModelId: string) => ({
 });
 
 function catalog() {
-  return defineExecutionCatalog({
+  return defineExecutionTargetCatalog({
     accounts: [
       { id: "work", providerId: "codex-oauth", credentialId: "credential-work", maxConcurrency: 2, reservedAffinitySlots: 1, economics: accountEconomics },
       { id: "personal", providerId: "codex-oauth", credentialId: "credential-personal", maxConcurrency: 2, reservedAffinitySlots: 1, economics: accountEconomics },
       { id: "other", providerId: "opencode-go", credentialId: "credential-other", maxConcurrency: 2, reservedAffinitySlots: 1, economics: accountEconomics },
     ],
     accountPolicies: [
-      { id: "codex-automatic", accountIds: ["work", "personal"], strategy: "economic-least-pressure" },
+      { id: "codex-shared", accountIds: ["work", "personal"], strategy: "economic-least-pressure" },
+      { id: "codex-work", accountIds: ["work"], strategy: "economic-least-pressure" },
     ],
-    routes: [
+    targets: [
       {
         id: "terra",
         providerId: "codex-oauth",
@@ -87,8 +88,8 @@ function catalog() {
         providerModelId: "codex/gpt-5.6-terra",
         dataClassification: "confidential",
         dataPolicyEvidence: dataPolicyEvidence("codex-oauth", "codex/gpt-5.6-terra"),
-        accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" },
-        economics: routeEconomics,
+        accountPolicyId: "codex-shared",
+        economics: targetEconomics,
       },
       {
         id: "terra-work",
@@ -97,8 +98,8 @@ function catalog() {
         providerModelId: "codex/gpt-5.6-terra",
         dataClassification: "confidential",
         dataPolicyEvidence: dataPolicyEvidence("codex-oauth", "codex/gpt-5.6-terra"),
-        accountSelection: { mode: "exact", accountId: "work" },
-        economics: routeEconomics,
+        accountPolicyId: "codex-work",
+        economics: targetEconomics,
       },
     ],
   });
@@ -125,76 +126,82 @@ describe("execution routing", () => {
     const defined = catalog();
 
     expect(Object.isFrozen(defined)).toBe(true);
-    expect(Object.isFrozen(defined.routes)).toBe(true);
+    expect(Object.isFrozen(defined.targets)).toBe(true);
     expect(Object.isFrozen(defined.accounts[0]!.economics)).toBe(true);
-    expect(Object.isFrozen(defined.routes[0]!.economics.executionEnvelope.limits)).toBe(true);
-    expect(() => defineExecutionCatalog({ ...defined, accounts: [...defined.accounts, { id: "work", providerId: "codex-oauth", credentialId: "other", maxConcurrency: 1, reservedAffinitySlots: 0, economics: accountEconomics }] })).toThrow(/unique canonical id/u);
-    expect(() => defineExecutionCatalog({ ...defined, accountPolicies: [{ id: "mixed", accountIds: ["work", "other"], strategy: "economic-least-pressure" }] })).toThrow(/same provider/u);
-    expect(() => defineExecutionCatalog({ ...defined, routes: [{ ...defined.routes[0]!, id: "-bad" }] })).toThrow(/canonical id/u);
-    expect(() => defineExecutionCatalog({ ...defined, accounts: [{ ...defined.accounts[0]!, maxConcurrency: 0 }] })).toThrow(/maxConcurrency/u);
-    expect(() => defineExecutionCatalog({ ...defined, accounts: [{ ...defined.accounts[0]!, reservedAffinitySlots: 3 }] })).toThrow(/reservedAffinitySlots/u);
+    expect(Object.isFrozen(defined.targets[0]!.economics.executionEnvelope.limits)).toBe(true);
+    expect(() => defineExecutionTargetCatalog({ ...defined, accounts: [...defined.accounts, { id: "work", providerId: "codex-oauth", credentialId: "other", maxConcurrency: 1, reservedAffinitySlots: 0, economics: accountEconomics }] })).toThrow(/unique canonical id/u);
+    expect(() => defineExecutionTargetCatalog({ ...defined, accountPolicies: [{ id: "mixed", accountIds: ["work", "other"], strategy: "economic-least-pressure" }] })).toThrow(/same provider/u);
+    expect(() => defineExecutionTargetCatalog({ ...defined, targets: [{ ...defined.targets[0]!, id: "-bad" }] })).toThrow(/canonical id/u);
+    expect(() => defineExecutionTargetCatalog({ ...defined, accounts: [{ ...defined.accounts[0]!, maxConcurrency: 0 }] })).toThrow(/maxConcurrency/u);
+    expect(() => defineExecutionTargetCatalog({ ...defined, accounts: [{ ...defined.accounts[0]!, reservedAffinitySlots: 3 }] })).toThrow(/reservedAffinitySlots/u);
   });
 
-  it("rejects malformed persisted account and route economics", () => {
+  it("rejects malformed persisted account and target economics", () => {
     const defined = catalog();
 
-    expect(() => defineExecutionCatalog({
+    expect(() => defineExecutionTargetCatalog({
       ...defined,
       accounts: defined.accounts.map((account, index) => index === 0
         ? { ...account, economics: { ...accountEconomics, quotaClassId: "" } as typeof accountEconomics }
         : account),
     })).toThrow(/quotaClassId/u);
 
-    expect(() => defineExecutionCatalog({
+    expect(() => defineExecutionTargetCatalog({
       ...defined,
-      routes: [{
-        ...defined.routes[0]!,
+      targets: [{
+        ...defined.targets[0]!,
         economics: {
-          ...routeEconomics,
+          ...targetEconomics,
           priceEvidence: {
-            ...routeEconomics.priceEvidence,
+            ...targetEconomics.priceEvidence,
             evidence: { ...evidence, sourceDigest: "" },
           },
-        } as typeof routeEconomics,
+        } as typeof targetEconomics,
       }],
     })).toThrow(/sourceDigest/u);
 
-    expect(() => defineExecutionCatalog({
+    expect(() => defineExecutionTargetCatalog({
       ...defined,
-      routes: [{
-        ...defined.routes[0]!,
+      targets: [{
+        ...defined.targets[0]!,
         economics: {
-          ...routeEconomics,
+          ...targetEconomics,
           executionEnvelope: { limits: [{ ...cost("1"), scale: 19 }] },
-        } as typeof routeEconomics,
+        } as typeof targetEconomics,
       }],
     })).toThrow(/scale/u);
   });
 
-  it("rejects unknown references and incompatible route providers", () => {
+  it("rejects unknown references and incompatible target providers", () => {
     const defined = catalog();
 
-    expect(() => defineExecutionCatalog({ ...defined, routes: [{ ...defined.routes[0]!, accountSelection: { mode: "automatic", accountPolicyId: "missing" } }] })).toThrow(/unknown account policy/u);
-    expect(() => defineExecutionCatalog({ ...defined, routes: [{ ...defined.routes[1]!, providerId: "opencode-go" }] })).toThrow(/provider/u);
+    expect(() => defineExecutionTargetCatalog({ ...defined, targets: [{ ...defined.targets[0]!, accountPolicyId: "missing" }] })).toThrow(/unknown account policy/u);
+    expect(() => defineExecutionTargetCatalog({ ...defined, targets: [{ ...defined.targets[1]!, providerId: "opencode-go" }] })).toThrow(/provider/u);
   });
 
-  it("admits overrides only for automatic routes and commits secret-free identity", () => {
+  it("admits policy overrides only within the target policy and commits secret-free identity", () => {
     const defined = catalog();
-    const automatic = admitOperatorExecutionIntent(defined, { routeId: "terra", accountOverrideId: "personal" });
+    const overridden = admitOperatorExecutionIntent(defined, { targetId: "terra", accountOverrideId: "personal" });
 
-    expect(automatic).toEqual({
-      routeId: "terra",
+    expect(overridden).toEqual({
+      targetId: "terra",
       providerId: "codex-oauth",
       providerModelId: "codex/gpt-5.6-terra",
-      accountSelection: { mode: "exact", accountId: "personal", source: "operator-override" },
+      accountSelection: { kind: "operator-override", accountPolicyId: "codex-shared", accountId: "personal" },
     });
-    expect(JSON.stringify(automatic)).not.toContain("credential");
-    expect(() => admitOperatorExecutionIntent(defined, { routeId: "terra-work", accountOverrideId: "personal" })).toThrow(/automatic/u);
-    expect(() => admitOperatorExecutionIntent(defined, { routeId: "terra", accountOverrideId: "other" })).toThrow(/not eligible/u);
+    expect(JSON.stringify(overridden)).not.toContain("credential");
+    expect(selectAdmittedExecutionAccount(overridden, [
+      candidate("work", { economicCost: cost("0") }),
+      candidate("personal", { economicCost: cost("1") }),
+    ])).toMatchObject({ kind: "selected", accountId: "personal" });
+    expect(() => admitOperatorExecutionIntent(defined, { targetId: "terra-work", accountOverrideId: "personal" })).toThrow(/not eligible/u);
+    expect(admitOperatorExecutionIntent(defined, { targetId: "terra-work", accountOverrideId: "work" }).accountSelection).toEqual({
+      kind: "operator-override", accountPolicyId: "codex-work", accountId: "work",
+    });
   });
 
   it("rejects safety, health, exhausted or unknown quota, and capacity before ranking economic candidates", () => {
-    const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
+    const admission = admitOperatorExecutionIntent(catalog(), { targetId: "terra" });
     const selected = selectAdmittedExecutionAccount(admission, [
       candidate("work", { safety: "ineligible", economicCost: cost("0") }),
       candidate("personal", { health: "unhealthy", economicCost: cost("0") }),
@@ -216,7 +223,7 @@ describe("execution routing", () => {
   });
 
   it("rejects candidates with invalid managed economic costs", () => {
-    const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
+    const admission = admitOperatorExecutionIntent(catalog(), { targetId: "terra" });
     const invalidCost = { ...cost("1"), atoms: "not-canonical" } as ExecutionAccountAdmissionCandidate["economicCost"];
 
     expect(() => selectAdmittedExecutionAccount(admission, [
@@ -224,8 +231,8 @@ describe("execution routing", () => {
     ])).toThrow(/economicCost/u);
   });
 
-  it("orders automatic candidates by cost, pressure, then account id deterministically", () => {
-    const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
+  it("orders policy candidates by cost, pressure, then account id deterministically", () => {
+    const admission = admitOperatorExecutionIntent(catalog(), { targetId: "terra" });
     const selected = selectAdmittedExecutionAccount(admission, [
       candidate("work", { economicCost: cost("1.00"), pressure: 2 }),
       candidate("personal", { economicCost: cost("1"), pressure: 1 }),
@@ -239,8 +246,8 @@ describe("execution routing", () => {
     expect(tie).toMatchObject({ kind: "selected", accountId: "personal" });
   });
 
-  it("never falls back from an exact selection", () => {
-    const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra-work" });
+  it("never falls back from a one-account target policy", () => {
+    const admission = admitOperatorExecutionIntent(catalog(), { targetId: "terra-work" });
     const selected = selectAdmittedExecutionAccount(admission, [
       candidate("work", { health: "unhealthy" }),
       candidate("personal"),

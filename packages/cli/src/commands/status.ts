@@ -11,7 +11,7 @@ import { discoverManagedAgentProviderModels } from "../config/managed-agent-prov
 import {
   resolveManagedInvocationToolOptions,
 } from "../config/managed-agent-routes.js";
-import { readGlobalConfig, readGlobalExecutionCatalog } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionTargetCatalog } from "../config/global-config.js";
 import type { KilnSkillCatalogSummarySnapshot } from "@kilnai/gateway-contracts";
 import {
   EngineRegistry,
@@ -95,7 +95,7 @@ export async function statusCommand(
   const managedInvocationConfig = globalConfig
     ? {
       ...globalConfig,
-      executionCatalog: readGlobalExecutionCatalog(globalConfig) ?? undefined,
+      executionCatalog: readGlobalExecutionTargetCatalog(globalConfig) ?? undefined,
       managedAgents: config.managedAgents ?? globalConfig.managedAgents,
     }
     : config;

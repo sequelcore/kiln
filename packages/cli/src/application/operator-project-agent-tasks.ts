@@ -31,7 +31,7 @@ import {
   type ManagedEconomicCommitmentRecord,
   type ManagedEconomicDispatchAuthorityPort,
   type ManagedWriteApprovalBinding,
-  type SanitizedExecutionRouteDataPolicyDecision,
+  type SanitizedExecutionTargetDataPolicyDecision,
   type EffectiveAuthorityAdmissionBundle,
 } from "@kilnai/runtime";
 import type {
@@ -418,15 +418,15 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
     throw error;
   }
   const governance = createOperatorProjectGovernanceReader(root.rootPath, projectStateBinding);
-  const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionRouteDataPolicyDecision => {
+  const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionTargetDataPolicyDecision => {
     const currentPolicyConfig = loadRouteConfig();
-    const directTarget = currentPolicyConfig?.executionCatalog?.routes.find(({ id }) => id === route.routeId);
+    const directTarget = currentPolicyConfig?.executionCatalog?.targets.find(({ id }) => id === route.routeId);
     const intentTarget = currentPolicyConfig?.targetCatalog?.targets.find(({ id }) => id === route.routeId);
     const managedTarget = currentPolicyConfig?.executionTargetEvidence?.targets.find(({ targetId }) => targetId === route.routeId);
     try {
       if (!intentTarget || !managedTarget) throw new Error("Missing target data-policy authority.");
       const result = evaluateExecutionTargetDataPolicy({
-        routeId: route.routeId,
+        targetId: route.routeId,
         providerId: route.providerId,
         providerModelId: route.model,
         requestedClassification: directTarget?.dataClassification ?? intentTarget.dataClassification,
@@ -843,7 +843,7 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
           );
         }
         const dataPolicyDecision = managedAccountComposition.routing.assertAdmittedDataPolicy({
-          routeId: selected.routeId,
+          targetId: selected.routeId,
           providerId: selected.providerId,
           providerModelId: selected.modelId,
         });

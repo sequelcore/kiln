@@ -171,7 +171,7 @@ async function completeTurn(input: {
       orchestrator: input.runtime.orchestrator.bindProvider(
         admitted.provider,
         admitted.bundle.turn.execution.status === "routed"
-          ? admitted.bundle.turn.execution.route.providerModelId
+          ? admitted.bundle.turn.execution.target.providerModelId
           : undefined,
       ),
       sessionRegistry: input.runtime.sessionRegistry,

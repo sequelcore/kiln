@@ -428,16 +428,16 @@ export {
   runtimeMediaActionDigest,
 } from "./execution-kernel/runtime-media-action-claim.js";
 export type {
-  ExecutionRouteDataPolicyIdentity,
+  ExecutionTargetDataPolicyIdentity,
   ExecutionTargetDataPolicyInput,
-  SanitizedExecutionRouteDataPolicyDecision,
-  SanitizedExecutionRouteDataPolicyEvidence,
-} from "./execution-routing/execution-route-data-policy-authority.js";
+  SanitizedExecutionTargetDataPolicyDecision,
+  SanitizedExecutionTargetDataPolicyEvidence,
+} from "./execution-routing/execution-target-data-policy-authority.js";
 export {
-  ExecutionRouteDataPolicyAuthority,
-  ExecutionRouteDataPolicyDeniedError,
+  ExecutionTargetDataPolicyAuthority,
+  ExecutionTargetDataPolicyDeniedError,
   evaluateExecutionTargetDataPolicy,
-} from "./execution-routing/execution-route-data-policy-authority.js";
+} from "./execution-routing/execution-target-data-policy-authority.js";
 export type {
   OperatorAuthorityAdmissionCoordinatorOptions,
   OperatorAuthorityAdmissionSessionResolution,
@@ -452,8 +452,8 @@ export type {
   OperatorSessionCredentialPort,
   OperatorSessionExecutionCandidate,
   OperatorSessionExecutionCandidatePort,
-  OperatorSessionExecutionCatalogSnapshot,
-  OperatorSessionExecutionCatalogSource,
+  OperatorSessionExecutionTargetCatalogSnapshot,
+  OperatorSessionExecutionTargetCatalogSource,
   OperatorSessionExecutionDispatch,
   OperatorSessionExecutionRequest,
   OperatorSessionExecutionResult,
@@ -523,11 +523,8 @@ export {
 } from "./gateway/attached-runtime-tool-surface.js";
 // Auth
 export { isOriginAllowed, requireApiKey, requireBearer, requireWebhookSignature } from "./gateway/auth-middleware.js";
-export type { AvailableModelConfiguredRouteIdentity } from "./gateway/available-model-catalog-projector.js";
-export {
-  projectAvailableModelCatalog,
-  projectAvailableModelCatalogForExecutionRoutes,
-} from "./gateway/available-model-catalog-projector.js";
+export type { ConfiguredModelTarget, ModelMetadataRecord } from "./gateway/model-catalog-projector.js";
+export { projectModelCatalog } from "./gateway/model-catalog-projector.js";
 export type { BillingConfig, BudgetCheckResult, TierCheckResult } from "./gateway/budget-middleware.js";
 export { checkBudget, checkTier } from "./gateway/budget-middleware.js";
 export {
@@ -666,10 +663,11 @@ export type {
 } from "./gateway/openai-responses-routes.js";
 export { createOpenAIResponsesRoutes, OPENAI_RESPONSES_RAW_BODY_MAX_BYTES } from "./gateway/openai-responses-routes.js";
 export type {
-  OperatorExecutionRouteAdmission,
-  OperatorExecutionRouteAdmissionResult,
-  OperatorExecutionRouteSelectionPort,
-} from "./gateway/operator-execution-route-selection.js";
+  OperatorExecutionTargetAdmission,
+  OperatorExecutionTargetAdmissionResult,
+  OperatorExecutionTargetCatalogEntry,
+  OperatorExecutionTargetSelectionPort,
+} from "./gateway/operator-execution-target-selection.js";
 export type { OutboundRoutesConfig } from "./gateway/outbound-routes.js";
 export { createOutboundRoutes } from "./gateway/outbound-routes.js";
 export type { ProviderAdapterAppRuntime } from "./gateway/provider-adapter-routes.js";
@@ -1160,7 +1158,7 @@ export {
   readExecutionBinding,
   readExecutionConfigurationRevision,
   readExecutionOperatorAdoptionDecision,
-  readExecutionRoute,
+  readExecutionTarget,
   readExecutionToolAllowlist,
   readExecutionToolAuthority,
   readExecutionTurnAuthority,

@@ -1,6 +1,6 @@
 import { useSessionStore } from "../lib/session-store/index.js";
 
-const EXECUTION_ROUTE_SELECTION_WAIT_TIMEOUT_MS = 5_500;
+const EXECUTION_TARGET_SELECTION_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function toWsUrl(path: string): string {
@@ -28,9 +28,9 @@ export function resolveGatewayHttpBaseUrl(): string {
   return window.location.origin;
 }
 
-export function waitForExecutionRouteSelectionResolution(routeId: string, accountOverrideId?: string): Promise<void> {
+export function waitForExecutionTargetSelectionResolution(targetId: string, accountOverrideId?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + EXECUTION_ROUTE_SELECTION_WAIT_TIMEOUT_MS;
+    const deadline = Date.now() + EXECUTION_TARGET_SELECTION_WAIT_TIMEOUT_MS;
     let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
 
@@ -47,23 +47,23 @@ export function waitForExecutionRouteSelectionResolution(routeId: string, accoun
 
     const poll = () => {
       const state = useSessionStore.getState();
-      if (!state.executionRouteSelecting) {
-        if (state.activeRouteId === routeId && state.activeAccountOverrideId === (accountOverrideId ?? null)) {
+      if (!state.executionTargetSelecting) {
+        if (state.activeTargetId === targetId && state.activeAccountOverrideId === (accountOverrideId ?? null)) {
           settle(resolve);
           return;
         }
         settle(() => {
           reject(new Error(
-            state.providerOperationFailure?.operation === "select-route"
+            state.providerOperationFailure?.operation === "select-target"
               ? state.providerOperationFailure.message
-              : "Execution-route selection failed.",
+              : "Model selection failed.",
           ));
         });
         return;
       }
       if (Date.now() >= deadline) {
         settle(() => {
-          reject(new Error("Execution-route selection timed out. Please retry."));
+          reject(new Error("Model selection timed out. Please retry."));
         });
         return;
       }

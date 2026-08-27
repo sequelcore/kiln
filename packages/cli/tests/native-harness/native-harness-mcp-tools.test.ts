@@ -405,12 +405,12 @@ describe("NativeHarnessMcpTools", () => {
   it("returns sanitized account usage without accepting account selection arguments", async () => {
     const inspect = vi.fn<AccountUsageInspectionService["inspect"]>(async () => ({
       operation: "account-usage",
-      accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", evidenceState: "fresh", source: "provider-endpoint", confidence: "authoritative", operatorAction: "none", eligibleRoutes: ["codex-managed"] }],
+      accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", evidenceState: "fresh", source: "provider-endpoint", confidence: "authoritative", operatorAction: "none", eligibleTargets: ["codex-managed"] }],
       evidence: { authority: "global-execution-catalog", observedAt: OBSERVED_AT },
     }));
     const server = new NativeHarnessMcpTools({ harness: "codex", accountUsage: { inspect } });
     const result = await server.callTool("kiln_account_usage_inspect", {});
-    expect(result.structuredContent).toMatchObject({ accounts: [{ credentialId: "opaque-id", eligibleRoutes: ["codex-managed"] }] });
+    expect(result.structuredContent).toMatchObject({ accounts: [{ credentialId: "opaque-id", eligibleTargets: ["codex-managed"] }] });
     expect(JSON.stringify(result)).not.toMatch(/token|email|path|raw/i);
     await expect(server.callTool("kiln_account_usage_inspect", { credentialId: "opaque-id" })).resolves.toMatchObject({ isError: true });
     expect(inspect).toHaveBeenCalledTimes(1);

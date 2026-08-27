@@ -22,7 +22,7 @@ import {
 import {
 } from "../../src/gateway/gui-provider-models.js";
 
-const {guiOperatorTransportDefaults, createGuiDist, waitForCondition, selectGuiTestExecutionRoute, makeGuiOperatorDiscoveryFromModels} = guiFixture;
+const {guiOperatorTransportDefaults, createGuiDist, waitForCondition, selectGuiTestExecutionTarget, makeGuiOperatorDiscoveryFromModels} = guiFixture;
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
 
 describe("GUI gateway activity", () => {
@@ -84,7 +84,7 @@ describe("GUI gateway activity", () => {
       });
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "inspect" }) }),
         wsCtx,
@@ -215,7 +215,7 @@ describe("GUI gateway activity", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "open the browser" }),
@@ -355,7 +355,7 @@ describe("GUI gateway activity", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "open the browser" }),
@@ -449,7 +449,7 @@ describe("GUI active turn lifecycle", () => {
       });
       const { handlers, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       const activeMessage = handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
         wsCtx,
@@ -516,7 +516,7 @@ describe("GUI active turn lifecycle", () => {
         "Expected GUI provider models before cancellation test.",
       );
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       const activeMessage = handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
         wsCtx,
@@ -640,7 +640,7 @@ describe("GUI active turn lifecycle", () => {
       );
       const { handlers, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       const activeMessage = handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
         wsCtx,
@@ -663,7 +663,7 @@ describe("GUI active turn lifecycle", () => {
           }),
         }),
       );
-      await selectGuiTestExecutionRoute(reconnect.handlers, reconnect.wsCtx);
+      await selectGuiTestExecutionTarget(reconnect.handlers, reconnect.wsCtx);
       await reconnect.handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "duplicate task" }) }),
         reconnect.wsCtx,

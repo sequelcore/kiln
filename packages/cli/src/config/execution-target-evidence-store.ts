@@ -11,15 +11,14 @@ import { dirname, join } from "node:path";
 import { Type, type Static, type TObject, type TProperties } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import {
-  defineExecutionCatalog,
-  defineExecutionRouteDataPolicyEvidence,
+  defineExecutionTargetCatalog,
+  defineExecutionTargetDataPolicyEvidence,
   type ExecutionAccountPolicy,
   type ExecutionAccountEconomicsConfig,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ExecutionDataClassification,
-  type ExecutionRouteAccountSelection,
-  type ExecutionRouteDataPolicyEvidence,
-  type ExecutionRouteEconomicsConfig,
+  type ExecutionTargetDataPolicyEvidence,
+  type ExecutionTargetEconomicsConfig,
 } from "@kilnai/core";
 
 export const EXECUTION_TARGET_EVIDENCE_VERSION = 1 as const;
@@ -184,9 +183,9 @@ export interface DirectExecutionTargetEvidence {
   readonly targetId: string;
   readonly kind: "direct";
   readonly discovery: ManagedDiscoveryEvidence;
-  readonly dataPolicyEvidence: ExecutionRouteDataPolicyEvidence;
+  readonly dataPolicyEvidence: ExecutionTargetDataPolicyEvidence;
   readonly economics: Pick<
-    ExecutionRouteEconomicsConfig,
+    ExecutionTargetEconomicsConfig,
     | "adapterCapabilityId"
     | "adapterCapabilityVersion"
     | "rateCardBasis"
@@ -201,7 +200,7 @@ export interface HarnessExecutionTargetEvidence {
   readonly targetId: string;
   readonly kind: "harness";
   readonly discovery: ManagedDiscoveryEvidence;
-  readonly dataPolicyEvidence: ExecutionRouteDataPolicyEvidence;
+  readonly dataPolicyEvidence: ExecutionTargetDataPolicyEvidence;
   readonly limitations?: readonly string[];
 }
 export interface ExecutionTargetEvidenceSnapshot {
@@ -228,7 +227,7 @@ export interface DirectExecutionTargetIntent {
   readonly label: string;
   readonly providerId: string;
   readonly providerModelId: string;
-  readonly accountSelection: ExecutionRouteAccountSelection;
+  readonly accountPolicyId: string;
   readonly dataClassification: ExecutionDataClassification;
   readonly economics: {
     readonly authBillingChannel: string;
@@ -281,7 +280,7 @@ export function defineExecutionTargetEvidenceSnapshot(value: unknown): Execution
     if (Date.parse(target.discovery.expiresAt) <= Date.parse(target.discovery.observedAt)) {
       throw new Error(`Execution target '${target.targetId}' discovery evidence expiresAt must follow observedAt.`);
     }
-    defineExecutionRouteDataPolicyEvidence(target.dataPolicyEvidence);
+    defineExecutionTargetDataPolicyEvidence(target.dataPolicyEvidence);
     if (target.kind === "direct") {
       validTimestamp(target.economics.priceEvidence.evidence.observedAt, `targets.${target.targetId}.economics.priceEvidence.evidence.observedAt`);
       validTimestamp(target.economics.priceEvidence.evidence.validUntil, `targets.${target.targetId}.economics.priceEvidence.evidence.validUntil`);
@@ -354,12 +353,12 @@ export function readExecutionTargetEvidenceSnapshot(input: {
   return snapshot;
 }
 
-export function projectExecutionCatalogFromIntent(
+export function projectExecutionTargetCatalogFromIntent(
   intent: ExecutionTargetCatalogIntent,
   evidenceValue: unknown,
   evidenceRevision: ExecutionTargetEvidenceRevision,
   options: { readonly now?: Date } = {},
-): ExecutionCatalog {
+): ExecutionTargetCatalog {
   const evidence = defineExecutionTargetEvidenceSnapshot(evidenceValue);
   const actualRevision = executionTargetEvidenceRevision(evidence);
   if (actualRevision !== evidenceRevision || intent.evidenceRevision !== evidenceRevision) {
@@ -388,7 +387,7 @@ export function projectExecutionCatalogFromIntent(
       economics: { ...managed.economics, ...account.economics },
     };
   });
-  const routes = intent.targets.flatMap((target) => {
+  const targets = intent.targets.flatMap((target) => {
     const managed = targetEvidence.get(target.id)!;
     if (managed.kind !== target.kind) {
       throw new Error(`Execution target '${target.id}' managed evidence kind mismatch.`);
@@ -407,13 +406,13 @@ export function projectExecutionCatalogFromIntent(
       label: target.label,
       providerId: target.providerId,
       providerModelId: target.providerModelId,
-      accountSelection: target.accountSelection,
+      accountPolicyId: target.accountPolicyId,
       dataClassification: target.dataClassification,
       dataPolicyEvidence: managed.dataPolicyEvidence,
       economics: { ...managed.economics, ...target.economics },
     }];
   });
-  return defineExecutionCatalog({ accounts, accountPolicies: intent.accountPolicies, routes });
+  return defineExecutionTargetCatalog({ accounts, accountPolicies: intent.accountPolicies, targets });
 }
 
 function assertTargetEvidenceIdentity(

@@ -39,10 +39,10 @@ import {
   isDirectApiProvider,
   type ProviderId,
 } from "../wrapper/session-registry.js";
-import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
+import { resolveExecutionTargetCandidates } from "../config/execution-target-resolver.js";
 import {
   readGlobalConfigSnapshot,
-  readGlobalExecutionCatalog,
+  readGlobalExecutionTargetCatalog,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
@@ -306,21 +306,21 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       : input;
     const mode: SessionMode = "cli-wrapper";
     const globalConfig = configurationAdmission.globalConfig;
-    const directExecutionCatalog = readGlobalExecutionCatalog(globalConfig);
+    const directExecutionTargetCatalog = readGlobalExecutionTargetCatalog(globalConfig);
     const managedRouteConfig = globalConfig
-      ? { ...globalConfig, executionCatalog: directExecutionCatalog ?? undefined }
+      ? { ...globalConfig, executionCatalog: directExecutionTargetCatalog ?? undefined }
       : undefined;
     const projectConfig = benchmarkWorkspace.kind === "repository"
       ? readKilnYamlFile(projectStateBinding.configPath)
       : undefined;
     const resolvedKilnConfig = configurationAdmission.resolvedKilnConfig;
-    const configuredRouteCandidates = resolveExecutionRouteCandidates({
+    const configuredRouteCandidates = resolveExecutionTargetCandidates({
       globalConfig,
-      executionCatalog: directExecutionCatalog,
-      routeId: options.flags?.targetId,
+      executionCatalog: directExecutionTargetCatalog,
+      targetId: options.flags?.targetId,
     });
     const configuredRouteCandidate = configuredRouteCandidates[0];
-    expectedRouteId = configuredRouteCandidate?.routeId;
+    expectedRouteId = configuredRouteCandidate?.targetId;
     if (isFormalScreening) {
       if (!options.flags?.targetId || options.flags.targetId.trim().length === 0) {
         throw new Error("Formal screening requires an explicit targetId.");
@@ -328,7 +328,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       if (configuredRouteCandidates.length !== 1) {
         throw new Error("Formal screening requires exactly one configured route candidate.");
       }
-      if (!directExecutionCatalog) {
+      if (!directExecutionTargetCatalog) {
         throw new Error("Formal screening requires a canonical direct execution catalog.");
       }
     }
@@ -660,7 +660,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           formalAbortController.abort();
         }, FORMAL_SCREENING_BUDGET.wallClockMs)
       : undefined;
-    const result = await (configuredRouteCandidates.length > 0 && directExecutionCatalog
+    const result = await (configuredRouteCandidates.length > 0 && directExecutionTargetCatalog
       ? (async () => {
           if (!configuredRouteCandidate) {
             throw new Error("Canonical benchmark dispatch requires one configured route candidate.");
@@ -674,11 +674,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           for (let index = 0; index < candidates.length; index += 1) {
             const accountOverrideId = candidates[index];
             const dispatcher = createCanonicalRunSessionDispatcher({
-              catalog: directExecutionCatalog,
+              catalog: directExecutionTargetCatalog,
               cwd,
               authorityStateRoot,
               executionId: `${sessionId}:account:${index}`,
-              routeId: configuredRouteCandidate.routeId,
+              targetId: configuredRouteCandidate.targetId,
               configurationRevision: configurationAdmission.configurationRevision,
               authorityAdmissionEvidenceStore: managedDirectAdmissionEvidence,
               captureCatalogSnapshot: () => {
@@ -689,7 +689,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
                   throw new Error("Canonical benchmark configuration changed after preflight admission.");
                 }
                 return Object.freeze({
-                  catalog: directExecutionCatalog,
+                  catalog: directExecutionTargetCatalog,
                   configurationRevision: configurationAdmission.configurationRevision,
                 });
               },

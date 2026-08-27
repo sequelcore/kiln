@@ -12,6 +12,7 @@ import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,
 } from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
+import { testModelCatalog } from "./fixtures/model-catalog.js";
 
 function resetSessionStore(): void {
   useSessionStore.setState({
@@ -29,10 +30,9 @@ function resetSessionStore(): void {
     providers: [],
     providerDiscovery: [],
     providerModelDiscovery: null,
-    availableModels: null,
-    executionRouteCatalog: { routes: [] },
+    modelCatalog: testModelCatalog(),
     executionTargetWizardResult: null,
-    activeRouteId: null,
+    activeTargetId: null,
     activeAccountOverrideId: null,
     sessionList: [],
     selectedSessionId: null,
@@ -56,8 +56,8 @@ function resetSessionStore(): void {
     goalControlFailure: null,
     approvalResponseFailure: null,
     approvalResponsesPending: [],
-    executionRouteSelecting: false,
-    executionRouteSelectionTarget: null,
+    executionTargetSelecting: false,
+    executionTargetSelectionTarget: null,
     providerAuthenticating: false,
     providerAuthTarget: null,
     providerAuthMessage: null,
@@ -70,7 +70,7 @@ function resetSessionStore(): void {
     browserLiveViewportFrame: null,
     outboundSend: null,
     clearTimeoutId: null,
-    executionRouteSelectionTimeoutId: null,
+    executionTargetSelectionTimeoutId: null,
     providerAuthTimeoutId: null,
   });
 }
@@ -128,26 +128,14 @@ describe("session-store", () => {
 
     useSessionStore.getState().onWelcome({
       type: "welcome",
-      executionRouteCatalog: {
-        routes: [{
-          routeId: "claude-sonnet",
-          label: "Claude Sonnet",
-          providerId: "claude",
-          providerModelId: "sonnet",
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
-          availability: "available",
-          reasonCodes: [],
-          repairActions: [],
-        }],
-      },
-      availableModels: { observedAt: "2026-08-23T00:00:00.000Z", entries: [] },
-      activeRouteId: "claude-sonnet",
+      modelCatalog: testModelCatalog({ targetId: "claude-sonnet", label: "Claude Sonnet", providerId: "claude", providerModelId: "sonnet" }),
+      activeTargetId: "claude-sonnet",
       executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
-    expect(state.executionRouteCatalog.routes.map((route) => route.routeId)).toEqual(["claude-sonnet"]);
-    expect(state.activeRouteId).toBe("claude-sonnet");
+    expect(state.modelCatalog.models.flatMap((model) => model.targets).map((target) => target.targetId)).toEqual(["claude-sonnet"]);
+    expect(state.activeTargetId).toBe("claude-sonnet");
     expect(state.planMode).toBe(true);
     expect(state.continuationTargetId).toBeNull();
     expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
@@ -2826,19 +2814,8 @@ describe("session-store", () => {
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({
       status: "ready",
-      executionRouteCatalog: {
-        routes: [{
-          routeId: "anthropic-sonnet",
-          label: "Claude Sonnet",
-          providerId: "anthropic",
-          providerModelId: "claude-sonnet",
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
-          availability: "available",
-          reasonCodes: [],
-          repairActions: [],
-        }],
-      },
-      activeRouteId: "anthropic-sonnet",
+      modelCatalog: testModelCatalog({ targetId: "anthropic-sonnet", label: "Claude Sonnet", providerId: "anthropic", providerModelId: "claude-sonnet" }),
+      activeTargetId: "anthropic-sonnet",
       contextUsage: {
         state: "authoritative",
         usedTokens: 2_000,
@@ -2910,8 +2887,7 @@ describe("session-store", () => {
     resetSessionStore();
     useSessionStore.getState().onWelcome({
       type: "welcome",
-      executionRouteCatalog: { routes: [] },
-      availableModels: { observedAt: "2026-08-23T00:00:00.000Z", entries: [] },
+      modelCatalog: testModelCatalog(),
       executionMode: "execute",
     });
 

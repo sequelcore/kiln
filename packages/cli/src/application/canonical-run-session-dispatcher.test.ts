@@ -86,7 +86,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       catalog: {} as never,
       cwd: "C:/workspace",
       executionId: "benchmark-trial-1",
-      routeId: "codex-sol",
+      targetId: "codex-sol",
       accountOverrideId: "subscription-a",
       authorityAdmissionEvidenceStore: authorityEvidenceStore,
       captureCatalogSnapshot: () => ({
@@ -105,7 +105,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       expect.objectContaining({
         executionId: "benchmark-trial-1",
         intent: {
-          routeId: "codex-sol",
+          targetId: "codex-sol",
           accountOverrideId: "subscription-a",
         },
       }),

@@ -10,13 +10,12 @@ import type { OperatorSessionTurnOutcome } from "./operator-session-summary.js";
 import type { OperatorWorkspaceHomeProjection } from "./operator-workspace-home.js";
 import type { CommunicationIntentWire } from "./communication-intent.js";
 import type {
-  ExecutionRouteCatalog,
-  ExecutionRouteChangeFailed,
-  ExecutionRouteChanged,
-  ExecutionRouteSelectionIntent,
-  ExecutionRouteThreadMeta,
-} from "./execution-route.js";
-import type { AvailableModelCatalog } from "./available-models.js";
+  ExecutionTargetChangeFailed,
+  ExecutionTargetChanged,
+  ExecutionTargetSelectionIntent,
+  ModelCatalog,
+} from "./model-catalog.js";
+import type { ExecutionThreadMeta } from "./execution-thread.js";
 import type { ExecutionTargetWizardRequest, ExecutionTargetWizardResult } from "./execution-target-wizard.js";
 
 // --- Dashboard / HTTP response shapes ---
@@ -171,7 +170,7 @@ export interface GuiAuthorityStatus {
   readonly completeness: GuiAuthorityCompleteness;
 }
 
-/** Provider/model capability evidence; not an operator route selection contract. */
+/** Provider/model capability evidence; not an operator target-selection contract. */
 export interface GuiProviderModelCapabilities {
   readonly supportsFunctionTools?: boolean;
   readonly supportsRuntimeTools?: boolean;
@@ -235,7 +234,7 @@ export interface GuiModelRoutingRationale {
   readonly overrideSource?: string;
 }
 
-/** Runtime provider discovery evidence, retained separately from route authority. */
+/** Runtime provider discovery evidence, retained separately from target authority. */
 export interface GuiProviderDiscoveryResult {
   readonly provider: string;
   readonly available: boolean;
@@ -345,7 +344,7 @@ export interface GuiProviderModelRouteEntry {
   readonly modelCapabilities?: GuiProviderModelCapabilities;
 }
 
-/** Provider discovery projection; route selection uses ExecutionRouteCatalog instead. */
+/** Provider discovery projection used to build the canonical model catalog. */
 export interface GuiProviderModelDiscoveryProjection {
   readonly catalogEvidence: GuiProviderCatalogEvidenceSummary;
   readonly entries: readonly GuiProviderModelRouteEntry[];
@@ -376,16 +375,14 @@ export interface GuiProviderAuthCompleted {
   readonly type: "provider_auth_completed";
   readonly provider: string;
   readonly requestId: string;
-  readonly executionRouteCatalog: ExecutionRouteCatalog;
+  readonly modelCatalog: ModelCatalog;
   /** Provider discovery evidence retained for setup diagnostics. */
   readonly models: Record<string, string[]>;
   /** Provider discovery evidence retained for setup diagnostics. */
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providers?: readonly GuiProviderDescriptor[];
-  /** Provider discovery projection; never a route-selection authority. */
+  /** Provider discovery projection; never a target-selection authority. */
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
-  /** Shared discovery/configuration evidence; never selection authority. */
-  readonly availableModels: AvailableModelCatalog;
 }
 
 export interface GuiProviderAuthFailed {
@@ -436,8 +433,8 @@ export interface GuiAppDescriptor {
 }
 
 export interface GuiDashboardSnapshot {
-  readonly executionRouteCatalog: ExecutionRouteCatalog;
-  /** Provider discovery/status evidence; route selection uses executionRouteCatalog. */
+  readonly modelCatalog: ModelCatalog;
+  /** Provider discovery/status evidence used to refresh modelCatalog. */
   readonly providers: readonly GuiProviderDescriptor[];
   readonly telemetry: GuiTelemetrySnapshot;
   readonly continuationInfoByProvider: Readonly<Record<string, GuiContinuationInfo>>;
@@ -459,7 +456,7 @@ export interface GuiSessionMeta {
   readonly tags?: readonly string[];
   readonly routesUsed?: readonly string[];
   readonly lastRouteId?: string;
-  readonly routeThreads?: readonly ExecutionRouteThreadMeta[];
+  readonly routeThreads?: readonly ExecutionThreadMeta[];
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
@@ -743,8 +740,7 @@ export type GuiProviderCatalogStateFrame =
       readonly models: Record<string, string[]>;
       readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
       readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
-      readonly executionRouteCatalog: ExecutionRouteCatalog;
-      readonly availableModels: AvailableModelCatalog;
+      readonly modelCatalog: ModelCatalog;
     }
   | {
       readonly type: "provider_catalog_state";
@@ -1185,7 +1181,7 @@ export type GuiOutboundFrame =
       reason?: string;
     }
   | { type: "clear" }
-  | { type: "refresh_execution_routes"; requestId: string }
+  | { type: "refresh_model_catalog"; requestId: string }
   | {
       type: "provider_auth";
       provider: string;
@@ -1194,7 +1190,7 @@ export type GuiOutboundFrame =
       tier?: "go" | "zen";
       flow?: "browser" | "device_code";
     }
-  | ({ type: "execution_route"; requestId: string } & ExecutionRouteSelectionIntent)
+  | ({ type: "execution_target"; requestId: string } & ExecutionTargetSelectionIntent)
   | OperatorThemeSetResultFrame
   | { type: "continue"; sessionId: string; gatewayTargetId?: string }
   | GuiManagedAgentControlFrame
@@ -1276,13 +1272,12 @@ export type GuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
-      executionRouteCatalog: ExecutionRouteCatalog;
-      availableModels: AvailableModelCatalog;
+      modelCatalog: ModelCatalog;
       greeting?: string;
-      activeRouteId?: string;
-      /** Derived execution evidence; route identity remains authoritative. */
+      activeTargetId?: string;
+      /** Derived execution evidence for the selected target. */
       activeProvider?: string;
-      /** Derived execution evidence; route identity remains authoritative. */
+      /** Derived execution evidence for the selected target. */
       activeModel?: string;
       executionMode?: OperatorExecutionMode;
       workingDirectory?: string;
@@ -1303,19 +1298,18 @@ export type GuiInboundFrame =
     | GuiProviderAuthFailed
     | GuiProviderCatalogStateFrame
     | {
-      type: "execution_routes_refreshed";
+      type: "model_catalog_refreshed";
       requestId: string;
-      executionRouteCatalog: ExecutionRouteCatalog;
-      availableModels: AvailableModelCatalog;
+      modelCatalog: ModelCatalog;
     }
     | {
-      type: "execution_routes_refresh_failed";
+      type: "model_catalog_refresh_failed";
       requestId: string;
       message: string;
     }
     | ExecutionTargetWizardResult
-    | ExecutionRouteChanged
-    | ExecutionRouteChangeFailed
+    | ExecutionTargetChanged
+    | ExecutionTargetChangeFailed
     | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */

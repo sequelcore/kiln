@@ -15,15 +15,16 @@ describe("ExecutionTargetWizardResultSchema", () => {
       approvalStatus: "approved",
       activation: "next-session",
       owners: ["execution-routing"],
-      reconciliationTargets: ["execution-routes"],
+      reconciliationTargets: ["execution-targets"],
       diagnostics: [],
       rollback: { restorable: true, summary: "Restorable." },
       target: {
-        routeId: "route",
+        targetId: "target",
         label: "Route",
         providerId: "provider",
         providerModelId: "model",
-        accountSelectionMode: "automatic",
+        accountPolicyId: "policy",
+        eligibleAccountCount: 1,
         dataClassification: "public",
         billingClass: "subscription",
         capabilityPosture: "kiln-executable",
@@ -32,7 +33,7 @@ describe("ExecutionTargetWizardResultSchema", () => {
       },
     };
     for (const value of [
-      { type: "execution_target_wizard_result", requestId: "request", status: "created", code: "TARGET_REVISION_CONFLICT", message: "x", revision, proposal, executionRouteCatalog: { routes: [], revision }, availableModels: { observedAt: "2026-08-13T18:00:00.000Z", entries: [] } },
+      { type: "execution_target_wizard_result", requestId: "request", status: "created", code: "TARGET_REVISION_CONFLICT", message: "x", revision, proposal, modelCatalog: { observedAt: "2026-08-13T18:00:00.000Z", revision, models: [] } },
       { type: "execution_target_wizard_result", requestId: "request", status: "rejected", code: "EXECUTION_TARGET_CREATED", message: "x", action: "refresh-and-retry" },
       { type: "execution_target_wizard_result", requestId: "request", status: "rejected", code: "TARGET_REVISION_CONFLICT", message: "x", action: "refresh-and-retry", canonicalPath: "C:/operator/config.yaml" },
     ]) {

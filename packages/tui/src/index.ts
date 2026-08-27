@@ -1,6 +1,6 @@
 export type { ProviderDisplayInfo } from "./app.js";
 export { startTui } from "./app.js";
-export { formatAvailableModelCatalog } from "./available-model-catalog-view.js";
+export { formatModelCatalog } from "./model-catalog-view.js";
 export { GatewaySession, waitForGateway } from "./gateway-session.js";
 export type { TuiSettingsCommand, TuiSettingsMutationCommand } from "./settings-command.js";
 export { buildSettingsProposalRequest, parseSettingsCommand } from "./settings-command.js";

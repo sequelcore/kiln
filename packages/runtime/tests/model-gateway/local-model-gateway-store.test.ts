@@ -43,7 +43,7 @@ function bundle(sessionId = "session", turnId = "turn") {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: { routeId: "route", providerId: "provider", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account", source: "route" } },
+        target: { targetId: "route", providerId: "provider", providerModelId: "model", accountSelection: { kind: "operator-override", accountPolicyId: "policy", accountId: "account" } },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) },
       },

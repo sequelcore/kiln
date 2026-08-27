@@ -332,16 +332,16 @@ function VoiceAudioPart(props: {
 
 export function MessageRow(props: MessageRowProps) {
   const { message } = props;
-  const executionRouteCatalog = useSessionStore((state) => state.executionRouteCatalog);
-  const activeRouteId = useSessionStore((state) => state.activeRouteId);
+  const modelCatalog = useSessionStore((state) => state.modelCatalog);
+  const activeTargetId = useSessionStore((state) => state.activeTargetId);
   const requestVoiceSynthesis = useSessionStore((state) => state.requestVoiceSynthesis);
   const nonAssistantRoleLabel = message.role === "assistant" ? null : nonAssistantRoleLabels[message.role];
   const showMarkdown = message.role === "assistant";
-  const activeRoute = executionRouteCatalog.routes.find((route) => route.routeId === activeRouteId) ?? null;
+  const activeModel = modelCatalog?.models.find((model) => model.targets.some((target) => target.targetId === activeTargetId)) ?? null;
   const assistantProvider = message.routedProvider
-    ?? (message.streaming ? activeRoute?.providerId ?? null : null);
+    ?? (message.streaming ? activeModel?.providerId ?? null : null);
   const assistantModel = message.routedModel
-    ?? (message.streaming ? activeRoute?.providerModelId ?? null : null);
+    ?? (message.streaming ? activeModel?.providerModelId ?? null : null);
   const assistantProviderLabel = assistantProvider
     ? (getGuiProviderMetadata(assistantProvider)?.label ?? assistantProvider)
     : null;

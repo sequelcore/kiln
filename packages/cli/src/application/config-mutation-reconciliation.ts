@@ -94,7 +94,7 @@ async function reconcileTargetOnce(
       return await reconcileRepoShims(projectPath);
     case "native-permissions":
       return await reconcileNativePermissions(projectPath, binding);
-    case "execution-routes":
+    case "execution-targets":
       return reconcileExecutionRoutes();
   }
 }
@@ -161,16 +161,16 @@ function reconcileExecutionRoutes(): KilnConfigReconciliationEffect {
   const authority = readGlobalExecutionTargetAuthority(readGlobalConfig());
   if (!authority) {
     return {
-      target: "execution-routes",
+      target: "execution-targets",
       status: "failed",
-      summary: "Execution-route authority is unavailable after commit.",
+      summary: "Execution-target authority is unavailable after commit.",
       errors: ["Canonical target intent or its exact managed evidence revision is unavailable."],
     };
   }
   return {
-    target: "execution-routes",
+    target: "execution-targets",
     status: "ok",
-    summary: `${authority.executionCatalog.routes.length} execution routes verified from canonical intent and evidence.`,
+    summary: `${authority.executionCatalog.targets.length} execution targets verified from canonical intent and evidence.`,
     errors: [],
   };
 }

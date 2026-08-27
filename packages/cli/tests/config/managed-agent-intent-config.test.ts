@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { projectDirectExecutionCatalog, validateGlobalConfig } from "../../src/config/global-config.js";
+import { projectDirectExecutionTargetCatalog, validateGlobalConfig } from "../../src/config/global-config.js";
 import { deriveManagedAgentEconomicPolicies } from "../../src/config/managed-agent-intent.js";
 import { executionTargetEvidenceRevision } from "../../src/config/execution-target-evidence-store.js";
 import {
-  managedAgentExecutionCatalog,
+  managedAgentExecutionTargetCatalog,
   managedAgentIntentConfig,
   managedAgentTargetEvidence,
 } from "./managed-agent-intent-config-fixture.js";
@@ -32,7 +32,7 @@ describe("bounded managed-agent intent", () => {
     const config = managedAgentIntentConfig();
     const evidence = managedAgentTargetEvidence();
     const revision = executionTargetEvidenceRevision(evidence);
-    const executionCatalog = projectDirectExecutionCatalog(
+    const executionCatalog = projectDirectExecutionTargetCatalog(
       { ...config, targetCatalog: { ...config.targetCatalog!, evidenceRevision: revision } },
       evidence,
       revision,
@@ -64,9 +64,9 @@ describe("bounded managed-agent intent", () => {
         scheme: { kind: "currency", currency: "USD" },
       },
     };
-    const executionCatalog = structuredClone(managedAgentExecutionCatalog()) as any;
-    executionCatalog.routes[0].economics.priceEvidence = {
-      ...executionCatalog.routes[0].economics.priceEvidence,
+    const executionCatalog = structuredClone(managedAgentExecutionTargetCatalog()) as any;
+    executionCatalog.targets[0].economics.priceEvidence = {
+      ...executionCatalog.targets[0].economics.priceEvidence,
       kind: "unknown",
       reason: "fixture has no comparable price evidence",
     };
@@ -81,7 +81,7 @@ describe("bounded managed-agent intent", () => {
 
   it("fails closed when the selected account policy permits credit or overage", () => {
     const config = managedAgentIntentConfig();
-    const executionCatalog = structuredClone(managedAgentExecutionCatalog()) as any;
+    const executionCatalog = structuredClone(managedAgentExecutionTargetCatalog()) as any;
     executionCatalog.accounts[0].economics = {
       ...executionCatalog.accounts[0].economics,
       creditPosture: "committed",
@@ -96,8 +96,8 @@ describe("bounded managed-agent intent", () => {
   });
 
   it("keeps the fixture's runtime catalog projection free of operator policy material", () => {
-    const catalog = managedAgentExecutionCatalog();
-    expect(catalog.routes[0]?.economics.priceEvidence.kind).toBe("metered");
+    const catalog = managedAgentExecutionTargetCatalog();
+    expect(catalog.targets[0]?.economics.priceEvidence.kind).toBe("metered");
     expect(JSON.stringify(managedAgentIntentConfig())).not.toContain("comparisonDomains");
   });
 });

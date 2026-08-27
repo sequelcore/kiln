@@ -8,7 +8,7 @@ import type {
   ModelGatewayExecutionCandidatePort,
   ModelGatewayExecutionRoutingPort,
 } from "./model-gateway-ingress.js";
-import type { ExecutionCatalog } from "@kilnai/core";
+import type { ExecutionTargetCatalog } from "@kilnai/core";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
 import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
 import type {
@@ -49,7 +49,7 @@ export interface ModelGatewayListenerIdentity {
 
 export interface StartModelGatewayListenerOptions {
   readonly config: ModelGatewayConfig;
-  readonly executionCatalog: ExecutionCatalog;
+  readonly executionCatalog: ExecutionTargetCatalog;
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;

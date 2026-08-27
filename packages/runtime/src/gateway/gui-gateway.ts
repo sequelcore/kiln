@@ -41,7 +41,7 @@ import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { createProviderCatalogService, type ProviderCatalogSnapshot } from "./provider-catalog-service.js";
 import { projectProviderCatalogStateFrame } from "./provider-catalog-state-frame.js";
-import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
+import { projectModelCatalog } from "./model-catalog-projector.js";
 import { executionTargetWizardDeniedResult, handleExecutionTargetWizard } from "./execution-target-wizard-handler.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
@@ -126,7 +126,7 @@ import {
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
-import type { OperatorExecutionRouteSelectionPort } from "./operator-execution-route-selection.js";
+import type { OperatorExecutionTargetSelectionPort } from "./operator-execution-target-selection.js";
 import {
   fingerprintOperatorTurnIntent,
   type OperatorTurnDispatchPort,
@@ -200,8 +200,8 @@ export interface StartGuiGatewayOptions {
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
   readonly workspaceExplorer?: OperatorWorkspaceExplorer;
-  /** Route selection is the only operator execution-selection authority. */
-  readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
+  /** Target selection is the only operator execution-selection authority. */
+  readonly executionTargetSelection?: OperatorExecutionTargetSelectionPort;
   readonly runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorGuiSessionTransportOptions;
@@ -721,7 +721,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       boundedWork: options.boundedWork,
       communicationIntentCandidates: options.communicationIntentCandidates,
       runtimeConfigurationRevisionProvider: options.runtimeConfigurationRevisionProvider,
-      executionRouteSelection: options.executionRouteSelection,
+      executionTargetSelection: options.executionTargetSelection,
       runExecutionTargetWizard: options.runExecutionTargetWizard,
       operatorCapability,
       goalController: options.goalController,
@@ -743,30 +743,24 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
         async onOpen(_event: Event, ws: WSContext) {
           activeConnections += 1;
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
-          const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+          const configuredTargets = await options.executionTargetSelection?.getTargets() ?? [];
+          const providerModelDiscovery = projectGuiProviderModelDiscovery([]);
+          const modelCatalog = projectModelCatalog({ discovery: providerModelDiscovery, configuredTargets });
           ws.send(JSON.stringify({
             type: "welcome",
-            executionRouteCatalog,
-            availableModels: projectAvailableModelCatalogForExecutionRoutes({
-              discovery: projectGuiProviderModelDiscovery([]), executionRouteCatalog,
-            }),
+            modelCatalog,
             executionMode: "execute",
             workingDirectory: options.workingDirectory,
             domainLabel: options.domainLabel,
             authorityStatus: guiAuthorityStatus,
           } satisfies GuiInboundFrame));
-          const providerModelDiscovery = projectGuiProviderModelDiscovery([]);
           ws.send(JSON.stringify({
             type: "provider_catalog_state",
             status: "ready",
             models: {},
             providerDiscovery: [],
             providerModelDiscovery,
-            executionRouteCatalog,
-            availableModels: projectAvailableModelCatalogForExecutionRoutes({
-              discovery: providerModelDiscovery,
-              executionRouteCatalog,
-            }),
+            modelCatalog,
           } satisfies GuiInboundFrame));
         },
         onClose() {
@@ -850,7 +844,7 @@ function wireOperatorTransport(
     boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
     communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
     runtimeConfigurationRevisionProvider?: RuntimeConfigurationRevisionProvider;
-    executionRouteSelection?: OperatorExecutionRouteSelectionPort;
+    executionTargetSelection?: OperatorExecutionTargetSelectionPort;
     runExecutionTargetWizard?: (request: import("@kilnai/gateway-contracts").ExecutionTargetWizardRequest, evidence: import("./execution-target-wizard-handler.js").ExecutionTargetWizardDiscoveryEvidence) => Promise<import("./execution-target-wizard-handler.js").ExecutionTargetWizardApplicationResult>;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -963,10 +957,10 @@ function wireOperatorTransport(
     sessionTurnBudget: input.transport.sessionTurnBudget,
     prepare: async ({ request, session, admission, snapshot, binding }) => {
       const payload = request.payload;
-      const route = snapshot.catalog.routes.find((candidate) => candidate.id === admission.routeId);
-      if (!route) throw new Error("The admitted operator route is absent from its captured catalog.");
+      const target = snapshot.catalog.targets.find((candidate) => candidate.id === admission.targetId);
+      if (!target) throw new Error("The admitted execution target is absent from its captured catalog.");
       const activeModelCapabilities = findProviderModelCapabilities(
-        payload.providerDiscovery, route.providerId, route.providerModelId,
+        payload.providerDiscovery, target.providerId, target.providerModelId,
       );
       const executionMode = resolveExecutionMode(payload.message.executionMode);
       const requestedAuthority = resolveGuiRequestedAuthority(payload.message.requestedAuthority);
@@ -985,7 +979,7 @@ function wireOperatorTransport(
       try {
         const perCallConfig = {
           ...buildGuiTurnPerCallConfig(
-            route.providerId, route.providerModelId, turnBuiltinToolSurface, activeModelCapabilities,
+            target.providerId, target.providerModelId, turnBuiltinToolSurface, activeModelCapabilities,
             toCoreDeliberationIntent(payload.message.deliberationIntent), executionMode, requestedAuthority,
             input.transport.workingDirectory, governedWorkRequirement,
             payload.operatorTimeZone ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone }) : undefined,
@@ -1145,7 +1139,7 @@ function wireOperatorTransport(
         turnId: _candidateTurnId,
         operatorAdoptionDecision: _candidateAdoptionDecision,
         executionBinding: _candidateExecutionBinding,
-        admittedExecutionRoute: _candidateExecutionRoute,
+        admittedExecutionTarget: _candidateExecutionTarget,
         effectiveTurnAuthority: _candidateTurnAuthority,
         authorityContext: _candidateAuthorityContext,
         runtimeConfigurationRevision: _candidateConfigurationRevision,
@@ -1255,7 +1249,7 @@ function wireOperatorTransport(
       };
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
-      let selectedRouteIntent: { readonly routeId: string; readonly accountOverrideId?: string } | undefined;
+      let selectedTargetIntent: { readonly targetId: string; readonly accountOverrideId?: string } | undefined;
       const voiceSynthesisSources = new Map<string, {
         readonly parts: readonly ContentPart[];
         readonly sessionId: string;
@@ -1276,13 +1270,13 @@ function wireOperatorTransport(
           if (activeSession) {
             activityStreamer.forwardSessionEvents(activeSession.sessionEvents);
           }
-          const catalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+          const configuredTargets = await input.executionTargetSelection?.getTargets() ?? [];
           const catalogSnapshot = input.getDiscoverySnapshot();
           applyDiscovery(catalogSnapshot.discovery);
           const initialCatalogState = await projectProviderCatalogStateFrame(
             catalogSnapshot,
-            async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
-            catalog,
+            async () => input.executionTargetSelection?.getTargets() ?? [],
+            configuredTargets,
           );
           unsubscribeDiscovery?.();
           unsubscribeDiscovery = input.onDiscoveryUpdated((snapshot) => {
@@ -1290,7 +1284,7 @@ function wireOperatorTransport(
             if (correlatedDiscoveryRefreshDepth > 0) return;
             void projectProviderCatalogStateFrame(
               snapshot,
-              async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
+              async () => input.executionTargetSelection?.getTargets() ?? [],
             ).then((frame) => {
               if (operatorSocket === ws) ws.send(JSON.stringify(frame satisfies GuiInboundFrame));
             }).catch((error: unknown) => {
@@ -1307,10 +1301,9 @@ function wireOperatorTransport(
           );
           ws.send(JSON.stringify({
             type: "welcome",
-            executionRouteCatalog: catalog,
-            availableModels: projectAvailableModelCatalogForExecutionRoutes({
-              discovery: projectGuiProviderModelDiscovery(discovery), executionRouteCatalog: catalog,
-            }),
+            modelCatalog: initialCatalogState.status === "ready"
+              ? initialCatalogState.modelCatalog
+              : projectModelCatalog({ discovery: projectGuiProviderModelDiscovery(discovery), configuredTargets }),
             executionMode: input.transport.executionMode ?? "execute",
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
@@ -1353,26 +1346,29 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "refresh_execution_routes") {
+            if (frame.type === "refresh_model_catalog") {
               const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
               if (!requestId) {
                 ws.send(JSON.stringify({ type: "error", message: "Execution target refresh requires requestId." } satisfies GuiInboundFrame));
                 return;
               }
               try {
-                const currentDiscovery = await refreshDiscovery({ force: true });
-                const executionRouteCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+                await refreshDiscovery({ force: true });
+                const currentTargets = await input.executionTargetSelection?.getTargets() ?? [];
+                const refreshed = await projectProviderCatalogStateFrame(
+                  input.getDiscoverySnapshot(),
+                  async () => currentTargets,
+                  currentTargets,
+                );
+                if (refreshed.status !== "ready") throw new Error("Model catalog refresh did not produce a ready snapshot.");
                 ws.send(JSON.stringify({
-                  type: "execution_routes_refreshed",
+                  type: "model_catalog_refreshed",
                   requestId,
-                  executionRouteCatalog,
-                  availableModels: projectAvailableModelCatalogForExecutionRoutes({
-                    discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
-                  }),
+                  modelCatalog: refreshed.modelCatalog,
                 } satisfies GuiInboundFrame));
               } catch (error) {
                 ws.send(JSON.stringify({
-                  type: "execution_routes_refresh_failed",
+                  type: "model_catalog_refresh_failed",
                   requestId,
                   message: error instanceof Error ? error.message : "Execution target refresh failed.",
                 } satisfies GuiInboundFrame));
@@ -1385,14 +1381,14 @@ function wireOperatorTransport(
                 ws.send(JSON.stringify(executionTargetWizardDeniedResult(frame) satisfies GuiInboundFrame));
                 return;
               }
-              const currentCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+              const currentTargets = await input.executionTargetSelection?.getTargets() ?? [];
               const responseFrames = await handleExecutionTargetWizard({
                 operatorAuthorized,
                 frame,
                 discovery: projectGuiProviderModelDiscovery(discovery),
-                executionRouteCatalog: currentCatalog,
+                configuredTargets: currentTargets,
                 runWizard: input.runExecutionTargetWizard,
-                readExecutionRouteCatalog: async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
+                readConfiguredTargets: async () => input.executionTargetSelection?.getTargets() ?? [],
               });
               for (const responseFrame of responseFrames) {
                 ws.send(JSON.stringify(responseFrame satisfies GuiInboundFrame));
@@ -1463,7 +1459,11 @@ function wireOperatorTransport(
                 reason: providerDiscovery?.reason,
                 modelCount: projectGuiOperatorModels(currentDiscovery)[auth.provider]?.length ?? 0,
               });
-              const executionRouteCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+              const configuredTargets = await input.executionTargetSelection?.getTargets() ?? [];
+              const modelCatalog = projectModelCatalog({
+                discovery: projectGuiProviderModelDiscovery(currentDiscovery),
+                configuredTargets,
+              });
               ws.send(JSON.stringify({
                 type: "provider_auth_completed",
                 provider: auth.provider,
@@ -1471,26 +1471,23 @@ function wireOperatorTransport(
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
-                executionRouteCatalog,
-                availableModels: projectAvailableModelCatalogForExecutionRoutes({
-                  discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
-                }),
+                modelCatalog,
               } satisfies GuiInboundFrame));
               return;
             }
 
-            if (frame.type === "execution_route") {
-              const selectionFrame = frame as Extract<GuiOutboundFrame, { type: "execution_route" }>;
-              const admission = await input.executionRouteSelection?.admit(selectionFrame) ?? {
-                ok: false as const, reasonCode: "route-evidence-pending" as const,
-                reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const,
+            if (frame.type === "execution_target") {
+              const selectionFrame = frame as Extract<GuiOutboundFrame, { type: "execution_target" }>;
+              const admission = await input.executionTargetSelection?.admit(selectionFrame) ?? {
+                ok: false as const, reasonCode: "target-evidence-pending" as const,
+                reason: "Execution target admission is unavailable.", repairActions: ["refresh-model-catalog"] as const,
               };
               if (!admission.ok) {
-                ws.send(JSON.stringify({ type: "execution_route_change_failed", routeId: selectionFrame.routeId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions } satisfies GuiInboundFrame));
+                ws.send(JSON.stringify({ type: "execution_target_change_failed", targetId: selectionFrame.targetId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions } satisfies GuiInboundFrame));
                 return;
               }
-              selectedRouteIntent = { routeId: selectionFrame.routeId, ...(selectionFrame.accountOverrideId ? { accountOverrideId: selectionFrame.accountOverrideId } : {}) };
-              ws.send(JSON.stringify({ type: "execution_route_changed", routeId: admission.admission.routeId, requestId: selectionFrame.requestId, providerId: admission.admission.providerId, providerModelId: admission.admission.providerModelId } satisfies GuiInboundFrame));
+              selectedTargetIntent = { targetId: selectionFrame.targetId, ...(selectionFrame.accountOverrideId ? { accountOverrideId: selectionFrame.accountOverrideId } : {}) };
+              ws.send(JSON.stringify({ type: "execution_target_changed", targetId: admission.admission.targetId, requestId: selectionFrame.requestId, providerId: admission.admission.providerId, providerModelId: admission.admission.providerModelId } satisfies GuiInboundFrame));
               return;
             }
 
@@ -1940,7 +1937,7 @@ function wireOperatorTransport(
                 await applyContinuationSelection(
                   input.transport.onContinueSession,
                   continuationSessionId,
-                  selectedRouteIntent?.routeId,
+                  selectedTargetIntent?.targetId,
                 );
               } catch {
                 ws.send(JSON.stringify({
@@ -1957,10 +1954,10 @@ function wireOperatorTransport(
             let turnModel: string | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
-              if (!selectedRouteIntent) {
+              if (!selectedTargetIntent) {
                 ws.send(JSON.stringify({
                   type: "error",
-                  message: "No execution route selected. Choose an execution route before sending a message.",
+                  message: "No execution target selected. Choose a model before sending a message.",
                 } satisfies GuiInboundFrame));
                 return;
               }
@@ -1968,7 +1965,7 @@ function wireOperatorTransport(
               if (!dispatcher) {
                 ws.send(JSON.stringify({
                   type: "error",
-                  code: "route-evidence-pending",
+                  code: "target-evidence-pending",
                   message: "Operator execution routing is unavailable.",
                 } satisfies GuiInboundFrame));
                 return;
@@ -1976,8 +1973,8 @@ function wireOperatorTransport(
               const executionId = crypto.randomUUID();
               const execution = await dispatcher.dispatchTurn({
                 executionId,
-                intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedRouteIntent }),
-                intent: selectedRouteIntent,
+                intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedTargetIntent }),
+                intent: selectedTargetIntent,
                 payload: {
                   surface: "gui",
                   appName: GUI_APP_NAME,

@@ -262,15 +262,16 @@ input. Provider and model labels are derived execution evidence for recognition
 and diagnostics; they do not become alternate selection keys. A configured
 target remains visible when unavailable so its repair action is actionable.
 
-An automatic target may expose eligible account aliases as an optional
+A target may expose eligible account aliases from its policy as an optional
 override. Those aliases narrow that target's configured account policy; they
-never expose or select credential IDs. Exact targets do not offer an override.
+never expose or select credential IDs. A one-account policy has no useful
+override to offer.
 Provider authentication remains a provider-scoped repair action for a target
 diagnostic, not a second target-selection mechanism.
 
 Unavailable targets render the repair actions supplied by the catalog. GUI
 offers `Authenticate <provider>` for `authenticate-provider` and `Refresh
-execution targets` for `refresh-route-catalog`. Authentication uses the
+model catalog` for `refresh-model-catalog`. Authentication uses the
 target's derived provider only to repair account evidence. On success, the
 Gateway returns fresh target evidence and GUI replaces the picker
 catalog; the operator must still select an admitted target for a later turn.

@@ -74,7 +74,7 @@ describe("documentation validation", () => {
       content: "# Guide\n\n[Routing](concepts.md#missing-routing)\n",
       localTargetExists: () => true,
       localAnchorExists: (target, anchor) =>
-        target === "docs/concepts.md" && anchor === "execution-routes",
+        target === "docs/concepts.md" && anchor === "execution-targets",
     });
 
     expect(diagnostics.map((diagnostic) => diagnostic.code)).toEqual([

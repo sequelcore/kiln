@@ -389,7 +389,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 const admittedSession = admitted.session;
                 const result = await config.orchestrator.bindProvider(
                   admitted.provider,
-                  admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+                  admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.target.providerModelId : undefined,
                 ).processMessage(
                   admittedSession,
                   userParts,

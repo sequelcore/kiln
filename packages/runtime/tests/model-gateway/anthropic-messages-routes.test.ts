@@ -12,7 +12,7 @@ import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissi
 
 const principal = { tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted" as const, evidenceId: "budget" } };
 const route = { routeId: "claude-route", providerId: "codex-oauth", providerModelId: "upstream", scope: "virtual:claude-kiln" } as const;
-const admission = { routeId: "claude-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account", source: "route" as const } };
+const admission = { targetId: "claude-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { kind: "operator-override" as const, accountPolicyId: "policy", accountId: "account" } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "PROBE_OK" }], usage: { inputTokens: 4, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 }, stopReason: "completed" };
 
 function authorityBundle(): EffectiveAuthorityAdmissionBundle {
@@ -27,7 +27,7 @@ function authorityBundle(): EffectiveAuthorityAdmissionBundle {
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
       effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
       budget: { status: "not-configured" },
-      execution: { status: "routed", route: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } },
+      execution: { status: "routed", target: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.targetId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } },
     },
   });
 }
@@ -40,7 +40,7 @@ function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?
   const candidate = vi.fn(async (input) => ({ admission, candidates: [{ candidate: { accountId: "account", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }));
   const invocationPorts: GovernedIngressInvocationPorts = {
     candidateCatalog: { list: candidate }, accountCapacityAuthority: authority,
-    attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: execute }, binding: { status: "bound", routeId: admission.routeId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
+    attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: execute }, binding: { status: "bound", routeId: admission.targetId, accountId: "account", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
     budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
     authorityAdmission: { compose: async () => authorityBundle() },
   };

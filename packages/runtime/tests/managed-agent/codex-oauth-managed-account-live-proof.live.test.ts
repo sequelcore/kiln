@@ -20,7 +20,7 @@ import type {
 import { createManagedDirectProviderAdapterFactory } from "../../../cli/src/config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../../../cli/src/config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../../../cli/src/config/managed-agent-routes.js";
-import { readGlobalConfig, readGlobalExecutionCatalog } from "../../../cli/src/config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionTargetCatalog } from "../../../cli/src/config/global-config.js";
 import { createDefaultRegistry } from "../../../cli/src/wrapper/session-registry.js";
 import {
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
@@ -49,25 +49,23 @@ describeManagedAgentProviderLive(
           leaseAuthority = undefined;
         },
       }, async (workspace) => {
-        const routeId = requireEnvironment(KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV);
+        const targetId = requireEnvironment(KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV);
         const config = readGlobalConfig();
         if (!config) throw new Error("Managed-account live proof requires ~/.kiln/config.yaml.");
 
         const targetCatalog = config.targetCatalog;
-        const configuredRoute = targetCatalog?.targets.find((target) => target.id === routeId);
+        const configuredTarget = targetCatalog?.targets.find((target) => target.id === targetId);
         if (
-          !configuredRoute
-          || configuredRoute.kind !== "direct"
-          || configuredRoute.providerId !== "codex-oauth"
-          || configuredRoute.accountSelection.mode !== "automatic"
+          !configuredTarget
+          || configuredTarget.kind !== "direct"
+          || configuredTarget.providerId !== "codex-oauth"
         ) {
           throw new Error(
             "Managed-account live route must be a configured read-only Codex OAuth direct route.",
           );
         }
         const policy = targetCatalog?.accountPolicies.find(
-          (candidate) => configuredRoute.accountSelection.mode === "automatic"
-            && candidate.id === configuredRoute.accountSelection.accountPolicyId,
+          (candidate) => candidate.id === configuredTarget.accountPolicyId,
         );
         if (!targetCatalog || !policy || policy.accountIds.length !== 2) {
           throw new Error("Managed-account live policy must configure exactly two account candidates.");
@@ -91,16 +89,16 @@ describeManagedAgentProviderLive(
         credentialResolutions.mockClear();
         const runtimeDirectory = join(workspace.workspaceRoot, ".kiln", "runtime");
         await mkdir(runtimeDirectory, { recursive: true });
-        const executionCatalog = readGlobalExecutionCatalog(config);
+        const executionCatalog = readGlobalExecutionTargetCatalog(config);
         if (!executionCatalog) throw new Error("Managed-account live proof requires an admitted execution catalog.");
         const routing = new ConfiguredExecutionAccountRuntime({ catalog: executionCatalog, codexPool });
-        const admission = admitOperatorExecutionIntent(executionCatalog, { routeId });
+        const admission = admitOperatorExecutionIntent(executionCatalog, { targetId });
         const usagePreflight = await routing.modelGatewayCandidates.resolve({
           admission,
           route: {
-            routeId,
-            providerId: configuredRoute.providerId,
-            providerModelId: configuredRoute.providerModelId,
+            routeId: targetId,
+             providerId: configuredTarget.providerId,
+             providerModelId: configuredTarget.providerModelId,
             scope: "virtual:managed-account-live-preflight",
           },
         });
@@ -140,14 +138,14 @@ describeManagedAgentProviderLive(
         const managedInvocation = resolution.managedInvocation;
         if (!managedInvocation) {
           throw new Error(
-            `Managed-account live route composition is unavailable: ${JSON.stringify(resolution.routeHealth)}`,
+           `Managed-account live target composition is unavailable: ${JSON.stringify(resolution.routeHealth)}`,
           );
         }
 
-        const route = managedInvocation.routes.find((candidate) => candidate.routeId === routeId);
-        if (!route) {
-          const health = resolution.routeHealth.find((candidate) => candidate.routeId === routeId);
-          throw new Error(health?.reason ?? "Managed-account live route is unavailable.");
+         const route = managedInvocation.routes.find((candidate) => candidate.routeId === targetId);
+         if (!route) {
+           const health = resolution.routeHealth.find((candidate) => candidate.routeId === targetId);
+           throw new Error(health?.reason ?? "Managed-account live target is unavailable.");
         }
 
         const orchestration = await runManagedAgentOrchestrationLifecycle({
@@ -158,7 +156,7 @@ describeManagedAgentProviderLive(
             requestedBy: "operator",
             requestSource: "live-test",
             roleIntent: "verifier",
-            routeId,
+             routeId: targetId,
             task: [
               "Call the read tool exactly once with filePath \"proof.txt\".",
               "Return the keyword in the form MANAGED_ACCOUNT_LIVE_PROOF:<keyword>.",

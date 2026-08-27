@@ -1,6 +1,6 @@
-import type { ExecutionCatalog, ProviderUsageSnapshot } from "@kilnai/core";
+import type { ExecutionTargetCatalog, ProviderUsageSnapshot } from "@kilnai/core";
 import { CodexOAuthCredentialPoolService } from "@kilnai/runtime";
-import { readGlobalConfig, readGlobalExecutionCatalog } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionTargetCatalog } from "../config/global-config.js";
 
 export interface AccountUsageInspectionService {
   inspect(): Promise<AccountUsageInspection>;
@@ -25,7 +25,7 @@ export interface AccountUsageInspectionEntry {
   readonly source: string;
   readonly confidence: string;
   readonly operatorAction: AccountUsageOperatorAction;
-  readonly eligibleRoutes: readonly string[];
+  readonly eligibleTargets: readonly string[];
 }
 
 export type AccountUsageEvidenceState =
@@ -43,7 +43,7 @@ export type AccountUsageOperatorAction =
   | "repair-provider-credential";
 
 export interface CreateAccountUsageInspectionServiceOptions {
-  readonly readExecutionCatalog: () => ExecutionCatalog;
+  readonly readExecutionTargetCatalog: () => ExecutionTargetCatalog;
   readonly readProviderUsage: (provider: string) => Promise<readonly ProviderUsageSnapshot[]>;
   readonly refreshProviderUsage?: (provider: string) => Promise<readonly ProviderUsageSnapshot[]>;
   readonly listCredentialIds: (provider: string) => Promise<readonly string[]>;
@@ -58,7 +58,7 @@ export function createAccountUsageInspectionService(
   return {
     async inspect() {
       const now = defaults.now?.() ?? new Date();
-      const catalog = defaults.readExecutionCatalog();
+      const catalog = defaults.readExecutionTargetCatalog();
       const usageByProvider = new Map<string, readonly ProviderUsageSnapshot[]>();
       const refreshFailures = new Set<string>();
       const credentialsByProvider = new Map<string, ReadonlySet<string>>();
@@ -97,7 +97,7 @@ export function createAccountUsageInspectionService(
           source: usage?.source ?? "unknown",
           confidence: usage?.confidence ?? "unknown",
           operatorAction: accountUsageOperatorAction(evidenceState, usage?.availability),
-          eligibleRoutes: blocked ? [] : eligibleRouteIds(catalog, account.id),
+          eligibleTargets: blocked ? [] : eligibleTargetIds(catalog, account.id),
         };
       }).sort((a, b) => a.accountId.localeCompare(b.accountId));
       return { operation: "account-usage", accounts, evidence: { authority: "global-execution-catalog", observedAt: now.toISOString() } };
@@ -108,8 +108,8 @@ export function createAccountUsageInspectionService(
 function defaultOptions(kilnHome?: string): CreateAccountUsageInspectionServiceOptions {
   const codex = new CodexOAuthCredentialPoolService({ kilnHome });
   return {
-    readExecutionCatalog: () => {
-      const catalog = readGlobalExecutionCatalog(readGlobalConfig());
+    readExecutionTargetCatalog: () => {
+      const catalog = readGlobalExecutionTargetCatalog(readGlobalConfig());
       if (!catalog) throw new Error("Execution catalog is required to inspect account usage.");
       return catalog;
     },
@@ -140,14 +140,11 @@ function accountUsageOperatorAction(
   return availability === "exhausted" ? "wait-for-provider-reset" : "none";
 }
 
-function eligibleRouteIds(catalog: ExecutionCatalog, accountId: string): string[] {
+function eligibleTargetIds(catalog: ExecutionTargetCatalog, accountId: string): string[] {
   const policyById = new Map(catalog.accountPolicies.map((policy) => [policy.id, policy]));
-  return catalog.routes.flatMap((route) => {
-    if (route.accountSelection.mode === "exact") {
-      return route.accountSelection.accountId === accountId ? [route.id] : [];
-    }
-    return policyById.get(route.accountSelection.accountPolicyId)?.accountIds.includes(accountId)
-      ? [route.id]
+  return catalog.targets.flatMap((target) => {
+    return policyById.get(target.accountPolicyId)?.accountIds.includes(accountId)
+      ? [target.id]
       : [];
   }).sort();
 }

@@ -255,11 +255,11 @@ function cliTestAdmission(input: {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId: input.routeId,
+        target: {
+          targetId: input.routeId,
           providerId: input.providerId,
           providerModelId: input.modelId,
-          accountSelection: { mode: "exact", accountId: input.credentialBinding.accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "fixture-policy", accountId: input.credentialBinding.accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {

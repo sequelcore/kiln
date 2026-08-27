@@ -141,7 +141,7 @@ export type KilnConfigReconciliationTarget =
   | "native-skills"
   | "native-permissions"
   | "repo-shims"
-  | "execution-routes";
+  | "execution-targets";
 
 export interface KilnConfigReconciliationEffect {
   readonly target: KilnConfigReconciliationTarget;

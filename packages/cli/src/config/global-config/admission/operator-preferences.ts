@@ -105,15 +105,15 @@ export function validateGlobalUi(value: unknown, targetCatalog: unknown): void {
   }
   if (selection.accountOverrideId !== undefined) {
     validateCanonicalId(selection.accountOverrideId, "ui.targetSelection.accountOverrideId");
-    const routeSelection = selectedTarget.accountSelection;
-    if (!isRecord(routeSelection) || routeSelection.mode !== "automatic") {
-      throw new KilnYamlError("ui.targetSelection.accountOverrideId requires an automatic direct target");
+    const accountPolicyId = selectedTarget.accountPolicyId;
+    if (typeof accountPolicyId !== "string") {
+      throw new KilnYamlError("ui.targetSelection.accountOverrideId requires a direct target account policy");
     }
     if (!Array.isArray(targetCatalog.accountPolicies)) {
       throw new KilnYamlError("ui.targetSelection.accountOverrideId requires targetCatalog.accountPolicies");
     }
     const policy = targetCatalog.accountPolicies.find(
-      (entry) => isRecord(entry) && entry.id === routeSelection.accountPolicyId,
+      (entry) => isRecord(entry) && entry.id === accountPolicyId,
     );
     if (
       !isRecord(policy) ||

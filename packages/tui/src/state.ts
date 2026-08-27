@@ -55,8 +55,8 @@ export interface ReactiveState {
   contextUsage?: ContextUsageProjection;
   themePickerOpen: boolean;
   themePickerIndex: number;
-  executionRoutePickerOpen: boolean;
-  executionRoutePickerIndex: number;
+  executionTargetPickerOpen: boolean;
+  executionTargetPickerIndex: number;
   currentProvider: string;
   currentModel: string;
   currentDeliberationLevel?: DeliberationLevelId;
@@ -193,8 +193,8 @@ export function createReactiveState(): ReactiveState {
     contextUsage: undefined,
     themePickerOpen: false,
     themePickerIndex: 0,
-    executionRoutePickerOpen: false,
-    executionRoutePickerIndex: 0,
+    executionTargetPickerOpen: false,
+    executionTargetPickerIndex: 0,
     currentProvider: "claude",
     currentModel: "",
     currentDeliberationLevel: undefined,

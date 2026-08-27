@@ -22,7 +22,7 @@ import { validateGlobalConfig } from "../config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
 import { isAlias, isCollection } from "yaml";
 import {
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   readExecutionTargetEvidenceSnapshot,
   type DirectExecutionTargetIntent,
   type ExecutionTargetCatalogIntent,
@@ -712,17 +712,12 @@ function normalizeTargetSelect(
     } else if (target.kind !== "direct") {
       diagnostics.push({ severity: "error", field: "targetId", message: `Execution target '${targetId}' is not a direct operator target.` });
     } else {
-      const selection = asRecord(target.accountSelection);
       if (accountOverrideId !== undefined) {
-        if (selection.mode !== "automatic") {
-          diagnostics.push({ severity: "error", field: "accountOverrideId", message: "Account override requires an automatic direct target." });
-        } else {
-          const policies = Array.isArray(catalog.accountPolicies) ? catalog.accountPolicies : [];
-          const policy = policies.find((entry) => isRecord(entry) && entry.id === selection.accountPolicyId);
-          const accountIds = isRecord(policy) && Array.isArray(policy.accountIds) ? policy.accountIds : [];
-          if (!accountIds.includes(accountOverrideId)) {
-            diagnostics.push({ severity: "error", field: "accountOverrideId", message: `Account override '${accountOverrideId}' is not eligible for execution target '${targetId}'.` });
-          }
+        const policies = Array.isArray(catalog.accountPolicies) ? catalog.accountPolicies : [];
+        const policy = policies.find((entry) => isRecord(entry) && entry.id === target.accountPolicyId);
+        const accountIds = isRecord(policy) && Array.isArray(policy.accountIds) ? policy.accountIds : [];
+        if (!accountIds.includes(accountOverrideId)) {
+          diagnostics.push({ severity: "error", field: "accountOverrideId", message: `Account override '${accountOverrideId}' is not eligible for execution target '${targetId}'.` });
         }
       }
       const currentSelection = asRecord(asRecord(current.ui).targetSelection);
@@ -732,8 +727,8 @@ function normalizeTargetSelect(
       if (currentRoutingTarget !== targetId
         || (currentSelectionTarget !== undefined && currentSelectionTarget !== targetId)
         || currentOverride !== accountOverrideId) {
-        // A route choice can change provider, model, account, billing, and
-        // execution effects. No complete cross-route authority comparison is
+        // A target choice can change provider, model, account, billing, and
+        // execution effects. No complete cross-target authority comparison is
         // available here, so selection fails closed until explicitly approved.
         authorityImpact = "unknown";
       }
@@ -756,7 +751,7 @@ function normalizeTargetSelect(
     diagnostics,
     authorityImpact,
     affectedOwners: ["execution-routing", "operator-preferences"],
-    reconciliationTargets: ["execution-routes"],
+    reconciliationTargets: ["execution-targets"],
     activation: "next-session",
   };
 }
@@ -814,7 +809,7 @@ function normalizeTargetCreate(
       try {
         // This proves the evidence owner published a complete snapshot that
         // contains every configured account/target and the new route identity.
-        projectExecutionCatalogFromIntent(nextIntent, evidence, evidenceRevision);
+        projectExecutionTargetCatalogFromIntent(nextIntent, evidence, evidenceRevision);
         document.setIn(["targetCatalog", "evidenceRevision"], evidenceRevision);
         document.setIn(["targetCatalog", "targets"], nextIntent.targets);
         nextContent = document.toString();
@@ -832,7 +827,7 @@ function normalizeTargetCreate(
     diagnostics,
     authorityImpact: "expands-write",
     affectedOwners: ["execution-routing", "execution-target-evidence"],
-    reconciliationTargets: ["execution-routes"],
+    reconciliationTargets: ["execution-targets"],
     activation: "next-session",
   };
 }

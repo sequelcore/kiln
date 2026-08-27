@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { AvailableModelCatalogSchema } from "./available-models.js";
-import { ExecutionRouteCatalogSchema } from "./execution-route.js";
+import { ModelCatalogSchema } from "./model-catalog.js";
 
 const text = z.string().trim().min(1).max(512);
 const canonical = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u);
@@ -50,11 +49,12 @@ const safeDiagnostic = z.object({
 }).strict();
 
 const normalizedTarget = z.object({
-  routeId: canonical,
+  targetId: canonical,
   label: text,
   providerId: canonical,
   providerModelId: text,
-  accountSelectionMode: z.enum(["automatic", "exact"]),
+  accountPolicyId: canonical,
+  eligibleAccountCount: z.number().int().positive(),
   dataClassification: classification,
   billingClass,
   capabilityPosture,
@@ -124,8 +124,7 @@ const created = z.object({
   action: z.literal("none"),
   revision: digest,
   proposal: ExecutionTargetWizardProposalSchema,
-  executionRouteCatalog: ExecutionRouteCatalogSchema,
-  availableModels: AvailableModelCatalogSchema,
+  modelCatalog: ModelCatalogSchema,
 }).strict();
 
 const committedRefreshFailed = z.object({

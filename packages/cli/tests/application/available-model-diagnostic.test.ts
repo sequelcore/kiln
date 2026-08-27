@@ -3,19 +3,18 @@ import { projectAvailableModelDiagnostic } from "../../src/application/available
 
 describe("projectAvailableModelDiagnostic", () => {
   it.each([
-    ["unknown", entry({ eligibilityState: "unknown", availabilityState: "unknown" }), ["eligibility-unknown", "availability-unknown"]],
-    ["stale", entry({ discoveryState: "stale", availabilityState: "unknown" }), ["discovery-stale", "availability-unknown"]],
-    ["unconfigured", entry({}), ["route-not-configured"]],
-  ])("retains %s runtime evidence in the read-only diagnostic", (_case, model, expectedReasons) => {
+    ["unknown", entry({ eligibilityState: "unknown", availabilityState: "unknown" }), { eligibility: "unknown", availability: "unknown" }],
+    ["stale", entry({ discoveryState: "stale", availabilityState: "unknown" }), { discovery: "stale", availability: "unknown" }],
+    ["unconfigured", entry({}), { targets: [] }],
+  ])("retains %s runtime evidence in the read-only diagnostic", (_case, model, expectedProjection) => {
     const result = projectAvailableModelDiagnostic({
       discovery: discovery(model),
-      executionRouteCatalog: { routes: [] },
+      configuredTargets: [],
     });
-    expect(result.entries).toEqual([expect.objectContaining({
+    expect(result.models).toEqual([expect.objectContaining({
       providerId: "provider",
       providerModelId: "model",
-      configuredState: "unconfigured",
-      reasonCodes: expect.arrayContaining(expectedReasons),
+      ...expectedProjection,
     })]);
   });
 });

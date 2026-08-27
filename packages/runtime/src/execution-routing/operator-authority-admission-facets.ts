@@ -13,7 +13,7 @@ import type { RuntimeAuthorityAdmissionCandidateConfig } from "../session/runtim
 import type { RuntimeSession } from "../session/runtime-session.js";
 import type {
   OperatorSessionAuthorityAdmissionFacets,
-  OperatorSessionExecutionCatalogSnapshot,
+  OperatorSessionExecutionTargetCatalogSnapshot,
 } from "./operator-session-execution-routing-service.js";
 import type { ActionEffectEnvelope } from "@kilnai/core/engine";
 
@@ -21,7 +21,7 @@ export function defineOperatorAuthorityAdmissionFacets(input: {
   readonly executionId: string;
   readonly turnId?: string;
   readonly session: RuntimeSession;
-  readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+  readonly snapshot: OperatorSessionExecutionTargetCatalogSnapshot;
   readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig;
   readonly candidateToolNames: readonly string[];
   readonly skillCatalog: SkillCatalogAdmission;

@@ -143,9 +143,9 @@ function withModelRoundClaim(
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId, providerId: "mock", providerModelId: deps.model ?? "fixture-model",
-          accountSelection: { mode: "exact", accountId, source: "route" },
+        target: {
+          targetId: routeId, providerId: "mock", providerModelId: deps.model ?? "fixture-model",
+          accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId, accountId, credentialId: "runtime-session-test-credential", credentialRevision },

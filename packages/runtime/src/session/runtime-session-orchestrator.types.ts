@@ -1,5 +1,5 @@
 import type {
-  AdmittedExecutionRoute,
+  AdmittedExecutionTarget,
   ArtifactResourceStore,
   AuditLog,
   AuthorityDescriptor,
@@ -423,7 +423,7 @@ export interface RuntimeAuthorityAdmissionCandidateConfig extends Omit<PerCallTo
   readonly turnId?: string;
   readonly operatorAdoptionDecision?: OperatorAdoptionDecisionAuthority;
   readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
-  readonly admittedExecutionRoute?: AdmittedExecutionRoute;
+  readonly admittedExecutionTarget?: AdmittedExecutionTarget;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly runtimeConfigurationRevision?: RuntimeConfigurationRevisionSnapshot;

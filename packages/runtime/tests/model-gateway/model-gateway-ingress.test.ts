@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineExecutionCatalog, type ExecutionCatalog } from "@kilnai/core/agents";
+import { defineExecutionTargetCatalog, type ExecutionTargetCatalog } from "@kilnai/core/agents";
 import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import {
@@ -18,7 +18,7 @@ const evidence = {
   confidence: "high" as const,
   authority: "configured" as const,
 };
-const catalog: ExecutionCatalog = defineExecutionCatalog({
+const catalog: ExecutionTargetCatalog = defineExecutionTargetCatalog({
   accounts: [{
     id: "account",
     providerId: "codex-oauth",
@@ -33,15 +33,15 @@ const catalog: ExecutionCatalog = defineExecutionCatalog({
       overagePosture: "disabled",
     },
   }],
-  accountPolicies: [],
-  routes: [{
+  accountPolicies: [{ id: "fixture-policy", accountIds: ["account"], strategy: "economic-least-pressure" }],
+  targets: [{
     id: "route",
     label: "Fixture route",
     providerId: "codex-oauth",
     providerModelId: "gpt-test",
     dataClassification: "internal",
     dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "gpt-test", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2027-01-01T00:00:00.000Z" },
-    accountSelection: { mode: "exact", accountId: "account" },
+    accountPolicyId: "fixture-policy",
     economics: {
       adapterCapabilityId: "fixture-adapter",
       adapterCapabilityVersion: "v1",
@@ -162,9 +162,9 @@ describe("createModelGatewayIngress", () => {
         authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
         budget: { status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 0, source: "fixture" } },
       });
-      expect(listed.admission.routeId).toBe("route");
+      expect(listed.admission.targetId).toBe("route");
       expect(candidates.resolve).toHaveBeenCalledWith(expect.objectContaining({
-        admission: expect.objectContaining({ routeId: "route" }),
+        admission: expect.objectContaining({ targetId: "route" }),
         route: expect.objectContaining({ routeId: "route" }),
       }));
     } finally {
@@ -172,8 +172,8 @@ describe("createModelGatewayIngress", () => {
     }
   });
 
-  it("selects the exact route id when duplicate provider/model identities exist and denies route-id drift", async () => {
-    const duplicate = defineExecutionCatalog({ ...catalog, routes: [catalog.routes[0]!, { ...catalog.routes[0]!, id: "route-other", label: "Other" }] });
+  it("selects the exact target id when duplicate provider/model identities exist and denies target-id drift", async () => {
+    const duplicate = defineExecutionTargetCatalog({ ...catalog, targets: [catalog.targets[0]!, { ...catalog.targets[0]!, id: "route-other", label: "Other" }] });
     const sharedAuthority = authority();
     authorities.push(sharedAuthority);
     const candidates: ModelGatewayExecutionCandidatePort = { resolve: vi.fn(async () => []) };
@@ -191,7 +191,7 @@ describe("createModelGatewayIngress", () => {
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         route: resolved!.route, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
         budget: { status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 0, source: "fixture" } },
-      })).resolves.toMatchObject({ admission: { routeId: "route-other" } });
+      })).resolves.toMatchObject({ admission: { targetId: "route-other" } });
       await expect(handle.openAIResponses!.invocationPorts.candidateCatalog.list({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "drift" },
         route: { ...resolved!.route, routeId: "route" }, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },

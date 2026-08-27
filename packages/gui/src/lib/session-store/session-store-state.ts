@@ -5,10 +5,9 @@ import type {
   GuiInboundFrame,
   GuiInteractiveUseSnapshot,
   GuiOutboundFrame,
-  ExecutionRouteCatalog,
+  ModelCatalog,
   GuiProviderDiscoveryResult,
   GuiProviderModelDiscoveryProjection,
-  AvailableModelCatalog,
   GuiSessionDetail,
   GuiSessionEvent,
   OperatorSessionSummary,
@@ -36,8 +35,8 @@ import type { ProviderCatalogStatus, ProviderDescriptor } from "./provider-catal
 
 export const MAX_DETACHED_SESSION_IDS = 20;
 
-export interface PendingExecutionRouteSelection {
-  readonly routeId: string;
+export interface PendingExecutionTargetSelection {
+  readonly targetId: string;
   readonly accountOverrideId?: string;
   readonly requestId: string;
 }
@@ -61,14 +60,14 @@ export type ProviderAuthDetails =
 export type RouteMode = "user" | "auto" | "responding";
 
 export interface ProviderOperationFailure {
-  readonly operation: "catalog" | "select-route" | "authenticate";
+  readonly operation: "catalog" | "select-target" | "authenticate";
   readonly message: string;
   readonly provider?: string;
   readonly model?: string | null;
   readonly requestId?: string;
 }
 
-export type ExecutionRouteRefresh =
+export type ModelCatalogRefresh =
   | { readonly state: "idle" }
   | { readonly state: "refreshing"; readonly requestId: string }
   | { readonly state: "failed"; readonly message: string };
@@ -113,12 +112,10 @@ export interface SessionStoreState {
   readonly providers: readonly ProviderDescriptor[];
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
-  /** Runtime-owned discovery/configuration projection; never joined in the browser. */
-  readonly availableModels: AvailableModelCatalog | null;
-  /** Operator selection authority. Provider/model identities are derived evidence only. */
-  readonly executionRouteCatalog: ExecutionRouteCatalog;
+  /** Runtime-owned discovery, metadata, and configured-target projection. */
+  readonly modelCatalog: ModelCatalog;
   readonly executionTargetWizardResult: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }> | null;
-  readonly activeRouteId: string | null;
+  readonly activeTargetId: string | null;
   readonly activeAccountOverrideId: string | null;
   readonly sessionList: readonly OperatorSessionSummary[];
   readonly selectedSessionId: string | null;
@@ -146,9 +143,9 @@ export interface SessionStoreState {
   readonly goalControlFailure: GoalControlFailure | null;
   readonly approvalResponseFailure: ApprovalResponseFailure | null;
   readonly approvalResponsesPending: readonly ApprovalResponsePending[];
-  readonly executionRouteSelecting: boolean;
-  readonly executionRouteSelectionTarget: PendingExecutionRouteSelection | null;
-  readonly executionRouteRefresh: ExecutionRouteRefresh;
+  readonly executionTargetSelecting: boolean;
+  readonly executionTargetSelectionTarget: PendingExecutionTargetSelection | null;
+  readonly modelCatalogRefresh: ModelCatalogRefresh;
   readonly providerAuthenticating: boolean;
   readonly providerAuthTarget: ProviderAuthTarget | null;
   readonly providerAuthMessage: string | null;
@@ -160,8 +157,8 @@ export interface SessionStoreState {
   readonly browserLiveViewportFrame: GuiBrowserLiveViewportFrame | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
-  readonly executionRouteSelectionTimeoutId: ReturnType<typeof setTimeout> | null;
-  readonly executionRouteRefreshTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly executionTargetSelectionTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly modelCatalogRefreshTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerAuthTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly activityPhase: ActivityPhase;
 }
@@ -207,21 +204,21 @@ export interface TurnStreamingActions {
   setPlanMode: (enabled: boolean, options?: { readonly gatewayTargetId?: string }) => void;
 }
 
-export interface ExecutionRouteLifecycleActions {
+export interface ExecutionTargetLifecycleActions {
   markProviderCatalogRefreshing: () => void;
   markProviderCatalogError: (message: string) => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
   onProviderCatalogState: (frame: Extract<GuiInboundFrame, { type: "provider_catalog_state" }>) => void;
-  onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
-  onExecutionRoutesRefreshFailed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refresh_failed" }>) => void;
+  onModelCatalogRefreshed: (frame: Extract<GuiInboundFrame, { type: "model_catalog_refreshed" }>) => void;
+  onModelCatalogRefreshFailed: (frame: Extract<GuiInboundFrame, { type: "model_catalog_refresh_failed" }>) => void;
   onExecutionTargetWizardResult: (frame: Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>) => void;
-  onExecutionRouteChanged: (frame: Extract<GuiInboundFrame, { type: "execution_route_changed" }>) => void;
-  onExecutionRouteChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_route_change_failed" }>) => void;
+  onExecutionTargetChanged: (frame: Extract<GuiInboundFrame, { type: "execution_target_changed" }>) => void;
+  onExecutionTargetChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_target_change_failed" }>) => void;
   onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
-  selectExecutionRoute: (routeId: string, accountOverrideId?: string) => boolean;
-  refreshExecutionRoutes: () => boolean;
+  selectExecutionTarget: (targetId: string, accountOverrideId?: string) => boolean;
+  refreshModelCatalog: () => boolean;
   authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
 }
 
@@ -262,7 +259,7 @@ export type SessionStoreActions =
   & ConnectionLifecycleActions
   & SessionListActions
   & TurnStreamingActions
-  & ExecutionRouteLifecycleActions
+  & ExecutionTargetLifecycleActions
   & InteractiveUseActions
   & VoiceActions
   & ApprovalGoalActions

@@ -36,7 +36,7 @@ targetCatalog:
       providerId: codex-oauth
       providerModelId: gpt-5.6-terra
       dataClassification: internal
-      accountSelection: { mode: automatic, accountPolicyId: codex-oauth-automatic }
+      accountPolicyId: codex-oauth-automatic
       economics: &subscription-intent
         authBillingChannel: oauth-subscription
         executionMode: direct
@@ -50,7 +50,7 @@ targetCatalog:
       providerId: codex-oauth
       providerModelId: gpt-5.6-sol
       dataClassification: internal
-      accountSelection: { mode: automatic, accountPolicyId: codex-oauth-automatic }
+      accountPolicyId: codex-oauth-automatic
       economics: *subscription-intent
     - id: codex-luna
       kind: direct
@@ -58,7 +58,7 @@ targetCatalog:
       providerId: codex-oauth
       providerModelId: gpt-5.6-luna
       dataClassification: internal
-      accountSelection: { mode: automatic, accountPolicyId: codex-oauth-automatic }
+      accountPolicyId: codex-oauth-automatic
       economics: *subscription-intent
     - id: opencode-go-glm
       kind: direct
@@ -66,7 +66,7 @@ targetCatalog:
       providerId: opencode-go
       providerModelId: glm-5.2
       dataClassification: internal
-      accountSelection: { mode: automatic, accountPolicyId: opencode-go-automatic }
+      accountPolicyId: opencode-go-automatic
       economics: *subscription-intent
 
 targetRouting: { defaultTargetId: codex-terra }

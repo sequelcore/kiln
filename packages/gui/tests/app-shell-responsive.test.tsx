@@ -19,7 +19,7 @@ const sessionsData = [
   },
 ] as const;
 const dashboardData = {
-  executionRouteCatalog: { routes: [] },
+  modelCatalog: { observedAt: "2026-08-26T16:00:00.000Z", models: [] },
   providers: [],
   telemetry: {
     status: "idle" as const,
@@ -60,7 +60,7 @@ vi.mock("../src/api/client.js", () => ({
 
     async loadDashboard() {
       return {
-        executionRouteCatalog: { routes: [] },
+        modelCatalog: { observedAt: "2026-08-26T16:00:00.000Z", models: [] },
         providers: [],
         telemetry: {
           status: "idle",
@@ -182,7 +182,7 @@ function resetStore(): void {
     authorityStatus: null,
     outboundSend: null,
     clearTimeoutId: null,
-    executionRouteSelectionTimeoutId: null,
+    executionTargetSelectionTimeoutId: null,
     activityPhase: "idle",
   });
 }

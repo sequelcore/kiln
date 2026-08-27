@@ -39,7 +39,7 @@ import type { ActivityPhase, Message } from "./session-timeline-types.js";
 import type { SessionStore, TurnStreamingActions } from "./session-store-state.js";
 
 function activeExecutionRouteIdentity(state: SessionStore): { readonly providerId: string; readonly providerModelId: string } | null {
-  return state.executionRouteCatalog?.routes.find((route) => route.routeId === state.activeRouteId) ?? null;
+  return state.modelCatalog?.models.find((model) => model.targets.some((target) => target.targetId === state.activeTargetId)) ?? null;
 }
 
 function settledRouteMode(state: SessionStore): "auto" | "user" {

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineExecutionCatalog } from "@kilnai/core/agents";
+import { defineExecutionTargetCatalog } from "@kilnai/core/agents";
 import { parseGatewayYaml } from "@kilnai/core/engine";
 import { SqliteManagedAccountLeaseAuthority, type StartModelGatewayListenerOptions } from "@kilnai/runtime";
 import { modelGatewayCommand as runModelGatewayCommand } from "../../src/commands/model-gateway.js";
@@ -30,7 +30,7 @@ function modelGatewayCommand(
   overrides: Parameters<typeof runModelGatewayCommand>[1] = {},
 ): Promise<void> {
   return runModelGatewayCommand(args, {
-    readExecutionCatalog: () => executionCatalog,
+    readExecutionTargetCatalog: () => executionCatalog,
     resolveModelGatewayHost: async () => TEST_MODEL_GATEWAY_HOST,
     inspectCodexNativeClient: () => ({ executable: "codex.exe", version: "0.147.0", nativeCatalog: { models: [{ slug: "gpt-native" }] } }),
     createAutostartAdapter: () => ({
@@ -54,7 +54,7 @@ modelGateway:
     - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, targetId: codex-route, capabilities: [text], affinity: { continuity: none } }
 `;
 const modelGateway = parseGatewayYaml(yaml).modelGateway!;
-const executionCatalog = defineExecutionCatalog({
+const executionCatalog = defineExecutionTargetCatalog({
   accounts: [{
     id: "account",
     providerId: "codex-oauth",
@@ -70,14 +70,14 @@ const executionCatalog = defineExecutionCatalog({
     },
   }],
   accountPolicies: [{ id: "account-policy", accountIds: ["account"], strategy: "economic-least-pressure" }],
-  routes: [{
+  targets: [{
     id: "codex-route",
     label: "Codex route",
     providerId: "codex-oauth",
     providerModelId: "model",
     dataClassification: "internal",
     dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "model", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-09-01T00:00:00.000Z" },
-    accountSelection: { mode: "automatic", accountPolicyId: "account-policy" },
+    accountPolicyId: "account-policy",
     economics: {
       adapterCapabilityId: "text",
       adapterCapabilityVersion: "1",
@@ -125,21 +125,21 @@ const globalConfig = {
       },
     })),
     accountPolicies: executionCatalog.accountPolicies,
-    targets: executionCatalog.routes.map((route) => ({
-      id: route.id,
+    targets: executionCatalog.targets.map((target) => ({
+      id: target.id,
       kind: "direct" as const,
-      label: route.label,
-      providerId: route.providerId,
-      providerModelId: route.providerModelId,
-      dataClassification: route.dataClassification,
-      accountSelection: route.accountSelection,
+      label: target.label,
+      providerId: target.providerId,
+      providerModelId: target.providerModelId,
+      dataClassification: target.dataClassification,
+      accountPolicyId: target.accountPolicyId,
       economics: {
-        authBillingChannel: route.economics.authBillingChannel,
-        executionMode: route.economics.executionMode,
-        serviceTier: route.economics.serviceTier,
-        fallbackPosture: route.economics.fallbackPosture,
-        overagePosture: route.economics.overagePosture,
-        executionEnvelope: route.economics.executionEnvelope,
+        authBillingChannel: target.economics.authBillingChannel,
+        executionMode: target.economics.executionMode,
+        serviceTier: target.economics.serviceTier,
+        fallbackPosture: target.economics.fallbackPosture,
+        overagePosture: target.economics.overagePosture,
+        executionEnvelope: target.economics.executionEnvelope,
       },
     })),
   },
@@ -207,8 +207,8 @@ describe("modelGatewayCommand", () => {
 
     const options = start.mock.calls[0]![0];
     expect(options.executionCatalog).toStrictEqual(executionCatalog);
-    expect(options.executionRouting.admit({ routeId: "codex-route" })).toMatchObject({
-      routeId: "codex-route",
+    expect(options.executionRouting.admit({ targetId: "codex-route" })).toMatchObject({
+      targetId: "codex-route",
       providerId: "codex-oauth",
       providerModelId: "model",
     });
@@ -312,7 +312,7 @@ describe("modelGatewayCommand", () => {
 
     const options = start.mock.calls[0]![0];
     expect(options.executionCatalog).toStrictEqual(executionCatalog);
-    expect(options.executionRouting.admit({ routeId: "codex-route" }).routeId).toBe("codex-route");
+    expect(options.executionRouting.admit({ targetId: "codex-route" }).targetId).toBe("codex-route");
     expect(options.databasePath).toBe(join(root, "runtime", "economic-authority", "managed-account-leases.sqlite"));
     await registerShutdown.mock.calls[0]![0]!();
   });

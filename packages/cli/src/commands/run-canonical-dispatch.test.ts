@@ -71,11 +71,11 @@ function routedAdmission(input: {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId: input.routeId,
+        target: {
+          targetId: input.routeId,
           providerId: "codex-oauth",
           providerModelId: input.providerModelId,
-          accountSelection: { mode: "exact", accountId: input.accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "fixture-policy", accountId: input.accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "canonical test" } },
         binding: {
@@ -157,7 +157,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       return {
         result: await committedHandler({
           admission: {
-            routeId: "terra",
+            targetId: "terra",
             providerId: "codex-oauth",
             providerModelId: "gpt-5.6-terra",
           },
@@ -188,7 +188,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       catalog: {} as never,
       cwd: "/repo",
       executionId: "execution-1",
-      routeId: "terra",
+      targetId: "terra",
       authorityAdmissionEvidenceStore: authorityEvidenceStore,
       captureCatalogSnapshot: () => ({ catalog: {} as never, configurationRevision: { revisionSetId: "sha256:test", revisions: {} } }),
       configurationRevision: {
@@ -205,7 +205,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
     expect(compositionState.bind).toHaveBeenCalledTimes(1);
     expect(compositionState.dispatchTurn).toHaveBeenCalledWith(expect.objectContaining({
       executionId: "execution-1",
-      intent: { routeId: "terra" },
+      intent: { targetId: "terra" },
       intentFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       payload,
     }));
@@ -235,7 +235,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
     });
     compositionState.dispatchTurn.mockImplementation(async (request: { readonly payload: unknown }) => ({
       result: await committedHandler?.({
-        admission: { routeId: "native", providerId: "codex", providerModelId: "native-model" },
+        admission: { targetId: "native", providerId: "codex", providerModelId: "native-model" },
         binding: {
           status: "bound",
           routeId: "native",
@@ -255,7 +255,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       catalog: {} as never,
       cwd: "/repo",
       executionId: "execution-2",
-      routeId: "native",
+      targetId: "native",
       authorityAdmissionEvidenceStore: authorityEvidenceStore,
       captureCatalogSnapshot: () => ({ catalog: {} as never, configurationRevision: { revisionSetId: "sha256:test", revisions: {} } }),
       configurationRevision: {
@@ -285,7 +285,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
     });
     compositionState.dispatchTurn.mockImplementation(async (request: { readonly payload: unknown }) => ({
       result: await committedHandler?.({
-        admission: { routeId: "terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra" },
+        admission: { targetId: "terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra" },
         binding: { status: "bound", routeId: "terra", accountId: "account", credentialId: "credential", credentialRevision: "revision" },
         credential: {},
         authorityAdmission,
@@ -298,7 +298,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       catalog: {} as never,
       cwd: "/repo",
       executionId: "execution-3",
-      routeId: "terra",
+      targetId: "terra",
       authorityAdmissionEvidenceStore: authorityEvidenceStore,
       captureCatalogSnapshot: () => ({ catalog: {} as never, configurationRevision: { revisionSetId: "sha256:test", revisions: {} } }),
       configurationRevision: { revisionSetId: "sha256:test", revisions: { global: "global", project: "project" } },
@@ -315,7 +315,7 @@ describe("createCanonicalRunSessionDispatcher", () => {
       catalog: {} as never,
       cwd: "/repo",
       executionId: "execution-budget",
-      routeId: "terra",
+      targetId: "terra",
       authorityAdmissionEvidenceStore: authorityEvidenceStore,
       captureCatalogSnapshot: () => ({ catalog: {} as never, configurationRevision: { revisionSetId: "sha256:test", revisions: {} } }),
       configurationRevision: { revisionSetId: "sha256:test", revisions: { global: "global", project: "project" } },

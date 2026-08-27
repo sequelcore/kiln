@@ -54,18 +54,18 @@ class MockWebSocket {
   }
 }
 
-function sentExecutionRouteFrame(ws: MockWebSocket): { routeId: string; accountOverrideId?: string; requestId: string } {
+function sentExecutionTargetFrame(ws: MockWebSocket): { targetId: string; accountOverrideId?: string; requestId: string } {
   const routeCall = ws.send.mock.calls.find(([payload]) => {
     if (typeof payload !== "string" || payload === "ping") return false;
-    return (JSON.parse(payload) as { type?: string }).type === "execution_route";
+    return (JSON.parse(payload) as { type?: string }).type === "execution_target";
   });
   expect(routeCall).toBeDefined();
-  const frame = JSON.parse(routeCall?.[0] as string) as { type?: string; routeId?: string; accountOverrideId?: string; requestId?: string };
-  expect(frame.type).toBe("execution_route");
-  expect(typeof frame.routeId).toBe("string");
+  const frame = JSON.parse(routeCall?.[0] as string) as { type?: string; targetId?: string; accountOverrideId?: string; requestId?: string };
+  expect(frame.type).toBe("execution_target");
+  expect(typeof frame.targetId).toBe("string");
   expect(typeof frame.requestId).toBe("string");
   expect(frame.requestId?.trim()).not.toBe("");
-  return frame as { routeId: string; accountOverrideId?: string; requestId: string };
+  return frame as { targetId: string; accountOverrideId?: string; requestId: string };
 }
 
 function sentProviderAuthFrame(ws: MockWebSocket): { provider: string; apiKey?: string; tier?: "go" | "zen"; requestId: string } {
@@ -161,24 +161,24 @@ describe("GatewaySession execution-route switching", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects immediately when execution_route_changed does not match the pending request", async () => {
+  it("rejects immediately when execution_target_changed does not match the pending request", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     expect(wsInstances).toHaveLength(1);
     const ws = wsInstances[0]!;
     ws.simulateOpen();
 
-    const promise = session.switchExecutionRoute("openai-gpt-5", "work");
+    const promise = session.switchExecutionTarget("openai-gpt-5", "work");
     await Promise.resolve();
 
-    const frame = sentExecutionRouteFrame(ws);
+    const frame = sentExecutionTargetFrame(ws);
     expect(frame).toMatchObject({
-      routeId: "openai-gpt-5",
+      targetId: "openai-gpt-5",
       accountOverrideId: "work",
     });
 
     ws.simulateMessage(JSON.stringify({
-      type: "execution_route_changed",
-      routeId: "openai-gpt-5",
+      type: "execution_target_changed",
+      targetId: "openai-gpt-5",
       requestId: "stale-request",
     }));
 
@@ -186,19 +186,19 @@ describe("GatewaySession execution-route switching", () => {
     await session.dispose();
   });
 
-  it("sends a requestId and resolves the matching execution_route_changed acknowledgement", async () => {
+  it("sends a requestId and resolves the matching execution_target_changed acknowledgement", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     expect(wsInstances).toHaveLength(1);
     const ws = wsInstances[0]!;
     ws.simulateOpen();
 
-    const promise = session.switchExecutionRoute("openai-gpt-5");
+    const promise = session.switchExecutionTarget("openai-gpt-5");
     await Promise.resolve();
 
-    const frame = sentExecutionRouteFrame(ws);
+    const frame = sentExecutionTargetFrame(ws);
     ws.simulateMessage(JSON.stringify({
-      type: "execution_route_changed",
-      routeId: "openai-gpt-5",
+      type: "execution_target_changed",
+      targetId: "openai-gpt-5",
       requestId: frame.requestId,
     }));
 
@@ -212,10 +212,10 @@ describe("GatewaySession execution-route switching", () => {
     const ws = wsInstances[0]!;
     ws.simulateOpen();
 
-    const promise = session.switchExecutionRoute("openai-gpt-5");
+    const promise = session.switchExecutionTarget("openai-gpt-5");
     await Promise.resolve();
 
-    const frame = sentExecutionRouteFrame(ws);
+    const frame = sentExecutionTargetFrame(ws);
 
     const rejections: Error[] = [];
     promise.catch((error: Error) => {
@@ -224,8 +224,8 @@ describe("GatewaySession execution-route switching", () => {
     });
 
     ws.simulateMessage(JSON.stringify({
-      type: "execution_route_change_failed",
-      routeId: "openai-gpt-5",
+      type: "execution_target_change_failed",
+      targetId: "openai-gpt-5",
       requestId: frame.requestId,
       reason: "Provider switch failed",
       reasonCode: "provider-unavailable",
@@ -246,22 +246,22 @@ describe("GatewaySession execution-route switching", () => {
     expect(wsInstances).toHaveLength(1);
     const disconnectedWs = wsInstances[0]!;
 
-    await expect(disconnectedSession.switchExecutionRoute("openai-gpt-5")).rejects.toThrow("active TUI gateway connection");
+    await expect(disconnectedSession.switchExecutionTarget("openai-gpt-5")).rejects.toThrow("active TUI gateway connection");
     expect(disconnectedWs.send).not.toHaveBeenCalled();
 
     disconnectedWs.simulateOpen();
 
-    const modelessSwitch = disconnectedSession.switchExecutionRoute("claude-default");
+    const modelessSwitch = disconnectedSession.switchExecutionTarget("claude-default");
     await Promise.resolve();
 
-    const modelessFrame = sentExecutionRouteFrame(disconnectedWs);
+    const modelessFrame = sentExecutionTargetFrame(disconnectedWs);
     expect(modelessFrame).toMatchObject({
-      routeId: "claude-default",
+      targetId: "claude-default",
     });
 
     disconnectedWs.simulateMessage(JSON.stringify({
-      type: "execution_route_changed",
-      routeId: "claude-default",
+      type: "execution_target_changed",
+      targetId: "claude-default",
       requestId: modelessFrame.requestId,
     }));
 
@@ -275,38 +275,50 @@ describe("GatewaySession execution-route switching", () => {
     const ws = wsInstances[0]!;
     ws.simulateOpen();
 
-    const promise = session.refreshExecutionRoutes();
+    const promise = session.refreshModelCatalog();
     await Promise.resolve();
 
     const refreshFrame = ws.send.mock.calls.find(([payload]) => (
       typeof payload === "string"
       && payload !== "ping"
-      && (JSON.parse(payload) as { type?: string }).type === "refresh_execution_routes"
+      && (JSON.parse(payload) as { type?: string }).type === "refresh_model_catalog"
     ));
     expect(refreshFrame).toBeDefined();
     const refreshRequest = JSON.parse(refreshFrame?.[0] as string) as { readonly requestId: string };
 
-    const executionRouteCatalog = {
-      routes: [{
-        routeId: "claude-default",
-        label: "Claude",
+    const modelCatalog = {
+      observedAt: "2026-08-25T00:00:00.000Z",
+      models: [{
         providerId: "claude",
+        providerRouteId: "claude:direct",
         providerModelId: "claude-sonnet-4-6",
-        accountSelection: { mode: "exact", eligibleAccountCount: 1, allowOperatorOverride: false },
+        access: "subscription",
+        family: "claude",
+        discovery: "observed",
+        eligibility: "eligible",
         availability: "available",
-        reasonCodes: ["configured"],
-        repairActions: [],
+        provenance: [],
+        targets: [{
+          targetId: "claude-default",
+          label: "Claude",
+          access: "subscription",
+          availability: "available",
+          reasonCodes: ["configured"],
+          repairActions: [],
+          eligibleAccountCount: 1,
+          accountOverrideIds: [],
+          cost: { kind: "subscription" },
+        }],
       }],
     } as const;
     ws.simulateMessage(JSON.stringify({
-      type: "execution_routes_refreshed",
+      type: "model_catalog_refreshed",
       requestId: refreshRequest.requestId,
-      executionRouteCatalog,
-      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
+      modelCatalog,
     }));
 
     await expect(promise).resolves.toBeUndefined();
-    expect(session.executionRouteCatalog).toEqual(executionRouteCatalog);
+    expect(session.modelCatalog).toEqual(modelCatalog);
     await session.dispose();
   });
 
@@ -315,22 +327,22 @@ describe("GatewaySession execution-route switching", () => {
     const ws = wsInstances[0]!;
     ws.simulateOpen();
 
-    const promise = session.refreshExecutionRoutes();
+    const promise = session.refreshModelCatalog();
     await Promise.resolve();
     const payload = ws.send.mock.calls.find(([candidate]) => (
       typeof candidate === "string"
       && candidate !== "ping"
-      && (JSON.parse(candidate) as { type?: string }).type === "refresh_execution_routes"
+      && (JSON.parse(candidate) as { type?: string }).type === "refresh_model_catalog"
     ))?.[0] as string;
     const request = JSON.parse(payload) as { readonly requestId: string };
 
     ws.simulateMessage(JSON.stringify({
-      type: "execution_routes_refresh_failed",
+      type: "model_catalog_refresh_failed",
       requestId: "stale-refresh",
       message: "stale failure",
     }));
     ws.simulateMessage(JSON.stringify({
-      type: "execution_routes_refresh_failed",
+      type: "model_catalog_refresh_failed",
       requestId: request.requestId,
       message: "Provider discovery timed out.",
     }));
@@ -1169,7 +1181,7 @@ describe("GatewaySession execution modes", () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: "welcome",
-      executionRouteCatalog: { routes: [] },
+      modelCatalog: { observedAt: "2026-08-25T00:00:00.000Z", models: [] },
       executionMode: "plan",
     }));
 
@@ -1272,8 +1284,7 @@ describe("GatewaySession provider authentication", () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: "welcome",
-      executionRouteCatalog: { routes: [] },
-      availableModels: { observedAt: "2026-08-25T00:00:00.000Z", entries: [] },
+      modelCatalog: { observedAt: "2026-08-25T00:00:00.000Z", models: [] },
     }));
     ws.simulateMessage(JSON.stringify({
       type: "provider_catalog_state",
@@ -1281,16 +1292,14 @@ describe("GatewaySession provider authentication", () => {
       models: { "codex-oauth": ["gpt"] },
       providerDiscovery: [],
       providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
-      executionRouteCatalog: { routes: [] },
-      availableModels: { observedAt: "2026-08-25T00:00:01.000Z", entries: [] },
+      modelCatalog: { observedAt: "2026-08-25T00:00:01.000Z", models: [] },
     }));
 
     expect(onWelcome).toHaveBeenLastCalledWith(
-      { routes: [] },
+      { observedAt: "2026-08-25T00:00:01.000Z", models: [] },
       { "codex-oauth": ["gpt"] },
       [],
       EMPTY_PROVIDER_MODEL_DISCOVERY,
-      { observedAt: "2026-08-25T00:00:01.000Z", entries: [] },
       { status: "ready" },
     );
     await session.dispose();
@@ -1317,7 +1326,7 @@ describe("GatewaySession provider authentication", () => {
       type: "provider_auth_completed",
       provider: "opencode-go",
       requestId: frame.requestId,
-      executionRouteCatalog: { routes: [] },
+      modelCatalog: { observedAt: "2026-08-25T00:00:00.000Z", models: [] },
       models: { "opencode-go": ["minimax-m2.5"] },
       providerDiscovery: [],
       providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
@@ -1325,7 +1334,7 @@ describe("GatewaySession provider authentication", () => {
 
     await expect(promise).resolves.toBeUndefined();
     expect(onWelcome).toHaveBeenCalledWith(
-      { routes: [] },
+      { observedAt: "2026-08-25T00:00:00.000Z", models: [] },
       { "opencode-go": ["minimax-m2.5"] },
       [],
       EMPTY_PROVIDER_MODEL_DISCOVERY,
@@ -1363,7 +1372,7 @@ describe("GatewaySession provider authentication", () => {
       type: "provider_auth_completed",
       provider: "codex-oauth",
       requestId: frame.requestId,
-      executionRouteCatalog: { routes: [] },
+      modelCatalog: { observedAt: "2026-08-25T00:00:00.000Z", models: [] },
       models: { "codex-oauth": ["gpt-5.4"] },
       providerDiscovery: [],
       providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,

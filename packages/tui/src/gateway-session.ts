@@ -10,9 +10,8 @@ import {
   operatorEventTargetsSurface,
   projectOperatorSessionEvents,
   projectVoiceAudioOutputParts,
-  type ExecutionRouteCatalog,
-  type AvailableModelCatalog,
-  type ExecutionRouteSelectionIntent,
+  type ModelCatalog,
+  type ExecutionTargetSelectionIntent,
   type GuiProviderDiscoveryResult,
   type GuiProviderCatalogStatus,
   type GuiProviderModelDiscoveryProjection,
@@ -29,24 +28,24 @@ import type { TuiInboundFrame } from "./ws-client.js";
 const CONNECT_TIMEOUT_MS = 10_000;
 const SEND_CONNECTED_TIMEOUT_MS = 5_000;
 const CLEAR_TIMEOUT_MS = 5_000;
-const EXECUTION_ROUTE_REFRESH_TIMEOUT_MS = 5_000;
+const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 5_000;
 const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 
 const STOP = Symbol("STOP");
-let executionRouteRequestOrdinal = 0;
-let executionRouteRefreshRequestOrdinal = 0;
+let executionTargetRequestOrdinal = 0;
+let modelCatalogRefreshRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
 
 type QueueItem = SessionEventInternal | typeof STOP;
 
-function nextExecutionRouteRequestId(): string {
-  executionRouteRequestOrdinal += 1;
-  return `execution-route:${Date.now()}:${executionRouteRequestOrdinal}`;
+function nextExecutionTargetRequestId(): string {
+  executionTargetRequestOrdinal += 1;
+  return `execution-target:${Date.now()}:${executionTargetRequestOrdinal}`;
 }
 
-function nextExecutionRouteRefreshRequestId(): string {
-  executionRouteRefreshRequestOrdinal += 1;
-  return `execution-route-refresh:${Date.now()}:${executionRouteRefreshRequestOrdinal}`;
+function nextModelCatalogRefreshRequestId(): string {
+  modelCatalogRefreshRequestOrdinal += 1;
+  return `model-catalog-refresh:${Date.now()}:${modelCatalogRefreshRequestOrdinal}`;
 }
 
 function nextProviderAuthRequestId(): string {
@@ -283,10 +282,7 @@ export class GatewaySession implements SessionLike {
   private readonly client: TuiWsClient;
   private readonly userId: string;
   private _planMode = false;
-  private _executionRouteCatalog: ExecutionRouteCatalog = { routes: [] };
-  private _availableModels: AvailableModelCatalog | null = null;
-
-  get availableModels(): AvailableModelCatalog | null { return this._availableModels; }
+  private _modelCatalog: ModelCatalog = { observedAt: new Date(0).toISOString(), models: [] };
 
   get planMode(): boolean {
     return this._planMode;
@@ -294,11 +290,10 @@ export class GatewaySession implements SessionLike {
 
   /** Callback invoked when the gateway publishes a route catalog or discovery evidence. */
   private onWelcome: ((
-    executionRouteCatalog: ExecutionRouteCatalog,
+    modelCatalog: ModelCatalog,
     models?: Record<string, string[]>,
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
     providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
-    availableModels?: AvailableModelCatalog,
     providerCatalogState?: { readonly status: GuiProviderCatalogStatus; readonly error?: string },
   ) => void) | null = null;
 
@@ -312,15 +307,15 @@ export class GatewaySession implements SessionLike {
   private lastAssistantSourceMessageId: string | null = null;
 
   /** Pending route selection callbacks — set while waiting for route acknowledgement. */
-  private executionRouteCallbacks: {
-    routeId: string;
+  private executionTargetCallbacks: {
+    targetId: string;
     requestId: string;
-    resolve: (routeId: string) => void;
+    resolve: (targetId: string) => void;
     reject: (err: Error) => void;
   } | null = null;
 
   /** Pending route catalog refresh callbacks — set while waiting for route refresh. */
-  private executionRouteRefreshCallbacks: { requestId: string; resolve: () => void; reject: (err: Error) => void } | null = null;
+  private modelCatalogRefreshCallbacks: { requestId: string; resolve: () => void; reject: (err: Error) => void } | null = null;
 
   /** Pending provider auth callbacks — set while waiting for provider_auth_completed. */
   private providerAuthCallbacks: {
@@ -334,11 +329,10 @@ export class GatewaySession implements SessionLike {
   constructor(
     wsUrl: string,
     onWelcome?: (
-      executionRouteCatalog: ExecutionRouteCatalog,
+      modelCatalog: ModelCatalog,
       models?: Record<string, string[]>,
       providerDiscovery?: readonly GuiProviderDiscoveryResult[],
       providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
-      availableModels?: AvailableModelCatalog,
       providerCatalogState?: { readonly status: GuiProviderCatalogStatus; readonly error?: string },
     ) => void,
   ) {
@@ -360,8 +354,8 @@ export class GatewaySession implements SessionLike {
     this.client.connect();
   }
 
-  get executionRouteCatalog(): ExecutionRouteCatalog {
-    return this._executionRouteCatalog;
+  get modelCatalog(): ModelCatalog {
+    return this._modelCatalog;
   }
 
   async *run(opts: {
@@ -442,41 +436,41 @@ export class GatewaySession implements SessionLike {
    * Send route selection intent to the gateway and wait for its acknowledgement.
    * Resolves with the selected route id. Provider/model remain derived evidence.
    */
-  async switchExecutionRoute(routeId: string, accountOverrideId?: string): Promise<string> {
+  async switchExecutionTarget(targetId: string, accountOverrideId?: string): Promise<string> {
     if (!this.connected || !this.client.isConnected) {
       throw new Error("Execution target selection requires an active TUI gateway connection");
     }
-    const normalizedRouteId = routeId.trim();
-    if (!normalizedRouteId) {
-      throw new Error("Execution target selection requires a route id");
+    const normalizedTargetId = targetId.trim();
+    if (!normalizedTargetId) {
+      throw new Error("Execution target selection requires a target id");
     }
-    const intent: ExecutionRouteSelectionIntent = {
-      routeId: normalizedRouteId,
+    const intent: ExecutionTargetSelectionIntent = {
+      targetId: normalizedTargetId,
       ...(accountOverrideId?.trim() ? { accountOverrideId: accountOverrideId.trim() } : {}),
     };
     return new Promise<string>((resolve, reject) => {
-      const requestId = nextExecutionRouteRequestId();
+      const requestId = nextExecutionTargetRequestId();
       const timeout = setTimeout(() => {
-        this.executionRouteCallbacks = null;
+        this.executionTargetCallbacks = null;
         reject(new Error("Execution target selection timed out"));
-      }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
+      }, MODEL_CATALOG_REFRESH_TIMEOUT_MS);
 
-      this.executionRouteCallbacks = {
-        routeId: intent.routeId,
+      this.executionTargetCallbacks = {
+        targetId: intent.targetId,
         requestId,
-        resolve: (selectedRouteId: string) => {
+        resolve: (selectedTargetId: string) => {
           clearTimeout(timeout);
-          this.executionRouteCallbacks = null;
-          resolve(selectedRouteId);
+          this.executionTargetCallbacks = null;
+          resolve(selectedTargetId);
         },
         reject: (err: Error) => {
           clearTimeout(timeout);
-          this.executionRouteCallbacks = null;
+          this.executionTargetCallbacks = null;
           reject(err);
         },
       };
 
-      this.client.send({ type: "execution_route", requestId, ...intent });
+      this.client.send({ type: "execution_target", requestId, ...intent });
     });
   }
 
@@ -484,30 +478,30 @@ export class GatewaySession implements SessionLike {
    * Refresh the execution target catalog without reconnecting the gateway session.
    * Not part of SessionLike — duck-typed in app.tsx.
    */
-  async refreshExecutionRoutes(): Promise<void> {
+  async refreshModelCatalog(): Promise<void> {
     await this.waitForConnection();
     return new Promise<void>((resolve, reject) => {
-      const requestId = nextExecutionRouteRefreshRequestId();
+      const requestId = nextModelCatalogRefreshRequestId();
       const timeout = setTimeout(() => {
-        this.executionRouteRefreshCallbacks = null;
+        this.modelCatalogRefreshCallbacks = null;
         reject(new Error("Execution target refresh timed out"));
-      }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
+      }, MODEL_CATALOG_REFRESH_TIMEOUT_MS);
 
-      this.executionRouteRefreshCallbacks = {
+      this.modelCatalogRefreshCallbacks = {
         requestId,
         resolve: () => {
           clearTimeout(timeout);
-          this.executionRouteRefreshCallbacks = null;
+          this.modelCatalogRefreshCallbacks = null;
           resolve();
         },
         reject: (err) => {
           clearTimeout(timeout);
-          this.executionRouteRefreshCallbacks = null;
+          this.modelCatalogRefreshCallbacks = null;
           reject(err);
         },
       };
 
-      this.client.send({ type: "refresh_execution_routes", requestId });
+      this.client.send({ type: "refresh_model_catalog", requestId });
     });
   }
 
@@ -635,9 +629,9 @@ export class GatewaySession implements SessionLike {
     } else if (frame.type === "voice_synthesis_failed") {
       this.push({ type: "error", message: frame.message });
     } else if (frame.type === "error") {
-      const pendingRouteSelection = this.executionRouteCallbacks;
+      const pendingRouteSelection = this.executionTargetCallbacks;
       if (pendingRouteSelection) {
-        this.executionRouteCallbacks = null;
+        this.executionTargetCallbacks = null;
         pendingRouteSelection.reject(new Error(frame.message));
       }
       const pendingProviderAuth = this.providerAuthCallbacks;
@@ -678,46 +672,41 @@ export class GatewaySession implements SessionLike {
         sessionId: frame.sessionId,
       });
     } else if (frame.type === "welcome") {
-      this._executionRouteCatalog = frame.executionRouteCatalog;
-      this._availableModels = frame.availableModels;
-      this.onWelcome?.(frame.executionRouteCatalog, undefined, undefined, undefined, frame.availableModels);
+      this._modelCatalog = frame.modelCatalog;
+      this.onWelcome?.(frame.modelCatalog);
       if ("executionMode" in frame) {
         this._planMode = frame.executionMode === "plan";
       }
     } else if (frame.type === "provider_catalog_state") {
       if (frame.status === "ready") {
-        this._executionRouteCatalog = frame.executionRouteCatalog;
-        this._availableModels = frame.availableModels;
+        this._modelCatalog = frame.modelCatalog;
         this.onWelcome?.(
-          frame.executionRouteCatalog,
+          frame.modelCatalog,
           frame.models,
           frame.providerDiscovery,
           frame.providerModelDiscovery,
-          frame.availableModels,
           { status: "ready" },
         );
       } else {
         this.onWelcome?.(
-          this._executionRouteCatalog,
+          this._modelCatalog,
           undefined,
           undefined,
           undefined,
-          this._availableModels ?? undefined,
           frame.status === "error"
             ? { status: "error", error: frame.message }
             : { status: frame.status },
         );
       }
-    } else if (frame.type === "execution_routes_refreshed") {
-      const pending = this.executionRouteRefreshCallbacks;
+    } else if (frame.type === "model_catalog_refreshed") {
+      const pending = this.modelCatalogRefreshCallbacks;
       if (pending?.requestId === frame.requestId) {
-        this._executionRouteCatalog = frame.executionRouteCatalog;
-        this._availableModels = frame.availableModels;
-        this.onWelcome?.(frame.executionRouteCatalog, undefined, undefined, undefined, frame.availableModels);
+        this._modelCatalog = frame.modelCatalog;
+        this.onWelcome?.(frame.modelCatalog);
         pending.resolve();
       }
-    } else if (frame.type === "execution_routes_refresh_failed") {
-      const pending = this.executionRouteRefreshCallbacks;
+    } else if (frame.type === "model_catalog_refresh_failed") {
+      const pending = this.modelCatalogRefreshCallbacks;
       if (pending?.requestId === frame.requestId) {
         pending.reject(new Error(frame.message));
       }
@@ -752,14 +741,12 @@ export class GatewaySession implements SessionLike {
         modelCount: frame.models[frame.provider]?.length,
         discovery: frame.providerDiscovery.find((entry) => entry.provider === frame.provider),
       });
-      this._executionRouteCatalog = frame.executionRouteCatalog;
-      this._availableModels = frame.availableModels;
+      this._modelCatalog = frame.modelCatalog;
       this.onWelcome?.(
-        frame.executionRouteCatalog,
+        frame.modelCatalog,
         frame.models,
         frame.providerDiscovery,
         frame.providerModelDiscovery,
-        ...(frame.availableModels ? [frame.availableModels] : []),
       );
       const pending = this.providerAuthCallbacks;
       if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
@@ -794,20 +781,20 @@ export class GatewaySession implements SessionLike {
       this._planMode = frame.executionMode === "plan";
     } else if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();
-    } else if (frame.type === "execution_route_changed") {
-      const pending = this.executionRouteCallbacks;
+    } else if (frame.type === "execution_target_changed") {
+      const pending = this.executionTargetCallbacks;
       if (
         pending
-        && frame.routeId === pending.routeId
+        && frame.targetId === pending.targetId
         && frame.requestId === pending.requestId
       ) {
-        pending.resolve(frame.routeId);
+        pending.resolve(frame.targetId);
       } else if (pending) {
         pending.reject(new Error("Execution target change acknowledgement did not match the pending request"));
       }
-    } else if (frame.type === "execution_route_change_failed") {
-      const pending = this.executionRouteCallbacks;
-      if (pending && frame.routeId === pending.routeId && frame.requestId === pending.requestId) {
+    } else if (frame.type === "execution_target_change_failed") {
+      const pending = this.executionTargetCallbacks;
+      if (pending && frame.targetId === pending.targetId && frame.requestId === pending.requestId) {
         pending.reject(new Error(frame.reason));
       } else if (pending) {
         pending.reject(new Error("Execution target failure did not match the pending request"));

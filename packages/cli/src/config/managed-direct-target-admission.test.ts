@@ -1,4 +1,4 @@
-import { defineExecutionCatalog } from "@kilnai/core/agents";
+import { defineExecutionTargetCatalog } from "@kilnai/core/agents";
 import { describe, expect, it } from "vitest";
 import { admitManagedDirectTarget } from "./managed-direct-target-admission.js";
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
@@ -18,7 +18,7 @@ const evidence = {
   confidence: "high" as const,
   authority: "configured" as const,
 };
-const catalog = defineExecutionCatalog({
+const catalog = defineExecutionTargetCatalog({
   accounts: [{
     id: "account-a",
     providerId: "codex-oauth",
@@ -34,14 +34,14 @@ const catalog = defineExecutionCatalog({
     },
   }],
   accountPolicies: [{ id: "codex-automatic", accountIds: ["account-a"], strategy: "economic-least-pressure" }],
-  routes: [{
+  targets: [{
     id: "terra",
     label: "Terra",
     providerId: "codex-oauth",
     providerModelId: "gpt-5.6-terra",
     dataClassification: "internal",
     dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
-    accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" },
+    accountPolicyId: "codex-automatic",
     economics: {
       adapterCapabilityId: "adapter",
       adapterCapabilityVersion: "v1",
@@ -76,12 +76,12 @@ describe("managed direct target admission", () => {
     const admitted = admitManagedDirectTarget(catalog, target);
 
     expect(admitted.target).toBe(target);
-    expect(admitted.executionRoute.id).toBe("terra");
+    expect(admitted.executionTarget.id).toBe("terra");
     expect(admitted.admission).toMatchObject({
-      routeId: "terra",
+      targetId: "terra",
       providerId: "codex-oauth",
       providerModelId: "gpt-5.6-terra",
-      accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" },
+      accountSelection: { accountPolicyId: "codex-automatic" },
     });
   });
 

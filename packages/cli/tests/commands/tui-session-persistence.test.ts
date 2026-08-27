@@ -84,8 +84,13 @@ const {
     },
     entries: discovery.flatMap((provider) => provider.models.map((model) => ({
       providerRoute: { providerId: provider.provider, providerModelId: model, scope: "provider" },
-      normalizedModel: { providerId: provider.provider, modelId: model },
+      normalizedModel: { family: model },
+      rawEvidence: { rawId: model, provenance: "test" },
+      credentialEvidence: { state: "authenticated", source: "test" },
+      entitlementEvidence: { state: "confirmed", source: "test" },
       freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      routeHealth: { status: "healthy" },
+      policyAdmission: { use: "interactive", status: "admitted" },
       eligibility: { eligible: true, reasonCodes: [] },
     }))),
   })),
@@ -123,10 +128,10 @@ const operatorCompositionMocks = vi.hoisted(() => ({
   create: vi.fn(() => ({
     accountRuntime: {
       operatorSessionCandidates: {
-        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } } }) => {
-          const accountIds = admission.accountSelection.mode === "automatic"
-            ? admission.accountSelection.eligibleAccountIds ?? []
-            : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { kind: "policy"; eligibleAccountIds: readonly string[] } | { kind: "operator-override"; accountId: string } } }) => {
+          const accountIds = admission.accountSelection.kind === "policy"
+            ? admission.accountSelection.eligibleAccountIds
+            : [admission.accountSelection.accountId];
           return accountIds.map((accountId) => ({
             candidate: {
               accountId,
@@ -146,11 +151,11 @@ const operatorCompositionMocks = vi.hoisted(() => ({
       },
     },
     resolveExecutionRouteAccountAvailability: vi.fn(async ({ admission }: {
-      admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } };
+      admission: { accountSelection: { kind: "policy"; eligibleAccountIds: readonly string[] } | { kind: "operator-override"; accountId: string } };
     }) => {
-      const accountIds = admission.accountSelection.mode === "automatic"
-        ? admission.accountSelection.eligibleAccountIds ?? []
-        : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+      const accountIds = admission.accountSelection.kind === "policy"
+        ? admission.accountSelection.eligibleAccountIds
+        : [admission.accountSelection.accountId];
       return accountIds.map((accountId) => ({ accountId, available: true, reasonCodes: [] }));
     }),
     bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
@@ -171,6 +176,8 @@ vi.mock("@kilnai/tui", () => ({
   },
   waitForGateway: mockWaitForGateway,
   startTui: mockStartTui,
+  defaultTheme: "phosphor",
+  getTheme: () => ({}),
   themes: { "phosphor": {} },
   kilnDark: {},
 }));
@@ -292,8 +299,8 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     ...actual,
     readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
     readGlobalConfigSnapshot: vi.fn(() => ({ config: mockGlobalConfig.value, revision: `sha256:${"a".repeat(64)}` })),
-    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
-      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+    readGlobalExecutionTargetCatalog: (config: Parameters<typeof fixtures.syntheticExecutionTargetCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionTargetCatalog(config) ?? undefined : undefined,
     readGlobalExecutionTargetAuthority: (config: Parameters<typeof fixtures.syntheticExecutionTargetAuthority>[0] | undefined) =>
       config ? fixtures.syntheticExecutionTargetAuthority(config) : undefined,
     resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
@@ -2085,7 +2092,7 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(appendSessionIds.every((sessionId) => sessionId === runtimeSessionIds[0])).toBe(true);
   });
 
-  it("direct bootstrap route path uses canonical route selection and rejects unavailable routes", async () => {
+  it("direct bootstrap target path uses canonical target selection and rejects unavailable targets", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_TUI_TRANSPORT = "direct";
     const { mkdtemp, rm } = await import("node:fs/promises");
@@ -2097,13 +2104,13 @@ describe("makeMultiProviderSessionFactory", () => {
     let directRouteSelectionError = "";
 
     mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
-      const session = await createSession() as { switchExecutionRoute?: (routeId: string, accountOverrideId?: string) => Promise<string> };
-      if (typeof session.switchExecutionRoute !== "function") {
-        throw new Error("direct session did not expose switchExecutionRoute");
+      const session = await createSession() as { switchExecutionTarget?: (targetId: string, accountOverrideId?: string) => Promise<string> };
+      if (typeof session.switchExecutionTarget !== "function") {
+        throw new Error("direct session did not expose switchExecutionTarget");
       }
-      switchToConfiguredRouteResult = await session.switchExecutionRoute("openai-default");
+      switchToConfiguredRouteResult = await session.switchExecutionTarget("openai-default");
       try {
-        await session.switchExecutionRoute("missing-route");
+        await session.switchExecutionTarget("missing-target");
       } catch (error) {
         directRouteSelectionError = error instanceof Error ? error.message : String(error);
       }

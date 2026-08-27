@@ -61,7 +61,7 @@ export type ExecutionPriceEvidenceConfig =
       readonly evidence: ManagedEconomicEvidenceIdentity;
     };
 
-export interface ExecutionRouteEconomicsConfig {
+export interface ExecutionTargetEconomicsConfig {
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
   readonly authBillingChannel: string;
@@ -100,8 +100,8 @@ export function validateExecutionAccountEconomics(value: unknown, field: string)
   oneOf(economics.overagePosture, POSTURES, `${field}.overagePosture`);
 }
 
-/** Validates the route economics persisted with an execution catalog. */
-export function validateExecutionRouteEconomics(value: unknown, field: string): void {
+/** Validates the target economics persisted with an execution target catalog. */
+export function validateExecutionTargetEconomics(value: unknown, field: string): void {
   const economics = record(value, field);
   for (const key of [
     "adapterCapabilityId",

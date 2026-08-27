@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   defineExecutionTargetEvidenceSnapshot,
   executionTargetEvidenceRevision,
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   readExecutionTargetEvidenceSnapshot,
   writeExecutionTargetEvidenceSnapshot,
 } from "../../src/config/execution-target-evidence-store.js";
@@ -14,7 +14,7 @@ describe("execution target managed evidence", () => {
   it("resolves minimal operator intent through one exact managed-evidence revision", () => {
     const evidence = evidenceSnapshot();
     const revision = executionTargetEvidenceRevision(evidence);
-    const catalog = projectExecutionCatalogFromIntent(targetIntent(revision), evidence, revision);
+    const catalog = projectExecutionTargetCatalogFromIntent(targetIntent(revision), evidence, revision);
 
     expect(targetIntent(revision).targets[0]).not.toHaveProperty("dataPolicyEvidence");
     expect(targetIntent(revision).targets[0]?.economics).not.toHaveProperty("priceEvidence");
@@ -22,8 +22,8 @@ describe("execution target managed evidence", () => {
       creditPosture: "disabled",
       overagePosture: "disabled",
     });
-    expect(catalog.routes[0]).toMatchObject({
-      id: "fixture-route",
+    expect(catalog.targets[0]).toMatchObject({
+      id: "fixture-target",
       providerId: "fixture-provider",
       providerModelId: "fixture-model",
       dataPolicyEvidence: { sourceRevision: "policy-v1" },
@@ -39,28 +39,28 @@ describe("execution target managed evidence", () => {
     const evidence = evidenceSnapshot();
     const revision = executionTargetEvidenceRevision(evidence);
 
-    expect(() => projectExecutionCatalogFromIntent(
+    expect(() => projectExecutionTargetCatalogFromIntent(
       targetIntent(`sha256:${"f".repeat(64)}`),
       evidence,
       revision,
     )).toThrow(/revision/u);
     const missing = { ...evidence, targets: [] };
     const missingRevision = executionTargetEvidenceRevision(missing);
-    expect(() => projectExecutionCatalogFromIntent(
+    expect(() => projectExecutionTargetCatalogFromIntent(
       targetIntent(missingRevision),
       missing,
       missingRevision,
-    )).toThrow(/fixture-route.*evidence/u);
+    )).toThrow(/fixture-target.*evidence/u);
     const extra = {
       ...evidence,
-      targets: [...evidence.targets, { ...evidence.targets[0]!, targetId: "unconfigured-route" }],
+      targets: [...evidence.targets, { ...evidence.targets[0]!, targetId: "unconfigured-target" }],
     };
     const extraRevision = executionTargetEvidenceRevision(extra);
-    expect(() => projectExecutionCatalogFromIntent(
+    expect(() => projectExecutionTargetCatalogFromIntent(
       targetIntent(extraRevision),
       extra,
       extraRevision,
-    )).toThrow(/unconfigured-route/u);
+    )).toThrow(/unconfigured-target/u);
     const mismatched = {
       ...evidence,
       targets: [{
@@ -69,7 +69,7 @@ describe("execution target managed evidence", () => {
       }],
     };
     const mismatchedRevision = executionTargetEvidenceRevision(mismatched);
-    expect(() => projectExecutionCatalogFromIntent(
+    expect(() => projectExecutionTargetCatalogFromIntent(
       targetIntent(mismatchedRevision),
       mismatched,
       mismatchedRevision,
@@ -112,14 +112,18 @@ function targetIntent(evidenceRevision: `sha256:${string}`) {
       reservedAffinitySlots: 0,
       economics: { creditPosture: "disabled" as const, overagePosture: "disabled" as const },
     }],
-    accountPolicies: [],
+    accountPolicies: [{
+      id: "fixture-account-policy",
+      accountIds: ["fixture-account"],
+      strategy: "economic-least-pressure" as const,
+    }],
     targets: [{
-      id: "fixture-route",
+      id: "fixture-target",
       kind: "direct" as const,
-      label: "Fixture route",
+      label: "Fixture target",
       providerId: "fixture-provider",
       providerModelId: "fixture-model",
-      accountSelection: { mode: "exact" as const, accountId: "fixture-account" },
+      accountPolicyId: "fixture-account-policy",
       dataClassification: "internal" as const,
       economics: {
         authBillingChannel: "oauth-subscription",
@@ -146,7 +150,7 @@ function evidenceSnapshot() {
       },
     }],
     targets: [{
-      targetId: "fixture-route",
+      targetId: "fixture-target",
       kind: "direct" as const,
       discovery: {
         providerId: "fixture-provider",

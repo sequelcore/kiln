@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { defaultGlobalConfig, validateGlobalConfig } from "../../src/config/global-config.js";
 import {
   executionTargetEvidenceRevision,
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   type ExecutionTargetCatalogIntent,
 } from "../../src/config/execution-target-evidence-store.js";
 
@@ -71,11 +71,11 @@ describe("startup profile global configuration fixture", () => {
     const evidence = JSON.parse(readFileSync(EVIDENCE_FIXTURE_PATH, "utf8")) as unknown;
 
     expect(executionTargetEvidenceRevision(evidence)).toBe(fixture.targetCatalog.evidenceRevision);
-    expect(projectExecutionCatalogFromIntent(
+    expect(projectExecutionTargetCatalogFromIntent(
       fixture.targetCatalog,
       evidence,
       fixture.targetCatalog.evidenceRevision,
       { now: new Date("2026-08-20T00:00:00.000Z") },
-    ).routes).toHaveLength(1);
+    ).targets).toHaveLength(1);
   });
 });

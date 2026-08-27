@@ -442,7 +442,7 @@ function normalizeGenerations(
     "native-skills",
     "native-permissions",
     "repo-shims",
-    "execution-routes",
+    "execution-targets",
   ];
   const normalized: ConfigMutationReconciliationGeneration[] = [];
   for (const entry of generations) {

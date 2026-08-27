@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import { clearStoredContinuationTarget } from "./session-store-persistence.js";
-import { resolveStoredExecutionRouteSelectionRestore } from "./execution-route-selection-restore.js";
+import { resolveStoredExecutionTargetSelectionRestore } from "./execution-target-selection-restore.js";
 import { MAX_DETACHED_SESSION_IDS } from "./session-store-state.js";
 import type { ConnectionLifecycleActions, SessionStore } from "./session-store-state.js";
 
@@ -34,9 +34,9 @@ export const createConnectionLifecycleSlice: StateCreator<
   setSender: (send) => {
     set({ outboundSend: send });
     if (send) {
-      const restore = resolveStoredExecutionRouteSelectionRestore(get());
+      const restore = resolveStoredExecutionTargetSelectionRestore(get());
       if (restore) {
-        get().selectExecutionRoute(restore.routeId, restore.accountOverrideId);
+        get().selectExecutionTarget(restore.targetId, restore.accountOverrideId);
       }
     }
   },
@@ -46,11 +46,11 @@ export const createConnectionLifecycleSlice: StateCreator<
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
-    if (state.executionRouteSelectionTimeoutId) {
-      clearTimeout(state.executionRouteSelectionTimeoutId);
+    if (state.executionTargetSelectionTimeoutId) {
+      clearTimeout(state.executionTargetSelectionTimeoutId);
     }
-    if (state.executionRouteRefreshTimeoutId) {
-      clearTimeout(state.executionRouteRefreshTimeoutId);
+    if (state.modelCatalogRefreshTimeoutId) {
+      clearTimeout(state.modelCatalogRefreshTimeoutId);
     }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
@@ -86,11 +86,11 @@ export const createConnectionLifecycleSlice: StateCreator<
       approvalResponseFailure: null,
       approvalResponsesPending: [],
       clearTimeoutId: null,
-      executionRouteSelecting: false,
-      executionRouteSelectionTarget: null,
-      executionRouteSelectionTimeoutId: null,
-      executionRouteRefresh: { state: "idle" },
-      executionRouteRefreshTimeoutId: null,
+      executionTargetSelecting: false,
+      executionTargetSelectionTarget: null,
+      executionTargetSelectionTimeoutId: null,
+      modelCatalogRefresh: { state: "idle" },
+      modelCatalogRefreshTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,
@@ -139,11 +139,11 @@ export const createConnectionLifecycleSlice: StateCreator<
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
-    if (state.executionRouteSelectionTimeoutId) {
-      clearTimeout(state.executionRouteSelectionTimeoutId);
+    if (state.executionTargetSelectionTimeoutId) {
+      clearTimeout(state.executionTargetSelectionTimeoutId);
     }
-    if (state.executionRouteRefreshTimeoutId) {
-      clearTimeout(state.executionRouteRefreshTimeoutId);
+    if (state.modelCatalogRefreshTimeoutId) {
+      clearTimeout(state.modelCatalogRefreshTimeoutId);
     }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
@@ -164,11 +164,11 @@ export const createConnectionLifecycleSlice: StateCreator<
       approvalResponseFailure: null,
       approvalResponsesPending: [],
       clearTimeoutId: null,
-      executionRouteSelecting: false,
-      executionRouteSelectionTarget: null,
-      executionRouteSelectionTimeoutId: null,
-      executionRouteRefresh: { state: "idle" },
-      executionRouteRefreshTimeoutId: null,
+      executionTargetSelecting: false,
+      executionTargetSelectionTarget: null,
+      executionTargetSelectionTimeoutId: null,
+      modelCatalogRefresh: { state: "idle" },
+      modelCatalogRefreshTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,

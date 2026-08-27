@@ -52,7 +52,7 @@ import {
   defineRuntimeSessionAuthorityFacet,
 } from "../../src/session/runtime-session-authority-facet.js";
 
-const {guiOperatorTransportDefaults, createGuiDist, selectGuiTestExecutionRoute, makeGuiOperatorDiscoveryFromModels} = guiFixture;
+const {guiOperatorTransportDefaults, createGuiDist, selectGuiTestExecutionTarget, makeGuiOperatorDiscoveryFromModels} = guiFixture;
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
 
 type GuiOperatorDiscoveryBuilderInput = Parameters<typeof buildGuiOperatorDiscoveryResults>[0];
@@ -424,7 +424,7 @@ describe("projectGuiOperatorModels", () => {
         },
       });
       let connection = guiSocketHarness.simulateConnection({ userId: "restart-user" });
-      await selectGuiTestExecutionRoute(connection.handlers, connection.wsCtx);
+      await selectGuiTestExecutionTarget(connection.handlers, connection.wsCtx);
       await connection.handlers.onMessage!(new MessageEvent("message", {
         data: JSON.stringify({ type: "message", content: "first turn" }),
       }), connection.wsCtx);
@@ -468,7 +468,7 @@ describe("projectGuiOperatorModels", () => {
         },
       });
       connection = guiSocketHarness.simulateConnection({ userId: "restart-user" });
-      await selectGuiTestExecutionRoute(connection.handlers, connection.wsCtx);
+      await selectGuiTestExecutionTarget(connection.handlers, connection.wsCtx);
       await connection.handlers.onMessage!(new MessageEvent("message", {
         data: JSON.stringify({
           type: "message", content: "continued turn", continuationSessionId: firstBundle.sessionId,

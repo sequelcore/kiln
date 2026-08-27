@@ -3,7 +3,7 @@ import {
   validateManagedEconomicAmount,
   type ManagedEconomicAmount,
 } from "../../cost/managed-route-economics.js";
-import type { AdmittedExecutionRoute } from "./index.js";
+import type { AdmittedExecutionTarget } from "./index.js";
 
 /** Snapshot of an account before the atomic capacity transaction. */
 export interface ExecutionAccountAdmissionCandidate {
@@ -40,15 +40,15 @@ export type ExecutionAccountAdmissionSelection =
     };
 
 /**
- * Selects an account from the route's pre-admitted policy snapshot.
+ * Selects an account from the target's pre-admitted policy snapshot.
  * This stage does not reserve or mutate current SQLite capacity.
  */
 export function selectAdmittedExecutionAccount(
-  admission: AdmittedExecutionRoute,
+  admission: AdmittedExecutionTarget,
   candidates: readonly ExecutionAccountAdmissionCandidate[],
 ): ExecutionAccountAdmissionSelection {
   if (!Array.isArray(candidates)) throw invalid("candidates must be an array");
-  const allowedAccountIds = admission.accountSelection.mode === "exact"
+  const allowedAccountIds = admission.accountSelection.kind === "operator-override"
     ? new Set([admission.accountSelection.accountId])
     : new Set(admission.accountSelection.eligibleAccountIds);
   const rejected: ExecutionAccountAdmissionRejection[] = [];

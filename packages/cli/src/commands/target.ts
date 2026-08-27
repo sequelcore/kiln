@@ -12,8 +12,8 @@ import {
   resolveGuiOperatorDiscoveryResults,
 } from "@kilnai/runtime";
 import type {
-  AvailableModelCatalog,
-  AvailableModelCatalogEntry,
+  ModelCatalog,
+  ModelCatalogEntry,
   ExecutionTargetWizardProposal,
   ExecutionTargetWizardRequest,
   ExecutionTargetWizardResult,
@@ -25,8 +25,8 @@ import type {
 } from "../config/execution-target-evidence-store.js";
 import { projectAvailableModelDiagnostic } from "../application/available-model-diagnostic.js";
 import { runExecutionTargetWizardCommand } from "../application/execution-target-wizard-command.js";
-import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
-import { createOperatorExecutionRouteSelectionPort } from "../application/operator-execution-route-selection.js";
+import { createCurrentExecutionTarget } from "../application/current-execution-target-creation.js";
+import { createOperatorExecutionTargetSelectionPort } from "../application/operator-execution-target-selection.js";
 import { createDefaultRegistry, getRuntimeProviderAvailability } from "../wrapper/session-registry.js";
 import { applyConfigMutation, approveConfigMutation, proposeConfigMutation } from "../application/config-mutation-authority.js";
 import { ConfigMutationStore } from "../application/config-mutation-store.js";
@@ -34,7 +34,7 @@ import { ConfigMutationStore } from "../application/config-mutation-store.js";
 type TargetClassification = "public" | "internal" | "confidential" | "restricted";
 
 interface TargetWizardReadContext {
-  readonly catalog: AvailableModelCatalog;
+  readonly catalog: ModelCatalog;
   readonly revision: string;
   readonly discovery: GuiProviderModelDiscoveryProjection;
   readonly executionCatalog: NonNullable<ReturnType<typeof readGlobalExecutionTargetAuthority>>["executionCatalog"];
@@ -189,7 +189,7 @@ function formatTargetProposal(proposal: ExecutionTargetWizardProposal): readonly
     `  model: ${target.providerId}/${target.providerModelId}`,
     `  label: ${target.label}`,
     `  classification: ${target.dataClassification}`,
-    `  account selection: ${target.accountSelectionMode}`,
+    `  account policy: ${target.accountPolicyId} (${target.eligibleAccountCount} eligible)`,
     `  billing: ${target.billingClass}`,
     `  capability: ${target.capabilityPosture}`,
     `  authority: ${proposal.authorityImpact}; activation: ${proposal.activation}; approval: ${proposal.approvalStatus}`,
@@ -271,15 +271,15 @@ function parseTargetCreateArguments(args: readonly string[]): {
   return { selector, classification, ...(label ? { label } : {}), approve };
 }
 
-function selectCurrentAvailableModel(catalog: AvailableModelCatalog, selector: string): AvailableModelCatalogEntry {
+function selectCurrentAvailableModel(catalog: ModelCatalog, selector: string): ModelCatalogEntry {
   const slash = selector.indexOf("/");
   if (slash <= 0 || slash === selector.length - 1) {
     throw new Error("target create selector must be provider/model; model names may contain additional '/'.");
   }
   const providerId = selector.slice(0, slash);
   const providerModelId = selector.slice(slash + 1);
-  const matches = catalog.entries.filter((entry) => entry.providerId === providerId && entry.providerModelId === providerModelId);
-  const eligible = matches.filter((entry) => entry.discoveryState === "observed" && entry.eligibilityState === "eligible");
+  const matches = catalog.models.filter((entry) => entry.providerId === providerId && entry.providerModelId === providerModelId);
+  const eligible = matches.filter((entry) => entry.discovery === "observed" && entry.eligibility === "eligible");
   if (eligible.length > 1) throw new Error(`Available Models selector '${selector}' is ambiguous; refresh and choose one current route.`);
   if (eligible.length === 0) throw new Error(`No current observed and eligible Available Models entry matches '${selector}'; run 'kiln target available' and refresh.`);
   return eligible[0]!;
@@ -299,7 +299,7 @@ async function createTargetFromCurrentEvidence(
 ): Promise<ExecutionTargetWizardResult> {
   try {
     const admittedEvidence = invocationEvidence ?? await resolveTargetWizardDiscoveryEvidence(request);
-    return await createCurrentExecutionRoute({
+    return await createCurrentExecutionTarget({
       request,
       admittedEvidence,
       projectPath: process.cwd(),
@@ -332,10 +332,10 @@ async function createTargetFromCurrentEvidence(
 }
 
 function selectExactCurrentAvailableModel(
-  catalog: AvailableModelCatalog,
+  catalog: ModelCatalog,
   identity: ExecutionTargetWizardRequest["discoveryIdentity"],
-): AvailableModelCatalogEntry {
-  const entry = catalog.entries.find((candidate) => candidate.providerId === identity.providerId
+): ModelCatalogEntry {
+  const entry = catalog.models.find((candidate) => candidate.providerId === identity.providerId
     && candidate.providerRouteId === identity.providerRouteId
     && candidate.providerModelId === identity.providerModelId);
   if (!entry) throw new Error("The selected Available Models identity is no longer current.");
@@ -353,13 +353,13 @@ async function readCurrentTargetWizardContext(): Promise<TargetWizardReadContext
     undefined,
     resolveKilnHomePath(),
   ));
-  const selection = createOperatorExecutionRouteSelectionPort({
+  const selection = createOperatorExecutionTargetSelectionPort({
     readConfigSnapshot: () => snapshot,
     resolveAccountAvailability: async () => [],
   });
-  const executionRouteCatalog = await selection.getCatalog();
+  const configuredTargets = await selection.getTargets();
   return {
-    catalog: projectAvailableModelDiagnostic({ discovery, executionRouteCatalog }),
+    catalog: projectAvailableModelDiagnostic({ discovery, configuredTargets }),
     revision: snapshot.revision,
     discovery,
     executionCatalog: authority.executionCatalog,
@@ -374,12 +374,14 @@ export async function targetAvailableModelsCommand(input: {
   try {
     const availableModels = await (input.readCatalog ?? readCurrentAvailableModels)();
     console.log("Available Models:");
-    if (availableModels.entries.length === 0) {
+    if (availableModels.models.length === 0) {
       console.log("  none observed");
       return;
     }
-    for (const entry of availableModels.entries) {
-      console.log(`  ${entry.providerId}/${entry.providerModelId} [discovery=${entry.discoveryState}, eligibility=${entry.eligibilityState}, availability=${entry.availabilityState}, configured=${entry.configuredState}] ${entry.reasonCodes.join(",")}`);
+    for (const entry of availableModels.models) {
+      const configured = entry.targets.length > 0 ? "configured" : "not-configured";
+      const reasons = entry.targets.flatMap((target) => target.reasonCodes).join(",");
+      console.log(`  ${entry.providerId}/${entry.providerModelId} [discovery=${entry.discovery}, eligibility=${entry.eligibility}, availability=${entry.availability}, ${configured}] ${reasons}`);
     }
   } catch {
     console.log("Available Models: unavailable (current provider discovery failed)");
@@ -388,7 +390,7 @@ export async function targetAvailableModelsCommand(input: {
 
 async function readCurrentAvailableModels() {
   const config = readGlobalConfig() ?? defaultGlobalConfig();
-  const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
+  const executionTargetSelection = createOperatorExecutionTargetSelectionPort({
     readConfigSnapshot: () => ({ config, revision: `sha256:${"0".repeat(64)}` }),
     resolveAccountAvailability: async () => [],
   });
@@ -400,6 +402,6 @@ async function readCurrentAvailableModels() {
   );
   return projectAvailableModelDiagnostic({
     discovery: projectGuiProviderModelDiscovery(discovery),
-    executionRouteCatalog: await executionRouteSelection.getCatalog(),
+    configuredTargets: await executionTargetSelection.getTargets(),
   });
 }

@@ -97,7 +97,7 @@ function createTestMediaClaims(): {
   };
 }
 
-/** A complete, bundle-owned admission used by route tests. */
+/** A complete, bundle-owned admission used by gateway tests. */
 export function makeGatewayTestAdmission(
   sessionRegistry: SessionRegistry,
   provider: ProviderAdapter = { name: "gateway-test", createMessage: async () => ({ parts: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: [], stopReason: "completed" }), streamMessage: async function* () {} },
@@ -137,7 +137,7 @@ export function makeGatewayTestAdmission(
           tools: { allowedToolPermissions: [], deniedToolNames: [] },
           effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
           budget: { status: "not-configured" },
-          execution: { status: "routed", route: { routeId: "gateway-test", providerId: provider.name, providerModelId: provider.name, accountSelection: { mode: "exact", accountId: "gateway-test", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "gateway-test", accountId: "gateway-test", credentialId: "gateway-test", credentialRevision: "gateway-test" } },
+          execution: { status: "routed", target: { targetId: "gateway-test", providerId: provider.name, providerModelId: provider.name, accountSelection: { kind: "operator-override", accountPolicyId: "gateway-test-policy", accountId: "gateway-test" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "gateway-test", accountId: "gateway-test", credentialId: "gateway-test", credentialRevision: "gateway-test" } },
         },
       });
       const perCallConfig = { authorityAdmission: bundle, turnId };

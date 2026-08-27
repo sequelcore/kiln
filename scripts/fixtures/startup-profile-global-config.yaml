@@ -1,4 +1,4 @@
-# Deterministic V4 operator intent for the GUI startup profile.
+# Deterministic V5 operator intent for the GUI startup profile.
 # Managed discovery, data-policy, and economic facts are published separately
 # in the content-addressed evidence snapshot seeded by profile-startup.test.ts.
 version: "5"
@@ -7,8 +7,8 @@ ui:
   appearance:
     mode: system
     themeByScheme:
-      light: automata
-      dark: phosphor
+      light: tesota
+      dark: tesota
 engines:
   claude:
     enabled: true
@@ -54,9 +54,7 @@ targetCatalog:
       providerId: opencode-go
       providerModelId: startup-profile-model
       dataClassification: internal
-      accountSelection:
-        mode: automatic
-        accountPolicyId: startup-profile-policy
+      accountPolicyId: startup-profile-policy
       economics:
         authBillingChannel: fixture
         executionMode: direct

@@ -634,11 +634,11 @@ function admissionBundle(
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId,
+        target: {
+          targetId: routeId,
           providerId: "codex-oauth",
           providerModelId: "gpt-test",
-          accountSelection: { mode: "exact", accountId: "account-1", source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "account-1" },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {

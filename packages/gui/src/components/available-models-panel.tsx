@@ -1,6 +1,6 @@
 import {
   ExecutionTargetWizardRequestSchema,
-  type AvailableModelCatalog,
+  type ModelCatalog,
   type ExecutionTargetWizardProposal,
   type GuiInboundFrame,
   type GuiOutboundFrame,
@@ -21,13 +21,13 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "./ui/field.js";
 import { Input } from "./ui/input.js";
 
-type Entry = AvailableModelCatalog["entries"][number];
+type Entry = ModelCatalog["models"][number];
 type WizardResult = Extract<GuiInboundFrame, { type: "execution_target_wizard_result" }>;
 type Classification = "public" | "internal" | "confidential" | "restricted";
 type PreviewRequest = Extract<GuiOutboundFrame, { type: "execution_target_wizard"; action: "preview" }>;
 
 interface AvailableModelsPanelProps {
-  readonly catalog: AvailableModelCatalog | null;
+  readonly catalog: ModelCatalog | null;
   readonly catalogRevision?: string;
   readonly wizardResult?: WizardResult | null;
   readonly send: ((frame: GuiOutboundFrame) => void) | null;
@@ -41,17 +41,17 @@ interface AvailableModelsPanelProps {
 const CLASSIFICATIONS: readonly Classification[] = ["public", "internal", "confidential", "restricted"];
 
 function stateLabel(entry: Entry): string {
-  if (entry.discoveryState === "stale") return "Stale discovery";
-  if (entry.discoveryState === "failed") return "Discovery unavailable";
-  if (entry.eligibilityState === "ineligible") return "Ineligible";
-  if (entry.eligibilityState === "unknown") return "Eligibility unknown";
-  if (entry.availabilityState === "unavailable") return "Unavailable";
-  if (entry.availabilityState === "unknown") return "Availability unknown";
-  return entry.configuredState === "configured" ? "Configured" : "Available to configure";
+  if (entry.discovery === "stale") return "Stale discovery";
+  if (entry.discovery === "failed") return "Discovery unavailable";
+  if (entry.eligibility === "ineligible") return "Ineligible";
+  if (entry.eligibility === "unknown") return "Eligibility unknown";
+  if (entry.availability === "unavailable") return "Unavailable";
+  if (entry.availability === "unknown") return "Availability unknown";
+  return entry.targets.length > 0 ? "Configured" : "Available to configure";
 }
 
 function canStartWizard(entry: Entry): boolean {
-  return entry.discoveryState === "observed" && entry.eligibilityState === "eligible";
+  return entry.discovery === "observed" && entry.eligibility === "eligible";
 }
 
 function authorityLabel(impact: ExecutionTargetWizardProposal["authorityImpact"]): string {
@@ -127,17 +127,17 @@ export function AvailableModelsPanel(props: AvailableModelsPanelProps) {
   }, [pendingAction, pendingRequestId, props.wizardResult]);
 
   const providers = useMemo(
-    () => [...new Set(props.catalog?.entries.map((entry) => entry.providerId) ?? [])].sort(),
+    () => [...new Set(props.catalog?.models.map((entry) => entry.providerId) ?? [])].sort(),
     [props.catalog],
   );
   const groups = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const entries = (props.catalog?.entries ?? []).filter((entry) =>
+    const entries = (props.catalog?.models ?? []).filter((entry) =>
       (provider === "all" || entry.providerId === provider)
-      && (eligibility === "all" || entry.eligibilityState === eligibility)
-      && (availability === "all" || entry.availabilityState === availability)
-      && (configured === "all" || entry.configuredState === configured)
-      && (!query || `${entry.providerId} ${entry.providerModelId} ${entry.configuredRouteRefs.map((route) => route.label).join(" ")}`.toLowerCase().includes(query)),
+      && (eligibility === "all" || entry.eligibility === eligibility)
+      && (availability === "all" || entry.availability === availability)
+      && (configured === "all" || (configured === "configured" ? entry.targets.length > 0 : entry.targets.length === 0))
+      && (!query || `${entry.providerId} ${entry.providerModelId} ${entry.targets.map((target) => target.label).join(" ")}`.toLowerCase().includes(query)),
     );
     return providers
       .map((providerId) => ({ providerId, entries: entries.filter((entry) => entry.providerId === providerId) }))
@@ -259,7 +259,7 @@ export function AvailableModelsPanel(props: AvailableModelsPanelProps) {
       {feedback ? <p role="status" className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">{feedback}</p> : null}
       {!props.catalog ? (
         <p role="status" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Waiting for the Runtime model catalog.</p>
-      ) : props.catalog.entries.length === 0 ? (
+      ) : props.catalog.models.length === 0 ? (
         <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No discovered models. Refresh provider discovery or repair its configuration.</p>
       ) : (
         <>
@@ -283,8 +283,8 @@ export function AvailableModelsPanel(props: AvailableModelsPanelProps) {
                   <article key={`${entry.providerRouteId}:${entry.providerModelId}`} className="flex min-w-0 flex-col gap-3 border-b p-3 last:border-b-0 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-1">
                       <p className="break-all text-sm font-medium">{name}</p>
-                      {entry.configuredRouteRefs.length > 0 ? <p className="break-words text-xs text-muted-foreground">Configured targets: {entry.configuredRouteRefs.map((route) => route.label).join(", ")}</p> : null}
-                      {entry.discoveryState === "observed" && entry.eligibilityState === "eligible" && entry.availabilityState === "unavailable" ? <p className="text-xs text-amber-700 dark:text-amber-300">Unavailable. The target may not execute until provider health recovers.</p> : null}
+                      {entry.targets.length > 0 ? <p className="break-words text-xs text-muted-foreground">Configured targets: {entry.targets.map((target) => target.label).join(", ")}</p> : null}
+                      {entry.discovery === "observed" && entry.eligibility === "eligible" && entry.availability === "unavailable" ? <p className="text-xs text-warning">Unavailable. The target may not execute until provider health recovers.</p> : null}
                     </div>
                     <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end">
                       <Badge variant={canStartWizard(entry) ? "outline" : "secondary"}>{stateLabel(entry)}</Badge>
@@ -387,7 +387,7 @@ function ProposalReview(props: { readonly proposal: ExecutionTargetWizardProposa
         <AlertDescription>This target expands operator authority. Applying it commits the exact proposal shown below.</AlertDescription>
       </Alert>
       <dl className="grid gap-x-5 gap-y-3 rounded-xl bg-muted/40 p-3 sm:grid-cols-2">
-        <ReviewValue label="Target" value={proposal.target.routeId} />
+        <ReviewValue label="Target" value={proposal.target.targetId} />
         <ReviewValue label="Label" value={proposal.target.label} />
         <ReviewValue label="Provider" value={proposal.target.providerId} />
         <ReviewValue label="Model" value={proposal.target.providerModelId} />
@@ -403,7 +403,7 @@ function ProposalReview(props: { readonly proposal: ExecutionTargetWizardProposa
           <ReviewValue label="Proposal ID" value={proposal.proposalId} />
           <ReviewValue label="Base revision" value={proposal.baseRevision} />
           <ReviewValue label="Activation" value={proposal.activation} />
-          <ReviewValue label="Account selection" value={proposal.target.accountSelectionMode} />
+          <ReviewValue label="Account policy" value={proposal.target.accountPolicyId} />
           <ReviewValue label="Discovery expires" value={proposal.target.discoveryExpiresAt} />
           <ReviewValue label="Evidence expires" value={proposal.target.evidenceExpiresAt} />
           <ReviewValue label="Rollback" value={proposal.rollback.summary} />

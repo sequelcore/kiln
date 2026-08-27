@@ -22,7 +22,7 @@ import {
   isPooledDirectProviderId,
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer, ExecutionCatalog } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer, ExecutionTargetCatalog } from "@kilnai/core";
 import { ActionEffectAuthorizer } from "@kilnai/core";
 import { EventBus, CostTracker } from "@kilnai/core";
 import { WebChannel } from "../channels/web-channel.js";
@@ -49,12 +49,12 @@ import {
   runtimeModelRoundEffectIdentity,
 } from "../execution-kernel/runtime-model-round-action-claim.js";
 import { ConfiguredExecutionAccountRuntime, type ConfiguredExecutionCredential } from "../managed-account-leases/configured-execution-account-runtime.js";
-import type { OperatorSessionExecutionCatalogSnapshot } from "../execution-routing/operator-session-execution-routing-service.js";
+import type { OperatorSessionExecutionTargetCatalogSnapshot } from "../execution-routing/operator-session-execution-routing-service.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import type { OperatorAdoptionDecisionPersistence } from "../session/operator-adoption-authority.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import type { ChannelEgressActionClaimContext } from "../channels/channel-egress-action-claim.js";
-import { FixedRouteGatewayAuthorityAdmission } from "./gateway-authority-admission.js";
+import { FixedTargetGatewayAuthorityAdmission } from "./gateway-authority-admission.js";
 import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
@@ -178,7 +178,7 @@ export interface StartGatewayOptions {
 }
 
 export interface ModelGatewayExecutionBundle {
-  readonly executionCatalog: ExecutionCatalog;
+  readonly executionCatalog: ExecutionTargetCatalog;
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
@@ -186,7 +186,7 @@ export interface ModelGatewayExecutionBundle {
 }
 
 export interface AppGatewayExecutionBundle {
-  readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+  readonly snapshot: OperatorSessionExecutionTargetCatalogSnapshot;
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly evidenceStore: AuthorityAdmissionEvidenceStore;
@@ -664,8 +664,8 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
       .map((tool) => tool.name));
     const providerName = resolved.runtimeModeConfig.provider.name;
     const providerModel = resolved.runtimeModeConfig.provider.model;
-    const matchingAppRoutes = appGatewayExecution!.snapshot.catalog.routes.filter((route) =>
-      route.providerId === providerName && route.providerModelId === providerModel);
+    const matchingAppRoutes = appGatewayExecution!.snapshot.catalog.targets.filter((target) =>
+      target.providerId === providerName && target.providerModelId === providerModel);
     if (matchingAppRoutes.length !== 1) {
       throw new KilnError(
         "CONFIG_INVALID",
@@ -673,9 +673,9 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         { context: { appName: loaded.name, provider: providerName, model: providerModel, matchCount: matchingAppRoutes.length } },
       );
     }
-    const gatewayAdmission = new FixedRouteGatewayAuthorityAdmission<ConfiguredExecutionCredential>({
+    const gatewayAdmission = new FixedTargetGatewayAuthorityAdmission<ConfiguredExecutionCredential>({
       appName: loaded.name,
-      routeId: matchingAppRoutes[0]!.id,
+      targetId: matchingAppRoutes[0]!.id,
       snapshot: appGatewayExecution!.snapshot,
       sessionRegistry,
       candidates: appGatewayExecution!.accountRuntime.operatorSessionCandidates,

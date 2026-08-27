@@ -2,7 +2,7 @@ import {
   compareManagedEconomicAmounts,
   deriveManagedEconomicMinimumReservation,
   digestManagedEconomicValue,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ManagedEconomicAmount,
   type ManagedEconomicComparableReservation,
   type ManagedEconomicScheme,
@@ -54,12 +54,12 @@ export interface DerivedManagedAgentCandidate {
  */
 export function deriveManagedAgentEconomicPolicies(input: {
   readonly managedAgents?: KilnManagedAgentsConfig;
-  readonly executionCatalog?: ExecutionCatalog;
+  readonly executionCatalog?: ExecutionTargetCatalog;
   readonly defaultTargetId?: string;
   readonly targetEvidenceRevision?: string;
 }): readonly DerivedManagedAgentEconomicPolicy[] {
   const intents = input.managedAgents?.intents ?? [];
-  const routes = input.executionCatalog?.routes ?? [];
+  const routes = input.executionCatalog?.targets ?? [];
   return intents.map((intent) => deriveManagedAgentEconomicPolicy({
     intent,
     routes,
@@ -72,9 +72,9 @@ export function deriveManagedAgentEconomicPolicies(input: {
 
 export function deriveManagedAgentEconomicPolicy(input: {
   readonly intent: KilnManagedAgentIntentConfig;
-  readonly routes: ExecutionCatalog["routes"];
-  readonly accounts?: ExecutionCatalog["accounts"];
-  readonly accountPolicies?: ExecutionCatalog["accountPolicies"];
+  readonly routes: ExecutionTargetCatalog["targets"];
+  readonly accounts?: ExecutionTargetCatalog["accounts"];
+  readonly accountPolicies?: ExecutionTargetCatalog["accountPolicies"];
   readonly defaultTargetId?: string;
   readonly targetEvidenceRevision?: string;
 }): DerivedManagedAgentEconomicPolicy {
@@ -82,15 +82,13 @@ export function deriveManagedAgentEconomicPolicy(input: {
   const accountById = new Map((input.accounts ?? []).map((account) => [account.id, account]));
   const accountPolicyById = new Map((input.accountPolicies ?? []).map((policy) => [policy.id, policy]));
   const routes = input.routes
-    .filter((route) => route.accountSelection.mode === "automatic")
     .filter((route) => intent.target?.mode === "explicit"
       ? route.id === intent.target.targetId
       : route.id === input.defaultTargetId)
     .filter((route) => intent.model?.mode !== "explicit" || route.providerModelId === intent.model.modelId)
     .filter((route) => route.economics.fallbackPosture === "disabled" && route.economics.overagePosture === "disabled")
     .filter((route) => {
-      if (route.accountSelection.mode !== "automatic") return false;
-      const accountPolicy = accountPolicyById.get(route.accountSelection.accountPolicyId);
+      const accountPolicy = accountPolicyById.get(route.accountPolicyId);
       if (!accountPolicy) return false;
       return accountPolicy.accountIds.every((accountId) => {
         const economics = accountById.get(accountId)?.economics;
@@ -164,14 +162,11 @@ export function deriveManagedAgentEconomicPolicy(input: {
       id: route.id,
       providerId: route.providerId,
       providerModelId: route.providerModelId,
-      accountSelection: route.accountSelection,
+      accountPolicyId: route.accountPolicyId,
       economics: route.economics,
     })),
     relevantAccountEvidence: routes.map((route) => {
-      const policyId = route.accountSelection.mode === "automatic"
-        ? route.accountSelection.accountPolicyId
-        : undefined;
-      const policy = policyId ? accountPolicyById.get(policyId) : undefined;
+      const policy = accountPolicyById.get(route.accountPolicyId);
       return {
         routeId: route.id,
         policyId: policy?.id ?? null,
@@ -205,8 +200,8 @@ export function deriveManagedAgentEconomicPolicy(input: {
 }
 
 function domainForRoute(
-  economics: ExecutionCatalog["routes"][number]["economics"],
-  price: ExecutionCatalog["routes"][number]["economics"]["priceEvidence"],
+  economics: ExecutionTargetCatalog["targets"][number]["economics"],
+  price: ExecutionTargetCatalog["targets"][number]["economics"]["priceEvidence"],
   byKey: Map<string, DerivedManagedAgentComparisonDomain>,
   domains: DerivedManagedAgentComparisonDomain[],
 ): DerivedManagedAgentComparisonDomain | undefined {
@@ -234,8 +229,8 @@ function domainForRoute(
 }
 
 function reservationForRoute(
-  economics: ExecutionCatalog["routes"][number]["economics"],
-  price: ExecutionCatalog["routes"][number]["economics"]["priceEvidence"],
+  economics: ExecutionTargetCatalog["targets"][number]["economics"],
+  price: ExecutionTargetCatalog["targets"][number]["economics"]["priceEvidence"],
   domain: DerivedManagedAgentComparisonDomain,
   cap?: ManagedEconomicAmount,
 ): ManagedEconomicComparableReservation {

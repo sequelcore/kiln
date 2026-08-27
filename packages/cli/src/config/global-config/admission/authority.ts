@@ -203,12 +203,11 @@ export function validateManagedTargetReferences(
       throw new KilnYamlError(`${path}.target.targetId references an unknown target`);
     }
     if (target && target.kind !== "direct") {
-      throw new KilnYamlError(`${path}.target.targetId must reference an automatic direct target`);
+      throw new KilnYamlError(`${path}.target.targetId must reference a direct target`);
     }
     if (target && target.kind === "direct") {
-      const selection = isRecord(target.accountSelection) ? target.accountSelection : undefined;
-      if (!selection || selection.mode !== "automatic" || typeof selection.accountPolicyId !== "string") {
-        throw new KilnYamlError(`${path}.target.targetId must reference an automatic direct target`);
+      if (typeof target.accountPolicyId !== "string") {
+        throw new KilnYamlError(`${path}.target.targetId must reference a direct target with an account policy`);
       }
       const economics = isRecord(target.economics) ? target.economics : undefined;
       if (!economics || economics.fallbackPosture !== "disabled" || economics.overagePosture !== "disabled") {

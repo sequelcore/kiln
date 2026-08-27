@@ -21,7 +21,7 @@ function bundle() {
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
       effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
       budget: { status: "not-configured" },
-      execution: { status: "routed", route: { routeId: "route", providerId: "provider", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account", source: "route" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) } },
+      execution: { status: "routed", target: { targetId: "route", providerId: "provider", providerModelId: "model", accountSelection: { kind: "operator-override", accountPolicyId: "policy", accountId: "account" } }, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: "route", accountId: "account", credentialId: "credential", credentialRevision: "d".repeat(64) } },
     },
   });
 }

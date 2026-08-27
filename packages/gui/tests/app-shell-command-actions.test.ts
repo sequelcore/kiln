@@ -18,7 +18,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellCommandE
     setPaletteMode: vi.fn(),
     setPaletteQuery: vi.fn(),
     setPaletteOpen: vi.fn(),
-    openExecutionRoutePicker: vi.fn(),
+    openModelPicker: vi.fn(),
     openConfigurationSettings: vi.fn(),
     deliberationLevelOptions: ["low", "medium", "high"] as const,
     selectedDeliberationLevel: "medium" as const,
@@ -70,13 +70,13 @@ describe("createAppShellCommandExecutor", () => {
     expect(input.closePalette).toHaveBeenCalledTimes(2);
   });
 
-  it("opens execution-route selection through its canonical mount-aware action", () => {
+  it("opens model selection through its canonical mount-aware action", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
     execute(command("target", "Execution target"));
 
-    expect(input.openExecutionRoutePicker).toHaveBeenCalledOnce();
+    expect(input.openModelPicker).toHaveBeenCalledOnce();
     expect(input.closePalette).toHaveBeenCalledOnce();
   });
 

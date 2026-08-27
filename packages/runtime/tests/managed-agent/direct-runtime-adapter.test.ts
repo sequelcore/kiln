@@ -163,11 +163,11 @@ function directTestAdmission(
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId,
+        target: {
+          targetId: routeId,
           providerId: request.providerRoute.providerId,
           providerModelId: model,
-          accountSelection: { mode: "exact", accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "direct-test-policy", accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId, accountId, credentialId: "direct-test-credential", credentialRevision },

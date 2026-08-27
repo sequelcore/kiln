@@ -446,11 +446,11 @@ export function fixtureToolActionConfig(
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId: "runtime-tool-test-route",
+        target: {
+          targetId: "runtime-tool-test-route",
           providerId: deps.provider.name,
           providerModelId: deps.model ?? "unknown",
-          accountSelection: { mode: "exact", accountId: "runtime-tool-test-account", source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "runtime-tool-test-account" },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {

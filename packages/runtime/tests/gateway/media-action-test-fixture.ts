@@ -44,7 +44,7 @@ export function createMediaActionTestContext(): {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: { routeId: "media-route", providerId: "media-provider", providerModelId: "media-model", accountSelection: { mode: "exact", accountId: "media-account", source: "route" } },
+        target: { targetId: "media-route", providerId: "media-provider", providerModelId: "media-model", accountSelection: { kind: "operator-override", accountPolicyId: "media-policy", accountId: "media-account" } },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: { status: "bound", routeId: "media-route", accountId: "media-account", credentialId: "media-credential", credentialRevision: "media-r1" },
       },

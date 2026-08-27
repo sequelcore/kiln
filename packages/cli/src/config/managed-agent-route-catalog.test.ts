@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentAdapterDescriptor,
   deriveProviderModelEligibility,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core/agents";
 import {
@@ -42,12 +42,12 @@ function profileByAdmission(
   return route?.profiles.find((profile) => profile.admissionProfile === admissionProfile);
 }
 
-function makeExecutionCatalog(
+function makeExecutionTargetCatalog(
   routeId: string,
   providerId = "opencode-go",
   providerModelId = "qwen3.6-plus",
   accountId = "research",
-): ExecutionCatalog {
+): ExecutionTargetCatalog {
   return {
     accounts: [{
       id: accountId,
@@ -68,12 +68,12 @@ function makeExecutionCatalog(
       accountIds: [accountId],
       strategy: "economic-least-pressure",
     }],
-    routes: [{
+    targets: [{
       id: routeId,
       label: routeId,
       providerId,
       providerModelId,
-      accountSelection: { mode: "automatic", accountPolicyId: `policy-${accountId}` },
+      accountPolicyId: `policy-${accountId}`,
       economics: {
         adapterCapabilityId: `${providerId}:managed-agent`,
         adapterCapabilityVersion: "v1",
@@ -262,13 +262,13 @@ function createRegistry(provider: ProviderId): SessionRegistry {
 }
 
 function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
-  const executionCatalog = makeExecutionCatalog("opencode-go-research-readonly");
+  const executionCatalog = makeExecutionTargetCatalog("opencode-go-research-readonly");
   return {
     executionCatalog,
     targetCatalog: {
       accounts: executionCatalog.accounts,
       accountPolicies: executionCatalog.accountPolicies,
-      targets: executionCatalog.routes.map((route) => ({ ...route, kind: "direct" as const })),
+      targets: executionCatalog.targets.map((target) => ({ ...target, kind: "direct" as const })),
     },
     authorityProfiles: [{
       id: "readonly-plan",
@@ -529,13 +529,13 @@ describe("managed agent route catalog", () => {
       "C:/workspace/references/vllm-studio",
     ];
     const protectedEntries = [".git", "node_modules", ".kiln"];
-    const catalog = makeExecutionCatalog("opencode-go-frontend-reference-readonly");
+    const catalog = makeExecutionTargetCatalog("opencode-go-frontend-reference-readonly");
     const resolution = await resolveManagedInvocationToolOptions({
       executionCatalog: catalog,
       targetCatalog: {
         accounts: catalog.accounts,
         accountPolicies: catalog.accountPolicies,
-        targets: catalog.routes.map((route) => ({ ...route, kind: "direct" as const })),
+        targets: catalog.targets.map((target) => ({ ...target, kind: "direct" as const })),
       },
       authorityProfiles: [{
         id: "frontend-reference-readonly",

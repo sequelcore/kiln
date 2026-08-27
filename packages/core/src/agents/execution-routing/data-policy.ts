@@ -5,7 +5,7 @@ export function defineExecutionDataClassification(value: unknown): ExecutionData
   return classification(value, "dataClassification");
 }
 
-export interface ExecutionRouteDataPolicyEvidence {
+export interface ExecutionTargetDataPolicyEvidence {
   readonly providerId: string;
   readonly providerModelId: string;
   readonly dataUse: "not-used" | "service-operation";
@@ -20,7 +20,7 @@ export interface ExecutionRouteDataPolicyEvidence {
   readonly expiresAt: string;
 }
 
-export type ExecutionRouteDataPolicyReason =
+export type ExecutionTargetDataPolicyReason =
   | "policy-admitted"
   | "missing-evidence"
   | "malformed-evidence"
@@ -30,15 +30,15 @@ export type ExecutionRouteDataPolicyReason =
   | "model-mismatch"
   | "classification-not-permitted";
 
-export interface ExecutionRouteDataPolicyDecision {
+export interface ExecutionTargetDataPolicyDecision {
   readonly status: "admitted" | "denied";
   readonly freshness: "current" | "missing" | "invalid" | "not-yet-current" | "expired";
-  readonly reason: ExecutionRouteDataPolicyReason;
+  readonly reason: ExecutionTargetDataPolicyReason;
   readonly sourceRevision?: string;
   readonly sourceDigest?: `sha256:${string}`;
 }
 
-export function defineExecutionRouteDataPolicyEvidence(input: ExecutionRouteDataPolicyEvidence): ExecutionRouteDataPolicyEvidence {
+export function defineExecutionTargetDataPolicyEvidence(input: ExecutionTargetDataPolicyEvidence): ExecutionTargetDataPolicyEvidence {
   if (!input || typeof input !== "object") invalid("evidence is required");
   const providerId = canonical(input.providerId, "providerId");
   const providerModelId = required(input.providerModelId, "providerModelId");
@@ -72,16 +72,16 @@ export function defineExecutionRouteDataPolicyEvidence(input: ExecutionRouteData
   });
 }
 
-export function decideExecutionRouteDataPolicy(input: {
-  readonly evidence?: ExecutionRouteDataPolicyEvidence;
+export function decideExecutionTargetDataPolicy(input: {
+  readonly evidence?: ExecutionTargetDataPolicyEvidence;
   readonly providerId: string;
   readonly providerModelId: string;
   readonly requestedClassification: ExecutionDataClassification;
   readonly now: Date;
-}): ExecutionRouteDataPolicyDecision {
+}): ExecutionTargetDataPolicyDecision {
   if (!input.evidence) return denied("missing", "missing-evidence");
-  let evidence: ExecutionRouteDataPolicyEvidence;
-  try { evidence = defineExecutionRouteDataPolicyEvidence(input.evidence); }
+  let evidence: ExecutionTargetDataPolicyEvidence;
+  try { evidence = defineExecutionTargetDataPolicyEvidence(input.evidence); }
   catch { return denied("invalid", "malformed-evidence"); }
   const proof = { sourceRevision: evidence.sourceRevision, sourceDigest: evidence.sourceDigest };
   const now = input.now.getTime();
@@ -97,7 +97,7 @@ export function decideExecutionRouteDataPolicy(input: {
   return { status: "admitted", freshness: "current", reason: "policy-admitted", ...proof };
 }
 
-function denied(freshness: ExecutionRouteDataPolicyDecision["freshness"], reason: Exclude<ExecutionRouteDataPolicyReason, "policy-admitted">): ExecutionRouteDataPolicyDecision {
+function denied(freshness: ExecutionTargetDataPolicyDecision["freshness"], reason: Exclude<ExecutionTargetDataPolicyReason, "policy-admitted">): ExecutionTargetDataPolicyDecision {
   return { status: "denied", freshness, reason };
 }
 function canonical(value: unknown, field: string): string {
@@ -116,7 +116,7 @@ function classification(value: unknown, field: string): ExecutionDataClassificat
   if (!EXECUTION_DATA_CLASSIFICATIONS.includes(value as ExecutionDataClassification)) invalid(`${field} is invalid`);
   return value as ExecutionDataClassification;
 }
-function invalid(message: string): never { throw new TypeError(`Execution route data policy ${message}.`); }
+function invalid(message: string): never { throw new TypeError(`Execution target data policy ${message}.`); }
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object") { Object.freeze(value); for (const child of Object.values(value)) deepFreeze(child); }
   return value;

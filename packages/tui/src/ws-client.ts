@@ -8,11 +8,10 @@ import type {
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
   GuiProviderCatalogStateFrame,
-  ExecutionRouteCatalog,
-  AvailableModelCatalog,
-  ExecutionRouteChangeFailed,
-  ExecutionRouteChanged,
-  ExecutionRouteSelectionIntent,
+  ModelCatalog,
+  ExecutionTargetChangeFailed,
+  ExecutionTargetChanged,
+  ExecutionTargetSelectionIntent,
   OperatorActivityPhaseFrame,
   OperatorExecutionMode,
   OperatorSessionEvent,
@@ -85,8 +84,7 @@ export type TuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
-      executionRouteCatalog: ExecutionRouteCatalog;
-      availableModels: AvailableModelCatalog;
+      modelCatalog: ModelCatalog;
       greeting?: string;
       executionMode?: OperatorExecutionMode;
     }
@@ -111,14 +109,13 @@ export type TuiInboundFrame =
   | GuiProviderAuthFailed
   | GuiProviderCatalogStateFrame
   | {
-      type: "execution_routes_refreshed";
+      type: "model_catalog_refreshed";
       requestId: string;
-      executionRouteCatalog: ExecutionRouteCatalog;
-      availableModels: AvailableModelCatalog;
+      modelCatalog: ModelCatalog;
     }
-  | { type: "execution_routes_refresh_failed"; requestId: string; message: string }
-  | ExecutionRouteChanged
-  | ExecutionRouteChangeFailed
+  | { type: "model_catalog_refresh_failed"; requestId: string; message: string }
+  | ExecutionTargetChanged
+  | ExecutionTargetChangeFailed
   | {
       type: "operator_theme_set";
       requestId: string;
@@ -142,9 +139,9 @@ export type TuiOutboundFrame =
     }
   | { type: "voice_synthesis_request"; requestId: string; sourceMessageId: string }
   | { type: "clear" }
-  | { type: "refresh_execution_routes"; requestId: string }
+  | { type: "refresh_model_catalog"; requestId: string }
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
-  | ({ type: "execution_route"; requestId: string } & ExecutionRouteSelectionIntent)
+  | ({ type: "execution_target"; requestId: string } & ExecutionTargetSelectionIntent)
   | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }

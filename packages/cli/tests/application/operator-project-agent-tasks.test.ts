@@ -72,7 +72,7 @@ const TEST_TARGET_CATALOG = {
     providerId: "codex-oauth",
     providerModelId: "gpt-5.6-terra",
     dataClassification: "internal",
-    accountSelection: { mode: "automatic", accountPolicyId: "managed-codex-policy" },
+    accountPolicyId: "managed-codex-policy",
     economics: { authBillingChannel: "oauth", executionMode: "direct", serviceTier: "standard", fallbackPosture: "disabled", overagePosture: "disabled", executionEnvelope: { limits: [] } },
   }],
 } as const;

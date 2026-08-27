@@ -51,9 +51,9 @@ import {
 } from "../config/model-facing-permission-policy.js";
 import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import {
-  createOperatorExecutionRouteSelectionPort,
-  resolveOperatorStartupExecutionRoute,
-} from "../application/operator-execution-route-selection.js";
+  createOperatorExecutionTargetSelectionPort,
+  resolveOperatorStartupExecutionTarget,
+} from "../application/operator-execution-target-selection.js";
 import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../config/operator-voice.js";
 import { createStartupProfiler, type StartupProfiler } from "../application/startup-profiler.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -90,8 +90,8 @@ import {
   formatPresentationIntentAsText,
   getGuiProviderMetadata,
   type OperatorSessionSummary,
-  type ExecutionRouteCatalog,
-  type ExecutionRouteSelectionIntent,
+  type ModelCatalog,
+  type ExecutionTargetSelectionIntent,
   isGuiProviderModeless,
   parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
@@ -126,13 +126,14 @@ import {
   getProjectContextArtifactCache,
   withManagedInvocationService,
   type CanonicalSessionEventPersistence,
-  type OperatorExecutionRouteSelectionPort,
+  type OperatorExecutionTargetSelectionPort,
   type ConfiguredExecutionCredential,
 } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
   markGuiProviderDiscoveryStale,
   projectGuiProviderModelDiscovery,
+  projectModelCatalog,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
 } from "@kilnai/runtime";
@@ -163,7 +164,7 @@ import {
 } from "../application/private-project-state-filesystem.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import {
-  captureOperatorExecutionCatalogSnapshot,
+  captureOperatorExecutionTargetCatalogSnapshot,
   createOperatorTurnDispatchComposition,
   resolveOperatorContinuationBinding,
 } from "../application/operator-turn-dispatch-composition.js";
@@ -189,7 +190,7 @@ interface TuiBootstrapOptions {
   readonly sessionManager: MultiProviderSessionManager;
   readonly createProvider: TuiGatewayOptions["createProvider"];
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
-  readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
+  readonly executionTargetSelection: OperatorExecutionTargetSelectionPort;
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
   readonly operatorTimeZone?: string;
@@ -220,16 +221,16 @@ interface TuiBootstrapResult {
   readonly providerModelsRef: { current: Record<string, string[]> };
   readonly providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] };
   readonly providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null };
-  readonly executionRouteCatalogRef: { current: ExecutionRouteCatalog | null };
+  readonly modelCatalogRef: { current: ModelCatalog | null };
   readonly providerCatalogStateRef: { current: { status: GuiProviderCatalogStatus; error: string | null } };
   readonly refreshProviderDiscovery?: () => Promise<void>;
   shutdown(): Promise<void>;
 }
 type TuiControlSession = SessionLike & {
   clear?: () => Promise<void>;
-  readonly executionRouteCatalog?: ExecutionRouteCatalog;
-  refreshExecutionRoutes?: () => Promise<void>;
-  switchExecutionRoute?: (routeId: string, accountOverrideId?: string) => Promise<string>;
+  readonly modelCatalog?: ModelCatalog;
+  refreshModelCatalog?: () => Promise<void>;
+  switchExecutionTarget?: (targetId: string, accountOverrideId?: string) => Promise<string>;
   approve?: (sessionId?: string) => void;
   reject?: (reason: string, sessionId?: string) => void;
 };
@@ -1120,7 +1121,7 @@ async function bootstrapGatewaySession(
     operatorTimeZone: options.operatorTimeZone,
     onClear: sessionManager.onClear,
     getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
-    executionRouteSelection: options.executionRouteSelection,
+    executionTargetSelection: options.executionTargetSelection,
     operatorTurnDispatcher: options.operatorTurnDispatcher,
     operatorTurnExecutionBridge: options.operatorTurnExecutionBridge,
     operatorAuthorityAdmissionBridge: options.operatorAuthorityAdmissionBridge,
@@ -1164,8 +1165,8 @@ async function bootstrapGatewaySession(
   const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = {
     current: gateway.providerModelDiscovery,
   };
-  const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = {
-    current: await options.executionRouteSelection.getCatalog(),
+  const modelCatalogRef: { current: ModelCatalog | null } = {
+    current: null,
   };
   const providerCatalogStateRef = {
     current: { status: "pending" as GuiProviderCatalogStatus, error: null as string | null },
@@ -1177,14 +1178,13 @@ async function bootstrapGatewaySession(
       session = new GatewaySession(
         gateway.url,
         (
-          executionRouteCatalog: ExecutionRouteCatalog,
+          modelCatalog: ModelCatalog,
           models?: Record<string, string[]>,
           discovery?: readonly GuiProviderDiscoveryResult[],
           providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
-          _availableModels?: import("@kilnai/gateway-contracts").AvailableModelCatalog,
           providerCatalogState?: { readonly status: GuiProviderCatalogStatus; readonly error?: string },
         ) => {
-          executionRouteCatalogRef.current = executionRouteCatalog;
+          modelCatalogRef.current = modelCatalog;
           if (models) {
             providerModelsRef.current = models;
           }
@@ -1212,7 +1212,7 @@ async function bootstrapGatewaySession(
     providerModelsRef,
     providerDiscoveryRef,
     providerModelDiscoveryRef,
-    executionRouteCatalogRef,
+    modelCatalogRef,
     providerCatalogStateRef,
     shutdown: async () => {
       const failures: unknown[] = [];
@@ -1348,7 +1348,7 @@ async function bootstrapDirectSession(
   const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
   const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = { current: null };
-  const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = { current: null };
+  const modelCatalogRef: { current: ModelCatalog | null } = { current: null };
   const providerCatalogStateRef = { current: { status: "pending" as GuiProviderCatalogStatus, error: null as string | null } };
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveGuiOperatorDiscoveryResults(
@@ -1382,9 +1382,13 @@ async function bootstrapDirectSession(
   const ensureProviderModels = async (): Promise<Record<string, string[]>> => applyProviderDiscovery(
     (await providerCatalog.ensureReady()).discovery,
   );
-  const refreshExecutionRouteCatalog = async (): Promise<ExecutionRouteCatalog> => {
-    const catalog = await options.executionRouteSelection.getCatalog();
-    executionRouteCatalogRef.current = catalog;
+  const refreshModelCatalog = async (): Promise<ModelCatalog> => {
+    const configuredTargets = await options.executionTargetSelection.getTargets();
+    const catalog = projectModelCatalog({
+      discovery: providerModelDiscoveryRef.current ?? projectGuiProviderModelDiscovery([]),
+      configuredTargets,
+    });
+    modelCatalogRef.current = catalog;
     return catalog;
   };
   providerCatalog.subscribe((snapshot) => {
@@ -1394,7 +1398,7 @@ async function bootstrapDirectSession(
   writeTuiBootstrapStatus("Loading provider and model discovery...");
   options.startupProfiler?.mark("direct-provider-catalog-refresh-started");
   providerCatalog.startBackgroundRefresh({ force: true });
-  await refreshExecutionRouteCatalog();
+  await refreshModelCatalog();
   const directRuntimeSessionId = `kiln-tui:direct:${randomUUID()}`;
 
   const createSession = async (): Promise<SessionLike> => {
@@ -1409,8 +1413,8 @@ async function bootstrapDirectSession(
     );
 
     session = {
-      get executionRouteCatalog() {
-        return executionRouteCatalogRef.current ?? { routes: [] };
+      get modelCatalog() {
+        return modelCatalogRef.current ?? { observedAt: new Date(0).toISOString(), models: [] };
       },
       async *run(opts: { prompt: string; cwd?: string; kilnSessionId?: string }) {
         const providerForTurn = sessionManager.getProvider();
@@ -1460,25 +1464,26 @@ async function bootstrapDirectSession(
       async clear() {
         await sessionManager.onClear(sessionManager.getProvider());
       },
-      async refreshExecutionRoutes() {
-        await refreshExecutionRouteCatalog();
+      async refreshModelCatalog() {
+        await refreshModelCatalog();
         await refreshProviderModels({ force: true });
+        await refreshModelCatalog();
       },
-      async switchExecutionRoute(routeId: string, accountOverrideId?: string) {
-        const intent: ExecutionRouteSelectionIntent = {
-          routeId: routeId.trim(),
+      async switchExecutionTarget(targetId: string, accountOverrideId?: string) {
+        const intent: ExecutionTargetSelectionIntent = {
+          targetId: targetId.trim(),
           ...(accountOverrideId?.trim() ? { accountOverrideId: accountOverrideId.trim() } : {}),
         };
-        const admission = await options.executionRouteSelection.admit(intent);
+        const admission = await options.executionTargetSelection.admit(intent);
         if (!admission.ok) {
           throw new Error(admission.reason);
         }
         if (!sessionManager.setProvider(admission.admission.providerId)) {
-          throw new Error(`Execution target '${admission.admission.routeId}' resolved to an unsupported provider.`);
+          throw new Error(`Execution target '${admission.admission.targetId}' resolved to an unsupported provider.`);
         }
         sessionManager.setModel(admission.admission.providerModelId);
-        executionRouteCatalogRef.current = await options.executionRouteSelection.getCatalog();
-        return admission.admission.routeId;
+        await refreshModelCatalog();
+        return admission.admission.targetId;
       },
     };
     return session;
@@ -1489,7 +1494,7 @@ async function bootstrapDirectSession(
     providerModelsRef,
     providerDiscoveryRef,
     providerModelDiscoveryRef,
-    executionRouteCatalogRef,
+    modelCatalogRef,
     providerCatalogStateRef,
     refreshProviderDiscovery: async () => {
       await refreshProviderModels({ force: true });
@@ -1548,8 +1553,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the TUI.");
   const executionTargetAuthority = readGlobalExecutionTargetAuthority(globalConfig);
   if (!executionTargetAuthority) throw new Error("A direct target catalog is required to start the TUI.");
-  const operatorExecutionCatalog = executionTargetAuthority.executionCatalog;
-  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig, operatorExecutionCatalog);
+  const operatorExecutionTargetCatalog = executionTargetAuthority.executionCatalog;
+  const startupRoute = resolveOperatorStartupExecutionTarget(globalConfig, operatorExecutionTargetCatalog);
   const provider = parseProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
   const workItemStore = new WorkItemStore();
@@ -1629,7 +1634,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   startupProfiler.mark("builtin-tool-options-created");
   let managedRouteGlobalConfig = {
     ...globalConfig,
-    executionCatalog: operatorExecutionCatalog,
+    executionCatalog: operatorExecutionTargetCatalog,
     executionTargetEvidence: executionTargetAuthority.evidence,
   };
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
@@ -1742,8 +1747,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd, { projectStateBinding });
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>({
-    initialCatalog: operatorExecutionCatalog,
-    captureCatalogSnapshot: () => captureOperatorExecutionCatalogSnapshot({
+    initialCatalog: operatorExecutionTargetCatalog,
+    captureCatalogSnapshot: () => captureOperatorExecutionTargetCatalogSnapshot({
       projectPath: cwd,
       readConfigSnapshot: readGlobalConfigSnapshot,
       readConfigurationRevision: readRuntimeConfigurationRevision,
@@ -1751,7 +1756,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     cwd,
     projectStateBinding,
   });
-  const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
+  const executionTargetSelection = createOperatorExecutionTargetSelectionPort({
     readConfigSnapshot: () => {
       const snapshot = readGlobalConfigSnapshot();
       return { config: snapshot.config ?? globalConfig, revision: snapshot.revision };
@@ -1769,7 +1774,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       credential,
     }),
     registry,
-    executionRouteSelection,
+    executionTargetSelection,
     contextArtifactCache,
     systemPrompt,
     operatorTimeZone: runtimeAppConfig.operatorTimeZone,
@@ -1866,27 +1871,30 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   // Session continuation requires an evidenced route; never guess from current selection.
   const continuationBindings = new Map<string, Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>>();
+  const findModelTarget = (targetId: string) => bootstrap.modelCatalogRef.current?.models.flatMap((model) => (
+    model.targets.map((target) => ({ ...target, providerId: model.providerId, providerModelId: model.providerModelId }))
+  )).find((target) => target.targetId === targetId);
   const persistedOperatorSessions = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
   await Promise.all(persistedOperatorSessions.map(async (candidate) => {
     const meta = await transcriptStore.readMeta(candidate.sessionId);
     const binding = [...(meta?.executionBindings ?? [])].reverse().find((entry) => entry.status === "bound");
     const routeId = candidate.lastRoute?.routeId;
     const route = routeId
-      ? bootstrap.executionRouteCatalogRef.current?.routes.find((entry) => entry.routeId === routeId)
+      ? findModelTarget(routeId)
       : undefined;
     if (!binding || !route || route.availability !== "available") return;
     const continuation = await resolveOperatorContinuationBinding({
-      catalog: operatorExecutionCatalog,
+      catalog: operatorExecutionTargetCatalog,
       accountRuntime: operatorTurnComposition.accountRuntime,
       binding,
-      requestedRouteId: route.routeId,
+      requestedRouteId: route.targetId,
     });
     if (continuation) continuationBindings.set(candidate.sessionId, binding);
   }));
   const handleResumeSession = (session: OperatorSessionSummary) => {
     const routeId = session.lastRoute?.routeId?.trim();
     const route = routeId
-      ? bootstrap.executionRouteCatalogRef.current?.routes.find((candidate) => candidate.routeId === routeId)
+      ? findModelTarget(routeId)
       : undefined;
     const binding = continuationBindings.get(session.sessionId);
     if (!route || route.availability !== "available" || !binding) {
@@ -1938,7 +1946,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       stagedManagedInvocation?.startBackgroundRefresh();
     },
     bootstrap.providerModelDiscoveryRef,
-    bootstrap.executionRouteCatalogRef,
+    bootstrap.modelCatalogRef,
     () => settingsApplication.read(),
     async (request) => settingsApplication.propose(request),
     (request) => settingsApplication.apply(request, "operator"),

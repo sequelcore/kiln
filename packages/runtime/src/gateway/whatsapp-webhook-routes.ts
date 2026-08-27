@@ -534,7 +534,7 @@ async function processWhatsAppMessage(
   try {
     const result = await config.orchestrator.bindProvider(
         admitted.provider,
-        admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+        admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.target.providerModelId : undefined,
       ).processMessage(
       admitted.session,
       processedParts,

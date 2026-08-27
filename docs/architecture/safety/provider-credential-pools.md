@@ -59,7 +59,7 @@ targetCatalog:
       label: Terra
       providerId: codex-oauth
       providerModelId: gpt-5.6-terra
-      accountSelection: { mode: automatic, accountPolicyId: codex-automatic }
+      accountPolicyId: codex-automatic
 targetRouting:
   defaultTargetId: terra
 ```

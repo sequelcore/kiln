@@ -130,8 +130,8 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     ...actual,
     readGlobalConfig: benchmarkExecutorMocks.readGlobalConfig,
     readGlobalConfigSnapshot: benchmarkExecutorMocks.readGlobalConfigSnapshot,
-    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
-      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+    readGlobalExecutionTargetCatalog: (config: Parameters<typeof fixtures.syntheticExecutionTargetCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionTargetCatalog(config) ?? undefined : undefined,
   };
 });
 
@@ -231,18 +231,18 @@ vi.mock("../../src/application/bounded-work-authority-composition.js", () => ({
 
 vi.mock("../../src/application/canonical-run-session-dispatcher.js", () => ({
   createCanonicalRunSessionDispatcher: benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mockImplementation((input: {
-    readonly catalog: { readonly routes: readonly { readonly id: string; readonly providerId: string; readonly providerModelId: string }[] };
-    readonly routeId: string;
+    readonly catalog: { readonly targets: readonly { readonly id: string; readonly providerId: string; readonly providerModelId: string }[] };
+    readonly targetId: string;
     readonly routeEvidence?: object;
   }) => ({
     dispatch: (payload: object) => {
-      const route = input.catalog.routes.find((candidate) => candidate.id === input.routeId)!;
+      const target = input.catalog.targets.find((candidate) => candidate.id === input.targetId)!;
       return benchmarkExecutorMocks.runSession({
         ...payload,
         routeCandidates: [{
-          routeId: route.id,
-          provider: route.providerId,
-          model: route.providerModelId,
+          routeId: target.id,
+          provider: target.providerId,
+          model: target.providerModelId,
           ...(input.routeEvidence ?? {}),
         }],
       });
@@ -1469,7 +1469,7 @@ describe("createBenchmarkSessionExecutor", () => {
     };
     expect(result.metadata?.deliberationResolution).toEqual(expectedResolution);
     expect(benchmarkExecutorMocks.createCanonicalRunSessionDispatcher).toHaveBeenCalledWith(expect.objectContaining({
-      routeId: "benchmark-codex",
+      targetId: "benchmark-codex",
       accountOverrideId: "subscription-a",
     }));
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({

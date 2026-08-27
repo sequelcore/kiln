@@ -51,7 +51,7 @@ import type {
   EffectiveTurnAuthoritySnapshot,
 } from "../../src/session/runtime-session-orchestrator.types.js";
 
-const {guiOperatorTransportDefaults, createGuiDist, flushAsyncWork, waitForCondition, selectGuiTestExecutionRoute, makeGuiOperatorDiscoveryFromModels} = guiFixture;
+const {guiOperatorTransportDefaults, createGuiDist, flushAsyncWork, waitForCondition, selectGuiTestExecutionTarget, makeGuiOperatorDiscoveryFromModels} = guiFixture;
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
   requestedAuthority: "read_only",
@@ -786,7 +786,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "delegate from gui" }),
@@ -964,7 +964,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start unavailable child" }),
@@ -1194,7 +1194,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start unavailable child requirements" }),
@@ -1337,7 +1337,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start conflicting write child" }),
@@ -1663,7 +1663,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -1900,7 +1900,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -2125,7 +2125,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -2307,7 +2307,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start isolated write child" }),
@@ -2644,7 +2644,7 @@ describe("GUI gateway managed control", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),

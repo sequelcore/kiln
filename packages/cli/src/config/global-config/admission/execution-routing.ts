@@ -1,11 +1,11 @@
 import {
   validateManagedEconomicAmount,
-  type ExecutionCatalog,
+  type ExecutionTargetCatalog,
   type ManagedEconomicAmount,
 } from "@kilnai/core";
 import { KilnYamlError } from "../../../kiln-yaml.js";
 import {
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   readExecutionTargetEvidenceSnapshot,
   type ExecutionTargetEvidenceRevision,
   type ExecutionTargetEvidenceSnapshot,
@@ -81,7 +81,7 @@ export function validateTargetCatalog(value: unknown): void {
     if (!isRecord(target)) throw new KilnYamlError(`${path} must be an object`);
     const common = ["id", "kind", "label", "providerId", "providerModelId"];
     rejectUnknownFields(target, target.kind === "direct"
-      ? [...common, "accountSelection", "dataClassification", "economics"]
+      ? [...common, "accountPolicyId", "dataClassification", "economics"]
       : [...common, "dataClassification", "remoteHarness", "externalRuntimeAttachment"], path);
     validateCanonicalId(target.id, `${path}.id`);
     if (targetIds.has(target.id)) throw new KilnYamlError(`${path}.id must be unique`);
@@ -101,24 +101,24 @@ export function validateTargetCatalog(value: unknown): void {
       return;
     }
     if (target.kind !== "direct") throw new KilnYamlError(`${path}.kind must be "direct" or "harness"`);
-    validateRouteAccountSelection(target.accountSelection, path, target.providerId, accounts, policies);
-    validateExecutionRouteIntentEconomics(target.economics, `${path}.economics`);
+    validateTargetAccountPolicy(target.accountPolicyId, path, target.providerId, accounts, policies);
+    validateExecutionTargetIntentEconomics(target.economics, `${path}.economics`);
   });
 }
 
 /** Projects direct targets into Core's account-backed execution boundary. */
-export function projectDirectExecutionCatalog(
+export function projectDirectExecutionTargetCatalog(
   config: KilnGlobalConfig | null | undefined,
   evidence: ExecutionTargetEvidenceSnapshot | undefined,
   evidenceRevision: ExecutionTargetEvidenceRevision | undefined,
-): ExecutionCatalog | undefined {
+): ExecutionTargetCatalog | undefined {
   const catalog = config?.targetCatalog;
   if (!catalog) return undefined;
   if (!evidence || !evidenceRevision) {
     throw new KilnYamlError(`Execution target catalog requires managed evidence revision ${catalog.evidenceRevision}.`);
   }
   try {
-    const executionCatalog = projectExecutionCatalogFromIntent(catalog, evidence, evidenceRevision);
+    const executionCatalog = projectExecutionTargetCatalogFromIntent(catalog, evidence, evidenceRevision);
     validateManagedTargetReferences(
       config?.managedAgents,
       catalog,
@@ -136,7 +136,7 @@ export function readGlobalExecutionTargetAuthority(
   options: { readonly globalConfigPath?: string } = {},
 ): {
   readonly evidence: ExecutionTargetEvidenceSnapshot;
-  readonly executionCatalog: ExecutionCatalog;
+  readonly executionCatalog: ExecutionTargetCatalog;
 } | undefined {
   const intent = config?.targetCatalog;
   if (!intent) return undefined;
@@ -144,15 +144,15 @@ export function readGlobalExecutionTargetAuthority(
     globalConfigPath: options.globalConfigPath ?? resolveGlobalConfigPath(),
     revision: intent.evidenceRevision,
   });
-  const executionCatalog = projectDirectExecutionCatalog(config, evidence, intent.evidenceRevision);
+  const executionCatalog = projectDirectExecutionTargetCatalog(config, evidence, intent.evidenceRevision);
   if (!executionCatalog) return undefined;
   return { evidence, executionCatalog };
 }
 
-export function readGlobalExecutionCatalog(
+export function readGlobalExecutionTargetCatalog(
   config: KilnGlobalConfig | null | undefined,
   options: { readonly globalConfigPath?: string } = {},
-): ExecutionCatalog | undefined {
+): ExecutionTargetCatalog | undefined {
   return readGlobalExecutionTargetAuthority(config, options)?.executionCatalog;
 }
 
@@ -165,7 +165,7 @@ function validateExecutionAccountIntentEconomics(value: unknown, path: string): 
   if (value.overagePosture !== "disabled" && value.overagePosture !== "committed") throw new KilnYamlError(`${path}.overagePosture is invalid`);
 }
 
-function validateExecutionRouteIntentEconomics(value: unknown, path: string): void {
+function validateExecutionTargetIntentEconomics(value: unknown, path: string): void {
   if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
   rejectUnknownFields(value, ["authBillingChannel", "executionMode", "serviceTier", "fallbackPosture", "overagePosture", "executionEnvelope"], path);
   for (const field of ["authBillingChannel", "executionMode", "serviceTier"]) {
@@ -206,34 +206,19 @@ function validateEconomicScheme(value: unknown, path: string): void {
   rejectUnknownFields(value, ["kind"], path);
 }
 
-function validateRouteAccountSelection(
+function validateTargetAccountPolicy(
   value: unknown,
-  routePath: string,
+  targetPath: string,
   providerId: unknown,
   accounts: ReadonlyMap<string, Record<string, unknown>>,
   policies: ReadonlyMap<string, Record<string, unknown>>,
 ): void {
-  const path = `${routePath}.accountSelection`;
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  rejectUnknownFields(value, ["mode", "accountPolicyId", "accountId"], path);
-  if (value.mode === "automatic") {
-    validateCanonicalId(value.accountPolicyId, `${path}.accountPolicyId`);
-    if (value.accountId !== undefined) throw new KilnYamlError(`${path}.automatic mode cannot set accountId`);
-    const policy = policies.get(value.accountPolicyId);
-    if (!policy) throw new KilnYamlError(`${path}.accountPolicyId references an unknown account policy`);
-    const policyProviderId = accounts.get((policy.accountIds as readonly string[])[0]!)!.providerId;
-    if (policyProviderId !== providerId) throw new KilnYamlError(`${path}.accountPolicyId provider must match route providerId`);
-    return;
-  }
-  if (value.mode === "exact") {
-    validateCanonicalId(value.accountId, `${path}.accountId`);
-    if (value.accountPolicyId !== undefined) throw new KilnYamlError(`${path}.exact mode cannot set accountPolicyId`);
-    const account = accounts.get(value.accountId);
-    if (!account) throw new KilnYamlError(`${path}.accountId references an unknown account`);
-    if (account.providerId !== providerId) throw new KilnYamlError(`${path}.accountId provider must match route providerId`);
-    return;
-  }
-  throw new KilnYamlError(`${path}.mode must be "automatic" or "exact"`);
+  const path = `${targetPath}.accountPolicyId`;
+  validateCanonicalId(value, path);
+  const policy = policies.get(value as string);
+  if (!policy) throw new KilnYamlError(`${path} references an unknown account policy`);
+  const policyProviderId = accounts.get((policy.accountIds as readonly string[])[0]!)!.providerId;
+  if (policyProviderId !== providerId) throw new KilnYamlError(`${path} provider must match target providerId`);
 }
 
 export function validateTargetRouting(value: unknown, targetCatalog: unknown): void {

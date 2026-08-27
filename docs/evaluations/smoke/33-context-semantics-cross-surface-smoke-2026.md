@@ -236,20 +236,14 @@ behind validation, revision conflicts, an interprocess lock, and
 same-directory atomic replacement. No binding command or `directModels`
 reader remains.
 
-### Execution catalog resolution (2026-08-11)
+### Superseded V2 execution catalog resolution (2026-08-11)
 
-The proposal above is historical evidence, not current guidance. The V2
-execution catalog owns `accounts`, `accountPolicies`, and operator-facing
-`routes`; `executionRouting.defaultRouteId` selects the default. Surfaces
-select a route and may request an eligible account override, never a
-credential. Runtime gates safety, health, quota, and live capacity, then orders
-automatic candidates by economics and pressure, fences capacity, and verifies
-credential ID and revision before dispatch. Exact selection never falls back.
-
-Model Gateway virtual models and managed direct routes reference
-`executionRouteId`; neither duplicates catalog authority. `kiln run` uses the
-default route or `--route`; `directModels`, `kiln model bind/list`, and
-provider/model/API-key execution overrides are retired and rejected.
+This section records an intermediate contract and is not current guidance. V2
+introduced operator-facing routes and removed credential selection, but V5
+subsequently replaced that surface with canonical execution targets and
+`accountPolicyId`. Current surfaces select `targetId`; Runtime derives route
+evidence only after admission. See [Model routing](../../guides/config/model-routing.md)
+for the active contract.
 
 ## Follow-Up: Live Re-Proof, Claude Arm Only (2026-08-08)
 

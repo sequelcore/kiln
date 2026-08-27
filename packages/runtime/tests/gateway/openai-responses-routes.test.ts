@@ -21,7 +21,7 @@ import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from ".
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 
 const route = { routeId: "fixture-route", providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" } as const;
-const admission = { routeId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account-1", source: "route" as const } };
+const admission = { targetId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { kind: "operator-override" as const, accountPolicyId: "fixture-policy", accountId: "account-1" } };
 const principal = {
   tenantId: "tenant-trusted",
   applicationId: "application-trusted",
@@ -48,7 +48,7 @@ function authorityBundle(): EffectiveAuthorityAdmissionBundle {
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
       effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
       budget: { status: "not-configured" },
-      execution: { status: "routed", route: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } },
+       execution: { status: "routed", target: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: route.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } },
     },
   });
 }
@@ -83,7 +83,7 @@ function config(overrides: ConfigOverrides = {}) {
     candidateCatalog: { list: catalog },
     accountCapacityAuthority: authority,
     attemptEvidence: { record: evidence },
-    dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async (input) => (await execute(input)).result }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
+    dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: async (input) => (await execute(input)).result }, binding: { status: "bound", routeId: route.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
     budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
     authorityAdmission: { compose: async () => authorityBundle() },
   };

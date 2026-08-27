@@ -17,9 +17,9 @@ import type {
   EffectiveAuthorityAdmissionBundle,
   TurnBudgetAdmission,
 } from "../session/effective-authority-admission-bundle.js";
-import type { SanitizedExecutionRouteDataPolicyDecision } from "./execution-route-data-policy-authority.js";
-import type { AdmittedExecutionRoute, ExecutionSessionBindingEvidence } from "@kilnai/core";
-import type { OperatorSessionExecutionCatalogSnapshot, OperatorSessionExecutionRequest } from "./operator-session-execution-routing-service.js";
+import type { SanitizedExecutionTargetDataPolicyDecision } from "./execution-target-data-policy-authority.js";
+import type { AdmittedExecutionTarget, ExecutionSessionBindingEvidence } from "@kilnai/core";
+import type { OperatorSessionExecutionTargetCatalogSnapshot, OperatorSessionExecutionRequest } from "./operator-session-execution-routing-service.js";
 
 /**
  * The committed part of an operator turn. Adapter construction and the
@@ -104,10 +104,10 @@ export class OperatorSessionAuthorityAdmissionBridge<Payload = unknown>
     preflight(input: { readonly request: OperatorSessionExecutionRequest<Payload> }): TurnBudgetAdmission | Promise<TurnBudgetAdmission>;
     prepare(input: {
       readonly request: OperatorSessionExecutionRequest<Payload>;
-      readonly admission: AdmittedExecutionRoute;
-      readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+      readonly admission: AdmittedExecutionTarget;
+      readonly snapshot: OperatorSessionExecutionTargetCatalogSnapshot;
       readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
-      readonly dataPolicy: SanitizedExecutionRouteDataPolicyDecision;
+      readonly dataPolicy: SanitizedExecutionTargetDataPolicyDecision;
     }): OperatorSessionAuthorityAdmissionFacets | Promise<OperatorSessionAuthorityAdmissionFacets>;
     persist(bundle: EffectiveAuthorityAdmissionBundle): void | Promise<void>;
     abort(executionId: string): void | Promise<void>;
@@ -152,7 +152,7 @@ export interface OperatorTurnDispatchPort<Payload, Result> {
 /**
  * Sole per-turn runtime facade for operator execution routing.
  *
- * Route picker admission is UX evidence. This facade is the execution
+ * Target picker admission is UX evidence. This facade is the execution
  * authority: every GUI/TUI turn must pass through the same composition-owned
  * service and can only provide turn context as data.
  */
@@ -176,7 +176,7 @@ export function fingerprintOperatorTurnIntent(input: {
 }): `sha256:${string}` {
   const canonical = JSON.stringify({
     executionId: input.executionId,
-    routeId: input.intent.routeId,
+    targetId: input.intent.targetId,
     ...(input.intent.accountOverrideId ? { accountOverrideId: input.intent.accountOverrideId } : {}),
   });
   return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;

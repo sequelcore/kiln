@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExecutionCatalog } from "@kilnai/core";
+import type { ExecutionTargetCatalog } from "@kilnai/core";
 import { parseAppYaml, parseGatewayYaml } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
@@ -10,12 +10,12 @@ import {
   createOperatorSessionAccountCapacityAuthority,
   type AppGatewayExecutionBundle,
   type GatewayConfigurationSource,
-  type OperatorSessionExecutionCatalogSnapshot,
+  type OperatorSessionExecutionTargetCatalogSnapshot,
   type StartGatewayOptions,
 } from "@kilnai/runtime";
-import { readGlobalConfigSnapshot, readGlobalExecutionCatalog } from "../config/global-config.js";
+import { readGlobalConfigSnapshot, readGlobalExecutionTargetCatalog } from "../config/global-config.js";
 import { createRuntimeConfigurationRevisionSetId, readRuntimeConfigurationRevision } from "./runtime-configuration-revision.js";
-import { captureOperatorExecutionCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
+import { captureOperatorExecutionTargetCatalogSnapshot } from "./operator-turn-dispatch-composition.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "./authority-admission-evidence-store.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import {
@@ -57,7 +57,7 @@ export function gatewayRequiresAppGatewayExecution(source: GatewayConfigurationS
 export function createAppGatewayExecutionComposition(input: {
   readonly projectPath: string;
   readonly configPath: string;
-  readonly captureCatalogSnapshot?: () => OperatorSessionExecutionCatalogSnapshot;
+  readonly captureCatalogSnapshot?: () => OperatorSessionExecutionTargetCatalogSnapshot;
   readonly readGlobalConfigSnapshot?: typeof readGlobalConfigSnapshot;
   /** Test/embedding seam for the verified operator-private project state. */
   readonly projectStateBinding?: ProjectStateBinding;
@@ -161,18 +161,18 @@ function captureCompleteAppGatewaySnapshot(
   input: {
     readonly projectPath: string;
     readonly configPath: string;
-    readonly captureCatalogSnapshot?: () => OperatorSessionExecutionCatalogSnapshot;
+    readonly captureCatalogSnapshot?: () => OperatorSessionExecutionTargetCatalogSnapshot;
   },
   globalConfigSnapshot: ReturnType<typeof readGlobalConfigSnapshot>,
-): OperatorSessionExecutionCatalogSnapshot {
+): OperatorSessionExecutionTargetCatalogSnapshot {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const first = readAppGatewayRevisionFamilies(input.configPath);
-    const base = input.captureCatalogSnapshot?.() ?? captureOperatorExecutionCatalogSnapshot({
+    const base = input.captureCatalogSnapshot?.() ?? captureOperatorExecutionTargetCatalogSnapshot({
       projectPath: input.projectPath,
       readConfigSnapshot: () => globalConfigSnapshot,
       readConfigurationRevision: readRuntimeConfigurationRevision,
-      readExecutionCatalog: (config): ExecutionCatalog => {
-        const catalog = readGlobalExecutionCatalog(config);
+      readExecutionTargetCatalog: (config): ExecutionTargetCatalog => {
+        const catalog = readGlobalExecutionTargetCatalog(config);
         if (!catalog) throw new Error("App Gateway execution requires an admitted canonical execution catalog.");
         return catalog;
       },

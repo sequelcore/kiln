@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ActionEffectEnvelope, Capability, KilnMcpClient, ToolDefinition } from "@kilnai/core";
 import {
   assertBoundHostToolSandbox,
-  type defineExecutionCatalog,
+  type defineExecutionTargetCatalog,
   normalizeActionEffectEnvelope,
 } from "@kilnai/core";
 import {
@@ -14,7 +14,7 @@ import {
   fingerprintOperatorTurnIntent,
   hasGovernedGoalTools,
   OperatorAuthorityAdmissionCoordinator,
-  type OperatorSessionExecutionCatalogSnapshot,
+  type OperatorSessionExecutionTargetCatalogSnapshot,
   prepareOperatorAdoptionTurn,
   type RuntimeAuthorityAdmissionCandidateConfig,
   type RuntimeConfigurationRevisionSnapshot,
@@ -60,15 +60,15 @@ export function createCanonicalRunAttendedTrustedExecutionSessionAuthority(input
 }
 
 /**
- * Dispatches one direct-provider session through canonical route/account
+ * Dispatches one direct-provider session through canonical target/account
  * admission and binds the post-fence credential to the provider adapter.
  */
 export function createCanonicalRunSessionDispatcher(input: {
-  readonly catalog: ReturnType<typeof defineExecutionCatalog>;
+  readonly catalog: ReturnType<typeof defineExecutionTargetCatalog>;
   readonly cwd: string;
   readonly authorityStateRoot?: string;
   readonly executionId: string;
-  readonly routeId: string;
+  readonly targetId: string;
   readonly accountOverrideId?: string;
   readonly routeEvidence?: Pick<RunSessionRouteCandidate, "deliberationResolution">;
   /** Exact Runtime revision captured by the canonical command boundary. */
@@ -79,8 +79,8 @@ export function createCanonicalRunSessionDispatcher(input: {
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   /** Mandatory atomic catalog/revision source for canonical admission. */
   readonly captureCatalogSnapshot: () =>
-    | OperatorSessionExecutionCatalogSnapshot
-    | Promise<OperatorSessionExecutionCatalogSnapshot>;
+    | OperatorSessionExecutionTargetCatalogSnapshot
+    | Promise<OperatorSessionExecutionTargetCatalogSnapshot>;
   /** Interactive process-local authority; omitted by non-interactive surfaces. */
   readonly attendedTrustedExecution?: {
     readonly projectRuntimeId: `krp_${string}`;
@@ -88,7 +88,7 @@ export function createCanonicalRunSessionDispatcher(input: {
   };
 }): CanonicalRunSessionDispatcher {
   const canonicalIntent = {
-    routeId: input.routeId,
+    targetId: input.targetId,
     ...(input.accountOverrideId ? { accountOverrideId: input.accountOverrideId } : {}),
   };
   const canonicalIntentFingerprint = fingerprintOperatorTurnIntent({
@@ -297,7 +297,7 @@ export function createCanonicalRunSessionDispatcher(input: {
   composition.bridge.bind(async ({ executionId, admission, binding, credential, authorityAdmission, payload }) => {
     const provider = admission.providerId as ProviderId;
     if (!isDirectApiProvider(provider)) {
-      throw new Error(`Execution target '${admission.routeId}' resolved to an unsupported direct provider.`);
+      throw new Error(`Execution target '${admission.targetId}' resolved to an unsupported direct provider.`);
     }
     const prepared = authorityCoordinator.consume(executionId, authorityAdmission);
     try {
@@ -364,7 +364,7 @@ export function createCanonicalRunSessionDispatcher(input: {
         turnId: _candidateTurnId,
         operatorAdoptionDecision: _candidateAdoptionDecision,
         executionBinding: _candidateExecutionBinding,
-        admittedExecutionRoute: _candidateExecutionRoute,
+        admittedExecutionTarget: _candidateExecutionTarget,
         effectiveTurnAuthority: _candidateTurnAuthority,
         authorityContext: _candidateAuthorityContext,
         runtimeConfigurationRevision: _candidateConfigurationRevision,

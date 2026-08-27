@@ -101,9 +101,7 @@ owner. Generated editor-schema and descriptor projections are committed under
 | `targetCatalog.targets[].label` | GR | I | L | required | session | supported |
 | `targetCatalog.targets[].providerId` | GR | I | H | required | session | supported |
 | `targetCatalog.targets[].providerModelId` | GR | I | H | required | session | supported |
-| `targetCatalog.targets[].accountSelection.mode` | GR | I | H | exact or automatic | session | supported |
-| `targetCatalog.targets[].accountSelection.accountPolicyId` | GR | I | H | automatic only | session | supported |
-| `targetCatalog.targets[].accountSelection.accountId` | GR | I | H | exact only | session | supported |
+| `targetCatalog.targets[].accountPolicyId` | GR | I | H | account-policy reference | session | supported |
 | `targetCatalog.targets[].dataClassification` | GR | I | C | required | session | supported |
 | `executionTargetEvidence.version` | GE | E | H | schema version 1 | session | managed-evidence |
 | `executionTargetEvidence.targets[].discovery.providerId` | GE | E | H | must match intent | session | managed-evidence |

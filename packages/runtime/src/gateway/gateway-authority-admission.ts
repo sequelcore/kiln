@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AdmittedExecutionRoute, ContentPart, OperatorExecutionIntent, ProviderAdapter } from "@kilnai/core";
+import type { AdmittedExecutionTarget, ContentPart, OperatorExecutionIntent, ProviderAdapter } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { OperatorAuthorityAdmissionCoordinator } from "../execution-routing/operator-authority-admission-coordinator.js";
 import { defineOperatorAuthorityAdmissionFacets, defineOperatorSkillCatalogAdmission } from "../execution-routing/operator-authority-admission-facets.js";
@@ -7,7 +7,7 @@ import {
   OperatorSessionExecutionRoutingService,
   type OperatorSessionExecutionCandidatePort,
   type OperatorSessionCredentialPort,
-  type OperatorSessionExecutionCatalogSnapshot,
+  type OperatorSessionExecutionTargetCatalogSnapshot,
 } from "../execution-routing/operator-session-execution-routing-service.js";
 import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
@@ -60,10 +60,10 @@ export interface GatewayAuthorityAdmissionPort {
   execute<Result>(request: GatewayAuthorityAdmissionRequest, dispatch: (commit: GatewayAuthorityAdmissionCommit) => Promise<Result>): Promise<Result>;
 }
 
-export interface FixedRouteGatewayAuthorityAdmissionOptions<Credential> {
+export interface FixedTargetGatewayAuthorityAdmissionOptions<Credential> {
   readonly appName: string;
-  readonly routeId: string;
-  readonly snapshot: OperatorSessionExecutionCatalogSnapshot;
+  readonly targetId: string;
+  readonly snapshot: OperatorSessionExecutionTargetCatalogSnapshot;
   readonly sessionRegistry: SessionRegistry;
   readonly candidates: OperatorSessionExecutionCandidatePort;
   readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
@@ -78,7 +78,7 @@ export interface FixedRouteGatewayAuthorityAdmissionOptions<Credential> {
   /** Separate durable action-claim owner for App Gateway media effects. */
   readonly runtimeMediaActionClaims: RuntimeMediaActionClaimContext;
   readonly persistOperatorAdoptionDecision: OperatorAdoptionDecisionPersistence;
-  readonly createProvider: (input: { readonly credential: Credential; readonly admission: AdmittedExecutionRoute }) => ProviderAdapter | Promise<ProviderAdapter>;
+  readonly createProvider: (input: { readonly credential: Credential; readonly admission: AdmittedExecutionTarget }) => ProviderAdapter | Promise<ProviderAdapter>;
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly now?: () => Date;
 }
@@ -86,21 +86,21 @@ export interface FixedRouteGatewayAuthorityAdmissionOptions<Credential> {
 type PendingDispatch = (commit: GatewayAuthorityAdmissionCommit) => Promise<unknown>;
 type PreparedGatewayAdmission = { readonly session: RuntimeSession; readonly perCallConfig: RuntimeAuthorityAdmissionCandidateConfig };
 
-/** Runtime-owned fixed-route composer for productive App Gateway ingress. */
-export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implements GatewayAuthorityAdmissionPort {
+/** Runtime-owned fixed-target composer for productive App Gateway ingress. */
+export class FixedTargetGatewayAuthorityAdmission<Credential = unknown> implements GatewayAuthorityAdmissionPort {
   readonly channelEgressActionClaims: ChannelEgressActionClaimContext;
   readonly runtimeMediaActionClaims: RuntimeMediaActionClaimContext;
   readonly #pending = new Map<string, PendingDispatch>();
   readonly #coordinator: OperatorAuthorityAdmissionCoordinator<GatewayAuthorityAdmissionRequest, PreparedGatewayAdmission>;
   readonly #routing: OperatorSessionExecutionRoutingService<Credential, GatewayAuthorityAdmissionRequest, unknown>;
 
-  constructor(readonly options: FixedRouteGatewayAuthorityAdmissionOptions<Credential>) {
+  constructor(readonly options: FixedTargetGatewayAuthorityAdmissionOptions<Credential>) {
     this.channelEgressActionClaims = options.channelEgressActionClaims;
     this.runtimeMediaActionClaims = options.runtimeMediaActionClaims;
-    const route = options.snapshot.catalog.routes.find((candidate) => candidate.id === options.routeId);
-    if (!route) throw new Error(`App Gateway route '${options.routeId}' is unavailable.`);
-    const matches = options.snapshot.catalog.routes.filter((candidate) => candidate.providerId === route.providerId && candidate.providerModelId === route.providerModelId);
-    if (matches.length !== 1) throw new Error(`App Gateway provider/model ${route.providerId}/${route.providerModelId} must identify exactly one canonical route.`);
+    const target = options.snapshot.catalog.targets.find((candidate) => candidate.id === options.targetId);
+    if (!target) throw new Error(`App Gateway target '${options.targetId}' is unavailable.`);
+    const matches = options.snapshot.catalog.targets.filter((candidate) => candidate.providerId === target.providerId && candidate.providerModelId === target.providerModelId);
+    if (matches.length !== 1) throw new Error(`App Gateway provider/model ${target.providerId}/${target.providerModelId} must identify exactly one canonical target.`);
     this.#coordinator = new OperatorAuthorityAdmissionCoordinator({
       resolveSession: async ({ payload }) => {
         const session = await options.sessionRegistry.getById(payload.sessionId);
@@ -191,7 +191,7 @@ export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implement
           });
           const runtimeModelRoundDispatch: RuntimeModelRoundDispatchContext = {
             admission: bundle,
-            intentFingerprint: fingerprintGatewayIntent({ routeId: this.options.routeId }),
+            intentFingerprint: fingerprintGatewayIntent({ targetId: this.options.targetId }),
             attemptId: committed.executionId,
             routeId: committed.binding.routeId,
             accountId: committed.binding.accountId,
@@ -232,7 +232,7 @@ export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implement
             turnId: _candidateTurnId,
             operatorAdoptionDecision: _candidateAdoptionDecision,
             executionBinding: _candidateExecutionBinding,
-            admittedExecutionRoute: _candidateExecutionRoute,
+            admittedExecutionTarget: _candidateExecutionTarget,
             toolAllowlist: _candidateToolAllowlist,
             toolAuthority: _candidateToolAuthority,
             effectiveTurnAuthority: _candidateTurnAuthority,
@@ -267,8 +267,8 @@ export class FixedRouteGatewayAuthorityAdmission<Credential = unknown> implement
     try {
       const result = await this.#routing.execute({
         executionId: request.ingressId,
-        intentFingerprint: fingerprintGatewayIntent({ routeId: this.options.routeId }),
-        intent: { routeId: this.options.routeId },
+        intentFingerprint: fingerprintGatewayIntent({ targetId: this.options.targetId }),
+        intent: { targetId: this.options.targetId },
         payload: request,
       });
       return result.result as Result;

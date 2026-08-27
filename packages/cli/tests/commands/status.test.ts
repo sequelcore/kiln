@@ -181,7 +181,7 @@ describe("statusCommand", () => {
     const harnessBase = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
     const directTarget = harnessBase.targetCatalog!.targets[0]!;
     if (directTarget.kind !== "direct") throw new Error("fixture direct target is required");
-    const { accountSelection: _accountSelection, economics: _economics, ...physicalTarget } = directTarget;
+    const { accountPolicyId: _accountPolicyId, economics: _economics, ...physicalTarget } = directTarget;
     persistGlobalConfig({
       ...harnessBase,
       targetCatalog: {

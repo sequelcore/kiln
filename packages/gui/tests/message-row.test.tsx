@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageRow } from "../src/components/message-row.js";
+import { testModelCatalog } from "./fixtures/model-catalog.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
 
 describe("MessageRow", () => {
@@ -118,19 +119,8 @@ describe("MessageRow", () => {
 
   it("keeps assistant metadata and markdown content aligned without a redundant avatar column", () => {
     useSessionStore.setState({
-      executionRouteCatalog: {
-        routes: [{
-          routeId: "claude-current",
-          label: "Claude current",
-          providerId: "claude",
-          providerModelId: "claude-sonnet-4-6",
-          accountSelection: { mode: "exact", eligibleAccountCount: 1, allowOperatorOverride: false },
-          availability: "available",
-          reasonCodes: [],
-          repairActions: [],
-        }],
-      },
-      activeRouteId: "claude-current",
+      modelCatalog: testModelCatalog({ targetId: "claude-current", label: "Claude current", providerId: "claude", providerModelId: "claude-sonnet-4-6" }),
+      activeTargetId: "claude-current",
     });
     const { container } = render(
       <MessageRow
@@ -210,19 +200,8 @@ describe("MessageRow", () => {
 
   it("uses the active execution target only as streaming display evidence", () => {
     useSessionStore.setState({
-      executionRouteCatalog: {
-        routes: [{
-          routeId: "terra",
-          label: "Terra",
-          providerId: "codex-oauth",
-          providerModelId: "gpt-5.6-terra",
-          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
-          availability: "available",
-          reasonCodes: [],
-          repairActions: [],
-        }],
-      },
-      activeRouteId: "terra",
+      modelCatalog: testModelCatalog({ targetId: "terra", label: "Terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra" }),
+      activeTargetId: "terra",
     });
 
     const { container } = render(

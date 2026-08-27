@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createExecutionAccountPolicyId,
   createExecutionAccountRef,
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   type ExecutionAccountAdmissionCandidate,
 } from "@kilnai/core/agents";
 import {
@@ -19,7 +19,7 @@ import {
 } from "../../src/execution-routing/operator-turn-dispatcher.js";
 
 const revision = "a".repeat(64);
-const catalog = defineExecutionCatalog({
+const catalog = defineExecutionTargetCatalog({
   accounts: [
     {
       id: "personal",
@@ -39,7 +39,7 @@ const catalog = defineExecutionCatalog({
     },
   ],
   accountPolicies: [{ id: "codex-policy", accountIds: ["personal", "work"], strategy: "economic-least-pressure" }],
-  routes: [
+  targets: [
     {
       id: "terra",
       label: "Terra",
@@ -47,7 +47,7 @@ const catalog = defineExecutionCatalog({
       providerModelId: "gpt-5.6-terra",
       dataClassification: "internal",
       dataPolicyEvidence: { providerId: "codex", providerModelId: "gpt-5.6-terra", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
-      accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" },
+      accountPolicyId: "codex-policy",
       economics: routeEconomics(),
     },
     {
@@ -57,7 +57,7 @@ const catalog = defineExecutionCatalog({
       providerModelId: "gpt-5.6-luna",
       dataClassification: "internal",
       dataPolicyEvidence: { providerId: "codex", providerModelId: "gpt-5.6-luna", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
-      accountSelection: { mode: "exact", accountId: "work" },
+      accountPolicyId: "codex-policy",
       economics: routeEconomics(),
     },
   ],
@@ -253,13 +253,13 @@ describe("OperatorTurnDispatcher", () => {
     expect(() => bridge.bind(async () => "rebound")).toThrow(/already bound/i);
   });
 
-  it("passes an automatic route through the routing service and returns committed evidence", async () => {
+  it("passes an automatic target through the routing service and returns committed evidence", async () => {
     const { dispatcher, dispatch } = dispatcherFixture();
 
     const result = await dispatcher.dispatchTurn({
       executionId: "turn-1",
-      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { routeId: "terra" } }),
-      intent: { routeId: "terra" },
+      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { targetId: "terra" } }),
+      intent: { targetId: "terra" },
       payload: { result: "terra" },
     });
 
@@ -285,8 +285,8 @@ describe("OperatorTurnDispatcher", () => {
 
     const result = await dispatcher.dispatchTurn({
       executionId: "turn-1",
-      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { routeId: "terra", accountOverrideId: "work" } }),
-      intent: { routeId: "terra", accountOverrideId: "work" },
+      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { targetId: "terra", accountOverrideId: "work" } }),
+      intent: { targetId: "terra", accountOverrideId: "work" },
       payload: {},
     });
 
@@ -301,8 +301,8 @@ describe("OperatorTurnDispatcher", () => {
 
     await dispatcher.dispatchTurn({
       executionId: "turn-1",
-      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { routeId: "terra" } }),
-      intent: { routeId: "terra" },
+      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { targetId: "terra" } }),
+      intent: { targetId: "terra" },
       payload: { result: "done" },
     });
 
@@ -316,8 +316,8 @@ describe("OperatorTurnDispatcher", () => {
 
     await expect(dispatcher.dispatchTurn({
       executionId: "turn-1",
-      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { routeId: "terra" } }),
-      intent: { routeId: "terra" },
+      intentFingerprint: fingerprintOperatorTurnIntent({ executionId: "turn-1", intent: { targetId: "terra" } }),
+      intent: { targetId: "terra" },
       payload: { result: "constructed" },
     })).rejects.toThrow(/no eligible account/i);
     expect(dispatch).not.toHaveBeenCalled();

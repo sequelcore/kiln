@@ -7,7 +7,7 @@ import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissi
 import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 
 const route = { routeId: "fixture-route", providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" } as const;
-const admission = { routeId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account-1", source: "route" as const } };
+const admission = { targetId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { kind: "operator-override" as const, accountPolicyId: "policy", accountId: "account-1" } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "done" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" };
 
 function authorityBundle(): EffectiveAuthorityAdmissionBundle {
@@ -22,7 +22,7 @@ function authorityBundle(): EffectiveAuthorityAdmissionBundle {
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },
       effectCeiling: { operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none", identityUse: "none", consequences: [], idempotency: "idempotent" },
       budget: { status: "not-configured" },
-      execution: { status: "routed", route: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } },
+      execution: { status: "routed", target: admission, dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } }, binding: { status: "bound", routeId: admission.targetId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } },
     },
   });
 }
@@ -50,7 +50,7 @@ function fixture(overrides: { readonly guard?: ModelGatewayReplayGuard; readonly
     candidateCatalog: { list: async () => ({ admission, candidates: [{ candidate: { accountId: "account-1", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account-1"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }) },
     accountCapacityAuthority: authority,
     attemptEvidence: { record: async () => undefined },
-    dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: dispatch }, binding: { status: "bound", routeId: admission.routeId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
+    dispatcherResolver: { resolve: async () => ({ dispatcher: { dispatchOneRound: dispatch }, binding: { status: "bound", routeId: admission.targetId, accountId: "account-1", credentialId: "credential", credentialRevision: "a".repeat(64) } }) },
     budgetAdmission: { admit: async () => ({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "fixture" } }) },
     authorityAdmission: { compose: async () => authorityBundle() },
   };

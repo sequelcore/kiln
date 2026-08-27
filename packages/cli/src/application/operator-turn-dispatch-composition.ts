@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type {
-  AdmittedExecutionRoute,
-  ExecutionCatalog,
+  AdmittedExecutionTarget,
+  ExecutionTargetCatalog,
   ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
-import type { ExecutionRouteReasonCode } from "@kilnai/gateway-contracts";
-import { admitOperatorExecutionIntent, defineExecutionCatalog } from "@kilnai/core";
+import type { ExecutionTargetReasonCode } from "@kilnai/gateway-contracts";
+import { admitOperatorExecutionIntent, defineExecutionTargetCatalog } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
   createOperatorSessionAccountCapacityAuthority,
@@ -15,14 +15,14 @@ import {
   OperatorSessionExecutionRoutingService,
   OperatorTurnDispatcher,
   type ConfiguredExecutionCredential,
-  type OperatorSessionExecutionCatalogSnapshot,
+  type OperatorSessionExecutionTargetCatalogSnapshot,
   type SqliteManagedAccountLeaseAuthority,
   type OperatorTurnDispatchPort,
   type RuntimeConfigurationRevisionSnapshot,
 } from "@kilnai/runtime";
-import type { OperatorExecutionRouteAccountAvailability } from "./operator-execution-route-selection.js";
+import type { OperatorExecutionTargetAccountAvailability } from "./operator-execution-target-selection.js";
 import {
-  readGlobalExecutionCatalog,
+  readGlobalExecutionTargetCatalog,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
 import { SqliteRuntimeModelRoundActionClaimStore } from "./runtime-model-round-action-claim-store.js";
@@ -47,18 +47,18 @@ export interface OperatorTurnDispatchComposition<Payload, Result> {
   readonly authorityAdmissionBridge: OperatorSessionAuthorityAdmissionBridge<Payload>;
   readonly dispatcher: OperatorTurnDispatchPort<Payload, Result>;
   readonly resolveExecutionRouteAccountAvailability: (input: {
-    readonly admission: AdmittedExecutionRoute;
-    readonly catalog: ExecutionCatalog;
+    readonly admission: AdmittedExecutionTarget;
+    readonly catalog: ExecutionTargetCatalog;
     readonly configurationRevision: RuntimeConfigurationRevisionSnapshot;
-  }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>;
+  }) => Promise<readonly OperatorExecutionTargetAccountAvailability[]>;
   readonly close: () => void;
 }
 
 /** Composes one fenced account/credential routing service for an operator surface. */
 export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
   /** Bootstrap-only catalog; every execution activates a freshly captured snapshot before admission. */
-  readonly initialCatalog: ExecutionCatalog;
-  readonly captureCatalogSnapshot: () => OperatorSessionExecutionCatalogSnapshot | Promise<OperatorSessionExecutionCatalogSnapshot>;
+  readonly initialCatalog: ExecutionTargetCatalog;
+  readonly captureCatalogSnapshot: () => OperatorSessionExecutionTargetCatalogSnapshot | Promise<OperatorSessionExecutionTargetCatalogSnapshot>;
   readonly cwd: string;
   readonly credentialRootDir?: string;
   /** Test/embedding seam for the verified operator-private project state. */
@@ -145,31 +145,31 @@ const MAX_CATALOG_CAPTURE_ATTEMPTS = 3;
  * Captures catalog values only when the global bytes that produced them match
  * the canonical Runtime revision set captured for the same admission.
  */
-export function captureOperatorExecutionCatalogSnapshot(input: {
+export function captureOperatorExecutionTargetCatalogSnapshot(input: {
   readonly projectPath: string;
   readonly readConfigSnapshot: () => { readonly config: KilnGlobalConfig | null; readonly revision: string };
   readonly readConfigurationRevision: (projectPath: string) => RuntimeConfigurationRevisionSnapshot;
-  readonly readExecutionCatalog?: (config: KilnGlobalConfig | null) => ExecutionCatalog | undefined;
-}): OperatorSessionExecutionCatalogSnapshot {
+  readonly readExecutionTargetCatalog?: (config: KilnGlobalConfig | null) => ExecutionTargetCatalog | undefined;
+}): OperatorSessionExecutionTargetCatalogSnapshot {
   for (let attempt = 0; attempt < MAX_CATALOG_CAPTURE_ATTEMPTS; attempt += 1) {
     const config = input.readConfigSnapshot();
     const configurationRevision = input.readConfigurationRevision(input.projectPath);
     if (configurationRevision.revisions.global !== config.revision) continue;
-    const catalog = (input.readExecutionCatalog ?? readGlobalExecutionCatalog)(config.config)
-      ?? defineEmptyExecutionCatalog();
+    const catalog = (input.readExecutionTargetCatalog ?? readGlobalExecutionTargetCatalog)(config.config)
+      ?? defineEmptyExecutionTargetCatalog();
     return Object.freeze({ catalog, configurationRevision });
   }
   throw new Error("Canonical configuration changed while the operator execution catalog was being admitted.");
 }
 
-function defineEmptyExecutionCatalog(): ExecutionCatalog {
-  return defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
+function defineEmptyExecutionTargetCatalog(): ExecutionTargetCatalog {
+  return defineExecutionTargetCatalog({ accounts: [], accountPolicies: [], targets: [] });
 }
 
 function candidateReasonCodes(
   candidate: { readonly safety: "eligible" | "ineligible"; readonly health: "healthy" | "unhealthy"; readonly quota: "available" | "exhausted" | "unknown"; readonly capacity: "available" | "exhausted" },
   usage: { readonly freshness: "fresh" | "stale" | "missing"; readonly availability?: "available" | "exhausted" | "unknown" },
-): readonly ExecutionRouteReasonCode[] {
+): readonly ExecutionTargetReasonCode[] {
   if (candidate.safety === "ineligible") return ["policy-denied"];
   if (usage.freshness === "stale") return ["quota-stale"];
   if (usage.freshness === "missing" || usage.availability === "unknown") return ["quota-unknown"];
@@ -196,16 +196,16 @@ export function committedBindingToRouteSelection(binding: Extract<ExecutionSessi
 
 /** Returns an admission only when a persisted continuation still owns the same account revision. */
 export async function resolveOperatorContinuationBinding(input: {
-  readonly catalog: ExecutionCatalog;
+  readonly catalog: ExecutionTargetCatalog;
   readonly accountRuntime: ConfiguredExecutionAccountRuntime;
   readonly binding: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   readonly requestedRouteId?: string;
-}): Promise<{ readonly admission: AdmittedExecutionRoute } | undefined> {
+}): Promise<{ readonly admission: AdmittedExecutionTarget } | undefined> {
   if (input.requestedRouteId && input.requestedRouteId !== input.binding.routeId) return undefined;
-  let admission: AdmittedExecutionRoute;
+  let admission: AdmittedExecutionTarget;
   try {
     admission = admitOperatorExecutionIntent(input.catalog, {
-      routeId: input.binding.routeId,
+      targetId: input.binding.routeId,
       accountOverrideId: input.binding.accountId,
     });
   } catch {
@@ -230,7 +230,7 @@ export async function resolveOperatorContinuationBinding(input: {
   return matching ? { admission } : undefined;
 }
 
-function catalogContentRevision(catalog: ExecutionCatalog): RuntimeConfigurationRevisionSnapshot {
+function catalogContentRevision(catalog: ExecutionTargetCatalog): RuntimeConfigurationRevisionSnapshot {
   const revisionSetId = `sha256:${createHash("sha256").update(JSON.stringify(catalog), "utf8").digest("hex")}`;
   return Object.freeze({ revisionSetId, revisions: Object.freeze({ "execution-catalog": revisionSetId }) });
 }

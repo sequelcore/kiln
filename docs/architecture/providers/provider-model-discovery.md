@@ -169,7 +169,7 @@ discovery results instead of re-probing every provider on every turn.
 Socket `welcome` establishes only the operator session and transport. Each GUI
 and TUI connection separately receives the current `provider_catalog_state`;
 the runtime publishes a terminal `ready` projection containing provider,
-model, available-model, and execution-route evidence when background discovery
+model, model-catalog, and execution-target evidence when background discovery
 settles, or an explicit `error` projection when it fails. A surface must not
 interpret `welcome` as provider discovery completion or require manual refresh
 to receive the background result.
@@ -184,17 +184,17 @@ manual refresh while keeping ordinary chat turns from paying repeated CLI,
 network, and local daemon discovery costs.
 
 A successful provider-auth completion also carries the freshly projected
-`ExecutionRouteCatalog`. GUI and TUI replace their picker catalog from that
-completion rather than retaining pre-auth route availability.
+`ModelCatalog`. GUI and TUI replace their picker catalog from that
+completion rather than retaining pre-auth target availability.
 
-The cache is an optimization only. Prompt admission and execution-route
+The cache is an optimization only. Prompt admission and execution-target
 selection consult fresh evidence before changing session routing or admitting
-work. If evidence is still pending, that operation waits; if it proves a route's
+work. If evidence is still pending, that operation waits; if it proves a target's
 derived provider/model unavailable, the operation fails closed. Turn records
 keep the discovery evidence used for admission.
 
 If the only available startup evidence is `stale`, operator surfaces may show
-the configured route as unresolved or unavailable, but execution-route
+the configured target as unresolved or unavailable, but execution-target
 selection, managed invocation route admission, and prompt execution must wait
 for or require fresh runtime discovery. Static provider display metadata and
 stale cache entries are diagnostics, not permission.
@@ -208,35 +208,36 @@ cannot choose a credential or widen the route authority.
 ## Gateway And Operator Projection
 
 Gateway frames project provider-model discovery as diagnostic evidence and
-projects the global target catalog separately as the operator selection
-contract. Each configured catalog entry has target ID, label, availability, reason codes,
+combines discovered models with configured targets in one operator projection.
+Each configured catalog entry has target ID, label, availability, reason codes,
 repair actions, account-selection summary, and derived provider/model evidence.
-Configured routes remain in the catalog even when Runtime cannot admit them.
+Configured targets remain in the catalog even when Runtime cannot admit them.
 
 GUI and TUI target pickers select only catalog target IDs. Commands carry
-`targetId` and, only for an automatic direct target, an eligible
+`targetId` and, when the target policy has multiple eligible accounts, an eligible
 `accountOverrideId`. Provider
 and model identifiers on frames are derived evidence, never alternate selection
 inputs. Authentication remains a provider-scoped repair action. Its successful
-completion returns refreshed route evidence, and no frame or catalog entry
+completion returns refreshed target evidence, and no frame or catalog entry
 exposes a credential ID or credential material.
 
 ## Configuration And Surface Selection
 
 `targetCatalog` is durable global configuration. It defines each target's
-stable ID and, for direct targets, provider/model attributes and exact or
-automatic account policy. `targetRouting.defaultTargetId` supplies the normal
+stable ID and, for direct targets, provider/model attributes and one account
+policy. A policy with one account represents a fixed destination without adding
+a second target kind. `targetRouting.defaultTargetId` supplies the normal
 startup default, while `ui.targetSelection` can persist a surface target and
 eligible account alias override. Both are target references, never
 provider/model or credential
 selection fields.
 
 Runtime projects that configuration plus fresh availability into
-`ExecutionRouteCatalog`. GUI and TUI render and select from that runtime
+`ModelCatalog`. GUI and TUI render and select from that runtime
 projection; they do not expose the YAML account-to-credential binding or turn
 provider/model display evidence into a second selector.
 
-Model-less harness providers remain explicit model-less routes. They do not
+Model-less harness providers remain explicit model-less targets. They do not
 receive fake model IDs and do not convert native ambient defaults into
 provider/model authority. Native route integrity remains a separate evidence
 plane for proving that a harness default matches Kiln's resolved route.

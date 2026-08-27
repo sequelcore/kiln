@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   admitOperatorExecutionIntent,
   createExecutionAccountPolicyId,
-  defineExecutionCatalog,
+  defineExecutionTargetCatalog,
   type ProviderUsageSnapshot,
 } from "@kilnai/core/agents";
 import { ConfiguredExecutionAccountRuntime } from "../../src/managed-account-leases/configured-execution-account-runtime.js";
@@ -23,7 +23,7 @@ const dataPolicyEvidence = (expiresAt = "2026-12-31T00:00:00.000Z") => ({
   observedAt: "2026-01-01T00:00:00.000Z", expiresAt,
 });
 
-const catalog = defineExecutionCatalog({
+const catalog = defineExecutionTargetCatalog({
   accounts: [
     {
       id: "account-a",
@@ -43,14 +43,14 @@ const catalog = defineExecutionCatalog({
     },
   ],
   accountPolicies: [{ id: CODEX_POLICY_ID, accountIds: ["account-a", "account-b"], strategy: "economic-least-pressure" }],
-  routes: [{
+  targets: [{
     id: "codex-route",
     label: "Codex route",
     providerId: "codex-oauth",
     providerModelId: "gpt-test",
     dataClassification: "internal",
     dataPolicyEvidence: dataPolicyEvidence(),
-    accountSelection: { mode: "automatic", accountPolicyId: CODEX_POLICY_ID },
+    accountPolicyId: CODEX_POLICY_ID,
     economics: routeEconomics(),
   }],
 });
@@ -64,19 +64,19 @@ function snapshotContext(effectiveCatalog: typeof catalog) {
 
 describe("ConfiguredExecutionAccountRuntime", () => {
   it("preserves the selected route id when two routes share provider, model, and accounts", async () => {
-    const duplicateCatalog = defineExecutionCatalog({
+    const duplicateCatalog = defineExecutionTargetCatalog({
       ...catalog,
-      routes: [catalog.routes[0]!, { ...catalog.routes[0]!, id: "codex-route-alternate", label: "Alternate" }],
+      targets: [catalog.targets[0]!, { ...catalog.targets[0]!, id: "codex-route-alternate", label: "Alternate" }],
     });
     const codexPool = pool([codexExecution]);
     const runtime = new ConfiguredExecutionAccountRuntime({
       catalog: duplicateCatalog, codexPool, now: () => new Date("2026-08-15T00:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(duplicateCatalog, { routeId: "codex-route-alternate" });
+    const admission = admitOperatorExecutionIntent(duplicateCatalog, { targetId: "codex-route-alternate" });
     const [selected] = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(duplicateCatalog) });
     if (!selected) throw new Error("fixture candidate missing");
     await expect(runtime.operatorSessionCredentials.resolve({
-      routeId: admission.routeId,
+      targetId: admission.targetId,
       accountId: "account-a", credentialId: "credential-a",
       ...snapshotContext(duplicateCatalog),
       lease: {
@@ -90,12 +90,12 @@ describe("ConfiguredExecutionAccountRuntime", () => {
 
   it("denies expired evidence before account listing or usage lookup", async () => {
     const codexPool = pool([codexExecution]);
-    const expiredCatalog = defineExecutionCatalog({
+    const expiredCatalog = defineExecutionTargetCatalog({
       ...catalog,
-      routes: catalog.routes.map((route) => ({ ...route, dataPolicyEvidence: dataPolicyEvidence("2026-08-01T00:00:00.000Z") })),
+      targets: catalog.targets.map((target) => ({ ...target, dataPolicyEvidence: dataPolicyEvidence("2026-08-01T00:00:00.000Z") })),
     });
     const runtime = new ConfiguredExecutionAccountRuntime({ catalog: expiredCatalog, codexPool, now: () => new Date("2026-08-15T00:00:00.000Z") });
-    const admission = admitOperatorExecutionIntent(expiredCatalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(expiredCatalog, { targetId: "codex-route" });
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(expiredCatalog) })).rejects.toThrow(/expired-evidence/u);
     expect(codexPool.listExecutionAccounts).not.toHaveBeenCalled();
     expect(codexPool.listUsage).not.toHaveBeenCalled();
@@ -103,15 +103,15 @@ describe("ConfiguredExecutionAccountRuntime", () => {
 
   it("denies before any credential pool lookup or credential resolution", async () => {
     const codexPool = pool([codexExecution]);
-    const expiredCatalog = defineExecutionCatalog({
+    const expiredCatalog = defineExecutionTargetCatalog({
       ...catalog,
-      routes: catalog.routes.map((route) => ({ ...route, dataPolicyEvidence: dataPolicyEvidence("2026-08-01T00:00:00.000Z") })),
+      targets: catalog.targets.map((target) => ({ ...target, dataPolicyEvidence: dataPolicyEvidence("2026-08-01T00:00:00.000Z") })),
     });
     const runtime = new ConfiguredExecutionAccountRuntime({
       catalog: expiredCatalog, codexPool, now: () => new Date("2026-08-15T00:00:00.000Z"),
     });
     await expect(runtime.operatorSessionCredentials.resolve({
-      routeId: "codex-route",
+      targetId: "codex-route",
       accountId: "account-a", credentialId: "credential-a",
       ...snapshotContext(expiredCatalog),
       lease: {
@@ -133,7 +133,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       codexPool,
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     const operator = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) });
     expect(operator).toHaveLength(1);
@@ -161,7 +161,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       catalog,
       codexPool: pool([codexExecution]),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     const candidates = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) });
     expect(candidates[0]?.lease.accountEconomics?.capacityIdentity).toBe("codex-capacity-a");
@@ -183,7 +183,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       codexPool,
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
     const route = { routeId: "codex-route", providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:codex" };
     const candidates = await runtime.modelGatewayCandidates.resolve({ admission, route });
     const authority = new SqliteManagedAccountLeaseAuthority({
@@ -204,6 +204,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       if (acquired.status !== "acquired") throw new Error("fixture capacity was not acquired");
       await expect(runtime.modelGatewayDispatchers.resolve({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
+        targetId: admission.targetId,
         accountId: "account-a",
         routeId: "codex-route",
         route,
@@ -213,6 +214,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       const fenced = authority.fenceAccountCapacityDispatch("attempt", "attempt:capacity");
       await expect(runtime.modelGatewayDispatchers.resolve({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
+        targetId: admission.targetId,
         accountId: "account-a",
         routeId: "codex-route",
         route,
@@ -235,7 +237,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
         reservedForNewWork: false,
       })),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
       { candidate: { accountId: "account-a", capacity: "exhausted" } },
@@ -245,7 +247,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
   it("returns only the canonical post-fence credential identity and rejects revision drift", async () => {
     const codexPool = pool([codexExecution]);
     const runtime = new ConfiguredExecutionAccountRuntime({ catalog, codexPool });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
     const [selected] = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) });
     if (!selected) throw new Error("fixture candidate missing");
     const lease = {
@@ -263,7 +265,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     };
 
     await expect(runtime.operatorSessionCredentials.resolve({
-      routeId: "codex-route",
+      targetId: admission.targetId,
       accountId: "account-a",
       credentialId: "credential-a",
       ...snapshotContext(catalog),
@@ -313,7 +315,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       }]),
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
     const [candidate] = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) });
     expect(candidate?.lease).toMatchObject({
       accountEconomics: { capacityIdentity: "codex-capacity-a" },
@@ -336,7 +338,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       codexPool,
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     const candidates = await runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) });
 
@@ -364,7 +366,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       codexPool,
       now: () => currentNow,
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
       { candidate: { accountId: "account-a", health: "healthy", quota: "available" } },
@@ -383,7 +385,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       codexPool: pool([codexExecution], [], unknownUsage),
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
       { candidate: { accountId: "account-a", health: "healthy", quota: "unknown" } },
@@ -396,7 +398,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       codexPool: pool([codexExecution], [usageSnapshot("credential-a", "exhausted")]),
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
-    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
       { candidate: { accountId: "account-a", health: "healthy", quota: "exhausted" } },

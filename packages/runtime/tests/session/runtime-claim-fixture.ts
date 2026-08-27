@@ -243,11 +243,11 @@ export function createFixtureAdmission(input: {
       budget: { status: "not-configured" },
       execution: {
         status: "routed",
-        route: {
-          routeId,
+        target: {
+          targetId: routeId,
           providerId,
           providerModelId,
-          accountSelection: { mode: "exact", accountId, source: "route" },
+          accountSelection: { kind: "operator-override", accountPolicyId: "fixture-policy", accountId },
         },
         dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
         binding: {
@@ -273,8 +273,8 @@ export function createFixtureClaimConfig(input: {
   const turnId = input.turnId ?? `${input.session.id}:turn:${Math.max(input.session.userTurnCount + 1, 1)}`;
   const admission = createFixtureAdmission({ ...input, turnId });
   const modelStore = createFixtureModelRoundStore();
-  const route = admission.turn.execution.status === "routed" ? admission.turn.execution : undefined;
-  if (!route) throw new Error("Fixture admission must be routed.");
+  const execution = admission.turn.execution.status === "routed" ? admission.turn.execution : undefined;
+  if (!execution) throw new Error("Fixture admission must be routed.");
   const modelRound: RuntimeModelRoundDispatchContext = {
     admission,
     intentFingerprint: runtimeModelRoundEffectIdentity({
@@ -283,9 +283,9 @@ export function createFixtureClaimConfig(input: {
       turnId,
     }),
     attemptId: `runtime-fixture-attempt:${input.session.id}:${turnId}`,
-    routeId: route.route.routeId,
-    accountId: route.binding.accountId,
-    credentialRevision: route.binding.credentialRevision,
+    routeId: execution.binding.routeId,
+    accountId: execution.binding.accountId,
+    credentialRevision: execution.binding.credentialRevision,
     readAdmission: async () => admission,
     store: modelStore,
     state: { claimed: false },

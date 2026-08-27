@@ -41,7 +41,7 @@ import {
   buildGuiOperatorDiscoveryResults,
 } from "../../src/gateway/gui-provider-models.js";
 
-const {guiTestRouting, guiOperatorTransportDefaults, createGuiDist, selectGuiTestExecutionRoute, makeGuiOperatorDiscoveryFromModels} = guiFixture;
+const {guiTestRouting, guiOperatorTransportDefaults, createGuiDist, selectGuiTestExecutionTarget, makeGuiOperatorDiscoveryFromModels} = guiFixture;
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
 
 function createTempDir(): string {
@@ -805,7 +805,7 @@ describe("GUI gateway HTTP and static assets", () => {
           operatorTurnDispatcher: freshRouting.operatorTurnDispatcher as never,
           operatorTurnExecutionBridge: freshRouting.operatorTurnExecutionBridge as never,
           operatorAuthorityAdmissionBridge: freshRouting.operatorAuthorityAdmissionBridge as never,
-          executionRouteSelection: freshRouting.executionRouteSelection,
+          executionTargetSelection: freshRouting.executionTargetSelection,
           sessionManager: {
             getProvider: () => "openai",
             setProvider: vi.fn(),
@@ -829,7 +829,7 @@ describe("GUI gateway HTTP and static assets", () => {
       });
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await selectGuiTestExecutionRoute(handlers, wsCtx);
+      await selectGuiTestExecutionTarget(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "hello from gui", sessionIntent: "fresh" }),

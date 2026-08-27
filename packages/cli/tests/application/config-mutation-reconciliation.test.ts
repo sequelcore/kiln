@@ -7,7 +7,7 @@ import { resolveProjectStateBinding } from "../../src/application/project-state-
 
 const mocks = vi.hoisted(() => ({
   globalConfig: { version: "5", modelGateway: { enabled: true } } as Record<string, unknown> | null,
-  routeAuthority: { executionCatalog: { routes: [{ id: "terra" }] } } as unknown,
+  routeAuthority: { executionCatalog: { targets: [{ id: "terra" }] } } as unknown,
   syncPermissions: vi.fn(),
   syncAgents: vi.fn(),
   loadConfigWithAuthority: vi.fn(),
@@ -57,7 +57,7 @@ describe("configuration mutation reconciliation", () => {
     process.env.TEMP = fixtureRoot;
     process.env.XDG_CONFIG_HOME = join(fixtureRoot, "xdg");
     mocks.globalConfig = { version: "5", modelGateway: { enabled: true } };
-    mocks.routeAuthority = { executionCatalog: { routes: [{ id: "terra" }] } };
+    mocks.routeAuthority = { executionCatalog: { targets: [{ id: "terra" }] } };
     mocks.syncPermissions.mockReset().mockResolvedValue({ errors: [], outcomes: [] });
     mocks.syncAgents.mockReset().mockResolvedValue({ errors: [], synced: 1 });
     mocks.loadConfigWithAuthority.mockReset().mockResolvedValue({ kilnYaml: { version: "1" }, globalConfig: mocks.globalConfig });
@@ -95,13 +95,13 @@ describe("configuration mutation reconciliation", () => {
     });
   });
 
-  it("reads the committed target intent with its exact evidence before reporting routes reconciled", async () => {
-    const [effect] = await reconcileConfigMutation(projectRoot, ["execution-routes"], { kilnHome });
+  it("reads the committed target intent with its exact evidence before reporting targets reconciled", async () => {
+    const [effect] = await reconcileConfigMutation(projectRoot, ["execution-targets"], { kilnHome });
 
     expect(effect).toEqual({
-      target: "execution-routes",
+      target: "execution-targets",
       status: "ok",
-      summary: "1 execution routes verified from canonical intent and evidence.",
+      summary: "1 execution targets verified from canonical intent and evidence.",
       errors: [],
       generation: `sha256:${"a".repeat(64)}`,
     });

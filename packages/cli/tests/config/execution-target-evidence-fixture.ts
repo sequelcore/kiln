@@ -1,8 +1,8 @@
-import type { ExecutionCatalog } from "@kilnai/core";
+import type { ExecutionTargetCatalog } from "@kilnai/core";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   executionTargetEvidenceRevision,
-  projectExecutionCatalogFromIntent,
+  projectExecutionTargetCatalogFromIntent,
   type ExecutionTargetCatalogIntent,
   type ExecutionTargetEvidenceSnapshot,
 } from "../../src/config/execution-target-evidence-store.js";
@@ -120,10 +120,10 @@ export function withSyntheticExecutionTargetEvidence(config: KilnGlobalConfig): 
   };
 }
 
-export function syntheticExecutionCatalog(config: KilnGlobalConfig): ExecutionCatalog | null {
+export function syntheticExecutionTargetCatalog(config: KilnGlobalConfig): ExecutionTargetCatalog | null {
   const admitted = withSyntheticExecutionTargetEvidence(config);
   if (!admitted.config.targetCatalog || !admitted.evidence) return null;
-  return projectExecutionCatalogFromIntent(
+  return projectExecutionTargetCatalogFromIntent(
     admitted.config.targetCatalog,
     admitted.evidence,
     admitted.config.targetCatalog.evidenceRevision,
@@ -133,7 +133,7 @@ export function syntheticExecutionCatalog(config: KilnGlobalConfig): ExecutionCa
 
 export function syntheticExecutionTargetAuthority(config: KilnGlobalConfig) {
   const admitted = withSyntheticExecutionTargetEvidence(config);
-  const executionCatalog = syntheticExecutionCatalog(config);
+  const executionCatalog = syntheticExecutionTargetCatalog(config);
   if (!admitted.evidence || !executionCatalog) return undefined;
   return { evidence: admitted.evidence, executionCatalog };
 }

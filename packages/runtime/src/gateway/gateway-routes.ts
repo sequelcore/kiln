@@ -227,11 +227,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       config.upgradeWebSocket(() => ({
         onOpen(_event: Event, ws: WSContext) {
           const selectedRuntime = resolveAppGatewayGuiRuntime(config);
-          const availableModels = { observedAt: new Date().toISOString(), entries: [] } as const;
+          const observedAt = new Date().toISOString();
+          const modelCatalog = { observedAt, models: [] } as const;
           ws.send(JSON.stringify({
             type: "welcome",
-            executionRouteCatalog: { routes: [] },
-            availableModels,
+            modelCatalog,
             executionMode: "execute",
             domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
             authorityStatus: { effective: "unknown", completeness: "partial" },
@@ -245,13 +245,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
               catalogEvidence: {
                 status: "complete",
                 source: { kind: "app-gateway", id: "attach-mode" },
-                observedAt: availableModels.observedAt,
+                observedAt,
                 counts: { total: 0, returned: 0, omitted: 0 },
               },
               entries: [],
             },
-            executionRouteCatalog: { routes: [] },
-            availableModels,
+            modelCatalog,
           } satisfies GuiInboundFrame));
         },
         async onMessage(event: MessageEvent, ws: WSContext) {
@@ -280,13 +279,12 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             ws.send(JSON.stringify({ type: "cleared" } satisfies GuiInboundFrame));
             return;
           }
-          if (frame.type === "refresh_execution_routes") {
-            const availableModels = { observedAt: new Date().toISOString(), entries: [] } as const;
+          if (frame.type === "refresh_model_catalog") {
+            const modelCatalog = { observedAt: new Date().toISOString(), models: [] } as const;
             ws.send(JSON.stringify({
-              type: "execution_routes_refreshed",
+              type: "model_catalog_refreshed",
               requestId: frame.requestId,
-              executionRouteCatalog: { routes: [] },
-              availableModels,
+              modelCatalog,
             } satisfies GuiInboundFrame));
             return;
           }
@@ -507,7 +505,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
               };
                const result = await runtime.orchestrator.bindProvider(
                  admitted.provider,
-                admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+                admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.target.providerModelId : undefined,
               ).processMessage(
                 admitted.session,
                 parts,
@@ -595,7 +593,7 @@ async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise
   const projectedAt = new Date().toISOString();
   const runtimeSessions = await collectAppGatewayRuntimeSessions(config);
   return {
-    executionRouteCatalog: { routes: [] },
+    modelCatalog: { observedAt: projectedAt, models: [] },
     providers: [],
     telemetry: {
       status: "stable",
@@ -1015,7 +1013,7 @@ async function processAppGatewayGuiMessage(
         }, async (admitted) => processAdmittedTurn({
         orchestrator: selectedRuntime.runtime.orchestrator.bindProvider(
           admitted.provider,
-          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.target.providerModelId : undefined,
         ),
         sessionRegistry: selectedRuntime.runtime.sessionRegistry,
         appName: selectedRuntime.runtime.appName,
@@ -1121,7 +1119,7 @@ async function processTenantAppGatewayGuiTurn(
     }, async (admitted) => processAdmittedTurn({
     orchestrator: selection.runtime.orchestrator.bindProvider(
       admitted.provider,
-      admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+      admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.target.providerModelId : undefined,
     ),
     sessionRegistry: selection.runtime.sessionRegistry,
     appName: selection.runtime.appName,

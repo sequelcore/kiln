@@ -5,8 +5,8 @@ import {
   defineDeliberationLevelId,
   isDirectProviderId,
   type ModelGatewayConfig,
-  type ExecutionCatalog,
-  type AdmittedExecutionRoute,
+  type ExecutionTargetCatalog,
+  type AdmittedExecutionTarget,
   type ProviderModelRouteIdentity,
   type OperatorExecutionIntent,
 } from "@kilnai/core";
@@ -27,27 +27,27 @@ import type {
 import type { GovernedIngressInvocationPorts } from "./governed-ingress-executor.js";
 
 export interface ModelGatewayExecutionRoutingPort {
-  admit(intent: OperatorExecutionIntent): AdmittedExecutionRoute;
+  admit(intent: OperatorExecutionIntent): AdmittedExecutionTarget;
 }
 
 export interface ModelGatewayExecutionCandidatePort {
   resolve(input: {
-    readonly admission: AdmittedExecutionRoute;
-    /** Protocol-neutral route identity used by the shared lease authority. */
+    readonly admission: AdmittedExecutionTarget;
+    /** Protocol-neutral provider-route identity used by the shared lease authority. */
     readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   }): Promise<readonly GovernedOneRoundCandidate[]>;
 }
 
 /** Small composition adapter for the canonical Core admission function. */
-export function createModelGatewayExecutionRoutingPort(catalog: ExecutionCatalog): ModelGatewayExecutionRoutingPort {
+export function createModelGatewayExecutionRoutingPort(catalog: ExecutionTargetCatalog): ModelGatewayExecutionRoutingPort {
   return { admit: (intent) => admitOperatorExecutionIntent(catalog, intent) };
 }
 
 export interface ModelGatewayIngressOptions {
   readonly config: ModelGatewayConfig;
-  /** Canonical accounts, policies, routes, and economics owned by composition. */
-  readonly executionCatalog: ExecutionCatalog;
-  /** Canonical route admission service owned by composition. */
+  /** Canonical accounts, policies, targets, and economics owned by composition. */
+  readonly executionCatalog: ExecutionTargetCatalog;
+  /** Canonical target admission service owned by composition. */
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   /** Canonical candidate evidence and lease bindings owned by composition. */
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
@@ -114,22 +114,24 @@ export async function createModelGatewayIngress(
   }
   const routes = new Map(
     options.config.virtualModels.map((model) => {
-      const canonicalRoute = options.executionCatalog.routes.find(({ id }) => id === model.targetId);
-      if (!canonicalRoute) throw new Error(`Virtual model '${model.id}' references unknown target '${model.targetId}'.`);
-      const admission = options.executionRouting.admit({ routeId: model.targetId });
+      const canonicalTarget = options.executionCatalog.targets.find(({ id }) => id === model.targetId);
+      if (!canonicalTarget) throw new Error(`Virtual model '${model.id}' references unknown target '${model.targetId}'.`);
+      const admission = options.executionRouting.admit({ targetId: model.targetId });
       if (
-        admission.routeId !== canonicalRoute.id
-        || admission.providerId !== canonicalRoute.providerId
-        || admission.providerModelId !== canonicalRoute.providerModelId
-      ) throw new Error(`Execution admission for virtual model '${model.id}' does not match its canonical route.`);
-      if (!isDirectProviderId(admission.providerId)) throw new Error(`Execution route '${admission.routeId}' is not available to the model gateway.`);
+        admission.targetId !== canonicalTarget.id
+        || admission.providerId !== canonicalTarget.providerId
+        || admission.providerModelId !== canonicalTarget.providerModelId
+      ) throw new Error(`Execution admission for virtual model '${model.id}' does not match its canonical target.`);
+      if (!isDirectProviderId(admission.providerId)) throw new Error(`Execution target '${admission.targetId}' is not available to the model gateway.`);
       return [
         model.id,
         {
           model,
           admission,
           route: {
-            routeId: admission.routeId,
+            // The concrete provider route id is retained for post-admission
+            // binding/session evidence; targetId remains on the admission.
+            routeId: canonicalTarget.id,
             providerId: admission.providerId,
             providerModelId: admission.providerModelId,
             scope: `virtual:${model.id}`,
@@ -157,7 +159,7 @@ export async function createModelGatewayIngress(
       };
     },
   };
-  function findAdmission(route: { readonly routeId: string; readonly providerId: string; readonly providerModelId: string; readonly scope: string }): AdmittedExecutionRoute {
+  function findAdmission(route: { readonly routeId: string; readonly providerId: string; readonly providerModelId: string; readonly scope: string }): AdmittedExecutionTarget {
     const admitted = [...routes.values()].find(
       (entry) =>
         entry.route.routeId === route.routeId
@@ -191,12 +193,12 @@ export async function createModelGatewayIngress(
             } catch (error) {
               const status = providerStatus(error);
               try {
-                if (singleAccountRoute(admittedModel.admission) && status === 429)
+                if (singleAccountTarget(admittedModel.admission) && status === 429)
                   store.coolRoute(route, Date.now() + 60_000, "rate-limited");
-                else if (singleAccountRoute(admittedModel.admission) && [408, 425, 500, 502, 503, 504].includes(status ?? 0))
+                else if (singleAccountTarget(admittedModel.admission) && [408, 425, 500, 502, 503, 504].includes(status ?? 0))
                   store.coolRoute(route, Date.now() + 30_000, "upstream-transient");
               } catch (circuitError) {
-                throw new AggregateError(
+              throw new AggregateError(
                   [error, circuitError],
                   "Provider failure could not be fenced by the route circuit.",
                 );
@@ -378,8 +380,8 @@ export async function createModelGatewayIngress(
 
 }
 
-function singleAccountRoute(admission: AdmittedExecutionRoute): boolean {
-  return admission.accountSelection.mode === "exact"
+function singleAccountTarget(admission: AdmittedExecutionTarget): boolean {
+  return admission.accountSelection.kind === "operator-override"
     || admission.accountSelection.eligibleAccountIds.length === 1;
 }
 

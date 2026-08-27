@@ -134,7 +134,7 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         }, async (admitted) => processAdmittedTurn({
         orchestrator: runtime.orchestrator.bindProvider(
           admitted.provider,
-          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.route.providerModelId : undefined,
+          admitted.bundle.turn.execution.status === "routed" ? admitted.bundle.turn.execution.target.providerModelId : undefined,
         ),
         sessionRegistry: runtime.sessionRegistry,
         appName: runtime.appName,

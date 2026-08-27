@@ -7,7 +7,7 @@ import { parse, stringify } from "yaml";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 import { deriveEffectiveKilnYaml } from "../../src/config/config-merger.js";
 import { readGlobalExecutionTargetAuthority } from "../../src/config/global-config.js";
-import { resolveExecutionRouteCandidates } from "../../src/config/execution-route-resolver.js";
+import { resolveExecutionTargetCandidates } from "../../src/config/execution-target-resolver.js";
 import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import { readKilnYamlFile } from "../../src/kiln-yaml.js";
 import { resolveProjectStateBinding, type ProjectStateBinding } from "../../src/application/project-state-root.js";
@@ -279,8 +279,8 @@ describe("configuration onboarding application", () => {
     const effective = deriveEffectiveKilnYaml(admittedGlobal, project);
     expect(effective?.permissions).toMatchObject({ approval: "on-request", sandbox: "read-only" });
     const authority = readGlobalExecutionTargetAuthority(admittedGlobal, { globalConfigPath: globalPath });
-    const routes = resolveExecutionRouteCandidates({ globalConfig: admittedGlobal, executionCatalog: authority?.executionCatalog });
-    expect(routes).toEqual([{ routeId: "codex-default", provider: "codex-oauth", model: "gpt-5.6-terra" }]);
+    const targets = resolveExecutionTargetCandidates({ globalConfig: admittedGlobal, executionCatalog: authority?.executionCatalog });
+    expect(targets).toEqual([{ targetId: "codex-default", provider: "codex-oauth", model: "gpt-5.6-terra" }]);
   });
 
   it("rejects before writing when target selection needs approval", async () => {
