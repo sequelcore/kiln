@@ -52,18 +52,20 @@ describe("TUI verification presentation", () => {
     const digest = `sha256:${"c".repeat(64)}`;
     const verification: ToolResultVerificationPresentation = {
       kind: "inferential",
-      engine: { name: "gentle-ai", version: "2.4.0" },
+      engine: { name: "gentle-ai", version: "2.5.0-rc.1" },
       candidate: { digest, subjects: [{ path: "policy.ts" }] },
       outcome: { applicability: "current_target", action: "collect", replayability: "exact", nextTransition: { kind: "collect", reasonCode: "review_pending" } },
-      receipt: { status: "pending" },
+      transaction: { lineageId: "review-demo", state: "reviewing", generation: 1, revision: digest },
       authority: { kind: "evidence_only", establishes: [] },
     };
 
     const output = formatVerificationPresentationAsText(verification);
-    expect(output).toContain("current target · Gentle AI 2.4.0");
-    expect(output).toContain("action collect · replay exact · receipt pending");
+    expect(output).toContain("current target · Gentle AI 2.5.0-rc.1");
+    expect(output).toContain("state reviewing · action collect · replay exact");
     expect(output).toContain("next collect · review_pending");
-    expect(output).not.toMatch(/approved|findings/iu);
+    expect(output).toContain("review-demo");
+    expect(output).toContain("state reviewing");
+    expect(output).not.toMatch(/approved|receipt|findings/iu);
   });
 
   it("formats quality profiles, parser provenance, and diagnostics", () => {

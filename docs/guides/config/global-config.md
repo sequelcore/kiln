@@ -161,9 +161,8 @@ verification:
   inferential:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
-      expectedVersion: 2.4.0
+      expectedVersion: 2.5.0-rc.1
       expectedExecutableDigest: sha256:<published-platform-artifact-digest>
-      expectedBuildRevision: 301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb
 ```
 
 The `formal`, `static`, and `inferential` arms are independent and optional. `executable` may
@@ -191,11 +190,13 @@ Complexity is an investigation signal, not a hard gate. Test integrity is
 intentionally limited to focused Vitest calls and literally empty enabled test
 bodies. "No configured quality diagnostics" is not an overall quality pass.
 
-`gentle_review` is a read-only observer for the exact Gentle AI candidate named
-by `baseTree` and `targetIdentity`. Kiln requires capabilities v2.2/status v5,
-the exact configured binary SHA-256, version, and build revision. It does not
-start, advance, finalize, repair, or accept a Gentle review. Its receipt and
-next-transition data remain inferential evidence with `establishes: []`.
+`gentle_review` is a read-only observer for the exact active Gentle AI
+transaction named by `lineageId` and `targetIdentity`; `runtimeAgent` identifies
+the external review transport. Kiln requires capabilities v2.2/status v5 and
+the exact configured binary SHA-256, version, and release channel. It does not
+start, advance, capture, correct, approve, or deliver a Gentle review. Current
+state and next-transition data remain inferential evidence with
+`establishes: []`.
 
 A repository does not repeat the executable, version, or a `required` flag.
 Whether a particular bounded task needs formal proof is already owned by its

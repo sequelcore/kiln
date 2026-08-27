@@ -832,18 +832,6 @@
       "activation": "next-session",
       "authorityImpact": "none",
       "defaultPosture": "required",
-      "identity": "/verification/inferential/gentleAi/expectedBuildRevision",
-      "schemaRevision": 2,
-      "scope": "global",
-      "semanticOwner": "global-configuration",
-      "sensitivity": "public",
-      "structuralOwner": "global-configuration",
-      "valueType": "string"
-    },
-    {
-      "activation": "next-session",
-      "authorityImpact": "none",
-      "defaultPosture": "required",
       "identity": "/verification/inferential/gentleAi/expectedExecutableDigest",
       "schemaRevision": 2,
       "scope": "global",

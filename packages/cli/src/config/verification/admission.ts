@@ -21,23 +21,18 @@ function validateInferentialReview(value: unknown): void {
   if (!isRecord(value.gentleAi)) throw new KilnYamlError("verification.inferential.gentleAi must be an object");
   rejectUnknownFields(
     value.gentleAi,
-    ["executable", "expectedVersion", "expectedExecutableDigest", "expectedBuildRevision"],
+    ["executable", "expectedVersion", "expectedExecutableDigest"],
     "verification.inferential.gentleAi",
   );
   if (typeof value.gentleAi.executable !== "string" || value.gentleAi.executable.trim().length === 0)
     throw new KilnYamlError("verification.inferential.gentleAi.executable must be a non-empty string");
-  if (typeof value.gentleAi.expectedVersion !== "string" || !isCanonicalVersion(value.gentleAi.expectedVersion))
+  if (typeof value.gentleAi.expectedVersion !== "string" || !isCanonicalSemver(value.gentleAi.expectedVersion))
     throw new KilnYamlError("verification.inferential.gentleAi.expectedVersion must be a canonical version");
   if (
     typeof value.gentleAi.expectedExecutableDigest !== "string" ||
     !/^sha256:[a-f0-9]{64}$/u.test(value.gentleAi.expectedExecutableDigest)
   )
     throw new KilnYamlError("verification.inferential.gentleAi.expectedExecutableDigest must be a sha256 digest");
-  if (
-    typeof value.gentleAi.expectedBuildRevision !== "string" ||
-    !/^[a-f0-9]{40}$/u.test(value.gentleAi.expectedBuildRevision)
-  )
-    throw new KilnYamlError("verification.inferential.gentleAi.expectedBuildRevision must be a Git revision");
 }
 
 function validateFormalVerification(value: unknown): void {
@@ -118,4 +113,8 @@ function validateAbsolutePath(value: unknown, path: string): void {
 
 function isCanonicalVersion(value: string): boolean {
   return /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value);
+}
+
+function isCanonicalSemver(value: string): boolean {
+  return /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(value);
 }

@@ -200,7 +200,12 @@ export interface ToolResultInferentialVerificationPresentation {
     readonly replayability: string;
     readonly nextTransition?: { readonly kind: "execute" | "collect" | "stop"; readonly reasonCode: string };
   };
-  readonly receipt: { readonly status: string; readonly identity?: string };
+  readonly transaction: {
+    readonly lineageId: string;
+    readonly state: string;
+    readonly generation: number;
+    readonly revision: string;
+  };
   readonly authority: ToolResultVerificationAuthorityPresentation;
 }
 
@@ -1799,7 +1804,7 @@ function projectInferentialVerificationPresentation(
   resourceLinks: readonly ToolResultResourceLinkPresentation[],
 ): ToolResultPresentation | undefined {
   if (
-    readString(metadata.schema) !== "kiln.gentle-review-observation/v1"
+    readString(metadata.schema) !== "kiln.gentle-review-observation/v2"
     || readString(metadata.toolName) !== "gentle_review"
     || readString(metadata.kind) !== "inferential_review"
     || !hasEmptyAuthorityClaims(metadata)
@@ -1808,20 +1813,21 @@ function projectInferentialVerificationPresentation(
   ) return undefined;
   const engine = asRecord(metadata.engine);
   const candidate = asRecord(metadata.candidate);
-  const receipt = asRecord(metadata.receipt);
+  const reviewAuthority = asRecord(metadata.authority);
   const outcome = asRecord(metadata.outcome);
   const nextTransition = asRecord(outcome?.nextTransition);
   const engineName = readString(engine?.name);
   const engineVersion = readString(engine?.version);
-  const buildRevision = readString(engine?.buildRevision);
   const digest = readString(candidate?.targetIdentity);
   const paths = readStringList(candidate?.paths);
   const applicability = readString(outcome?.applicability);
   const action = readString(outcome?.action);
   const replayability = readString(outcome?.replayability);
-  const receiptStatus = readString(receipt?.status);
-  const receiptIdentity = readString(receipt?.identity);
-  if (engineName !== "gentle-ai" || !engineVersion || !isCanonicalSha256(digest) || paths.length === 0 || !applicability || !action || !replayability || !receiptStatus) {
+  const lineageId = readString(reviewAuthority?.lineageId);
+  const state = readString(reviewAuthority?.state);
+  const generation = readNumber(reviewAuthority?.generation);
+  const revision = readString(reviewAuthority?.revision);
+  if (engineName !== "gentle-ai" || !engineVersion || !isCanonicalSha256(digest) || paths.length === 0 || !applicability || !action || !replayability || !lineageId || !state || generation === null || !Number.isSafeInteger(generation) || generation < 1 || !isCanonicalSha256(revision)) {
     return undefined;
   }
   const transitionKind = readString(nextTransition?.kind);
@@ -1835,7 +1841,7 @@ function projectInferentialVerificationPresentation(
     outputKind: "verification",
     classification: toolResultClassification("tool-metadata", "inferential review observation identifies candidate-bound provider status", { confidence: "high" }),
     title: "Gentle AI review status",
-    summary: `${applicability} · ${action} · receipt ${receiptStatus}`,
+    summary: `${applicability} · ${state} · ${action}`,
     fields: [
       { label: "Engine", value: `${engineName} ${engineVersion}` },
       { label: "Candidate", value: digest },
@@ -1843,10 +1849,10 @@ function projectInferentialVerificationPresentation(
     ],
     verification: {
       kind: "inferential",
-      engine: { name: engineName, version: engineVersion, ...(buildRevision ? { buildRevision } : {}) },
+      engine: { name: engineName, version: engineVersion },
       candidate: { digest, subjects },
       outcome: { applicability, action, replayability, ...(transition ? { nextTransition: transition } : {}) },
-      receipt: { status: receiptStatus, ...(receiptIdentity ? { identity: receiptIdentity } : {}) },
+      transaction: { lineageId, state, generation, revision },
       authority: VERIFICATION_AUTHORITY,
     },
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),

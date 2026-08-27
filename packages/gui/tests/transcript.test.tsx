@@ -125,20 +125,21 @@ describe("Transcript", () => {
       fields: [],
       verification: {
         kind: "inferential",
-        engine: { name: "gentle-ai", version: "2.4.0", buildRevision: "301fb2ad" },
+        engine: { name: "gentle-ai", version: "2.5.0-rc.1" },
         candidate: { digest, subjects: [{ path: "policy.ts" }] },
         outcome: { applicability: "current_target", action: "collect", replayability: "exact", nextTransition: { kind: "collect", reasonCode: "review_pending" } },
-        receipt: { status: "pending" },
+        transaction: { lineageId: "review-demo", state: "reviewing", generation: 1, revision: digest },
         authority: { kind: "evidence_only", establishes: [] },
       },
       raw: { available: false },
     }} />);
 
-    expect(screen.getByText("Gentle AI 2.4.0")).toBeInTheDocument();
+    expect(screen.getByText("Gentle AI 2.5.0-rc.1")).toBeInTheDocument();
+    expect(screen.getByText("review-demo")).toBeInTheDocument();
     expect(document.querySelector('[data-verification-engine-mark="gentle-ai"]')).toBeInTheDocument();
     expect(screen.getAllByText("current target")).toHaveLength(2);
     expect(screen.getByText("collect")).toBeInTheDocument();
-    expect(screen.getByText("Receipt pending")).toBeInTheDocument();
+    expect(screen.getByText("reviewing")).toBeInTheDocument();
     expect(screen.queryByText(/approved/iu)).not.toBeInTheDocument();
   });
 

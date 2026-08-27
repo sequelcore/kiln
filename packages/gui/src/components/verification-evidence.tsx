@@ -143,10 +143,12 @@ function InferentialEvidence({ verification }: { readonly verification: ToolResu
       <dd className="text-foreground">{humanize(verification.outcome.applicability)}</dd>
       <dt className="text-muted-foreground">Action</dt>
       <dd className="font-mono text-xs text-foreground">{verification.outcome.action}</dd>
+      <dt className="text-muted-foreground">Review state</dt>
+      <dd className="font-mono text-xs text-foreground">{verification.transaction.state}</dd>
+      <dt className="text-muted-foreground">Lineage</dt>
+      <dd className="truncate font-mono text-xs text-foreground" title={verification.transaction.lineageId}>{verification.transaction.lineageId}</dd>
       <dt className="text-muted-foreground">Replayability</dt>
       <dd className="font-mono text-xs text-foreground">{verification.outcome.replayability}</dd>
-      <dt className="text-muted-foreground">Receipt</dt>
-      <dd className="text-foreground">Receipt {verification.receipt.status}</dd>
       {verification.outcome.nextTransition ? (
         <>
           <dt className="text-muted-foreground">Next transition</dt>

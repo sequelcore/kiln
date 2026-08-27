@@ -38,7 +38,7 @@ not a second selection or trust authority.
 | Formal | Dafny | `formal_verify` | Selectively available; consumed by bounded-work Assurance | Facts only |
 | Static | Oxlint | `static_analyze` | Experimental opt-in producer; current calibration does not justify Assurance | Facts only |
 | Static artifact quality | Kiln Quality + TypeScript parser | `quality_analyze` | Experimental opt-in closed-profile producer | Facts only |
-| Inferential review | Gentle AI 2.4.0 | `gentle_review` | Experimental opt-in, read-only status producer | Facts only; never Assurance or Runtime authority |
+| Inferential review | Gentle AI 2.5.0-rc.1 | `gentle_review` | Experimental opt-in, read-only active-transaction observer | Facts only; never Assurance or Runtime authority |
 
 `static_analyze` is intentionally narrow. It analyzes one immutable copied
 JavaScript or TypeScript file with a fixed `correctness + suspicious` profile.
@@ -96,9 +96,8 @@ verification:
   inferential:
     gentleAi:
       executable: C:/tools/gentle-ai.exe
-      expectedVersion: 2.4.0
+      expectedVersion: 2.5.0-rc.1
       expectedExecutableDigest: sha256:<published-executable-digest>
-      expectedBuildRevision: 301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb
 ```
 
 Each producer class may be configured independently. Kiln probes
@@ -111,11 +110,12 @@ artifact path; it cannot choose profiles, rules, severities, thresholds, or
 exclusions.
 
 `gentle_review` negotiates `gentle-ai.review-integration/v2` capabilities v2.2
-and reads status v5 for an exact workspace-overlay base tree and expected
-target identity. It verifies the configured executable bytes and rejects
-version, build, protocol, unknown or malformed mandatory features, candidate,
-lineage, timeout, cancellation, and malformed-output failures. It never calls start, finalize, repair,
-capture, or validation mutations. See [Provider Boundary](provider-boundary.md).
+and reads status v5 for an exact active lineage, target identity, and declared
+review runtime. It verifies the configured executable bytes and rejects
+version, release-channel, protocol, unknown or malformed mandatory features,
+candidate, lineage, timeout, cancellation, and malformed-output failures. It
+never calls start, capture, correction, validation, or another lifecycle
+mutation. See [Provider Boundary](provider-boundary.md).
 
 Private formal-screening fixtures live under the ignored repository root
 `.kiln-private/benchmarks/`. Global configuration names the exact absolute
@@ -144,7 +144,7 @@ visible/private subtree overlap before creating a model-facing workspace.
 
 Kiln does not yet expose a generic `VerifierProvider` abstraction. Dafny and
 Oxlint have materially different inputs and evidence semantics, and Gentle AI
-owns a multi-step candidate/review/receipt lifecycle rather than a single
+owns an atomic candidate/review/terminal-burn lifecycle rather than a single
 deterministic check. A shared provider abstraction may be extracted only after
 three materially different verifier classes have working Kiln consumers and
 measured value. Until then, explicit adapters keep ownership and failure modes
@@ -155,9 +155,8 @@ implementations and 5/64 semantic mutants, but no diagnostics in 16 qualified
 references. Those diagnostics were unused-parameter symptoms, not proof of the
 policy obligations. This does not justify an Assurance mapping. A future
 consumer must name a criterion Oxlint can establish on representative project
-changes. Gentle AI requires a separately negotiated, read-only evidence-import
-contract that preserves its candidate binding without importing its delivery
-authority.
+changes. Gentle AI remains a read-only evidence import: its candidate and
+lineage binding are preserved without importing lifecycle or delivery authority.
 
 ## Complexity disposition
 

@@ -31,7 +31,7 @@ export interface ResolveGentleAiConfigurationInput {
 }
 
 export function parseObservedGentleAiVersion(output: string): string {
-  const match = /^(?:(?:gentle-ai)(?:\s+version)?\s+)?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?:\s.*)?$/u.exec(
+  const match = /^(?:(?:gentle-ai)(?:\s+version)?\s+)?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?:\s.*)?$/u.exec(
     output.trim(),
   );
   if (!match?.[1]) throw new Error("Gentle AI --version output is not canonical");
@@ -109,7 +109,6 @@ export function resolveGentleAiConfiguration(
       executable,
       expectedVersion: config.expectedVersion,
       expectedExecutableDigest: config.expectedExecutableDigest,
-      expectedBuildRevision: config.expectedBuildRevision,
       repositoryRoot: input.repositoryRoot,
     },
   };

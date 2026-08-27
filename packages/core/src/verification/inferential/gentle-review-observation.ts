@@ -1,4 +1,4 @@
-export const GENTLE_REVIEW_OBSERVATION_SCHEMA = "kiln.gentle-review-observation/v1" as const;
+export const GENTLE_REVIEW_OBSERVATION_SCHEMA = "kiln.gentle-review-observation/v2" as const;
 export const GENTLE_REVIEW_CONTRACT = "gentle-ai.review-integration/v2" as const;
 export const GENTLE_REVIEW_CAPABILITIES_SCHEMA = "gentle-ai.review-integration.capabilities/v2.2" as const;
 export const GENTLE_REVIEW_STATUS_SCHEMA = "gentle-ai.review-integration.status/v5" as const;
@@ -10,8 +10,8 @@ export interface GentleReviewObservation {
   readonly engine: {
     readonly name: "gentle-ai";
     readonly version: string;
+    readonly releaseChannel: "stable" | "prerelease";
     readonly executableDigest: string;
-    readonly buildRevision: string;
   };
   readonly contract: {
     readonly id: typeof GENTLE_REVIEW_CONTRACT;
@@ -27,13 +27,12 @@ export interface GentleReviewObservation {
     readonly pathsDigest: string;
     readonly paths: readonly string[];
   };
-  readonly authority?: {
+  readonly authority: {
     readonly lineageId: string;
     readonly state: string;
     readonly generation: number;
     readonly revision: string;
   };
-  readonly receipt: { readonly status: string; readonly identity?: string };
   readonly outcome: {
     readonly applicability: string;
     readonly action: string;
@@ -75,12 +74,11 @@ export function parseGentleReviewObservation(value: unknown): GentleReviewObserv
         "engine",
         "contract",
         "candidate",
-        "receipt",
+        "authority",
         "outcome",
         "findings",
         "establishes",
       ],
-      ["authority"],
     )
   )
     throw new Error("Gentle review observation has an invalid shape or extra field");
@@ -93,8 +91,7 @@ export function parseGentleReviewObservation(value: unknown): GentleReviewObserv
   const engine = parseEngine(value.engine);
   parseContract(value.contract);
   const candidate = parseCandidate(value.candidate);
-  const authority = value.authority === undefined ? undefined : parseAuthority(value.authority);
-  const receipt = parseReceipt(value.receipt);
+  const authority = parseAuthority(value.authority);
   const outcome = parseOutcome(value.outcome);
   if (
     !Array.isArray(value.findings) ||
@@ -115,8 +112,7 @@ export function parseGentleReviewObservation(value: unknown): GentleReviewObserv
       statusSchema: GENTLE_REVIEW_STATUS_SCHEMA,
     }),
     candidate: Object.freeze({ ...candidate, paths: Object.freeze([...candidate.paths]) }),
-    ...(authority === undefined ? {} : { authority: Object.freeze(authority) }),
-    receipt: Object.freeze(receipt),
+    authority: Object.freeze(authority),
     outcome: Object.freeze({
       ...outcome,
       ...(outcome.nextTransition === undefined ? {} : { nextTransition: Object.freeze(outcome.nextTransition) }),
@@ -138,18 +134,18 @@ export function isGentleReviewObservation(value: unknown): value is GentleReview
 function parseEngine(value: unknown): GentleReviewObservation["engine"] {
   if (
     !isRecord(value) ||
-    !hasOnlyKeys(value, ["name", "version", "executableDigest", "buildRevision"]) ||
+    !hasOnlyKeys(value, ["name", "version", "releaseChannel", "executableDigest"]) ||
     value.name !== "gentle-ai" ||
     !isVersion(value.version) ||
-    !isDigest(value.executableDigest) ||
-    !isRevision(value.buildRevision)
+    (value.releaseChannel !== "stable" && value.releaseChannel !== "prerelease") ||
+    !isDigest(value.executableDigest)
   )
     throw new Error("Gentle review engine identity is invalid");
   return {
     name: "gentle-ai",
     version: value.version,
+    releaseChannel: value.releaseChannel,
     executableDigest: value.executableDigest,
-    buildRevision: value.buildRevision,
   };
 }
 function parseContract(value: unknown): void {
@@ -201,16 +197,6 @@ function parseAuthority(value: unknown): NonNullable<GentleReviewObservation["au
     throw new Error("Gentle review authority identity is invalid");
   return { lineageId: value.lineageId, state: value.state, generation: value.generation, revision: value.revision };
 }
-function parseReceipt(value: unknown): GentleReviewObservation["receipt"] {
-  if (
-    !isRecord(value) ||
-    !hasOnlyKeys(value, ["status"], ["identity"]) ||
-    !isText(value.status) ||
-    (value.identity !== undefined && !isDigest(value.identity))
-  )
-    throw new Error("Gentle review receipt is invalid");
-  return { status: value.status, ...(value.identity === undefined ? {} : { identity: value.identity }) };
-}
 function parseOutcome(value: unknown): GentleReviewObservation["outcome"] {
   if (
     !isRecord(value) ||
@@ -261,11 +247,8 @@ function isDigest(value: unknown): value is string {
 function isTree(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{40,64}$/u.test(value);
 }
-function isRevision(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{40}$/u.test(value);
-}
 function isVersion(value: unknown): value is string {
-  return typeof value === "string" && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value);
+  return typeof value === "string" && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(value);
 }
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;

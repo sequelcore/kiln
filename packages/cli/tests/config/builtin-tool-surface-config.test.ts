@@ -127,16 +127,15 @@ describe("builtin tool surface config", () => {
           inferential: {
             gentleAi: {
               executable,
-              expectedVersion: "2.4.0",
+              expectedVersion: "2.5.0-rc.1",
               expectedExecutableDigest,
-              expectedBuildRevision: "301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb",
             },
           },
         },
       };
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig,
-        runGentleAiVersion: () => "gentle-ai version 2.4.0",
+        runGentleAiVersion: () => "gentle-ai 2.5.0-rc.1",
         platform: "win32",
         discoveredGentleAiPaths: [executable],
       });
@@ -145,9 +144,8 @@ describe("builtin tool surface config", () => {
 
       expect(options.gentleReview).toMatchObject({
         executable,
-        expectedVersion: "2.4.0",
+        expectedVersion: "2.5.0-rc.1",
         expectedExecutableDigest,
-        expectedBuildRevision: "301fb2ad7f3f3bda71f516d6e2848ef3fa6fe9bb",
         repositoryRoot: projectPath,
       });
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("gentle_review");

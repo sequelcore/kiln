@@ -11,7 +11,6 @@ export interface GentleReviewToolOptions {
   readonly executable: string;
   readonly expectedVersion: string;
   readonly expectedExecutableDigest: string;
-  readonly expectedBuildRevision: string;
   readonly repositoryRoot: string;
   readonly runner?: CommandProcessRunner;
   readonly timeoutMs?: number;
@@ -25,12 +24,16 @@ export function createGentleReviewTool(options: GentleReviewToolOptions): DevToo
     inputSchema: schema.inputSchema,
     effectEnvelope: getBuiltinEffectEnvelope(schema.name),
     async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
-      const baseTree = requireString(input, "baseTree");
-      if (!baseTree.ok) return baseTree.result;
+      const lineageId = requireString(input, "lineageId");
+      if (!lineageId.ok) return lineageId.result;
       const targetIdentity = requireString(input, "targetIdentity");
       if (!targetIdentity.ok) return targetIdentity.result;
-      if (!/^[a-f0-9]{40,64}$/u.test(baseTree.value) || !/^sha256:[a-f0-9]{64}$/u.test(targetIdentity.value))
-        return toErrorResult("gentle review requires canonical baseTree and targetIdentity values");
+      const runtimeAgent = requireString(input, "runtimeAgent");
+      if (!runtimeAgent.ok) return runtimeAgent.result;
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(lineageId.value) || !/^sha256:[a-f0-9]{64}$/u.test(targetIdentity.value))
+        return toErrorResult("gentle review requires canonical lineageId and targetIdentity values");
+      if (!["claude-code", "codex", "opencode", "pi"].includes(runtimeAgent.value))
+        return toErrorResult("gentle review requires a supported runtimeAgent");
       try {
         const sandboxRoot = getSandboxContext(sandbox)?.cwd;
         if (sandboxRoot === undefined || (await realpath(sandboxRoot)) !== (await realpath(options.repositoryRoot)))
@@ -46,9 +49,12 @@ export function createGentleReviewTool(options: GentleReviewToolOptions): DevToo
           capabilitiesCwd: tmpdir(),
           expectedVersion: options.expectedVersion,
           expectedExecutableDigest: options.expectedExecutableDigest,
-          expectedBuildRevision: options.expectedBuildRevision,
           timeoutMs: options.timeoutMs ?? 60_000,
-        }).observe({ baseTree: baseTree.value, expectedTargetIdentity: targetIdentity.value });
+        }).observe({
+          lineageId: lineageId.value,
+          expectedTargetIdentity: targetIdentity.value,
+          runtimeAgent: runtimeAgent.value as "claude-code" | "codex" | "opencode" | "pi",
+        });
         return toSuccessResult(
           `Gentle AI status observed for ${observation.candidate.targetIdentity}; action=${observation.outcome.action}. This is inferential review evidence only and grants no acceptance authority.`,
           observation,

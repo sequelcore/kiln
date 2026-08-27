@@ -426,10 +426,6 @@
                   "minLength": 1,
                   "type": "string"
                 },
-                "expectedBuildRevision": {
-                  "pattern": "^[a-f0-9]{40}$",
-                  "type": "string"
-                },
                 "expectedExecutableDigest": {
                   "pattern": "^sha256:[a-f0-9]{64}$",
                   "type": "string"
@@ -442,8 +438,7 @@
               "required": [
                 "executable",
                 "expectedVersion",
-                "expectedExecutableDigest",
-                "expectedBuildRevision"
+                "expectedExecutableDigest"
               ],
               "type": "object"
             }

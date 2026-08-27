@@ -105,10 +105,18 @@ Kiln disposition:
 ## Gentle AI
 
 Gentle AI's public v2 integration contract is strongest at target identity,
-lineage, receipt, replayability, and explicit next-transition state. Its shipped
+lineage, replayability, and explicit next-transition state. Its shipped
 benchmark measures operational friction such as prompts, blocks, commands, and
 recovery round trips. It explicitly does not measure review correctness,
 wall-clock performance, or a composite quality score.
+
+The immutable `v2.5.0-rc.1` prerelease intentionally closes review at the last
+causal evidence event. Terminal success burns the lineage and its artifacts;
+there is no later FINALIZE, terminal receipt, or delivery gate. Ordinary
+repository policy owns commit, push, PR, release, and archive. The same release
+keeps capabilities v2.2 and status v5 identifiers while changing their admitted
+feature and status shapes, so consumers must negotiate and validate the current
+contract instead of treating schema names as proof of 2.4 semantics.
 
 A community report showed that a v2.1/v2.2 capability bootstrap command could
 advertise a borrowed Claude Code runtime identity to other consumers. Kiln does
@@ -121,18 +129,23 @@ Kiln disposition:
 
 - require every mandatory feature entry to be well formed and reject unknown
   mandatory features whether marked supported or unsupported;
-- continue pinning package version, executable digest, build revision, contract,
-  schemas, target identity, base tree, and receipt shape;
+- pin package version, release channel, executable digest, contract, schemas,
+  active lineage, target identity, and candidate trees;
 - remain a read-only status observer and keep `findings` and `establishes`
   empty;
+- remove receipt and delivery-gate concepts rather than carrying a compatibility
+  interpretation into the new minor line;
 - do not use Gentle AI's friction benchmark as evidence of review accuracy or
   as grounds for an Assurance mapping.
 
 ## Residual uncertainty
 
-No live Gentle AI binary was available in the Kiln environment, and the Dafny
-and Oxlint changes were verified with contract fixtures rather than new
-cross-version live runs. The next valuable evidence is producer-specific:
+The official Gentle AI `v2.5.0-rc.1` Windows AMD64 binary was checked against
+the release SHA-256 manifest and exercised against an isolated Git repository.
+Capabilities v2.2 omitted the retired receipt/delivery features, status v5
+omitted `receipt`, and an active lineage returned a provider-bound collect
+transition. This establishes contract compatibility, not review accuracy. The
+next valuable evidence is producer-specific:
 Dafny proof-stability runs on representative obligations, Oxlint calibration on
 real candidate changes, anti-slop rule-by-rule calibration, and an independently
 scored Gentle AI review corpus.
@@ -158,5 +171,9 @@ scored Gentle AI review corpus.
   and https://github.com/Gentleman-Programming/gentle-ai/blob/main/bench/README.md
 - Gentle AI 2.4.0 immutable release and provenance:
   https://github.com/Gentleman-Programming/gentle-ai/releases/tag/v2.4.0
+- Gentle AI 2.5.0-rc.1 immutable prerelease and atomic lifecycle:
+  https://github.com/Gentleman-Programming/gentle-ai/releases/tag/v2.5.0-rc.1
+- Gentle AI 2.5.0-rc.1 review integration contract:
+  https://github.com/Gentleman-Programming/gentle-ai/blob/v2.5.0-rc.1/docs/review-integration.md
 - Gentle AI bootstrap identity report:
   https://github.com/Gentleman-Programming/gentle-ai/issues/2243

@@ -1583,14 +1583,15 @@ export const TOOL_SCHEMAS: Record<
   },
   gentle_review: {
     name: "gentle_review",
-    description: "Observe Gentle AI review status for one exact workspace-overlay candidate. The configured executable, v2.2 capabilities, base tree, and target identity must all match. This is inferential evidence only: it does not start, finalize, repair, or accept a review.",
+    description: "Observe one active Gentle AI review transaction by exact lineage and target identity. This facts-only tool never starts, advances, captures, corrects, approves, or delivers a review.",
     inputSchema: {
       type: "object",
       properties: {
-        baseTree: { type: "string", pattern: "^[a-f0-9]{40,64}$", description: "Exact Git base tree used to identify the workspace-overlay candidate." },
+        lineageId: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", description: "Exact active Gentle AI review lineage." },
         targetIdentity: { type: "string", pattern: "^sha256:[a-f0-9]{64}$", description: "Expected Gentle AI target identity for the candidate." },
+        runtimeAgent: { type: "string", enum: ["claude-code", "codex", "opencode", "pi"], description: "Runtime transporting the active Gentle AI review." },
       },
-      required: ["baseTree", "targetIdentity"],
+      required: ["lineageId", "targetIdentity", "runtimeAgent"],
       additionalProperties: false,
     },
   },

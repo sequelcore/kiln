@@ -10,13 +10,10 @@ import type { CommandProcessResult, CommandProcessRunner } from "../../command-p
 const MAX_OUTPUT_CHARACTERS = 2_000_000;
 const MANDATORY_FEATURES = new Set([
   "compact_v2_authority",
-  "exact_receipt_replay",
-  "five_delivery_gates",
   "immutable_snapshot",
   "legacy_v1_target_scoped_read_only",
   "repository_independent_capabilities",
   "restart_safe_projection",
-  "sdd_receipt_binding",
   "target_scoped_status",
   "uniform_failure_envelope",
 ]);
@@ -35,13 +32,13 @@ export interface GentleAiClientOptions {
   readonly capabilitiesCwd: string;
   readonly expectedVersion: string;
   readonly expectedExecutableDigest: string;
-  readonly expectedBuildRevision: string;
   readonly timeoutMs?: number;
 }
 
 export interface GentleAiStatusRequest {
-  readonly baseTree: string;
+  readonly lineageId: string;
   readonly expectedTargetIdentity: string;
+  readonly runtimeAgent: "claude-code" | "codex" | "opencode" | "pi";
   readonly signal?: AbortSignal;
 }
 
@@ -59,13 +56,12 @@ export class GentleAiClient {
         this.options.capabilitiesCwd,
       ),
     );
-    if (
-      capabilities.version !== this.options.expectedVersion ||
-      capabilities.executableDigest !== this.options.expectedExecutableDigest ||
-      capabilities.buildRevision !== this.options.expectedBuildRevision
-    ) {
-      throw new Error("Gentle AI executable identity drifted from configured version, digest, or build revision");
+    if (capabilities.version !== this.options.expectedVersion || capabilities.executableDigest !== this.options.expectedExecutableDigest) {
+      throw new Error("Gentle AI executable identity drifted from configured version or digest");
     }
+    const expectedReleaseChannel = this.options.expectedVersion.includes("-") ? "prerelease" : "stable";
+    if (capabilities.releaseChannel !== expectedReleaseChannel)
+      throw new Error("Gentle AI release channel does not match the configured version");
     const status = parseStatus(
       await this.run(
         [
@@ -76,9 +72,10 @@ export class GentleAiClient {
           "--contract",
           GENTLE_REVIEW_CONTRACT,
           "--next-transition",
-          "--workspace-overlay",
-          "--base-tree",
-          request.baseTree,
+          "--lineage",
+          request.lineageId,
+          "--agent",
+          request.runtimeAgent,
         ],
         request.signal,
       ),
@@ -87,14 +84,14 @@ export class GentleAiClient {
       throw new Error(`Gentle AI status is ${status.applicability}; candidate lineage is not uniquely applicable`);
     if (status.targetIdentity !== request.expectedTargetIdentity)
       throw new Error("Gentle AI target identity does not match the requested candidate");
-    if (status.baseTree !== request.baseTree)
-      throw new Error("Gentle AI status base tree does not match the requested candidate base");
+    if (status.authority.lineageId !== request.lineageId)
+      throw new Error("Gentle AI status lineage does not match the requested transaction");
     return gentleReviewObservation({
       engine: {
         name: "gentle-ai",
         version: capabilities.version,
+        releaseChannel: capabilities.releaseChannel,
         executableDigest: capabilities.executableDigest,
-        buildRevision: capabilities.buildRevision,
       },
       candidate: {
         targetIdentity: status.targetIdentity,
@@ -105,7 +102,6 @@ export class GentleAiClient {
         paths: status.paths,
       },
       authority: status.authority,
-      receipt: status.receipt,
       outcome: {
         applicability: status.applicability,
         action: status.action,
@@ -166,7 +162,7 @@ export class GentleAiClient {
   }
 }
 
-function parseCapabilities(value: unknown): { version: string; executableDigest: string; buildRevision: string } {
+function parseCapabilities(value: unknown): { version: string; releaseChannel: "stable" | "prerelease"; executableDigest: string } {
   if (
     !isRecord(value) ||
     value.schema !== GENTLE_REVIEW_CAPABILITIES_SCHEMA ||
@@ -180,14 +176,11 @@ function parseCapabilities(value: unknown): { version: string; executableDigest:
     !isRecord(value.package) ||
     value.package.name !== "gentle-ai" ||
     !isVersion(value.package.version) ||
-    value.package.release_channel !== "stable" ||
+    (value.package.release_channel !== "stable" && value.package.release_channel !== "prerelease") ||
     !isRecord(value.executable) ||
     !isDigest(value.executable.sha256) ||
     value.executable.evidence !== "self-reported" ||
-    value.executable.verification !== "compare-with-published-manifest" ||
-    !isRecord(value.build) ||
-    !isRevision(value.build.vcs_revision) ||
-    value.build.vcs_modified !== "false"
+    value.executable.verification !== "compare-with-published-manifest"
   )
     throw new Error("Gentle AI capabilities executable identity is malformed");
   if (
@@ -215,8 +208,8 @@ function parseCapabilities(value: unknown): { version: string; executableDigest:
     if (!supported.has(feature)) throw new Error(`Gentle AI required feature '${feature}' is unavailable`);
   return {
     version: value.package.version,
+    releaseChannel: value.package.release_channel,
     executableDigest: value.executable.sha256,
-    buildRevision: value.build.vcs_revision,
   };
 }
 
@@ -249,7 +242,6 @@ function parseStatus(value: unknown): {
   pathsDigest: string;
   paths: readonly string[];
   authority: NonNullable<GentleReviewObservation["authority"]>;
-  receipt: GentleReviewObservation["receipt"];
   action: string;
   replayability: string;
   nextTransition?: NonNullable<GentleReviewObservation["outcome"]["nextTransition"]>;
@@ -265,14 +257,11 @@ function parseStatus(value: unknown): {
     !isOneOf(value.applicability, ["current_target", "unrelated", "ambiguous", "corrupted"]) ||
     !isOneOf(value.action, [
       "start",
-      "finalize",
       "validate",
       "recover",
-      "retry_final_verification",
       "maintainer_action",
       "select_lineage",
       "repair_authority",
-      "reconcile_finalize",
       "stop",
     ]) ||
     !isOneOf(value.replayability, [
@@ -304,13 +293,6 @@ function parseStatus(value: unknown): {
   )
     throw new Error("Gentle AI status authority is malformed");
   if (
-    !isRecord(value.receipt) ||
-    !isOneOf(value.receipt.status, ["expected_missing", "present", "publication_pending", "not_applicable"]) ||
-    (value.receipt.identity !== undefined && !isDigest(value.receipt.identity)) ||
-    (value.receipt.status === "present") !== (value.receipt.identity !== undefined)
-  )
-    throw new Error("Gentle AI status receipt is malformed or stale");
-  if (
     value.projection.current_snapshot_identity !== undefined &&
     value.projection.current_snapshot_identity !== value.target_identity
   )
@@ -341,10 +323,6 @@ function parseStatus(value: unknown): {
       generation: value.authority.generation,
       revision: value.authority.revision,
     },
-    receipt: {
-      status: value.receipt.status,
-      ...(value.receipt.identity === undefined ? {} : { identity: value.receipt.identity }),
-    },
     action: value.action,
     replayability: value.replayability,
     ...(nextTransition === undefined ? {} : { nextTransition }),
@@ -372,11 +350,8 @@ function isDigest(value: unknown): value is string {
 function isTree(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{40,64}$/u.test(value);
 }
-function isRevision(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{40}$/u.test(value);
-}
 function isVersion(value: unknown): value is string {
-  return typeof value === "string" && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value);
+  return typeof value === "string" && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(value);
 }
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;

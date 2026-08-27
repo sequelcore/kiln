@@ -48,7 +48,8 @@ function formatInferential(
   const lines = [
     `${humanize(verification.outcome.applicability)} · ${engineLabel(verification.engine.name)} ${verification.engine.version}`,
     candidateLine(verification),
-    `action ${verification.outcome.action} · replay ${verification.outcome.replayability} · receipt ${verification.receipt.status}`,
+    `state ${verification.transaction.state} · action ${verification.outcome.action} · replay ${verification.outcome.replayability}`,
+    `lineage ${verification.transaction.lineageId}`,
   ];
   if (verification.outcome.nextTransition) {
     lines.push(`next ${verification.outcome.nextTransition.kind} · ${verification.outcome.nextTransition.reasonCode}`);

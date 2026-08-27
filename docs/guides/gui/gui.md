@@ -495,10 +495,12 @@ catalog before invoking the applicable producers. For example:
 
 For Dafny, name a repository-relative `.dfy` candidate and request
 `formal_verify`. `gentle_review` additionally requires a configured exact Gentle
-AI executable and an already-existing workspace-overlay candidate identified by
-its Git base tree and target SHA-256; it observes that review and does not start
-one. The tools are deferred rather than always-on, so a compliant agent resolves
-them through `tool_catalog_search` when their schemas are not already projected.
+AI executable and an already-active review transaction. Supply its `lineageId`,
+`targetIdentity`, and external `runtimeAgent`; Kiln observes the transaction and
+does not start or advance it. Under Gentle AI 2.5, a terminal result burns the
+lineage, so prepare a pending review immediately before a status-card demo. The
+tools are deferred rather than always-on, so a compliant agent resolves them
+through `tool_catalog_search` when their schemas are not already projected.
 
 The semantic navigation rail indexes projected user turns, assistant replies,
 tool executions, and failures. Keyboard or pointer activation scrolls to the

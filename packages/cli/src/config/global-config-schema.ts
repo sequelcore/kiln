@@ -148,7 +148,6 @@ const gentleAi = strictObject({
   executable: Type.Readonly(nonEmptyString),
   expectedVersion: Type.Readonly(nonEmptyString),
   expectedExecutableDigest: Type.Readonly(Type.String({ pattern: "^sha256:[a-f0-9]{64}$" })),
-  expectedBuildRevision: Type.Readonly(Type.String({ pattern: "^[a-f0-9]{40}$" })),
 });
 const inferentialReview = strictObject({ gentleAi: Type.Readonly(gentleAi) });
 const verification = strictObject(
