@@ -35,33 +35,35 @@ export interface GentleAiClientOptions {
   readonly timeoutMs?: number;
 }
 
-export interface GentleAiStatusRequest {
-  readonly lineageId: string;
-  readonly expectedTargetIdentity: string;
-  readonly runtimeAgent: "claude-code" | "codex" | "opencode" | "pi";
-  readonly signal?: AbortSignal;
-}
-
 export class GentleAiClient {
   constructor(
     private readonly runner: CommandProcessRunner,
     private readonly options: GentleAiClientOptions,
   ) {}
 
-  async observe(request: GentleAiStatusRequest): Promise<GentleReviewObservation> {
+  async observeCurrent(signal?: AbortSignal): Promise<GentleReviewObservation> {
     const capabilities = parseCapabilities(
       await this.run(
         ["review", "capabilities", "--contract", GENTLE_REVIEW_CONTRACT],
-        request.signal,
+        signal,
         this.options.capabilitiesCwd,
       ),
     );
-    if (capabilities.version !== this.options.expectedVersion || capabilities.executableDigest !== this.options.expectedExecutableDigest) {
+    if (
+      capabilities.version !== this.options.expectedVersion ||
+      capabilities.executableDigest !== this.options.expectedExecutableDigest
+    ) {
       throw new Error("Gentle AI executable identity drifted from configured version or digest");
     }
     const expectedReleaseChannel = this.options.expectedVersion.includes("-") ? "prerelease" : "stable";
     if (capabilities.releaseChannel !== expectedReleaseChannel)
       throw new Error("Gentle AI release channel does not match the configured version");
+    const selector = parseStatusSelector(
+      await this.run(
+        ["review", "status", "--cwd", this.options.cwd, "--contract", GENTLE_REVIEW_CONTRACT, "--next-transition"],
+        signal,
+      ),
+    );
     const status = parseStatus(
       await this.run(
         [
@@ -73,19 +75,17 @@ export class GentleAiClient {
           GENTLE_REVIEW_CONTRACT,
           "--next-transition",
           "--lineage",
-          request.lineageId,
-          "--agent",
-          request.runtimeAgent,
+          selector.lineageId,
         ],
-        request.signal,
+        signal,
       ),
     );
     if (status.applicability !== "current_target")
       throw new Error(`Gentle AI status is ${status.applicability}; candidate lineage is not uniquely applicable`);
-    if (status.targetIdentity !== request.expectedTargetIdentity)
-      throw new Error("Gentle AI target identity does not match the requested candidate");
-    if (status.authority.lineageId !== request.lineageId)
-      throw new Error("Gentle AI status lineage does not match the requested transaction");
+    if (status.targetIdentity !== selector.targetIdentity)
+      throw new Error("Gentle AI target identity drifted during current-transaction resolution");
+    if (status.authority.lineageId !== selector.lineageId)
+      throw new Error("Gentle AI lineage drifted during current-transaction resolution");
     return gentleReviewObservation({
       engine: {
         name: "gentle-ai",
@@ -162,7 +162,45 @@ export class GentleAiClient {
   }
 }
 
-function parseCapabilities(value: unknown): { version: string; releaseChannel: "stable" | "prerelease"; executableDigest: string } {
+function parseStatusSelector(value: unknown): { readonly lineageId: string; readonly targetIdentity: string } {
+  if (
+    !isRecord(value) ||
+    value.schema !== GENTLE_REVIEW_STATUS_SCHEMA ||
+    value.contract !== GENTLE_REVIEW_CONTRACT ||
+    value.operation !== "review.status" ||
+    !isOneOf(value.applicability, ["current_target", "unrelated", "ambiguous", "corrupted"]) ||
+    !isDigest(value.target_identity)
+  )
+    throw new Error("Gentle AI current-transaction discovery is malformed");
+  if (value.applicability === "current_target" && isRecord(value.authority)) {
+    if (
+      typeof value.authority.lineage_id !== "string" ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value.authority.lineage_id)
+    )
+      throw new Error("Gentle AI current transaction has an invalid lineage");
+    return { lineageId: value.authority.lineage_id, targetIdentity: value.target_identity };
+  }
+  const transition = isRecord(value.next_transition) ? value.next_transition : undefined;
+  const execute = transition?.kind === "execute" && isRecord(transition.execute) ? transition.execute : undefined;
+  const binding = execute?.operation === "review.start" && isRecord(execute.binding) ? execute.binding : undefined;
+  if (
+    value.applicability !== "unrelated" ||
+    transition?.reason_code !== "fresh_target_ready" ||
+    typeof binding?.lineage_id !== "string" ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(binding.lineage_id) ||
+    binding.target_identity !== value.target_identity
+  )
+    throw new Error(
+      `Gentle AI status is ${value.applicability}; current review transaction is not uniquely discoverable`,
+    );
+  return { lineageId: binding.lineage_id, targetIdentity: value.target_identity };
+}
+
+function parseCapabilities(value: unknown): {
+  version: string;
+  releaseChannel: "stable" | "prerelease";
+  executableDigest: string;
+} {
   if (
     !isRecord(value) ||
     value.schema !== GENTLE_REVIEW_CAPABILITIES_SCHEMA ||
@@ -351,7 +389,10 @@ function isTree(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{40,64}$/u.test(value);
 }
 function isVersion(value: unknown): value is string {
-  return typeof value === "string" && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(value);
+  return (
+    typeof value === "string" &&
+    /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(value)
+  );
 }
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;

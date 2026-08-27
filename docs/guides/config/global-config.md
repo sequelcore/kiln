@@ -190,9 +190,9 @@ Complexity is an investigation signal, not a hard gate. Test integrity is
 intentionally limited to focused Vitest calls and literally empty enabled test
 bodies. "No configured quality diagnostics" is not an overall quality pass.
 
-`gentle_review` is a read-only observer for the exact active Gentle AI
-transaction named by `lineageId` and `targetIdentity`; `runtimeAgent` identifies
-the external review transport. Kiln requires capabilities v2.2/status v5 and
+`gentle_review` is a zero-input, read-only observer for the current Gentle AI
+transaction. Kiln resolves the provider-owned lineage and target binding, then
+requires capabilities v2.2/status v5 and
 the exact configured binary SHA-256, version, and release channel. It does not
 start, advance, capture, correct, approve, or deliver a Gentle review. Current
 state and next-transition data remain inferential evidence with

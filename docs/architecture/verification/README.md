@@ -109,9 +109,10 @@ when the closed TypeScript profile list is present. The agent chooses only the
 artifact path; it cannot choose profiles, rules, severities, thresholds, or
 exclusions.
 
-`gentle_review` negotiates `gentle-ai.review-integration/v2` capabilities v2.2
-and reads status v5 for an exact active lineage, target identity, and declared
-review runtime. It verifies the configured executable bytes and rejects
+`gentle_review` negotiates `gentle-ai.review-integration/v2` capabilities v2.2,
+discovers the current transaction through the provider's structured binding,
+then reads status v5 again for that exact lineage and target identity. It verifies
+the configured executable bytes and rejects
 version, release-channel, protocol, unknown or malformed mandatory features,
 candidate, lineage, timeout, cancellation, and malformed-output failures. It
 never calls start, capture, correction, validation, or another lifecycle

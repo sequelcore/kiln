@@ -39,19 +39,30 @@ describe("gentle_review", () => {
     root = undefined;
   });
 
+  it("publishes a zero-input model contract", () => {
+    const tool = createGentleReviewTool({
+      executable: "gentle-ai",
+      expectedVersion: "2.5.0-rc.1",
+      expectedExecutableDigest: `sha256:${"00".repeat(32)}`,
+      repositoryRoot: "fixture",
+    });
+    expect(tool.inputSchema).toMatchObject({ properties: {}, required: [], additionalProperties: false });
+    expect(tool.description).toContain("empty object");
+  });
+
   it("emits a candidate-bound, facts-only status observation", async () => {
     root = await makeTempDir("kiln-gentle-review-");
     const executable = join(root, "gentle-ai");
     await writeFile(executable, "fixture executable");
     const executableDigest = digest("fixture executable");
-    const runner = new SequenceRunner([capabilities(executableDigest), status()]);
+    const runner = new SequenceRunner([capabilities(executableDigest), discoveryStatus(), status()]);
     const result = await createGentleReviewTool({
       executable,
       expectedVersion: "2.5.0-rc.1",
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(false);
     expect(isGentleReviewObservation(result.metadata)).toBe(true);
     expect(result.metadata).toMatchObject({
@@ -64,9 +75,12 @@ describe("gentle_review", () => {
     expect(runner.requests.map((request) => request.args.slice(0, 2))).toEqual([
       ["review", "capabilities"],
       ["review", "status"],
+      ["review", "status"],
     ]);
     expect(runner.requests[0]?.cwd).not.toBe(root);
     expect(runner.requests[1]?.cwd).toBe(root);
+    expect(runner.requests[1]?.args).not.toContain("--lineage");
+    expect(runner.requests[2]?.args).toContain("review-fixture");
   });
 
   it.each([
@@ -82,6 +96,7 @@ describe("gentle_review", () => {
     const statusPatch = "statusPatch" in changes ? changes.statusPatch : {};
     const runner = new SequenceRunner([
       { ...capabilities(executableDigest), ...capabilitiesPatch },
+      discoveryStatus(),
       { ...status(), ...statusPatch },
     ]);
     const result = await createGentleReviewTool({
@@ -90,7 +105,7 @@ describe("gentle_review", () => {
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(true);
   });
 
@@ -105,7 +120,7 @@ describe("gentle_review", () => {
       expectedExecutableDigest: digest("expected executable"),
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(true);
     expect(runner.requests).toHaveLength(0);
   });
@@ -125,7 +140,7 @@ describe("gentle_review", () => {
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(true);
   });
 
@@ -149,7 +164,7 @@ describe("gentle_review", () => {
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.output).toContain("mutation_outcome=unknown");
     expect(result.output).toContain("replayability=status_required");
   });
@@ -169,14 +184,14 @@ describe("gentle_review", () => {
         },
       },
     ]) {
-      const runner = new SequenceRunner([capabilities(executableDigest), providerStatus]);
+      const runner = new SequenceRunner([capabilities(executableDigest), discoveryStatus(), providerStatus]);
       const result = await createGentleReviewTool({
         executable,
         expectedVersion: "2.5.0-rc.1",
         expectedExecutableDigest: executableDigest,
         repositoryRoot: root,
         runner,
-      }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+      }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
       expect(result.isError).toBe(true);
     }
   });
@@ -200,7 +215,7 @@ describe("gentle_review", () => {
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("unknown mandatory");
   });
@@ -224,7 +239,7 @@ describe("gentle_review", () => {
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("unknown mandatory");
   });
@@ -248,9 +263,47 @@ describe("gentle_review", () => {
       expectedExecutableDigest: executableDigest,
       repositoryRoot: root,
       runner,
-    }).execute({ name: "gentle_review", input: { lineageId: "review-fixture", targetIdentity, runtimeAgent: "codex" } }, makeSandbox(root));
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("mandatory feature set is malformed");
+  });
+
+  it("rejects caller-supplied transaction internals", async () => {
+    root = await makeTempDir("kiln-gentle-review-");
+    const executable = join(root, "gentle-ai");
+    await writeFile(executable, "fixture executable");
+    const runner = new SequenceRunner([]);
+    const result = await createGentleReviewTool({
+      executable,
+      expectedVersion: "2.5.0-rc.1",
+      expectedExecutableDigest: digest("fixture executable"),
+      repositoryRoot: root,
+      runner,
+    }).execute({ name: "gentle_review", input: { lineageId: "leaked-internal" } }, makeSandbox(root));
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("accepts no input fields");
+    expect(runner.requests).toHaveLength(0);
+  });
+
+  it("fails closed when current-transaction discovery is ambiguous", async () => {
+    root = await makeTempDir("kiln-gentle-review-");
+    const executable = join(root, "gentle-ai");
+    await writeFile(executable, "fixture executable");
+    const executableDigest = digest("fixture executable");
+    const runner = new SequenceRunner([
+      capabilities(executableDigest),
+      { ...discoveryStatus(), applicability: "ambiguous" },
+    ]);
+    const result = await createGentleReviewTool({
+      executable,
+      expectedVersion: "2.5.0-rc.1",
+      expectedExecutableDigest: executableDigest,
+      repositoryRoot: root,
+      runner,
+    }).execute({ name: "gentle_review", input: {} }, makeSandbox(root));
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("not uniquely discoverable");
+    expect(runner.requests).toHaveLength(2);
   });
 });
 
@@ -308,6 +361,25 @@ function status(): Record<string, unknown> {
       paths: ["tracked.txt"],
     },
     next_transition: { kind: "collect", reason_code: "reviewer_results_required" },
+  };
+}
+function discoveryStatus(): Record<string, unknown> {
+  return {
+    schema: "gentle-ai.review-integration.status/v5",
+    contract: "gentle-ai.review-integration/v2",
+    operation: "review.status",
+    applicability: "unrelated",
+    action: "start",
+    replayability: "not_replayable",
+    target_identity: targetIdentity,
+    next_transition: {
+      kind: "execute",
+      reason_code: "fresh_target_ready",
+      execute: {
+        operation: "review.start",
+        binding: { lineage_id: "review-fixture", target_identity: targetIdentity },
+      },
+    },
   };
 }
 function digest(value: string): string {

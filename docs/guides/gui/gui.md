@@ -495,12 +495,18 @@ catalog before invoking the applicable producers. For example:
 
 For Dafny, name a repository-relative `.dfy` candidate and request
 `formal_verify`. `gentle_review` additionally requires a configured exact Gentle
-AI executable and an already-active review transaction. Supply its `lineageId`,
-`targetIdentity`, and external `runtimeAgent`; Kiln observes the transaction and
-does not start or advance it. Under Gentle AI 2.5, a terminal result burns the
-lineage, so prepare a pending review immediately before a status-card demo. The
+AI executable and an already-active review transaction. Ask the agent to review
+the current change with Gentle; Kiln discovers the provider-owned transaction
+binding and observes it without starting or advancing it. Under Gentle AI 2.5,
+a terminal result burns the lineage, so prepare a pending review immediately
+before a status-card demo. The
 tools are deferred rather than always-on, so a compliant agent resolves them
 through `tool_catalog_search` when their schemas are not already projected.
+
+For an integral verification pass, a user-facing request can remain concise:
+`Revisa este cambio con Gentle y ejecuta todos los verificadores y controles de
+calidad disponibles.` The agent owns deferred-tool discovery and file selection;
+the Gentle adapter owns transaction identifiers.
 
 The semantic navigation rail indexes projected user turns, assistant replies,
 tool executions, and failures. Keyboard or pointer activation scrolls to the

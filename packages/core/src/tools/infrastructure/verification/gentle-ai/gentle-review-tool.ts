@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { type DevTool, TOOL_SCHEMAS, type ToolInput, type ToolResult } from "../../../domain/tool.js";
 import { getBuiltinEffectEnvelope } from "../../../domain/tool-effect-envelopes.js";
 import { type CommandProcessRunner, SpawnCommandProcessRunner } from "../../command-process.js";
-import { getSandboxContext, requireString, toErrorResult, toSuccessResult } from "../../tool-helpers.js";
+import { getSandboxContext, toErrorResult, toSuccessResult } from "../../tool-helpers.js";
 import { GentleAiClient } from "./gentle-ai-client.js";
 
 export interface GentleReviewToolOptions {
@@ -24,16 +24,8 @@ export function createGentleReviewTool(options: GentleReviewToolOptions): DevToo
     inputSchema: schema.inputSchema,
     effectEnvelope: getBuiltinEffectEnvelope(schema.name),
     async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
-      const lineageId = requireString(input, "lineageId");
-      if (!lineageId.ok) return lineageId.result;
-      const targetIdentity = requireString(input, "targetIdentity");
-      if (!targetIdentity.ok) return targetIdentity.result;
-      const runtimeAgent = requireString(input, "runtimeAgent");
-      if (!runtimeAgent.ok) return runtimeAgent.result;
-      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(lineageId.value) || !/^sha256:[a-f0-9]{64}$/u.test(targetIdentity.value))
-        return toErrorResult("gentle review requires canonical lineageId and targetIdentity values");
-      if (!["claude-code", "codex", "opencode", "pi"].includes(runtimeAgent.value))
-        return toErrorResult("gentle review requires a supported runtimeAgent");
+      if (Object.keys(input.input).length > 0)
+        return toErrorResult("gentle review resolves the current transaction and accepts no input fields");
       try {
         const sandboxRoot = getSandboxContext(sandbox)?.cwd;
         if (sandboxRoot === undefined || (await realpath(sandboxRoot)) !== (await realpath(options.repositoryRoot)))
@@ -50,11 +42,7 @@ export function createGentleReviewTool(options: GentleReviewToolOptions): DevToo
           expectedVersion: options.expectedVersion,
           expectedExecutableDigest: options.expectedExecutableDigest,
           timeoutMs: options.timeoutMs ?? 60_000,
-        }).observe({
-          lineageId: lineageId.value,
-          expectedTargetIdentity: targetIdentity.value,
-          runtimeAgent: runtimeAgent.value as "claude-code" | "codex" | "opencode" | "pi",
-        });
+        }).observeCurrent();
         return toSuccessResult(
           `Gentle AI status observed for ${observation.candidate.targetIdentity}; action=${observation.outcome.action}. This is inferential review evidence only and grants no acceptance authority.`,
           observation,

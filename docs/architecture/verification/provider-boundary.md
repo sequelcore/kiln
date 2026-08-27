@@ -9,8 +9,9 @@ no provider result bypasses that boundary.
 The supported integration is a read-only consumer of Gentle AI 2.5.0-rc.1's public
 `gentle-ai.review-integration/v2` contract. Kiln first reads repository-
 independent capabilities v2.2, checks every required feature, exact package
-version, release channel, and executable SHA-256, then requests status v5 for
-one exact active lineage and target identity.
+version, release channel, and executable SHA-256, resolves the provider-owned
+current-transaction binding, then requests status v5 for that exact lineage and
+target identity. Callers never select provider transaction identifiers.
 
 Successful output is a `kiln.gentle-review-observation/v2` containing provider
 identity, contract identity, candidate target/tree/path binding, authority and

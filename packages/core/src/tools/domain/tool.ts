@@ -1583,15 +1583,12 @@ export const TOOL_SCHEMAS: Record<
   },
   gentle_review: {
     name: "gentle_review",
-    description: "Observe one active Gentle AI review transaction by exact lineage and target identity. This facts-only tool never starts, advances, captures, corrects, approves, or delivers a review.",
+    description:
+      "Observe the current Gentle AI review transaction for this workspace. Call with an empty object. This facts-only tool never starts, advances, captures, corrects, approves, or delivers a review.",
     inputSchema: {
       type: "object",
-      properties: {
-        lineageId: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", description: "Exact active Gentle AI review lineage." },
-        targetIdentity: { type: "string", pattern: "^sha256:[a-f0-9]{64}$", description: "Expected Gentle AI target identity for the candidate." },
-        runtimeAgent: { type: "string", enum: ["claude-code", "codex", "opencode", "pi"], description: "Runtime transporting the active Gentle AI review." },
-      },
-      required: ["lineageId", "targetIdentity", "runtimeAgent"],
+      properties: {},
+      required: [],
       additionalProperties: false,
     },
   },
