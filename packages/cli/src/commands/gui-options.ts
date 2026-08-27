@@ -1,6 +1,12 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { OperatorThemePreference } from "../application/operator-theme-preferences.js";
 
 export { parseOperatorThemePreference } from "../application/operator-theme-preferences.js";
+
+export function resolveGuiDevSourceRoot(moduleUrl: string = import.meta.url): string {
+  return resolve(dirname(fileURLToPath(moduleUrl)), "..", "..", "..", "..");
+}
 
 export function buildGuiUrl(
   baseUrl: string,

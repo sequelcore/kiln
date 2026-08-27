@@ -100,7 +100,7 @@ import {
 import { readRuntimeConfigurationRevision } from "../application/runtime-configuration-revision.js";
 import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
 import { parseOperatorThemePreference } from "../application/operator-theme-preferences.js";
-import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
+import { buildGuiAttachUrl, buildGuiUrl, resolveGuiDevSourceRoot } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadOperatorSessionSummaries } from "../application/operator-session-history.js";
@@ -609,7 +609,7 @@ export async function guiCommand(
 
     if (mode === "dev") {
       startupProfiler.mark("gui-vite-start-requested", { port: guiPort });
-      viteDevServer = spawnGuiDevServer(cwd, guiPort, gateway.port, output);
+      viteDevServer = spawnGuiDevServer(resolveGuiDevSourceRoot(), guiPort, gateway.port, output);
     }
 
     const gatewayUrl = gateway.url;
@@ -899,12 +899,12 @@ interface GuiDevServerSession {
 }
 
 function spawnGuiDevServer(
-  cwd: string,
+  sourceRoot: string,
   guiPort: number,
   gatewayPort: number,
   output: GuiCommandOutput,
 ): GuiDevServerSession {
-  const guiWorkspacePath = join(cwd, "packages", "gui");
+  const guiWorkspacePath = join(sourceRoot, "packages", "gui");
   if (!existsSync(join(guiWorkspacePath, "package.json"))) {
     throw new Error(`GUI workspace not found at ${guiWorkspacePath}`);
   }
@@ -920,7 +920,7 @@ function spawnGuiDevServer(
     "--port",
     String(guiPort),
   ], {
-    cwd,
+    cwd: sourceRoot,
     env: {
       ...process.env,
       GUI_PORT: String(guiPort),

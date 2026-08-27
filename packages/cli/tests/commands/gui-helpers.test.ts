@@ -1,3 +1,5 @@
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 describe("gui command helpers", () => {
@@ -22,5 +24,13 @@ describe("gui command helpers", () => {
     expect(() => buildGuiAttachUrl("file:///tmp/gui", "phosphor")).toThrow(
       "GUI attach URL must use http:// or https://",
     );
+  });
+
+  it("resolves GUI development assets from the running Kiln checkout instead of the target project", async () => {
+    const { resolveGuiDevSourceRoot } = await import("../../src/commands/gui-options.js");
+    const checkout = resolve("synthetic-kiln-checkout");
+    const runningModule = pathToFileURL(join(checkout, "packages", "cli", "dist", "commands", "gui.js")).href;
+
+    expect(resolveGuiDevSourceRoot(runningModule)).toBe(checkout);
   });
 });
