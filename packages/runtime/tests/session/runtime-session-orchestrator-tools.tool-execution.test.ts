@@ -2443,6 +2443,54 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
       ]);
     });
 
+    it("stops a queued tool batch immediately when the operator cancels the turn", async () => {
+      const eventBus = new EventBus(100);
+      const abortController = new AbortController();
+      const tool = vi.fn().mockImplementation(({ ordinal }: { readonly ordinal: number }) => {
+        if (ordinal === 1) {
+          abortController.abort("Operator cancelled the turn.");
+          return Promise.resolve({
+            output: "Command cancelled by the operator.",
+            isError: true,
+            metadata: { toolName: "get_data", status: "cancelled" },
+          });
+        }
+        return Promise.resolve(`result-${ordinal}`);
+      });
+      const builtinTools = new Map([["get_data", tool]]);
+      const executor = new RuntimeSessionToolExecutor(
+        { provider: makeProvider(), builtinTools },
+        eventBus,
+        async () => ({ approved: true }),
+        vi.fn(),
+        builtinTools,
+      );
+      const session = makeSession();
+      const fixtureConfig = fixtureToolActionConfig(
+        new RuntimeSessionOrchestrator({ provider: makeProvider(), builtinTools }),
+        session,
+        { abortSignal: abortController.signal },
+      );
+
+      await expect(executor.executeToolCalls(session, [
+        { id: "tool-1", name: "get_data", input: { ordinal: 1 } },
+        { id: "tool-2", name: "get_data", input: { ordinal: 2 } },
+        { id: "tool-3", name: "get_data", input: { ordinal: 3 } },
+      ], "turn-1:response:1", fixtureConfig)).rejects.toMatchObject({
+        name: "RuntimeToolActionPreDispatchCancellationError",
+      });
+
+      expect(tool).toHaveBeenCalledTimes(1);
+      expect(eventBus.history()
+        .filter((event) => event.type === "tool_called" || event.type === "tool_result")
+        .map((event) => ({ type: event.type, toolCallId: event.toolCallId })))
+        .toEqual([
+          { type: "tool_called", toolCallId: "tool-1" },
+          { type: "tool_result", toolCallId: "tool-1" },
+        ]);
+      expect(eventBus.history().filter((event) => event.type === "error")).toEqual([]);
+    });
+
     it("blocks tool not in allowlist", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);

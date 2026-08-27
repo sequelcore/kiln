@@ -556,6 +556,70 @@ describe("RuntimeSessionOrchestrator - budget and fallback", () => {
       );
     });
 
+    it("stops equivalent failed command retries even when shell-only input changes", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockImplementation((input: Record<string, unknown>) => Promise.resolve({
+        output: "error: Script not found \"check\"",
+        isError: true,
+        metadata: {
+          toolName: "bash",
+          kind: "command",
+          cwd: "C:\\synthetic\\workspace",
+          command: input.command,
+          exitCode: 1,
+          status: "failed",
+        },
+      }));
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(({ tools }: { readonly tools?: readonly ToolDefinition[] }) => {
+          callCount++;
+          if (tools && callCount <= 3) {
+            return {
+              parts: textParts("trying another command shape..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: `tc-bash-failed-${callCount}`,
+                name: "bash",
+                input: {
+                  command: callCount === 1 ? "bun run check" : callCount === 2 ? "bun run check 2>&1" : "bun run ci",
+                },
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("The repository does not define that verification script."),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs a command", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("run verification"));
+
+      expect(toolFn).toHaveBeenCalledTimes(2);
+      expect(provider.createMessage).toHaveBeenCalledTimes(3);
+      expect(result.parts).toEqual(textParts("The repository does not define that verification script."));
+      expect(getReinjectedToolResultFromCall(provider, 2)).toContain(
+        "Repeated deterministic failure for tool \"bash\"",
+      );
+    });
+
     it("does not execute tool calls returned by repeated-malformed fallback finalization", async () => {
       let callCount = 0;
       const toolFn = vi.fn().mockResolvedValue("should not run");

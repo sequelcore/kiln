@@ -1147,11 +1147,7 @@ export class RuntimeSessionOrchestrator {
   } | undefined {
     for (const execution of executions) {
       if (execution.success || !execution.toolCallId) continue;
-      const fingerprint = JSON.stringify({
-        toolName: execution.toolName,
-        input: execution.input,
-        resultSummary: execution.resultSummary,
-      });
+      const fingerprint = toolExecutionFailureFingerprint(execution);
       const nextAttemptCount = (attempts.get(fingerprint) ?? 0) + 1;
       attempts.set(fingerprint, nextAttemptCount);
       if (nextAttemptCount < MAX_IDENTICAL_TOOL_EXECUTION_FAILURES) continue;
@@ -1162,6 +1158,26 @@ export class RuntimeSessionOrchestrator {
     }
     return undefined;
   }
+}
+
+function toolExecutionFailureFingerprint(execution: ToolExecutionSummary): string {
+  const commandFailure = execution.metadata?.["kind"] === "command";
+  // Command retries may change shell-only syntax without changing the failure.
+  // Other tools keep their exact input because it can represent real progress.
+  return JSON.stringify({
+    toolName: execution.toolName,
+    ...(commandFailure
+      ? {
+          commandFailure: {
+            cwd: execution.metadata?.["cwd"],
+            status: execution.metadata?.["status"],
+            exitCode: execution.metadata?.["exitCode"],
+            code: execution.metadata?.["code"],
+          },
+        }
+      : { input: execution.input }),
+    resultSummary: execution.resultSummary.trim().replace(/\s+/gu, " "),
+  });
 }
 
 /**

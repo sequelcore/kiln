@@ -33,6 +33,7 @@ import type { RuntimeToolActionDispatchState } from "../execution-kernel/runtime
 import {
   RuntimeToolActionCommittedError,
   RuntimeToolActionDispatchService,
+  RuntimeToolActionPreDispatchCancellationError,
 } from "../execution-kernel/runtime-tool-action-claim.js";
 import {
   collectRuntimeFormalVerificationObservations,
@@ -507,6 +508,7 @@ export class RuntimeSessionToolExecutor {
       });
 
       for (const toolCall of toolCalls) {
+        throwIfToolBatchCancelled(perCallConfig?.abortSignal);
         // Reconstruct immediately before every builtin so same-batch ordering
         // also covers cached, blocked, or otherwise non-standard tool paths.
         formalVerificationObservations = collectRuntimeFormalVerificationObservations({
@@ -987,9 +989,12 @@ export class RuntimeSessionToolExecutor {
             perCallConfig.rateLimiter.record(perCallConfig.tenantId, normalizedToolCall.name);
           }
         } catch (err) {
-          if (err instanceof RuntimeToolActionCommittedError) {
+          if (
+            err instanceof RuntimeToolActionCommittedError
+            || err instanceof RuntimeToolActionPreDispatchCancellationError
+          ) {
             // A claimed effect is never converted into a model-visible error
-            // result: doing so would permit the model/orchestrator to retry it.
+            // result, and cancellation is terminal for the remaining batch.
             throw err;
           }
           if (consequential && toolActionState.claimed && toolActionState.claimId) {
@@ -2129,4 +2134,13 @@ export class RuntimeSessionToolExecutor {
       // Non-critical: do not fail tool execution for audit.
     }
   }
+}
+
+function throwIfToolBatchCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted !== true) {
+    return;
+  }
+  throw new RuntimeToolActionPreDispatchCancellationError(
+    "The Runtime tool batch was cancelled before the next tool dispatch.",
+  );
 }
