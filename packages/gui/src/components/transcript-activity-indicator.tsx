@@ -29,7 +29,10 @@ export function TranscriptActivityIndicator(props: TranscriptActivityIndicatorPr
       onOpenChange={setOpen}
       open={hasDetails && open}
     >
-      <div className="flex min-w-0 items-center gap-2 py-1 text-xs text-muted-foreground">
+      <div
+        className="flex min-w-0 items-center gap-2 py-1 text-xs text-muted-foreground"
+        data-slot="transcript-activity-header"
+      >
         <span
           role="status"
           aria-atomic="true"
@@ -37,17 +40,22 @@ export function TranscriptActivityIndicator(props: TranscriptActivityIndicatorPr
           aria-live="polite"
           className="flex min-w-0 flex-1 items-center gap-2"
         >
-          <ThinkingOrb
-            aria-hidden="true"
-            data-orb-state={orbState}
-            data-role="activity-orb"
-            role="presentation"
-            size={20}
-            speed={0.82}
-            state={orbState}
-            theme="auto"
-          />
-          <span className="shrink-0 font-medium text-foreground">{label}</span>
+          <span
+            className="flex size-5 shrink-0 items-center justify-center"
+            data-slot="transcript-activity-identity"
+          >
+            <ThinkingOrb
+              aria-hidden="true"
+              data-orb-state={orbState}
+              data-role="activity-orb"
+              role="presentation"
+              size={20}
+              speed={0.82}
+              state={orbState}
+              theme="auto"
+            />
+          </span>
+          <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
           {details ? (
             <span aria-hidden="true" className="min-w-0 truncate text-muted-foreground/80">
               {details}

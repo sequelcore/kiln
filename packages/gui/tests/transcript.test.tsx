@@ -521,6 +521,35 @@ describe("Transcript", () => {
     expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
   });
 
+  it("uses one trace-header anatomy for completed work and live thinking", () => {
+    const { container } = render(
+      <Transcript
+        activityPhase="thinking"
+        entries={[
+          messageEntry("1", "user", "Inspect the repository"),
+          ...["read", "grep"].map((tool, index): TimelineEntry => ({
+            id: `timeline:event:completed:${tool}`,
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: `2026-07-15T08:21:0${index}.000Z`,
+            title: `Completed ${tool}`,
+            summary: `${tool} result`,
+            tone: "success",
+            presentationDetails: [{ label: "Tool", value: tool }],
+          })),
+        ]}
+      />,
+    );
+
+    const headers = container.querySelectorAll('[data-slot="transcript-activity-header"]');
+    expect(headers).toHaveLength(2);
+    for (const header of headers) {
+      expect(header).toHaveClass("gap-2", "py-1", "text-xs");
+      expect(header.querySelector('[data-slot="transcript-activity-identity"]')).toHaveClass("size-5");
+    }
+    expect(container.querySelector('[data-slot="marker"]')).not.toBeInTheDocument();
+  });
+
   it("groups consecutive non-governance failures into one compact disclosure", () => {
     render(
       <Transcript
