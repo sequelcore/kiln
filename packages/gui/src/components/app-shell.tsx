@@ -1287,6 +1287,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
             }}
             transcript={{
               entries: conversationEntries,
+              activityPhase,
+              activityDetails: activity?.details,
               workflowActivity,
               loadError: sessionDetailQuery.error ? "Could not load this session transcript." : undefined,
               onRetryLoad: () => void sessionDetailQuery.refetch(),
@@ -1298,9 +1300,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
               status,
               cancelPending: turnCancelPending,
               onCancel: cancelActiveTurn,
-              activityPhase,
-              activityToolName: activity?.toolName,
-              activityDetails: activity?.details,
               planMode,
               governedWorkItemCount,
               continuityHint: composerContinuityHint,

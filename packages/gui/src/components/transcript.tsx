@@ -20,8 +20,9 @@ import {
 } from "@kilnai/gateway-contracts";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
-import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store/index.js";
+import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store/index.js";
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
+import { TranscriptActivityIndicator } from "./transcript-activity-indicator.js";
 import { TranscriptTimelineEditor } from "./transcript-timeline-editor.js";
 import { TranscriptSurface } from "./transcript-surface.js";
 import { VerificationEvidence } from "./verification-evidence.js";
@@ -47,6 +48,8 @@ import { cn } from "@/lib/utils";
 
 interface TranscriptProps {
   readonly entries: readonly TimelineEntry[];
+  readonly activityPhase?: ActivityPhase;
+  readonly activityDetails?: string;
   readonly workflowActivity?: WorkflowActivityProjection;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
   readonly onApprove?: (approvalId: string) => void;
@@ -1614,7 +1617,7 @@ function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
         aria-label={goal ? `Goal ${goal.goal.id}` : `Work item ${props.item.workItem?.item.id ?? "unknown"}`}
         className="w-full min-w-0 overflow-hidden"
         data-role="workflow-activity"
-        defaultOpen
+        defaultOpen={false}
         status={status}
         variant="card"
       >
@@ -1777,10 +1780,7 @@ function projectTranscriptItems(
 }
 
 function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
-  if (entry.eventKind === "tool_call_completed" && entry.tone === "error") return true;
-  const details = asRecord(entry.details);
-  const input = asRecord(details?.input);
-  return entry.eventKind === "tool_call_started" && typeof input?.command === "string";
+  return entry.eventKind === "tool_call_completed" && entry.tone === "error";
 }
 
 function renderTranscriptEntries(
@@ -1858,6 +1858,15 @@ export function Transcript(props: TranscriptProps) {
   ));
   const projectedItems = projectTranscriptItems(visibleEntries);
   const entriesById = new Map(visibleEntries.map((entry) => [entry.id, entry]));
+  const hasRunningTool = projectedItems.some((item) => {
+    if (item.kind !== "event") return false;
+    const entry = entriesById.get(item.entryId);
+    return entry?.type === "event" && isToolEvent(entry) && entry.tone === "running";
+  });
+  const showThinking = props.loadError === undefined
+    && props.activityPhase === "thinking"
+    && !hasStreamingAssistant
+    && !hasRunningTool;
   const routineItems = groupRoutineToolItems(projectedItems, entriesById);
   const renderItems = mergeWorkflowRenderItems(routineItems, workflowRenderItems(props.workflowActivity), props.entries);
   const navigationAnchors = deriveTranscriptNavigationAnchors(projectedItems, entriesById);
@@ -1886,7 +1895,7 @@ export function Transcript(props: TranscriptProps) {
                     </AlertDescription>
                   </Alert>
                 </MessageScrollerItem>
-              ) : visibleEntries.length === 0 && renderItems.length === 0 ? (
+              ) : visibleEntries.length === 0 && renderItems.length === 0 && !showThinking ? (
                 <MessageScrollerItem>
                   <EmptyTranscript />
                 </MessageScrollerItem>
@@ -1899,6 +1908,18 @@ export function Transcript(props: TranscriptProps) {
                   props.loadResourceDataUrl,
                 )
               )}
+              {showThinking ? (
+                <MessageScrollerItem messageId="transcript:activity:thinking" data-thread-anchor-id="transcript:activity:thinking">
+                  <TranscriptSurface
+                    aria-label="Assistant activity"
+                    className="px-1"
+                    data-role="assistant-activity"
+                    kind="message"
+                  >
+                    <TranscriptActivityIndicator details={props.activityDetails} />
+                  </TranscriptSurface>
+                </MessageScrollerItem>
+              ) : null}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton

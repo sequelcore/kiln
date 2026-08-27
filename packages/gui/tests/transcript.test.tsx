@@ -56,6 +56,86 @@ function workflowEvent(
 }
 
 describe("Transcript", () => {
+  it("places thinking at the end of the transcript instead of beside the composer", () => {
+    const { container } = render(
+      <Transcript
+        activityDetails="Preparing the response"
+        activityPhase="thinking"
+        entries={[messageEntry("1", "user", "Inspect the repository")]}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Assistant activity: Thinking · Preparing the response" })).toBeVisible();
+    expect(document.querySelector('[data-role="transcript-activity"]')).toHaveAttribute("data-orb-state", "solving");
+    const rows = container.querySelectorAll('[data-slot="message-scroller-item"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Inspect the repository");
+    expect(rows[1]?.querySelector('[data-role="transcript-activity"]')).toBeInTheDocument();
+  });
+
+  it("does not duplicate thinking once canonical tool activity or assistant streaming is visible", () => {
+    const { rerender } = render(
+      <Transcript
+        activityPhase="thinking"
+        entries={[
+          messageEntry("1", "user", "Inspect the repository"),
+          {
+            id: "timeline:event:running-tool",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: "2026-07-15T08:21:00.000Z",
+            title: "Running command",
+            summary: "Execution in progress",
+            tone: "running",
+            presentationDetails: [{ label: "Tool", value: "bash" }],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Running command\. Running\. Show details/u })).toBeVisible();
+    expect(document.querySelector('[data-role="transcript-activity"]')).not.toBeInTheDocument();
+
+    rerender(
+      <Transcript
+        activityPhase="streaming"
+        entries={[messageEntry("2", "assistant", "Writing the answer", true)]}
+      />,
+    );
+
+    expect(screen.getByText("Writing the answer")).toBeVisible();
+    expect(document.querySelector('[data-role="transcript-activity"]')).not.toBeInTheDocument();
+
+    rerender(
+      <Transcript
+        activityPhase="thinking"
+        entries={[
+          messageEntry("3", "user", "Continue after the command"),
+          {
+            id: "timeline:event:completed-command-start",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: "2026-07-15T08:22:00.000Z",
+            title: "Running command",
+            tone: "running",
+            details: { toolCallId: "command-1", toolCallScopeId: "turn-1:response:1" },
+          },
+          {
+            id: "timeline:event:completed-command-result",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: "2026-07-15T08:22:01.000Z",
+            title: "Ran command",
+            tone: "success",
+            details: { toolCallId: "command-1", toolCallScopeId: "turn-1:response:1" },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Assistant activity: Thinking" })).toBeVisible();
+  });
+
   it("renders formal verification obligations, proof effort, candidate identity, and the Assurance boundary", () => {
     const digest = `sha256:${"a".repeat(64)}`;
     render(<ToolEvidence presentation={{
@@ -220,6 +300,8 @@ describe("Transcript", () => {
     expect(document.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
     expect(screen.getByRole("button", { name: /Inspect the GUI\. Blocked\. 1 of 1 work items completed\. Goal closeout is missing/u })).toBeVisible();
     expect(document.querySelector('[data-role="workflow-activity"] [class*="animate-spin"]')).not.toBeInTheDocument();
+    expect(screen.queryByText("Inspect transcript ownership")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Inspect the GUI\. Blocked\. 1 of 1 work items completed\. Goal closeout is missing/u }));
     expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
     expect(screen.getByText("2 / 2")).toBeVisible();
     const scopedActions = screen.getByRole("button", { name: "Inspected repository. 1 action. Show details" });
@@ -344,7 +426,11 @@ describe("Transcript", () => {
 
     render(<Transcript entries={[]} workflowActivity={workflowActivity} />);
 
+    const trigger = screen.getByRole("button", { name: /Inspect transcript ownership\. Pending\./u });
+    expect(trigger).toBeVisible();
     expect(screen.getAllByText("Inspect transcript ownership")).toHaveLength(1);
+    expect(screen.queryByRole("progressbar", { name: "Evidence completion for work-1" })).not.toBeInTheDocument();
+    fireEvent.click(trigger);
     expect(screen.getByText("verification-heavy")).toBeVisible();
     expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
   });
@@ -2072,6 +2158,8 @@ describe("Transcript", () => {
     );
 
     expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.queryByRole("log", { name: "Command output" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Using bash\. Running\. Show details/u }));
     expect(screen.getByRole("log", { name: "Command output" })).toHaveTextContent("RUN tests");
     expect(screen.getByRole("button", { name: "Copy output" })).toBeInTheDocument();
   });

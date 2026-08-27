@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
+import type { SessionStatus } from "../lib/session-store/index.js";
 import type { ContextUsageProjection, WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { ComposerAttachmentAction, ComposerTrailingActions } from "./composer-actions.js";
@@ -20,9 +20,6 @@ export interface ComposerSubmission {
 
 interface ComposerProps {
   readonly status: SessionStatus;
-  readonly activityPhase?: ActivityPhase;
-  readonly activityToolName?: string;
-  readonly activityDetails?: string;
   readonly planMode: boolean;
   readonly governedWorkItemCount: number | null;
   readonly continuityHint: ComposerContinuityHint;
@@ -82,13 +79,6 @@ export function Composer(props: ComposerProps) {
     && !isPreparingAttachment
     && !hasAttachmentError
     && (draft.trim().length > 0 || hasReadyAttachment);
-  const activity = props.activityPhase && props.activityPhase !== "idle"
-    ? {
-        phase: props.activityPhase,
-        ...(props.activityToolName ? { toolName: props.activityToolName } : {}),
-        ...(props.activityDetails ? { details: props.activityDetails } : {}),
-      }
-    : undefined;
   const foregroundGoal = props.foregroundGoal;
 
   function handleDraftChange(value: string): void {
@@ -151,8 +141,6 @@ export function Composer(props: ComposerProps) {
       draft={draft}
       continuityHint={props.continuityHint}
       contextUsage={props.contextUsage}
-      status={props.status}
-      activity={activity}
       activeGoal={foregroundGoal ? (
         <ActiveGoalDock
           activity={foregroundGoal}

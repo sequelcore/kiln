@@ -1,10 +1,5 @@
-import { useEffect, useRef, type ClipboardEventHandler, type FormEventHandler, type KeyboardEventHandler, type ReactNode } from "react";
-import { BorderBeam, type BorderBeamColorVariant } from "border-beam";
-import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
+import { useRef, type ClipboardEventHandler, type FormEventHandler, type KeyboardEventHandler, type ReactNode } from "react";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
-import { resolveBorderBeamTheme } from "../lib/border-beam-theme.js";
-import { useUiStore } from "../lib/ui-store.js";
-import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
 import { ComposerContinuityChip } from "./composer-continuity-chip.js";
@@ -21,107 +16,10 @@ export interface ComposerCommandMenuState {
   readonly onOpenChange: (open: boolean) => void;
 }
 
-export interface ComposerActivity {
-  readonly phase: Exclude<ActivityPhase, "idle">;
-  readonly toolName?: string;
-  readonly details?: string;
-}
-
-type BeamTreatment = "contained" | "completion" | "paused" | "off";
-
-interface ComposerBeamVisual {
-  readonly treatment: BeamTreatment;
-  readonly size: "pulse-inner" | "pulse-outside";
-  readonly colorVariant: BorderBeamColorVariant;
-  readonly strength: number;
-  readonly duration: number;
-  readonly hueRange: number;
-  readonly staticColors: boolean;
-}
-
-const INACTIVE_BEAM: ComposerBeamVisual = {
-  treatment: "off",
-  size: "pulse-inner",
-  colorVariant: "mono",
-  strength: 0,
-  duration: 5.8,
-  hueRange: 8,
-  staticColors: true,
-};
-
-function resolveComposerBeamVisual(
-  status: SessionStatus,
-  phase: ActivityPhase,
-  completedStreamingResponse: boolean,
-): ComposerBeamVisual {
-  if (status === "ready" && completedStreamingResponse) {
-    return {
-      treatment: "completion",
-      size: "pulse-outside",
-      colorVariant: "sunset",
-      strength: 0.34,
-      duration: 4.2,
-      hueRange: 10,
-      staticColors: true,
-    };
-  }
-  if (status !== "running" && status !== "connecting") {
-    return INACTIVE_BEAM;
-  }
-  if (phase === "awaiting_approval") {
-    return { ...INACTIVE_BEAM, treatment: "paused" };
-  }
-
-  switch (phase) {
-    case "thinking":
-      return {
-        treatment: "contained",
-        size: "pulse-inner",
-        colorVariant: "mono",
-        strength: 0.32,
-        duration: 4.6,
-        hueRange: 16,
-        staticColors: true,
-      };
-    case "tool_running":
-      return {
-        treatment: "contained",
-        size: "pulse-inner",
-        colorVariant: "mono",
-        strength: 0.26,
-        duration: 5.2,
-        hueRange: 12,
-        staticColors: true,
-      };
-    case "streaming":
-      return {
-        treatment: "contained",
-        size: "pulse-inner",
-        colorVariant: "mono",
-        strength: 0.2,
-        duration: 5.8,
-        hueRange: 10,
-        staticColors: true,
-      };
-    case "idle":
-      return {
-        treatment: "contained",
-        size: "pulse-inner",
-        colorVariant: "mono",
-        strength: 0.18,
-        duration: 5.8,
-        hueRange: 8,
-        staticColors: true,
-      };
-  }
-}
-
 export function ComposerFrame(props: {
   readonly draft: string;
   readonly continuityHint: ComposerContinuityHint;
   readonly contextUsage?: ContextUsageProjection | null;
-  readonly status: SessionStatus;
-  readonly activity?: ComposerActivity;
   readonly activeGoal?: ReactNode;
   readonly providerControl?: ReactNode;
   readonly authorityControl?: ReactNode;
@@ -137,17 +35,6 @@ export function ComposerFrame(props: {
   readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const colorScheme = useUiStore((state) => state.scheme);
-  const beamTheme = resolveBorderBeamTheme(colorScheme);
-  const phase = props.activity?.phase ?? "idle";
-  const previousPhase = useRef<ActivityPhase>(phase);
-  const completedStreamingResponse = previousPhase.current === "streaming" && phase === "idle" && props.status === "ready";
-  const beam = resolveComposerBeamVisual(props.status, phase, completedStreamingResponse);
-  const beamActive = (props.status === "running" || props.status === "connecting") && beam.treatment === "contained";
-
-  useEffect(() => {
-    previousPhase.current = phase;
-  }, [phase]);
 
   return (
     <section className="relative z-10 bg-transparent px-4 pb-4 pt-2">
@@ -173,75 +60,48 @@ export function ComposerFrame(props: {
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>
-        {props.activity ? (
-          <ActivityPhaseIndicator
-            phase={props.activity.phase}
-            toolName={props.activity.toolName}
-            details={props.activity.details}
-          />
-        ) : null}
-        <BorderBeam
-          active={beamActive}
-          className="w-full"
-          colorVariant={beam.colorVariant}
-          data-beam-motion="pulse"
-          data-beam-palette={beam.colorVariant}
-          data-beam-size={beam.size}
-          data-beam-static={String(beam.staticColors)}
-          data-beam-theme={beamTheme}
-          data-beam-treatment={beam.treatment}
-          data-role="composer-activity-beam"
-          data-state={props.activity?.phase ?? "idle"}
-          duration={beam.duration}
-          hueRange={beam.hueRange}
-          size={beam.size}
-          staticColors={beam.staticColors}
-          strength={beam.strength}
-          theme={beamTheme}
+        <InputGroup
+          className="overflow-hidden rounded-xl border-border bg-workspace-viewer-panel focus-within:border-ring/70"
+          data-composer-surface="message"
         >
-          <InputGroup
-            className="overflow-hidden rounded-xl border-border bg-workspace-viewer-panel focus-within:border-ring/70"
-            data-composer-surface="message"
-          >
-            <InputGroupTextarea
-              ref={inputRef}
-              id="composer-input"
-              value={props.draft}
-              wrap="soft"
-              rows={1}
-              onChange={(event) => props.onDraftChange(event.target.value)}
-              onKeyDown={props.onKeyDown}
-              onPaste={props.onPaste}
-              className="min-h-14 max-h-44 px-3 py-2.5 text-sm leading-6"
-              placeholder="Describe the outcome or ask a follow-up…"
-            />
-            {props.attachments}
-            <InputGroupAddon align="block-end" aria-label="Message options" className="px-2 py-1.5">
-              <div className="flex w-full min-w-0 flex-wrap items-center gap-1">
-                <div
-                  className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
-                  data-role="composer-secondary-controls"
-                >
-                  <div className="shrink-0" data-role="composer-leading-actions">
-                    {props.leadingActions}
-                  </div>
-                  {props.authorityControl ? (
-                    <div className="min-w-0 shrink-0">{props.authorityControl}</div>
-                  ) : null}
-                  {props.providerControl ? (
-                    <div className="min-w-32 max-w-64 flex-1 sm:flex-none">{props.providerControl}</div>
-                  ) : null}
-                  {props.turnSettings ? <div className="shrink-0">{props.turnSettings}</div> : null}
-                  <ComposerContinuityChip hint={props.continuityHint} />
-                  <ContextMeter usage={props.contextUsage} />
+          <InputGroupTextarea
+            ref={inputRef}
+            id="composer-input"
+            value={props.draft}
+            wrap="soft"
+            rows={1}
+            onChange={(event) => props.onDraftChange(event.target.value)}
+            onKeyDown={props.onKeyDown}
+            onPaste={props.onPaste}
+            className="min-h-14 max-h-44 px-3 py-2.5 text-sm leading-6"
+            placeholder="Describe the outcome or ask a follow-up…"
+          />
+          {props.attachments}
+          <InputGroupAddon align="block-end" aria-label="Message options" className="px-2 py-1.5">
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-1">
+              <div
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
+                data-role="composer-secondary-controls"
+              >
+                <div className="shrink-0" data-role="composer-leading-actions">
+                  {props.leadingActions}
                 </div>
-                <div className="flex shrink-0 items-center justify-end">
-                  {props.trailingActions}
-                </div>
+                {props.authorityControl ? (
+                  <div className="min-w-0 shrink-0">{props.authorityControl}</div>
+                ) : null}
+                {props.providerControl ? (
+                  <div className="min-w-32 max-w-64 flex-1 sm:flex-none">{props.providerControl}</div>
+                ) : null}
+                {props.turnSettings ? <div className="shrink-0">{props.turnSettings}</div> : null}
+                <ComposerContinuityChip hint={props.continuityHint} />
+                <ContextMeter usage={props.contextUsage} />
               </div>
-            </InputGroupAddon>
-          </InputGroup>
-        </BorderBeam>
+              <div className="flex shrink-0 items-center justify-end">
+                {props.trailingActions}
+              </div>
+            </div>
+          </InputGroupAddon>
+        </InputGroup>
       </form>
     </section>
   );

@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/components/composer.js";
-import { useUiStore } from "../src/lib/ui-store.js";
 
 function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onSubmit = vi.fn(() => true);
@@ -70,29 +69,13 @@ function openAttachmentMenu(): void {
 }
 
 describe("Composer", () => {
-  beforeEach(() => {
-    useUiStore.getState().setTheme("phosphor");
-  });
+  it("keeps live execution status out of the composer while preserving turn cancellation", () => {
+    renderComposer({ status: "running" });
 
-  it("renders one visible semantic thinking signal beside the active beam", () => {
-    renderComposer({
-      status: "running",
-      activityPhase: "thinking",
-      activityDetails: "Preparing the response",
-    });
-
-    expect(screen.getByRole("status", { name: "Activity phase: Thinking · Preparing the response" })).toBeInTheDocument();
-    expect(screen.getByText("Thinking")).toBeVisible();
-    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-state", "solving");
-    expect(document.querySelector('[data-role="activity-orb"]')).toHaveAttribute("data-orb-state", "solving");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "thinking");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-motion", "pulse");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "contained");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "mono");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-static", "true");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "dark");
+    expect(screen.queryByRole("status", { name: /Activity phase:/u })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeVisible();
   });
 
   it("keeps the foreground goal beside the composer with accessible progress and controls", async () => {
@@ -155,82 +138,6 @@ describe("Composer", () => {
       action: "update_objective",
       objective: "Revised lifecycle objective.",
     });
-  });
-
-  it("uses the active Kiln light theme instead of the operating-system preference", () => {
-    useUiStore.getState().setTheme("automata");
-
-    renderComposer({ status: "running", activityPhase: "thinking" });
-
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "light");
-  });
-
-  it("names the active tool with the generic working orb instead of inferring a tool-specific animation", () => {
-    renderComposer({
-      status: "running",
-      activityPhase: "tool_running",
-      activityToolName: "read_many",
-    });
-
-    expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
-    expect(screen.getByText("Using read_many")).toBeVisible();
-    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-state", "working");
-  });
-
-  it("keeps the composer beam active until response streaming finishes", () => {
-    renderComposer({ status: "running", activityPhase: "streaming" });
-
-    expect(screen.getByRole("status", { name: "Activity phase: Responding" })).toBeInTheDocument();
-    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-state", "composing");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "streaming");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveStyle({ "--beam-strength": "0.2" });
-  });
-
-  it("uses the outward bloom only while the completed response fades out", () => {
-    const { rerenderComposer } = renderComposer({ status: "running", activityPhase: "streaming" });
-
-    rerenderComposer({ status: "ready", activityPhase: "idle" });
-
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "completion");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-outside");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "sunset");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-fading");
-  });
-
-  it("does not present an error transition as a completion bloom", () => {
-    const { rerenderComposer } = renderComposer({ status: "running", activityPhase: "streaming" });
-
-    rerenderComposer({ status: "error", activityPhase: "idle" });
-
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "off");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
-  });
-
-  it("does not flash the beam off between tool activity phases", () => {
-    renderComposer({ status: "running", activityPhase: "idle" });
-
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
-  });
-
-  it("pauses aggregate motion while operator approval is required", () => {
-    renderComposer({ status: "running", activityPhase: "awaiting_approval" });
-
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "paused");
-    expect(screen.getByRole("status", { name: "Activity phase: Awaiting approval" })).toBeInTheDocument();
-    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-paused", "true");
-  });
-
-  it("keeps the composer beam inactive and omits live status while idle", () => {
-    renderComposer({ activityPhase: "idle" });
-
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "off");
-    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
   });
 
   it("aligns the composer with the transcript axis", () => {
@@ -404,10 +311,9 @@ describe("Composer", () => {
     expect(status).toHaveAttribute("data-tone", tone);
   });
 
-  it("hides routine running continuity while activity is already announced", () => {
+  it("hides routine running continuity while the turn is active", () => {
     renderComposer({
       status: "running",
-      activityPhase: "thinking",
       continuityHint: {
         label: "Running",
         description: "Waiting for current turn",

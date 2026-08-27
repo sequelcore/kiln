@@ -174,26 +174,12 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await composer.fill("tool continuity browser check");
     await composer.press("Enter");
 
-    const composerActivityBeam = page.locator('[data-role="composer-activity-beam"]');
-    await expect(composerActivityBeam).toBeVisible();
-    await expect(composerActivityBeam).toHaveAttribute("data-beam-motion", "pulse");
-    await expect(composerActivityBeam).toHaveAttribute("data-beam-palette", "mono");
-    await expect(composerActivityBeam).toHaveAttribute("data-beam-theme", "dark");
-    const liveActivity = page.locator('[data-role="composer-activity"]');
-    await expect(liveActivity).toBeVisible();
-    await expect(liveActivity).toHaveAttribute("data-orb-state", "working");
-    await expect(liveActivity.locator('[data-role="activity-orb"]')).toBeVisible();
+    await expect(page.locator('[data-role="composer-activity-beam"]')).toHaveCount(0);
+    await expect(page.locator('[data-role="composer-activity"]')).toHaveCount(0);
     await expect(page.locator('[aria-label="Transcript"] [aria-label="Streaming"]')).toHaveCount(0);
     await expect(page.locator('[aria-label="Transcript"] [role="status"]')).toHaveCount(0);
-    await expect.poll(async () => composerActivityBeam.evaluate((element) => (
-      Number.parseFloat(getComputedStyle(element, "::after").opacity)
-    ))).toBeGreaterThan(0.2);
 
     await page.emulateMedia({ reducedMotion: "reduce" });
-    expect(await composerActivityBeam.evaluate((element) => (
-      [element, ...Array.from(element.querySelectorAll("*"))]
-        .every((candidate) => getComputedStyle(candidate).animationName === "none")
-    ))).toBe(true);
 
     const activeBeams = page.locator('[data-role="active-tool-beam"]');
     await expect(activeBeams).toHaveCount(0);
@@ -226,6 +212,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const task = page.locator('[data-role="workflow-activity"]');
     await expect(task).toBeVisible();
     await expect(task).toHaveAttribute("data-status", "paused");
+    await task.getByRole("button", { name: /Work item execution\. Paused\. inspect-composer-activity-ownership/u }).click();
     await expect(task.getByText("inspect-composer-activity-ownership", { exact: true })).toHaveCount(1);
     await expect(task).toContainText("managedInvocationId is required before starting managed-delegation execution.");
     await expect(task.getByRole("progressbar", { name: "Evidence completion for inspect-composer-activity-ownership" })).toBeVisible();
