@@ -73,10 +73,21 @@ describe("Transcript", () => {
     expect(rows[1]?.querySelector('[data-role="transcript-activity"]')).toBeInTheDocument();
   });
 
-  it("does not duplicate thinking once canonical tool activity or assistant streaming is visible", () => {
+  it("preserves one activity row while thinking changes into live tool execution", () => {
     const { rerender } = render(
       <Transcript
         activityPhase="thinking"
+        entries={[messageEntry("1", "user", "Inspect the repository")]}
+      />,
+    );
+
+    const activityRow = document.querySelector('[data-role="transcript-activity"]');
+    expect(activityRow).toBeInTheDocument();
+
+    rerender(
+      <Transcript
+        activityPhase="tool_running"
+        activityToolName="bash"
         entries={[
           messageEntry("1", "user", "Inspect the repository"),
           {
@@ -88,13 +99,31 @@ describe("Transcript", () => {
             summary: "Execution in progress",
             tone: "running",
             presentationDetails: [{ label: "Tool", value: "bash" }],
+            details: {
+              input: { command: "bun test" },
+              liveOutput: "RUN tests",
+              toolName: "bash",
+            },
           },
         ]}
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Running command\. Running\. Show details/u })).toBeVisible();
-    expect(document.querySelector('[data-role="transcript-activity"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="transcript-activity"]')).toBe(activityRow);
+    expect(screen.getByRole("status", { name: "Assistant activity: Using bash · Execution in progress" })).toBeVisible();
+    expect(document.querySelector('[data-role="transcript-activity"]')).toHaveAttribute("data-orb-state", "working");
+    expect(screen.queryByRole("button", { name: /Running command\. Running/u })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show bash details" }));
+    expect(screen.getByRole("log", { name: "Command output" })).toHaveTextContent("RUN tests");
+  });
+
+  it("does not duplicate activity once assistant streaming is visible", () => {
+    const { rerender } = render(
+      <Transcript
+        activityPhase="thinking"
+        entries={[messageEntry("1", "user", "Inspect the repository")]}
+      />,
+    );
 
     rerender(
       <Transcript

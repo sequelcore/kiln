@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils";
 interface TranscriptProps {
   readonly entries: readonly TimelineEntry[];
   readonly activityPhase?: ActivityPhase;
+  readonly activityToolName?: string;
   readonly activityDetails?: string;
   readonly workflowActivity?: WorkflowActivityProjection;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
@@ -1104,6 +1105,13 @@ function toolEventIdentifier(entry: TimelineEventEntry): string {
   return entry.presentationDetails?.find((item) => item.label === "Tool")?.value ?? entry.title;
 }
 
+function liveToolNameFromEntry(entry: TimelineEventEntry): string | undefined {
+  const presentedName = entry.presentationDetails?.find((item) => item.label === "Tool")?.value;
+  if (presentedName) return presentedName;
+  const details = asRecord(entry.details);
+  return typeof details?.toolName === "string" ? details.toolName : undefined;
+}
+
 function eventIcon(entry: TimelineEventEntry) {
   return {
     info: TerminalIcon,
@@ -1848,6 +1856,26 @@ function renderTranscriptEntries(
   });
 }
 
+function LiveToolActivityDetails(props: {
+  readonly entries: readonly TimelineEventEntry[];
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
+  const renderableEntries = props.entries.filter((entry) => canRenderEventDetails(entry));
+  if (renderableEntries.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      {renderableEntries.map((entry) => (
+        <div className="min-w-0" key={entry.id}>
+          {renderableEntries.length > 1 ? (
+            <p className="mb-2 text-xs font-medium text-muted-foreground">{entry.title}</p>
+          ) : null}
+          <EventDetails entry={entry} open loadResourceDataUrl={props.loadResourceDataUrl} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Transcript(props: TranscriptProps) {
   const consumedEntryIds = new Set(props.workflowActivity?.consumedEventIds.map((eventId) => `timeline:${eventId}`) ?? []);
   const visibleEntries = props.entries.filter((entry) => !consumedEntryIds.has(entry.id));
@@ -1858,18 +1886,33 @@ export function Transcript(props: TranscriptProps) {
   ));
   const projectedItems = projectTranscriptItems(visibleEntries);
   const entriesById = new Map(visibleEntries.map((entry) => [entry.id, entry]));
-  const hasRunningTool = projectedItems.some((item) => {
-    if (item.kind !== "event") return false;
+  const hasLiveActivity = props.activityPhase === "thinking" || props.activityPhase === "tool_running";
+  const liveToolEntries = hasLiveActivity ? projectedItems.flatMap((item): readonly TimelineEventEntry[] => {
+    if (item.kind !== "event") return [];
     const entry = entriesById.get(item.entryId);
-    return entry?.type === "event" && isToolEvent(entry) && entry.tone === "running";
-  });
-  const showThinking = props.loadError === undefined
-    && props.activityPhase === "thinking"
-    && !hasStreamingAssistant
-    && !hasRunningTool;
-  const routineItems = groupRoutineToolItems(projectedItems, entriesById);
+    return entry?.type === "event" && isToolEvent(entry) && entry.tone === "running" ? [entry] : [];
+  }) : [];
+  const liveToolEntryIds = new Set(liveToolEntries.map((entry) => entry.id));
+  const historicalProjectedItems = projectedItems.filter((item) => (
+    item.kind !== "event" || !liveToolEntryIds.has(item.entryId)
+  ));
+  const liveActivityPhase = props.loadError === undefined && !hasStreamingAssistant
+    ? liveToolEntries.length > 0 || props.activityPhase === "tool_running"
+      ? "tool_running"
+      : props.activityPhase === "thinking"
+        ? "thinking"
+        : undefined
+    : undefined;
+  const latestLiveTool = liveToolEntries.at(-1);
+  const liveToolName = props.activityToolName
+    ?? (latestLiveTool ? liveToolNameFromEntry(latestLiveTool) : undefined);
+  const liveActivityDetails = props.activityDetails
+    ?? (latestLiveTool ? eventSummaryText(latestLiveTool) : undefined)
+    ?? undefined;
+  const liveToolDetailEntries = liveToolEntries.filter((entry) => canRenderEventDetails(entry));
+  const routineItems = groupRoutineToolItems(historicalProjectedItems, entriesById);
   const renderItems = mergeWorkflowRenderItems(routineItems, workflowRenderItems(props.workflowActivity), props.entries);
-  const navigationAnchors = deriveTranscriptNavigationAnchors(projectedItems, entriesById);
+  const navigationAnchors = deriveTranscriptNavigationAnchors(historicalProjectedItems, entriesById);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col">
@@ -1895,7 +1938,7 @@ export function Transcript(props: TranscriptProps) {
                     </AlertDescription>
                   </Alert>
                 </MessageScrollerItem>
-              ) : visibleEntries.length === 0 && renderItems.length === 0 && !showThinking ? (
+              ) : visibleEntries.length === 0 && renderItems.length === 0 && !liveActivityPhase ? (
                 <MessageScrollerItem>
                   <EmptyTranscript />
                 </MessageScrollerItem>
@@ -1908,15 +1951,26 @@ export function Transcript(props: TranscriptProps) {
                   props.loadResourceDataUrl,
                 )
               )}
-              {showThinking ? (
-                <MessageScrollerItem messageId="transcript:activity:thinking" data-thread-anchor-id="transcript:activity:thinking">
+              {liveActivityPhase ? (
+                <MessageScrollerItem messageId="transcript:activity" data-thread-anchor-id="transcript:activity">
                   <TranscriptSurface
                     aria-label="Assistant activity"
                     className="px-1"
                     data-role="assistant-activity"
-                    kind="message"
+                    kind={liveActivityPhase === "tool_running" ? "tool" : "message"}
                   >
-                    <TranscriptActivityIndicator details={props.activityDetails} />
+                    <TranscriptActivityIndicator
+                      details={liveActivityDetails}
+                      phase={liveActivityPhase}
+                      toolName={liveToolName}
+                    >
+                      {liveActivityPhase === "tool_running" && liveToolDetailEntries.length > 0 ? (
+                        <LiveToolActivityDetails
+                          entries={liveToolDetailEntries}
+                          loadResourceDataUrl={props.loadResourceDataUrl}
+                        />
+                      ) : null}
+                    </TranscriptActivityIndicator>
                   </TranscriptSurface>
                 </MessageScrollerItem>
               ) : null}
