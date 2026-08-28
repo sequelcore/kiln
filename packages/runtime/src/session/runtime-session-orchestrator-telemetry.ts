@@ -40,6 +40,7 @@ export interface OrchestratorResponseUsage {
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly contextUsage?: ContextUsageRawEvidence;
+  readonly durationMs?: number;
 }
 
 export interface ProviderRequestRegionEvidence {

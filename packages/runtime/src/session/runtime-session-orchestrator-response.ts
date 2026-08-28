@@ -1,17 +1,17 @@
-import { projectConversationForModel, sha256ContentIdentity, textPart } from "@kilnai/core";
-import type { AgentResponse, ContentPart, ConversationToolResultProjectionPolicy, CreateMessageOptions, EffectivePromptManifest, ToolCall } from "@kilnai/core";
+import { textPart } from "@kilnai/core";
+import type { ContentPart } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type {
   OrchestratorDeps,
   OrchestrateResult,
-  RuntimeProviderTransportConfig,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
-import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
+import { type OrchestratorUsageSnapshot, type OrchestratorResponseUsage } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 import { DefaultContextSummarizer } from "./support/summarization/context-summarizer.js";
-import { deriveRuntimeTurnOutcome, hasUnrecoverableManagedInvocationFailure } from "./governed-turn-outcome.js";
+import { hasUnrecoverableManagedInvocationFailure } from "./governed-turn-outcome.js";
 import type { SessionTurnOutcome } from "@kilnai/core";
 import type { CommunicationResolution } from "@kilnai/core";
 
@@ -23,7 +23,6 @@ export interface FinalizeRuntimeSessionResponseInput {
   readonly usageTotals: OrchestratorUsageSnapshot;
   readonly providerRequests?: readonly ProviderRequestEvidence[];
   readonly toolExecutions: readonly ToolExecutionSummary[];
-  readonly stopReason?: string;
   readonly routingDecision?: {
     readonly provider: string;
     readonly model: string;
@@ -31,23 +30,19 @@ export interface FinalizeRuntimeSessionResponseInput {
     readonly reasoning: string;
   };
   readonly preLlmEscalation?: EscalationSignal;
-  readonly outcome?: SessionTurnOutcome;
+  readonly disposition: RuntimeTurnTerminalDisposition;
   readonly communicationResolution?: CommunicationResolution;
 }
-
 export async function finalizeRuntimeSessionResponse(
   input: FinalizeRuntimeSessionResponseInput,
 ): Promise<OrchestrateResult> {
   let escalation = input.preLlmEscalation;
 
-  const outcome = input.outcome ?? deriveRuntimeTurnOutcome({
-    toolExecutions: input.toolExecutions,
-    stopReason: input.stopReason,
-  });
+  const disposition = input.disposition;
   // Reconcile before the transcript is written, not just the returned value -
   // conversation history, escalation detection, and every downstream surface
   // must see the same qualified parts the caller receives, not the raw claim.
-  const parts = qualifyPartsForOutcome(input.parts, outcome, input.toolExecutions);
+  const parts = qualifyPartsForOutcome(input.parts, disposition.outcome, input.toolExecutions);
 
   input.session.addAssistantMessage(parts);
 
@@ -75,10 +70,9 @@ export async function finalizeRuntimeSessionResponse(
       ? { providerRequests: input.providerRequests }
       : {}),
     queued: false,
-    outcome,
+    ...disposition,
     escalation,
     contextSummary,
-    ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
     toolExecutions: input.toolExecutions.length > 0 ? input.toolExecutions : undefined,
     routingDecision: input.routingDecision,
     ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
@@ -93,7 +87,7 @@ export async function finalizeRuntimeSessionResponse(
  * metadata at all, offering the parent no supervised path forward, so any
  * free-text final answer produced afterward was written with no awareness of
  * it and cannot be trusted to agree with it. Deliberately excludes "paused"
- * (an ordinary tool-round-budget continuation, not a prose/canonical
+ * (an ordinary convergence continuation, not a prose/canonical
  * disagreement) and "cancelled". Every other "failed" outcome in this codebase
  * (unresolved governed-work materialization, a managed-invocation recovery
  * still in progress, retry exhaustion, ...) is already reported through text
@@ -118,80 +112,4 @@ function qualifyPartsForOutcome(
     ),
     ...parts,
   ];
-}
-
-export async function requestRuntimeSessionFallbackResponse(
-  effectivePrompt: EffectivePromptManifest,
-  session: RuntimeSession,
-  maxTokens: number | undefined,
-  dispatch: (request: CreateMessageOptions) => Promise<AgentResponse>,
-  cachePartition?: ProviderRequestCachePartitionInput,
-  conversationPolicy?: ConversationToolResultProjectionPolicy,
-  abortSignal?: AbortSignal,
-  providerTransport?: RuntimeProviderTransportConfig,
-  communicationResolution?: CommunicationResolution,
-): Promise<{
-  readonly parts: readonly ContentPart[];
-  readonly toolCalls: readonly ToolCall[];
-  readonly usage: OrchestratorResponseUsage;
-  readonly request: ProviderRequestRegionEvidence;
-  readonly stopReason?: string;
-}> {
-  if (
-    typeof effectivePrompt !== "object"
-    || effectivePrompt === null
-    || effectivePrompt.version !== "v1"
-    || typeof effectivePrompt.finalPrompt !== "string"
-    || effectivePrompt.finalPromptHash !== sha256ContentIdentity(effectivePrompt.finalPrompt)
-    || !Array.isArray(effectivePrompt.components)
-  ) {
-    throw new Error("A valid effective prompt manifest is required before provider invocation");
-  }
-  const conversationProjection = projectConversationForModel(session.conversationHistory, conversationPolicy);
-  const messages = conversationProjection.messages;
-  const request: CreateMessageOptions = {
-    sessionId: session.id,
-    system: effectivePrompt.finalPrompt,
-    messages,
-    maxTokens,
-    toolChoice: { type: "none" },
-    ...(abortSignal ? { signal: abortSignal } : {}),
-    ...(providerTransport?.projectId || providerTransport?.requestIdPrefix
-      ? {
-          requestIdentity: {
-            ...(providerTransport.projectId ? { projectId: providerTransport.projectId } : {}),
-            ...(providerTransport.requestIdPrefix
-              ? { requestId: `${providerTransport.requestIdPrefix}:fallback` }
-              : {}),
-          },
-        }
-      : {}),
-    ...(providerTransport?.watchdog ? { transportWatchdog: providerTransport.watchdog } : {}),
-    ...(providerTransport?.observer ? { transportObserver: providerTransport.observer } : {}),
-    ...(communicationResolution ? { communicationResolution } : {}),
-  };
-  const response = await dispatch(request);
-
-  return {
-    parts: response.parts,
-    toolCalls: response.toolCalls,
-    ...(response.stopReason !== undefined ? { stopReason: response.stopReason } : {}),
-    usage: {
-      inputTokens: response.inputTokens,
-      outputTokens: response.outputTokens,
-      cacheReadTokens: response.cacheReadTokens,
-      cacheWriteTokens: response.cacheWriteTokens,
-      contextUsage: response.contextUsage,
-    },
-    request: measureProviderRequestRegions({
-      system: effectivePrompt.finalPrompt,
-      effectivePrompt,
-      messages,
-      toolCount: 0,
-      cachePartition,
-      conversationProjection: conversationProjection.evidence,
-      communicationResolution,
-      ...(response.stopReason ? { stopReason: response.stopReason } : {}),
-    }),
-  };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime work item session events", () => {
   it("uses an explicit persisted turn id instead of the hydrated runtime turn count", async () => {
@@ -24,7 +24,7 @@ describe("runtime work item session events", () => {
       channel: "gui",
       userMessageContent: "Start managed child",
       assistantMessageContent: "Started.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,
@@ -65,7 +65,7 @@ describe("runtime work item session events", () => {
       channel: "gui",
       userMessageContent: "Continue governed UI work",
       assistantMessageContent: "Need use web_fetch maybe GitHub source.I'll continue the governed flow.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,
@@ -94,7 +94,7 @@ describe("runtime work item session events", () => {
       channel: "gui",
       userMessageContent: "Plan the work",
       assistantMessageContent: "Work item tracked.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,
@@ -221,7 +221,7 @@ describe("runtime work item session events", () => {
       channel: "gui",
       userMessageContent: "Execute the next work item",
       assistantMessageContent: "Work item executed.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,

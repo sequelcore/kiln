@@ -13,6 +13,14 @@ import {
   externalRuntimeGovernanceEvents,
 } from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 import { testModelCatalog } from "./fixtures/model-catalog.js";
+import {
+  completedTurnDisposition,
+  noProgressTurnDisposition,
+  operatorCancelledDisposition,
+  requiredProducerNotRunDisposition,
+  requiredProducerUnavailableDisposition,
+  runtimeFailureDisposition,
+} from "./fixtures/terminal-disposition.js";
 
 function resetSessionStore(): void {
   useSessionStore.setState({
@@ -159,7 +167,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "spoken answer",
       parts: [
         { type: "text", text: "spoken answer" },
@@ -187,7 +195,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
       inputTokens: 3,
@@ -213,7 +221,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
       inputTokens: 3,
@@ -255,7 +263,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-voice-failed",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
       inputTokens: 3,
@@ -347,7 +355,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "Sure.",
       admittedInput: { content: "[Voice note transcription]: Can you summarize this?" },
       inputTokens: 3,
@@ -521,7 +529,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "Created live_test_visibility.txt.",
       inputTokens: 1,
       outputTokens: 1,
@@ -587,7 +595,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -611,7 +619,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
-      outcome: "paused",
+      ...noProgressTurnDisposition(),
       content: "Waiting for operator input.",
       inputTokens: 1,
       outputTokens: 1,
@@ -623,6 +631,62 @@ describe("session-store", () => {
       tone: "warning",
       details: expect.objectContaining({ outcome: "paused" }),
     });
+  });
+
+  it.each([
+    ["completed", completedTurnDisposition, "Turn completed", "success"],
+    ["no_progress", noProgressTurnDisposition, "Turn paused", "warning"],
+    ["required_producer_not_run", requiredProducerNotRunDisposition, "Turn paused", "warning"],
+    ["required_producer_unavailable", requiredProducerUnavailableDisposition, "Turn failed", "error"],
+    ["runtime_failure", runtimeFailureDisposition, "Turn failed", "error"],
+    ["operator_cancelled", operatorCancelledDisposition, "Turn cancelled", "info"],
+  ] as const)("preserves the canonical %s terminal disposition and presentation", (_name, createDisposition, title, tone) => {
+    const disposition = createDisposition();
+    useSessionStore.getState().onDone({
+      type: "done",
+      kilnSessionId: "session-live",
+      ...disposition,
+      content: "terminal response",
+      inputTokens: 12,
+      outputTokens: 4,
+      routedProvider: "codex-oauth",
+      routedModel: "gpt-5.6-sol",
+    });
+
+    const entry = useSessionStore.getState().timelineEntries.at(-1);
+    expect(entry).toMatchObject({
+      eventKind: "turn_completed",
+      title,
+      tone,
+      details: expect.objectContaining(disposition),
+    });
+    if (entry?.type !== "event") {
+      throw new Error("Expected a terminal timeline event");
+    }
+    expect(entry.presentationDetails).toEqual(expect.arrayContaining([
+      { label: "Disposition reason", value: disposition.dispositionReason },
+    ]));
+    if (disposition.dispositionReason === "completion_eligible") {
+      expect(entry.presentationDetails).toEqual(expect.arrayContaining([
+        { label: "Completion eligibility", value: "eligible" },
+        { label: "Convergence policy", value: "kiln.gui.test.turn-convergence" },
+        { label: "Convergence policy hash", value: `sha256:${"a".repeat(64)}` },
+      ]));
+    }
+    if (disposition.dispositionReason === "no_progress") {
+      expect(entry.presentationDetails).toEqual(expect.arrayContaining([
+        { label: "Convergence pause", value: "No progress detected (no_progress)" },
+        { label: "Convergence metric", value: "consecutiveNoProgressSteps" },
+      ]));
+    }
+    if (disposition.dispositionReason === "required_producer_not_run"
+      || disposition.dispositionReason === "required_producer_unavailable") {
+      expect(entry.presentationDetails).toEqual(expect.arrayContaining([
+        { label: "Completion eligibility", value: "ineligible" },
+        { label: "Unmet completion obligations", value: expect.stringContaining("formal_verify") },
+        { label: "Producer evidence", value: expect.stringContaining("formal_verify") },
+      ]));
+    }
   });
 
   it("ignores late frames from the detached live session after New Session clears the UI", () => {
@@ -663,7 +727,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "old-live-session",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "late stale completion",
       inputTokens: 1,
       outputTokens: 1,
@@ -702,7 +766,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "new-live-session",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -2582,7 +2646,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
-      outcome: "completed",
+      ...completedTurnDisposition(),
       content: "done",
       inputTokens: 250,
       outputTokens: 75,
@@ -2625,7 +2689,7 @@ describe("session-store", () => {
       kind: "turn_completed",
       payload: {
         turnId: "session-live:turn:1",
-        outcome: "failed",
+        ...runtimeFailureDisposition(),
         outputMessageId: "session-live:turn:1:assistant",
       },
     });
@@ -2634,7 +2698,7 @@ describe("session-store", () => {
     expect(state.timelineEntries).toContainEqual(expect.objectContaining({
       type: "event",
       eventKind: "turn_completed",
-      summary: "failed",
+      summary: "Failed · Runtime failure (runtime_failure)",
       tone: "error",
     }));
   });
@@ -2648,7 +2712,7 @@ describe("session-store", () => {
       kind: "turn_completed",
       payload: {
         turnId: "session-live:turn:1",
-        outcome: "cancelled",
+        ...operatorCancelledDisposition(),
       },
     });
 
@@ -2657,7 +2721,7 @@ describe("session-store", () => {
       type: "event",
       eventKind: "turn_completed",
       title: "Turn cancelled",
-      summary: "cancelled",
+      summary: "Cancelled · Cancelled by operator (operator_cancelled)",
       tone: "info",
     }));
   });

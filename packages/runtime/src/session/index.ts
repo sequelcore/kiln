@@ -4,7 +4,36 @@ export { defineRuntimeSessionAuthorityFacet } from "./runtime-session-authority-
 export type { RuntimeSessionAuthorityFacet, RuntimeSessionAuthorityFacetInput } from "./runtime-session-authority-facet.js";
 export { assertPersistableAuthorityAdmissionBundle } from "./authority-admission-evidence.js";
 export type { AuthorityAdmissionEvidenceStore } from "./authority-admission-evidence.js";
-export { RuntimeSessionOrchestrationSurface, RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
+export {
+  RuntimeSessionOrchestrationSurface,
+  RuntimeSessionOrchestrator,
+} from "./runtime-session-orchestrator.js";
+export {
+  RuntimeTurnConvergenceObservationCollector,
+  defaultRuntimeMonotonicClock,
+} from "./runtime-turn-convergence-observation.js";
+export type {
+  RuntimeMonotonicClock,
+  RuntimeProviderRequestCompletion,
+} from "./runtime-turn-convergence-observation.js";
+export {
+  deriveRuntimeConvergencePolicyInput,
+  resolveRuntimeExecutionEnvelope,
+  RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY,
+  RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_ID,
+  RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
+} from "./runtime-execution-envelope.js";
+export type {
+  RuntimeConvergencePolicyOverrides,
+  RuntimeResolvedExecutionEnvelope,
+} from "./runtime-execution-envelope.js";
+export {
+  assessRuntimeCompletionObligations,
+  deriveRuntimeRequiredProducerEvidence,
+} from "./runtime-completion-obligations.js";
+export type { RuntimeCompletionObligationAssessment } from "./runtime-completion-obligations.js";
+export { RuntimeTurnProgressClassifier } from "./runtime-turn-progress-classifier.js";
+export type { RuntimeTurnProgressBatch } from "./runtime-turn-progress-classifier.js";
 export {
   RuntimeModelRoundCommittedError,
   RuntimeModelRoundPreDispatchCancellationError,
@@ -127,7 +156,6 @@ export type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
-  RuntimeToolRoundBudget,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.js";
 export { captureRuntimeConfigurationRevision } from "./runtime-configuration-revision-pin.js";

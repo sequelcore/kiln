@@ -21,6 +21,7 @@ import {
   type ToolAuthorityClassification,
 } from "./tool-authority.js";
 import type { RuntimeExecutionEnvelope } from "../session/runtime-session-orchestrator.types.js";
+import { deriveRuntimeConvergencePolicyInput } from "../session/runtime-execution-envelope.js";
 
 export interface TenantToolContext {
   readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -168,7 +169,14 @@ export function buildTenantToolContext(
   }
 
   const maxToolRoundCount = tenant.toolConfig?.maxIterationsPerSession;
-  const executionEnvelope = maxToolRoundCount ? { toolRounds: { max: maxToolRoundCount } } : undefined;
+  const executionEnvelope: RuntimeExecutionEnvelope | undefined = maxToolRoundCount === undefined
+    ? undefined
+    : {
+        convergence: deriveRuntimeConvergencePolicyInput({
+          policyId: "kiln.tenant.tool-config",
+          toolRounds: maxToolRoundCount,
+        }),
+      };
 
   return {
     callBuiltinTools,

@@ -31,6 +31,10 @@ import {
   deriveCodexRuntimePermissionRequest,
   type RuntimePermissionObservationWriter,
 } from "./runtime-permission-observation.js";
+import {
+  nativeHarnessCancellationDisposition,
+  nativeHarnessTerminalDisposition,
+} from "./native-harness-terminal-disposition.js";
 
 interface TranslationRuleMetadata {
   readonly category: string;
@@ -444,11 +448,13 @@ export class CodexCliProcessSession implements IKilnSession {
       }
     }
 
+    let cancellationObservedDuringParse = options.abortSignal?.aborted === true;
     try {
       for (const raw of stdoutLines) {
         if (options.abortSignal?.aborted) {
           this._killProcess();
-          return;
+          cancellationObservedDuringParse = true;
+          break;
         }
         let line: CodexJsonlLine;
         try {
@@ -679,11 +685,12 @@ export class CodexCliProcessSession implements IKilnSession {
             type: "completed",
             totalUsd: computedUsd,
             durationMs: Date.now() - startTime,
-            outcome: options.abortSignal?.aborted
-              ? "cancelled"
-              : lastError !== null
-                ? "failed"
-                : "completed",
+            disposition: options.abortSignal?.aborted
+              ? nativeHarnessCancellationDisposition("operator_cancelled")
+              : nativeHarnessTerminalDisposition({
+                  harness: "codex",
+                  outcome: lastError !== null ? "failed" : "completed",
+                }),
             isPreflightCrash: !initReceived && computedUsd === 0,
           };
           if (this.config.sessionLedgerOwner !== "host") try {
@@ -740,7 +747,9 @@ export class CodexCliProcessSession implements IKilnSession {
               type: "completed",
               totalUsd: 0,
               durationMs: Date.now() - startTime,
-              outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
+              disposition: options.abortSignal?.aborted
+                ? nativeHarnessCancellationDisposition("operator_cancelled")
+                : nativeHarnessTerminalDisposition({ harness: "codex", outcome: "failed" }),
               isPreflightCrash: !initReceived,
             };
             if (this.config.sessionLedgerOwner !== "host") try {
@@ -773,6 +782,23 @@ export class CodexCliProcessSession implements IKilnSession {
       // unexpected error — rethrow
     }
 
+    cancellationObservedDuringParse ||= options.abortSignal?.aborted === true;
+
+    // The process output is buffered before it is projected into session
+    // events.  A host-side policy denial can therefore abort between two
+    // parsed events; settle that attempt with the adapter-owned typed terminal
+    // event instead of returning from the iterator without a disposition.
+    if (cancellationObservedDuringParse && !turnCompleted) {
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: Date.now() - startTime,
+        disposition: nativeHarnessCancellationDisposition("operator_cancelled"),
+        isPreflightCrash: false,
+      };
+      turnCompleted = true;
+    }
+
     if (!turnCompleted && exitCode !== 0 && exitCode !== null) {
       const stderrText = stderrChunks.join("").trim();
       const msg = lastError ?? (stderrText.length > 0 ? `${stderrText}${stderrTruncated ? "..." : ""}` : `codex exited with code ${exitCode}`);
@@ -787,7 +813,9 @@ export class CodexCliProcessSession implements IKilnSession {
           type: "completed",
           totalUsd: 0,
           durationMs: Date.now() - startTime,
-          outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
+          disposition: options.abortSignal?.aborted
+            ? nativeHarnessCancellationDisposition("operator_cancelled")
+            : nativeHarnessTerminalDisposition({ harness: "codex", outcome: "failed" }),
           isPreflightCrash: !initReceived,
         };
         if (this.config.sessionLedgerOwner !== "host") try {

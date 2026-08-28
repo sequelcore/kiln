@@ -6,19 +6,21 @@ import type {
   ToolDefinition,
   ProviderExecutionContext,
   ProviderExecutionRequestedAuthority,
-  ConversationToolResultProjectionPolicy,
-  EffectivePromptManifest,
   AgentResponse,
   ProviderAdapter,
   CreateMessageOptions,
+  SessionTurnOutcome,
 } from "@kilnai/core";
 import {
   accountedWorkItemEvidence,
   assertValidToolCallIds,
+  estimateTextTokens,
   extractText,
   getInvalidToolInputDetails,
   KilnError,
   normalizeToolCall,
+  decideTurnConvergence,
+  resolveRequiredProducerObligations,
   resolveExecutionIdentity,
   textParts,
   type ProviderRequestEvidence,
@@ -35,26 +37,33 @@ import {
   type ProgressiveToolAdmissionDecision,
 } from "./progressive-tool-admission.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
-import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
-import { resolveRuntimeSessionRouting, type RuntimeSessionRoutingResolution } from "./runtime-session-orchestrator-routing.js";
+import { finalizeRuntimeSessionResponse } from "./runtime-session-orchestrator-response.js";
+import {
+  resolveRuntimeSessionRouting,
+  type RuntimeMultimodalEffectAdmission,
+  type RuntimeSessionRoutingResolution,
+} from "./runtime-session-orchestrator-routing.js";
+import { deriveGovernedTurnOutcome } from "./governed-turn-outcome.js";
 import {
   buildProviderRequestToolProjectionEvidence,
   measureProviderRequestRegions,
   type ProviderRequestCachePartitionInput,
   RuntimeSessionExecutionTelemetry,
 } from "./runtime-session-orchestrator-telemetry.js";
-import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
 import {
-  RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
-  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
-  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
-} from "./runtime-session-orchestrator.types.js";
+  assessRuntimeCompletionObligations,
+  formatRuntimeCompletionObligationFailure,
+} from "./runtime-completion-obligations.js";
+import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
 import {
   buildRuntimeTurnSystemPrompt,
   appendRuntimeCommunicationPromptManifest,
   reconcileRuntimeInvocationPromptManifest,
 } from "./support/index.js";
+import {
+  resolveRuntimeExecutionEnvelope,
+  type RuntimeResolvedExecutionEnvelope,
+} from "./runtime-execution-envelope.js";
 import {
   assessRuntimeTemporalEvidence,
   shouldRequestTemporalEvidenceRecovery,
@@ -67,12 +76,26 @@ import type {
   GovernedRuntimeContext,
   PerCallToolConfig,
   RuntimeBuiltinToolExecutor,
-  RuntimeExecutionEnvelope,
-  RuntimeToolRoundBudget,
   ToolExecutionSummary,
   EffectiveTurnAuthoritySnapshot,
 } from "./runtime-session-orchestrator.types.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
+import type {
+  CompletionEligibility,
+  IneligibleCompletionSettlementEvidence,
+  EligibleCompletionSettlementEvidence,
+  TurnConvergenceEvidence,
+  ResolvedTurnConvergencePolicy,
+  TurnProgressEvidence,
+  TurnConvergenceDecision,
+  TurnConvergencePauseDecision,
+  RuntimeTurnTerminalDisposition,
+} from "@kilnai/core/agents";
+import { RuntimeTurnConvergenceObservationCollector } from "./runtime-turn-convergence-observation.js";
+import {
+  RuntimeTurnProgressClassifier,
+  type RuntimeTurnProgressBatch,
+} from "./runtime-turn-progress-classifier.js";
 import {
   RuntimeModelRoundDispatchService,
   runtimeModelRoundEffectIdentity,
@@ -84,8 +107,6 @@ import {
   readExecutionTurnId,
 } from "./effective-authority-admission-bundle.js";
 
-const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
-const MAX_IDENTICAL_TOOL_EXECUTION_FAILURES = 2;
 const GOVERNED_WORK_ITEM_SETUP_TOOLS = new Set([
   "work_governance.assess",
   "work_profile.list",
@@ -103,55 +124,6 @@ interface GovernedWorkMaterializationProgress {
   readonly requiredWorkItemCount: number;
   readonly workItemIds: ReadonlySet<string>;
   readonly goalCreated: boolean;
-}
-
-function resolveExecutionEnvelope(value: RuntimeExecutionEnvelope | undefined): RuntimeExecutionEnvelope | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  return {
-    ...(value.toolRounds ? { toolRounds: resolveToolRoundBudget(value.toolRounds) } : {}),
-    ...(value.conversation ? {
-      conversation: {
-        ...(value.conversation.toolResults
-          ? { toolResults: resolveConversationToolResultPolicy(value.conversation.toolResults) }
-          : {}),
-      },
-    } : {}),
-  };
-}
-
-function resolveConversationToolResultPolicy(
-  value: ConversationToolResultProjectionPolicy,
-): ConversationToolResultProjectionPolicy {
-  if (!Number.isSafeInteger(value.triggerToolResultTokens) || value.triggerToolResultTokens <= 0) {
-    throw new KilnError(
-      "CONFIG_INVALID",
-      "executionEnvelope.conversation.toolResults.triggerToolResultTokens must be a positive integer",
-    );
-  }
-  if (!Number.isSafeInteger(value.retainRecentToolResults) || value.retainRecentToolResults < 0) {
-    throw new KilnError(
-      "CONFIG_INVALID",
-      "executionEnvelope.conversation.toolResults.retainRecentToolResults must be a non-negative integer",
-    );
-  }
-  return { ...value };
-}
-
-function resolveToolRoundBudget(value: RuntimeToolRoundBudget): RuntimeToolRoundBudget {
-  if (!Number.isSafeInteger(value.max) || value.max <= 0) {
-    throw new KilnError("CONFIG_INVALID", "executionEnvelope.toolRounds.max must be a positive integer");
-  }
-  return { max: value.max };
-}
-
-function isToolRoundBudgetExhausted(
-  round: number,
-  executionEnvelope: RuntimeExecutionEnvelope | undefined,
-): boolean {
-  const max = executionEnvelope?.toolRounds?.max;
-  return max !== undefined && round >= max;
 }
 
 function projectProviderRequestedAuthority(
@@ -202,14 +174,13 @@ export type {
   RuntimeAuthorityAdmissionCandidateConfig,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
-  RuntimeToolRoundBudget,
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
 
 export class RuntimeSessionOrchestrator {
-  private readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  private readonly executionEnvelope: RuntimeResolvedExecutionEnvelope;
   private _tools: readonly ToolDefinition[] | undefined;
   private readonly approvalGate: RuntimeSessionApprovalGate;
   private readonly telemetry: RuntimeSessionExecutionTelemetry;
@@ -218,7 +189,7 @@ export class RuntimeSessionOrchestrator {
     private readonly deps: OrchestratorDeps,
     approvalGate?: RuntimeSessionApprovalGate,
   ) {
-    this.executionEnvelope = resolveExecutionEnvelope(deps.executionEnvelope);
+    this.executionEnvelope = resolveRuntimeExecutionEnvelope(deps.executionEnvelope);
     this._tools = deps.tools;
     this.approvalGate = approvalGate ?? new RuntimeSessionApprovalGate(deps.eventBus);
     this.telemetry = new RuntimeSessionExecutionTelemetry(
@@ -293,11 +264,17 @@ export class RuntimeSessionOrchestrator {
           cacheWriteTokens: 0,
           queued: true,
           outcome: "paused",
+          dispositionReason: "session_not_active",
         };
       }
     }
 
     let escalation = this.detectPreLlmEscalation(userParts);
+    const executionEnvelope = perCallConfig?.executionEnvelope !== undefined
+      ? resolveRuntimeExecutionEnvelope(perCallConfig.executionEnvelope)
+      : this.executionEnvelope;
+    const turnObservation = new RuntimeTurnConvergenceObservationCollector(this.deps.monotonicNow);
+    const progressClassifier = new RuntimeTurnProgressClassifier();
 
     const systemManifest = buildRuntimeTurnSystemPrompt(
       session,
@@ -314,8 +291,12 @@ export class RuntimeSessionOrchestrator {
         this._tools,
         perCallConfig,
         (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
+        async (sessionId) => this.admitMultimodalEffect(
+          sessionId,
+          executionEnvelope.convergence,
+          turnObservation,
+        ),
         (sessionId, route) => this.telemetry.emitMultimodalRouted(sessionId, route),
-        async (sessionId) => this.assertSessionTurnBudget(sessionId),
       );
     } catch (error) {
       if (!(error instanceof SessionTurnBudgetDenied)) {
@@ -326,20 +307,96 @@ export class RuntimeSessionOrchestrator {
         session,
         denial: error,
         toolExecutions: [],
+        convergence: buildConvergenceEvidence(executionEnvelope.convergence, []),
+        preLlmEscalation: escalation,
+      });
+    }
+
+    // Delegated multimodal work can outlive the route-resolution await. Recheck
+    // the admitted turn signal before any route result is converted into a
+    // terminal Runtime response.
+    throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
+
+    if (routing.convergencePause) {
+      session.addUserMessage(userParts);
+      return this.finalizeTurnConvergencePause({
+        session,
+        executionEnvelope,
+        decision: routing.convergencePause,
+        progressEvidence: progressClassifier.chronologicalEvidence,
+        toolExecutions: [],
+        routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        communicationResolution: routing.communicationResolution,
         preLlmEscalation: escalation,
       });
     }
 
     const admittedUserParts = routing.transformedUserParts ?? userParts;
+    const completionObligations = resolveRequiredProducerObligations(extractText(admittedUserParts));
+    // Completion availability must describe the exact surface admitted for
+    // this turn. `routing.effectiveTools` is the initial provider surface
+    // after the canonical authority allowlist has been applied; materializable
+    // tools use the same allowlist projection. Do not consult the raw Runtime
+    // registry here, because it also contains authority-denied producers.
+    const admittedMaterializableTools = materializableToolsForEvidence(
+      this.deps.materializableTools,
+      readExecutionToolAllowlist(perCallConfig),
+    );
+    const availableCanonicalToolIds = new Set([
+      ...(routing.effectiveTools ?? []).map((tool) => tool.name),
+      ...(admittedMaterializableTools?.keys() ?? []),
+    ]);
     session.addUserMessage(admittedUserParts);
     const turnId = resolveRuntimeTurnId(session, perCallConfig);
 
     const toolExecutions: ToolExecutionSummary[] = [...(routing.preModelToolExecutions ?? [])];
+    for (const execution of toolExecutions) {
+      turnObservation.recordToolExecutionDuration(execution.durationMs);
+    }
+    if (toolExecutions.length > 0) {
+      recordRuntimeToolBatchProgress(
+        progressClassifier,
+        turnObservation,
+        [],
+        toolExecutions,
+        [],
+      );
+    }
     if (routing.delegatedMultimodalResult) {
+      turnObservation.recordToolExecutionDuration(routing.delegatedMultimodalResult.toolExecution.durationMs);
+      const delegatedToolExecutions = [
+        ...toolExecutions,
+        routing.delegatedMultimodalResult.toolExecution,
+      ];
+      recordRuntimeToolBatchProgress(
+        progressClassifier,
+        turnObservation,
+        [],
+        [routing.delegatedMultimodalResult.toolExecution],
+        [],
+      );
+      const completionAssessment = assessRuntimeCompletionObligations(
+        completionObligations,
+        availableCanonicalToolIds,
+        delegatedToolExecutions,
+      );
+      const delegatedConvergence = buildConvergenceEvidence(
+        executionEnvelope.convergence,
+        progressClassifier.chronologicalEvidence,
+      );
+      const disposition = completionDisposition(
+        completionAssessment.eligibility,
+        completionAssessment.evidence,
+        completionAssessment.obligations,
+        delegatedConvergence,
+        deriveGovernedTurnOutcome({ toolExecutions: delegatedToolExecutions }),
+      );
       return finalizeRuntimeSessionResponse({
         deps: this.deps,
         session,
-        parts: routing.delegatedMultimodalResult.parts,
+        parts: completionAssessment.eligibility.status === "ineligible"
+          ? textParts(formatRuntimeCompletionObligationFailure(completionAssessment.eligibility))
+          : routing.delegatedMultimodalResult.parts,
         usage: {
           inputTokens: routing.delegatedMultimodalResult.inputTokens,
           outputTokens: routing.delegatedMultimodalResult.outputTokens,
@@ -352,15 +409,13 @@ export class RuntimeSessionOrchestrator {
           cacheReadTokens: routing.delegatedMultimodalResult.cacheReadTokens,
           cacheWriteTokens: routing.delegatedMultimodalResult.cacheWriteTokens,
         },
-        toolExecutions: [routing.delegatedMultimodalResult.toolExecution],
+        toolExecutions: delegatedToolExecutions,
         routingDecision: toPublicRoutingDecision(routing.routingDecision),
         communicationResolution: routing.communicationResolution,
+        disposition,
         preLlmEscalation: escalation,
       });
     }
-    const executionEnvelope = resolveExecutionEnvelope(perCallConfig?.executionEnvelope ?? this.executionEnvelope);
-    const invalidToolCallAttempts = new Map<string, number>();
-    const toolExecutionFailureAttempts = new Map<string, number>();
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
       this.deps.eventBus,
@@ -384,23 +439,15 @@ export class RuntimeSessionOrchestrator {
 
     let managedInvocationTransitionReserveUsed = false;
     let temporalEvidenceRecoveryRequested = false;
-    for (let round = 0; this.canStartToolRound(round, managedInvocationTransitionReserveUsed, toolExecutions, executionEnvelope); round++) {
+    let round = 0;
+    while (true) {
       const governedWorkProgress = readGovernedWorkMaterializationProgress(
         perCallConfig?.governedWorkRequirement,
         toolExecutions,
         turnId,
       );
       const pendingTransitionForRound = pendingManagedInvocationTransition(toolExecutions);
-      const transitionOnlyRound = isToolRoundBudgetExhausted(round, executionEnvelope);
-      if (transitionOnlyRound) {
-        if (!pendingTransitionForRound) {
-          break;
-        }
-        managedInvocationTransitionReserveUsed = true;
-        const correction = formatManagedInvocationTransitionReserveCorrection(pendingTransitionForRound);
-        this.telemetry.emitError(session.id, correction);
-        session.addUserMessage(textParts(correction));
-      }
+      const transitionOnlyRound = turnObservation.snapshot().toolRounds >= executionEnvelope.convergence.toolRounds;
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
       const sessionTurnBudget = await this.checkBudget(session.id);
       if (!sessionTurnBudget.allowed) {
@@ -410,6 +457,10 @@ export class RuntimeSessionOrchestrator {
             sessionTurnBudget.message ?? "Session token observation denied.",
           ),
           toolExecutions,
+          convergence: buildConvergenceEvidence(
+            executionEnvelope.convergence,
+            progressClassifier.chronologicalEvidence,
+          ),
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
@@ -437,6 +488,10 @@ export class RuntimeSessionOrchestrator {
           toolExecutions,
           usageTotals: this.telemetry.snapshot(),
           providerRequests: this.telemetry.requestSnapshot(),
+          convergence: buildConvergenceEvidence(
+            executionEnvelope.convergence,
+            progressClassifier.chronologicalEvidence,
+          ),
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
@@ -505,14 +560,92 @@ export class RuntimeSessionOrchestrator {
           : {}),
         ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
       };
-      const response = await this.dispatchModelRound({
-        provider: routing.effectiveProvider,
-        request: providerRequest,
-        session,
-        turnId,
-        round,
-        perCallConfig,
-      });
+      const transitionReserveEligible = transitionOnlyRound
+        && pendingTransitionForRound !== undefined
+        && !managedInvocationTransitionReserveUsed
+        && managedInvocationTransitionToolIsAdmitted(toolsForRound, pendingTransitionForRound, perCallConfig);
+      const providerDecision = decideTurnConvergence(
+        executionEnvelope.convergence,
+        turnObservation.snapshot(),
+        {
+          kind: "provider_request",
+          projectedInputTokens: estimateRuntimeProviderRequestInput(providerRequest),
+        },
+      );
+      if (providerDecision.status === "pause" && !isEligibleTransitionReservePause(providerDecision, transitionReserveEligible)) {
+        if (providerDecision.reason === "tool_round_limit") {
+          if (governedWorkProgress && !governedWorkProgress.goalCreated) {
+            return finalizeGovernedWorkMaterializationRequired({
+              deps: this.deps,
+              session,
+              progress: governedWorkProgress,
+              toolExecutions,
+              usageTotals: this.telemetry.snapshot(),
+              providerRequests: this.telemetry.requestSnapshot(),
+              convergence: buildConvergenceEvidence(
+                executionEnvelope.convergence,
+                progressClassifier.chronologicalEvidence,
+              ),
+              routingDecision: toPublicRoutingDecision(routing.routingDecision),
+              communicationResolution: routing.communicationResolution,
+              preLlmEscalation: escalation,
+            });
+          }
+          if (pendingTransitionForRound) {
+            return finalizeManagedInvocationTransitionRequired({
+              deps: this.deps,
+              session,
+              pending: pendingTransitionForRound,
+              toolExecutions,
+              usageTotals: this.telemetry.snapshot(),
+              providerRequests: this.telemetry.requestSnapshot(),
+              convergence: buildConvergenceEvidence(
+                executionEnvelope.convergence,
+                progressClassifier.chronologicalEvidence,
+              ),
+              routingDecision: toPublicRoutingDecision(routing.routingDecision),
+              communicationResolution: routing.communicationResolution,
+              preLlmEscalation: escalation,
+            });
+          }
+        }
+        return this.finalizeTurnConvergencePause({
+          session,
+          executionEnvelope,
+          decision: providerDecision,
+          progressEvidence: progressClassifier.chronologicalEvidence,
+          toolExecutions,
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
+          preLlmEscalation: escalation,
+        });
+      }
+      if (transitionReserveEligible) {
+        turnObservation.recordRecoveryAttempt();
+        managedInvocationTransitionReserveUsed = true;
+        const correction = formatManagedInvocationTransitionReserveCorrection(pendingTransitionForRound!);
+        this.telemetry.emitError(session.id, correction);
+        session.addUserMessage(textParts(correction));
+      }
+      const providerStartedAt = turnObservation.recordProviderRequestStarted();
+      let response: AgentResponse;
+      try {
+        response = await this.dispatchModelRound({
+          provider: routing.effectiveProvider,
+          request: providerRequest,
+          session,
+          turnId,
+          round,
+          perCallConfig,
+        });
+      } catch (error) {
+        turnObservation.recordProviderRequestCompleted(providerStartedAt, undefined);
+        throw error;
+      }
+      const providerCompletion = turnObservation.recordProviderRequestCompleted(
+        providerStartedAt,
+        response.inputTokens,
+      );
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
       // ProviderAdapter is an open boundary -- any implementation, not only the built-in
       // adapters, must have its tool call identity validated before results enter the runtime
@@ -528,6 +661,7 @@ export class RuntimeSessionOrchestrator {
           cacheReadTokens: response.cacheReadTokens,
           cacheWriteTokens: response.cacheWriteTokens,
           contextUsage: response.contextUsage,
+          durationMs: providerCompletion.durationMs,
         },
         session.activeAgentId ?? undefined,
         measureProviderRequestRegions({
@@ -553,17 +687,51 @@ export class RuntimeSessionOrchestrator {
       pendingMaterializationDecisions = [];
 
       if (!routing.hasTools || response.toolCalls.length === 0) {
+        if (managedInvocationTransitionReserveUsed) {
+          const pendingAfterReserve = pendingManagedInvocationTransition(toolExecutions);
+          if (pendingAfterReserve) {
+            return finalizeManagedInvocationTransitionRequired({
+              deps: this.deps,
+              session,
+              pending: pendingAfterReserve,
+              toolExecutions,
+              usageTotals: this.telemetry.snapshot(),
+              providerRequests: this.telemetry.requestSnapshot(),
+              convergence: buildConvergenceEvidence(
+                executionEnvelope.convergence,
+                progressClassifier.chronologicalEvidence,
+              ),
+              routingDecision: toPublicRoutingDecision(routing.routingDecision),
+              communicationResolution: routing.communicationResolution,
+              preLlmEscalation: escalation,
+            });
+          }
+          return this.finalizeTurnConvergencePause({
+            session,
+            executionEnvelope,
+            decision: transitionReserveConvergencePause(executionEnvelope.convergence, turnObservation),
+            progressEvidence: progressClassifier.chronologicalEvidence,
+            toolExecutions,
+            routingDecision: toPublicRoutingDecision(routing.routingDecision),
+            communicationResolution: routing.communicationResolution,
+            preLlmEscalation: escalation,
+          });
+        }
         if (governedWorkProgress && !governedWorkProgress.goalCreated) {
           const correction = formatGovernedWorkMaterializationCorrection(governedWorkProgress);
           this.telemetry.emitError(session.id, correction);
+          turnObservation.recordRecoveryAttempt();
           session.addUserMessage(textParts(correction));
+          round += 1;
           continue;
         }
         const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
         if (pendingTransition) {
           const correction = formatManagedInvocationTransitionCorrection(pendingTransition);
           this.telemetry.emitError(session.id, correction);
+          turnObservation.recordRecoveryAttempt();
           session.addUserMessage(textParts(correction));
+          round += 1;
           continue;
         }
         const temporalEvidence = assessRuntimeTemporalEvidence({
@@ -577,16 +745,26 @@ export class RuntimeSessionOrchestrator {
           temporalEvidenceRecoveryRequested,
         )) {
           temporalEvidenceRecoveryRequested = true;
+          turnObservation.recordRecoveryAttempt();
           session.addUserMessage(temporalEvidenceRecoveryInstruction(temporalEvidence));
+          round += 1;
           continue;
         }
         const responseParts = temporalEvidence.required && !temporalEvidence.accepted
           ? temporalEvidenceRefusal(perCallConfig!.temporalContext!, temporalEvidence.exactLocalDate)
           : response.parts;
-        return finalizeRuntimeSessionResponse({
+        const completionAssessment = assessRuntimeCompletionObligations(
+          completionObligations,
+          availableCanonicalToolIds,
+          toolExecutions,
+        );
+        const completionIneligible = completionAssessment.eligibility.status === "ineligible";
+        const finalizedResponse = await finalizeRuntimeSessionResponse({
           deps: this.deps,
           session,
-          parts: responseParts,
+          parts: completionIneligible
+            ? textParts(formatRuntimeCompletionObligationFailure(completionAssessment.eligibility))
+            : responseParts,
           usage: {
             inputTokens: response.inputTokens,
             outputTokens: response.outputTokens,
@@ -596,14 +774,47 @@ export class RuntimeSessionOrchestrator {
           usageTotals,
           providerRequests: this.telemetry.requestSnapshot(),
           toolExecutions,
-          stopReason: response.stopReason,
+          disposition: completionDisposition(
+            completionAssessment.eligibility,
+            completionAssessment.evidence,
+            completionAssessment.obligations,
+            buildConvergenceEvidence(
+              executionEnvelope.convergence,
+              progressClassifier.chronologicalEvidence,
+            ),
+            deriveGovernedTurnOutcome({ toolExecutions }),
+          ),
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
+          preLlmEscalation: escalation,
+        });
+        return finalizedResponse;
+      }
+
+      const normalizedToolCalls = response.toolCalls.map((toolCall) => normalizeToolCall(toolCall));
+      const toolBatchDecision = decideTurnConvergence(
+        executionEnvelope.convergence,
+        turnObservation.snapshot(),
+        { kind: "tool_batch", toolCallCount: normalizedToolCalls.length },
+      );
+      const transitionBatchReserveEligible = transitionOnlyRound
+        && managedInvocationTransitionReserveUsed
+        && pendingTransitionForRound !== undefined
+        && managedInvocationTransitionToolIsAdmitted(toolsForRound, pendingTransitionForRound, perCallConfig);
+      if (toolBatchDecision.status === "pause"
+        && !isEligibleTransitionReservePause(toolBatchDecision, transitionBatchReserveEligible)) {
+        return this.finalizeTurnConvergencePause({
+          session,
+          executionEnvelope,
+          decision: toolBatchDecision,
+          progressEvidence: progressClassifier.chronologicalEvidence,
+          toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
         });
       }
-
-      const normalizedToolCalls = response.toolCalls.map((toolCall) => normalizeToolCall(toolCall));
+      turnObservation.recordToolRound(normalizedToolCalls.length);
       const transitionOnlyToolCalls = transitionOnlyRound && pendingTransitionForRound
         ? partitionManagedInvocationTransitionToolCalls(normalizedToolCalls, pendingTransitionForRound)
         : undefined;
@@ -627,51 +838,6 @@ export class RuntimeSessionOrchestrator {
         toolsForRound,
       );
       const executableToolCalls = projectedRoundToolCalls.allowed;
-      const repeatedInvalidToolAttempt = this.detectRepeatedInvalidToolAttempt(
-        executableToolCalls,
-        invalidToolCallAttempts,
-      );
-      if (repeatedInvalidToolAttempt) {
-        this.telemetry.emitError(session.id, repeatedInvalidToolAttempt.content);
-        session.addAssistantMessage(assistantParts);
-        const repeatedInvalidResultParts = normalizedToolCalls.map((toolCall) => {
-          const content = toolCall.id === repeatedInvalidToolAttempt.toolUseId
-            ? repeatedInvalidToolAttempt.content
-            : `Tool "${toolCall.name}" was not executed because this tool round was aborted after a repeated malformed tool call. Correct the arguments and retry only the necessary tool calls.`;
-          toolExecutions.push({
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            input: toolCall.input,
-            durationMs: 0,
-            success: false,
-            output: content,
-            resultSummary: content.slice(0, 200),
-          });
-          return {
-            type: "tool_result" as const,
-            toolUseId: toolCall.id,
-            content,
-            isError: true,
-          };
-        });
-        session.addUserMessage(repeatedInvalidResultParts);
-
-        return this.finalizeAfterRepeatedToolFailure({
-          session,
-          turnId,
-          routing,
-          invocationPromptManifest,
-          cachePartition,
-          executionEnvelope,
-          toolExecutions,
-          preLlmEscalation: escalation,
-          abortSignal: perCallConfig?.abortSignal,
-          providerTransport: perCallConfig?.providerTransport,
-          runtimeModelRoundDispatch: perCallConfig?.runtimeModelRoundDispatch,
-          round: round + 1,
-        });
-      }
-
       const blockedTransitionOnlyCalls = transitionOnlyToolCalls && transitionOnlyToolCalls.blocked.length > 0
         ? buildManagedInvocationTransitionOnlyBlockedResults(transitionOnlyToolCalls.blocked, pendingTransitionForRound!)
         : undefined;
@@ -681,21 +847,31 @@ export class RuntimeSessionOrchestrator {
       const blockedGovernedWorkCalls = governedWorkToolCalls && governedWorkToolCalls.blocked.length > 0
         ? buildGovernedWorkMaterializationBlockedResults(governedWorkToolCalls.blocked, governedWorkProgress!)
         : undefined;
+      const blockedToolExecutions = [
+        ...(blockedTransitionOnlyCalls?.toolExecutions ?? []),
+        ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
+        ...(blockedGovernedWorkCalls?.toolExecutions ?? []),
+      ];
+      const blockedToolCallIds = [
+        ...(transitionOnlyToolCalls?.blocked ?? []),
+        ...projectedRoundToolCalls.blocked,
+        ...(governedWorkToolCalls?.blocked ?? []),
+      ].map((toolCall) => toolCall.id);
       if (executableToolCalls.length === 0) {
-        if (blockedTransitionOnlyCalls) {
-          toolExecutions.push(...blockedTransitionOnlyCalls.toolExecutions);
-        }
-        if (blockedProjectedRoundCalls) {
-          toolExecutions.push(...blockedProjectedRoundCalls.toolExecutions);
-        }
-        if (blockedGovernedWorkCalls) {
-          toolExecutions.push(...blockedGovernedWorkCalls.toolExecutions);
-        }
+        toolExecutions.push(...blockedToolExecutions);
         session.addUserMessage([
           ...(blockedTransitionOnlyCalls?.resultParts ?? []),
           ...(blockedProjectedRoundCalls?.resultParts ?? []),
           ...(blockedGovernedWorkCalls?.resultParts ?? []),
         ]);
+        recordRuntimeToolBatchProgress(
+          progressClassifier,
+          turnObservation,
+          normalizedToolCalls,
+          blockedToolExecutions,
+          blockedToolCallIds,
+        );
+        round += 1;
         continue;
       }
 
@@ -707,42 +883,59 @@ export class RuntimeSessionOrchestrator {
           ? withManagedInvocationTransitionToolAllowlist(perCallConfig, pendingTransitionForRound)
           : perCallConfig,
       );
-      toolExecutions.push(
+      for (const summary of execution.toolExecutions) {
+        if (summary.durationMs > 0) {
+          turnObservation.recordToolExecutionDuration(summary.durationMs);
+        }
+      }
+      const batchToolExecutions = [
         ...(blockedTransitionOnlyCalls?.toolExecutions ?? []),
         ...execution.toolExecutions,
         ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
         ...(blockedGovernedWorkCalls?.toolExecutions ?? []),
-      );
-      const repeatedExecutionFailure = this.detectRepeatedToolExecutionFailure(
-        execution.toolExecutions,
-        toolExecutionFailureAttempts,
-      );
-      const executionResultParts = repeatedExecutionFailure
-        ? execution.resultParts.map((part) => part.toolUseId === repeatedExecutionFailure.toolUseId
-          ? { ...part, content: `${part.content}\n\n${repeatedExecutionFailure.content}` }
-          : part)
-        : execution.resultParts;
+      ];
+      toolExecutions.push(...batchToolExecutions);
       session.addUserMessage([
         ...(blockedTransitionOnlyCalls?.resultParts ?? []),
-        ...executionResultParts,
+        ...execution.resultParts,
         ...(blockedProjectedRoundCalls?.resultParts ?? []),
         ...(blockedGovernedWorkCalls?.resultParts ?? []),
       ]);
-      if (repeatedExecutionFailure) {
-        this.telemetry.emitError(session.id, repeatedExecutionFailure.content);
-        return this.finalizeAfterRepeatedToolFailure({
-          session,
-          turnId,
-          routing,
-          invocationPromptManifest,
-          cachePartition,
-          executionEnvelope,
+      recordRuntimeToolBatchProgress(
+        progressClassifier,
+        turnObservation,
+        normalizedToolCalls,
+        batchToolExecutions,
+        blockedToolCallIds,
+      );
+      if (managedInvocationTransitionReserveUsed) {
+        const pendingAfterReserve = pendingManagedInvocationTransition(toolExecutions);
+        if (pendingAfterReserve) {
+          return finalizeManagedInvocationTransitionRequired({
+            deps: this.deps,
+            session,
+          pending: pendingAfterReserve,
           toolExecutions,
+          usageTotals: this.telemetry.snapshot(),
+          providerRequests: this.telemetry.requestSnapshot(),
+          convergence: buildConvergenceEvidence(
+            executionEnvelope.convergence,
+            progressClassifier.chronologicalEvidence,
+          ),
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+            communicationResolution: routing.communicationResolution,
+            preLlmEscalation: escalation,
+          });
+        }
+        return this.finalizeTurnConvergencePause({
+          session,
+          executionEnvelope,
+          decision: transitionReserveConvergencePause(executionEnvelope.convergence, turnObservation),
+          progressEvidence: progressClassifier.chronologicalEvidence,
+          toolExecutions,
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
-          abortSignal: perCallConfig?.abortSignal,
-          providerTransport: perCallConfig?.providerTransport,
-          runtimeModelRoundDispatch: perCallConfig?.runtimeModelRoundDispatch,
-          round: round + 1,
         });
       }
       const progressiveAdmission = admitProgressivelyMaterializedTools(
@@ -753,230 +946,45 @@ export class RuntimeSessionOrchestrator {
       );
       projectedRoundTools = progressiveAdmission.tools;
       pendingMaterializationDecisions = progressiveAdmission.decisions;
+      round += 1;
     }
 
-    const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
-    if (pendingTransition) {
-      this.telemetry.emitError(session.id, "Tool-round execution envelope exhausted");
-      return finalizeManagedInvocationTransitionRequired({
-        deps: this.deps,
-        session,
-        pending: pendingTransition,
-        toolExecutions,
-        usageTotals: this.telemetry.snapshot(),
-        providerRequests: this.telemetry.requestSnapshot(),
-        routingDecision: toPublicRoutingDecision(routing.routingDecision),
-        communicationResolution: routing.communicationResolution,
-        preLlmEscalation: escalation,
-      });
-    }
-
-    const governedWorkProgress = readGovernedWorkMaterializationProgress(
-      perCallConfig?.governedWorkRequirement,
-      toolExecutions,
-      turnId,
-    );
-    if (governedWorkProgress && !governedWorkProgress.goalCreated) {
-      this.telemetry.emitError(session.id, "Governed work materialization requirement was not satisfied");
-      return finalizeGovernedWorkMaterializationRequired({
-        deps: this.deps,
-        session,
-        progress: governedWorkProgress,
-        toolExecutions,
-        usageTotals: this.telemetry.snapshot(),
-        providerRequests: this.telemetry.requestSnapshot(),
-        routingDecision: toPublicRoutingDecision(routing.routingDecision),
-        communicationResolution: routing.communicationResolution,
-        preLlmEscalation: escalation,
-      });
-    }
-
-    if (!managedInvocationTransitionReserveUsed) {
-      this.telemetry.emitError(session.id, "Tool-round execution envelope exhausted");
-    }
-
-    const toolRoundBudget = executionEnvelope?.toolRounds;
-    if (!toolRoundBudget) {
-      throw new KilnError("CONFIG_INVALID", "Runtime tool loop ended without an explicit tool-round budget");
-    }
-    session.addUserMessage(toolRoundBudgetFinalizationPrompt(toolRoundBudget.max));
-    try {
-      await this.assertSessionTurnBudget(session.id);
-    } catch (error) {
-      if (!(error instanceof SessionTurnBudgetDenied)) {
-        throw error;
-      }
-      return this.finalizeSessionTurnBudgetDenial({
-        session,
-        denial: error,
-        toolExecutions,
-        routingDecision: toPublicRoutingDecision(routing.routingDecision),
-        preLlmEscalation: escalation,
-      });
-    }
-    const fallback = await requestRuntimeSessionFallbackResponse(
-      invocationPromptManifest,
-      session,
-      this.deps.maxTokens,
-      (request) => this.dispatchModelRound({
-        provider: routing.effectiveProvider,
-        request,
-        session,
-        turnId,
-        round: toolRoundBudget.max,
-        perCallConfig,
-      }),
-      buildRuntimeProviderRequestCachePartition(session, routing, perCallConfig, executionEnvelope),
-      executionEnvelope?.conversation?.toolResults,
-      perCallConfig?.abortSignal,
-      perCallConfig?.providerTransport,
-      routing.communicationResolution,
-    );
-    const usageTotals = this.telemetry.recordResponse(
-      session.id,
-      fallback.usage,
-      session.activeAgentId ?? undefined,
-      fallback.request,
-    );
-    const finalizedFallback = this.finalizeNoToolFallback({
-      session,
-      fallback,
-      failureMessage: formatToolRoundBudgetExhaustedFinalization(toolRoundBudget.max),
-      failureStopReason: RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
-    });
-
-    return finalizeRuntimeSessionResponse({
-      deps: this.deps,
-      session,
-      parts: finalizedFallback.parts,
-      usage: fallback.usage,
-      usageTotals,
-      providerRequests: this.telemetry.requestSnapshot(),
-      toolExecutions,
-      stopReason: finalizedFallback.stopReason,
-      routingDecision: toPublicRoutingDecision(routing.routingDecision),
-      communicationResolution: routing.communicationResolution,
-      preLlmEscalation: escalation,
-    });
   }
 
-  private canStartToolRound(
-    round: number,
-    managedInvocationTransitionReserveUsed: boolean,
-    toolExecutions: readonly ToolExecutionSummary[],
-    executionEnvelope: RuntimeExecutionEnvelope | undefined,
-  ): boolean {
-    if (!isToolRoundBudgetExhausted(round, executionEnvelope)) {
-      return true;
-    }
-    return !managedInvocationTransitionReserveUsed && pendingManagedInvocationTransition(toolExecutions) !== undefined;
-  }
-
-  private finalizeNoToolFallback(input: {
+  private finalizeTurnConvergencePause(input: {
     readonly session: RuntimeSession;
-    readonly fallback: {
-      readonly parts: readonly ContentPart[];
-      readonly toolCalls: readonly ToolCall[];
-      readonly stopReason?: string;
-    };
-    readonly failureMessage: string;
-    readonly failureStopReason: string;
-  }): {
-    readonly parts: readonly ContentPart[];
-    readonly stopReason?: string;
-  } {
-    const fallbackRequiresToolContinuation = input.fallback.toolCalls.length > 0
-      || isToolContinuationStopReason(input.fallback.stopReason);
-    const fallbackText = extractText(input.fallback.parts).trim();
-    if (fallbackRequiresToolContinuation || fallbackText.length === 0) {
-      this.telemetry.emitError(
-        input.session.id,
-        "Tool finalization did not produce a final answer without tools",
-      );
-      return {
-        parts: textParts(input.failureMessage),
-        stopReason: input.failureStopReason,
-      };
-    }
-    return {
-      parts: input.fallback.parts,
-      ...(input.fallback.stopReason !== undefined ? { stopReason: input.fallback.stopReason } : {}),
-    };
-  }
-
-  private async finalizeAfterRepeatedToolFailure(input: {
-    readonly session: RuntimeSession;
-    readonly turnId: string;
-    readonly routing: RuntimeSessionRoutingResolution;
-    readonly invocationPromptManifest: EffectivePromptManifest;
-    readonly cachePartition?: ProviderRequestCachePartitionInput;
-    readonly executionEnvelope?: RuntimeExecutionEnvelope;
+    readonly executionEnvelope: RuntimeResolvedExecutionEnvelope;
+    readonly decision: TurnConvergencePauseDecision;
+    readonly progressEvidence: readonly TurnProgressEvidence[];
     readonly toolExecutions: readonly ToolExecutionSummary[];
+    readonly routingDecision?: OrchestrateResult["routingDecision"];
+    readonly communicationResolution?: OrchestrateResult["communicationResolution"];
     readonly preLlmEscalation?: EscalationSignal;
-    readonly abortSignal?: AbortSignal;
-    readonly providerTransport?: PerCallToolConfig["providerTransport"];
-    readonly runtimeModelRoundDispatch?: PerCallToolConfig["runtimeModelRoundDispatch"];
-    readonly round: number;
   }): Promise<OrchestrateResult> {
-    try {
-      await this.assertSessionTurnBudget(input.session.id);
-    } catch (error) {
-      if (!(error instanceof SessionTurnBudgetDenied)) {
-        throw error;
-      }
-      return this.finalizeSessionTurnBudgetDenial({
-        session: input.session,
-        denial: error,
-        toolExecutions: input.toolExecutions,
-        routingDecision: toPublicRoutingDecision(input.routing.routingDecision),
-        preLlmEscalation: input.preLlmEscalation,
-      });
-    }
-    const fallback = await requestRuntimeSessionFallbackResponse(
-      input.invocationPromptManifest,
-      input.session,
-      this.deps.maxTokens,
-      (request) => this.dispatchModelRound({
-        provider: input.routing.effectiveProvider,
-        request,
-        session: input.session,
-        turnId: input.turnId,
-        round: input.round,
-        perCallConfig: {
-          ...(input.runtimeModelRoundDispatch ? { runtimeModelRoundDispatch: input.runtimeModelRoundDispatch } : {}),
-          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-          ...(input.providerTransport ? { providerTransport: input.providerTransport } : {}),
-        },
-      }),
-      input.cachePartition,
-      input.executionEnvelope?.conversation?.toolResults,
-      input.abortSignal,
-      input.providerTransport,
-      input.routing.communicationResolution,
-    );
-    const fallbackUsageTotals = this.telemetry.recordResponse(
-      input.session.id,
-      fallback.usage,
-      input.session.activeAgentId ?? undefined,
-      fallback.request,
-    );
-    const finalizedFallback = this.finalizeNoToolFallback({
-      session: input.session,
-      fallback,
-      failureMessage: formatNoToolFinalizationFailed(),
-      failureStopReason: RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-    });
+    const message = formatRuntimeTurnConvergencePause(input.decision);
+    this.telemetry.emitError(input.session.id, message);
     return finalizeRuntimeSessionResponse({
       deps: this.deps,
       session: input.session,
-      parts: finalizedFallback.parts,
-      usage: fallback.usage,
-      usageTotals: fallbackUsageTotals,
+      parts: textParts(message),
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      usageTotals: this.telemetry.snapshot(),
       providerRequests: this.telemetry.requestSnapshot(),
       toolExecutions: input.toolExecutions,
-      stopReason: finalizedFallback.stopReason,
-      routingDecision: toPublicRoutingDecision(input.routing.routingDecision),
-      communicationResolution: input.routing.communicationResolution,
+      disposition: {
+        ...buildConvergenceDisposition(
+          input.executionEnvelope.convergence,
+          input.decision,
+          input.progressEvidence,
+        ),
+      },
+      routingDecision: input.routingDecision,
+      communicationResolution: input.communicationResolution,
       preLlmEscalation: input.preLlmEscalation,
     });
   }
@@ -1069,10 +1077,29 @@ export class RuntimeSessionOrchestrator {
     }
   }
 
+  private async admitMultimodalEffect(
+    sessionId: string,
+    policy: ResolvedTurnConvergencePolicy,
+    observation: RuntimeTurnConvergenceObservationCollector,
+  ): Promise<RuntimeMultimodalEffectAdmission> {
+    await this.assertSessionTurnBudget(sessionId);
+    const decision = decideTurnConvergence(
+      policy,
+      observation.snapshot(),
+      { kind: "tool_batch", toolCallCount: 1 },
+    );
+    if (decision.status === "pause") {
+      return { status: "paused", decision };
+    }
+    observation.recordToolRound(1);
+    return { status: "admitted" };
+  }
+
   private finalizeSessionTurnBudgetDenial(input: {
     readonly session: RuntimeSession;
     readonly denial: SessionTurnBudgetDenied;
     readonly toolExecutions: readonly ToolExecutionSummary[];
+    readonly convergence: TurnConvergenceEvidence;
     readonly routingDecision?: OrchestrateResult["routingDecision"];
     readonly communicationResolution?: OrchestrateResult["communicationResolution"];
     readonly preLlmEscalation?: EscalationSignal;
@@ -1094,90 +1121,174 @@ export class RuntimeSessionOrchestrator {
       routingDecision: input.routingDecision,
       communicationResolution: input.communicationResolution,
       preLlmEscalation: input.preLlmEscalation,
-      outcome: "failed",
+      disposition: {
+        outcome: "failed",
+        dispositionReason: "outer_authority_denied",
+        convergence: input.convergence,
+      },
     });
   }
 
-  private detectRepeatedInvalidToolAttempt(
-    toolCalls: readonly {
-      readonly id: string;
-      readonly name: string;
-      readonly input: Record<string, unknown>;
-    }[],
-    attempts: Map<string, number>,
-  ): {
-    readonly toolUseId: string;
-    readonly toolName: string;
-    readonly content: string;
-  } | undefined {
-    for (const toolCall of toolCalls) {
-      const invalidInput = getInvalidToolInputDetails(toolCall.input);
-      if (!invalidInput) {
-        continue;
-      }
+}
 
-      const fingerprint = JSON.stringify({
-        toolName: toolCall.name,
-        reason: invalidInput.reason,
-        raw: invalidInput.raw,
-      });
-      const nextAttemptCount = (attempts.get(fingerprint) ?? 0) + 1;
-      attempts.set(fingerprint, nextAttemptCount);
-
-      if (nextAttemptCount < MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS) {
-        continue;
-      }
-
-      return {
-        toolUseId: toolCall.id,
-        toolName: toolCall.name,
-        content: `Repeated invalid input for tool "${toolCall.name}". The same malformed call was already rejected. Correct the arguments instead of retrying the unchanged tool call.`,
-      };
-    }
-
-    return undefined;
+function recordRuntimeToolBatchProgress(
+  classifier: RuntimeTurnProgressClassifier,
+  observation: RuntimeTurnConvergenceObservationCollector,
+  toolCalls: readonly ToolCall[],
+  executions: readonly ToolExecutionSummary[],
+  blockedToolCallIds: readonly string[],
+): TurnProgressEvidence {
+  const batch: RuntimeTurnProgressBatch = {
+    executions,
+    invalidToolCallIds: toolCalls.flatMap((toolCall) => (
+      getInvalidToolInputDetails(toolCall.input) ? [toolCall.id] : []
+    )),
+    blockedToolCallIds,
+  };
+  const evidence = classifier.classify(batch);
+  if (evidence.kind === "progress") {
+    observation.recordProgress();
+  } else {
+    observation.recordNoProgressStep();
   }
+  return evidence;
+}
 
-  private detectRepeatedToolExecutionFailure(
-    executions: readonly ToolExecutionSummary[],
-    attempts: Map<string, number>,
-  ): {
-    readonly toolUseId: string;
-    readonly content: string;
-  } | undefined {
-    for (const execution of executions) {
-      if (execution.success || !execution.toolCallId) continue;
-      const fingerprint = toolExecutionFailureFingerprint(execution);
-      const nextAttemptCount = (attempts.get(fingerprint) ?? 0) + 1;
-      attempts.set(fingerprint, nextAttemptCount);
-      if (nextAttemptCount < MAX_IDENTICAL_TOOL_EXECUTION_FAILURES) continue;
+function buildConvergenceEvidence(
+  policy: ResolvedTurnConvergencePolicy,
+  progressEvidence: readonly TurnProgressEvidence[],
+): TurnConvergenceEvidence {
+  return {
+    policy,
+    progressEvidence: Object.freeze([...progressEvidence]),
+  };
+}
+
+function buildConvergenceDisposition(
+  policy: ResolvedTurnConvergencePolicy,
+  decision: TurnConvergencePauseDecision,
+  progressEvidence: readonly TurnProgressEvidence[],
+): RuntimeTurnTerminalDisposition {
+  switch (decision.reason) {
+    case "observation_unavailable":
       return {
-        toolUseId: execution.toolCallId,
-        content: `Repeated deterministic failure for tool "${execution.toolName}". Stop retrying this unchanged operation and report the blocking error.`,
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
       };
-    }
-    return undefined;
+    case "provider_request_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "tool_round_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "tool_call_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "cumulative_input_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "elapsed_time_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "active_time_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "recovery_limit":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
+    case "no_progress":
+      return {
+        outcome: "paused",
+        dispositionReason: decision.reason,
+        convergence: { policy, pause: decision, progressEvidence },
+      };
   }
 }
 
-function toolExecutionFailureFingerprint(execution: ToolExecutionSummary): string {
-  const commandFailure = execution.metadata?.["kind"] === "command";
-  // Command retries may change shell-only syntax without changing the failure.
-  // Other tools keep their exact input because it can represent real progress.
-  return JSON.stringify({
-    toolName: execution.toolName,
-    ...(commandFailure
-      ? {
-          commandFailure: {
-            cwd: execution.metadata?.["cwd"],
-            status: execution.metadata?.["status"],
-            exitCode: execution.metadata?.["exitCode"],
-            code: execution.metadata?.["code"],
-          },
-        }
-      : { input: execution.input }),
-    resultSummary: execution.resultSummary.trim().replace(/\s+/gu, " "),
-  });
+function completionDisposition(
+  eligibility: CompletionEligibility,
+  evidence: readonly import("@kilnai/core/agents").RequiredProducerEvidence[],
+  obligations: readonly import("@kilnai/core/agents").CompletionObligation[] = [],
+  convergence: TurnConvergenceEvidence,
+  governedOutcome: SessionTurnOutcome | undefined,
+): RuntimeTurnTerminalDisposition {
+  if (eligibility.status === "ineligible") {
+    const completion: IneligibleCompletionSettlementEvidence = {
+      obligations,
+      producerEvidence: evidence,
+      eligibility,
+    };
+    if (eligibility.unmet.some(({ status }) => status === "unavailable")) {
+      return {
+        outcome: "failed",
+        dispositionReason: "required_producer_unavailable",
+        completion,
+        convergence,
+      };
+    }
+    if (eligibility.unmet.some(({ status }) => status === "execution_failed")) {
+      return {
+        outcome: "failed",
+        dispositionReason: "required_producer_execution_failed",
+        completion,
+        convergence,
+      };
+    }
+    if (eligibility.unmet.some(({ status }) => status === "invalid_evidence")) {
+      return {
+        outcome: "failed",
+        dispositionReason: "required_producer_invalid_evidence",
+        completion,
+        convergence,
+      };
+    }
+    return {
+      outcome: "paused",
+      dispositionReason: "required_producer_not_run",
+      completion,
+      convergence,
+    };
+  }
+  if (governedOutcome !== undefined) {
+    return {
+      outcome: "failed",
+      dispositionReason: "governed_work_incomplete",
+      convergence,
+    };
+  }
+  const completion: EligibleCompletionSettlementEvidence = {
+    obligations,
+    producerEvidence: evidence,
+    eligibility,
+  };
+  return {
+    outcome: "completed",
+    dispositionReason: "completion_eligible",
+    completion,
+    convergence,
+  };
 }
 
 /**
@@ -1550,11 +1661,12 @@ function finalizeManagedInvocationTransitionRequired(input: {
     readonly cacheWriteTokens: number;
   };
   readonly providerRequests: readonly ProviderRequestEvidence[];
+  readonly convergence: TurnConvergenceEvidence;
   readonly routingDecision: OrchestrateResult["routingDecision"];
   readonly communicationResolution: OrchestrateResult["communicationResolution"];
   readonly preLlmEscalation: OrchestrateResult["escalation"];
 }): Promise<OrchestrateResult> {
-  const parts = textParts(formatManagedInvocationTransitionExhaustedMessage(input.pending));
+  const parts = textParts(formatManagedInvocationTransitionRequiredMessage(input.pending));
   return finalizeRuntimeSessionResponse({
     deps: input.deps,
     session: input.session,
@@ -1568,7 +1680,11 @@ function finalizeManagedInvocationTransitionRequired(input: {
     usageTotals: input.usageTotals,
     providerRequests: input.providerRequests,
     toolExecutions: input.toolExecutions,
-    stopReason: RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
+    disposition: {
+      outcome: "failed",
+      dispositionReason: "managed_invocation_state_transition_required",
+      convergence: input.convergence,
+    },
     routingDecision: input.routingDecision,
     communicationResolution: input.communicationResolution,
     preLlmEscalation: input.preLlmEscalation,
@@ -1587,6 +1703,7 @@ function finalizeGovernedWorkMaterializationRequired(input: {
     readonly cacheWriteTokens: number;
   };
   readonly providerRequests: readonly ProviderRequestEvidence[];
+  readonly convergence: TurnConvergenceEvidence;
   readonly routingDecision: OrchestrateResult["routingDecision"];
   readonly communicationResolution: OrchestrateResult["communicationResolution"];
   readonly preLlmEscalation: OrchestrateResult["escalation"];
@@ -1607,7 +1724,11 @@ function finalizeGovernedWorkMaterializationRequired(input: {
     usageTotals: input.usageTotals,
     providerRequests: input.providerRequests,
     toolExecutions: input.toolExecutions,
-    stopReason: RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
+    disposition: {
+      outcome: "failed",
+      dispositionReason: "governed_work_materialization_required",
+      convergence: input.convergence,
+    },
     routingDecision: input.routingDecision,
     communicationResolution: input.communicationResolution,
     preLlmEscalation: input.preLlmEscalation,
@@ -1969,9 +2090,9 @@ function formatManagedInvocationTransitionReserveCorrection(pending: PendingMana
   return lines.join("\n");
 }
 
-function formatManagedInvocationTransitionExhaustedMessage(pending: PendingManagedInvocationTransition): string {
+function formatManagedInvocationTransitionRequiredMessage(pending: PendingManagedInvocationTransition): string {
   return [
-    "Managed invocation state transition is still pending after the tool-round budget was exhausted.",
+    "Managed invocation state transition is required before the governed workflow can continue.",
     `Work item ${pending.workItemId} must be transitioned with ${pending.nextTool} before the governed workflow can continue.`,
     "No implementation, verification, or closeout should be treated as complete from this turn.",
   ].join("\n");
@@ -2017,38 +2138,54 @@ function throwIfRuntimeTurnAborted(signal: AbortSignal | undefined): void {
   throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
 }
 
-function toolRoundBudgetFinalizationPrompt(maxToolRoundCount: number): readonly ContentPart[] {
-  return textParts([
-    `Tool round budget exhausted after ${formatToolRoundCount(maxToolRoundCount)}.`,
-    "Do not call tools.",
-    "Return the final answer now using only the completed tool results already in this transcript.",
-    "If the requested evidence is incomplete, say exactly what is missing and why.",
-  ].join(" "));
+function estimateRuntimeProviderRequestInput(
+  request: CreateMessageOptions,
+): import("@kilnai/core/agents").ObservedTurnQuantity {
+  try {
+    const serialized = JSON.stringify({
+      system: request.system,
+      messages: request.messages,
+      tools: request.tools ?? [],
+    });
+    if (serialized === undefined) {
+      return { status: "unknown", reason: "provider request input could not be serialized" };
+    }
+    return { status: "observed", value: estimateTextTokens(serialized) };
+  } catch {
+    return { status: "unknown", reason: "provider request input could not be serialized" };
+  }
 }
 
-function formatToolRoundBudgetExhaustedFinalization(maxToolRoundCount: number): string {
-  return [
-    `Tool round budget exhausted after ${formatToolRoundCount(maxToolRoundCount)}.`,
-    "The bounded finalization pass did not produce a final answer without tools.",
-    "Inspect the transcript and child execution evidence before recording governed evidence.",
-  ].join(" ");
+function isEligibleTransitionReservePause(
+  decision: TurnConvergenceDecision,
+  eligible: boolean,
+): boolean {
+  return eligible && decision.status === "pause" && decision.reason === "tool_round_limit";
 }
 
-function formatNoToolFinalizationFailed(): string {
-  return [
-    "Tool finalization did not produce a final answer without tools.",
-    "Inspect the transcript and tool execution evidence before treating this turn as complete.",
-  ].join(" ");
+function transitionReserveConvergencePause(
+  policy: ResolvedTurnConvergencePolicy,
+  collector: RuntimeTurnConvergenceObservationCollector,
+): TurnConvergencePauseDecision {
+  const decision = decideTurnConvergence(
+    policy,
+    collector.snapshot(),
+    { kind: "provider_request", projectedInputTokens: { status: "observed", value: 0 } },
+  );
+  if (decision.status === "pause") return decision;
+  return {
+    status: "pause",
+    reason: "tool_round_limit",
+    metric: "toolRounds",
+    observed: policy.toolRounds,
+    limit: policy.toolRounds,
+  };
 }
 
-function formatToolRoundCount(maxToolRoundCount: number): string {
-  return maxToolRoundCount === 1 ? "1 tool round" : `${maxToolRoundCount} tool rounds`;
-}
-
-function isToolContinuationStopReason(stopReason: string | undefined): boolean {
-  return stopReason === "tool_use"
-    || stopReason === "tool_calls"
-    || stopReason === "tool_calls_streamed";
+function formatRuntimeTurnConvergencePause(decision: TurnConvergencePauseDecision): string {
+  return decision.reason === "observation_unavailable"
+    ? `Turn paused: ${decision.metric} observation unavailable.`
+    : `Turn paused: ${decision.metric} limit reached (${decision.observed}/${decision.limit}).`;
 }
 
 function errorToMessage(error: unknown): string {
@@ -2059,7 +2196,7 @@ function buildRuntimeProviderRequestCachePartition(
   session: RuntimeSession,
   routing: RuntimeSessionRoutingResolution,
   perCallConfig: PerCallToolConfig | undefined,
-  executionEnvelope: RuntimeExecutionEnvelope | undefined,
+  executionEnvelope: RuntimeResolvedExecutionEnvelope,
 ): ProviderRequestCachePartitionInput {
   return {
     tenantId: perCallConfig?.tenantId ?? session.tenantId,

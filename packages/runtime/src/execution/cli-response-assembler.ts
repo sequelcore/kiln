@@ -1,4 +1,5 @@
 import type { AgentResponse, ExecutionSessionEvent } from "@kilnai/core";
+import type { TurnTerminalDisposition } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core";
 
 export class CliResponseAssembler {
@@ -6,7 +7,7 @@ export class CliResponseAssembler {
   private inputTokens = 0;
   private outputTokens = 0;
   private cacheReadTokens = 0;
-  private outcome: Extract<ExecutionSessionEvent, { readonly type: "completed" }>["outcome"] = "completed";
+  private terminalDisposition: TurnTerminalDisposition | undefined;
 
   consume(event: ExecutionSessionEvent): void {
     if (event.type === "text_delta" && !event.isThinking) {
@@ -16,14 +17,17 @@ export class CliResponseAssembler {
       if (event.outputTokens !== undefined) this.outputTokens = event.outputTokens;
       if (event.cacheReadTokens !== undefined) this.cacheReadTokens = event.cacheReadTokens;
     } else if (event.type === "completed") {
-      this.outcome = event.outcome;
+      this.terminalDisposition = event.disposition;
     } else if (event.type === "error") {
-      this.outcome = "failed";
       throw new Error(`[${event.code}] ${event.message}`);
     }
   }
 
   toResponse(): AgentResponse {
+    const terminalDisposition = this.terminalDisposition;
+    if (terminalDisposition === undefined) {
+      throw new Error("CLI session ended without a terminal disposition.");
+    }
     return {
       parts: textParts(this.content),
       inputTokens: this.inputTokens,
@@ -31,7 +35,7 @@ export class CliResponseAssembler {
       cacheReadTokens: this.cacheReadTokens,
       cacheWriteTokens: 0,
       toolCalls: [],
-      stopReason: this.outcome === "completed" ? "end_turn" : this.outcome,
+      stopReason: terminalDisposition.dispositionReason,
     };
   }
 }

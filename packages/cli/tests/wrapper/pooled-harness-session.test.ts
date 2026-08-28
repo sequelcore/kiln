@@ -5,6 +5,7 @@ import type {
 } from "@kilnai/core/events";
 import { describe, expect, it, vi } from "vitest";
 import { PooledHarnessSession } from "../../src/wrapper/pooled-harness-session.js";
+import { nativeHarnessTerminalDisposition } from "../../src/wrapper/native-harness-terminal-disposition.js";
 import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "../../src/wrapper/session.js";
 
 const CAPABILITIES: SessionCapabilities = {
@@ -118,12 +119,24 @@ describe("PooledHarnessSession", () => {
           return new MockSession("first-session", [
             { type: "text_delta", content: "partial output must be discarded" },
             { type: "error", code: "CODEX_EXIT_ERROR", message: "codex exited with 429", isRetryable: false },
-            { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+            {
+              type: "completed",
+              totalUsd: 0,
+              durationMs: 1,
+              disposition: nativeHarnessTerminalDisposition({ harness: "codex", outcome: "failed" }),
+              isPreflightCrash: false,
+            },
           ]);
         }
         return new MockSession("second-session", [
           { type: "text_delta", content: "final output" },
-          { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+          {
+            type: "completed",
+            totalUsd: 0,
+            durationMs: 1,
+            disposition: nativeHarnessTerminalDisposition({ harness: "codex", outcome: "completed" }),
+            isPreflightCrash: false,
+          },
         ]);
       },
     });
@@ -134,7 +147,13 @@ describe("PooledHarnessSession", () => {
     expect(createDefaultSession).not.toHaveBeenCalled();
     expect(events).toEqual([
       { type: "text_delta", content: "final output" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessTerminalDisposition({ harness: "codex", outcome: "completed" }),
+        isPreflightCrash: false,
+      },
     ]);
   });
 
@@ -159,18 +178,36 @@ describe("PooledHarnessSession", () => {
         return auth.homeDir.endsWith("/first")
           ? new MockSession("first-session", [
               { type: "error", code, message, isRetryable: false },
-              { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+              {
+                type: "completed",
+                totalUsd: 0,
+                durationMs: 1,
+                disposition: nativeHarnessTerminalDisposition({ harness: "claude-code", outcome: "failed" }),
+                isPreflightCrash: false,
+              },
             ])
           : new MockSession("second-session", [
               { type: "text_delta", content: "final output" },
-              { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+              {
+                type: "completed",
+                totalUsd: 0,
+                durationMs: 1,
+                disposition: nativeHarnessTerminalDisposition({ harness: "claude-code", outcome: "completed" }),
+                isPreflightCrash: false,
+              },
             ]);
       },
     });
 
     await expect(collect(session.run({ prompt: "do work" }))).resolves.toEqual([
       { type: "text_delta", content: "final output" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessTerminalDisposition({ harness: "claude-code", outcome: "completed" }),
+        isPreflightCrash: false,
+      },
     ]);
     expect(seenHomes).toEqual(["C:/claude/first", "C:/claude/second"]);
   });
@@ -192,7 +229,13 @@ describe("PooledHarnessSession", () => {
         seenHomes.push(auth.homeDir);
         return new MockSession("failed-session", [
           failure,
-          { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+          {
+            type: "completed",
+            totalUsd: 0,
+            durationMs: 1,
+            disposition: nativeHarnessTerminalDisposition({ harness: "claude-code", outcome: "failed" }),
+            isPreflightCrash: false,
+          },
         ]);
       },
     });

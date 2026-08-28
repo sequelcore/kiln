@@ -222,7 +222,7 @@ describe("OpenAIAdapter", () => {
     expect(JSON.parse(mockFetch.mock.calls[0]![1].body)).toMatchObject({ reasoning_effort: "high" });
   });
 
-  it("serializes an explicit no-tool finalization choice without tool definitions", async () => {
+  it("serializes an explicit no-tool choice without tool definitions", async () => {
     const mockFetch = mockFetchResponse(makeOpenAIResponse());
     vi.stubGlobal("fetch", mockFetch);
 

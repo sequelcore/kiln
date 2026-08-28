@@ -14,6 +14,7 @@ import {
 } from "../../src/agents/managed-invocation/external-invocation-action-claim.js";
 import { defineEffectiveAuthorityAdmissionBundle, type EffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import type { ManagedAgentRuntimeRecoveryCheckpoint } from "../../src/agents/managed-invocation/recovery-store.js";
+import { externalHarnessDisposition } from "../session/runtime-terminal-fixture.js";
 
 const AUTHORITY: AuthorityDescriptor = { level: 1, allowed: true, requiresApproval: false, reason: "read-only" };
 const EFFECT: ActionEffectEnvelope = {
@@ -200,7 +201,7 @@ describe("external managed harness action claims", () => {
     const bundle = admissionBundle();
     const store = new RecordingStore();
     const run = vi.fn(() => eventStream([{
-      type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false,
+      type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("opencode", "completed"), isPreflightCrash: false,
     }]));
     const adapter = new ManagedCliHarnessAdapter({
       providerId: "opencode", model: "model", factory: () => ({ run, dispose: vi.fn(async () => undefined) }),
@@ -246,7 +247,7 @@ describe("external managed harness action claims", () => {
       throw new Error("CLI success settlement outcome is unknown");
     });
     const run = vi.fn(() => eventStream([{
-      type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false,
+      type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("opencode", "completed"), isPreflightCrash: false,
     }]));
     const adapter = new ManagedCliHarnessAdapter({
       providerId: "opencode",

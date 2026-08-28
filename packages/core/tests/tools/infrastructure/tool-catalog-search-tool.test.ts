@@ -51,7 +51,89 @@ describe("ToolCatalogSearchTool", () => {
       entries: [],
       totalIndexed: 2,
       stale: true,
-      reason: "tool_not_found",
+      reason: "unauthorized",
+    });
+  });
+
+  it.each([
+    ["Dafny", "formal_verify"],
+    ["Oxlint", "static_analyze"],
+    ["Gentle", "gentle_review"],
+    ["Gentle AI", "gentle_review"],
+  ])("marks the %s alias as materializable under canonical name %s", async (alias, canonicalName) => {
+    const catalog = ToolCatalogIndex.fromTools([
+      fakeTool(canonicalName, { readOnly: true, idempotent: true }),
+      fakeTool("tool_catalog_search", { readOnly: true, idempotent: true }),
+    ]);
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const result = await tool.execute({
+      name: "tool_catalog_search",
+      input: { exact: alias, includeSchemas: true, verbosity: "structured" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({ materializableToolName: canonicalName });
+    expect(JSON.parse(result.output)).toMatchObject({
+      entries: [{ name: canonicalName }],
+      diagnostic: { code: "available", canonicalName },
+    });
+  });
+
+  it("does not materialize an unauthorized alias or leak its schema", async () => {
+    const catalog = ToolCatalogIndex.fromTools([
+      fakeTool("formal_verify", { readOnly: true, idempotent: true }),
+      fakeTool("tool_catalog_search", { readOnly: true, idempotent: true }),
+    ]).restrictToCanonicalNames(new Set(["tool_catalog_search"]));
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const result = await tool.execute(
+      {
+        name: "tool_catalog_search",
+        input: { exact: "Dafny", includeSchemas: true, verbosity: "structured" },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).not.toHaveProperty("materializableToolName");
+    expect(JSON.parse(result.output)).toMatchObject({
+      entries: [],
+      reason: "unauthorized",
+      diagnostic: { code: "unauthorized", canonicalName: "formal_verify" },
+    });
+  });
+
+  it("preserves an unavailable configured alias diagnostic without materialization under restriction", async () => {
+    const catalog = ToolCatalogIndex.fromTools([
+      fakeTool("tool_catalog_search", { readOnly: true, idempotent: true }),
+    ], undefined, {
+      configuredProducerDiagnostics: [{
+        canonicalName: "formal_verify",
+        status: "configured_unavailable",
+        configuration: {
+          code: "executable_unavailable",
+          message: "Configured Dafny executable is unavailable.",
+        },
+      }],
+    }).restrictToCanonicalNames(new Set(["tool_catalog_search"]));
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const result = await tool.execute({
+      name: "tool_catalog_search",
+      input: { exact: "Dafny", includeSchemas: true, verbosity: "structured" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).not.toHaveProperty("materializableToolName");
+    expect(JSON.parse(result.output)).toMatchObject({
+      entries: [],
+      reason: "configured_unavailable",
+      diagnostic: {
+        code: "configured_unavailable",
+        canonicalName: "formal_verify",
+        alias: "Dafny",
+        configuration: { code: "executable_unavailable" },
+      },
     });
   });
 

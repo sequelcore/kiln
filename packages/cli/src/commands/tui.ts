@@ -90,6 +90,8 @@ import {
   formatPresentationIntentAsText,
   getGuiProviderMetadata,
   type OperatorSessionSummary,
+  OperatorTurnTerminalDispositionSchema,
+  type OperatorTurnTerminalDisposition,
   type ModelCatalog,
   type ExecutionTargetSelectionIntent,
   isGuiProviderModeless,
@@ -116,7 +118,7 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   type ExecutionSessionRunOptions,
   type SessionEventSource,
-  type SessionTurnOutcome,
+  type TurnTerminalDisposition,
   type ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
 import {
@@ -682,7 +684,7 @@ export async function makeMultiProviderSessionFactory(
         }
 
         let turnCostUsd = 0;
-        let turnOutcome: SessionTurnOutcome | undefined;
+        let turnDisposition: TurnTerminalDisposition | undefined;
         let turnInputTokens = 0;
         let turnOutputTokens = 0;
         let turnCacheReadTokens = 0;
@@ -867,7 +869,7 @@ export async function makeMultiProviderSessionFactory(
             }
             if (event.type === "completed") {
               turnCostUsd = event.totalUsd;
-              turnOutcome = event.outcome;
+              turnDisposition = event.disposition;
             }
             yield options.executionScope && !event.executionScope
               ? { ...event, executionScope: options.executionScope }
@@ -886,13 +888,13 @@ export async function makeMultiProviderSessionFactory(
               }, turnId),
             );
           }
-          const lastTurnOutcome = options.abortSignal?.aborted
-            ? "cancelled"
-            : turnOutcome ?? "failed";
+          const lastTurnDisposition: TurnTerminalDisposition = options.abortSignal?.aborted
+            ? { outcome: "cancelled", dispositionReason: "operator_cancelled" }
+            : turnDisposition ?? { outcome: "failed", dispositionReason: "runtime_failure" };
           await appendTranscriptEvent(
             persistedEvent(capturedId, 0, "turn_completed", source("runtime"), {
               turnId,
-              outcome: lastTurnOutcome,
+              ...lastTurnDisposition,
               ...(assistantContent.trim().length > 0 ? { outputMessageId: assistantMessageId } : {}),
             }, turnId),
           );
@@ -914,7 +916,7 @@ export async function makeMultiProviderSessionFactory(
             summary: metadata.summary,
             tags: metadata.tags,
             providersUsed: finalProvidersUsed,
-            hasError: lastTurnOutcome === "failed",
+            hasError: lastTurnDisposition.outcome === "failed",
           });
           if (typeof (transcriptStore as { finalize?: unknown }).finalize === "function") {
             await transcriptStore.finalize(capturedId, {
@@ -924,7 +926,7 @@ export async function makeMultiProviderSessionFactory(
               summary: finalMetadata.summary,
               tags: finalMetadata.tags,
               providersUsed: finalMetadata.providersUsed,
-              lastTurnOutcome,
+              lastTurnOutcome: lastTurnDisposition.outcome,
               costUsd: turnCostUsd,
               inputTokens: turnInputTokens,
               outputTokens: turnOutputTokens,
@@ -1242,7 +1244,7 @@ function mapSessionEventToTui(
   | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
   | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
-  | { type: "completed"; totalUsd: number; outcome: SessionTurnOutcome; routedProvider?: string; routedModel?: string }
+  | ({ type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string } & OperatorTurnTerminalDisposition)
   | { type: "error"; message: string }
   | { type: "activity"; activity: string; toolName?: string; output?: string; input?: unknown; sessionId?: string; turnId?: string } {
   const candidate = event as { type?: string; [key: string]: unknown } | undefined;
@@ -1273,17 +1275,17 @@ function mapSessionEventToTui(
         ...scoped,
       };
     case "completed": {
-      const outcome = readSessionTurnOutcome(candidate.outcome);
-      if (!outcome) {
+      const disposition = OperatorTurnTerminalDispositionSchema.safeParse(candidate.disposition);
+      if (!disposition.success) {
         return {
           type: "error",
-          message: "Session completed without a canonical terminal outcome.",
+          message: "Session completed without a canonical terminal disposition.",
         };
       }
       return {
         type: "completed",
         totalUsd: typeof candidate.totalUsd === "number" ? candidate.totalUsd : 0,
-        outcome,
+        ...disposition.data,
         routedProvider: route?.provider,
         routedModel: route?.model || undefined,
       };
@@ -1331,12 +1333,6 @@ function mapSessionEventToTui(
         activity: "unknown_event",
       };
   }
-}
-
-function readSessionTurnOutcome(value: unknown): SessionTurnOutcome | undefined {
-  return value === "completed" || value === "failed" || value === "cancelled" || value === "paused"
-    ? value
-    : undefined;
 }
 
 async function bootstrapDirectSession(

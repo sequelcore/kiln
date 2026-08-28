@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
+import { createDefaultBuiltinToolSurface, ToolCatalogSearchTool } from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 import {
@@ -73,6 +73,118 @@ describe("builtin tool surface config", () => {
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("formal_verify");
       expect(surface.registry.has("formal_verify")).toBe(true);
       expect(surface.toolNames).not.toContain("formal_verify");
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+
+  it("carries configured producer validation failures into the canonical catalog surface", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-formal-diagnostic-surface-"));
+    try {
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        globalConfig: {
+          version: "5",
+          verification: {
+            formal: {
+              dafny: {
+                executable: "C:/tools/dafny.exe",
+                expectedVersion: "4.11.0",
+              },
+            },
+          },
+        },
+        runDafnyVersion: () => "Dafny 4.10.0",
+        platform: "win32",
+        discoveredPaths: [],
+      });
+
+      expect(options.configuredProducerDiagnostics).toMatchObject([{
+        canonicalName: "formal_verify",
+        status: "validation_failed",
+        configuration: { code: "version_mismatch" },
+      }]);
+      expect(options.formalVerify).toBeUndefined();
+
+      const surface = createDefaultBuiltinToolSurface(options);
+      expect(surface.registry.has("formal_verify")).toBe(false);
+      expect(surface.catalog.search({ exact: "Dafny", includeSchemas: true })).toMatchObject({
+        entries: [],
+        reason: "validation_failed",
+        diagnostic: {
+          code: "validation_failed",
+          canonicalName: "formal_verify",
+          configuration: { code: "version_mismatch" },
+        },
+      });
+      expect(surface.capabilities.has("formal_verify")).toBe(false);
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+
+  it("projects producer diagnostics without exposing executable paths, probe errors, or digests", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-safe-producer-diagnostic-surface-"));
+    const executablePath = join(projectPath, "gentle-ai.exe");
+    const rawProbeError = `spawn ${executablePath} ENOENT raw probe failure`;
+    const expectedDigest = `sha256:${"a".repeat(64)}`;
+    const executableBytes = "gentle-ai bytes with a different digest";
+    const observedDigest = `sha256:${createHash("sha256").update(executableBytes).digest("hex")}`;
+    try {
+      writeFileSync(executablePath, executableBytes);
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        globalConfig: {
+          version: "5",
+          verification: {
+            formal: {
+              dafny: {
+                executable: "C:\\Users\\operator\\bin\\dafny.exe",
+                expectedVersion: "4.11.0",
+              },
+            },
+            inferential: {
+              gentleAi: {
+                executable: executablePath,
+                expectedVersion: "2.5.0-rc.1",
+                expectedExecutableDigest: expectedDigest,
+              },
+            },
+          },
+        },
+        runDafnyVersion: () => {
+          throw new Error(rawProbeError);
+        },
+        platform: "win32",
+        discoveredPaths: [],
+        runGentleAiVersion: () => "gentle-ai 2.5.0-rc.1",
+        discoveredGentleAiPaths: [executablePath],
+      });
+      const surface = createDefaultBuiltinToolSurface(options);
+      const searchTool = new ToolCatalogSearchTool(() => surface.catalog);
+
+      const catalogText = JSON.stringify(surface.catalog.configuredProducerDiagnostics);
+      expect(catalogText).not.toContain("C:\\Users\\operator\\bin\\dafny.exe");
+      expect(catalogText).not.toContain(rawProbeError);
+      expect(catalogText).not.toContain(expectedDigest);
+      expect(catalogText).not.toContain(observedDigest);
+
+      for (const alias of ["Dafny", "Gentle AI"]) {
+        const indexedResult = surface.catalog.search({ exact: alias, includeSchemas: true });
+        expect(JSON.stringify(indexedResult)).not.toContain("C:\\Users\\operator\\bin\\dafny.exe");
+        expect(JSON.stringify(indexedResult)).not.toContain(rawProbeError);
+        expect(JSON.stringify(indexedResult)).not.toContain(expectedDigest);
+        expect(JSON.stringify(indexedResult)).not.toContain(observedDigest);
+
+        const toolResult = await searchTool.execute({
+          name: "tool_catalog_search",
+          input: { exact: alias, includeSchemas: true, verbosity: "structured" },
+        });
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(
+          "C:\\Users\\operator\\bin\\dafny.exe",
+        );
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(rawProbeError);
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(expectedDigest);
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(observedDigest);
+      }
     } finally {
       rmSync(projectPath, { recursive: true, force: true });
     }

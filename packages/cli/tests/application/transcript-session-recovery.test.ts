@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recoverStaleOpenTranscriptSessions } from "../../src/application/transcript-session-recovery.js";
 import { SessionStore, TranscriptStore, type PersistedTranscriptEventDraft } from "../../src/wrapper/session-store.js";
+import { runtimeCompletedDisposition, runtimeFailureDisposition } from "../fixtures/terminal-disposition.js";
 
 async function appendTranscript(
   store: TranscriptStore,
@@ -94,7 +95,7 @@ describe("recoverStaleOpenTranscriptSessions", () => {
       kind: "turn_completed",
       turnId: `${sessionId}:turn:1`,
       payload: {
-        outcome: "failed",
+        ...runtimeFailureDisposition(),
       },
     });
     await expect(transcriptStore.readMeta(sessionId)).resolves.toMatchObject({
@@ -177,7 +178,7 @@ describe("recoverStaleOpenTranscriptSessions", () => {
       kind: "turn_completed",
       turnId: `${sessionId}:turn:1`,
       source: { actor: "runtime", surface: "gui", component: "gui-command" },
-      payload: { turnId: `${sessionId}:turn:1`, outcome: "completed" },
+      payload: { turnId: `${sessionId}:turn:1`, ...runtimeCompletedDisposition() },
     });
 
     const result = await recoverStaleOpenTranscriptSessions({
@@ -221,7 +222,7 @@ describe("recoverStaleOpenTranscriptSessions", () => {
         kind: "turn_completed",
         turnId: turnOne,
         source: { actor: "runtime", surface: "gui", component: "gui-command" },
-        payload: { turnId: turnOne, outcome: "completed" },
+        payload: { turnId: turnOne, ...runtimeCompletedDisposition() },
       },
       {
         eventId: "evt-turn-two-started",
@@ -274,7 +275,11 @@ describe("recoverStaleOpenTranscriptSessions", () => {
     expect(result.recoveredSessionIds).toEqual([sessionId]);
     await expect(transcriptStore.readTranscript(sessionId)).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "error_recorded", turnId }),
-      expect.objectContaining({ kind: "turn_completed", turnId, payload: { turnId, outcome: "failed", durationMs: 600000 } }),
+      expect.objectContaining({
+        kind: "turn_completed",
+        turnId,
+        payload: { turnId, ...runtimeFailureDisposition(), durationMs: 600000 },
+      }),
     ]));
     await expect(transcriptStore.readMeta(sessionId)).resolves.toBeNull();
     await expect(sessionStore.list()).resolves.toEqual([]);
@@ -316,7 +321,7 @@ describe("recoverStaleOpenTranscriptSessions", () => {
         kind: "turn_completed",
         turnId: secondTurn,
         source: { actor: "runtime", surface: "gui", component: "gui-command" },
-        payload: { turnId: secondTurn, outcome: "completed" },
+        payload: { turnId: secondTurn, ...runtimeCompletedDisposition() },
       },
     ]);
 

@@ -47,6 +47,7 @@ import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
+  deriveAttachedRuntimeToolAdmissionProjection,
   type AttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./attached-runtime-tool-surface.js";
@@ -68,7 +69,7 @@ import {
   projectGuiOperatorModels,
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
-import { processAdmittedTurn } from "./message-pipeline/index.js";
+import { processAdmittedTurn, projectAdmittedTurnDisposition } from "./message-pipeline/index.js";
 import { OperatorActivityStreamer } from "./operator-activity-streamer.js";
 import type { OnContinueSession, OperatorGuiSessionTransportOptions } from "./operator-gateway.js";
 import {
@@ -99,6 +100,8 @@ import {
   isGuiProviderModeless,
   type GuiDashboardSnapshot,
   type GuiBrowserSessionState,
+  type GuiDoneFrame,
+  type GuiDoneFrameFields,
   type GuiInboundFrame,
   type GuiManagedAgentControlAction,
   type GuiGoalControlAction,
@@ -124,6 +127,7 @@ import {
   type OperatorWorkspaceError,
   type OperatorWorkspaceErrorCode,
   type OperatorWorkspaceExplorer,
+  type OperatorTurnTerminalDisposition,
 } from "@kilnai/gateway-contracts";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
 import type { OperatorExecutionTargetSelectionPort } from "./operator-execution-target-selection.js";
@@ -454,6 +458,13 @@ export function deriveGuiDoneAuthorityStatus(
   fallbackPerCallConfig: RuntimeAuthorityAdmissionCandidateConfig = buildGuiPerCallToolConfig(),
 ): GuiAuthorityStatus {
   return deriveGuiAuthorityStatusFromPerCallConfig(turnPerCallConfig ?? fallbackPerCallConfig);
+}
+
+type GuiDoneFramePayload = Omit<GuiDoneFrameFields, "type"> & OperatorTurnTerminalDisposition;
+
+/** Build the GUI terminal frame from the canonical Runtime disposition. */
+export function buildGuiDoneFramePayload(input: GuiDoneFramePayload): GuiDoneFrame {
+  return { type: "done", ...input };
 }
 
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
@@ -887,6 +898,8 @@ function wireOperatorTransport(
   const orchestrationSurface = new RuntimeSessionOrchestrationSurface({
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
+    materializableTools: builtinToolSurface.materializableTools,
+    capabilityMap: builtinToolSurface.materializableCapabilities,
   });
   const sessionRegistry = new SessionRegistry();
   const priorActiveSessions = new Map<string, RuntimeSession | undefined>();
@@ -1020,7 +1033,7 @@ function wireOperatorTransport(
             session,
             snapshot,
             perCallConfig: admittedPerCallConfig,
-            candidateToolNames: turnBuiltinToolSurface.toolDefinitions.map((tool) => tool.name),
+            candidateToolNames: deriveAttachedRuntimeToolAdmissionProjection(turnBuiltinToolSurface).candidateToolNames,
             workGovernance,
             operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
             skillCatalog: defineOperatorSkillCatalogAdmission([]),
@@ -2025,6 +2038,7 @@ function wireOperatorTransport(
               ? ""
               : turnModel;
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
+            const disposition = projectAdmittedTurnDisposition(output);
             const sourceMessageId = crypto.randomUUID();
             voiceSynthesisSources.set(sourceMessageId, {
               parts: output.parts,
@@ -2039,8 +2053,7 @@ function wireOperatorTransport(
               }
             }
 
-            ws.send(JSON.stringify({
-              type: "done",
+            ws.send(JSON.stringify(buildGuiDoneFramePayload({
               kilnSessionId: output.sessionId,
               sourceMessageId,
               content: extractText(output.parts),
@@ -2048,13 +2061,13 @@ function wireOperatorTransport(
               ...(output.admittedInput ? { admittedInput: output.admittedInput } : {}),
               inputTokens: output.inputTokens,
               outputTokens: output.outputTokens,
-              outcome: output.outcome,
               routedProvider,
               routedModel,
               routingRationale: output.routingDecision?.rationale,
               runtimeContinuity,
               authorityStatus: deriveGuiDoneAuthorityStatus(undefined),
-            } satisfies GuiInboundFrame));
+              ...disposition,
+            })));
             } finally {
               currentTurn.settle();
               if (activeTurns.get(userId) === currentTurn) {

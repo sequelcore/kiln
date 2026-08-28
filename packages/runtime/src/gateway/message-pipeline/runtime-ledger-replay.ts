@@ -57,6 +57,8 @@ export function resolveTurnToolExecutions(
   const projected = runtimeEvents
     .filter((event): event is ToolResultEvent => event.type === "tool_result")
     .map((event): ToolExecutionSummary => ({
+      toolCallId: event.toolCallId,
+      toolCallScopeId: event.toolCallScopeId,
       toolName: event.toolName,
       durationMs: event.durationMs,
       success: event.success,

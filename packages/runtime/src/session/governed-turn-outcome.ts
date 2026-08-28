@@ -1,33 +1,8 @@
 import type { SessionTurnOutcome, ToolResultEvent } from "@kilnai/core";
 import type { RuntimeTurnToolCompletion } from "./runtime-turn-record.js";
 import type { ToolExecutionSummary } from "./runtime-session-orchestrator.js";
-import {
-  RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
-  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
-  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
-} from "./runtime-session-orchestrator.types.js";
 
 export type GovernedTurnOutcomeToolRecord = RuntimeTurnToolCompletion;
-
-export function deriveRuntimeTurnOutcome(input: {
-  readonly runtimeToolResults?: readonly ToolResultEvent[];
-  readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
-  readonly toolExecutions?: readonly ToolExecutionSummary[];
-  readonly stopReason?: string;
-}): SessionTurnOutcome {
-  if (input.stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON) {
-    return "paused";
-  }
-  if (
-    input.stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
-    || input.stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON
-    || input.stopReason === RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON
-  ) {
-    return "failed";
-  }
-  return deriveGovernedTurnOutcome(input) ?? "completed";
-}
 
 export function deriveGovernedTurnOutcome(input: {
   readonly runtimeToolResults?: readonly ToolResultEvent[];

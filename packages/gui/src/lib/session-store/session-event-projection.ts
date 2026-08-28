@@ -125,19 +125,27 @@ export function workflowLifecycleTimelineEntry(input: {
   };
 }
 
-export function turnOutcomePresentation(outcome: unknown): Pick<TimelineEventEntry, "title" | "tone"> {
-  switch (readString(outcome)) {
-    case "completed":
-      return { title: "Turn completed", tone: "success" };
-    case "failed":
-      return { title: "Turn failed", tone: "error" };
-    case "paused":
-      return { title: "Turn paused", tone: "warning" };
-    case "cancelled":
-      return { title: "Turn cancelled", tone: "info" };
-    default:
-      return { title: "Invalid turn outcome", tone: "error" };
-  }
+export function turnCompletedTimelineEntry(input: {
+  readonly id: string;
+  readonly payload: Record<string, unknown>;
+  readonly timestamp: string;
+  readonly sequence?: number;
+  readonly turnId?: string;
+}): TimelineEventEntry {
+  const presentation = presentOperatorEventPayload("turn_completed", input.payload);
+  return {
+    id: input.id,
+    type: "event",
+    eventKind: "turn_completed",
+    createdAt: input.timestamp,
+    ...(input.sequence !== undefined ? { sequence: input.sequence } : {}),
+    ...(input.turnId ? { turnId: input.turnId } : {}),
+    title: presentation.title,
+    summary: presentation.summary,
+    tone: presentation.tone,
+    presentationDetails: presentation.details,
+    details: input.payload,
+  };
 }
 
 export function appendSessionEvent(

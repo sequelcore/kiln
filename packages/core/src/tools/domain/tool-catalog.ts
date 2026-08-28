@@ -10,10 +10,80 @@ const MAX_LIMIT = 50;
 const SOURCE_PACKAGE = "@kilnai/core";
 
 export type ToolCatalogAuthority = "read_only" | "destructive" | "standard";
-export type ToolCatalogSearchReason = "tool_not_found";
+export type ToolCatalogSearchReason =
+  | "not_registered"
+  | "unauthorized"
+  | "configured_unavailable"
+  | "validation_failed"
+  | "available";
+
+export type ToolCatalogConfigurationDiagnosticCode =
+  | "not_configured"
+  | "executable_unavailable"
+  | "version_probe_failed"
+  | "version_unparseable"
+  | "version_mismatch"
+  | "digest_probe_failed"
+  | "digest_mismatch";
+
+export interface ToolCatalogConfigurationDiagnostic {
+  readonly code: ToolCatalogConfigurationDiagnosticCode;
+  readonly message: string;
+  readonly expectedVersion?: string;
+  readonly observedVersion?: string;
+}
+
+export interface ToolCatalogConfiguredProducerDiagnostic {
+  readonly canonicalName: string;
+  readonly status: Exclude<ToolCatalogSearchReason, "not_registered" | "unauthorized" | "available">;
+  readonly configuration: ToolCatalogConfigurationDiagnostic;
+}
+
+export interface ToolCatalogSearchDiagnostic {
+  readonly code: ToolCatalogSearchReason;
+  readonly requestedName: string;
+  readonly canonicalName?: string;
+  readonly alias?: string;
+  readonly configuration?: ToolCatalogConfigurationDiagnostic;
+}
+
+export interface ToolCatalogIndexOptions {
+  readonly configuredProducerDiagnostics?: readonly ToolCatalogConfiguredProducerDiagnostic[];
+  readonly allowedCanonicalNames?: ReadonlySet<string>;
+  readonly knownCanonicalNames?: readonly string[];
+}
+
+export interface ToolCatalogAlias {
+  readonly alias: string;
+  readonly canonicalName: string;
+  /**
+   * Whether this discovery alias is explicit enough to create a completion
+   * obligation from imperative user text. Omitted/false aliases remain useful
+   * for catalog discovery but are never treated as required producers.
+   */
+  readonly obligationSafe?: boolean;
+}
+
+/** Canonical provider-facing names and their operator-facing exact aliases. */
+export const TOOL_CATALOG_ALIASES: readonly ToolCatalogAlias[] = Object.freeze([
+  Object.freeze({ alias: "Dafny", canonicalName: "formal_verify", obligationSafe: true }),
+  Object.freeze({ alias: "Oxlint", canonicalName: "static_analyze", obligationSafe: true }),
+  Object.freeze({ alias: "Gentle", canonicalName: "gentle_review" }),
+  Object.freeze({ alias: "Gentle AI", canonicalName: "gentle_review", obligationSafe: true }),
+]);
+
+/**
+ * Explicit producer aliases used by completion-obligation resolution. Keep
+ * this projection separate from discovery aliases: ordinary prose can contain
+ * a discovery term without asking Runtime to require its producer.
+ */
+export const TOOL_CATALOG_OBLIGATION_ALIASES: readonly ToolCatalogAlias[] = Object.freeze(
+  TOOL_CATALOG_ALIASES.filter((mapping) => mapping.obligationSafe === true),
+);
 
 export interface ToolCatalogEntry {
   readonly name: string;
+  readonly aliases?: readonly string[];
   readonly description: string;
   readonly tags: readonly string[];
   readonly authority: ToolCatalogAuthority;
@@ -38,6 +108,7 @@ export interface ToolCatalogSearchResult {
   readonly totalIndexed: number;
   readonly stale?: boolean;
   readonly reason?: ToolCatalogSearchReason;
+  readonly diagnostic?: ToolCatalogSearchDiagnostic;
 }
 
 export interface ToolCatalogSearchAdapter {
@@ -87,20 +158,44 @@ export class LexicalToolCatalogSearchAdapter implements ToolCatalogSearchAdapter
 export class ToolCatalogIndex {
   private readonly entries: readonly ToolCatalogEntry[];
   private readonly adapter: ToolCatalogSearchAdapter;
+  readonly configuredProducerDiagnostics: readonly ToolCatalogConfiguredProducerDiagnostic[];
+  private readonly allowedCanonicalNames?: ReadonlySet<string>;
+  private readonly knownCanonicalNames: ReadonlySet<string>;
 
   constructor(
     entries: readonly ToolCatalogEntry[],
     adapter: ToolCatalogSearchAdapter = new LexicalToolCatalogSearchAdapter(),
+    options: ToolCatalogIndexOptions = {},
   ) {
-    this.entries = entries.map((entry) => cloneEntry(entry, true));
+    this.entries = entries.map((entry) => normalizeEntry(entry));
     this.adapter = adapter;
+    this.configuredProducerDiagnostics = options.configuredProducerDiagnostics?.map(cloneConfiguredProducerDiagnostic) ?? [];
+    this.allowedCanonicalNames = options.allowedCanonicalNames;
+    this.knownCanonicalNames = new Set([
+      ...(options.knownCanonicalNames ?? []),
+      ...this.entries.map((entry) => entry.name),
+      ...this.configuredProducerDiagnostics.map((diagnostic) => diagnostic.canonicalName),
+    ]);
   }
 
   static fromTools(
     tools: readonly DevTool[],
     adapter?: ToolCatalogSearchAdapter,
+    options?: ToolCatalogIndexOptions,
   ): ToolCatalogIndex {
-    return new ToolCatalogIndex(tools.map((tool) => entryFromTool(tool)), adapter);
+    return new ToolCatalogIndex(tools.map((tool) => entryFromTool(tool)), adapter, options);
+  }
+
+  restrictToCanonicalNames(allowedCanonicalNames: ReadonlySet<string>): ToolCatalogIndex {
+    return new ToolCatalogIndex(
+      this.entries.filter((entry) => allowedCanonicalNames.has(entry.name)),
+      this.adapter,
+      {
+        configuredProducerDiagnostics: this.configuredProducerDiagnostics,
+        allowedCanonicalNames,
+        knownCanonicalNames: [...this.knownCanonicalNames],
+      },
+    );
   }
 
   list(options: { readonly includeSchemas?: boolean } = {}): readonly ToolCatalogEntry[] {
@@ -109,16 +204,96 @@ export class ToolCatalogIndex {
 
   search(request: ToolCatalogSearchRequest): ToolCatalogSearchResult {
     const limit = clampLimit(request.limit);
-    const entries = this.adapter.search(this.entries, request).slice(0, limit);
     const includeSchemas = request.includeSchemas ?? false;
     const exact = normalize(request.exact);
+    const requestedName = request.exact?.trim() || exact || "";
+    const exactResolution = exact ? this.resolveExact(exact) : undefined;
+    const configuredDiagnostic = exactResolution
+      ? this.configuredDiagnosticFor(exactResolution.canonicalName)
+      : undefined;
+    if (exactResolution && !this.hasCanonicalEntry(exactResolution.canonicalName) && configuredDiagnostic) {
+      const diagnostic = createSearchDiagnostic(
+        configuredDiagnostic.status,
+        requestedName,
+        exactResolution,
+        configuredDiagnostic.configuration,
+      );
+      return {
+        entries: [],
+        totalIndexed: this.entries.length,
+        stale: true,
+        reason: diagnostic.code,
+        diagnostic,
+      };
+    }
+    if (exactResolution && this.isUnauthorized(exactResolution.canonicalName)) {
+      const diagnostic = createSearchDiagnostic("unauthorized", requestedName, exactResolution);
+      return {
+        entries: [],
+        totalIndexed: this.entries.length,
+        stale: true,
+        reason: diagnostic.code,
+        diagnostic,
+      };
+    }
+
+    const effectiveRequest = exactResolution
+      ? { ...request, exact: exactResolution.canonicalName }
+      : request;
+    const entries = this.adapter.search(this.entries, effectiveRequest).slice(0, limit);
     const stale = Boolean(exact) && entries.length === 0;
+    const diagnostic = exact
+      ? this.exactDiagnostic(requestedName, exactResolution, entries)
+      : undefined;
 
     return {
       entries: entries.map((entry) => cloneEntry(entry, includeSchemas)),
       totalIndexed: this.entries.length,
-      ...(stale ? { stale: true, reason: "tool_not_found" as const } : {}),
+      ...(stale ? { stale: true } : {}),
+      ...(diagnostic ? { reason: diagnostic.code, diagnostic } : {}),
     };
+  }
+
+  private resolveExact(exact: string): { readonly canonicalName: string; readonly alias?: string } | undefined {
+    const alias = aliasForExact(exact);
+    if (alias) {
+      return alias;
+    }
+    const canonicalName = [...this.knownCanonicalNames].find((name) => name.toLowerCase() === exact);
+    return canonicalName ? { canonicalName } : undefined;
+  }
+
+  private isUnauthorized(canonicalName: string): boolean {
+    return this.allowedCanonicalNames !== undefined && !this.allowedCanonicalNames.has(canonicalName);
+  }
+
+  private hasCanonicalEntry(canonicalName: string): boolean {
+    return this.entries.some((entry) => entry.name === canonicalName);
+  }
+
+  private configuredDiagnosticFor(canonicalName: string): ToolCatalogConfiguredProducerDiagnostic | undefined {
+    return this.configuredProducerDiagnostics.find((diagnostic) => diagnostic.canonicalName === canonicalName);
+  }
+
+  private exactDiagnostic(
+    requestedName: string,
+    resolution: { readonly canonicalName: string; readonly alias?: string } | undefined,
+    entries: readonly ToolCatalogEntry[],
+  ): ToolCatalogSearchDiagnostic | undefined {
+    if (!resolution) {
+      if (entries.length > 0) return undefined;
+      return createSearchDiagnostic("not_registered", requestedName);
+    }
+    if (entries.length > 0) {
+      return resolution.alias
+        ? createSearchDiagnostic("available", requestedName, resolution)
+        : undefined;
+    }
+    const configured = this.configuredDiagnosticFor(resolution.canonicalName);
+    if (configured) {
+      return createSearchDiagnostic(configured.status, requestedName, resolution, configured.configuration);
+    }
+    return createSearchDiagnostic("not_registered", requestedName, resolution);
   }
 }
 
@@ -126,6 +301,7 @@ function entryFromTool(tool: DevTool): ToolCatalogEntry {
   const outputSchema = tool.outputSchema ?? DEV_TOOL_OUTPUT_SCHEMA;
   return {
     name: tool.name,
+    ...(aliasesForCanonicalName(tool.name).length > 0 ? { aliases: aliasesForCanonicalName(tool.name) } : {}),
     description: tool.description,
     tags: tagsForTool(tool),
     authority: authorityForTool(tool),
@@ -230,6 +406,7 @@ function schemaFields(schema: Record<string, unknown>): readonly string[] {
 function cloneEntry(entry: ToolCatalogEntry, includeSchemas: boolean): ToolCatalogEntry {
   return {
     name: entry.name,
+    ...(entry.aliases && entry.aliases.length > 0 ? { aliases: [...entry.aliases] } : {}),
     description: entry.description,
     tags: [...entry.tags],
     authority: entry.authority,
@@ -241,9 +418,70 @@ function cloneEntry(entry: ToolCatalogEntry, includeSchemas: boolean): ToolCatal
   };
 }
 
+function normalizeEntry(entry: ToolCatalogEntry): ToolCatalogEntry {
+  const aliases = aliasesForCanonicalName(entry.name);
+  return {
+    ...entry,
+    ...(aliases.length > 0 ? { aliases } : {}),
+    tags: [...entry.tags],
+    inputFields: [...entry.inputFields],
+    outputFields: [...entry.outputFields],
+    ...(entry.inputSchema ? { inputSchema: cloneRecord(entry.inputSchema) } : {}),
+    ...(entry.outputSchema ? { outputSchema: cloneRecord(entry.outputSchema) } : {}),
+  };
+}
+
+function aliasesForCanonicalName(canonicalName: string): readonly string[] {
+  return TOOL_CATALOG_ALIASES
+    .filter((mapping) => mapping.canonicalName === canonicalName)
+    .map((mapping) => mapping.alias);
+}
+
+function aliasForExact(exact: string): { readonly canonicalName: string; readonly alias: string } | undefined {
+  const mapping = TOOL_CATALOG_ALIASES.find((candidate) => candidate.alias.toLowerCase() === exact);
+  return mapping ? { canonicalName: mapping.canonicalName, alias: mapping.alias } : undefined;
+}
+
+function createSearchDiagnostic(
+  code: ToolCatalogSearchReason,
+  requestedName: string,
+  resolution?: { readonly canonicalName: string; readonly alias?: string },
+  configuration?: ToolCatalogConfigurationDiagnostic,
+): ToolCatalogSearchDiagnostic {
+  return {
+    code,
+    requestedName,
+    ...(resolution?.canonicalName ? { canonicalName: resolution.canonicalName } : {}),
+    ...(resolution?.alias ? { alias: resolution.alias } : {}),
+    ...(configuration ? { configuration: cloneConfigurationDiagnostic(configuration) } : {}),
+  };
+}
+
+function cloneConfiguredProducerDiagnostic(
+  diagnostic: ToolCatalogConfiguredProducerDiagnostic,
+): ToolCatalogConfiguredProducerDiagnostic {
+  return {
+    canonicalName: diagnostic.canonicalName,
+    status: diagnostic.status,
+    configuration: cloneConfigurationDiagnostic(diagnostic.configuration),
+  };
+}
+
+function cloneConfigurationDiagnostic(
+  diagnostic: ToolCatalogConfigurationDiagnostic,
+): ToolCatalogConfigurationDiagnostic {
+  return {
+    code: diagnostic.code,
+    message: diagnostic.message,
+    ...(diagnostic.expectedVersion ? { expectedVersion: diagnostic.expectedVersion } : {}),
+    ...(diagnostic.observedVersion ? { observedVersion: diagnostic.observedVersion } : {}),
+  };
+}
+
 function scoreEntry(entry: ToolCatalogEntry, tokens: readonly string[]): number {
   const weightedFields = [
     { value: entry.name, weight: 6 },
+    { value: entry.aliases?.join(" ") ?? "", weight: 6 },
     { value: entry.tags.join(" "), weight: 4 },
     { value: entry.description, weight: 3 },
     { value: entry.inputFields.join(" "), weight: 2 },

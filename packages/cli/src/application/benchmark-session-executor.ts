@@ -22,6 +22,7 @@ import {
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
+  deriveRuntimeConvergencePolicyInput,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
@@ -133,16 +134,25 @@ import { readRuntimeConfigurationRevision } from "./runtime-configuration-revisi
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "./operator-transcript-projection.js";
 import { canonicalSessionEventsFromTranscript } from "./runtime-session-rehydration.js";
 
-export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
+const BENCHMARK_TOOL_ROUND_LIMIT = 8;
+export const BENCHMARK_EXECUTION_ENVELOPE = Object.freeze({
+  convergence: deriveRuntimeConvergencePolicyInput({
+    policyId: "kiln.benchmark.default",
+    toolRounds: BENCHMARK_TOOL_ROUND_LIMIT,
+  }),
+});
 export const FORMAL_SCREENING_BUDGET = Object.freeze({
-  toolRounds: 8,
+  toolRounds: BENCHMARK_TOOL_ROUND_LIMIT,
   maxToolCalls: 24,
   maxTotalTokens: 64_000,
   wallClockMs: 600_000,
 });
-export const FORMAL_SCREENING_EXECUTION_ENVELOPE = {
-  toolRounds: { max: FORMAL_SCREENING_BUDGET.toolRounds },
-} as const;
+export const FORMAL_SCREENING_EXECUTION_ENVELOPE = Object.freeze({
+  convergence: deriveRuntimeConvergencePolicyInput({
+    policyId: "kiln.formal-verification-screening",
+    toolRounds: FORMAL_SCREENING_BUDGET.toolRounds,
+  }),
+});
 const LEMMA_CHECK_TIMEOUT_MS = 30_000;
 const FORMAL_SCREENING_PROTOCOL_HASH = digestCanonicalValue({
   id: "kiln-formal-verification-screening-v2",

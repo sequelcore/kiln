@@ -50,6 +50,7 @@ import {
   createFixtureToolActionStore,
 } from "../../../../runtime/tests/session/runtime-claim-fixture.js";
 import { createMediaActionTestContext } from "../../../../runtime/tests/gateway/media-action-test-fixture.js";
+import { completedTurnDisposition } from "../../fixtures/terminal-disposition.js";
 import type {
   GuiProviderDiscoveryResult,
   GuiSessionDetail,
@@ -655,7 +656,13 @@ const fakeSessionFactory: CliSessionFactory = () => ({
     }
 
     yield { type: "cost_update", usd: 0.0104, inputTokens: 21, outputTokens: 42 };
-    yield { type: "completed", totalUsd: 0.0104, durationMs: 220, outcome: "completed", isPreflightCrash: false };
+    yield {
+      type: "completed",
+      totalUsd: 0.0104,
+      durationMs: 220,
+      disposition: completedTurnDisposition(),
+      isPreflightCrash: false,
+    };
 
     sessionSummaries.unshift({
       sessionId: `generated-${Date.now()}`,

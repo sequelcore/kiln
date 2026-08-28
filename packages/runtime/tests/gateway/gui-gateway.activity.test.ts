@@ -21,6 +21,7 @@ import {
 } from "../../src/gateway/message-pipeline/index.js";
 import {
 } from "../../src/gateway/gui-provider-models.js";
+import { runtimeCompletedDisposition } from "../session/runtime-terminal-fixture.js";
 
 const {guiOperatorTransportDefaults, createGuiDist, waitForCondition, selectGuiTestExecutionTarget, makeGuiOperatorDiscoveryFromModels} = guiFixture;
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
@@ -60,11 +61,11 @@ describe("GUI gateway activity", () => {
           cacheWriteTokens: 0,
           queued: false,
           sessionId: "session-live",
-          sessionMode: "mode-a",
+          sessionMode: "ai_active",
           traceId: "trace-live",
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
         },
-      } as never;
+      };
     });
     const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
     let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
@@ -174,11 +175,11 @@ describe("GUI gateway activity", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
           queued: false,
           sessionId: browserKilnSessionId,
           sessionMode: "ai_active",
           traceId: "trace-browser-stream",
+          ...runtimeCompletedDisposition(),
         },
       };
     });
@@ -314,11 +315,11 @@ describe("GUI gateway activity", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
           queued: false,
           sessionId: browserKilnSessionId,
           sessionMode: "ai_active",
           traceId: "trace-browser-watch",
+          ...runtimeCompletedDisposition(),
         },
       };
     });

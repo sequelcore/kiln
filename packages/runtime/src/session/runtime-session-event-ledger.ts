@@ -13,7 +13,6 @@ import type {
   MultimodalRoutedEvent,
   SessionEventSource,
   SessionProviderIdentity,
-  SessionTurnOutcome,
   SessionToolStatus,
   GoalRun,
   WorkItem,
@@ -27,6 +26,7 @@ import type {
   ProviderRequestEvidence,
   CanonicalTurnId,
 } from "@kilnai/core";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
 import {
   canonicalTurnId,
   createOperatorAdoptionDecisionAuthority,
@@ -86,7 +86,8 @@ interface CanonicalTurnEventInput {
   readonly userMessageContent: string;
   readonly assistantMessageContent?: string;
   readonly queued: boolean;
-  readonly turnOutcome: SessionTurnOutcome;
+  /** Present only while building the terminal event. */
+  readonly disposition?: RuntimeTurnTerminalDisposition;
   readonly turnStartedAt: Date;
   readonly turnCompletedAt: Date;
   readonly continuity: RuntimeContinuitySnapshot;
@@ -152,8 +153,10 @@ interface CanonicalTurnEventInput {
 
 /** Terminal-only evidence supplied when a Runtime turn settles. */
 export type CanonicalTurnTerminalInput = Omit<CanonicalTurnEventInput,
-  "session" | "executionRouteId" | "turnId" | "channel" | "userMessageContent" | "turnStartedAt" | "continuity" | "runtimeEvents"
+  "session" | "executionRouteId" | "turnId" | "channel" | "userMessageContent" | "turnStartedAt" | "continuity" | "runtimeEvents" | "disposition"
 > & {
+  /** The sole typed terminal authority persisted by the canonical event. */
+  readonly disposition: RuntimeTurnTerminalDisposition;
   /** Runtime errors observed while settling are committed before the terminal. */
   readonly terminalRuntimeEvents?: readonly CapturedRuntimeLedgerEvent[];
 };
@@ -703,12 +706,13 @@ function buildCanonicalTurnEvents(
     }));
   }
 
+  const disposition = requireCanonicalTurnDisposition(input);
   events.push(createSessionEvent<"turn_completed">({
     kilnSessionId: session.id,
     sequence: nextSequence(),
     kind: "turn_completed",
     turnId,
-    outcome: input.turnOutcome,
+    ...disposition,
     outputMessageId: assistantMessageContent ? `${turnId}:assistant` : undefined,
     durationMs: Math.max(0, input.turnCompletedAt.getTime() - input.turnStartedAt.getTime()),
     source: runtimeSource,
@@ -717,6 +721,13 @@ function buildCanonicalTurnEvents(
   }
 
   return events;
+}
+
+function requireCanonicalTurnDisposition(input: CanonicalTurnEventInput): RuntimeTurnTerminalDisposition {
+  if (input.disposition === undefined) {
+    throw new Error("Canonical turn completion requires a terminal disposition.");
+  }
+  return input.disposition;
 }
 
 function createLifecycleAttributionEvent(details: {
@@ -756,9 +767,9 @@ function createLifecycleAttributionEvent(details: {
       policyId: "context-whole-block-static-v1",
       configurationHash: hashPolicyAdaptationConfiguration({ contextAllocationMode: "whole-block" }),
     },
-    outcome: details.input.turnOutcome === "completed"
+    outcome: details.input.disposition?.outcome === "completed"
       ? "succeeded"
-      : details.input.turnOutcome === "failed"
+      : details.input.disposition?.outcome === "failed"
         ? "failed"
         : "unknown",
   });
@@ -885,7 +896,7 @@ export class CanonicalTurnLifecycle {
   #writeFailure: unknown;
   #started = false;
   #state: CanonicalTurnLifecycleState = "open";
-  #settledOutcome: SessionTurnOutcome | undefined;
+  #settledDisposition: RuntimeTurnTerminalDisposition | undefined;
   #settlement: Promise<void> | undefined;
 
   constructor(options: CanonicalTurnLifecycleOptions) {
@@ -897,7 +908,6 @@ export class CanonicalTurnLifecycle {
       channel: options.channel,
       userMessageContent: options.userMessageContent,
       queued: false,
-      turnOutcome: "paused",
       turnStartedAt: options.turnStartedAt,
       turnCompletedAt: options.turnStartedAt,
       continuity: options.continuity,
@@ -910,7 +920,7 @@ export class CanonicalTurnLifecycle {
     );
     if (existingTerminal) {
       this.#state = "settled";
-      this.#settledOutcome = existingTerminal.outcome;
+      this.#settledDisposition = dispositionFromCanonicalTurnCompletedEvent(existingTerminal);
     }
   }
 
@@ -924,7 +934,9 @@ export class CanonicalTurnLifecycle {
       return;
     }
     if (this.#state === "settled") {
-      throw new Error(`Canonical turn ${this.#builder.turnId} is already settled as ${this.#settledOutcome}.`);
+      throw new Error(
+        `Canonical turn ${this.#builder.turnId} is already settled as ${this.#settledDisposition?.outcome}.`,
+      );
     }
     if (this.#state !== "open") {
       if (this.#state === "failed") throw this.#writeFailure;
@@ -973,8 +985,10 @@ export class CanonicalTurnLifecycle {
 
   async settle(input: CanonicalTurnTerminalInput): Promise<void> {
     if (this.#state === "settled") {
-      if (this.#settledOutcome !== input.turnOutcome) {
-        throw new Error(`Canonical turn ${this.#builder.turnId} already settled as ${this.#settledOutcome}.`);
+      if (!sameTurnTerminalDisposition(this.#settledDisposition, input.disposition)) {
+        throw new Error(
+          `Canonical turn ${this.#builder.turnId} already settled as ${this.#settledDisposition?.outcome}.`,
+        );
       }
       return;
     }
@@ -994,7 +1008,7 @@ export class CanonicalTurnLifecycle {
       );
       await this.flush();
       this.#state = "settled";
-      this.#settledOutcome = input.turnOutcome;
+      this.#settledDisposition = input.disposition;
     })();
     return this.#settlement;
   }
@@ -1084,6 +1098,41 @@ export function canonicalRuntimeEventIdentity(event: CapturedRuntimeLedgerEvent)
         event.resultSummary ?? "",
       ]);
   }
+}
+
+function sameTurnTerminalDisposition(
+  left: RuntimeTurnTerminalDisposition | undefined,
+  right: RuntimeTurnTerminalDisposition,
+): boolean {
+  if (left === undefined) return false;
+  // Replayed canonical events are envelopes: they carry the same flattened
+  // disposition fields plus event identity/timing and optional output data.
+  // Compare the already-typed disposition structurally while ignoring that
+  // envelope metadata.
+  return Object.keys(right).every((key) => (
+    Object.prototype.hasOwnProperty.call(left, key)
+      && stableStringify(Reflect.get(left, key)) === stableStringify(Reflect.get(right, key))
+  ));
+}
+
+function dispositionFromCanonicalTurnCompletedEvent(
+  event: Extract<CanonicalSessionEvent, { readonly kind: "turn_completed" }>,
+): RuntimeTurnTerminalDisposition {
+  if (event.dispositionReason === "external_harness_completed" || event.dispositionReason === "external_harness_failed") {
+    throw new Error("Runtime turn lifecycle cannot resume an external harness terminal event.");
+  }
+  return event;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? String(value);
 }
 
 function runtimeEventIdentity(parts: readonly unknown[]): string {

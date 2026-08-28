@@ -6,6 +6,7 @@ import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effec
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { RuntimeConfigurationRevisionSnapshot } from "../../src/session/runtime-configuration-revision-pin.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
+import { runtimeCompletedDisposition } from "./runtime-terminal-fixture.js";
 
 function makeContext(
   orchestrator: RuntimeSessionOrchestrator,
@@ -80,7 +81,7 @@ describe("admitted-turn configuration revision", () => {
       observedStates.push((await sessionRegistry.getById("lifecycle-session"))!.observeLiveLifecycle().state);
       return {
         parts: textParts("done"), inputTokens: 1, outputTokens: 1,
-        cacheReadTokens: 0, cacheWriteTokens: 0, queued: false, outcome: "completed" as const,
+        cacheReadTokens: 0, cacheWriteTokens: 0, queued: false, ...runtimeCompletedDisposition(),
       };
     });
     const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
@@ -100,7 +101,7 @@ describe("admitted-turn configuration revision", () => {
   it("uses the revision captured with route admission and never rereads the live provider", async () => {
     const processMessage = vi.fn().mockResolvedValue({
       parts: textParts("done"), inputTokens: 1, outputTokens: 1,
-      cacheReadTokens: 0, cacheWriteTokens: 0, queued: false, outcome: "completed",
+      cacheReadTokens: 0, cacheWriteTokens: 0, queued: false, ...runtimeCompletedDisposition(),
     } satisfies OrchestrateResult);
     const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = new SessionRegistry();
@@ -131,7 +132,7 @@ describe("admitted-turn configuration revision", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     } satisfies OrchestrateResult);
     const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = new SessionRegistry();
@@ -172,7 +173,7 @@ describe("admitted-turn configuration revision", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     } satisfies OrchestrateResult);
     const orchestrator = { processMessage, model: "fixture" } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = new SessionRegistry();

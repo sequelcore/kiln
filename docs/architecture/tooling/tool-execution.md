@@ -87,6 +87,21 @@ in `@kilnai/core` and every runtime-facing projection is derived from that
 registry. The concrete builtin developer-tool catalog and consumer contract are
 documented in `docs/architecture/tooling/developer-tools.md`.
 
+Canonical tool IDs and operator-facing aliases are separate. The initial
+provider projection, the derived `authorizedMaterializable` view, and later
+materialized tool state are separate projections; materialized state does not
+become an authority source. Discovery may reveal only tools already authorized
+for the turn, with typed status, and never widens the turn's authority or
+allowlist.
+
+Completion obligations resolve operator-facing producer names to canonical
+producer IDs. Completion requires scoped evidence from that exact producer (or
+an explicitly listed equivalent); shell substitution is prohibited unless Core
+explicitly declares the equivalence. Configured producer diagnostics exposed to
+the model are typed and redacted to configuration status/version facts. They do
+not expose paths, credentials, or raw probe payloads and do not grant execution
+authority.
+
 Projection rules:
 
 - direct and OAuth providers receive tool definitions from the canonical
@@ -389,41 +404,64 @@ Authority behavior differs by surface:
 - dangerous command detection
 - command and path safety checks
 
-## Tool-Round Budget
+## Runtime Turn Convergence
 
-Interactive operator sessions do not have a default or implicit tool-round
-cap. GUI, TUI, and interactive CLI turns continue until semantic final
-response, cancellation,
-approval pause, safety block, provider unrecoverable error, or runtime
-guardrails such as context, cost, timeout, or no-progress circuit breakers.
+`RuntimeSessionOrchestrator` is the sole live-loop owner for attached Runtime
+turns. Provider adapters and GUI, TUI, CLI, and gateway transports supply
+requests and evidence; they do not run private model/tool loops or settle a
+turn independently.
 
-Bounded workflows use an explicit runtime execution envelope:
-`executionEnvelope.toolRounds.max`. Runtime validates this boundary as a
-positive integer. Benchmark execution, unattended tenant tool sessions, and
-managed direct-provider children may opt into bounded envelopes when that
-workflow needs a finite replayable budget. Surfaces configure intent; runtime
-owns the execution policy.
+Every attached turn receives one complete, finite convergence policy. Runtime
+resolves `RuntimeExecutionEnvelope.convergence` when a workflow supplies an
+explicit policy, otherwise it uses the centralized
+`RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY`. The policy carries a stable identity,
+configuration digest, and limits for provider requests, tool rounds and calls,
+cumulative input tokens, elapsed and active time, recovery attempts, and
+consecutive no-progress steps. The numeric defaults are centralized and
+provisional pending calibration; they are not an additional YAML configuration
+schema.
 
-Exhaustion triggers one no-tool finalization request so the transcript retains
-an actionable explanation, but it does not convert unfinished work into
-success. `tool_round_budget_exhausted` records a paused canonical turn so an
-operator can continue from the transcript and tool evidence. Failed finalization
-(`no_tool_finalization_failed`) and required managed state transitions
-(`managed_invocation_state_transition_required`) remain failed outcomes.
-The finalization request carries an explicit provider-level no-tool choice even
-when the tool definition list is empty; a provider that still returns tool calls
-fails closed and those calls are never executed.
-Direct-provider children that exhaust their bounded envelope still terminate as
-`failed` because they cannot produce a successful governed handoff; their
-transcript, tool execution, and write evidence remain replayable.
+Runtime calls the convergence decision before every provider request and before
+every atomically admitted tool batch, including the first request. A bound is
+settled deterministically as a typed pause in the same turn; reaching a bound
+does not trigger another model request or a hidden finalization prompt. The
+terminal disposition carries the exact reason and convergence evidence for
+replay. No-progress evidence may pause a turn, but it never proves completion.
 
-Per-tool usage snapshots are count-only execution evidence. They report how
-many times a tool ran during the current turn and are projected unchanged to
-operator surfaces. They are not an enforcement policy, and GUI, TUI, and CLI
-must not attach surface-owned thresholds or named budget presets to interactive
-turns. Any future per-tool limit must be an explicit runtime policy with scope,
-exhaustion behavior, and provenance defined by canonical configuration; surfaces
-may display that resolved policy but do not own it.
+`sessionTurnBudget` is a separate outer/session-history authorization. Runtime
+checks it before consequential steps, but it cannot replace or widen the
+turn-local convergence policy. Per-tool usage snapshots remain count-only
+evidence and do not authorize surface-owned thresholds.
+
+Current model context and cumulative input are separate quantities. The current
+context is the projected message set sent to the next provider request and may
+be reduced by the conversation projection policy. Cumulative input is turn-wide
+observed provider usage used by convergence; neither quantity substitutes for
+the other.
+
+## Tool Identity, Discovery, And Completion Evidence
+
+Canonical tool IDs and operator-facing aliases are separate. The initial
+provider projection, the `authorizedMaterializable` set, and the later
+materialized tool state are separate projections as well. Discovery may reveal
+only tools already authorized for the turn, with typed status; it never widens
+the turn's authority or allowlist. Progressive materialization therefore
+requires both an admitted canonical ID and an already-authorized materialization
+capability.
+
+Completion obligations are explicit. A request such as “use Dafny” resolves to
+the canonical `formal_verify` producer, while the alias remains presentation
+metadata. Completion requires a successful typed observation from that exact
+producer (or an explicitly listed equivalent) with scoped
+`(toolCallScopeId, toolCallId)` evidence. Shell substitution, including `bash`,
+does not satisfy a required producer unless Core explicitly declares the
+equivalence.
+
+Configured producer diagnostics may be exposed to the model through catalog
+discovery. They are typed, canonical-ID-scoped, and redacted to configuration
+status/version facts; paths, credentials, and raw probe payloads do not cross
+the model boundary. An unavailable or invalid producer therefore remains a
+diagnostic and cannot be treated as executable authority.
 
 ## Invocation Authority
 

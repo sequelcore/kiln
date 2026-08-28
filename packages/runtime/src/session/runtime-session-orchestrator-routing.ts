@@ -34,6 +34,7 @@ import {
   RuntimeManagedAgentInvocationService,
 } from "../agents/managed-invocation/index.js";
 import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
+import type { TurnConvergencePauseDecision } from "@kilnai/core/agents";
 import {
   executeDefaultRuntimeMultimodalTransform,
   runtimeMultimodalTransformEffectMode,
@@ -62,6 +63,7 @@ export interface RuntimeSessionRoutingResolution {
   readonly routingDecision?: RoutingDecision;
   readonly deliberationResolution?: DeliberationResolution;
   readonly communicationResolution?: CommunicationResolution;
+  readonly convergencePause?: TurnConvergencePauseDecision;
   readonly delegatedMultimodalResult?: RuntimeMultimodalDelegationExecutionResult;
   readonly transformedUserParts?: readonly ContentPart[];
   readonly preModelToolExecutions?: readonly ToolExecutionSummary[];
@@ -75,6 +77,10 @@ function isExternalHarnessAdapter(adapter: ManagedAgentRuntimeAdapter): boolean 
     && adapter.descriptor.supportedExecutionModes.some((mode) => mode === "cli-harness" || mode === "remote-harness");
 }
 
+export type RuntimeMultimodalEffectAdmission =
+  | { readonly status: "admitted" }
+  | { readonly status: "paused"; readonly decision: TurnConvergencePauseDecision };
+
 export interface RuntimeMultimodalDelegationExecutionResult {
   readonly parts: readonly ContentPart[];
   readonly inputTokens: number;
@@ -85,6 +91,7 @@ export interface RuntimeMultimodalDelegationExecutionResult {
 }
 
 interface RuntimeMultimodalRouteEffect {
+  readonly convergencePause?: TurnConvergencePauseDecision;
   readonly delegatedMultimodalResult?: RuntimeMultimodalDelegationExecutionResult;
   readonly transformedUserParts?: readonly ContentPart[];
   readonly transformToolExecution?: ToolExecutionSummary;
@@ -109,6 +116,7 @@ export async function resolveRuntimeSessionRouting(
   baseTools: readonly ToolDefinition[] | undefined,
   perCallConfig: PerCallToolConfig | undefined,
   emitModelRouted: (sessionId: string, decision: RoutingDecision) => void,
+  beforeMultimodalEffect: (sessionId: string) => Promise<RuntimeMultimodalEffectAdmission>,
   emitMultimodalRouted?: (sessionId: string, input: {
     readonly provider: string;
     readonly model: string;
@@ -117,7 +125,6 @@ export async function resolveRuntimeSessionRouting(
     readonly artifactUris: readonly string[];
     readonly decision: ReturnType<typeof planMultimodalRoute>;
   }) => void,
-  beforeMultimodalDelegation?: (sessionId: string) => Promise<void>,
 ): Promise<RuntimeSessionRoutingResolution> {
   const hasBuiltins = (deps.builtinTools?.size ?? 0) > 0;
   const hasMcp = (deps.mcpClients?.length ?? 0) > 0;
@@ -312,7 +319,7 @@ export async function resolveRuntimeSessionRouting(
     idempotencyKey: perCallConfig?.runtimeMediaActionIdempotencyKey,
     abortSignal: perCallConfig?.abortSignal,
     emitDecision: (route) => emitMultimodalRouted?.(session.id, route),
-    beforeDelegation: async () => { await beforeMultimodalDelegation?.(session.id); },
+    beforeEffect: () => beforeMultimodalEffect(session.id),
   });
   const delegatedMultimodalResult = multimodalEffect?.delegatedMultimodalResult;
 
@@ -329,6 +336,7 @@ export async function resolveRuntimeSessionRouting(
     routingDecision,
     ...(deliberationResolution ? { deliberationResolution } : {}),
     ...(communicationResolution ? { communicationResolution } : {}),
+    ...(multimodalEffect?.convergencePause ? { convergencePause: multimodalEffect.convergencePause } : {}),
     ...(delegatedMultimodalResult ? { delegatedMultimodalResult } : {}),
     ...(multimodalEffect?.transformedUserParts ? { transformedUserParts: multimodalEffect.transformedUserParts } : {}),
     ...(multimodalEffect?.transformToolExecution ? { preModelToolExecutions: [multimodalEffect.transformToolExecution] } : {}),
@@ -368,7 +376,7 @@ async function resolveRuntimeMultimodalRoute(input: {
     readonly artifactUris: readonly string[];
     readonly decision: ReturnType<typeof planMultimodalRoute>;
   }) => void;
-  readonly beforeDelegation?: () => Promise<void>;
+  readonly beforeEffect: () => Promise<RuntimeMultimodalEffectAdmission>;
 }): Promise<RuntimeMultimodalRouteEffect | undefined> {
   const requirements = multimodalRequirements(input.currentUserParts, input.messages);
   if (!requirements) {
@@ -411,7 +419,10 @@ async function resolveRuntimeMultimodalRoute(input: {
       artifactUris: requirements.artifacts.map((artifact) => artifact.uri),
       decision,
     });
-    await input.beforeDelegation?.();
+    const admission = await input.beforeEffect();
+    if (admission?.status === "paused") {
+      return { convergencePause: admission.decision };
+    }
     return {
       delegatedMultimodalResult: await invokeManagedMultimodalDelegation({
         session: input.session,
@@ -420,11 +431,24 @@ async function resolveRuntimeMultimodalRoute(input: {
         decision,
         externalActionClaim: input.externalActionClaim,
         externalAuthorityAdmission: input.externalAuthorityAdmission,
+        abortSignal: input.abortSignal,
       }),
     };
   }
 
   if (decision.strategy === "transform" && decision.transform) {
+    input.emitDecision?.({
+      provider: capabilities.provider,
+      model: capabilities.model,
+      requestedCapability: requirements.requestedCapability,
+      requiredModalities: requirements.requiredInputModalities,
+      artifactUris: requirements.artifacts.map((artifact) => artifact.uri),
+      decision,
+    });
+    const admission = await input.beforeEffect();
+    if (admission?.status === "paused") {
+      return { convergencePause: admission.decision };
+    }
     const transformResult = await executeRuntimeMultimodalTransform({
       route: requireTransformRoute(input.transformRoutes, decision.transform.transform),
       requirements,
@@ -435,14 +459,6 @@ async function resolveRuntimeMultimodalRoute(input: {
       callerId: input.callerId,
       idempotencyKey: input.idempotencyKey,
       abortSignal: input.abortSignal,
-    });
-    input.emitDecision?.({
-      provider: capabilities.provider,
-      model: capabilities.model,
-      requestedCapability: requirements.requestedCapability,
-      requiredModalities: requirements.requiredInputModalities,
-      artifactUris: requirements.artifacts.map((artifact) => artifact.uri),
-      decision,
     });
     return {
       transformedUserParts: transformResult.parts,
@@ -584,6 +600,7 @@ async function invokeManagedMultimodalDelegation(input: {
   readonly decision: ReturnType<typeof planMultimodalRoute>;
   readonly externalActionClaim: OrchestratorDeps["externalActionClaim"];
   readonly externalAuthorityAdmission: OrchestratorDeps["externalAuthorityAdmission"];
+  readonly abortSignal?: AbortSignal;
 }): Promise<RuntimeMultimodalDelegationExecutionResult> {
   const adapter = input.route.adapter;
   const observedRuntimeAuthority = input.route.observedRuntimeAuthority;
@@ -686,9 +703,12 @@ async function invokeManagedMultimodalDelegation(input: {
           ? { requestedAgentProfile: input.route.agentProfile ?? input.route.route.agentProfile }
           : {}),
       },
-    }, externalHarnessContext
-      ? { childAuthorityAdmission: { bundle: externalHarnessContext.externalAuthorityAdmission } }
-      : undefined);
+    }, {
+      ...(externalHarnessContext
+        ? { childAuthorityAdmission: { bundle: externalHarnessContext.externalAuthorityAdmission } }
+        : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    });
 
   if (result.status === "denied") {
     throw new KilnError(

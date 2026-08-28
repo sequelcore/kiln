@@ -7,7 +7,10 @@ import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } 
 import { MemoryMutationService } from "../memory/service.js";
 import type { GoalRunStore, WorkItemStore } from "../work-governance/index.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./domain/tool.js";
-import { ToolCatalogIndex } from "./domain/tool-catalog.js";
+import {
+  ToolCatalogIndex,
+  type ToolCatalogConfiguredProducerDiagnostic,
+} from "./domain/tool-catalog.js";
 import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import {
@@ -108,6 +111,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   /** Outer configured authority; Core meets it with effect and caller bounds. */
   readonly invocationAdmission?: InvocationAdmission;
   readonly additionalTools?: readonly DevTool[];
+  /** CLI-owned validation evidence for configured producers that are not executable. */
+  readonly configuredProducerDiagnostics?: readonly ToolCatalogConfiguredProducerDiagnostic[];
   readonly bash?: BashToolOptions;
   readonly grep?: GrepToolOptions;
   readonly glob?: GlobToolOptions;
@@ -343,7 +348,9 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     ...(options.gentleReview ? [createGentleReviewTool(options.gentleReview)] : []),
     ...(options.additionalTools ?? []),
   ];
-  catalog = ToolCatalogIndex.fromTools(tools);
+  catalog = ToolCatalogIndex.fromTools(tools, undefined, {
+    configuredProducerDiagnostics: options.configuredProducerDiagnostics,
+  });
   return tools;
 }
 
@@ -436,7 +443,9 @@ export function createDefaultBuiltinToolSurface(
   const canonicalRegistry = createDefaultBuiltinToolRegistry(surfaceOptions);
   const tools = projectTools(canonicalRegistry.list(), options.toolProjection);
   const registry = options.toolProjection?.mode === "strict" ? createRegistryFromTools(tools) : canonicalRegistry;
-  const catalog = ToolCatalogIndex.fromTools(registry.list());
+  const catalog = ToolCatalogIndex.fromTools(registry.list(), undefined, {
+    configuredProducerDiagnostics: options.configuredProducerDiagnostics,
+  });
   const resourceProviders = [
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
     ...(options.memoryResources ? [new MemoryGraphResourceProvider(options.memoryResources)] : []),

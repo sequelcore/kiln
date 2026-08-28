@@ -51,6 +51,7 @@ import type {
   OperatorCockpitAttachTarget,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  OperatorTurnTerminalDisposition,
 } from "@kilnai/gateway-contracts";
 import { projectAppGatewayOperatorSessionHistory } from "./app-gateway-operator-session-history.js";
 import {
@@ -62,6 +63,7 @@ import {
 import {
   appendCoordinationProviderFailureAudit,
   processAdmittedTurn,
+  projectAdmittedTurnDisposition,
   projectAdmittedTurnContext,
   resolveCoordinationContextCandidates,
 } from "./message-pipeline/index.js";
@@ -70,6 +72,11 @@ import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
 import type { RuntimeSession } from "../session/runtime-session.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
+
+const RUNTIME_FAILURE_DISPOSITION = {
+  outcome: "failed",
+  dispositionReason: "runtime_failure",
+} as const satisfies OperatorTurnTerminalDisposition;
 
 export interface LoadedApp {
   readonly name: string;
@@ -473,11 +480,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                  ws: options!.ws!,
                });
                if (options?.validationError) {
-                 return {
+                return {
                    parts: [],
                    inputTokens: 0,
                    outputTokens: 0,
-                   outcome: "failed" as const,
+                   ...RUNTIME_FAILURE_DISPOSITION,
                    errorMessage: options.validationError,
                    dispatchEgress,
                  };
@@ -523,7 +530,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                    parts: [],
                    inputTokens: 0,
                    outputTokens: 0,
-                   outcome: "failed" as const,
+                   ...RUNTIME_FAILURE_DISPOSITION,
                    errorMessage: error instanceof Error ? error.message : String(error),
                    dispatchEgress,
                  };
@@ -1068,11 +1075,11 @@ async function processAppGatewayGuiMessage(
       parts: result.parts,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      outcome: result.outcome,
       ...(result.routingDecision?.provider ? { routedProvider: result.routingDecision.provider } : {}),
       ...(result.routingDecision?.model ? { routedModel: result.routingDecision.model } : {}),
       runtimeContinuity: result.runtimeContinuity ?? { strategy: "none" },
       authorityStatus: deriveAppGatewayGuiAuthorityStatus(result.effectiveTurnAuthority),
+      ...projectAdmittedTurnDisposition(result),
     } satisfies GuiInboundFrame));
   } catch (error) {
     ws.send(JSON.stringify({

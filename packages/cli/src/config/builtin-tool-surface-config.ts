@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import type { AuthorityDescriptor, InvocationAdmission } from "@kilnai/core";
-import { type DefaultBuiltinToolRegistryOptions, MemoryArtifactResourceStore } from "@kilnai/core";
+import {
+  type DefaultBuiltinToolRegistryOptions,
+  MemoryArtifactResourceStore,
+  type ToolCatalogConfiguredProducerDiagnostic,
+  type ToolCatalogConfigurationDiagnostic,
+} from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
@@ -207,6 +212,12 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(options.discoveredGentleAiPaths === undefined ? {} : { discoveredPaths: options.discoveredGentleAiPaths }),
   });
   const qualityAnalysis = resolveQualityAnalysisConfiguration(globalConfig);
+  const configuredProducerDiagnostics = collectConfiguredProducerDiagnostics([
+    { canonicalName: "formal_verify", diagnostic: formalVerification.diagnostic },
+    { canonicalName: "static_analyze", diagnostic: staticAnalysis.diagnostic },
+    { canonicalName: "quality_analyze", diagnostic: qualityAnalysis.diagnostic },
+    { canonicalName: "gentle_review", diagnostic: gentleReview.diagnostic },
+  ]);
   const [webOptions, interactiveOptions] = await Promise.all([
     loadConfiguredWebToolSurfaceOptions(appConfig, projectPath, {
       ...(options.memoryAuthority === undefined ? {} : { memoryAuthority: options.memoryAuthority }),
@@ -231,9 +242,70 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(staticAnalysis.options === undefined ? {} : { staticAnalyze: staticAnalysis.options }),
     ...(qualityAnalysis.options === undefined ? {} : { qualityAnalyze: qualityAnalysis.options }),
     ...(gentleReview.options === undefined ? {} : { gentleReview: gentleReview.options }),
+    ...(configuredProducerDiagnostics.length > 0 ? { configuredProducerDiagnostics } : {}),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,
   };
+}
+
+function collectConfiguredProducerDiagnostics(
+  resolutions: readonly {
+    readonly canonicalName: string;
+    readonly diagnostic: ConfiguredProducerResolutionDiagnostic | undefined;
+  }[],
+): readonly ToolCatalogConfiguredProducerDiagnostic[] {
+  return resolutions.flatMap(({ canonicalName, diagnostic }) => {
+    if (!diagnostic || diagnostic.code === "not_configured") {
+      return [];
+    }
+    const status = diagnostic.code === "executable_unavailable"
+      ? "configured_unavailable"
+      : "validation_failed";
+    return [{
+      canonicalName,
+      status,
+      configuration: projectConfiguredProducerDiagnostic(canonicalName, diagnostic),
+    }];
+  });
+}
+
+type ConfiguredProducerResolutionDiagnostic = NonNullable<
+  (
+    | ReturnType<typeof resolveFormalVerificationConfiguration>
+    | ReturnType<typeof resolveStaticAnalysisConfiguration>
+    | ReturnType<typeof resolveQualityAnalysisConfiguration>
+    | ReturnType<typeof resolveGentleAiConfiguration>
+  )["diagnostic"]
+>;
+
+function projectConfiguredProducerDiagnostic(
+  canonicalName: string,
+  diagnostic: ConfiguredProducerResolutionDiagnostic,
+): ToolCatalogConfigurationDiagnostic {
+  const versionRelated =
+    diagnostic.code === "version_probe_failed" ||
+    diagnostic.code === "version_unparseable" ||
+    diagnostic.code === "version_mismatch";
+  const expectedVersion = versionRelated ? optionalDiagnosticVersion(diagnostic, "expectedVersion") : undefined;
+  const observedVersion = versionRelated ? optionalDiagnosticVersion(diagnostic, "observedVersion") : undefined;
+  return {
+    code: diagnostic.code,
+    message: `Configured producer "${canonicalName}" reported ${diagnostic.code}.`,
+    ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    ...(observedVersion === undefined ? {} : { observedVersion }),
+  };
+}
+
+function optionalDiagnosticVersion(
+  diagnostic: ConfiguredProducerResolutionDiagnostic,
+  field: "expectedVersion" | "observedVersion",
+): string | undefined {
+  if (field === "expectedVersion") {
+    if (!("expectedVersion" in diagnostic)) return undefined;
+    return typeof diagnostic.expectedVersion === "string" ? diagnostic.expectedVersion : undefined;
+  }
+  if (!("observedVersion" in diagnostic)) return undefined;
+  return typeof diagnostic.observedVersion === "string" ? diagnostic.observedVersion : undefined;
 }
 
 export function withProgressiveRuntimeToolProjection(

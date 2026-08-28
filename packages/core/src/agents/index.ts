@@ -4,6 +4,47 @@ import type { DeliberationResolution } from "./deliberation-policy.js";
 import type { CommunicationResolution } from "./communication-policy.js";
 
 export type { AgentTier } from "./agent-tier.js";
+export {
+  assessCompletionEligibility,
+  resolveRequiredProducerObligations,
+} from "./completion-obligation.js";
+export type {
+  CompletionEligibility,
+  CompletionObligation,
+  CompletionObligationUnmet,
+  CompletionObligationUnmetStatus,
+  RequiredProducerEvidence,
+  RequiredProducerEvidenceReference,
+  RequiredProducerEvidenceStatus,
+} from "./completion-obligation.js";
+export {
+  decideTurnConvergence,
+  resolveTurnConvergencePolicy,
+} from "./turn-convergence.js";
+export type {
+  ObservedTurnQuantity,
+  TurnConvergenceDecision,
+  TurnConvergenceLimitPauseReason,
+  TurnConvergenceMetric,
+  TurnConvergenceObservation,
+  TurnConvergencePauseDecision,
+  TurnConvergencePauseReason,
+  TurnConvergencePolicyInput,
+  TurnConvergenceReservation,
+  ResolvedTurnConvergencePolicy,
+} from "./turn-convergence.js";
+export type { TurnProgressEvidence } from "./turn-progress-evidence.js";
+export type {
+  CompletionSettlementEvidence,
+  EligibleCompletionSettlementEvidence,
+  IneligibleCompletionSettlementEvidence,
+  TurnConvergenceEvidence,
+  TurnConvergenceSettlementEvidence,
+  ExternalHarnessTerminalEvidence,
+  ExternalHarnessTurnTerminalDisposition,
+  RuntimeTurnTerminalDisposition,
+  TurnTerminalDisposition,
+} from "./turn-terminal-disposition.js";
 
 /**
  * Agent role in the orchestration.

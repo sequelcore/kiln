@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { defineDeliberationLevelId, type ProviderAdapter, resolveCommunicationIntent } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
+import type { DevTool } from "@kilnai/core/tools";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { createFixtureClaimConfig, createFixtureToolPermission } from "../session/runtime-claim-fixture.js";
@@ -93,6 +94,40 @@ describe("GUI authority forwarding", () => {
       executionMode: "execute",
       completeness: "authoritative",
     });
+  });
+
+  it("commits deferred configured producers while keeping GUI provider schemas initial-only", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const { createAttachedRuntimeBuiltinToolSurface } = await import("../../src/gateway/attached-runtime-tool-surface.js");
+    const deferredProducer: DevTool = {
+      name: "gui_deferred_producer",
+      description: "A configured GUI producer admitted after catalog discovery.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process"],
+        reversibility: "reversible",
+        dataEgress: "metadata",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      async execute() {
+        return { output: "deferred", isError: false };
+      },
+    };
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        additionalTools: [deferredProducer],
+        toolProjection: { mode: "deferred", alwaysOnTools: ["read"] },
+      },
+    });
+    const config = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", surface);
+
+    expect(config.toolAllowlist?.has(deferredProducer.name)).toBe(true);
+    expect(config.perCallCapabilities?.has(deferredProducer.name)).toBe(true);
+    expect(config.toolAuthority?.has(deferredProducer.name)).toBe(true);
+    expect(config.additionalTools?.map((tool) => tool.name)).not.toContain(deferredProducer.name);
   });
 
   it("restricts plan execution mode to read-only tools plus planning workflow tools", async () => {
@@ -406,7 +441,11 @@ describe("GUI authority forwarding", () => {
   });
 
   it("includes authorityStatus in both welcome and done frame payload shapes", async () => {
-    const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const {
+      buildGuiTurnPerCallConfig,
+      deriveGuiAuthorityStatusFromPerCallConfig,
+      buildGuiDoneFramePayload,
+    } = await import("../../src/gateway/gui-gateway.js");
     const authorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(
       buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini"),
     );
@@ -420,14 +459,15 @@ describe("GUI authority forwarding", () => {
       executionMode: "execute",
       authorityStatus,
     };
-    const doneFrame = {
-      type: "done",
+    const doneFrame = buildGuiDoneFramePayload({
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
       authorityStatus,
-    };
+      outcome: "cancelled",
+      dispositionReason: "operator_cancelled",
+    });
 
     expect(welcomeFrame.authorityStatus).toMatchObject({
       effective: "audited",

@@ -1,4 +1,4 @@
-export { processAdmittedTurn } from "./process-admitted-turn.js";
+export { processAdmittedTurn, projectAdmittedTurnDisposition } from "./process-admitted-turn.js";
 export type {
   AdmittedTurnContext,
   AdmittedTurnResult,

@@ -43,7 +43,6 @@ import type {
   ResolvedCommunicationIntent,
   ResolvedInvocationEffect,
   SessionExecutionScope,
-  SessionTurnOutcome,
   ToolAuthorizer,
   ToolCache,
   ToolCall,
@@ -52,6 +51,10 @@ import type {
   ToolResultSanitizer,
   TurnTemporalContext,
 } from "@kilnai/core";
+import type {
+  RuntimeTurnTerminalDisposition,
+  TurnConvergencePolicyInput,
+} from "@kilnai/core/agents";
 import type { BoundHostToolSandboxAdmission } from "@kilnai/core/sandbox";
 import type { ManagedAttendedTrustedExecutionContext } from "../agents/managed-invocation/attended-trusted-execution.js";
 import type { ManagedExternalInvocationActionClaimContext } from "../agents/managed-invocation/external-invocation-action-claim.js";
@@ -84,24 +87,13 @@ export type {
   EffectiveTurnAuthoritySourcePolicy,
 } from "@kilnai/core";
 
-export const RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON = "tool_round_budget_exhausted";
-export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
-export const RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON =
-  "managed_invocation_state_transition_required";
-export const RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON =
-  "governed_work_materialization_required";
-
 export interface RuntimeExecutionEnvelope {
-  readonly toolRounds?: RuntimeToolRoundBudget;
+  readonly convergence?: TurnConvergencePolicyInput;
   readonly conversation?: RuntimeConversationExecutionEnvelope;
 }
 
 export interface RuntimeConversationExecutionEnvelope {
   readonly toolResults?: ConversationToolResultProjectionPolicy;
-}
-
-export interface RuntimeToolRoundBudget {
-  readonly max: number;
 }
 
 export interface RuntimeBuiltinToolExecutionContext {
@@ -138,6 +130,8 @@ export interface OrchestratorDeps {
   readonly provider: ProviderAdapter;
   readonly model?: string;
   readonly maxTokens?: number;
+  /** Monotonic clock injected for deterministic turn-convergence accounting. */
+  readonly monotonicNow?: () => number;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly tools?: readonly ToolDefinition[];
   readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
@@ -221,6 +215,7 @@ export interface RuntimeMultimodalTransformRoute {
 }
 
 export interface ToolExecutionSummary {
+  readonly toolCallScopeId?: string;
   readonly toolCallId?: string;
   readonly toolName: string;
   readonly input?: Record<string, unknown>;
@@ -242,7 +237,7 @@ export interface ToolExecutionSummary {
   }[];
 }
 
-export interface OrchestrateResult {
+type OrchestrateResultCommon = {
   readonly parts: readonly ContentPart[];
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -250,10 +245,8 @@ export interface OrchestrateResult {
   readonly cacheWriteTokens: number;
   readonly providerRequests?: readonly ProviderRequestEvidence[];
   readonly queued: boolean;
-  readonly outcome: SessionTurnOutcome;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
-  readonly stopReason?: string;
   readonly toolExecutions?: readonly ToolExecutionSummary[];
   readonly routingDecision?: {
     readonly provider: string;
@@ -267,7 +260,10 @@ export interface OrchestrateResult {
     readonly rationale?: ModelRoutingRationale;
   };
   readonly communicationResolution?: CommunicationResolution;
-}
+};
+
+/** Every Runtime result carries one Core-owned terminal disposition. */
+export type OrchestrateResult = OrchestrateResultCommon & RuntimeTurnTerminalDisposition;
 
 export interface GovernedRuntimeContext {
   readonly directives?: readonly import("@kilnai/core").ProjectedContextBlock[];

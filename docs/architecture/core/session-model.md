@@ -150,6 +150,30 @@ must clear its loaded detail rather than display orphaned transcript state.
 
 ## Terminal Turn Outcome
 
+### Runtime Turn-Loop Ownership
+
+`RuntimeSessionOrchestrator` is the sole live-loop owner for attached Runtime
+turns. Provider adapters and operator transports may carry provider requests,
+tool calls, and evidence, but they do not own a second model/tool loop or settle
+the turn independently.
+
+Each attached turn resolves one finite convergence policy before work starts.
+Runtime enforces it before every provider request and before every atomically
+admitted tool batch. A bound settles deterministically in the current turn as a
+typed pause; it does not issue an extra model request or a hidden finalization
+prompt. No-progress evidence can cause a pause, but it cannot establish
+completion.
+
+The projected current context and cumulative input are different quantities. The
+current context is the message set projected for the next provider request;
+cumulative input is the turn-wide observed provider usage used by the convergence
+policy. A context projection or truncation does not reset or widen cumulative
+input accounting.
+
+`sessionTurnBudget` remains distinct outer/session-history authorization. Runtime
+checks it before consequential steps, but it cannot replace or widen the
+turn-local convergence policy.
+
 Runtime is the single owner of terminal turn outcome. Every execution session,
 including direct providers and native Claude, Codex, and OpenCode harnesses,
 emits exactly one terminal `outcome`: `completed`, `failed`, `paused`, or
@@ -157,11 +181,24 @@ emits exactly one terminal `outcome`: `completed`, `failed`, `paused`, or
 they do not permanently fail a turn that the runtime later recovers and closes
 successfully.
 
+The terminal outcome is a typed `RuntimeTurnTerminalDisposition`: it carries the
+exact `dispositionReason` and, where the branch requires it, convergence
+settlement evidence, completion-obligation evidence, or external-harness
+evidence. `completed` is permitted only when every explicit completion
+obligation has accepted scoped producer evidence. Canonical producer identity is
+separate from aliases, and a shell result cannot satisfy a required producer
+unless Core explicitly declares that equivalence.
+
 CLI, TUI, GUI, replay, and managed-child adapters persist and present that
 terminal value without re-deriving it from tool names, event order, or a local
 `isError` boolean. A missing terminal outcome fails closed at the surface
 boundary. Session lifecycle remains separate: a host stream can finish cleanly
 while its canonical turn outcome is failed or paused.
+
+The canonical `turn_completed` event carries the flattened typed disposition,
+including its exact reason and evidence. Replay preserves that value unchanged;
+it must not infer a new reason from provider stop text, tool order, aliases, or
+surface-local state.
 
 Every terminal transport carries the same value. In particular, WebSocket
 `done` frames require `outcome`; gateway adapters must not reduce a runtime
@@ -465,6 +502,14 @@ sequence; after an interrupted append it replays only the unprojected canonical
 suffix under the same lock. Surfaces stream the same persisted event identities and
 replay the current Runtime snapshot after reconnect; they do not own a second
 persistence or activity path.
+
+The persisted `turn_completed` event carries the exact typed
+`RuntimeTurnTerminalDisposition`, including its `dispositionReason` and any
+required convergence, completion-obligation, or external-harness evidence.
+Replay and every surface use that value unchanged; they must not re-derive a
+terminal result from tool names, event order, provider stop text, aliases, or a
+local `isError` flag. A missing disposition fails closed at the surface
+boundary.
 
 A replaceable WebSocket disconnect detaches presentation without cancelling the
 turn. Explicit gateway shutdown stops new ingress, aborts active turns, awaits

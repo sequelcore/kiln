@@ -40,6 +40,10 @@ import {
   deriveClaudeRuntimePermissionRequest,
   type RuntimePermissionObservationWriter,
 } from "./runtime-permission-observation.js";
+import {
+  nativeHarnessCancellationDisposition,
+  nativeHarnessTerminalDisposition,
+} from "./native-harness-terminal-disposition.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
@@ -619,11 +623,12 @@ export class ClaudeSession implements IKilnSession {
             type: "completed",
             totalUsd: totalCostUsd,
             durationMs: Date.now() - startTime,
-            outcome: options.abortSignal?.aborted
-              ? "cancelled"
-              : resultMsg.is_error
-                ? "failed"
-                : "completed",
+            disposition: options.abortSignal?.aborted
+              ? nativeHarnessCancellationDisposition("operator_cancelled")
+              : nativeHarnessTerminalDisposition({
+                  harness: "claude-code",
+                  outcome: resultMsg.is_error ? "failed" : "completed",
+                }),
             isPreflightCrash: !initReceived && totalCostUsd === 0,
           };
           if (this.config.sessionLedgerOwner !== "host") try {
@@ -655,12 +660,22 @@ export class ClaudeSession implements IKilnSession {
         }
       }
     } catch (err) {
-      yield {
-        type: "error",
-        code: "SDK_ERROR",
-        message: err instanceof Error ? err.message : String(err),
-        isRetryable: false,
-      };
+      if (options.abortSignal?.aborted) {
+        yield {
+          type: "completed",
+          totalUsd: totalCostUsd,
+          durationMs: Date.now() - startTime,
+          disposition: nativeHarnessCancellationDisposition("operator_cancelled"),
+          isPreflightCrash: false,
+        };
+      } else {
+        yield {
+          type: "error",
+          code: "SDK_ERROR",
+          message: err instanceof Error ? err.message : String(err),
+          isRetryable: false,
+        };
+      }
     } finally {
       let queryCloseError: unknown;
       try {

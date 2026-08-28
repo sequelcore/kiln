@@ -3,7 +3,11 @@ import { type ProviderAdapter, type ToolDefinition } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
 import { canonicalTurnId } from "@kilnai/core/events";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import { makeProvider, makeSession } from "./runtime-session-orchestrator-tools-test-fixture.js";
+import {
+  makeFixtureExecutionEnvelope,
+  makeProvider,
+  makeSession,
+} from "./runtime-session-orchestrator-tools-test-fixture.js";
 
 describe("RuntimeSessionOrchestrator - governed work materialization", () => {
   const tool = (name: string): ToolDefinition => ({
@@ -114,7 +118,7 @@ describe("RuntimeSessionOrchestrator - governed work materialization", () => {
         ["goal.create", createGoal],
         ["tree", inspectTree],
       ]),
-      executionEnvelope: { toolRounds: { max: 5 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(5),
     });
 
     const result = await orchestrator.processMessage(
@@ -147,13 +151,13 @@ describe("RuntimeSessionOrchestrator - governed work materialization", () => {
     expect((calls[2]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).toContain("tree");
   });
 
-  it("returns a specific stop reason when materialization exhausts its tool-round budget", async () => {
-    const provider = makeProvider();
+  it("returns a specific terminal reason when materialization reaches its tool-round convergence limit", async () => {
+    const provider = makeProvider(1);
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [tool("work_item.update"), tool("goal.create"), tool("tree")],
-      builtinTools: new Map(),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      builtinTools: new Map([["get_data", vi.fn()]]),
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(
@@ -167,7 +171,7 @@ describe("RuntimeSessionOrchestrator - governed work materialization", () => {
       },
     );
 
-    expect(result.stopReason).toBe("governed_work_materialization_required");
+    expect(result.dispositionReason).toBe("governed_work_materialization_required");
     expect(result.parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ text: expect.stringContaining("Create 3 more distinct work items") }),
     ]));

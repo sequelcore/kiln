@@ -682,7 +682,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
           ? {
               terminalObserver: (notification) => {
                 const maxTurnsExhausted =
-                  notification.record.stopReason === "tool_round_budget_exhausted" &&
+                  notification.record.stopReason === "tool_round_limit" &&
                   agentProfile.workLimits?.maxTurns !== undefined;
                 const durationExhausted =
                   notification.record.stopReason === "managed-economic-duration-limit" &&

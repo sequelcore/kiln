@@ -34,6 +34,7 @@ import {
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,
+  deriveAttachedRuntimeToolAdmissionProjection,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 import type { AttachedRuntimeManagedInvocationConfig } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { readRuntimeFormalVerificationFinishTransport } from "../../src/index.js";
@@ -4475,6 +4476,63 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     );
   });
 
+  it("commits authorized deferred producers without adding them to the initial provider projection", () => {
+    const deferredProducer: DevTool = {
+      name: "configured_deferred_producer",
+      description: "A configured producer that is admitted only after catalog discovery.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process"],
+        reversibility: "reversible",
+        dataEgress: "metadata",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      async execute() {
+        return { output: "deferred", isError: false };
+      },
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        additionalTools: [deferredProducer],
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+    });
+
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain(deferredProducer.name);
+    expect(runtimeSurface.materializableTools.get(deferredProducer.name)).toMatchObject({
+      name: deferredProducer.name,
+      description: deferredProducer.description,
+      inputSchema: deferredProducer.inputSchema,
+    });
+    expect(config.toolAllowlist).toContain(deferredProducer.name);
+    expect(config.perCallCapabilities?.get(deferredProducer.name)).toBeDefined();
+    expect(config.toolAuthority?.get(deferredProducer.name)).toMatchObject({
+      allowed: true,
+      requiresApproval: false,
+    });
+    expect(config.additionalTools?.map((tool) => tool.name)).not.toContain(deferredProducer.name);
+    const committedTools = projectToolPermissionAdmissionFromPerCallConfig({
+      candidateToolNames: deriveAttachedRuntimeToolAdmissionProjection(runtimeSurface).candidateToolNames,
+      config,
+    });
+    expect(committedTools.allowedToolPermissions.map((permission) => permission.toolName)).toContain(
+      deferredProducer.name,
+    );
+  });
+
   it("cannot materialize tools excluded by a strict core projection", () => {
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       operatorSurface: {
@@ -4494,6 +4552,39 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(runtimeSurface.callBuiltinTools.has("operator_set_theme")).toBe(false);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain("operator_set_theme");
     expect(runtimeSurface.materializableCapabilities.has("tool_catalog_search")).toBe(false);
+  });
+
+  it("keeps strict projection exclusions out of attached authority candidates", () => {
+    const excludedProducer: DevTool = {
+      name: "strictly_excluded_producer",
+      description: "A configured producer excluded by the strict projection.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async execute() {
+        return { output: "excluded", isError: false };
+      },
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        additionalTools: [excludedProducer],
+        toolProjection: {
+          mode: "strict",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+    });
+
+    expect(runtimeSurface.callBuiltinTools.has(excludedProducer.name)).toBe(false);
+    expect(runtimeSurface.materializableTools.has(excludedProducer.name)).toBe(false);
+    expect(config.toolAllowlist?.has(excludedProducer.name)).toBe(false);
+    expect(config.perCallCapabilities?.has(excludedProducer.name)).toBe(false);
+    expect(config.toolAuthority?.has(excludedProducer.name)).toBe(false);
   });
 
   it("enforces a strict write projection inside the exact sandbox root", async () => {

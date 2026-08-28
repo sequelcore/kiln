@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CommunicationResolution, DeliberationResolution, EffectivePromptObservation } from "@kilnai/core";
+import type { TurnTerminalDisposition } from "@kilnai/core/agents";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
   ProviderId,
@@ -114,6 +115,8 @@ export interface RunSessionResult {
   readonly managedChildDispatched: boolean;
   readonly communicationResolution?: CommunicationResolution;
   readonly effectivePromptObservation?: EffectivePromptObservation;
+  /** The exact terminal disposition emitted by the selected execution path. */
+  readonly terminalDisposition?: TurnTerminalDisposition;
   readonly runtimeModelRoundOutcome?: "unknown";
 }
 
@@ -169,6 +172,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let managedChildDispatched = false;
   let communicationResolution: CommunicationResolution | undefined;
   let effectivePromptObservation: EffectivePromptObservation | undefined;
+  let terminalDisposition: TurnTerminalDisposition | undefined;
   let runtimeModelRoundOutcome: "unknown" | undefined;
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
@@ -190,6 +194,16 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     };
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
+    // Runtime-authority sessions already carry the admitted policy into the
+    // executable.  Re-evaluating their tool events here would create a second
+    // authority and could cancel a run after Runtime has settled it.
+    const enforcePostStreamPermissionPolicy = effectiveSessionConfig.authorityAdmissionContext === undefined;
+    const permissionAbortController = new AbortController();
+    const attemptAbortSignal = options.abortSignal
+      ? AbortSignal.any([options.abortSignal, permissionAbortController.signal])
+      : permissionAbortController.signal;
+    let attemptTerminalDisposition: TurnTerminalDisposition | undefined;
+    let pendingProviderFailure = false;
     let attemptError: string | null = null;
     const pendingToolEvidence: Array<{
       readonly toolCallId?: string;
@@ -212,11 +226,17 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         cwd: options.context.workingDirectory,
         toolSandbox: options.toolSandbox,
         env: options.env,
-        abortSignal: options.abortSignal,
+        abortSignal: attemptAbortSignal,
         deliberationResolution: candidateDeliberation,
         requestedAuthority: options.sessionConfig.requestedAuthority,
         requestApproval: options.requestApproval,
       })) {
+        // A denied tool is terminal for this attempt, but the provider still
+        // owns the exact terminal event.  Drain non-terminal events until that
+        // event arrives instead of abandoning the iterator before settlement.
+        if (providerDeniedByPolicy && event.type !== "completed") {
+          continue;
+        }
         switch (event.type) {
           case "text_delta": {
             if (event.isThinking) {
@@ -245,34 +265,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
           }
           case "tool_use": {
             assertScopedExecutionSessionToolEvent(event);
-            const decision = permissionEvaluator.evaluateTool(event.toolName);
-            if (decision.action !== "allow") {
-              transcript.push({
-                seq: ++transcriptSeq,
-                ts: new Date().toISOString(),
-                event: {
-                  type: "tool_use",
-                  toolCallId: event.toolCallId,
-                  toolCallScopeId: event.toolCallScopeId,
-                  toolName: `${event.toolName} [DENIED]`,
-                },
-              });
-              attemptError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
-              lastError = attemptError;
-              options.registry.reportFailure(providerId, false);
-              providerDeniedByPolicy = true;
-              break;
-            }
-
-            const scopedMcpTools = permissionEvaluator.scope.mcpTools;
-            const hasScopedMcpRestriction =
-              event.source === "mcp"
-              && permissionEvaluator.scope.matchedScope
-              && scopedMcpTools !== undefined;
-            if (hasScopedMcpRestriction) {
-              const normalizedScopedMcpTools = new Set(scopedMcpTools.map((selector) => normalizeMcpSelector(selector)));
-              const eventSelector = normalizeMcpSelector(event.mcpSelector ?? event.toolName);
-              if (!normalizedScopedMcpTools.has(eventSelector)) {
+            if (enforcePostStreamPermissionPolicy) {
+              const decision = permissionEvaluator.evaluateTool(event.toolName);
+              if (decision.action !== "allow") {
                 transcript.push({
                   seq: ++transcriptSeq,
                   ts: new Date().toISOString(),
@@ -283,58 +278,91 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                     toolName: `${event.toolName} [DENIED]`,
                   },
                 });
-                attemptError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
+                attemptError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
                 lastError = attemptError;
-                options.registry.reportFailure(providerId, false);
                 providerDeniedByPolicy = true;
+                permissionAbortController.abort();
                 break;
+              }
+
+              const scopedMcpTools = permissionEvaluator.scope.mcpTools;
+              const hasScopedMcpRestriction =
+                event.source === "mcp"
+                && permissionEvaluator.scope.matchedScope
+                && scopedMcpTools !== undefined;
+              if (hasScopedMcpRestriction) {
+                const normalizedScopedMcpTools = new Set(scopedMcpTools.map((selector) => normalizeMcpSelector(selector)));
+                const eventSelector = normalizeMcpSelector(event.mcpSelector ?? event.toolName);
+                if (!normalizedScopedMcpTools.has(eventSelector)) {
+                  transcript.push({
+                    seq: ++transcriptSeq,
+                    ts: new Date().toISOString(),
+                    event: {
+                      type: "tool_use",
+                      toolCallId: event.toolCallId,
+                      toolCallScopeId: event.toolCallScopeId,
+                      toolName: `${event.toolName} [DENIED]`,
+                    },
+                  });
+                  attemptError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
+                  lastError = attemptError;
+                  providerDeniedByPolicy = true;
+                  permissionAbortController.abort();
+                  break;
+                }
+              }
+
+              const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
+              const command = extractCommandFromToolInput(event.input);
+              if (isBashLikeTool && command !== undefined) {
+                const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
+                if (commandDecision.action !== "allow") {
+                  transcript.push({
+                    seq: ++transcriptSeq,
+                    ts: new Date().toISOString(),
+                    event: {
+                      type: "tool_use",
+                      toolCallId: event.toolCallId,
+                      toolCallScopeId: event.toolCallScopeId,
+                      toolName: `${event.toolName} [DENIED]`,
+                    },
+                  });
+                  attemptError = `Provider ${providerId} denied command "${command}" by policy`;
+                  lastError = attemptError;
+                  providerDeniedByPolicy = true;
+                  permissionAbortController.abort();
+                  break;
+                }
+              }
+
+              const filePath = extractFilePathFromToolInput(event.input);
+              if (filePath !== undefined) {
+                const fileDecision = permissionEvaluator.evaluateFile(filePath);
+                if (fileDecision.action !== "allow") {
+                  transcript.push({
+                    seq: ++transcriptSeq,
+                    ts: new Date().toISOString(),
+                    event: {
+                      type: "tool_use",
+                      toolCallId: event.toolCallId,
+                      toolCallScopeId: event.toolCallScopeId,
+                      toolName: `${event.toolName} [DENIED]`,
+                    },
+                  });
+                  attemptError = `Provider ${providerId} denied file path "${filePath}" by policy`;
+                  lastError = attemptError;
+                  exactArtifacts.add(lastError);
+                  providerDeniedByPolicy = true;
+                  permissionAbortController.abort();
+                  break;
+                }
               }
             }
 
-            const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
             const command = extractCommandFromToolInput(event.input);
-            if (isBashLikeTool && command !== undefined) {
-              const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
-              if (commandDecision.action !== "allow") {
-                transcript.push({
-                  seq: ++transcriptSeq,
-                  ts: new Date().toISOString(),
-                  event: {
-                    type: "tool_use",
-                    toolCallId: event.toolCallId,
-                    toolCallScopeId: event.toolCallScopeId,
-                    toolName: `${event.toolName} [DENIED]`,
-                  },
-                });
-                attemptError = `Provider ${providerId} denied command "${command}" by policy`;
-                lastError = attemptError;
-                options.registry.reportFailure(providerId, false);
-                providerDeniedByPolicy = true;
-                break;
-              }
-            }
-
             const filePath = extractFilePathFromToolInput(event.input);
-            if (filePath !== undefined) {
-              const fileDecision = permissionEvaluator.evaluateFile(filePath);
-              if (fileDecision.action !== "allow") {
-                transcript.push({
-                  seq: ++transcriptSeq,
-                  ts: new Date().toISOString(),
-                  event: {
-                    type: "tool_use",
-                    toolCallId: event.toolCallId,
-                    toolCallScopeId: event.toolCallScopeId,
-                    toolName: `${event.toolName} [DENIED]`,
-                  },
-                });
-                attemptError = `Provider ${providerId} denied file path "${filePath}" by policy`;
-                lastError = attemptError;
-                exactArtifacts.add(lastError);
-                options.registry.reportFailure(providerId, false);
-                providerDeniedByPolicy = true;
-                break;
-              }
+            if (providerDeniedByPolicy) {
+              break;
             }
 
             transcript.push({
@@ -464,21 +492,44 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "completed": {
+            terminalDisposition = event.disposition;
+            attemptTerminalDisposition = event.disposition;
             isPreflightCrash = event.isPreflightCrash;
+            pendingProviderFailure = false;
             if (event.isPreflightCrash) {
               attemptError = attemptError
                 ? `Provider ${providerId} crashed before starting: ${attemptError}`
                 : `Provider ${providerId} crashed before starting`;
               lastError = attemptError;
               exactArtifacts.add(lastError);
-              options.registry.reportFailure(providerId, true);
+              if (shouldReportProviderFailure({
+                disposition: event.disposition,
+                providerDeniedByPolicy,
+                operatorCancelled: options.abortSignal?.aborted === true,
+              })) {
+                options.registry.reportFailure(providerId, true);
+              }
               break;
             }
-            if (event.outcome !== "completed") {
-              attemptError ??= `Provider ${providerId} ended with terminal outcome '${event.outcome}'`;
+            if (
+              providerDeniedByPolicy
+              || options.abortSignal?.aborted
+              || event.disposition.outcome !== "completed"
+            ) {
+              if (event.disposition.outcome !== "completed") {
+                attemptError ??= `Provider ${providerId} ended with terminal disposition '${event.disposition.dispositionReason}'`;
+              }
               lastError = attemptError;
-              exactArtifacts.add(lastError);
-              options.registry.reportFailure(providerId, false);
+              if (attemptError) {
+                exactArtifacts.add(attemptError);
+              }
+              if (shouldReportProviderFailure({
+                disposition: event.disposition,
+                providerDeniedByPolicy,
+                operatorCancelled: options.abortSignal?.aborted === true,
+              })) {
+                options.registry.reportFailure(providerId, false);
+              }
               break;
             }
             sessionSucceeded = true;
@@ -498,13 +549,16 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               exactArtifacts.add(`Provider error: ${event.message}`);
             }
             if (!event.isRetryable) {
-              options.registry.reportFailure(providerId, false);
+              // Hold health reporting until the typed terminal event.  A
+              // policy/authority/cancellation disposition is neutral to the
+              // provider and must not open its circuit.
+              pendingProviderFailure = true;
             }
             break;
           }
         }
 
-        if (providerDeniedByPolicy) {
+        if (attemptTerminalDisposition !== undefined) {
           break;
         }
       }
@@ -512,6 +566,14 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       communicationResolution = session.communicationResolution ?? communicationResolution;
       effectivePromptObservation = session.effectivePromptObservation ?? effectivePromptObservation;
       await session.dispose();
+    }
+    if (
+      pendingProviderFailure
+      && attemptTerminalDisposition === undefined
+      && !providerDeniedByPolicy
+      && options.abortSignal?.aborted !== true
+    ) {
+      options.registry.reportFailure(providerId, false);
     }
     const runtimeModelRoundClaimed = session.runtimeModelRoundClaimed === true;
     runtimeModelRoundOutcome = session.runtimeModelRoundOutcome ?? runtimeModelRoundOutcome;
@@ -562,6 +624,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     managedChildDispatched,
     ...(communicationResolution ? { communicationResolution } : {}),
     ...(effectivePromptObservation ? { effectivePromptObservation } : {}),
+    ...(terminalDisposition ? { terminalDisposition } : {}),
     ...(runtimeModelRoundOutcome ? { runtimeModelRoundOutcome } : {}),
   };
 }
@@ -586,6 +649,22 @@ function recordProviderTokenUsage(
     cacheReadTokens: Math.max(usage.cacheReadTokens ?? 0, existing?.cacheReadTokens ?? 0),
     cacheWriteTokens: Math.max(usage.cacheWriteTokens ?? 0, existing?.cacheWriteTokens ?? 0),
   });
+}
+
+function shouldReportProviderFailure(input: {
+  readonly disposition: TurnTerminalDisposition;
+  readonly providerDeniedByPolicy: boolean;
+  readonly operatorCancelled: boolean;
+}): boolean {
+  if (input.providerDeniedByPolicy || input.operatorCancelled) {
+    return false;
+  }
+  if (input.disposition.outcome === "cancelled" || input.disposition.outcome === "paused") {
+    return false;
+  }
+  // Runtime owns this authority decision.  It is a valid terminal settlement,
+  // not evidence that the provider is unhealthy.
+  return input.disposition.dispositionReason !== "outer_authority_denied";
 }
 
 function extractCommandFromToolInput(input: unknown): string | undefined {

@@ -1,8 +1,104 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSessionEvent } from "@kilnai/core/events";
 import type { CanonicalSessionEvent, CostUpdateEvent, ToolCalledEvent, ToolResultEvent } from "@kilnai/core/events";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
 import { CanonicalTurnLifecycle } from "../../src/session/runtime-session-event-ledger.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { canonicalTurnDisposition } from "./canonical-turn-fixture.js";
+
+const replayPolicy = {
+  policyId: "replay-policy",
+  configurationHash: `sha256:${"1".repeat(64)}`,
+  providerRequests: 4,
+  toolRounds: 4,
+  toolCalls: 8,
+  cumulativeInputTokens: 4000,
+  elapsedMs: 60_000,
+  activeMs: 30_000,
+  recoveryAttempts: 3,
+  consecutiveNoProgressSteps: 2,
+} as const;
+
+const replayConvergence = {
+  policy: replayPolicy,
+  progressEvidence: [{
+    kind: "no_progress" as const,
+    reason: "repeated_result" as const,
+    strategyFingerprint: `sha256:${"2".repeat(64)}`,
+    supportingToolCallIds: ["tool-1"],
+  }],
+} as const;
+
+const replayDispositionCases: readonly {
+  readonly label: string;
+  readonly disposition: RuntimeTurnTerminalDisposition;
+}[] = [
+  {
+    label: "completed",
+    disposition: {
+      outcome: "completed",
+      dispositionReason: "completion_eligible",
+      completion: {
+        obligations: [],
+        producerEvidence: [],
+        eligibility: { status: "eligible" },
+      },
+      convergence: replayConvergence,
+    },
+  },
+  {
+    label: "paused convergence",
+    disposition: {
+      outcome: "paused",
+      dispositionReason: "no_progress",
+      convergence: {
+        ...replayConvergence,
+        pause: {
+          status: "pause",
+          reason: "no_progress",
+          metric: "consecutiveNoProgressSteps",
+          observed: 2,
+          limit: 2,
+        },
+      },
+    },
+  },
+  {
+    label: "completion-ineligible",
+    disposition: {
+      outcome: "paused",
+      dispositionReason: "required_producer_not_run",
+      completion: {
+        obligations: [{
+          kind: "required_producer",
+          obligationId: "required-producer:formal_verify",
+          canonicalToolId: "formal_verify",
+          acceptedEquivalentToolIds: [],
+          sourceAlias: "formal verification",
+        }],
+        producerEvidence: [{ canonicalProducerId: "formal_verify", status: "not_run" }],
+        eligibility: {
+          status: "ineligible",
+          unmet: [{
+            obligationId: "required-producer:formal_verify",
+            canonicalToolId: "formal_verify",
+            sourceAlias: "formal verification",
+            status: "not_run",
+          }],
+        },
+      },
+      convergence: replayConvergence,
+    },
+  },
+  {
+    label: "failed",
+    disposition: { outcome: "failed", dispositionReason: "runtime_failure" },
+  },
+  {
+    label: "cancelled",
+    disposition: { outcome: "cancelled", dispositionReason: "operator_cancelled" },
+  },
+];
 
 describe("CanonicalTurnLifecycle", () => {
   function createOptions(session: RuntimeSession, persist: (events: readonly CanonicalSessionEvent[]) => Promise<void>) {
@@ -81,7 +177,7 @@ describe("CanonicalTurnLifecycle", () => {
     await first.start();
     await first.settle({
       queued: false,
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       turnCompletedAt: new Date("2026-08-25T01:00:01.000Z"),
     });
     expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
@@ -195,7 +291,7 @@ describe("CanonicalTurnLifecycle", () => {
       await lifecycle.start();
       await lifecycle.settle({
         queued: false,
-        turnOutcome: outcome,
+        disposition: canonicalTurnDisposition(outcome),
         turnCompletedAt: new Date("2026-08-25T01:00:03.000Z"),
       });
       expect(lifecycle.state).toBe("settled");
@@ -215,7 +311,7 @@ describe("CanonicalTurnLifecycle", () => {
       expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
       await lifecycle.settle({
         queued: false,
-        turnOutcome: outcome,
+        disposition: canonicalTurnDisposition(outcome),
         turnCompletedAt: new Date("2026-08-25T01:00:05.000Z"),
       });
       expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
@@ -312,12 +408,12 @@ describe("CanonicalTurnLifecycle", () => {
     await Promise.all([
       first.settle({
         queued: false,
-        turnOutcome: "completed",
+        disposition: canonicalTurnDisposition("completed"),
         turnCompletedAt: new Date("2026-08-25T01:00:01.000Z"),
       }),
       second.settle({
         queued: false,
-        turnOutcome: "completed",
+        disposition: canonicalTurnDisposition("completed"),
         turnCompletedAt: new Date("2026-08-25T01:00:02.000Z"),
       }),
     ]);
@@ -360,5 +456,43 @@ describe("CanonicalTurnLifecycle", () => {
     expect(abortController.signal.aborted).toBe(true);
     expect(abortController.signal.reason).toBe(failure);
     expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(0);
+  });
+
+  it.each(replayDispositionCases)("reconstructs the flattened $label terminal disposition on replay", async ({
+    label,
+    disposition,
+  }) => {
+    const session = new RuntimeSession({
+      sessionId: `runtime-replay-${label.replaceAll(" ", "-")}-session`,
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "test-user",
+      systemPrompt: "test",
+    });
+    const options = createOptions(session, vi.fn().mockResolvedValue(undefined));
+    const lifecycle = new CanonicalTurnLifecycle(options);
+    await lifecycle.start();
+    await lifecycle.settle({
+      queued: false,
+      disposition,
+      turnCompletedAt: new Date("2026-08-25T01:00:03.000Z"),
+    });
+
+    const terminal = session.sessionEvents.find((event) => event.kind === "turn_completed");
+    expect(terminal).toMatchObject({
+      kind: "turn_completed",
+      ...disposition,
+    });
+    expect(terminal).not.toHaveProperty("disposition");
+
+    const replay = new CanonicalTurnLifecycle(options);
+    expect(replay.state).toBe("settled");
+    await replay.settle({
+      queued: false,
+      disposition,
+      turnCompletedAt: new Date("2026-08-25T01:00:04.000Z"),
+    });
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
+    await expect(replay.start()).rejects.toThrow(`Canonical turn ${options.turnId} is already settled as ${disposition.outcome}.`);
   });
 });

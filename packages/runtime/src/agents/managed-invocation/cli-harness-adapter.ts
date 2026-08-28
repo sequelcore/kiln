@@ -954,7 +954,7 @@ function resolveLifecycleState(
   if (collected.error !== undefined) {
     return isCancellationError(collected.error) ? "cancelled" : "failed";
   }
-  if (collected.completed && collected.completed.outcome !== "completed") {
+  if (collected.completed && collected.completed.disposition.outcome !== "completed") {
     return "failed";
   }
   if (nativeHandoffFailure !== undefined) {
@@ -1019,7 +1019,7 @@ function classifyTerminalFailure(input: {
     return "write_boundary_violation";
   }
   if (isManagedAgentProviderQuotaFailure(input.collected.error)) return "provider_quota_exhausted";
-  if (input.collected.error !== undefined || input.collected.completed?.outcome === "failed") {
+  if (input.collected.error !== undefined || input.collected.completed?.disposition.outcome === "failed") {
     return "native_session_error";
   }
   if (input.nativeHandoffFailure !== undefined) {

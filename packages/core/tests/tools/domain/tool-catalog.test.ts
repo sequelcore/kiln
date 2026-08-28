@@ -67,8 +67,93 @@ describe("ToolCatalogIndex", () => {
       totalIndexed: 47,
       entries: [],
       stale: true,
-      reason: "tool_not_found",
+      reason: "not_registered",
+      diagnostic: {
+        code: "not_registered",
+        requestedName: "missing_tool",
+      },
     });
+  });
+
+  it.each([
+    ["Dafny", "formal_verify"],
+    ["Oxlint", "static_analyze"],
+    ["Gentle", "gentle_review"],
+    ["Gentle AI", "gentle_review"],
+  ])("resolves the %s catalog alias to the canonical %s identity", (alias, canonicalName) => {
+    const catalog = ToolCatalogIndex.fromTools([
+      ...createDefaultBuiltinTools({
+        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        staticAnalyze: { executable: "oxlint", analyzerVersion: "1.80.0" },
+        gentleReview: {
+          executable: "gentle-ai",
+          expectedVersion: "2.5.0-rc.1",
+          expectedExecutableDigest: "sha256:fixture",
+          repositoryRoot: "/workspace",
+        },
+      }),
+    ]);
+
+    expect(catalog.search({ exact: alias, includeSchemas: true })).toMatchObject({
+      entries: [{ name: canonicalName }],
+      diagnostic: {
+        code: "available",
+        requestedName: alias,
+        canonicalName,
+        alias,
+      },
+    });
+    expect(catalog.search({ exact: alias, includeSchemas: true }).entries[0]?.inputSchema).toMatchObject({
+      type: "object",
+    });
+  });
+
+  it("reports an unavailable configured producer while keeping it out of the executable catalog", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools(), undefined, {
+      configuredProducerDiagnostics: [{
+        canonicalName: "formal_verify",
+        status: "validation_failed",
+        configuration: {
+          code: "version_mismatch",
+          message: "Dafny version mismatch",
+          expectedVersion: "4.11.0",
+          observedVersion: "4.10.0",
+        },
+      }],
+    });
+
+    expect(catalog.search({ exact: "Dafny", includeSchemas: true })).toMatchObject({
+      entries: [],
+      stale: true,
+      reason: "validation_failed",
+      diagnostic: {
+        code: "validation_failed",
+        canonicalName: "formal_verify",
+        alias: "Dafny",
+        configuration: { code: "version_mismatch" },
+      },
+    });
+  });
+
+  it("returns a typed unauthorized diagnostic when an alias resolves outside the allowlist", () => {
+    const catalog = ToolCatalogIndex.fromTools([
+      ...createDefaultBuiltinTools({
+        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+      }),
+    ]).restrictToCanonicalNames(new Set(["tool_catalog_search"]));
+
+    expect(catalog.search({ exact: "Dafny", includeSchemas: true })).toMatchObject({
+      entries: [],
+      stale: true,
+      reason: "unauthorized",
+      diagnostic: {
+        code: "unauthorized",
+        requestedName: "Dafny",
+        canonicalName: "formal_verify",
+        alias: "Dafny",
+      },
+    });
+    expect(catalog.search({ exact: "Dafny", includeSchemas: true }).entries).toHaveLength(0);
   });
 
   it("indexes code intelligence as a semantic code tool", () => {

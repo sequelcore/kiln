@@ -200,7 +200,7 @@ describe("AnthropicAdapter", () => {
       ]);
     });
 
-    it("serializes an explicit no-tool finalization choice without tool definitions", async () => {
+    it("serializes an explicit no-tool choice without tool definitions", async () => {
       mockCreate.mockResolvedValueOnce(makeMessageResponse());
 
       await adapter.createMessage(makeOptions({ toolChoice: { type: "none" } }));

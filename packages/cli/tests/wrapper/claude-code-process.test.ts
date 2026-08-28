@@ -16,6 +16,10 @@ import {
 } from "../../src/wrapper/claude-private-plan-artifacts.js";
 import { type DeliberationResolution, resolveCommunicationIntent } from "@kilnai/core/agents";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
+import {
+  nativeHarnessCancellationDisposition,
+  requireCompletedExecutionSessionEvent,
+} from "../fixtures/terminal-disposition.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {
@@ -741,8 +745,8 @@ describe("ClaudeSession implements IKilnSession", () => {
     );
 
     expect(events.filter((event) => event.type === "error")).toEqual([]);
-    expect(events.find((event) => event.type === "completed"))
-      .toMatchObject({ outcome: "cancelled" });
+    expect(requireCompletedExecutionSessionEvent(events).disposition)
+      .toEqual(nativeHarnessCancellationDisposition());
   });
 
   it("emits redacted private plan cleanup evidence and restores the selected pooled home", async () => {

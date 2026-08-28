@@ -3,6 +3,7 @@ import type { DomainConfig } from "@kilnai/core/domain";
 import { runSession } from "../../src/application/run-session.js";
 import { createRunOutputController } from "../../src/application/run-output.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
+import { nativeHarnessDisposition, runtimeCompletedDisposition } from "../fixtures/terminal-disposition.js";
 
 const DOMAIN: DomainConfig = {
   name: "generic",
@@ -98,7 +99,13 @@ describe("runSession output routing", () => {
         isError: true,
       },
       { type: "text_delta", content: "Only four bullets.\n" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("claude-code", "completed"),
+        isPreflightCrash: false,
+      },
     ]);
 
     const result = await runSession({
@@ -150,7 +157,13 @@ describe("runSession output routing", () => {
     const session = createSessionFromEvents([
       { type: "text_delta", content: "private reasoning", isThinking: true },
       { type: "text_delta", content: "visible answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("opencode", "completed"),
+        isPreflightCrash: false,
+      },
     ]);
 
     const result = await runSession({
@@ -196,7 +209,13 @@ describe("runSession output routing", () => {
     const session = createSessionFromEvents([
       { type: "cost_update", usd: 0, executionBinding: binding },
       { type: "cost_update", usd: 0, inputTokens: 10, outputTokens: 2, executionBinding: binding },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      },
     ]);
 
     const result = await runSession({
@@ -240,11 +259,23 @@ describe("runSession output routing", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const primarySession = createSessionFromEvents([
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("claude-code", "failed"),
+        isPreflightCrash: false,
+      },
     ]);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("opencode", "completed"),
+        isPreflightCrash: false,
+      },
     ]);
 
     await runSession({
@@ -288,11 +319,23 @@ describe("runSession output routing", () => {
     };
     const primarySession = createSessionFromEvents([
       { type: "error", code: "COMMITTED_UNKNOWN", message: "Provider outcome is unknown", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("claude-code", "failed"),
+        isPreflightCrash: false,
+      },
     ], true);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback must not run" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("opencode", "completed"),
+        isPreflightCrash: false,
+      },
     ]);
     const createSession = vi.fn((providerId: string) => providerId === "claude" ? primarySession as never : fallbackSession as never);
 
@@ -333,11 +376,23 @@ describe("runSession output routing", () => {
     const primarySession = createSessionFromEvents([
       { type: "text_delta", content: "primary partial" },
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("claude-code", "failed"),
+        isPreflightCrash: false,
+      },
     ]);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("opencode", "completed"),
+        isPreflightCrash: false,
+      },
     ]);
 
     const result = await runSession({
@@ -382,11 +437,23 @@ describe("runSession output routing", () => {
     const primarySession = createSessionFromEvents([
       { type: "text_delta", content: "primary partial" },
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("claude-code", "failed"),
+        isPreflightCrash: false,
+      },
     ]);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("opencode", "completed"),
+        isPreflightCrash: false,
+      },
     ]);
 
     const result = await runSession({
@@ -424,7 +491,13 @@ describe("runSession output routing", () => {
   it("preserves provider error details when a run crashes before turn start", async () => {
     const session = createSessionFromEvents([
       { type: "error", code: "CODEX_EXIT_ERROR", message: "unexpected argument --bad", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: true },
+      {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: nativeHarnessDisposition("codex", "failed"),
+        isPreflightCrash: true,
+      },
     ]);
 
     const result = await runSession({

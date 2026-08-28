@@ -22,7 +22,7 @@ import type { SessionLike } from "./types.js";
 import type { SessionEventInternal } from "./types.js";
 import { applyTuiOperatorThemeRequest } from "./operator-theme-handler.js";
 import { formatVerificationPresentationAsText } from "./verification-presentation.js";
-import { TuiWsClient } from "./ws-client.js";
+import { copyTuiTerminalDisposition, TuiWsClient } from "./ws-client.js";
 import type { TuiInboundFrame } from "./ws-client.js";
 
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -614,12 +614,12 @@ export class GatewaySession implements SessionLike {
       this.push({
         type: "completed",
         totalUsd: 0,
-        outcome: frame.outcome,
         inputTokens: frame.inputTokens,
         outputTokens: frame.outputTokens,
         routedProvider: frame.routedProvider,
         routedModel: frame.routedModel,
         runtimeContinuity: frame.runtimeContinuity,
+        ...copyTuiTerminalDisposition(frame),
       });
       this.pushStop();
     } else if (frame.type === "voice_synthesis_completed") {

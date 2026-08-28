@@ -4,11 +4,11 @@ import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { SessionToolUsageSnapshot } from "./session-event.js";
 import type { ContextUsageRawEvidence } from "./context-usage-projection.js";
 import type { SessionExecutionScope } from "./session-execution-scope.js";
-import type { SessionTurnOutcome } from "./session-event.js";
 import type { ConversationProjectionEvidence } from "../context/conversation-projection.js";
 import type { EffectivePromptEvidence } from "../context/effective-prompt-manifest.js";
 import type { CommunicationResolution } from "../agents/communication-policy.js";
 import type { ResolvedCommunicationIntent } from "../agents/communication-policy.js";
+import type { TurnTerminalDisposition } from "../agents/turn-terminal-disposition.js";
 
 export type ExecutionSessionCostTrackingMode =
   | "native"
@@ -48,6 +48,8 @@ export interface ProviderRequestEvidence {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  /** Monotonic Runtime duration for this provider request, when retained. */
+  readonly durationMs?: number;
   readonly cumulativeInputTokens: number;
   readonly cumulativeOutputTokens: number;
   readonly cumulativeCacheReadTokens: number;
@@ -246,7 +248,8 @@ export type ExecutionSessionEvent = (
       readonly type: "completed";
       readonly totalUsd: number;
       readonly durationMs: number;
-      readonly outcome: SessionTurnOutcome;
+      /** One exact terminal disposition from Runtime or the native harness. */
+      readonly disposition: TurnTerminalDisposition;
       readonly isPreflightCrash: boolean;
     }
   | {

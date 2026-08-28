@@ -12,6 +12,7 @@ import {
   type ManagedAgentRuntimeInvocationRecord,
 } from "../../src/agents/managed-invocation/index.js";
 import { createExternalHarnessTestService } from "./external-harness-test-fixture.js";
+import { externalHarnessDisposition } from "../session/runtime-terminal-fixture.js";
 
 function makeRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -170,7 +171,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
         message: "Claude Code exhausted its structured-output retries without producing a schema-valid result.",
         isRetryable: false,
       },
-      { type: "completed", totalUsd: 0.01, durationMs: 1200, outcome: "failed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 1200, disposition: externalHarnessDisposition("claude-code", "failed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -197,7 +198,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
         message,
         isRetryable: false,
       },
-      { type: "completed", totalUsd: 0, durationMs: 100, outcome: "failed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 100, disposition: externalHarnessDisposition("claude-code", "failed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -218,7 +219,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
         message: "Quota metadata could not be parsed",
         isRetryable: false,
       },
-      { type: "completed", totalUsd: 0, durationMs: 100, outcome: "failed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 100, disposition: externalHarnessDisposition("claude-code", "failed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -228,7 +229,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
 
   it("reports the required native handoff when the provider gave no terminal cause", async () => {
     const result = await invokeWith([
-      { type: "completed", totalUsd: 0, durationMs: 800, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 800, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -251,7 +252,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           version: "2.1.220",
         },
       } as ExecutionSessionEvent,
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -286,7 +287,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           version: "2.1.220",
         },
       } as ExecutionSessionEvent,
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], "claude-fable-5");
 
     expect(result.status).toBe("completed");
@@ -311,7 +312,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           version: "2.1.220",
         },
       } as ExecutionSessionEvent,
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], "claude-fable-5");
 
     expect(result.status).toBe("completed");
@@ -337,7 +338,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           version: "2.1.220",
         },
       } as ExecutionSessionEvent,
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], "claude-fable-5");
 
     expect(result.status).toBe("completed");
@@ -350,7 +351,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
   it("rejects prose JSON as a Claude native result handoff", async () => {
     const result = await invokeWith([
       { type: "text_delta", content: JSON.stringify(structuredResult) },
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -363,7 +364,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
   it("rejects substantive Claude prose when the native structured handoff is missing", async () => {
     const result = await invokeWith([
       { type: "text_delta", content: "The fixture contains before." },
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ]);
 
     expect(result.status).toBe("completed");
@@ -385,7 +386,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           version: "2.1.220",
         },
       } as ExecutionSessionEvent,
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], "claude-fable-5-20260801[1m]");
 
     expect(result.status).toBe("completed");
@@ -408,7 +409,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           version: "2.1.220",
         },
       } as ExecutionSessionEvent,
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], "claude-fable-5");
 
     expect(result.status).toBe("completed");
@@ -451,7 +452,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
         linesRemoved: 0,
       },
       { type: "text_delta", content: "Child plan summary." },
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], "claude-fable-5", true);
 
     expect(result.status).toBe("completed");
@@ -478,7 +479,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
       },
       { type: "ephemeral_harness_state", evidence: { ...privatePlanCleanupEvidence } },
       { type: "text_delta", content: "Child plan summary." },
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], undefined, true, { capabilityVersion: "2.1.226", observedVersion: "2.1.226" });
 
     expect(result.status).toBe("completed");
@@ -499,7 +500,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
       },
       { type: "ephemeral_harness_state", evidence: { ...privatePlanCleanupEvidence } },
       { type: "text_delta", content: "Untrusted child summary." },
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], undefined, true, { capabilityVersion: "2.1.226", observedVersion: "2.1.227" });
 
     expect(result.status).toBe("completed");
@@ -533,7 +534,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
           unexpectedDelta: true,
         },
       },
-      { type: "completed", totalUsd: 0.01, durationMs: 900, outcome: "completed", isPreflightCrash: false },
+      { type: "completed", totalUsd: 0.01, durationMs: 900, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
     ], undefined, true);
 
     expect(result.status).toBe("completed");

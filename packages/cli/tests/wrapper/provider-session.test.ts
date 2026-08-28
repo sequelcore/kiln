@@ -17,6 +17,12 @@ import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
 import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
+import {
+  requireCompletedExecutionSessionEvent,
+  runtimeCancellationDisposition,
+  runtimeCompletedDisposition,
+  runtimeFailureDisposition,
+} from "../fixtures/terminal-disposition.js";
 
 type AnyMock = Mock<(...args: unknown[]) => unknown>;
 type StreamEvent = { type: string; content: string; inputTokens?: number; outputTokens?: number };
@@ -47,8 +53,6 @@ const runtimeMocks = vi.hoisted(() => ({
   addUserMessage: vi.fn(),
   addAssistantMessage: vi.fn(),
   attachedToolSurfaceOptions: vi.fn(),
-  modelRoundDispatch: vi.fn(),
-  modelRoundDispatchError: undefined as Error | undefined,
   attachedToolSurfaceOverride: undefined as unknown,
 }));
 
@@ -345,28 +349,6 @@ vi.mock("@kilnai/runtime", () => {
       processMessage = runtimeMocks.processMessage;
       emitApprovalReceived = runtimeMocks.emitApprovalReceived;
     },
-    RuntimeModelRoundDispatchService: class MockRuntimeModelRoundDispatchService {
-      constructor(_store: unknown) {}
-      async *dispatchStream(input: {
-        readonly provider: { streamMessage(options: unknown): AsyncGenerator<StreamEvent> };
-        readonly request: unknown;
-        readonly state?: { claimed: boolean; outcome?: "success" | "unknown" };
-      }) {
-        runtimeMocks.modelRoundDispatch(input);
-        if (input.state) input.state.claimed = true;
-        if (runtimeMocks.modelRoundDispatchError) throw runtimeMocks.modelRoundDispatchError;
-        let sawDone = false;
-        try {
-          for await (const event of input.provider.streamMessage(input.request)) {
-            if (event.type === "done") sawDone = true;
-            yield event;
-          }
-        } finally {
-          if (input.state) input.state.outcome = sawDone ? "success" : "unknown";
-        }
-      }
-    },
-    runtimeModelRoundEffectIdentity: vi.fn(() => `sha256:${"1".repeat(64)}`),
     RuntimeSession: MockRuntimeSession,
     CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
       async listExecutionAccounts() {
@@ -431,20 +413,25 @@ vi.mock("@kilnai/runtime", () => {
   };
 });
 
-async function* streamEvents(
-  events: readonly { type: string; content: string; inputTokens?: number; outputTokens?: number }[],
-) {
-  for (const event of events) {
-    yield event;
-  }
-}
-
 async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
   const events: ExecutionSessionEvent[] = [];
   for await (const event of iter) {
     events.push(event);
   }
   return events;
+}
+
+function defaultRuntimeResult() {
+  return {
+    parts: [],
+    toolExecutions: [],
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    queued: false,
+    ...runtimeCompletedDisposition(),
+  } as const;
 }
 
 function baseConfig(overrides: Partial<ProviderSessionConfig> = {}): ProviderSessionConfig {
@@ -902,13 +889,13 @@ describe("ProviderSession.run()", () => {
       mock.stream.mockReset();
     }
     runtimeMocks.processMessage.mockReset();
+    runtimeMocks.processMessage.mockResolvedValue(defaultRuntimeResult());
     vi.mocked(prepareOperatorAdoptionTurn).mockReset();
     runtimeMocks.orchestratorConstructor.mockReset();
     runtimeMocks.emitApprovalReceived.mockReset();
     runtimeMocks.addUserMessage.mockReset();
     runtimeMocks.addAssistantMessage.mockReset();
     runtimeMocks.attachedToolSurfaceOptions.mockReset();
-    runtimeMocks.modelRoundDispatchError = undefined;
     runtimeMocks.attachedToolSurfaceOverride = undefined;
     coreSurfaceMocks.createDefaultBuiltinToolSurface.mockClear();
     coreSurfaceMocks.bridgeExecute.mockClear();
@@ -918,16 +905,43 @@ describe("ProviderSession.run()", () => {
     process.env = originalEnv;
   });
 
-  it("maps provider stream events into execution session event shape", async () => {
-    adapterMocks.openai.stream.mockReturnValue(
-      streamEvents([
-        { type: "thinking", content: "thinking..." },
-        { type: "text", content: "hello" },
-        { type: "tool_use", content: JSON.stringify({ name: "memory_store", input: { key: "k", value: "v" } }) },
-        { type: "tool_result", content: "stored" },
-        { type: "done", content: "" },
-      ]),
-    );
+  it("projects the canonical Runtime terminal disposition for a text-only direct-provider turn", async () => {
+    const obligation = {
+      kind: "required_producer" as const,
+      obligationId: "required-producer:formal_verify",
+      canonicalToolId: "formal_verify",
+      acceptedEquivalentToolIds: [],
+      sourceAlias: "Dafny",
+    };
+    const disposition = {
+      outcome: "failed" as const,
+      dispositionReason: "required_producer_unavailable" as const,
+      completion: {
+        obligations: [obligation],
+        producerEvidence: [{ canonicalProducerId: "formal_verify", status: "unavailable" as const }],
+        eligibility: {
+          status: "ineligible" as const,
+          unmet: [{
+            obligationId: obligation.obligationId,
+            canonicalToolId: obligation.canonicalToolId,
+            sourceAlias: obligation.sourceAlias,
+            status: "unavailable" as const,
+            evidence: { canonicalProducerId: "formal_verify", status: "unavailable" as const },
+          }],
+        },
+      },
+      convergence: runtimeCompletedDisposition().convergence,
+    };
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "formal_verify: unavailable" }],
+      toolExecutions: [],
+      inputTokens: 11,
+      outputTokens: 7,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      ...disposition,
+    });
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
@@ -935,36 +949,45 @@ describe("ProviderSession.run()", () => {
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "text-only",
     }));
-    const events = await collectEvents(session.run({ prompt: "test prompt" }));
+    const events = await collectEvents(session.run({ prompt: "Use Dafny to verify this change." }));
 
-    expect(events).toContainEqual({ type: "text_delta", content: "thinking...", isThinking: true });
-    expect(events).toContainEqual({ type: "text_delta", content: "hello" });
-    expect(events).toContainEqual({
-      type: "tool_use",
-      toolName: "memory_store",
-      input: { key: "k", value: "v" },
-    });
-    expect(events).toContainEqual({
-      type: "error",
-      code: "TOOL_UNSUPPORTED",
-      message: "Provider emitted a tool call in text-only execution mode.",
-      isRetryable: false,
-    });
-    expect(events).toContainEqual({ type: "tool_result", toolName: "provider_tool_result", output: "stored" });
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "cost_update",
-      usd: 0,
-      mode: "computed",
-      provider: "openai",
-      model: "gpt-4o",
-      canonicalModel: "gpt-4o",
-      billingMode: "metered",
-    }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(events).toContainEqual({ type: "text_delta", content: "formal_verify: unavailable" });
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(disposition);
+    expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
+    expect(runtimeMocks.processMessage).toHaveBeenCalledTimes(1);
+
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      tools: readonly unknown[];
+      materializableTools: ReadonlyMap<string, unknown>;
+      builtinTools: ReadonlyMap<string, unknown>;
+      capabilityMap: ReadonlyMap<string, unknown>;
+    };
+    expect(orchestratorConfig.tools).toEqual([]);
+    expect(orchestratorConfig.materializableTools.size).toBe(0);
+    expect(orchestratorConfig.builtinTools.size).toBe(0);
+    expect(orchestratorConfig.capabilityMap.size).toBe(0);
+
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      additionalTools?: readonly unknown[];
+      perCallCapabilities?: ReadonlyMap<string, unknown>;
+      toolAuthority?: ReadonlyMap<string, unknown>;
+    };
+    expect(perCallConfig.additionalTools).toEqual([]);
+    expect(perCallConfig.perCallCapabilities?.size).toBe(0);
+    expect(perCallConfig.toolAuthority?.size).toBe(0);
   });
 
-  it("resolves neutral communication intent before direct provider dispatch", async () => {
-    adapterMocks["codex-oauth"].stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+  it("forwards neutral communication intent into the Runtime-owned direct-provider turn", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      ...runtimeCompletedDisposition(),
+    });
     const session = new ProviderSession(baseConfig({
       provider: "codex-oauth",
       model: "gpt-5.6-sol",
@@ -981,22 +1004,54 @@ describe("ProviderSession.run()", () => {
 
     await collectEvents(session.run({ prompt: "Explain." }));
 
-    expect(adapterMocks["codex-oauth"].stream).toHaveBeenCalledWith(expect.objectContaining({
-      system: expect.stringContaining("Respond using locale 'es-MX'"),
-      communicationResolution: expect.objectContaining({
-        responseDetail: expect.objectContaining({
-          requested: "detailed",
-          effective: "detailed",
-          nativeValue: "high",
-        }),
-      }),
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      communicationIntent?: {
+        intent?: { responseDetail?: unknown; locale?: unknown; requiredContent?: readonly string[] };
+      };
+    };
+    expect(perCallConfig.communicationIntent?.intent).toMatchObject({
+      responseDetail: "detailed",
+      locale: "es-MX",
+      requiredContent: ["verification"],
+    });
+    expect(adapterMocks["codex-oauth"].stream).not.toHaveBeenCalled();
+  });
+
+  it("forwards the configured cumulative-input convergence policy to text-only Runtime turns", async () => {
+    const executionEnvelope = {
+      convergence: {
+        policyId: "kiln.cli.tests.cumulative-input",
+        configurationHash: `sha256:${"3".repeat(64)}`,
+        providerRequests: 2,
+        toolRounds: 0,
+        toolCalls: 0,
+        cumulativeInputTokens: 1,
+        elapsedMs: 60_000,
+        activeMs: 60_000,
+        recoveryAttempts: 0,
+        consecutiveNoProgressSteps: 1,
+      },
+    };
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-4o",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+      executionEnvelope,
     }));
-    expect(adapterMocks["codex-oauth"].stream).toHaveBeenCalledWith(expect.objectContaining({
-      system: expect.stringContaining("verification"),
-    }));
+
+    await collectEvents(session.run({ prompt: "configured cumulative input" }));
+
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      executionEnvelope?: unknown;
+    };
+    expect(orchestratorConfig.executionEnvelope).toBe(executionEnvelope);
   });
 
   it("denies unsupported communication intent before direct provider I/O", async () => {
+    runtimeMocks.processMessage.mockRejectedValueOnce(new Error(
+      "Unsupported communication intent cannot execute under deny policy.",
+    ));
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       model: "gpt-4o",
@@ -1016,7 +1071,7 @@ describe("ProviderSession.run()", () => {
       message: "Unsupported communication intent cannot execute under deny policy.",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
     expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
@@ -1046,21 +1101,17 @@ describe("ProviderSession.run()", () => {
     },
   ];
 
-  it.each(textOnlyRows)("keeps $provider tool frames typed in text-only mode", async ({ provider, config }) => {
-    adapterMocks[provider].stream.mockReturnValue(
-      streamEvents([
-        {
-          type: "tool_use",
-          content: JSON.stringify({
-            name: "write",
-            input: { path: "src/feature.ts", content: "export const x = 1;" },
-          }),
-        },
-        { type: "tool_result", content: "tool output" },
-        { type: "done", content: "" },
-      ]),
-    );
-
+  it.each(textOnlyRows)("keeps the Runtime tool surface empty for $provider text-only turns", async ({ provider, config }) => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "text-only response" }],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      ...runtimeCompletedDisposition(),
+    });
     const session = new ProviderSession(baseConfig({
       provider,
       ...config,
@@ -1068,19 +1119,14 @@ describe("ProviderSession.run()", () => {
     const events = await collectEvents(session.run({ prompt: "parse test" }));
 
     expect(session.capabilities.supportedTools).toHaveLength(0);
-    expect(events).toContainEqual({
-      type: "tool_use",
-      toolName: "write",
-      input: { path: "src/feature.ts", content: "export const x = 1;" },
-    });
-    expect(events).toContainEqual({
-      type: "error",
-      code: "TOOL_UNSUPPORTED",
-      message: "Provider emitted a tool call in text-only execution mode.",
-      isRetryable: false,
-    });
-    expect(events).toContainEqual({ type: "tool_result", toolName: "provider_tool_result", output: "tool output" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(events).toContainEqual({ type: "text_delta", content: "text-only response" });
+    expect(requireCompletedExecutionSessionEvent(events).disposition)
+      .toEqual(runtimeCompletedDisposition());
+    expect(adapterMocks[provider].stream).not.toHaveBeenCalled();
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      tools: readonly unknown[];
+    };
+    expect(orchestratorConfig.tools).toEqual([]);
   });
 
   const executableRows: Array<{
@@ -1121,7 +1167,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 7,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1162,13 +1208,11 @@ describe("ProviderSession.run()", () => {
       provider,
       cacheWriteTokens: 7,
     }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition)
+      .toMatchObject(runtimeCompletedDisposition());
   });
 
   it("executes a virtual-model route through its exact Codex OAuth account binding", async () => {
-    adapterMocks["codex-oauth"].stream.mockReturnValue(streamEvents([
-      { type: "done", content: "" },
-    ]));
     const session = new ProviderSession(baseConfig({
       provider: "codex-oauth",
       model: "gpt-terra",
@@ -1251,7 +1295,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
     const sessionConfig = baseConfig({
       provider: "openai",
@@ -1365,7 +1409,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1376,7 +1420,7 @@ describe("ProviderSession.run()", () => {
 
     expect(events).toContainEqual(expect.objectContaining({
       type: "completed",
-      outcome: "completed",
+      disposition: expect.objectContaining(runtimeCompletedDisposition()),
     }));
   });
 
@@ -1389,7 +1433,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const sessionConfig = baseConfig({
@@ -1498,7 +1542,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1541,7 +1585,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1594,7 +1638,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1647,7 +1691,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
     const toolSandbox = { policy: { marker: "lease-policy" } };
     const sessionConfig = baseConfig({
@@ -1704,7 +1748,7 @@ describe("ProviderSession.run()", () => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [], toolExecutions: [], inputTokens: 0, outputTokens: 0,
       cacheReadTokens: 0, cacheWriteTokens: 0, queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1744,7 +1788,7 @@ describe("ProviderSession.run()", () => {
       return {
         parts: [], toolExecutions: [], inputTokens: 0, outputTokens: 0,
         cacheReadTokens: 0, cacheWriteTokens: 0, queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       };
     });
     const requestApproval = vi.fn(async () => ({ approved: true, reason: "operator approved" }));
@@ -1782,7 +1826,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       };
     });
 
@@ -1823,7 +1867,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const sessionConfig = baseConfig({
@@ -1857,7 +1901,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1909,7 +1953,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       };
     });
 
@@ -1948,7 +1992,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1969,7 +2013,8 @@ describe("ProviderSession.run()", () => {
     expect(prepareOperatorAdoptionTurn).not.toHaveBeenCalled();
     expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.processMessage).toHaveBeenCalledTimes(1);
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition)
+      .toMatchObject(runtimeCompletedDisposition());
   });
 
   it("aborts and joins an executable Runtime turn before consumer-abandonment teardown", async () => {
@@ -2078,7 +2123,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       };
     });
 
@@ -2116,7 +2161,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -2157,7 +2202,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "failed",
+      ...runtimeFailureDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -2168,7 +2213,8 @@ describe("ProviderSession.run()", () => {
     }));
     const events = await collectEvents(session.run({ prompt: "run tests" }));
 
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition)
+      .toMatchObject(runtimeFailureDisposition());
   });
 
   it("keeps deferred provider tools materializable without admitting mutating tools to the initial read-only projection", async () => {
@@ -2239,7 +2285,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -2302,7 +2348,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -2389,7 +2435,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -2462,7 +2508,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
     const sessionTurnBudget = { admit: vi.fn() };
 
@@ -2481,7 +2527,16 @@ describe("ProviderSession.run()", () => {
   });
 
   it("does not re-admit a canonical runtime budget before text-only provider calls", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      ...runtimeCompletedDisposition(),
+    });
     const sessionTurnBudget = {
       admit: vi.fn().mockResolvedValue({
         status: "denied",
@@ -2505,7 +2560,8 @@ describe("ProviderSession.run()", () => {
 
     expect(sessionTurnBudget.admit).not.toHaveBeenCalled();
     expect(adapterMocks.openai.ctor).toHaveBeenCalled();
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition)
+      .toEqual(runtimeCompletedDisposition());
   });
 
   it("does not re-admit a canonical pre-fenced budget on the real text-only path", async () => {
@@ -2525,7 +2581,7 @@ describe("ProviderSession.run()", () => {
 
     expect(sessionTurnBudget.admit).not.toHaveBeenCalled();
     expect(adapterMocks.openai.ctor).not.toHaveBeenCalled();
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
   it("fails closed before provider setup when an admitted executable context lacks model-round dispatch", async () => {
@@ -2555,7 +2611,7 @@ describe("ProviderSession.run()", () => {
       message: expect.stringMatching(/durable Runtime model-round claim/iu),
       isRetryable: false,
     }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
   it("normalizes direct-provider builtin tool executor results before runtime execution", async () => {
@@ -2584,7 +2640,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
     });
 
     const session = new ProviderSession(baseConfig({
@@ -2644,11 +2700,8 @@ describe("ProviderSession.run()", () => {
     expect(session.capabilities.supportedTools).toHaveLength(0);
   });
 
-  it("yields error and completed when adapter streaming throws", async () => {
-    const errStream = (async function* () {
-      throw new Error("provider stream exploded");
-    })();
-    adapterMocks.openai.stream.mockReturnValue(errStream);
+  it("yields error and completed when the Runtime provider turn throws", async () => {
+    runtimeMocks.processMessage.mockRejectedValueOnce(new Error("provider stream exploded"));
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
@@ -2663,7 +2716,7 @@ describe("ProviderSession.run()", () => {
       message: "provider stream exploded",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
   it("preserves retryability when an executable provider request fails transiently", async () => {
@@ -2689,7 +2742,7 @@ describe("ProviderSession.run()", () => {
       message: "Codex OAuth request failed (status 520: origin returned an unexpected response)",
       isRetryable: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
   it("reports the sanitized provider cause without retrying a claimed model round", async () => {
@@ -2721,15 +2774,14 @@ describe("ProviderSession.run()", () => {
       message: "The Runtime model round was claimed; its provider outcome is not safely replayable. Cause: Codex OAuth request failed (status 400: invalid tool schema)",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
   it("includes credential pool exhaustion outcome and provider cause in streaming errors", async () => {
     const providerError = new Error("openrouter API error 429: free-model rate limit");
-    const errStream = (async function* () {
-      throw new AllCredentialsExhaustedError(providerError, { type: "rate-limited" });
-    })();
-    adapterMocks.openrouter.stream.mockReturnValue(errStream);
+    runtimeMocks.processMessage.mockRejectedValueOnce(
+      new AllCredentialsExhaustedError(providerError, { type: "rate-limited" }),
+    );
 
     const session = new ProviderSession(baseConfig({
       provider: "openrouter",
@@ -2745,7 +2797,7 @@ describe("ProviderSession.run()", () => {
       message: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429: free-model rate limit",
       isRetryable: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeFailureDisposition());
   });
 
   it("respects abortSignal before start", async () => {
@@ -2768,15 +2820,20 @@ describe("ProviderSession.run()", () => {
       message: "Aborted before start",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "cancelled" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeCancellationDisposition());
   });
 
-  it("projects a post-claim stream cancellation only after the Runtime iterator settles unknown", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([
-      { type: "text", content: "started" },
-      { type: "text", content: "must not be accepted after cancellation" },
-    ]));
+  it("projects a post-claim Runtime cancellation only after the Runtime turn settles unknown", async () => {
     const abortController = new AbortController();
+    runtimeMocks.processMessage.mockImplementation(async (...args: unknown[]) => {
+      const perCallConfig = args[4] as {
+        runtimeModelRoundDispatch: { state?: { claimed: boolean; outcome?: "success" | "unknown" } };
+      };
+      perCallConfig.runtimeModelRoundDispatch.state!.claimed = true;
+      perCallConfig.runtimeModelRoundDispatch.state!.outcome = "unknown";
+      abortController.abort("operator cancelled");
+      throw new Error("Runtime turn cancelled");
+    });
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -2786,33 +2843,20 @@ describe("ProviderSession.run()", () => {
       prompt: "cancel after the provider stream starts",
       abortSignal: abortController.signal,
     })[Symbol.asyncIterator]();
-    const events: ExecutionSessionEvent[] = [];
-
-    while (true) {
-      const next = await iterator.next();
-      if (next.done) break;
-      events.push(next.value);
-      if (next.value.type === "text_delta") {
-        abortController.abort("operator cancelled");
-        break;
-      }
-    }
-    while (true) {
-      const next = await iterator.next();
-      if (next.done) break;
-      events.push(next.value);
-    }
+    const events = await collectEvents({ [Symbol.asyncIterator]: () => iterator });
 
     expect(session.runtimeModelRoundClaimed).toBe(true);
     expect(session.runtimeModelRoundOutcome).toBe("unknown");
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "cancelled" }));
+    expect(requireCompletedExecutionSessionEvent(events).disposition).toEqual(runtimeCancellationDisposition());
   });
 
-  it("projects a claimed unknown round when its session consumer abandons the stream", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([
-      { type: "text", content: "started" },
-      { type: "text", content: "unobserved" },
-    ]));
+  it("projects a claimed unknown round when its session consumer abandons the Runtime turn", async () => {
+    runtimeMocks.processMessage.mockImplementation(async (...args: unknown[]) => {
+      const perCallConfig = args[4] as { runtimeModelRoundDispatch: { state?: { claimed: boolean; outcome?: "success" | "unknown" } } };
+      perCallConfig.runtimeModelRoundDispatch.state!.claimed = true;
+      perCallConfig.runtimeModelRoundDispatch.state!.outcome = "unknown";
+      return defaultRuntimeResult();
+    });
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -2820,11 +2864,12 @@ describe("ProviderSession.run()", () => {
     }));
     const iterator = session.run({ prompt: "abandon after dispatch" })[Symbol.asyncIterator]();
 
-    while (true) {
-      const next = await iterator.next();
-      if (next.done || next.value.type === "text_delta") break;
-    }
+    const first = await iterator.next();
+    expect(first.value).toEqual(expect.objectContaining({ type: "cost_update" }));
+    const continuation = iterator.next();
+    await Promise.resolve();
     await iterator.return?.();
+    await continuation;
 
     expect(session.runtimeModelRoundClaimed).toBe(true);
     expect(session.runtimeModelRoundOutcome).toBe("unknown");
@@ -2833,7 +2878,14 @@ describe("ProviderSession.run()", () => {
   it("does not erase committed unknown evidence when shared settlement state is incomplete", async () => {
     const committedError = new Error("durable unknown settlement failed");
     committedError.name = "RuntimeModelRoundCommittedError";
-    runtimeMocks.modelRoundDispatchError = committedError;
+    runtimeMocks.processMessage.mockImplementation(async (...args: unknown[]) => {
+      const perCallConfig = args[4] as {
+        runtimeModelRoundDispatch: { state?: { claimed: boolean; outcome?: "success" | "unknown" } };
+      };
+      perCallConfig.runtimeModelRoundDispatch.state!.claimed = true;
+      perCallConfig.runtimeModelRoundDispatch.state!.outcome = "unknown";
+      throw committedError;
+    });
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -2846,8 +2898,17 @@ describe("ProviderSession.run()", () => {
     expect(session.runtimeModelRoundOutcome).toBe("unknown");
   });
 
-  it("passes abortSignal to a direct provider adapter", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+  it("passes a turn-owned abortSignal to the Runtime direct-provider turn", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      ...runtimeCompletedDisposition(),
+    });
     const abortController = new AbortController();
     const session = new ProviderSession(baseConfig({
       provider: "openai",
@@ -2860,14 +2921,14 @@ describe("ProviderSession.run()", () => {
       abortSignal: abortController.signal,
     }));
 
-    expect(adapterMocks.openai.stream).toHaveBeenCalledWith(expect.objectContaining({
-      signal: abortController.signal,
-    }));
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      abortSignal?: AbortSignal;
+    };
+    expect(perCallConfig.abortSignal).toBeInstanceOf(AbortSignal);
+    expect(perCallConfig.abortSignal).not.toBe(abortController.signal);
   });
 
   it("uses the exact committed credential instead of local environment fallback", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
-
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       model: "gpt-4o",
@@ -2898,8 +2959,6 @@ describe("ProviderSession.run()", () => {
   });
 
   it("uses the exact committed Ollama credential instead of environment fallback", async () => {
-    adapterMocks.ollama.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
-
     const session = new ProviderSession(baseConfig({
       provider: "ollama",
       model: "llama3.2",
@@ -2928,8 +2987,7 @@ describe("ProviderSession.run()", () => {
     });
   });
 
-  it("appends [KILN POLICY CONSTRAINTS] section into system prompt", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+  it("sends text-only prompts through Runtime instead of the direct adapter stream", async () => {
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -2943,25 +3001,12 @@ describe("ProviderSession.run()", () => {
 
     await collectEvents(session.run({ prompt: "constraint prompt" }));
 
-    const streamCall = adapterMocks.openai.stream.mock.calls[0]?.[0] as {
-      system: string;
-      messages: unknown[];
-    };
-    expect(streamCall.system).toContain("Base prompt");
-    expect(streamCall.system).toContain("[KILN POLICY CONSTRAINTS]");
-    expect(streamCall.system).toContain("[KILN EXECUTION IDENTITY]");
-    expect(streamCall.system).toContain("provider: openai");
-    expect(streamCall.system).toContain("[file-governance] DENY **/.env");
-    expect(streamCall.system).toContain("[data-firewall] REDACT logs");
-    expect(Array.isArray(streamCall.messages)).toBe(true);
-    expect(streamCall.messages).toEqual([{
-      role: "user",
-      parts: [{ type: "text", text: "constraint prompt" }],
-    }]);
+    const userParts = runtimeMocks.processMessage.mock.calls[0]?.[1] as readonly unknown[];
+    expect(userParts).toEqual([{ type: "text", text: "constraint prompt" }]);
+    expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
-  it("appends cross-surface authority guidance into provider system prompt", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+  it("keeps text-only authority guidance under the Runtime-owned turn", async () => {
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -2973,21 +3018,16 @@ describe("ProviderSession.run()", () => {
       requestedAuthority: "audited",
     }));
 
-    const streamCall = adapterMocks.openai.stream.mock.calls[0]?.[0] as {
-      system: string;
-    };
-    expect(streamCall.system).toContain("[KILN AUTHORITY GUIDANCE]");
-    expect(streamCall.system).toContain("Authority mode: audited.");
-    expect(streamCall.system).toContain("Do not ask the operator to approve work in natural language.");
-    expect(streamCall.system).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
+    const userParts = runtimeMocks.processMessage.mock.calls[0]?.[1] as readonly unknown[];
+    expect(userParts).toEqual([{ type: "text", text: "authority prompt" }]);
+    expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
   // Regression C.1 (required, #59 follow-up review): the trusted CLI
   // governed-preamble path. runSession() explicitly asserts promptKind
   // "kiln-preamble" for the prompt it built itself; only that explicit
   // provenance — never the "<kiln-preamble>" text — makes it system content.
-  it("uses structured preamble prompt as system and task as user message when explicitly marked trusted", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+  it("passes the trusted preamble task as the Runtime user turn", async () => {
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -3002,19 +3042,9 @@ describe("ProviderSession.run()", () => {
       promptKind: "kiln-preamble",
     }));
 
-    const streamCall = adapterMocks.openai.stream.mock.calls[0]?.[0] as {
-      system: string;
-      messages: unknown[];
-    };
-    expect(streamCall.system).toContain("<kiln-preamble><task>governed prompt context</task></kiln-preamble>");
-    expect(streamCall.system).toContain("[KILN POLICY CONSTRAINTS]");
-    expect(streamCall.system).toContain("[KILN EXECUTION IDENTITY]");
-    expect(streamCall.system).toContain("provider: openai");
-    expect(streamCall.system).not.toContain("legacy system prompt should not be used in preamble mode");
-    expect(streamCall.messages).toEqual([{
-      role: "user",
-      parts: [{ type: "text", text: "Ship provider session implementation" }],
-    }]);
+    const userParts = runtimeMocks.processMessage.mock.calls[0]?.[1] as readonly unknown[];
+    expect(userParts).toEqual([{ type: "text", text: "Ship provider session implementation" }]);
+    expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
   // Regression C.2 (required, #59 follow-up review): adversarial raw user
@@ -3024,8 +3054,7 @@ describe("ProviderSession.run()", () => {
   // legitimate explicit `system` override (e.g. a runtime
   // EffectivePromptManifest) must remain the system authority. This must
   // fail against commit 950c3079.
-  it("never promotes an unmarked prompt to system content merely because it starts with <kiln-preamble> (adversarial)", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+  it("keeps an unmarked preamble-looking prompt in the Runtime user turn (adversarial)", async () => {
     const legitimateManifestMarker = "KILN_TEST_RUNTIME_MANIFEST_AUTHORITY";
     const userControlledMarker = "KILN_TEST_USER_CONTROLLED_PREFIX";
     const session = new ProviderSession(baseConfig({
@@ -3040,23 +3069,18 @@ describe("ProviderSession.run()", () => {
       system: legitimateManifestMarker,
     }));
 
-    const streamCall = adapterMocks.openai.stream.mock.calls[0]?.[0] as {
-      system: string;
-      messages: Array<{ role: string; parts: Array<{ type: string; text?: string }> }>;
-    };
-    expect(streamCall.system).toContain(legitimateManifestMarker);
-    expect(streamCall.system).not.toContain(userControlledMarker);
-    expect(streamCall.messages[0]?.parts[0]?.text).toContain(userControlledMarker);
-    expect(streamCall.messages[0]?.parts[0]?.text).not.toBe("interactive");
+    const userParts = runtimeMocks.processMessage.mock.calls[0]?.[1] as Array<{ type: string; text?: string }>;
+    expect(userParts[0]?.text).toContain(userControlledMarker);
+    expect(userParts[0]?.text).not.toBe("interactive");
+    expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
   it("updates context tracker on done event token totals", async () => {
-    adapterMocks.openai.stream.mockReturnValue(streamEvents([{
-      type: "done",
-      content: "",
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      ...defaultRuntimeResult(),
       inputTokens: 123,
       outputTokens: 77,
-    }]));
+    });
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       env: { OPENAI_API_KEY: "cfg-key" },
@@ -3168,7 +3192,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       });
 
       const session = new ProviderSession(baseConfig({
@@ -3201,7 +3225,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       });
 
       const session = new ProviderSession(baseConfig({
@@ -3234,7 +3258,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       });
 
       const session = new ProviderSession(baseConfig({

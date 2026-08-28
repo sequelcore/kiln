@@ -32,6 +32,7 @@ import {
   deriveOpenCodeRuntimePermissionRequest,
   type RuntimePermissionObservationWriter,
 } from "./runtime-permission-observation.js";
+import { nativeHarnessCancellationDisposition, nativeHarnessTerminalDisposition } from "./native-harness-terminal-disposition.js";
 
 interface OpencodeClientShape {
   session: {
@@ -838,7 +839,9 @@ export class OpenCodeSession implements IKilnSession {
           type: "completed",
           totalUsd: this._lastCostUsd,
           durationMs: Date.now() - startTime,
-          outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
+          disposition: options.abortSignal?.aborted
+            ? nativeHarnessCancellationDisposition("operator_cancelled")
+            : nativeHarnessTerminalDisposition({ harness: "opencode", outcome: "failed" }),
           isPreflightCrash: false,
         };
         return;
@@ -1234,7 +1237,9 @@ export class OpenCodeSession implements IKilnSession {
         type: "completed",
         totalUsd: this._lastCostUsd,
         durationMs: Date.now() - startTime,
-        outcome,
+        disposition: outcome === "cancelled"
+          ? nativeHarnessCancellationDisposition("operator_cancelled")
+          : nativeHarnessTerminalDisposition({ harness: "opencode", outcome }),
         isPreflightCrash: false,
       };
       if (this._config.sessionLedgerOwner !== "host") try {
@@ -1264,12 +1269,22 @@ export class OpenCodeSession implements IKilnSession {
         console.error("[SessionStore] Failed to append session record:", err instanceof Error ? err.message : String(err));
       }
     } catch (err) {
-      yield {
-        type: "error",
-        code: "OPENCODE_ERROR",
-        message: err instanceof Error ? err.message : String(err),
-        isRetryable: false,
-      };
+      if (options.abortSignal?.aborted) {
+        yield {
+          type: "completed",
+          totalUsd: this._lastCostUsd,
+          durationMs: Date.now() - startTime,
+          disposition: nativeHarnessCancellationDisposition("operator_cancelled"),
+          isPreflightCrash: false,
+        };
+      } else {
+        yield {
+          type: "error",
+          code: "OPENCODE_ERROR",
+          message: err instanceof Error ? err.message : String(err),
+          isRetryable: false,
+        };
+      }
     } finally {
       this._abortController = null;
       this._eventAbortController?.abort();

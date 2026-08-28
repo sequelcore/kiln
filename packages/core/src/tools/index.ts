@@ -68,15 +68,23 @@ export type {
 } from "./domain/tool.js";
 export { DEV_TOOL_OUTPUT_SCHEMA, TOOL_SCHEMAS } from "./domain/tool.js";
 export type {
+  ToolCatalogAlias,
   ToolCatalogAuthority,
+  ToolCatalogConfiguredProducerDiagnostic,
+  ToolCatalogConfigurationDiagnostic,
+  ToolCatalogConfigurationDiagnosticCode,
   ToolCatalogEntry,
+  ToolCatalogIndexOptions,
   ToolCatalogSearchAdapter,
+  ToolCatalogSearchDiagnostic,
   ToolCatalogSearchReason,
   ToolCatalogSearchRequest,
   ToolCatalogSearchResult,
 } from "./domain/tool-catalog.js";
 export {
   LexicalToolCatalogSearchAdapter,
+  TOOL_CATALOG_ALIASES,
+  TOOL_CATALOG_OBLIGATION_ALIASES,
   ToolCatalogIndex,
 } from "./domain/tool-catalog.js";
 export { BUILTIN_TOOL_EFFECT_ENVELOPES, getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";

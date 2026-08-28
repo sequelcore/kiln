@@ -32,7 +32,7 @@ import {
   isWorkflowLifecycleTimelineEventKind,
   normalizeLoadedChangeType,
   providerIdentity,
-  turnOutcomePresentation,
+  turnCompletedTimelineEntry,
   workflowLifecycleTimelineEntry,
 } from "./session-event-projection.js";
 import type { AuthorityStatus } from "./authority-status-projection.js";
@@ -546,7 +546,6 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     }
 
     if (event.kind === "turn_completed") {
-      const outcomePresentation = turnOutcomePresentation(payload.outcome);
       const routingRationale = isObjectRecord(payload.routingRationale) ? payload.routingRationale : null;
       lastRoutedProvider = readString(payload.routedProvider)
         ?? readString(routingRationale?.selectedProvider)
@@ -556,17 +555,13 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         ?? lastRoutedModel;
       lastAuthorityStatus = readAuthorityStatus(payload.authorityStatus) ?? lastAuthorityStatus;
       turnCounter += 1;
-      timelineEntries.push({
+      timelineEntries.push(turnCompletedTimelineEntry({
         id: `timeline:${event.eventId}`,
-        type: "event",
-        eventKind: event.kind,
-        createdAt: event.timestamp,
+        payload,
+        timestamp: event.timestamp,
         sequence: event.sequence,
-        title: outcomePresentation.title,
-        summary: readString(payload.outcome) ?? undefined,
-        tone: outcomePresentation.tone,
-        details: payload,
-      });
+        turnId: event.turnId,
+      }));
       continue;
     }
 

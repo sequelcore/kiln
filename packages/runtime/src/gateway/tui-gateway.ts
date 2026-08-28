@@ -21,12 +21,14 @@ import {
   type ModelCatalog,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
+  type GuiDoneFrame,
+  type GuiDoneFrameFields,
   type GuiInboundFrame,
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
   type GuiProviderModelDiscoveryProjection,
-  type OperatorSessionTurnOutcome,
+  type OperatorTurnTerminalDisposition,
   type OperatorExecutionMode,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
@@ -56,7 +58,7 @@ import {
 } from "./active-operator-turn.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
-import { processAdmittedTurn } from "./message-pipeline/index.js";
+import { processAdmittedTurn, projectAdmittedTurnDisposition } from "./message-pipeline/index.js";
 import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import type {
   CanonicalSessionEventPersistence,
@@ -66,6 +68,7 @@ import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
+  deriveAttachedRuntimeToolAdmissionProjection,
   type AttachedRuntimeBuiltinToolSurface,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./attached-runtime-tool-surface.js";
@@ -401,60 +404,11 @@ function buildTuiContextUsageWindowEvidence(
   };
 }
 
-export function buildTuiDoneFramePayload(input: {
-  readonly sourceMessageId?: string;
-  readonly content: string;
-  readonly parts: readonly unknown[];
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly outcome: OperatorSessionTurnOutcome;
-  readonly routedProvider: string;
-  readonly routedModel: string;
-  readonly runtimeContinuity: {
-    readonly strategy: string;
-    readonly feedbackLabel?: string;
-    readonly pressure?: string;
-    readonly supportArtifactCount?: number;
-    readonly supportArtifactSources?: readonly string[];
-    readonly fallbackLabel?: string;
-    readonly usedCachedSupport?: boolean;
-    readonly selectionReason?: string;
-  };
-  readonly authorityStatus: TuiAuthorityStatus;
-}): {
-  readonly type: "done";
-  readonly content: string;
-  readonly parts: readonly unknown[];
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly outcome: OperatorSessionTurnOutcome;
-  readonly routedProvider: string;
-  readonly routedModel: string;
-  readonly runtimeContinuity: {
-    readonly strategy: string;
-    readonly feedbackLabel?: string;
-    readonly pressure?: string;
-    readonly supportArtifactCount?: number;
-    readonly supportArtifactSources?: readonly string[];
-    readonly fallbackLabel?: string;
-    readonly usedCachedSupport?: boolean;
-    readonly selectionReason?: string;
-  };
-  readonly authorityStatus: TuiAuthorityStatus;
-} {
-  return {
-    type: "done",
-    ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
-    content: input.content,
-    parts: input.parts,
-    inputTokens: input.inputTokens,
-    outputTokens: input.outputTokens,
-    outcome: input.outcome,
-    routedProvider: input.routedProvider,
-    routedModel: input.routedModel,
-    runtimeContinuity: input.runtimeContinuity,
-    authorityStatus: input.authorityStatus,
-  };
+type TuiDoneFramePayload = Omit<GuiDoneFrameFields, "type"> & OperatorTurnTerminalDisposition;
+
+/** Build the TUI terminal frame from the canonical Runtime disposition. */
+export function buildTuiDoneFramePayload(input: TuiDoneFramePayload): GuiDoneFrame {
+  return { type: "done", ...input };
 }
 
 /**
@@ -521,6 +475,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const orchestrationSurface = new RuntimeSessionOrchestrationSurface({
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
+    materializableTools: builtinToolSurface.materializableTools,
+    capabilityMap: builtinToolSurface.materializableCapabilities,
   });
   const sessionRegistry = new SessionRegistry();
   const voiceSynthesisSources = new Map<string, {
@@ -611,7 +567,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         const preparedAdmission = {
           facets: defineOperatorAuthorityAdmissionFacets({
             executionId: request.executionId, turnId: adoption.turnId, session, snapshot, perCallConfig: admittedPerCallConfig,
-            candidateToolNames: turnBuiltinToolSurface.toolDefinitions.map((tool) => tool.name),
+            candidateToolNames: deriveAttachedRuntimeToolAdmissionProjection(turnBuiltinToolSurface).candidateToolNames,
             workGovernance,
             operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
             skillCatalog: defineOperatorSkillCatalogAdmission([]),
@@ -1239,6 +1195,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               const routedProvider = output.routingDecision?.provider ?? turnProvider;
               const fallbackRoutedModel = isGuiProviderModeless(routedProvider) ? "" : (turnModel ?? "");
               const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
+              const disposition = projectAdmittedTurnDisposition(output);
               const authorityStatus = deriveTuiDoneAuthorityStatus(undefined);
               const sourceMessageId = crypto.randomUUID();
               voiceSynthesisSources.set(sourceMessageId, {
@@ -1256,16 +1213,17 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               ws.send(
                 JSON.stringify(
                   buildTuiDoneFramePayload({
+                    kilnSessionId: output.sessionId,
                     sourceMessageId,
                     content: extractText(output.parts),
                     parts: output.parts,
                     inputTokens: output.inputTokens,
                     outputTokens: output.outputTokens,
-                    outcome: output.outcome,
                     routedProvider,
                     routedModel,
                     runtimeContinuity,
                     authorityStatus,
+                    ...disposition,
                   }),
                 ),
               );

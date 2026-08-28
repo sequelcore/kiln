@@ -6,6 +6,8 @@ import { getBuiltinEffectEnvelope } from "@kilnai/core/tools";
 import type { AuditLog } from "@kilnai/core/security";
 import { RuntimeSessionOrchestrator, type PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
+import type { RuntimeExecutionEnvelope } from "../../src/session/runtime-session-orchestrator.types.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
 import type { RuntimeToolActionClaim, RuntimeToolActionClaimPermit, RuntimeToolActionClaimStore } from "../../src/execution-kernel/runtime-tool-action-claim.js";
 import { runtimeModelRoundEffectIdentity, type RuntimeModelRoundActionClaim, type RuntimeModelRoundActionClaimPermit, type RuntimeModelRoundActionClaimStore } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
@@ -132,6 +134,15 @@ export function makeToolCallProvider(
 
 export function makeSession(): RuntimeSession {
   return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
+}
+
+export function makeFixtureExecutionEnvelope(toolRounds: number): RuntimeExecutionEnvelope {
+  return {
+    convergence: deriveRuntimeConvergencePolicyInput({
+      policyId: "kiln.runtime-session-orchestrator.test",
+      toolRounds,
+    }),
+  };
 }
 
 export function getReinjectedToolResultFromSecondCall(provider: ProviderAdapter): string {

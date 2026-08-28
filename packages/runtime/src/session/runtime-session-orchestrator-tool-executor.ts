@@ -421,7 +421,7 @@ function toFormalVerificationExecution(
   toolCallScopeId: string,
 ): RuntimeFormalVerificationObservationExecution {
   return {
-    toolCallScopeId,
+    toolCallScopeId: summary.toolCallScopeId ?? toolCallScopeId,
     ...(summary.toolCallId !== undefined ? { toolCallId: summary.toolCallId } : {}),
     toolName: summary.toolName,
     success: summary.success,
@@ -1072,7 +1072,13 @@ export class RuntimeSessionToolExecutor {
           ...newObservations,
         ]);
       }
-      return { resultParts, toolExecutions };
+      return {
+        resultParts,
+        toolExecutions: toolExecutions.map((summary) => ({
+          ...summary,
+          toolCallScopeId,
+        })),
+      };
     } finally {
       this.currentSession = undefined;
       this.currentExecutionScope = undefined;

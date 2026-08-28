@@ -14,6 +14,7 @@ import {
   type ManagedAgentInvocationRequest,
   type ProviderModelEligibilityRequirements,
   type ProviderModelEvidenceFreshness,
+  type TurnTerminalDisposition,
 } from "@kilnai/core/agents";
 import { createSessionBuiltinToolOptions, type ToolResourceProvider } from "@kilnai/core/tools";
 import type { KilnPermissionPolicy } from "../../src/wrapper/index.js";
@@ -23,6 +24,7 @@ import type {
   SessionProviderDescriptor,
 } from "../../src/wrapper/session-registry.js";
 import { SessionRegistry } from "../../src/wrapper/session-registry.js";
+import { nativeHarnessTerminalDisposition } from "../../src/wrapper/native-harness-terminal-disposition.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";
 import { TranscriptAuthorityAdmissionEvidenceStore } from "../../src/application/authority-admission-evidence-store.js";
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
@@ -111,6 +113,44 @@ const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY = {
   cleanupEvidence: true,
   scopeReduction: true,
 } as const;
+
+const TEST_RUNTIME_COMPLETED_DISPOSITION = {
+  outcome: "completed",
+  dispositionReason: "completion_eligible",
+  completion: {
+    obligations: [],
+    producerEvidence: [],
+    eligibility: { status: "eligible" },
+  },
+  convergence: {
+    policy: {
+      policyId: "test-policy",
+      configurationHash: `sha256:${"0".repeat(64)}`,
+      providerRequests: 10,
+      toolRounds: 10,
+      toolCalls: 10,
+      cumulativeInputTokens: 10_000,
+      elapsedMs: 60_000,
+      activeMs: 60_000,
+      recoveryAttempts: 10,
+      consecutiveNoProgressSteps: 3,
+    },
+    progressEvidence: [],
+  },
+} as const satisfies TurnTerminalDisposition;
+
+function testCompletedDisposition(provider: ProviderId): TurnTerminalDisposition {
+  switch (provider) {
+    case "codex":
+      return nativeHarnessTerminalDisposition({ harness: "codex", outcome: "completed" });
+    case "claude":
+      return nativeHarnessTerminalDisposition({ harness: "claude-code", outcome: "completed" });
+    case "opencode":
+      return nativeHarnessTerminalDisposition({ harness: "opencode", outcome: "completed" });
+    default:
+      return TEST_RUNTIME_COMPLETED_DISPOSITION;
+  }
+}
 
 function observedProviderModels(
   models: Readonly<Record<string, readonly string[]>>,
@@ -271,7 +311,7 @@ function createRegistryForProviders(
           type: "completed" as const,
           totalUsd: 0,
           durationMs: 1,
-          outcome: "completed" as const,
+          disposition: testCompletedDisposition(provider),
           isPreflightCrash: false,
         };
       },
@@ -338,7 +378,7 @@ function createRegistryWithCapturedHarnessRun(
             type: "completed" as const,
             totalUsd: 0,
             durationMs: 1,
-            outcome: "completed" as const,
+            disposition: testCompletedDisposition(provider),
             isPreflightCrash: false,
           };
         },

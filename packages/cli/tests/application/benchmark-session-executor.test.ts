@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import {
+  BENCHMARK_EXECUTION_ENVELOPE,
   captureBenchmarkConfigurationAdmission,
   createBenchmarkSessionExecutor,
 } from "../../src/application/benchmark-session-executor.js";
@@ -94,18 +95,22 @@ vi.mock("@kilnai/core", async (importOriginal) => {
   };
 });
 
-vi.mock("@kilnai/runtime", () => ({
-  discoverClaudeCliModelDiscovery: benchmarkExecutorMocks.discoverClaudeCliModelDiscovery,
-  discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
-  discoverGuiDirectProviderModelDiscovery: benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery,
-  discoverOpencodeCliModelDiscovery: benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery,
-  getProjectContextArtifactCache: benchmarkExecutorMocks.getProjectContextArtifactCache,
-  ProviderModelRouteHealthStore: class ProviderModelRouteHealthStore {
-    recordOutcome = benchmarkExecutorMocks.recordRouteHealth;
-  },
-  withManagedAgentInvocationResourceProvider: vi.fn((options) => options),
-  withManagedInvocationService: vi.fn((options) => options),
-}));
+vi.mock("@kilnai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/runtime")>();
+  return {
+    deriveRuntimeConvergencePolicyInput: actual.deriveRuntimeConvergencePolicyInput,
+    discoverClaudeCliModelDiscovery: benchmarkExecutorMocks.discoverClaudeCliModelDiscovery,
+    discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
+    discoverGuiDirectProviderModelDiscovery: benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery,
+    discoverOpencodeCliModelDiscovery: benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery,
+    getProjectContextArtifactCache: benchmarkExecutorMocks.getProjectContextArtifactCache,
+    ProviderModelRouteHealthStore: class ProviderModelRouteHealthStore {
+      recordOutcome = benchmarkExecutorMocks.recordRouteHealth;
+    },
+    withManagedAgentInvocationResourceProvider: vi.fn((options) => options),
+    withManagedInvocationService: vi.fn((options) => options),
+  };
+});
 
 vi.mock("../../src/config/operator-identity-context.js", () => ({
   withGlobalIdentityContext: benchmarkExecutorMocks.withGlobalIdentityContext,
@@ -670,12 +675,12 @@ describe("createBenchmarkSessionExecutor", () => {
         replayCanonicalSessionEvents: expect.any(Function),
       }),
       sessionConfig: expect.objectContaining({
-        executionEnvelope: { toolRounds: { max: 8 } },
+        executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
         requestedAuthority: "read_only",
       }),
     }));
     expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
-      executionEnvelope: { toolRounds: { max: 8 } },
+      executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
       runtimeToolActionClaims: expect.objectContaining({
         claim: expect.any(Function),
         settle: expect.any(Function),

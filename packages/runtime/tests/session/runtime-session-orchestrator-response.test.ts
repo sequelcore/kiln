@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core/agents";
-import { buildEffectivePromptManifest, type EffectivePromptManifest } from "@kilnai/core/context";
 import { textParts } from "@kilnai/core/engine";
-import {
-  finalizeRuntimeSessionResponse,
-  requestRuntimeSessionFallbackResponse,
-} from "../../src/session/runtime-session-orchestrator-response.js";
+import { finalizeRuntimeSessionResponse } from "../../src/session/runtime-session-orchestrator-response.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ToolExecutionSummary } from "../../src/session/runtime-session-orchestrator.types.js";
+import {
+  deriveRuntimeConvergencePolicyInput,
+  RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
+} from "../../src/session/runtime-execution-envelope.js";
 
 function session(): RuntimeSession {
   return new RuntimeSession({
@@ -33,117 +33,17 @@ function provider(): ProviderAdapter {
   };
 }
 
-describe("requestRuntimeSessionFallbackResponse", () => {
-  it("uses the manifest as the only prompt authority", async () => {
-    const adapter = provider();
-    const manifest = buildEffectivePromptManifest({
-      components: [{
-        id: "exact",
-        revision: "revision",
-        scope: "static",
-        content: "Exact prompt.",
-        provenance: { source: "test" },
-      }],
-    });
+function liveLoopConvergence() {
+  return {
+    policy: deriveRuntimeConvergencePolicyInput({
+      ...RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
+      policyId: "test.runtime.response-convergence",
+    }),
+    progressEvidence: [],
+  };
+}
 
-    await requestRuntimeSessionFallbackResponse(manifest, session(), 100, (request) => adapter.createMessage(request));
-
-    expect((adapter.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].system)
-      .toBe(manifest.finalPrompt);
-  });
-
-  it("rejects an invalid separate prompt before invoking the provider", async () => {
-    const adapter = provider();
-
-    await expect(requestRuntimeSessionFallbackResponse(
-      "incorrect separate prompt" as unknown as EffectivePromptManifest,
-      session(),
-      100,
-      (request) => adapter.createMessage(request),
-    )).rejects.toThrow("effective prompt manifest");
-    expect(adapter.createMessage).not.toHaveBeenCalled();
-  });
-
-  it("propagates the governed abort signal to the fallback provider request", async () => {
-    const adapter = provider();
-    const controller = new AbortController();
-    const manifest = buildEffectivePromptManifest({
-      components: [{
-        id: "exact",
-        revision: "revision",
-        scope: "static",
-        content: "Exact prompt.",
-        provenance: { source: "test" },
-      }],
-    });
-
-    await requestRuntimeSessionFallbackResponse(
-      manifest,
-      session(),
-      100,
-      (request) => adapter.createMessage(request),
-      undefined,
-      undefined,
-      controller.signal,
-    );
-
-    expect((adapter.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].signal)
-      .toBe(controller.signal);
-  });
-
-  it("propagates safe transport identity, watchdog, and observer to fallback requests", async () => {
-    const adapter = provider();
-    const observer = { onEvent: vi.fn() };
-    const watchdog = { firstByteTimeoutMs: 250 };
-    const manifest = buildEffectivePromptManifest({
-      components: [{
-        id: "exact",
-        revision: "revision",
-        scope: "static",
-        content: "Exact prompt.",
-        provenance: { source: "test" },
-      }],
-    });
-
-    await requestRuntimeSessionFallbackResponse(
-      manifest,
-      session(),
-      100,
-      (request) => adapter.createMessage(request),
-      undefined,
-      undefined,
-      undefined,
-      {
-        projectId: "project-digest",
-        requestIdPrefix: "invocation-digest",
-        watchdog,
-        observer,
-      },
-    );
-
-    expect(adapter.createMessage).toHaveBeenCalledWith(expect.objectContaining({
-      requestIdentity: {
-        projectId: "project-digest",
-        requestId: "invocation-digest:fallback",
-      },
-      transportWatchdog: watchdog,
-      transportObserver: observer,
-    }));
-  });
-});
-
-// Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture,
-// closed in Slice 2 (Recovery And Terminal Consistency).
-// Second regression proof: "a parent success message can currently disagree with
-// failed canonical execution state." governed-turn-outcome.ts already correctly
-// computes outcome:"failed" when an unresolved managed-invocation blocking failure
-// exists (see governed-turn-outcome.test.ts, "does not let terminal goal closeout
-// hide an unresolved managed invocation failure"). The gap was one level up:
-// nothing in finalizeRuntimeSessionResponse reconciled the free-text `parts` it
-// returns against that computed `outcome`. Fixed by prepending a canonical-state
-// qualifier part whenever outcome !== "completed", so the original prose is
-// preserved for diagnosis but can never stand unqualified as a success claim.
-describe("finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)", () => {
+describe("finalizeRuntimeSessionResponse", () => {
   const unresolvedManagedInvocationFailure: ToolExecutionSummary = {
     toolName: "managed_agent.invoke",
     success: false,
@@ -156,51 +56,69 @@ describe("finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)", () => {
     },
   };
 
-  it(
-    "does not let a success-claiming final message stand when canonical outcome disagrees",
-    async () => {
-      const unqualifiedSuccessClaim = textParts(
-        "Navigation to both objectives succeeded and the console is clean.",
-      );
+  it("does not let a success-claiming final message stand when canonical outcome disagrees", async () => {
+    const unqualifiedSuccessClaim = textParts(
+      "Navigation to both objectives succeeded and the console is clean.",
+    );
 
-      const result = await finalizeRuntimeSessionResponse({
-        deps: { provider: provider() },
-        session: session(),
-        parts: unqualifiedSuccessClaim,
-        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
-        usageTotals: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
-        toolExecutions: [unresolvedManagedInvocationFailure],
-      });
+    const result = await finalizeRuntimeSessionResponse({
+      deps: { provider: provider() },
+      session: session(),
+      parts: unqualifiedSuccessClaim,
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      usageTotals: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      toolExecutions: [unresolvedManagedInvocationFailure],
+      disposition: { outcome: "failed", dispositionReason: "runtime_failure" },
+    });
 
-      // The turn outcome correctly disagrees with the claimed success today...
-      expect(result.outcome).not.toBe("completed");
-      // ...but nothing stops the disagreeing prose from being returned unchanged.
-      // Desired: a final answer must not stand unqualified when canonical state
-      // remains failed or blocked.
-      expect(result.parts).not.toEqual(unqualifiedSuccessClaim);
-    },
-  );
+    expect(result.outcome).not.toBe("completed");
+    expect(result.parts).not.toEqual(unqualifiedSuccessClaim);
+  });
 
-  it(
-    "reconciles the transcript, not just the returned response, so replay agrees with the surface",
-    async () => {
-      const unqualifiedSuccessClaim = textParts(
-        "Navigation to both objectives succeeded and the console is clean.",
-      );
-      const testSession = session();
+  it("reconciles the transcript, not just the returned response", async () => {
+    const unqualifiedSuccessClaim = textParts(
+      "Navigation to both objectives succeeded and the console is clean.",
+    );
+    const testSession = session();
 
-      const result = await finalizeRuntimeSessionResponse({
-        deps: { provider: provider() },
-        session: testSession,
-        parts: unqualifiedSuccessClaim,
-        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
-        usageTotals: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
-        toolExecutions: [unresolvedManagedInvocationFailure],
-      });
+    const result = await finalizeRuntimeSessionResponse({
+      deps: { provider: provider() },
+      session: testSession,
+      parts: unqualifiedSuccessClaim,
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      usageTotals: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      toolExecutions: [unresolvedManagedInvocationFailure],
+      disposition: { outcome: "failed", dispositionReason: "runtime_failure" },
+    });
 
-      const lastMessage = testSession.conversationHistory.at(-1);
-      expect(lastMessage?.parts).toEqual(result.parts);
-      expect(lastMessage?.parts).not.toEqual(unqualifiedSuccessClaim);
-    },
-  );
+    const lastMessage = testSession.conversationHistory.at(-1);
+    expect(lastMessage?.parts).toEqual(result.parts);
+    expect(lastMessage?.parts).not.toEqual(unqualifiedSuccessClaim);
+  });
+
+  it("preserves governed incomplete disposition and live-loop convergence evidence", async () => {
+    const convergence = liveLoopConvergence();
+    const result = await finalizeRuntimeSessionResponse({
+      deps: { provider: provider() },
+      session: session(),
+      parts: textParts("Governed work remains incomplete."),
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      usageTotals: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      toolExecutions: [],
+      disposition: {
+        outcome: "failed",
+        dispositionReason: "governed_work_incomplete",
+        convergence,
+      },
+    });
+
+    expect(result).toMatchObject({
+      outcome: "failed",
+      dispositionReason: "governed_work_incomplete",
+      convergence: {
+        policy: { policyId: "test.runtime.response-convergence" },
+        progressEvidence: [],
+      },
+    });
+  });
 });

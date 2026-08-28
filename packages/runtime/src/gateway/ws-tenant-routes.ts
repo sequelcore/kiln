@@ -37,6 +37,7 @@ import {
 import {
   appendCoordinationProviderFailureAudit,
   projectAdmittedTurnContext,
+  projectAdmittedTurnDisposition,
   resolveCoordinationContextCandidates,
 } from "./message-pipeline/index.js";
 import type { AdmittedTurnContext } from "./message-pipeline/index.js";
@@ -426,7 +427,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                     parts: result.parts,
                     inputTokens: result.inputTokens,
                     outputTokens: result.outputTokens,
-                    outcome: result.outcome,
+                    ...projectAdmittedTurnDisposition(result),
                     communicationResolution: result.communicationResolution,
                     effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
                   },

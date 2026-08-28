@@ -31,14 +31,21 @@ import { EventBus, type ExecutionSessionRunOptions } from "@kilnai/core/events";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { ManagedRemoteHarnessAdapter } from "../../src/agents/managed-invocation/remote-harness-adapter.js";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
+import { processAdmittedTurn, type AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type {
   ModelRoutingRouteCapabilities,
   RuntimeMultimodalDelegationRoute,
   RuntimeMultimodalTransformRoute,
   PerCallToolConfig,
 } from "../../src/session/runtime-session-orchestrator.types.js";
+import {
+  deriveRuntimeConvergencePolicyInput,
+  RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
+} from "../../src/session/runtime-execution-envelope.js";
+import { externalHarnessDisposition } from "./runtime-terminal-fixture.js";
 
 function makeEventBus(): EventBus {
   const eventBus = new EventBus(100);
@@ -718,7 +725,13 @@ describe("RuntimeSessionOrchestrator model routing", () => {
   it("dispatches native communication through the shared subscription executor", async () => {
     const run = vi.fn((_options: ExecutionSessionRunOptions) => (async function* () {
       yield { type: "text_delta" as const, content: "concise response" };
-      yield { type: "completed" as const, totalUsd: 0, durationMs: 1, outcome: "completed" as const, isPreflightCrash: false };
+      yield {
+        type: "completed" as const,
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: externalHarnessDisposition("codex", "completed"),
+        isPreflightCrash: false,
+      };
     })());
     const executor = new CliSubscriptionExecutor(
       vi.fn().mockReturnValue({ run, dispose: vi.fn().mockResolvedValue(undefined) }),
@@ -1179,6 +1192,45 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
   });
 
+  it("does not treat delegated multimodal execution as evidence for a distinct required producer", async () => {
+    const managedAdapter = makeManagedAdapter();
+    const formalVerify = {
+      name: "formal_verify",
+      description: "Run the formal verifier.",
+      inputSchema: {},
+      tags: new Set<string>(),
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      multimodalDelegationRoutes: [makeVisionDelegationRoute(managedAdapter)],
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), [
+      { type: "text", text: "Use Dafny to verify this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ], undefined, undefined, { additionalTools: [formalVerify] });
+
+    expect(managedAdapter.invoke).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      outcome: "failed",
+      dispositionReason: "required_producer_unavailable",
+      parts: textParts("formal_verify: unavailable"),
+      completion: {
+        eligibility: {
+          status: "ineligible",
+          unmet: [{ canonicalToolId: "formal_verify", status: "unavailable" }],
+        },
+      },
+      convergence: {
+        policy: expect.objectContaining({ toolRounds: expect.any(Number) }),
+        progressEvidence: expect.arrayContaining([
+          expect.objectContaining({ kind: "progress" }),
+        ]),
+      },
+    });
+  });
+
   it("returns a terminal failure without invoking a denied multimodal delegation", async () => {
     const eventBus = makeEventBus();
     const managedAdapter = makeManagedAdapter();
@@ -1261,7 +1313,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       multimodalDelegationRoutes: [makeVisionDelegationRoute(managedAdapter)],
     });
 
-    await orchestrator.processMessage(makeSession(), [
+    const result = await orchestrator.processMessage(makeSession(), [
       { type: "text", text: "Describe this image." },
       { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
     ]);
@@ -1271,6 +1323,183 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(sessionTurnBudget.admit.mock.invocationCallOrder[0])
       .toBeLessThan((managedAdapter.invoke as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]!);
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+    expect(result.toolExecutions).toHaveLength(1);
+    expect(result.toolExecutions?.[0]).toMatchObject({
+      toolName: "managed_agent.invoke",
+      durationMs: expect.any(Number),
+      success: true,
+    });
+    expect("convergence" in result ? result.convergence.progressEvidence : undefined).toEqual([
+      expect.objectContaining({ kind: "progress", reason: "new_material_result" }),
+    ]);
+  });
+
+  it("propagates turn cancellation through delegation and refuses a late completed result", async () => {
+    let markAdapterStarted!: () => void;
+    const adapterStarted = new Promise<void>((resolve) => {
+      markAdapterStarted = resolve;
+    });
+    let releaseAdapter!: () => void;
+    const adapterRelease = new Promise<void>((resolve) => {
+      releaseAdapter = resolve;
+    });
+    let releaseCancellation!: () => void;
+    const cancellationRelease = new Promise<void>((resolve) => {
+      releaseCancellation = resolve;
+    });
+    const parentAbort = new AbortController();
+    const managedAdapter = makeManagedAdapter();
+    const originalInvoke = vi.mocked(managedAdapter.invoke).getMockImplementation();
+    if (!originalInvoke) throw new Error("Expected the synthetic managed adapter implementation.");
+    let observedAdapterSignal: AbortSignal | undefined;
+    vi.mocked(managedAdapter.invoke).mockImplementation(async (input) => {
+      observedAdapterSignal = input.abortSignal;
+      markAdapterStarted();
+      await adapterRelease;
+      return originalInvoke(input);
+    });
+    const cancellableAdapter: ManagedAgentRuntimeAdapter = {
+      ...managedAdapter,
+      cancel: vi.fn().mockReturnValue(cancellationRelease),
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      multimodalDelegationRoutes: [makeVisionDelegationRoute(cancellableAdapter)],
+    });
+    const session = makeSession();
+    const turnId = `${session.id}:turn:1`;
+    const authorityAdmission = makeFixtureModelRoundAdmission(session, turnId, defaultProvider.name, "deepseek-chat");
+    const modelRoundConfig = fixtureModelRoundConfig(orchestrator, session, {
+      authorityAdmission,
+      turnCorrelationId: turnId,
+      abortSignal: parentAbort.signal,
+    });
+    const sessionRegistry = {
+      save: vi.fn().mockResolvedValue(undefined),
+      getOrCreate: vi.fn().mockResolvedValue(session),
+    } as unknown as SessionRegistry;
+
+    const resultPromise = processAdmittedTurn({
+      orchestrator,
+      admittedSession: session,
+      sessionRegistry,
+      appName: session.appName,
+      tenantId: session.tenantId,
+      userId: session.userId,
+      systemPrompt: session.systemPrompt,
+      userParts: [
+        { type: "text", text: "Describe this image." },
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+      ],
+      channel: "api",
+      authorityAdmission,
+      perCallConfig: modelRoundConfig.config,
+    } satisfies AdmittedTurnContext);
+    await adapterStarted;
+    parentAbort.abort("operator cancelled during multimodal delegation");
+    releaseAdapter();
+
+    try {
+      await expect(resultPromise).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
+    } finally {
+      releaseCancellation();
+      modelRoundConfig.restore();
+    }
+
+    expect(cancellableAdapter.cancel).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(observedAdapterSignal?.aborted).toBe(true));
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+    expect(session.conversationHistory).toEqual([]);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "cancelled",
+      dispositionReason: "operator_cancelled",
+    });
+  });
+
+  it("denies delegated multimodal effects at the elapsed convergence boundary", async () => {
+    const managedAdapter = makeManagedAdapter();
+    let reads = 0;
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      monotonicNow: () => (reads++ === 0 ? 0 : 5),
+      executionEnvelope: {
+        convergence: deriveRuntimeConvergencePolicyInput({
+          ...RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
+          policyId: "test.runtime.multimodal-elapsed-delegation",
+          elapsedMs: 5,
+        }),
+      },
+      multimodalDelegationRoutes: [makeVisionDelegationRoute(managedAdapter)],
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(result).toMatchObject({
+      outcome: "paused",
+      dispositionReason: "elapsed_time_limit",
+      convergence: {
+        pause: {
+          status: "pause",
+          reason: "elapsed_time_limit",
+          metric: "elapsedMs",
+          observed: 5,
+          limit: 5,
+        },
+      },
+    });
+    expect(managedAdapter.invoke).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+    expect(result.toolExecutions ?? []).toEqual([]);
+  });
+
+  it("denies multimodal transforms at the elapsed convergence boundary", async () => {
+    const provider = makeProvider("deepseek");
+    const ocrTransform = makeTransformRoute({
+      transform: "ocr",
+      sourceModalities: ["image"],
+      outputModality: "text",
+    });
+    let reads = 0;
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      model: "deepseek-chat",
+      monotonicNow: () => (reads++ === 0 ? 0 : 5),
+      executionEnvelope: {
+        convergence: deriveRuntimeConvergencePolicyInput({
+          ...RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT,
+          policyId: "test.runtime.multimodal-elapsed-transform",
+          elapsedMs: 5,
+        }),
+      },
+      multimodalTransformRoutes: [ocrTransform],
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), [
+      { type: "text", text: "Read this sign." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(result).toMatchObject({
+      outcome: "paused",
+      dispositionReason: "elapsed_time_limit",
+      convergence: {
+        pause: {
+          status: "pause",
+          reason: "elapsed_time_limit",
+          metric: "elapsedMs",
+          observed: 5,
+          limit: 5,
+        },
+      },
+    });
+    expect(provider.createMessage).not.toHaveBeenCalled();
+    expect(result.toolExecutions ?? []).toEqual([]);
   });
 
   it("fails closed before a built-in OCR command without a media action claim", async () => {

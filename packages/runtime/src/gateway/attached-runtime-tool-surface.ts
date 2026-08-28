@@ -123,6 +123,44 @@ export interface AttachedRuntimeBuiltinToolSurface {
   dispose(): Promise<void>;
 }
 
+/**
+ * Canonical authority candidates for an attached runtime surface. The initial
+ * tool definitions remain provider-facing, while materializable definitions
+ * extend the authority universe for progressive admission.
+ */
+export interface AttachedRuntimeToolAdmissionProjection {
+  readonly candidateToolNames: readonly string[];
+  readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+}
+
+export function deriveAttachedRuntimeToolAdmissionProjection(
+  surface: AttachedRuntimeBuiltinToolSurface,
+): AttachedRuntimeToolAdmissionProjection {
+  const candidateTools = new Map(surface.materializableTools);
+  for (const tool of surface.toolDefinitions) {
+    candidateTools.set(tool.name, tool);
+  }
+
+  const capabilities = new Map([
+    ...surface.materializableCapabilities,
+    ...surface.capabilities,
+  ]);
+  const toolAuthority = new Map(surface.toolAuthority);
+  for (const toolName of candidateTools.keys()) {
+    const capability = capabilities.get(toolName);
+    if (capability) {
+      toolAuthority.set(toolName, authorityFromCapability(toolName, capability));
+    }
+  }
+
+  return {
+    candidateToolNames: [...candidateTools.keys()],
+    capabilities,
+    toolAuthority,
+  };
+}
+
 export type AttachedRuntimeManagedInvocationConfig =
   | ManagedInvocationToolAttachment
   | (ManagedInvocationToolOptions & {
@@ -1637,13 +1675,14 @@ function buildRuntimeSurface(
     throw new Error("Runtime builtin tool surface requires analysis, plan, and specification state stores.");
   }
   const materializableToolDefinitions = projectDevToolDefinitions(coreSurface.registry.list());
+  const materializableCapabilities = projectDevToolCapabilities(coreSurface.registry.list());
   return {
     callBuiltinTools: buildBuiltinToolExecutors(coreSurface),
     toolDefinitions: coreSurface.toolDefinitions,
     capabilities: coreSurface.capabilities,
     materializableTools: new Map(materializableToolDefinitions.map((tool) => [tool.name, tool] as const)),
-    materializableCapabilities: projectDevToolCapabilities(coreSurface.registry.list()),
-    toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
+    materializableCapabilities,
+    toolAuthority: buildBuiltinToolAuthority(materializableCapabilities),
     ...(options.toolInvocationAdmission
       ? { toolInvocationAdmission: options.toolInvocationAdmission }
       : {}),
@@ -1722,6 +1761,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ?? (executionMode === "plan"
       ? createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" })
       : DEFAULT_BUILTIN_TOOL_SURFACE);
+  const attachedToolAdmission = deriveAttachedRuntimeToolAdmissionProjection(builtinToolSurface);
   const runtimeConfig: RuntimeAuthorityAdmissionCandidateConfig = {
     ...config,
     ...(builtinToolSurface.toolInvocationAdmission
@@ -1734,7 +1774,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       ...runtimeConfig,
       additionalTools: builtinToolSurface.toolDefinitions,
       toolAuthority: new Map(),
-      perCallCapabilities: builtinToolSurface.capabilities,
+      perCallCapabilities: attachedToolAdmission.capabilities,
     };
     return recordRuntimeAuthoritySnapshot(builtinToolSurface, projectEffectiveTurnAuthorityPerCallConfig({
       config: failClosedConfig,
@@ -1765,16 +1805,16 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   }
   const executeConfig: RuntimeAuthorityAdmissionCandidateConfig = {
     ...runtimeConfig,
-    toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
+    toolAllowlist: new Set<string>(attachedToolAdmission.candidateToolNames),
     toolAuthority: buildEffectiveRuntimeToolAuthority({
-      baseAuthority: builtinToolSurface.toolAuthority,
-      capabilities: builtinToolSurface.capabilities,
+      baseAuthority: attachedToolAdmission.toolAuthority,
+      capabilities: attachedToolAdmission.capabilities,
       requestedAuthority,
       authorityContext: input.authorityContext,
     }),
     toolCallMetadata: builtinToolSurface.toolCallMetadata,
     additionalTools: builtinToolSurface.toolDefinitions,
-    perCallCapabilities: builtinToolSurface.capabilities,
+    perCallCapabilities: attachedToolAdmission.capabilities,
   };
   return recordRuntimeAuthoritySnapshot(builtinToolSurface, projectEffectiveTurnAuthorityPerCallConfig({
     config: executeConfig,
@@ -1906,24 +1946,34 @@ function buildPlanModePerCallConfig(
   config: RuntimeAuthorityAdmissionCandidateConfig,
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface,
 ): RuntimeAuthorityAdmissionCandidateConfig {
+  const attachedToolAdmission = deriveAttachedRuntimeToolAdmissionProjection(builtinToolSurface);
   const toolDefinitions = [...builtinToolSurface.toolDefinitions];
   appendIfMissing(toolDefinitions, SUBMIT_PLAN_TOOL);
   appendIfMissing(toolDefinitions, SUBMIT_SPECIFICATION_TOOL);
   appendIfMissing(toolDefinitions, RECORD_CLARIFICATION_TOOL);
-  const capabilities = new Map(builtinToolSurface.capabilities);
+  const capabilities = new Map(attachedToolAdmission.capabilities);
   capabilities.set(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
   capabilities.set(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY);
   capabilities.set(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY);
-  const additionalTools = toolDefinitions.filter((tool) => {
-    const capability = capabilities.get(tool.name);
-    const envelope = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(tool.name);
-    return envelope?.operation === "observe"
-      || tool.name === SUBMIT_PLAN_TOOL.name
-      || tool.name === SUBMIT_SPECIFICATION_TOOL.name
-      || tool.name === RECORD_CLARIFICATION_TOOL.name;
-  });
-  const toolAllowlist = new Set<string>(additionalTools.map((tool) => tool.name));
-  const toolAuthority = new Map<string, AuthorityDescriptor>();
+  const candidateToolNames = [
+    ...attachedToolAdmission.candidateToolNames,
+    ...toolDefinitions
+      .map((tool) => tool.name)
+      .filter((toolName) => !attachedToolAdmission.candidateToolNames.includes(toolName)),
+  ];
+  const toolAllowlist = new Set<string>();
+  for (const toolName of candidateToolNames) {
+    const capability = capabilities.get(toolName);
+    const envelope = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName);
+    if (envelope?.operation === "observe"
+      || toolName === SUBMIT_PLAN_TOOL.name
+      || toolName === SUBMIT_SPECIFICATION_TOOL.name
+      || toolName === RECORD_CLARIFICATION_TOOL.name) {
+      toolAllowlist.add(toolName);
+    }
+  }
+  const additionalTools = toolDefinitions.filter((tool) => toolAllowlist.has(tool.name));
+  const toolAuthority = new Map(attachedToolAdmission.toolAuthority);
   for (const toolName of toolAllowlist) {
     const capability = capabilities.get(toolName);
     const authority = capability ? authorityFromCapability(toolName, capability) : undefined;

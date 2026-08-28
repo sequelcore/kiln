@@ -4,13 +4,19 @@ import {
   HarnessIngressContentPartSchema,
   HARNESS_INGRESS_PROTOCOL_VERSION,
   parseHarnessIngressClientFrame,
+  parseHarnessIngressServerFrame,
   type HarnessIngressContentPart,
   type HarnessIngressServerFrame,
   type HarnessIngressTransportIdentity,
 } from "@kilnai/gateway-contracts";
 import { resolveCommunicationIntent, type ContentPart } from "@kilnai/core";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
 import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
-import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
+import {
+  processAdmittedTurn,
+  projectAdmittedTurnDisposition,
+  sanitizeAssistantEgressText,
+} from "./message-pipeline/index.js";
 import { toCoreDeliberationIntent } from "./deliberation-projection.js";
 
 export interface HarnessIngressRoutesConfig {
@@ -137,6 +143,7 @@ async function completeTurn(input: {
   readonly active: ActiveTurn;
   readonly runAdmittedTurn: typeof processAdmittedTurn;
 }): Promise<void> {
+  let sessionId: string | undefined;
   try {
     const deliberationIntent = toCoreDeliberationIntent(input.frame.deliberationIntent);
     const communicationIntent = input.frame.communicationIntent
@@ -158,6 +165,7 @@ async function completeTurn(input: {
       send(input.ws, errorFrame(input.frame.requestId, "unsupported"));
       return;
     }
+    sessionId = session.id;
     const result = await input.runtime.gatewayAdmission.execute({
       ingressId: input.frame.requestId,
       appName: input.runtime.appName,
@@ -202,24 +210,66 @@ async function completeTurn(input: {
       },
     }));
     if (!result.ok) {
+      if (input.active.controller.signal.aborted) {
+        send(input.ws, terminalFrame(input.frame.requestId, session.id, routeCancellationDisposition()));
+        return;
+      }
       send(input.ws, errorFrame(input.frame.requestId, "unavailable"));
       return;
     }
     const output = projectCompletionOutput(result.result.parts);
-    send(input.ws, {
-      protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION,
-      type: "turn_completed",
-      requestId: input.frame.requestId,
-      turnId: input.frame.requestId,
-      sessionId: result.result.sessionId,
-      outcome: input.active.controller.signal.aborted ? "cancelled" : "completed",
-      ...output,
-    });
+    send(input.ws, terminalFrame(
+      input.frame.requestId,
+      result.result.sessionId,
+      projectAdmittedTurnDisposition(result.result),
+      output,
+    ));
   } catch {
+    if (sessionId !== undefined) {
+      send(input.ws, terminalFrame(
+        input.frame.requestId,
+        sessionId,
+        routeCancellationDispositionOrFailure(input.active.controller.signal),
+      ));
+      return;
+    }
     send(input.ws, errorFrame(input.frame.requestId, "internal"));
   } finally {
     if (input.activeTurns.get(input.activityKey) === input.active) input.activeTurns.delete(input.activityKey);
   }
+}
+
+function terminalFrame(
+  requestId: string,
+  sessionId: string,
+  disposition: RuntimeTurnTerminalDisposition,
+  output: Pick<Extract<HarnessIngressServerFrame, { type: "turn_completed" }>, "content" | "parts"> = {},
+): Extract<HarnessIngressServerFrame, { type: "turn_completed" }> {
+  const frame = parseHarnessIngressServerFrame({
+    protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION,
+    type: "turn_completed",
+    requestId,
+    turnId: requestId,
+    sessionId,
+    ...disposition,
+    ...output,
+  });
+  if (frame.type !== "turn_completed") {
+    throw new Error("Harness terminal projection produced a non-terminal frame.");
+  }
+  return frame;
+}
+
+function routeCancellationDisposition(): RuntimeTurnTerminalDisposition {
+  return { outcome: "cancelled", dispositionReason: "operator_cancelled" };
+}
+
+function routeCancellationDispositionOrFailure(
+  signal: AbortSignal,
+): RuntimeTurnTerminalDisposition {
+  return signal.aborted
+    ? routeCancellationDisposition()
+    : { outcome: "failed", dispositionReason: "runtime_failure" };
 }
 
 function toContentParts(content: string | undefined, parts: readonly HarnessIngressContentPart[] | undefined): readonly ContentPart[] {

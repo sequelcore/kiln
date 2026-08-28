@@ -3,6 +3,7 @@ import type { DomainConfig } from "@kilnai/core/domain";
 import type { SessionContext } from "../../src/wrapper/index.js";
 import type { SessionRunOptions } from "../../src/wrapper/session.js";
 import { governSessionContext } from "../../src/application/context-governance.js";
+import { nativeHarnessDisposition } from "../fixtures/terminal-disposition.js";
 
 const runSessionMocks = vi.hoisted(() => ({
   buildPreamble: vi.fn((_context: SessionContext) => "PROMPT"),
@@ -46,7 +47,7 @@ function makeRunSessionHarness(context: SessionContext) {
       type: "completed",
       totalUsd: 0,
       durationMs: 1,
-      outcome: "completed",
+      disposition: nativeHarnessDisposition("claude-code", "completed"),
       isPreflightCrash: false,
     } as const;
   });

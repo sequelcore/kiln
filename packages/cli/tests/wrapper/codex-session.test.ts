@@ -11,6 +11,10 @@ import type { ThreadEvent } from "@openai/codex-sdk";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { defineDeliberationLevelId } from "@kilnai/core/agents";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
+import {
+  nativeHarnessDisposition,
+  requireCompletedExecutionSessionEvent,
+} from "../fixtures/terminal-disposition.js";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>) {
   return {
@@ -253,7 +257,10 @@ describe("CodexSession implements IKilnSession", () => {
     })).run({ prompt: "test" }));
 
     expect(events.some((event) => event.type === "error")).toBe(false);
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("codex", "completed"),
+    }));
   });
 
   it("projects per-run communication through the official SDK config, prompt, and router evidence", async () => {
@@ -1269,8 +1276,8 @@ describe("CodexSession.run() cost", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const costUpdateIdx = events.findIndex((e) => "type" in e && (e as { type: string }).type === "cost_update");
-    const completedIdx = events.findIndex((e) => "type" in e && (e as { type: string }).type === "completed");
+    const costUpdateIdx = events.findIndex((event) => event.type === "cost_update");
+    const completedIdx = events.findIndex((event) => event.type === "completed");
     expect(costUpdateIdx).toBeLessThan(completedIdx);
   });
 });
@@ -1293,8 +1300,8 @@ describe("CodexSession.run() completion", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
-    expect(completed?.outcome).toBe("completed");
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.disposition).toEqual(nativeHarnessDisposition("codex", "completed"));
   });
 
   it("keeps a completed outcome when a non-fatal error item is received", async () => {
@@ -1311,8 +1318,8 @@ describe("CodexSession.run() completion", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
-    expect(completed?.outcome).toBe("completed");
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.disposition).toEqual(nativeHarnessDisposition("codex", "completed"));
   });
 
   it("completed.isPreflightCrash is true when turn.failed before turn.started", async () => {
@@ -1327,8 +1334,8 @@ describe("CodexSession.run() completion", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { isPreflightCrash: boolean } | undefined;
-    expect(completed?.isPreflightCrash).toBe(true);
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.isPreflightCrash).toBe(true);
   });
 
   it("completed.isPreflightCrash is false for normal completion", async () => {
@@ -1344,8 +1351,8 @@ describe("CodexSession.run() completion", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { isPreflightCrash: boolean } | undefined;
-    expect(completed?.isPreflightCrash).toBe(false);
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.isPreflightCrash).toBe(false);
   });
 });
 
@@ -1407,8 +1414,8 @@ describe("CodexSession.run() error handling", () => {
 
     const events = await collectPromise;
     expect(events).toContainEqual(expect.objectContaining({ type: "error", code: "CODEX_EXIT_ERROR" }));
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
-    expect(completed?.outcome).toBe("failed");
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.disposition).toEqual(nativeHarnessDisposition("codex", "failed"));
   });
 
   it("run() does not emit UNKNOWN_MODEL error for unknown model", async () => {
@@ -1426,10 +1433,7 @@ describe("CodexSession.run() error handling", () => {
     const events = await collectPromise;
     expect(vi.mocked(mockSpawn)).toHaveBeenCalledTimes(1);
     const unknownModelError = events.find(
-      (event) =>
-        "type" in event
-        && (event as { type: string }).type === "error"
-        && (event as { code?: string }).code === "UNKNOWN_MODEL",
+      (event) => event.type === "error" && event.code === "UNKNOWN_MODEL",
     );
     expect(unknownModelError).toBeUndefined();
   });
@@ -1482,7 +1486,10 @@ describe("CodexSession lifecycle", () => {
 
     resolveClose(0);
     const events = await collectPromise;
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("codex", "completed"),
+    }));
   });
 
   it("run() drains stderr from the Codex subprocess", async () => {
@@ -1500,7 +1507,10 @@ describe("CodexSession lifecycle", () => {
     emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
     resolveExit(0);
 
-    await expect(collectPromise).resolves.toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    await expect(collectPromise).resolves.toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("codex", "completed"),
+    }));
   });
 
   it("dispose() calls kill() on a running subprocess", async () => {

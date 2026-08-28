@@ -3,7 +3,11 @@ import { type ProviderAdapter, type ToolDefinition } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
 import { EventBus } from "@kilnai/core/events";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import { makeSession } from "./runtime-session-orchestrator-tools-test-fixture.js";
+import {
+  makeFixtureExecutionEnvelope,
+  makeSession,
+} from "./runtime-session-orchestrator-tools-test-fixture.js";
+import { requireRuntimeConvergencePause } from "./runtime-terminal-fixture.js";
 
 describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", () => {
   it("does not allow a final assistant response while managed invocation recovery needs a work item state transition", async () => {
@@ -160,7 +164,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 6 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(6),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -262,7 +266,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 4 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(4),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("inspect without changes"));
@@ -378,7 +382,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 5 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(5),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -391,7 +395,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
     );
   });
 
-  it("fails closed when managed invocation recovery remains unresolved after the tool-round budget", async () => {
+  it("fails closed when managed invocation recovery remains unresolved at the tool-round convergence limit", async () => {
     const provider: ProviderAdapter = {
       name: "mock",
       createMessage: vi.fn()
@@ -444,14 +448,14 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
       ],
       builtinTools: new Map([["managed_agent.invoke", managedInvoke]]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 2 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.stopReason).toBe("managed_invocation_state_transition_required");
+    expect(result.dispositionReason).toBe("managed_invocation_state_transition_required");
     expect(result.parts).toEqual(textParts([
-      "Managed invocation state transition is still pending after the tool-round budget was exhausted.",
+      "Managed invocation state transition is required before the governed workflow can continue.",
       "Work item work-1 must be transitioned with work_item.update before the governed workflow can continue.",
       "No implementation, verification, or closeout should be treated as complete from this turn.",
     ].join("\n")));
@@ -580,7 +584,6 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
       },
     });
     const eventBus = new EventBus(100);
-    const emitSpy = vi.spyOn(eventBus, "emit");
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       tools: [
@@ -596,14 +599,19 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus,
-      executionEnvelope: { toolRounds: { max: 3 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(3),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Visual-reference state transition recorded."));
-    expect(result.stopReason).toBe("end_turn");
-    expect(provider.createMessage).toHaveBeenCalledTimes(5);
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (4/3)."));
+    expect(result.dispositionReason).toBe("tool_round_limit");
+    expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      limit: 3,
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(4);
     expect(resourceRead).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledTimes(1);
     expect(workItemUpdate).toHaveBeenCalledTimes(1);
@@ -611,15 +619,6 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
       ((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[3]?.[0].tools ?? [])
         .map((tool: ToolDefinition) => tool.name),
     ).toEqual(["work_item.update"]);
-    expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[3]?.[0].messages)).toContain(
-      "Managed invocation recovery state transition required",
-    );
-    expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[3]?.[0].messages)).toContain(
-      "transition-only reserved tool round",
-    );
-    expect(emitSpy.mock.calls.some((call) =>
-      call[0].type === "error" && JSON.stringify(call[0]).includes("Max tool rounds")
-    )).toBe(false);
   });
 
   it("does not execute non-transition tools during the managed invocation transition reserve", async () => {
@@ -717,12 +716,19 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Transition recorded without extra inspection."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.dispositionReason).toBe("tool_round_limit");
+    expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      limit: 1,
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(read).not.toHaveBeenCalled();
     expect(workItemUpdate).toHaveBeenCalledTimes(1);
     expect(result.toolExecutions).toContainEqual(expect.objectContaining({
@@ -838,17 +844,20 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Blocked recovery transition recorded."));
-    expect(result.stopReason).toBe("end_turn");
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.dispositionReason).toBe("tool_round_limit");
+    expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      limit: 1,
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(workItemUpdate).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0].messages)).toContain(
-      "Blocked transition template",
-    );
   });
 
   it("resolves managed invocation recovery when the blocked handoff pause id carries a deterministic per-attempt suffix", async () => {
@@ -956,17 +965,20 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Blocked recovery transition recorded."));
-    expect(result.stopReason).toBe("end_turn");
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.dispositionReason).toBe("tool_round_limit");
+    expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      limit: 1,
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(workItemUpdate).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0].messages)).toContain(
-      "Blocked transition template",
-    );
   });
 
   it("resolves managed invocation recovery when a visual-reference gate is blocked with phase-specific pause evidence", async () => {
@@ -1083,13 +1095,19 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Blocked recovery transition recorded."));
-    expect(result.stopReason).toBe("end_turn");
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.dispositionReason).toBe("tool_round_limit");
+    expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      limit: 1,
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(workItemUpdate).toHaveBeenCalledTimes(1);
   });
 
@@ -1130,15 +1148,15 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
       ],
       builtinTools: new Map([["managed_agent.invoke", managedInvoke]]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.stopReason).toBe("managed_invocation_state_transition_required");
+    expect(result.dispositionReason).toBe("managed_invocation_state_transition_required");
     expect(provider.createMessage).toHaveBeenCalledTimes(1);
     expect(result.parts).toEqual(textParts([
-      "Managed invocation state transition is still pending after the tool-round budget was exhausted.",
+      "Managed invocation state transition is required before the governed workflow can continue.",
       "Work item work-1 must be transitioned with work_item.update before the governed workflow can continue.",
       "No implementation, verification, or closeout should be treated as complete from this turn.",
     ].join("\n")));
@@ -1229,12 +1247,19 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(1),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
 
-    expect(result.parts).toEqual(textParts("Phase completion transition recorded."));
+    expect(result.parts).toEqual(textParts("Turn paused: toolRounds limit reached (2/1)."));
+    expect(result.dispositionReason).toBe("tool_round_limit");
+    expect(requireRuntimeConvergencePause(result).convergence.pause).toMatchObject({
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      limit: 1,
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(workItemUpdate).toHaveBeenCalledTimes(1);
     expect(
       ((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0].tools ?? [])
@@ -1346,14 +1371,14 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 2 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(2),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve two GUI areas"));
 
-    expect(result.stopReason).toBe("managed_invocation_state_transition_required");
+    expect(result.dispositionReason).toBe("managed_invocation_state_transition_required");
     expect(result.parts).toEqual(textParts([
-      "Managed invocation state transition is still pending after the tool-round budget was exhausted.",
+      "Managed invocation state transition is required before the governed workflow can continue.",
       "Work item work-1 must be transitioned with work_item.update before the governed workflow can continue.",
       "No implementation, verification, or closeout should be treated as complete from this turn.",
     ].join("\n")));
@@ -1477,7 +1502,7 @@ describe("RuntimeSessionOrchestrator - managed recovery and phase transitions", 
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      executionEnvelope: { toolRounds: { max: 6 } },
+      executionEnvelope: makeFixtureExecutionEnvelope(6),
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));

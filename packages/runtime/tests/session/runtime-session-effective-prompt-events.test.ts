@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderRequestEvidence } from "@kilnai/core/events";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 
@@ -60,7 +60,7 @@ describe("runtime final effective prompt observation", () => {
       userMessageContent: "Private user message.",
       assistantMessageContent: "Done.",
       queued: false,
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       turnStartedAt: new Date("2026-08-13T00:00:00.000Z"),
       turnCompletedAt: new Date("2026-08-13T00:00:01.000Z"),
       continuity: { strategy: "none" },

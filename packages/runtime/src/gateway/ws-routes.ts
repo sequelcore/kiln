@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ArtifactResourceStore, CommunicationResolution, ContentPart, IncomingMessage, ProviderRequestEvidence, ResolvedCommunicationIntent, SessionTurnOutcome } from "@kilnai/core";
+import type { ArtifactResourceStore, CommunicationResolution, ContentPart, IncomingMessage, ProviderRequestEvidence, ResolvedCommunicationIntent } from "@kilnai/core";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
 import { projectFinalEffectivePromptObservation, resolveCommunicationIntent, textParts, extractText } from "@kilnai/core";
 import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { createGenericMediaDownloader } from "./audio-preprocessor.js";
@@ -9,6 +10,7 @@ import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import type { GatewayAuthorityAdmissionCommit, GatewayAuthorityAdmissionPort } from "./gateway-authority-admission.js";
 import { dispatchChannelEgress } from "../channels/channel-egress-action-claim.js";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
+import { projectAdmittedTurnDisposition } from "./message-pipeline/index.js";
 
 export interface WsResponseEgressInput {
   readonly slot: "assistant" | "suggestions" | "error";
@@ -17,18 +19,20 @@ export interface WsResponseEgressInput {
 
 export type WsResponseEgress = (input: WsResponseEgressInput) => Promise<boolean>;
 
-export interface WsProcessMessageResult {
+type WsProcessMessageResultCommon = {
   readonly parts: readonly ContentPart[];
   readonly inputTokens: number;
   readonly outputTokens: number;
-  readonly outcome: SessionTurnOutcome;
   readonly communicationResolution?: CommunicationResolution;
   readonly providerRequests?: readonly ProviderRequestEvidence[];
   /** Runtime-owned egress dispatcher; absent means the response is not delivered. */
   readonly dispatchEgress?: WsResponseEgress;
   /** Error projection prepared inside the Runtime admission callback. */
   readonly errorMessage?: string;
-}
+};
+
+/** Runtime's exact terminal disposition, including evidence and bounds. */
+export type WsProcessMessageResult = WsProcessMessageResultCommon & RuntimeTurnTerminalDisposition;
 
 export interface WsRoutesConfig {
   readonly webChannel: WebChannel;
@@ -171,7 +175,7 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
                     parts: result.parts,
                     inputTokens: result.inputTokens,
                     outputTokens: result.outputTokens,
-                    outcome: result.outcome,
+                    ...projectAdmittedTurnDisposition(result),
                     communicationResolution: result.communicationResolution,
                     effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
                   },

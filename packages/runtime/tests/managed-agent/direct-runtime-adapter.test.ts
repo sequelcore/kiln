@@ -28,6 +28,7 @@ import { ManagedEconomicLifecycleTimeoutError } from "../../src/agents/managed-i
 import { createInternalConsumedWriteApproval } from "../../src/agents/managed-invocation/internal-consumed-write-approval.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
 import type { RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
 import {
@@ -41,6 +42,15 @@ import type {
 } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
 import type { ManagedAgentRuntimeInvocationInput } from "../../src/agents/managed-invocation/index.js";
 import { createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
+
+function makeDirectTestExecutionEnvelope(toolRounds: number) {
+  return {
+    convergence: deriveRuntimeConvergencePolicyInput({
+      policyId: "kiln.managed-direct.test",
+      toolRounds,
+    }),
+  };
+}
 
 const DIRECT_TEST_ADMISSIONS = new Map<string, EffectiveAuthorityAdmissionBundle>();
 
@@ -870,7 +880,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     }));
   });
 
-  it("runs one forced finalization round when the child finishes without submitting its handoff", async () => {
+  it("requests one handoff round when the child finishes without submitting its handoff", async () => {
     const structuredResult = {
       version: "structured-execution-result-v1",
       status: "completed",
@@ -936,7 +946,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[2]?.[0].toolChoice).toBeUndefined();
   });
 
-  it("returns a replayable failed record when forced finalization still produces no handoff", async () => {
+  it("returns a replayable failed record when handoff recovery still produces no handoff", async () => {
     const provider = providerWithResponses([
       response("The inspection is complete."),
       response("I forgot to call the required handoff tool."),
@@ -1030,7 +1040,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       title: "Managed invocation child execution evidence",
       mimeType: "text/markdown",
     });
-    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: end_turn");
+    expect(result.record.replayResources?.[0]?.text).toContain("Disposition reason: completion_eligible");
     expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
     expect(result.record.replayResources?.[0]?.text).toContain("## Tool 1: read");
     expect(result.record.replayResources?.[0]?.text).toContain("doc contents");
@@ -1198,7 +1208,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       mimeType: "text/markdown",
     });
     expect(result.record.replayResources?.[0]?.text).toContain("Final output: <empty>");
-    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: end_turn");
+    expect(result.record.replayResources?.[0]?.text).toContain("Disposition reason: completion_eligible");
     expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 0");
     expect(result.record.replayResources?.[0]?.text).toContain("Input tokens: 10");
     expect(result.record.replayResources?.[0]?.text).toContain("Output tokens: 5");
@@ -1224,7 +1234,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       provider,
       tools: [READ_TOOL],
       builtinTools: new Map([["read", readTool]]),
-      executionEnvelope: { toolRounds: { max: 1 } },
+      executionEnvelope: makeDirectTestExecutionEnvelope(1),
     });
 
     const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
@@ -1235,17 +1245,62 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     }
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff?.summary).toContain("finished without final handoff text");
-    expect(result.record.resultHandoff?.summary).toContain("Tool round budget exhausted after 1 tool round.");
+    expect(result.record.resultHandoff?.summary).toContain("Turn paused: toolRounds limit reached (1/1).");
     expect(result.record.diagnostics).toBeUndefined();
-    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: tool_round_budget_exhausted");
+    expect(result.record.replayResources?.[0]?.text).toContain("Disposition reason: tool_round_limit");
     expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
     expect(readTool).toHaveBeenCalledTimes(1);
   });
 
-  it("fails closed when a direct-provider child still requires a managed invocation state transition", async () => {
+  it("preserves a non-completed typed disposition instead of forcing handoff finalization", async () => {
+    const provider = providerWithResponses([response("The required verifier was not run.")]);
+    const baseRequest = request();
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [{
+        name: "formal_verify",
+        description: "Run the formal verifier.",
+        inputSchema: {},
+        tags: new Set(),
+      }],
+      builtinTools: new Map(),
+    });
+
+    const result = await invokeManaged(
+      new RuntimeManagedAgentInvocationService(),
+      request({
+        authority: {
+          ...baseRequest.authority,
+          toolAuthority: {
+            ...baseRequest.authority.toolAuthority,
+            allowedToolNames: ["formal_verify"],
+          },
+        },
+        input: {
+          summary: "Verify the implementation.",
+          prompt: "Use Dafny to verify the implementation.",
+          handoff: {
+            requiredResultFields: ["summary"],
+          },
+        },
+      }),
+      adapter,
+    );
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected terminal invocation");
+    expect(provider.createMessage).toHaveBeenCalledTimes(1);
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.stopReason).toBe("required_producer_not_run");
+    expect(result.record.resultHandoff?.summary).toContain("formal_verify: not_run");
+  });
+
+  it("does not infer a failed child from a provider stop reason", async () => {
     const provider = providerWithResponses([{
       parts: textParts([
-        "Managed invocation state transition is still pending after the tool-round budget was exhausted.",
+        "Managed invocation state transition is still pending after the turn-convergence tool-round limit was reached.",
         "Work item work-1 must be transitioned with work_item.update before the governed workflow can continue.",
       ].join("\n")),
       inputTokens: 10,
@@ -1269,11 +1324,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     if (result.status !== "completed") {
       throw new Error("expected completed");
     }
-    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.stopReason).toBe("completion_eligible");
     expect(result.record.resultHandoff?.summary).toContain("Managed invocation state transition is still pending");
-    expect(result.record.resultHandoff?.resourceUris).toContain(
-      "kiln://managed-agents/invocations/inv-direct-1/resources/child-execution",
-    );
   });
 
   it("hydrates admitted resource context through resource_read without broadening child tool authority", async () => {

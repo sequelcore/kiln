@@ -7,6 +7,7 @@ import {
   RuntimeManagedAgentInvocationService,
 } from "../../src/index.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
+import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
 import { createFixtureModelRoundStore, createFixtureToolActionStore } from "../session/runtime-claim-fixture.js";
 import {
   KILN_LIVE_OPENAI_DIRECT_MODEL,
@@ -16,6 +17,15 @@ import {
   requireManagedAgentLiveEnvironment,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
+
+function makeOpenAiLiveExecutionEnvelope(toolRounds: number) {
+  return {
+    convergence: deriveRuntimeConvergencePolicyInput({
+      policyId: "kiln.openai-direct-live.test",
+      toolRounds,
+    }),
+  };
+}
 
 describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proof", KILN_LIVE_OPENAI_DIRECT_TESTS_ENV, () => {
   it("reads a governed fixture through Kiln builtin tool authority", async () => {
@@ -50,7 +60,7 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
         builtinTools: childSurface.callBuiltinTools,
         capabilityMap: childSurface.capabilities,
         toolAuthority: childSurface.toolAuthority,
-        executionEnvelope: { toolRounds: { max: 4 } },
+        executionEnvelope: makeOpenAiLiveExecutionEnvelope(4),
         runtimeToolActionClaims: createFixtureToolActionStore(),
         readAuthorityAdmission: () => undefined,
         runtimeModelRoundActionClaims: createFixtureModelRoundStore(),

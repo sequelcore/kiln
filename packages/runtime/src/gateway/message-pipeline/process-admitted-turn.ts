@@ -22,11 +22,11 @@ import type {
   TtsAdapter,
   VoiceConfig,
   CanonicalSessionEvent,
-  SessionTurnOutcome,
   EffectiveTurnAuthoritySnapshot,
   EffectivePromptObservation,
   CommunicationResolution,
 } from "@kilnai/core";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
 import {
   estimateTextTokens,
   extractText,
@@ -93,8 +93,10 @@ import {
 import {
   buildTenantSystemPrompt
 } from "../../tenant/system-prompt-builder.js";
-import type {
-  OperatorExecutionMode
+import {
+  parseRuntimeOperatorTurnTerminalDisposition,
+  type OperatorExecutionMode,
+  type RuntimeOperatorTurnTerminalDisposition,
 } from "@kilnai/gateway-contracts";
 import type {
   RuntimeSession
@@ -256,7 +258,7 @@ export type RuntimeSessionHydrator = (input: {
   readonly session: RuntimeSession;
 }) => RuntimeSessionHydrationResult | Promise<RuntimeSessionHydrationResult>;
 
-export interface AdmittedTurnResult {
+type AdmittedTurnResultCommon = {
   readonly parts: readonly ContentPart[];
   readonly admittedInput?: {
     readonly content: string;
@@ -265,7 +267,6 @@ export interface AdmittedTurnResult {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
-  readonly outcome: SessionTurnOutcome;
   readonly queued: boolean;
   readonly sessionId: string;
   readonly sessionMode: SessionMode;
@@ -305,6 +306,28 @@ export interface AdmittedTurnResult {
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly communicationResolution?: CommunicationResolution;
   readonly effectivePromptObservation?: EffectivePromptObservation;
+};
+
+/** Public admitted response carrying the exact Runtime terminal disposition. */
+export type AdmittedTurnResult = AdmittedTurnResultCommon & RuntimeTurnTerminalDisposition;
+
+/**
+ * Projects the Core-owned terminal fields at the gateway boundary. Runtime
+ * results are enriched with pipeline metadata; operator frames carry only the
+ * disposition fields so evidence cannot be lost or accidentally widened.
+ */
+export function projectAdmittedTurnDisposition(
+  result: RuntimeTurnTerminalDisposition
+    & Partial<AdmittedTurnResultCommon>
+): RuntimeOperatorTurnTerminalDisposition {
+  return parseRuntimeOperatorTurnTerminalDisposition(result);
+}
+
+function sessionNotActiveDisposition(): Extract<RuntimeTurnTerminalDisposition, { readonly dispositionReason: "session_not_active" }> {
+  return {
+    outcome: "paused",
+    dispositionReason: "session_not_active",
+  };
 }
 
 export interface BudgetDeniedResult {
@@ -648,7 +671,7 @@ async function applyTurnGuards(
         parts: [],
         admittedInput: { content: userText },
         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
-        outcome: "paused",
+        ...sessionNotActiveDisposition(),
         queued: true,
         sessionId: session.id,
         sessionMode: session.sessionMode,
@@ -669,7 +692,7 @@ async function applyTurnGuards(
         parts: [],
         admittedInput: { content: userText },
         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
-        outcome: "paused",
+        ...sessionNotActiveDisposition(),
         queued: true,
         sessionId: session.id,
         sessionMode: session.sessionMode,
@@ -692,7 +715,7 @@ async function applyTurnGuards(
           parts: [],
           admittedInput: { content: userText },
           inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
-          outcome: "paused",
+          ...sessionNotActiveDisposition(),
           queued: true,
           sessionId: session.id,
           sessionMode: session.sessionMode,
@@ -983,7 +1006,7 @@ async function invokeOrchestratorWithLedgerCapture(
     }
     await lifecycle.settle({
       queued: false,
-      turnOutcome: cancelled ? "cancelled" : "failed",
+      disposition: terminalDispositionForError(ctx, perCallConfig?.abortSignal),
       turnCompletedAt: turnFailedAt,
       terminalRuntimeEvents,
       providerRequests: undefined,
@@ -1179,7 +1202,7 @@ async function finalizeEgressAndPersistTurn(
   await lifecycle.settle({
     assistantMessageContent: extractText(resultParts),
     queued: result.queued,
-    turnOutcome: result.outcome,
+    disposition: readRuntimeDisposition(result),
     turnCompletedAt: new Date(),
     planSubmissions,
     analysisReports,
@@ -1265,13 +1288,13 @@ async function finalizeAndPersistTurn(
   return {
     ok: true,
     result: {
+      ...result,
       parts: resultParts,
       admittedInput: { content: userText },
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       cacheReadTokens: result.cacheReadTokens,
       cacheWriteTokens: result.cacheWriteTokens,
-      outcome: result.outcome,
       queued: result.queued,
       sessionId: session.id,
       sessionMode: session.sessionMode,
@@ -1381,7 +1404,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       await lifecycle.settle({
         assistantMessageContent: runtimeFinalOutputText,
         queued: orchestration.result.queued,
-        turnOutcome: cancelled ? "cancelled" : "failed",
+        disposition: terminalDispositionForError(ctx, executionAssembled.perCallConfig?.abortSignal),
         turnCompletedAt: turnFailedAt,
         terminalRuntimeEvents,
         lifecycleAttributionEvidence: {
@@ -1426,4 +1449,26 @@ function deriveTurnAbortSignal(parent: AbortSignal | undefined): {
     abort: (reason) => controller.abort(reason),
     dispose: () => parent.removeEventListener("abort", onAbort),
   };
+}
+
+function terminalDispositionForError(
+  ctx: AdmittedTurnContext,
+  signal: AbortSignal | undefined,
+): RuntimeTurnTerminalDisposition {
+  if (signal?.aborted === true) {
+    return {
+      outcome: "cancelled",
+      dispositionReason: ctx.perCallConfig.abortSignal?.aborted === true
+        ? "operator_cancelled"
+        : "runtime_cancelled",
+    };
+  }
+  return {
+    outcome: "failed",
+    dispositionReason: "runtime_failure",
+  };
+}
+
+function readRuntimeDisposition(result: OrchestrateResult): RuntimeTurnTerminalDisposition {
+  return projectAdmittedTurnDisposition(result);
 }

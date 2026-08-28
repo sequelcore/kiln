@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
+import type { DevTool } from "@kilnai/core/tools";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { createFixtureClaimConfig, createFixtureToolPermission } from "../session/runtime-claim-fixture.js";
@@ -95,6 +96,40 @@ describe("TUI authority forwarding", () => {
       executionMode: "execute",
       completeness: "authoritative",
     });
+  });
+
+  it("commits deferred configured producers while keeping TUI provider schemas initial-only", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const { createAttachedRuntimeBuiltinToolSurface } = await import("../../src/gateway/attached-runtime-tool-surface.js");
+    const deferredProducer: DevTool = {
+      name: "tui_deferred_producer",
+      description: "A configured TUI producer admitted after catalog discovery.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process"],
+        reversibility: "reversible",
+        dataEgress: "metadata",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      async execute() {
+        return { output: "deferred", isError: false };
+      },
+    };
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        additionalTools: [deferredProducer],
+        toolProjection: { mode: "deferred", alwaysOnTools: ["read"] },
+      },
+    });
+    const config = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", surface);
+
+    expect(config.toolAllowlist?.has(deferredProducer.name)).toBe(true);
+    expect(config.perCallCapabilities?.has(deferredProducer.name)).toBe(true);
+    expect(config.toolAuthority?.has(deferredProducer.name)).toBe(true);
+    expect(config.additionalTools?.map((tool) => tool.name)).not.toContain(deferredProducer.name);
   });
 
   it("carries canonical temporal context into TUI turns", async () => {
@@ -387,15 +422,39 @@ describe("TUI authority forwarding", () => {
       authorityStatus,
     });
     const done = buildTuiDoneFramePayload({
+      kilnSessionId: "session-1",
       content: "done",
       parts: [],
       inputTokens: 1,
       outputTokens: 1,
-      outcome: "paused",
       routedProvider: "codex-oauth",
       routedModel: "gpt-5.4-mini",
       runtimeContinuity: { strategy: "none" },
       authorityStatus,
+      outcome: "paused",
+      dispositionReason: "no_progress",
+      convergence: {
+        policy: {
+          policyId: "test.runtime.turn-convergence",
+          configurationHash: `sha256:${"0".repeat(64)}`,
+          providerRequests: 10,
+          toolRounds: 8,
+          toolCalls: 24,
+          cumulativeInputTokens: 256_000,
+          elapsedMs: 600_000,
+          activeMs: 600_000,
+          recoveryAttempts: 3,
+          consecutiveNoProgressSteps: 3,
+        },
+        progressEvidence: [],
+        pause: {
+          status: "pause",
+          reason: "no_progress",
+          metric: "consecutiveNoProgressSteps",
+          observed: 3,
+          limit: 3,
+        },
+      },
     });
 
     expect(welcome.authorityStatus).toMatchObject({

@@ -3,6 +3,7 @@
  * @module @kilnai/tui
  */
 import type {
+  GuiDoneFrameFields,
   GuiProviderModelCapabilities,
   GuiProviderDiscoveryResult,
   GuiProviderAuthCompleted,
@@ -15,8 +16,11 @@ import type {
   OperatorActivityPhaseFrame,
   OperatorExecutionMode,
   OperatorSessionEvent,
+  OperatorTurnTerminalDisposition,
   OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
+import { OperatorTurnTerminalDispositionSchema } from "@kilnai/gateway-contracts";
+import type { TuiDoneFrame } from "./types.js";
 
 /**
  * Inbound frames the TUI gateway sends.
@@ -44,30 +48,7 @@ export type TuiInboundFrame =
       linesAdded?: number;
       linesRemoved?: number;
     }
-  | {
-      type: "done";
-      sourceMessageId?: string;
-      content: string;
-      parts?: unknown[];
-      inputTokens: number;
-      outputTokens: number;
-      outcome: "completed" | "failed" | "cancelled" | "paused";
-      routedRouteId?: string;
-      /** Derived execution evidence; route identity remains authoritative. */
-      routedProvider?: string;
-      /** Derived execution evidence; route identity remains authoritative. */
-      routedModel?: string;
-      runtimeContinuity?: {
-        strategy: string;
-        feedbackLabel?: string;
-        pressure?: string;
-        supportArtifactCount?: number;
-        supportArtifactSources?: string[];
-        fallbackLabel?: string;
-        usedCachedSupport?: boolean;
-        selectionReason?: string;
-      };
-    }
+  | TuiDoneFrame
   | {
       type: "voice_synthesis_completed";
       requestId: string;
@@ -151,7 +132,111 @@ export type TuiOutboundFrame =
       planId?: string;
       residualRiskAcknowledged?: boolean;
       residualRiskAcknowledgement?: string;
-    };
+  };
+
+const TUI_DONE_FRAME_KEYS = new Set([
+  "type",
+  "kilnSessionId",
+  "sourceMessageId",
+  "content",
+  "parts",
+  "admittedInput",
+  "inputTokens",
+  "outputTokens",
+  "routedRouteId",
+  "routedProvider",
+  "routedModel",
+  "routingRationale",
+  "runtimeContinuity",
+  "authorityStatus",
+  "outcome",
+  "dispositionReason",
+  "completion",
+  "convergence",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isOptionalFiniteNumber(value: unknown): value is number | undefined {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isRuntimeContinuity(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value) || typeof value.strategy !== "string") return false;
+  return isOptionalString(value.feedbackLabel)
+    && isOptionalString(value.pressure)
+    && isOptionalFiniteNumber(value.supportArtifactCount)
+    && (value.supportArtifactSources === undefined
+      || (Array.isArray(value.supportArtifactSources)
+        && value.supportArtifactSources.every((source) => typeof source === "string")))
+    && isOptionalString(value.fallbackLabel)
+    && (value.usedCachedSupport === undefined || typeof value.usedCachedSupport === "boolean")
+    && isOptionalString(value.selectionReason);
+}
+
+function isDoneFrameFields(value: unknown): value is GuiDoneFrameFields {
+  if (!isRecord(value)) return false;
+  if (!Object.keys(value).every((key) => TUI_DONE_FRAME_KEYS.has(key))) return false;
+  if (
+    value.type !== "done"
+    || typeof value.kilnSessionId !== "string"
+    || value.kilnSessionId.trim().length === 0
+    || typeof value.content !== "string"
+    || typeof value.inputTokens !== "number"
+    || !Number.isFinite(value.inputTokens)
+    || typeof value.outputTokens !== "number"
+    || !Number.isFinite(value.outputTokens)
+    || !isOptionalString(value.sourceMessageId)
+    || !isOptionalString(value.routedRouteId)
+    || !isOptionalString(value.routedProvider)
+    || !isOptionalString(value.routedModel)
+    || (value.parts !== undefined && !Array.isArray(value.parts))
+    || (value.admittedInput !== undefined
+      && (!isRecord(value.admittedInput) || typeof value.admittedInput.content !== "string"))
+    || !isRuntimeContinuity(value.runtimeContinuity)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Parse the exact shared terminal disposition carried by a TUI done frame. */
+export function parseTuiDoneFrame(value: unknown): TuiDoneFrame | null {
+  if (!isRecord(value) || !isDoneFrameFields(value)) return null;
+
+  const dispositionInput: Record<string, unknown> = {
+    outcome: value.outcome,
+    dispositionReason: value.dispositionReason,
+  };
+  for (const field of ["completion", "convergence"] as const) {
+    if (field in value) dispositionInput[field] = value[field];
+  }
+  const parsedDisposition = OperatorTurnTerminalDispositionSchema.safeParse(dispositionInput);
+  if (!parsedDisposition.success) return null;
+
+  return { ...value, ...parsedDisposition.data };
+}
+
+/**
+ * Copy only the shared terminal disposition from a validated done frame.
+ * The shared schema preserves reason/evidence correlation without recasting the frame.
+ */
+export function copyTuiTerminalDisposition(frame: TuiDoneFrame): OperatorTurnTerminalDisposition {
+  const disposition: Record<string, unknown> = {
+    outcome: frame.outcome,
+    dispositionReason: frame.dispositionReason,
+  };
+  if ("completion" in frame) disposition.completion = frame.completion;
+  if ("convergence" in frame) disposition.convergence = frame.convergence;
+  return OperatorTurnTerminalDispositionSchema.parse(disposition);
+}
 
 /**
  * Configuration options for TuiWsClient.
@@ -201,8 +286,14 @@ export class TuiWsClient {
       }
 
       try {
-        const frame = JSON.parse(raw) as TuiInboundFrame;
-        this.options.onMessage(frame);
+        const parsed: unknown = JSON.parse(raw);
+        if (isRecord(parsed) && parsed.type === "done") {
+          const frame = parseTuiDoneFrame(parsed);
+          if (frame === null) return;
+          this.options.onMessage(frame);
+          return;
+        }
+        this.options.onMessage(parsed as TuiInboundFrame);
       } catch {
         // Discard malformed frames
       }

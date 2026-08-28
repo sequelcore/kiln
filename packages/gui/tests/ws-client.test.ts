@@ -11,6 +11,10 @@ import type {
   GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import { GuiWsClient, type GuiConnectionState } from "../src/lib/ws-client";
+import {
+  completedTurnDisposition,
+  noProgressTurnDisposition,
+} from "./fixtures/terminal-disposition.js";
 
 const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
   catalogEvidence: {
@@ -165,11 +169,15 @@ describe("GuiWsClient", () => {
         content: "Paused for operator input.",
         inputTokens: 12,
         outputTokens: 4,
-        outcome: "paused",
+        ...noProgressTurnDisposition(),
       }));
       expect(onFrame).toHaveBeenLastCalledWith(expect.objectContaining({
         type: "done",
         outcome: "paused",
+        dispositionReason: "no_progress",
+        convergence: expect.objectContaining({
+          pause: expect.objectContaining({ reason: "no_progress" }),
+        }),
       }));
 
       onFrame.mockClear();
@@ -179,6 +187,20 @@ describe("GuiWsClient", () => {
         content: "Ambiguous terminal frame.",
         inputTokens: 12,
         outputTokens: 4,
+      }));
+      expect(onFrame).not.toHaveBeenCalled();
+
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "done",
+        kilnSessionId: "session-1",
+        content: "Mismatched terminal frame.",
+        inputTokens: 12,
+        outputTokens: 4,
+        outcome: "completed",
+        dispositionReason: "no_progress",
+        convergence: {
+          ...noProgressTurnDisposition().convergence,
+        },
       }));
       expect(onFrame).not.toHaveBeenCalled();
     });
@@ -1206,7 +1228,7 @@ describe("GuiWsClient", () => {
             content: "completed",
             inputTokens: 100,
             outputTokens: 50,
-            outcome: "completed",
+            ...completedTurnDisposition(),
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",
@@ -1252,7 +1274,7 @@ describe("GuiWsClient", () => {
             content: "completed",
             inputTokens: 100,
             outputTokens: 50,
-            outcome: "completed",
+            ...completedTurnDisposition(),
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",

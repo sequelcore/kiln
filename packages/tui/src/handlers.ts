@@ -17,10 +17,11 @@ import {
   ContextUsageProjectionSchema,
   operatorIdentityInitials,
   presentToolActionTitle,
+  presentOperatorEventPayload,
   projectManagedAgentIdentity,
   projectOperatorGovernedWorkItemSnapshot,
-  type OperatorSessionTurnOutcome,
   type OperatorSessionEvent,
+  type OperatorTurnTerminalDisposition,
   type ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
@@ -456,7 +457,7 @@ function toWorkItem(
 export function handleCompleted(
   ctx: HandlerContext,
   totalUsd: number,
-  outcome: OperatorSessionTurnOutcome,
+  disposition: OperatorTurnTerminalDisposition,
   inputTokens: number,
   outputTokens: number,
   runtimeContinuity: { strategy: string; feedbackLabel?: string } | undefined,
@@ -469,13 +470,26 @@ export function handleCompleted(
   renderCommandBarStatus: () => void,
   renderSidebarContinuation?: () => void
 ): void {
+  const presentation = presentOperatorEventPayload("turn_completed", disposition);
   if (totalUsd) update(ctx.state, "cost", totalUsd);
   // Only overwrite token counts from completion if they are non-zero
   // (subscription sessions report 0 from done frame; prefer accumulated cost_update values)
   if (inputTokens > 0) update(ctx.state, "inputTokens", inputTokens);
   if (outputTokens > 0) update(ctx.state, "outputTokens", outputTokens);
-  update(ctx.state, "status", outcome === "failed" ? "error" : "idle");
-  update(ctx.state, "currentActivity", { phase: "" });
+  update(ctx.state, "status", presentation.tone === "error" ? "error" : "idle");
+  const terminalDetails = [
+    presentation.title,
+    presentation.compactText ?? presentation.summary,
+    ...presentation.details.map(({ label, value }) => `${label}: ${value}`),
+  ].filter((value): value is string => Boolean(value && value.trim()));
+  const terminalActivity = terminalDetails.join(" · ");
+  update(
+    ctx.state,
+    "currentActivity",
+    presentation.tone === "success"
+      ? { phase: "" }
+      : { phase: "responding", details: terminalActivity },
+  );
   update(ctx.state, "thinkingVisible", false);
   update(ctx.state, "thinking", "");
   update(ctx.state, "turns", ctx.state.turns + 1);
@@ -501,6 +515,16 @@ export function handleCompleted(
   renderSidebarProvider();
   renderSidebarContinuation?.();
   renderCommandBarStatus();
+  if (presentation.tone !== "success") {
+    const terminalColor = {
+      info: ctx.theme().info,
+      running: ctx.theme().accent,
+      success: ctx.theme().success,
+      warning: ctx.theme().warning,
+      error: ctx.theme().error,
+    }[presentation.tone];
+    ctx.ui.commandBarStatus.content = t`${fg(terminalColor)(terminalActivity)}`;
+  }
 }
 
 /**
@@ -700,7 +724,7 @@ export async function sendMessage(
           handleCompleted(
             ctx,
             event.totalUsd,
-            event.outcome,
+            event,
             event.inputTokens ?? 0,
             event.outputTokens ?? 0,
             event.runtimeContinuity,

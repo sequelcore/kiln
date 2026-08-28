@@ -22,15 +22,11 @@ import {
   type ToolDefinition,
   type ToolResultEvent,
   type DeliberationResolution,
-  type SessionTurnOutcome,
+  type RuntimeTurnTerminalDisposition,
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   knownModelCommunicationCapabilities,
-  admitCommunicationForExecution,
-  renderCommunicationPromptProjection,
-  observeStandaloneEffectivePrompt,
-  resolveCommunicationProfile,
   deriveAuthorityFromEffect,
   getBuiltinEffectEnvelope,
   type KilnMcpClient,
@@ -52,10 +48,8 @@ import {
   readExecutionTurnAuthority,
   type OperatorAdoptionRuntimeBinding,
   type EffectiveAuthorityAdmissionBundle,
-  RuntimeModelRoundDispatchService,
   assertRuntimeHostToolEnforcement,
   OperatorSessionPreProviderLaunchRejectionError,
-  runtimeModelRoundEffectIdentity,
   type RuntimeSession,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
@@ -196,23 +190,6 @@ function isDelegatableManagedInvocationTool(toolName: string): boolean {
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
   const profile = resolveProfile(config);
   return profile?.executionMode ?? "text-only";
-}
-
-function toSessionToolUseEvent(content: string): Extract<ExecutionSessionEvent, { type: "tool_use" }> {
-  try {
-    const parsed = JSON.parse(content) as { name?: unknown; input?: unknown };
-    return {
-      type: "tool_use",
-      toolName: typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : "provider_tool_call",
-      input: parsed.input ?? {},
-    };
-  } catch {
-    return {
-      type: "tool_use",
-      toolName: "provider_tool_call",
-      input: {},
-    };
-  }
 }
 
 function resolveProfile(
@@ -429,7 +406,7 @@ export class ProviderSession implements IKilnSession {
         type: "completed",
         totalUsd: 0,
         durationMs: Date.now() - startedAt,
-        outcome: "cancelled",
+        disposition: cancelledDisposition("operator_cancelled"),
         isPreflightCrash: true,
       };
       return;
@@ -452,7 +429,7 @@ export class ProviderSession implements IKilnSession {
           type: "completed",
           totalUsd: 0,
           durationMs: Date.now() - startedAt,
-          outcome: "failed",
+          disposition: runtimeFailureDisposition(),
           isPreflightCrash: false,
         };
         return;
@@ -484,7 +461,9 @@ export class ProviderSession implements IKilnSession {
         type: "completed",
         totalUsd: 0,
         durationMs: Date.now() - startedAt,
-        outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
+        disposition: options.abortSignal?.aborted
+          ? cancelledDisposition("operator_cancelled")
+          : runtimeFailureDisposition(),
         isPreflightCrash: false,
       };
     } finally {
@@ -559,23 +538,6 @@ export class ProviderSession implements IKilnSession {
     return { systemPrompt, userPrompt };
   }
 
-  private buildConversationMessages(
-    userPrompt: string,
-    messages?: readonly AgentMessage[],
-  ): AgentMessage[] {
-    const hydrated: AgentMessage[] = [];
-    if (messages && messages.length > 0) {
-      for (let i = 0; i < messages.length - 1; i++) {
-        const message = messages[i];
-        if (message) {
-          hydrated.push(message);
-        }
-      }
-    }
-    hydrated.push({ role: "user", parts: [textPart(userPrompt)] });
-    return hydrated;
-  }
-
   private hydrateConversation(
     session: {
       addUserMessage(parts: readonly ContentPart[]): void;
@@ -595,180 +557,12 @@ export class ProviderSession implements IKilnSession {
   }
 
   private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
-    let outcome: SessionTurnOutcome = "completed";
-    const authorityAdmissionContext = this.config.authorityAdmissionContext;
-    const admittedPerCallConfig = authorityAdmissionContext?.perCallConfig;
-    if (!authorityAdmissionContext
-      || !admittedPerCallConfig?.authorityAdmission
-      || admittedPerCallConfig.authorityAdmission !== authorityAdmissionContext.bundle) {
-      throw new Error("Direct provider text-only execution requires the exact persisted Runtime authority admission bundle.");
-    }
-    const modelRoundDispatch = admittedPerCallConfig.runtimeModelRoundDispatch;
-    if (!modelRoundDispatch) {
-      throw new Error("Direct provider text-only execution requires a complete admitted Runtime model-round claim context.");
-    }
-    const adapter = await createDirectProviderAdapter({
-      provider: this.config.provider,
-      model: this.resolvedModel,
-      kilnHome: this.config.kilnHome,
-      credentialBinding: this.config.credentialBinding,
-      executionCredential: this.config.executionCredential,
-      configEnv: this.config.env,
-      runtimeEnv: options.env,
-    });
-    const executionBinding = directProviderExecutionBinding(adapter);
-    if (executionBinding !== undefined && (
-      executionBinding.routeId !== modelRoundDispatch.routeId
-      || executionBinding.accountId !== modelRoundDispatch.accountId
-      || executionBinding.credentialRevision !== modelRoundDispatch.credentialRevision
-    )) {
-      throw new DirectProviderBindingError({
-        routeId: modelRoundDispatch.routeId,
-        accountId: modelRoundDispatch.accountId,
-        credentialId: executionBinding?.credentialId ?? "unbound",
-        credentialRevision: modelRoundDispatch.credentialRevision,
-      });
-    }
-    const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(
-      options,
-      readExecutionTurnAuthority(admittedPerCallConfig),
-    );
-    const messages = this.buildConversationMessages(userPrompt, options.messages);
-    const communicationIntent = options.communicationIntent ?? this.config.communicationIntent;
-    const communicationResolution = communicationIntent
-      ? resolveCommunicationProfile({
-          intent: communicationIntent,
-          execution: { provider: this.config.provider, model: this.resolvedModel ?? "", surface: "cli" },
-          capabilities: knownModelCommunicationCapabilities(this.config.provider, this.resolvedModel ?? ""),
-        })
-      : undefined;
-    this._communicationResolution = communicationResolution;
-    const communicationPromptProjection = renderCommunicationPromptProjection(communicationResolution);
-    const effectiveSystemPrompt = `${systemPrompt}${communicationPromptProjection ?? ""}`;
-    this._effectivePromptObservation = observeStandaloneEffectivePrompt({
-      providerId: this.config.provider,
-      modelId: this.resolvedModel ?? "provider-default",
-      finalPrompt: effectiveSystemPrompt,
-      communicationProjection: communicationPromptProjection,
-      communicationResolution,
-    });
-    if (communicationResolution) {
-      admitCommunicationForExecution(communicationResolution);
-    }
-
-    if (executionBinding) {
-      yield {
-        type: "cost_update",
-        usd: 0,
-        mode: "computed",
-        provider: this.config.provider,
-        model: this.resolvedModel,
-        canonicalModel: this.resolvedModel,
-        billingMode: resolveProviderDefaultBillingMode(this.config.provider),
-        executionBinding,
-      };
-    }
-
-    const providerRequestId = `kiln:runtime-model-round:${modelRoundDispatch.admission.admissionId}:${modelRoundDispatch.attemptId}:0`;
-    const request = {
-      system: effectiveSystemPrompt,
-      messages,
-      deliberationResolution: options.deliberationResolution ?? this.config.deliberationResolution,
-      ...(communicationResolution ? { communicationResolution } : {}),
-      ...(options.abortSignal ? { signal: options.abortSignal } : {}),
-      requestIdentity: { requestId: providerRequestId },
-    };
-    const stream = new RuntimeModelRoundDispatchService(modelRoundDispatch.store).dispatchStream({
-      admission: modelRoundDispatch.admission,
-      sessionId: modelRoundDispatch.admission.sessionId,
-      turnId: modelRoundDispatch.admission.turnId,
-      attemptId: modelRoundDispatch.attemptId,
-      round: 0,
-      intentFingerprint: modelRoundDispatch.intentFingerprint,
-      effectIdentity: runtimeModelRoundEffectIdentity({ provider: this.config.provider, request }),
-      providerRequestId,
-      routeId: modelRoundDispatch.routeId,
-      accountId: modelRoundDispatch.accountId,
-      credentialRevision: modelRoundDispatch.credentialRevision,
-      readAdmission: modelRoundDispatch.readAdmission,
-      provider: adapter,
-      request,
-      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
-      ...(modelRoundDispatch.state ? { state: modelRoundDispatch.state } : {}),
-    });
-
-    for await (const event of stream) {
-      if (options.abortSignal?.aborted) {
-        outcome = "cancelled";
-        // Closing the claimed Runtime iterator runs its settlement finally.
-        // Read the shared state only after that durable outcome is known.
-        await stream.return(undefined);
-        this.syncRuntimeModelRoundState(modelRoundDispatch.state);
-        yield { type: "error", code: "ABORTED", message: "Aborted during execution", isRetryable: false };
-        yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
-        return;
-      }
-
-      if (event.type === "thinking") {
-        yield { type: "text_delta", content: event.content, isThinking: true };
-        continue;
-      }
-      if (event.type === "text") {
-        yield { type: "text_delta", content: event.content };
-        continue;
-      }
-      if (event.type === "tool_use") {
-        yield toSessionToolUseEvent(event.content);
-        yield {
-          type: "error",
-          code: "TOOL_UNSUPPORTED",
-          message: "Provider emitted a tool call in text-only execution mode.",
-          isRetryable: false,
-        };
-        outcome = "failed";
-        continue;
-      }
-      if (event.type === "tool_result") {
-        yield { type: "tool_result", toolName: "provider_tool_result", output: event.content };
-        continue;
-      }
-      if (event.type === "done") {
-        const doneEvent = event as { inputTokens?: number; outputTokens?: number };
-        const inputTokens = typeof doneEvent.inputTokens === "number" ? doneEvent.inputTokens : 0;
-        const outputTokens = typeof doneEvent.outputTokens === "number" ? doneEvent.outputTokens : 0;
-        this.contextTracker.update(inputTokens, outputTokens);
-        // The dispatch generator settles success from its finally when the
-        // consumer closes after the terminal event. Do that before projecting
-        // the outcome to the session/capacity owner.
-        await stream.return(undefined);
-        this.syncRuntimeModelRoundState(modelRoundDispatch.state);
-        yield {
-          type: "cost_update",
-          usd: 0,
-          mode: "computed",
-          provider: this.config.provider,
-          model: this.resolvedModel,
-          canonicalModel: this.resolvedModel,
-          billingMode: resolveProviderDefaultBillingMode(this.config.provider),
-          inputTokens,
-          outputTokens,
-        };
-        yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
-        return;
-      }
-    }
-
-    yield {
-      type: "cost_update",
-      usd: 0,
-      mode: "computed",
-      provider: this.config.provider,
-      model: this.resolvedModel,
-      canonicalModel: this.resolvedModel,
-      billingMode: resolveProviderDefaultBillingMode(this.config.provider),
-    };
-    this.syncRuntimeModelRoundState(modelRoundDispatch.state);
-    yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
+    // Text-only direct providers still execute inside the Runtime boundary.
+    // Give Runtime an empty admitted tool surface so it owns completion
+    // obligations and convergence even when the selected adapter cannot run
+    // tools. This also keeps the provider result and terminal evidence in one
+    // canonical path.
+    yield* this.runKilnExecutable(options, startedAt, "text-only");
   }
 
   private syncRuntimeModelRoundState(
@@ -920,8 +714,13 @@ export class ProviderSession implements IKilnSession {
     };
   }
 
-  private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
+  private async *runKilnExecutable(
+    options: SessionRunOptions,
+    startedAt: number,
+    executionSurface: "kiln-executable" | "text-only" = "kiln-executable",
+  ): AsyncIterable<ExecutionSessionEvent> {
     const { RuntimeSessionOrchestrator } = await import("@kilnai/runtime");
+    const isTextOnly = executionSurface === "text-only";
 
     const authorityAdmissionContext = this.config.authorityAdmissionContext;
     if (!authorityAdmissionContext) {
@@ -936,7 +735,7 @@ export class ProviderSession implements IKilnSession {
     if (!perCallConfig.runtimeModelRoundDispatch) {
       throw new Error("Authority-admitted provider sessions require a durable Runtime model-round claim.");
     }
-    if (perCallConfig.authorityAdmission.turn.tools.hostEnforcement) {
+    if (!isTextOnly && perCallConfig.authorityAdmission.turn.tools.hostEnforcement) {
       if (options.toolSandbox !== perCallConfig.sandbox) {
         throw new OperatorSessionPreProviderLaunchRejectionError(
           "Direct provider execution received a tool sandbox different from its admitted host capability.",
@@ -956,7 +755,7 @@ export class ProviderSession implements IKilnSession {
       }
     }
 
-    const mcpCapabilities = authorityAdmissionContext.mcpCapabilities;
+    const mcpCapabilities = isTextOnly ? [] : authorityAdmissionContext.mcpCapabilities;
     const externalTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
       name: capability.name,
       description: capability.description,
@@ -998,13 +797,15 @@ export class ProviderSession implements IKilnSession {
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: adapter,
       model: this.resolvedModel,
-      tools: [...this.toolDefinitions, ...externalTools],
-      materializableTools: this.materializableTools,
-      builtinTools: this.builtinTools,
+      tools: isTextOnly ? [] : [...this.toolDefinitions, ...externalTools],
+      materializableTools: isTextOnly ? new Map() : this.materializableTools,
+      builtinTools: isTextOnly ? new Map() : this.builtinTools,
       eventBus: this.eventBus,
       toolAuthorizer: authorizer,
-      capabilityMap: new Map([...this.capabilityMap, ...externalCapabilityMap]),
-      ...(this.config.mcpClients && this.config.mcpClients.length > 0 ? { mcpClients: this.config.mcpClients } : {}),
+      capabilityMap: isTextOnly ? new Map() : new Map([...this.capabilityMap, ...externalCapabilityMap]),
+      ...(!isTextOnly && this.config.mcpClients && this.config.mcpClients.length > 0
+        ? { mcpClients: this.config.mcpClients }
+        : {}),
       dangerousCommandDetector: undefined,
       // Canonical direct dispatch admits the session budget in Runtime before
       // credential resolution; forwarding the authority's source here would
@@ -1072,8 +873,22 @@ export class ProviderSession implements IKilnSession {
     };
     if (options.abortSignal?.aborted) abortExecutableTurn();
     else options.abortSignal?.addEventListener("abort", abortExecutableTurn, { once: true });
+    const communicationIntent = options.communicationIntent ?? this.config.communicationIntent;
+    const deliberationResolution = options.deliberationResolution ?? this.config.deliberationResolution;
     const executablePerCallConfig = {
       ...perCallConfig,
+      ...(deliberationResolution ? { deliberationResolution } : {}),
+      ...(communicationIntent ? { communicationIntent } : {}),
+      ...(isTextOnly
+        ? {
+            // The text-only surface is intentionally empty. Keep the
+            // admission projection supplied to Runtime from reintroducing
+            // provider tools through additionalTools or capability maps.
+            additionalTools: [],
+            perCallCapabilities: new Map(),
+            toolAuthority: new Map(),
+          }
+        : {}),
       abortSignal: executionAbortController.signal,
     };
     let result: OrchestrateResult | undefined;
@@ -1205,10 +1020,32 @@ export class ProviderSession implements IKilnSession {
       type: "completed",
       totalUsd: 0,
       durationMs: Date.now() - startedAt,
-      outcome: result.outcome,
+      disposition: projectRuntimeTerminalDisposition(result),
       isPreflightCrash: false,
     };
   }
+}
+
+function projectRuntimeTerminalDisposition(result: OrchestrateResult): RuntimeTurnTerminalDisposition {
+  return {
+    outcome: result.outcome,
+    dispositionReason: result.dispositionReason,
+    ...("completion" in result ? { completion: result.completion } : {}),
+    ...("convergence" in result ? { convergence: result.convergence } : {}),
+  } as RuntimeTurnTerminalDisposition;
+}
+
+function runtimeFailureDisposition(): Extract<
+  RuntimeTurnTerminalDisposition,
+  { readonly dispositionReason: "runtime_failure" }
+> {
+  return { outcome: "failed", dispositionReason: "runtime_failure" };
+}
+
+function cancelledDisposition(
+  reason: "operator_cancelled" | "runtime_cancelled",
+): Extract<RuntimeTurnTerminalDisposition, { readonly dispositionReason: "operator_cancelled" | "runtime_cancelled" }> {
+  return { outcome: "cancelled", dispositionReason: reason };
 }
 
 function isRuntimeModelRoundCommittedError(error: unknown): error is Error {

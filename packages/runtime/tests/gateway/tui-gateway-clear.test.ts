@@ -17,6 +17,7 @@ import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invoca
 import type { TuiGatewayOptions } from "../../src/gateway/tui-gateway.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+import { runtimeCompletedDisposition } from "../session/runtime-terminal-fixture.js";
 
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
@@ -1037,6 +1038,7 @@ describe("TUI gateway message fail-closed behavior", () => {
           sessionId: session.id,
           sessionMode: "mode-a",
           traceId: "trace-managed-tui",
+          ...runtimeCompletedDisposition(),
         },
         } as never;
     });

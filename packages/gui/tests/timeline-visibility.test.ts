@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { OperatorSessionEvent, OperatorSessionEventKind } from "@kilnai/gateway-contracts";
 import type { TimelineEntry } from "../src/lib/session-store/index.js";
 import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../src/lib/timeline-visibility.js";
+import { completedTurnDisposition } from "./fixtures/terminal-disposition.js";
 
 const createdAt = "2026-04-29T00:00:00.000Z";
 
@@ -63,7 +64,7 @@ describe("timeline visibility", () => {
     expect(projectConversationTimelineEntries(entries, events)).toEqual(entries);
   });
 
-  it("keeps routing, lifecycle, cost, and turn metadata out of the transcript", () => {
+  it("keeps routing, lifecycle, and cost metadata out while retaining the terminal result", () => {
     const events = [
       sessionEvent("provider_routed", 1),
       sessionEvent("agent_invocation_started", 2),
@@ -71,10 +72,12 @@ describe("timeline visibility", () => {
       sessionEvent("plan_approved", 4),
       sessionEvent("work_items.materialized", 5),
       sessionEvent("cost_updated", 6),
-      sessionEvent("turn_completed", 7),
+      sessionEvent("turn_completed", 7, completedTurnDisposition()),
     ];
 
-    expect(projectConversationTimelineEntries(events.map((event) => eventEntry(event)), events)).toEqual([]);
+    const projected = projectConversationTimelineEntries(events.map((event) => eventEntry(event)), events);
+    expect(projected).toHaveLength(1);
+    expect(projected[0]?.id).toBe("timeline:event-7");
   });
 
   it("uses canonical session-event presentation instead of re-projecting reduced timeline details", () => {

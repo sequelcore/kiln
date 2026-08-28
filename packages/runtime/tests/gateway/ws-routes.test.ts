@@ -5,6 +5,47 @@ import { WebChannel } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import { textParts } from "@kilnai/core/engine";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
+import { canonicalTurnDisposition } from "../session/canonical-turn-fixture.js";
+
+const completedDisposition = canonicalTurnDisposition("completed");
+const noProgressDisposition = {
+  outcome: "paused",
+  dispositionReason: "no_progress",
+  convergence: {
+    ...completedDisposition.convergence,
+    pause: {
+      status: "pause",
+      reason: "no_progress",
+      metric: "consecutiveNoProgressSteps",
+      observed: 3,
+      limit: 3,
+    },
+  },
+} as const;
+const requiredProducerNotRunDisposition = {
+  outcome: "paused",
+  dispositionReason: "required_producer_not_run",
+  completion: {
+    obligations: [{
+      kind: "required_producer",
+      obligationId: "required-producer:formal_verify",
+      canonicalToolId: "formal_verify",
+      acceptedEquivalentToolIds: [],
+      sourceAlias: "Dafny",
+    }],
+    producerEvidence: [],
+    eligibility: {
+      status: "ineligible",
+      unmet: [{
+        obligationId: "required-producer:formal_verify",
+        canonicalToolId: "formal_verify",
+        sourceAlias: "Dafny",
+        status: "not_run",
+      }],
+    },
+  },
+  convergence: completedDisposition.convergence,
+} as const;
 
 const hash = (character: string) => `sha256:${character.repeat(64)}`;
 
@@ -118,7 +159,7 @@ function withTestEgress(
       const result = await processMessage(userId, parts, forwardOptions);
       if (options?.validationError) {
         return {
-          ...(result ?? { parts: [], inputTokens: 0, outputTokens: 0, outcome: "failed" as const }),
+          ...(result ?? { parts: [], inputTokens: 0, outputTokens: 0, ...canonicalTurnDisposition("failed") }),
           errorMessage: options.validationError,
           dispatchEgress,
         };
@@ -129,7 +170,7 @@ function withTestEgress(
         parts: [],
         inputTokens: 0,
         outputTokens: 0,
-        outcome: "failed",
+        ...canonicalTurnDisposition("failed"),
         errorMessage: error instanceof Error ? error.message : String(error),
         dispatchEgress,
       };
@@ -273,7 +314,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 10,
         outputTokens: 20,
       });
@@ -297,7 +338,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 10,
         outputTokens: 20,
       });
@@ -321,7 +362,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("respuesta"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 3,
         outputTokens: 2,
         providerRequests: [providerRequestEvidence],
@@ -393,7 +434,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 10,
         outputTokens: 20,
       });
@@ -419,7 +460,7 @@ describe("createWsRoutes", () => {
       const responseParts = textParts("world");
       const processMessage = vi.fn().mockResolvedValue({
         parts: responseParts,
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 5,
         outputTokens: 15,
       });
@@ -442,9 +483,42 @@ describe("createWsRoutes", () => {
         type: "done",
         content: "world",
         parts: responseParts,
-        outcome: "completed",
         inputTokens: 5,
         outputTokens: 15,
+        ...completedDisposition,
+      });
+    });
+
+    it.each([
+      ["paused for no progress", noProgressDisposition],
+      ["paused because a required producer did not run", requiredProducerNotRunDisposition],
+    ] as const)("preserves the exact %s disposition and evidence", async (_label, disposition) => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("partial"),
+        inputTokens: 5,
+        outputTokens: 15,
+        ...disposition,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage: withTestEgress(processMessage) });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-paused" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "continue this" }) }),
+        wsCtx,
+      );
+
+      const call = mockWs.send.mock.calls.at(0);
+      if (!call || typeof call[0] !== "string") throw new Error("Expected WebSocket done frame");
+      expect(JSON.parse(call[0])).toEqual({
+        type: "done",
+        content: "partial",
+        parts: textParts("partial"),
+        inputTokens: 5,
+        outputTokens: 15,
+        ...disposition,
       });
     });
 
@@ -453,7 +527,7 @@ describe("createWsRoutes", () => {
       const userParts = textParts("explicit parts");
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 1,
         outputTokens: 2,
       });
@@ -478,7 +552,7 @@ describe("createWsRoutes", () => {
       const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 1,
         outputTokens: 2,
       });
@@ -523,7 +597,7 @@ describe("createWsRoutes", () => {
       const artifactStore = new MemoryArtifactResourceStore();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 1,
         outputTokens: 2,
       });
@@ -590,7 +664,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("ok"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 1,
         outputTokens: 1,
       });

@@ -13,6 +13,7 @@ import {
 } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT } from "../../src/session/runtime-execution-envelope.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.types.js";
 import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
 
@@ -206,16 +207,20 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(() =>
         new RuntimeSessionOrchestrator({
           provider,
-          executionEnvelope: { toolRounds: { max: 0 } },
+          executionEnvelope: {
+            convergence: { ...RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT, toolRounds: 0 },
+          },
         })
-      ).toThrow("executionEnvelope.toolRounds.max must be a positive integer");
+      ).toThrow("toolRounds must be a finite positive safe integer");
 
       expect(() =>
         new RuntimeSessionOrchestrator({
           provider,
-          executionEnvelope: { toolRounds: { max: 1.5 } },
+          executionEnvelope: {
+            convergence: { ...RUNTIME_DEFAULT_TURN_CONVERGENCE_POLICY_INPUT, toolRounds: 1.5 },
+          },
         })
-      ).toThrow("executionEnvelope.toolRounds.max must be a positive integer");
+      ).toThrow("toolRounds must be a finite positive safe integer");
     });
   });
 

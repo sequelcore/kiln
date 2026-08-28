@@ -24,6 +24,31 @@ const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
   entries: [],
 };
 
+const COMPLETED_TURN_DISPOSITION = {
+  outcome: "completed",
+  dispositionReason: "completion_eligible",
+  completion: {
+    obligations: [],
+    producerEvidence: [],
+    eligibility: { status: "eligible" },
+  },
+  convergence: {
+    policy: {
+      policyId: "test.tui.turn-convergence",
+      configurationHash: `sha256:${"0".repeat(64)}`,
+      providerRequests: 10,
+      toolRounds: 8,
+      toolCalls: 24,
+      cumulativeInputTokens: 256_000,
+      elapsedMs: 600_000,
+      activeMs: 600_000,
+      recoveryAttempts: 3,
+      consecutiveNoProgressSteps: 3,
+    },
+    progressEvidence: [],
+  },
+} as const;
+
 let wsInstances: MockWebSocket[] = [];
 
 class MockWebSocket {
@@ -375,14 +400,15 @@ describe("GatewaySession canonical session events", () => {
     await Promise.resolve();
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "spoken answer",
       parts: [
         { type: "text", text: "spoken answer" },
         { type: "audio", mimeType: "audio/mpeg", data: "AQID", artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content" },
       ],
-      outcome: "completed",
       inputTokens: 3,
       outputTokens: 4,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
 
     await collect;
@@ -433,8 +459,9 @@ describe("GatewaySession canonical session events", () => {
         },
       },
     }));
-    ws.simulateMessage(JSON.stringify({ type: "done", content: "resumed", outcome: "completed",
-                                                                          inputTokens: 1, outputTokens: 1 }));
+    ws.simulateMessage(JSON.stringify({ type: "done", kilnSessionId: "session-1", content: "resumed",
+                                                                          inputTokens: 1, outputTokens: 1,
+                                                                          ...COMPLETED_TURN_DISPOSITION }));
 
     await collect;
     expect(events).toContainEqual(expect.objectContaining({
@@ -572,10 +599,11 @@ describe("GatewaySession canonical session events", () => {
     }));
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
       routedProvider: "codex-oauth",
       routedModel: "gpt-5.5",
     }));
@@ -711,10 +739,11 @@ describe("GatewaySession canonical session events", () => {
     }));
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
 
     await collect;
@@ -813,10 +842,11 @@ describe("GatewaySession canonical session events", () => {
     }));
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
 
     await collect;
@@ -941,10 +971,11 @@ describe("GatewaySession canonical session events", () => {
     }));
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
       routedProvider: "codex-oauth",
       routedModel: "gpt-5.5",
     }));
@@ -1043,10 +1074,11 @@ describe("GatewaySession canonical session events", () => {
     }));
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
 
     await collect;
@@ -1138,10 +1170,11 @@ describe("GatewaySession canonical session events", () => {
     }));
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "done",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
 
     await collect;
@@ -1200,10 +1233,11 @@ describe("GatewaySession execution modes", () => {
 
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
     await collect;
     await session.dispose();
@@ -1233,10 +1267,11 @@ describe("GatewaySession execution modes", () => {
 
     ws.simulateMessage(JSON.stringify({
       type: "done",
+      kilnSessionId: "session-1",
       content: "",
-      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
     await collect;
     await session.dispose();
@@ -1258,7 +1293,8 @@ describe("GatewaySession execution modes", () => {
       communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
     });
     ws.simulateMessage(JSON.stringify({
-      type: "done", content: "", outcome: "completed", inputTokens: 1, outputTokens: 1,
+      type: "done", kilnSessionId: "session-1", content: "", inputTokens: 1, outputTokens: 1,
+      ...COMPLETED_TURN_DISPOSITION,
     }));
     await collect;
     await session.dispose();

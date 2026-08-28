@@ -13,7 +13,10 @@ import { EventBus, type EventMap, type MultimodalRoutedEvent, type ToolCalledEve
 import { InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import { type SkillConfig, SkillRegistry } from "@kilnai/core/skill";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
-import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
+import {
+  processAdmittedTurn,
+  projectAdmittedTurnDisposition,
+} from "../../src/gateway/message-pipeline/process-admitted-turn.js";
 import { projectAdmittedTurnContext } from "../../src/gateway/message-pipeline/admitted-turn-context.js";
 import { sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline/assistant-egress-text.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
@@ -34,6 +37,8 @@ import type {
   RuntimeMediaActionClaimPermit,
 } from "../../src/execution-kernel/runtime-media-action-claim.js";
 import { createTestFetch } from "../fetch-fixture.js";
+import { canonicalTurnDisposition } from "../session/canonical-turn-fixture.js";
+import { runtimeCompletedDisposition, runtimeFailureDisposition } from "../session/runtime-terminal-fixture.js";
 
 const processInboundMessage = processAdmittedTurn;
 
@@ -138,7 +143,7 @@ function makeMockOrchestrator(): RuntimeSessionOrchestrator {
       outputTokens: 50,
       cacheReadTokens: 10,
       cacheWriteTokens: 5,
-      outcome: "completed",
+      ...canonicalTurnDisposition("completed"),
       queued: false,
     } satisfies OrchestrateResult),
     registerTools: vi.fn(),
@@ -388,6 +393,40 @@ describe("processAdmittedTurn", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("projects only the validated Runtime terminal disposition at the gateway boundary", () => {
+    const disposition = runtimeCompletedDisposition();
+    const result: OrchestrateResult = {
+      ...disposition,
+      parts: textParts("internal response"),
+      inputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    };
+
+    expect(projectAdmittedTurnDisposition(result)).toEqual(disposition);
+  });
+
+  it("preserves the exact Runtime terminal disposition in the admitted result and canonical event", async () => {
+    const session = makeMockSession();
+    const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator: makeMockOrchestrator(),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result).toMatchObject(canonicalTurnDisposition("completed"));
+
+    const terminal = session.sessionEvents.find((event) => event.kind === "turn_completed");
+    expect(terminal).toMatchObject({
+      kind: "turn_completed",
+      ...canonicalTurnDisposition("completed"),
+    });
+    expect(terminal).not.toHaveProperty("disposition");
+  });
+
   it("persists the canonical turn batch after using the pre-admitted adoption", async () => {
     const session = new RuntimeSession({
       sessionId: "session-authority",
@@ -532,7 +571,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed" as const,
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -713,7 +752,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -782,7 +821,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 120,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
         queued: false,
         providerRequests: [
           { providerId: "openai", modelId: "gpt-5", inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -962,7 +1001,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 8,
           cacheReadTokens: 4,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -1053,7 +1092,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
           toolExecutions: [{
             toolName: "web_search",
@@ -1133,7 +1172,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -1177,6 +1216,7 @@ describe("processAdmittedTurn", () => {
     expect(session.sessionEvents.at(-1)).toMatchObject({
       kind: "turn_completed",
       outcome: "failed",
+      dispositionReason: "runtime_failure",
     });
   });
 
@@ -1205,7 +1245,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -1263,10 +1303,11 @@ describe("processAdmittedTurn", () => {
     expect(session.sessionEvents.at(-1)).toMatchObject({
       kind: "turn_completed",
       outcome: "cancelled",
+      dispositionReason: "operator_cancelled",
     });
     expect(session.sessionEvents.some((event) => event.kind === "error_recorded")).toBe(false);
     expect(publishCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ kind: "turn_completed", outcome: "cancelled" }),
+      expect.objectContaining({ kind: "turn_completed", outcome: "cancelled", dispositionReason: "operator_cancelled" }),
     ]));
   });
 
@@ -1318,6 +1359,7 @@ describe("processAdmittedTurn", () => {
     expect(session.sessionEvents.at(-1)).toMatchObject({
       kind: "turn_completed",
       outcome: "cancelled",
+      dispositionReason: "operator_cancelled",
     });
   });
 
@@ -1463,7 +1505,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-plan",
@@ -1608,7 +1650,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 4,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-plan-metadata",
@@ -1678,7 +1720,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 7,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-spec",
@@ -1796,7 +1838,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 6,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-spec-draft",
@@ -1849,7 +1891,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 6,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-plan-failed",
@@ -2686,7 +2728,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult),
         model: "claude-sonnet-4-20250514",
@@ -2711,7 +2753,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
           escalation: { reason: "custom", confidence: 0.9, detail: "policy escalation" },
           contextSummary: "sensitive escalation summary",
@@ -2747,7 +2789,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
           escalation: { reason: "custom", confidence: 0.9, detail: "policy escalation" },
           contextSummary: "sensitive escalation summary",
@@ -2811,7 +2853,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult),
         model: "gpt-5.5",
@@ -2989,7 +3031,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3039,7 +3081,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3066,7 +3108,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 4,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
         queued: false,
         toolExecutions: [{
           toolCallId: "write-1",
@@ -3105,7 +3147,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 4,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
         queued: false,
         toolExecutions: [{
           toolName: "read_file",
@@ -3222,7 +3264,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 4,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
         queued: false,
         toolExecutions: [
           {
@@ -3322,7 +3364,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "completed",
+          ...runtimeCompletedDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3417,7 +3459,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "failed",
+          ...runtimeFailureDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3445,7 +3487,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "failed",
+      ...runtimeFailureDisposition(),
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-work-start-failed",
@@ -3476,7 +3518,7 @@ describe("processAdmittedTurn", () => {
     });
   });
 
-  it("marks the canonical turn paused when an explicit runtime tool-round budget is exhausted", async () => {
+  it("marks the canonical turn paused when an explicit Runtime tool-round convergence limit is reached", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
     (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -3486,8 +3528,18 @@ describe("processAdmittedTurn", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       outcome: "paused",
+      dispositionReason: "tool_round_limit",
+      convergence: {
+        ...canonicalTurnDisposition("completed").convergence,
+        pause: {
+          status: "pause",
+          reason: "tool_round_limit",
+          metric: "toolRounds",
+          observed: 1,
+          limit: 1,
+        },
+      },
       queued: false,
-      stopReason: "tool_round_budget_exhausted",
     } satisfies OrchestrateResult);
 
     const result = await processInboundMessage(makeBaseContext({
@@ -3512,7 +3564,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [
         {
@@ -3566,7 +3618,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "failed",
+      ...runtimeFailureDisposition(),
       queued: false,
       toolExecutions: [
         {
@@ -3639,7 +3691,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "failed",
+      ...runtimeFailureDisposition(),
       queued: false,
       toolExecutions: [
         {
@@ -3792,7 +3844,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "failed",
+          ...runtimeFailureDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3823,7 +3875,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "failed",
+      ...runtimeFailureDisposition(),
       queued: false,
       toolExecutions: [
         {
@@ -3902,7 +3954,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "failed",
+      ...runtimeFailureDisposition(),
       queued: false,
       toolExecutions: [
         {
@@ -4033,7 +4085,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          outcome: "failed",
+          ...runtimeFailureDisposition(),
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -4069,7 +4121,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -4103,7 +4155,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -4133,7 +4185,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolName: "web_search",
@@ -4176,7 +4228,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
       toolExecutions: [{
         toolName: "web_search",
@@ -4221,7 +4273,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -4251,7 +4303,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -4297,7 +4349,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -4348,7 +4400,7 @@ describe("processAdmittedTurn", () => {
             outputTokens: 5,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
-            outcome: "failed",
+            ...runtimeFailureDisposition(),
             queued: false,
           } satisfies OrchestrateResult;
         }),
@@ -4611,7 +4663,7 @@ describe("processAdmittedTurn", () => {
             outputTokens: 3,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
-            outcome: "completed",
+            ...runtimeCompletedDisposition(),
             queued: false,
           } satisfies OrchestrateResult;
         }),

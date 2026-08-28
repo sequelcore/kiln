@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime multimodal session events", () => {
   it("projects multimodal route evidence into canonical operator events", async () => {
@@ -19,7 +19,7 @@ describe("runtime multimodal session events", () => {
       channel: "gui",
       userMessageContent: "Describe this image",
       assistantMessageContent: "The image shows a form.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,

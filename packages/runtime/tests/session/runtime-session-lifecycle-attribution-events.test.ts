@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
 import type { ContextAuditEntry } from "@kilnai/core/context";
 import type { CostUpdateEvent } from "@kilnai/core/events";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -74,7 +74,7 @@ describe("runtime session lifecycle attribution events", () => {
       channel: "gui",
       userMessageContent: "Measure this turn.",
       assistantMessageContent: "Measured.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: completedAt,
@@ -186,7 +186,7 @@ describe("runtime session lifecycle attribution events", () => {
       channel: "gui",
       userMessageContent: "Measure this turn.",
       assistantMessageContent: "Canonical output.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: new Date("2026-06-30T12:00:00.000Z"),
       turnCompletedAt: completedAt,
@@ -276,7 +276,7 @@ describe("runtime session lifecycle attribution events", () => {
       channel: "gui",
       userMessageContent: "Use the selected skill.",
       assistantMessageContent: "Done.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: new Date("2026-06-30T12:00:00.000Z"),
       turnCompletedAt: completedAt,

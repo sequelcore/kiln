@@ -145,6 +145,46 @@ path. Lock recovery and release claim only acquisition-specific paths, so a
 writer cannot delete a successor's lock. Direct-only bindings do not trigger
 native projection.
 
+## Runtime Turn Convergence
+
+Turn convergence is Runtime-owned execution policy, not a new canonical YAML
+configuration family. Every attached Runtime turn resolves one finite policy
+from `RuntimeExecutionEnvelope.convergence` or the centralized Runtime default.
+`RuntimeSessionOrchestrator` enforces that policy before each provider request
+and before each atomically admitted tool batch. Operator surfaces may carry
+workflow intent, but they do not own per-turn thresholds or private loop
+settlement.
+
+The numeric defaults are centralized in Runtime and remain provisional pending
+calibration. This document does not define or imply an unsupported
+`convergence`, `toolRounds`, or other turn-policy field in global or project
+YAML. A bounded workflow may pass an explicitly resolved Runtime envelope
+through its existing execution boundary.
+
+`sessionTurnBudget` remains a separate outer/session-history authorization. The
+Runtime checks it before consequential steps; it cannot replace or widen the
+turn-local convergence policy. Numeric convergence defaults remain centralized,
+provisional, and calibration-owned; `sessionTurnBudget` does not define a
+convergence schema. Context projection and cumulative input-token accounting
+likewise remain separate: one controls the next provider request's message set,
+while the other is turn-wide convergence evidence.
+
+## Tool And Producer Projection
+
+Canonical tool IDs, operator-facing aliases, the initial provider projection,
+the derived `authorizedMaterializable` view, and later materialized tool state
+are separate Runtime/Core projections. Discovery may reveal only tools already
+authorized for the turn, with typed status; it never widens the admitted
+authority or allowlist. A materializable definition is not executable until the
+turn already authorizes its canonical ID.
+
+Configured verification-producer diagnostics are projected to the model through
+the typed tool catalog only as redacted configuration facts (for example,
+availability or version status). They do not expose credentials, paths, or raw
+probe payloads and do not grant authority. Completion obligations still require
+the exact canonical producer and scoped evidence; a shell command is not an
+equivalent producer unless Core explicitly lists that equivalence.
+
 Instruction profiles, agents, and skills are canonical filesystem config, not
 inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
 `~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under the

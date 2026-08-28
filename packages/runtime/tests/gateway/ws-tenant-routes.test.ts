@@ -16,6 +16,47 @@ import type {
   GatewayAuthorityAdmissionPort,
   GatewayAuthorityAdmissionRequest,
 } from "../../src/gateway/gateway-authority-admission.js";
+import { canonicalTurnDisposition } from "../session/canonical-turn-fixture.js";
+
+const completedDisposition = canonicalTurnDisposition("completed");
+const noProgressDisposition = {
+  outcome: "paused",
+  dispositionReason: "no_progress",
+  convergence: {
+    ...completedDisposition.convergence,
+    pause: {
+      status: "pause",
+      reason: "no_progress",
+      metric: "consecutiveNoProgressSteps",
+      observed: 3,
+      limit: 3,
+    },
+  },
+} as const;
+const requiredProducerNotRunDisposition = {
+  outcome: "paused",
+  dispositionReason: "required_producer_not_run",
+  completion: {
+    obligations: [{
+      kind: "required_producer",
+      obligationId: "required-producer:formal_verify",
+      canonicalToolId: "formal_verify",
+      acceptedEquivalentToolIds: [],
+      sourceAlias: "Dafny",
+    }],
+    producerEvidence: [],
+    eligibility: {
+      status: "ineligible",
+      unmet: [{
+        obligationId: "required-producer:formal_verify",
+        canonicalToolId: "formal_verify",
+        sourceAlias: "Dafny",
+        status: "not_run",
+      }],
+    },
+  },
+  convergence: completedDisposition.convergence,
+} as const;
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -248,7 +289,7 @@ describe("createWsTenantRoutes", () => {
       bindProvider: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("Hello from agent"),
-        outcome: "completed",
+        ...completedDisposition,
         inputTokens: 10,
         outputTokens: 20,
       }),
@@ -623,9 +664,45 @@ describe("createWsTenantRoutes", () => {
         type: "done",
         content: "Hello from agent",
         parts: textParts("Hello from agent"),
-        outcome: "completed",
         inputTokens: 10,
         outputTokens: 20,
+        ...completedDisposition,
+      });
+    });
+
+    it.each([
+      ["paused for no progress", noProgressDisposition],
+      ["paused because a required producer did not run", requiredProducerNotRunDisposition],
+    ] as const)("preserves the exact %s disposition and evidence", async (_label, disposition) => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      vi.mocked(mockOrchestrator.processMessage).mockResolvedValueOnce({
+        parts: textParts("partial"),
+        inputTokens: 5,
+        outputTokens: 15,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        ...disposition,
+      });
+
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "continue this" }) }),
+        wsCtx,
+      );
+      const call = mockWs.send.mock.calls.at(0);
+      if (!call || typeof call[0] !== "string") throw new Error("Expected WebSocket done frame");
+      expect(JSON.parse(call[0])).toEqual({
+        type: "done",
+        content: "partial",
+        parts: textParts("partial"),
+        inputTokens: 5,
+        outputTokens: 15,
+        ...disposition,
       });
     });
 
@@ -759,7 +836,7 @@ describe("createWsTenantRoutes", () => {
       vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
       vi.mocked(mockOrchestrator.processMessage).mockResolvedValueOnce({
         parts: textParts("Respuesta"),
-        outcome: "completed",
+        ...completedDisposition,
          inputTokens: 3,
          outputTokens: 2,
          cacheReadTokens: 0,

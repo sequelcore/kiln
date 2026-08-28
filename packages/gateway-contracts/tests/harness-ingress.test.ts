@@ -7,6 +7,7 @@ import {
   parseHarnessIngressClientFrame,
   parseHarnessIngressServerFrame,
 } from "../src/harness-ingress.js";
+import { OperatorTurnTerminalDispositionSchema } from "../src/operator-turn-terminal-disposition.js";
 
 const transportIdentity = {
   callerId: "caller:test-client",
@@ -33,7 +34,109 @@ const turnStart = {
     requiredContent: ["verification"],
     onUnsupported: "deny",
   },
+  } as const;
+
+const convergencePolicy = {
+  policyId: "test.runtime.turn-convergence",
+  configurationHash: `sha256:${"0".repeat(64)}`,
+  providerRequests: 10,
+  toolRounds: 8,
+  toolCalls: 24,
+  cumulativeInputTokens: 256_000,
+  elapsedMs: 600_000,
+  activeMs: 600_000,
+  recoveryAttempts: 3,
+  consecutiveNoProgressSteps: 3,
 } as const;
+
+const eligibleCompletion = {
+  obligations: [],
+  producerEvidence: [],
+  eligibility: { status: "eligible" },
+} as const;
+
+const requiredProducerNotRunCompletion = {
+  obligations: [{
+    kind: "required_producer",
+    obligationId: "required-producer:formal_verify",
+    canonicalToolId: "formal_verify",
+    acceptedEquivalentToolIds: [],
+    sourceAlias: "Dafny",
+  }],
+  producerEvidence: [],
+  eligibility: {
+    status: "ineligible",
+    unmet: [{
+      obligationId: "required-producer:formal_verify",
+      canonicalToolId: "formal_verify",
+      sourceAlias: "Dafny",
+      status: "not_run",
+    }],
+  },
+} as const;
+
+const completedDisposition = {
+  outcome: "completed",
+  dispositionReason: "completion_eligible",
+  completion: eligibleCompletion,
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [],
+  },
+} as const;
+
+const noProgressDisposition = {
+  outcome: "paused",
+  dispositionReason: "no_progress",
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [{
+      kind: "no_progress",
+      reason: "repeated_result",
+      strategyFingerprint: "strategy:repeated-result",
+      supportingToolCallIds: ["tool-call:1"],
+    }],
+    pause: {
+      status: "pause",
+      reason: "no_progress",
+      metric: "consecutiveNoProgressSteps",
+      observed: 3,
+      limit: 3,
+    },
+  },
+} as const;
+
+const requiredProducerNotRunDisposition = {
+  outcome: "paused",
+  dispositionReason: "required_producer_not_run",
+  completion: requiredProducerNotRunCompletion,
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [],
+  },
+} as const;
+
+const runtimeFailureDisposition = {
+  outcome: "failed",
+  dispositionReason: "runtime_failure",
+} as const;
+
+const operatorCancelledDisposition = {
+  outcome: "cancelled",
+  dispositionReason: "operator_cancelled",
+} as const;
+
+function turnCompletedFrame(disposition: Record<string, unknown>) {
+  return {
+    protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION,
+    type: "turn_completed",
+    requestId: "request:turn-terminal",
+    turnId: "turn:terminal",
+    sessionId: "session:canonical-terminal",
+    ...disposition,
+    content: "Synthetic response.",
+  };
+}
 
 describe("harness-neutral ingress contract", () => {
   it("parses a versioned text turn and injects every transport-owned identity field", () => {
@@ -95,8 +198,56 @@ describe("harness-neutral ingress contract", () => {
   it("parses lifecycle frames and permits only closed redacted errors", () => {
     expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "turn_accepted", requestId: "request:turn-1", turnId: "turn:1" })).toMatchObject({ type: "turn_accepted" });
     expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "turn_cancel_result", requestId: "request:cancel-1", turnId: "turn:1", status: "accepted" })).toMatchObject({ type: "turn_cancel_result" });
-    expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", sessionId: "session:canonical-1", outcome: "completed", content: "Synthetic response." })).toMatchObject({ type: "turn_completed", sessionId: "session:canonical-1" });
+    expect(parseHarnessIngressServerFrame(turnCompletedFrame(completedDisposition))).toMatchObject({ type: "turn_completed", sessionId: "session:canonical-terminal", dispositionReason: "completion_eligible" });
     expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "error", requestId: "request:turn-1", code: "internal", redacted: true })).toEqual({ protocolVersion: "2", type: "error", requestId: "request:turn-1", code: "internal", redacted: true });
+  });
+
+  it("accepts a completed disposition only with eligible completion and convergence evidence", () => {
+    const parsed = parseHarnessIngressServerFrame(turnCompletedFrame(completedDisposition));
+
+    expect(parsed).toMatchObject({
+      outcome: "completed",
+      dispositionReason: "completion_eligible",
+      completion: completedDisposition.completion,
+      convergence: completedDisposition.convergence,
+    });
+  });
+
+  it("accepts a no-progress pause with its exact convergence pause evidence", () => {
+    const parsed = parseHarnessIngressServerFrame(turnCompletedFrame(noProgressDisposition));
+
+    expect(parsed).toMatchObject({
+      outcome: "paused",
+      dispositionReason: "no_progress",
+      convergence: noProgressDisposition.convergence,
+    });
+  });
+
+  it("accepts a required-producer-not-run pause with unmet completion evidence", () => {
+    const parsed = parseHarnessIngressServerFrame(turnCompletedFrame(requiredProducerNotRunDisposition));
+
+    expect(parsed).toMatchObject({
+      outcome: "paused",
+      dispositionReason: "required_producer_not_run",
+      completion: requiredProducerNotRunDisposition.completion,
+      convergence: requiredProducerNotRunDisposition.convergence,
+    });
+  });
+
+  it("accepts a runtime failure disposition without fabricated completion evidence", () => {
+    const parsed = parseHarnessIngressServerFrame(turnCompletedFrame(runtimeFailureDisposition));
+
+    expect(parsed).toMatchObject(runtimeFailureDisposition);
+  });
+
+  it("accepts an operator-cancelled disposition without fabricated completion evidence", () => {
+    const parsed = parseHarnessIngressServerFrame(turnCompletedFrame(operatorCancelledDisposition));
+
+    expect(parsed).toMatchObject(operatorCancelledDisposition);
+  });
+
+  it("parses the terminal disposition union independently of the server frame envelope", () => {
+    expect(OperatorTurnTerminalDispositionSchema.parse(noProgressDisposition)).toEqual(noProgressDisposition);
   });
 
   it.each([
@@ -142,6 +293,17 @@ describe("harness-neutral ingress contract", () => {
     { protocolVersion: "2", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", outcome: "completed", content: "missing canonical session" },
     { protocolVersion: "2", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", outcome: "completed", content: "text", parts: [{ type: "text", text: "part" }] },
   ])("rejects raw errors and ambiguous server completion content", (payload) => {
+    expect(() => parseHarnessIngressServerFrame(payload)).toThrow();
+  });
+
+  it.each([
+    turnCompletedFrame({ ...completedDisposition, outcome: "failed" }),
+    turnCompletedFrame({ ...runtimeFailureDisposition, outcome: "completed" }),
+    turnCompletedFrame({ ...completedDisposition, dispositionReason: "runtime_failure" }),
+    turnCompletedFrame({ ...noProgressDisposition, convergence: undefined }),
+    turnCompletedFrame({ ...requiredProducerNotRunDisposition, completion: undefined }),
+    turnCompletedFrame({ ...completedDisposition, dispositionReason: "unknown_reason" }),
+  ])("rejects terminal disposition with mismatched outcome/reason or missing branch evidence", (payload) => {
     expect(() => parseHarnessIngressServerFrame(payload)).toThrow();
   });
 });

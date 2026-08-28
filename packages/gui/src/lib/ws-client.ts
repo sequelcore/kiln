@@ -17,6 +17,7 @@ import {
   ExecutionTargetWizardResultSchema,
   ExecutionTargetReasonCodeSchema,
   ExecutionTargetRepairActionSchema,
+  extendOperatorTurnTerminalDispositionSchema,
 } from "@kilnai/gateway-contracts";
 
 // --- Zod Schemas for frame validation ---
@@ -510,6 +511,36 @@ const GuiSessionEventSchema = z.object({
   }
 });
 
+const GuiDoneFrameCommonSchema = z.object({
+  type: z.literal("done"),
+  kilnSessionId: z.string().trim().min(1),
+  sourceMessageId: z.string().optional(),
+  content: z.string(),
+  parts: z.array(z.unknown()).optional(),
+  admittedInput: z.object({ content: z.string() }).optional(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  routedRouteId: z.string().optional(),
+  routedProvider: z.string().optional(),
+  routedModel: z.string().optional(),
+  routingRationale: GuiModelRoutingRationaleSchema.optional(),
+  authorityStatus: GuiAuthorityStatusSchema.optional(),
+  runtimeContinuity: z
+    .object({
+      strategy: z.string(),
+      feedbackLabel: z.string().optional(),
+      pressure: z.string().optional(),
+      supportArtifactCount: z.number().optional(),
+      supportArtifactSources: z.array(z.string()).optional(),
+      fallbackLabel: z.string().optional(),
+      usedCachedSupport: z.boolean().optional(),
+      selectionReason: z.string().optional(),
+    })
+    .optional(),
+}).strict();
+
+const GuiDoneFrameSchema = extendOperatorTurnTerminalDispositionSchema(GuiDoneFrameCommonSchema);
+
 /** Schema for GuiInboundFrame validation. */
 const GuiInboundFrameSchema = z.union([
   z.object({ type: z.literal("thinking") }),
@@ -585,33 +616,7 @@ const GuiInboundFrameSchema = z.union([
     requestId: z.string().trim().min(1).optional(),
     handledAt: z.string(),
   }),
-  z.object({
-    type: z.literal("done"),
-    kilnSessionId: z.string().trim().min(1),
-    sourceMessageId: z.string().optional(),
-    content: z.string(),
-    parts: z.array(z.unknown()).optional(),
-    admittedInput: z.object({ content: z.string() }).optional(),
-    inputTokens: z.number(),
-    outputTokens: z.number(),
-    outcome: z.enum(["completed", "failed", "cancelled", "paused"]),
-    routedProvider: z.string().optional(),
-    routedModel: z.string().optional(),
-    routingRationale: GuiModelRoutingRationaleSchema.optional(),
-    authorityStatus: GuiAuthorityStatusSchema.optional(),
-    runtimeContinuity: z
-      .object({
-        strategy: z.string(),
-        feedbackLabel: z.string().optional(),
-        pressure: z.string().optional(),
-        supportArtifactCount: z.number().optional(),
-        supportArtifactSources: z.array(z.string()).optional(),
-        fallbackLabel: z.string().optional(),
-        usedCachedSupport: z.boolean().optional(),
-        selectionReason: z.string().optional(),
-      })
-      .optional(),
-  }),
+  GuiDoneFrameSchema,
   z.object({
     type: z.literal("voice_synthesis_completed"),
     requestId: z.string().trim().min(1),
@@ -852,8 +857,8 @@ export class GuiWsClient {
     // Parse and validate inbound frame
     try {
       const parsed = JSON.parse(raw);
-      GuiInboundFrameSchema.parse(parsed);
-      this.options.onFrame(parsed as GuiInboundFrame);
+      const frame = GuiInboundFrameSchema.parse(parsed);
+      this.options.onFrame(frame);
     } catch {
       console.warn("[GuiWsClient] Invalid inbound frame:", raw);
     }

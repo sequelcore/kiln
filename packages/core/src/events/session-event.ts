@@ -39,6 +39,7 @@ import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 import type { SessionExecutionScope } from "./session-execution-scope.js";
 import type { OperatorAdoptionDecisionAuthority } from "./operator-adoption-decision.js";
+import type { TurnTerminalDisposition } from "../agents/turn-terminal-disposition.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -768,11 +769,16 @@ export interface CanonicalErrorRecordedEvent extends SessionEventEnvelope<"error
   readonly details?: Record<string, unknown>;
 }
 
-export interface CanonicalTurnCompletedEvent extends SessionEventEnvelope<"turn_completed"> {
-  readonly outcome: SessionTurnOutcome;
-  readonly outputMessageId?: string;
-  readonly durationMs?: number;
-}
+/**
+ * Terminal turn evidence is flattened into the event so the discriminated
+ * disposition remains the one canonical outcome/reason authority.
+ */
+export type CanonicalTurnCompletedEvent = SessionEventEnvelope<"turn_completed">
+  & TurnTerminalDisposition
+  & {
+    readonly outputMessageId?: string;
+    readonly durationMs?: number;
+  };
 
 export interface CanonicalSessionEventMap {
   turn_started: CanonicalTurnStartedEvent;
@@ -825,11 +831,14 @@ export interface CanonicalSessionEventMap {
 
 export type CanonicalSessionEvent = CanonicalSessionEventMap[CanonicalSessionEventKind];
 
-export type SessionEventInput<K extends CanonicalSessionEventKind> =
-  Omit<CanonicalSessionEventMap[K], "eventId" | "timestamp"> & {
+type SessionEventInputForEvent<Event> = Event extends SessionEventEnvelope
+  ? Omit<Event, "eventId" | "timestamp"> & {
     readonly eventId?: string;
     readonly timestamp?: Date;
-  };
+  }
+  : never;
+
+export type SessionEventInput<K extends CanonicalSessionEventKind> = SessionEventInputForEvent<CanonicalSessionEventMap[K]>;
 
 export interface CreateSessionEventOptions {
   readonly generateEventId?: () => string;
@@ -838,8 +847,12 @@ export interface CreateSessionEventOptions {
 
 export function createSessionEvent<K extends CanonicalSessionEventKind>(
   input: SessionEventInput<K>,
+  options?: CreateSessionEventOptions,
+): CanonicalSessionEventMap[K];
+export function createSessionEvent<K extends CanonicalSessionEventKind>(
+  input: SessionEventInput<K>,
   options: CreateSessionEventOptions = {},
-): CanonicalSessionEventMap[K] {
+): CanonicalSessionEvent {
   if (!Number.isInteger(input.sequence) || input.sequence < 1) {
     throw new RangeError(`Session event sequence must be an integer >= 1, received: ${input.sequence}`);
   }
@@ -851,7 +864,7 @@ export function createSessionEvent<K extends CanonicalSessionEventKind>(
     ...input,
     eventId: input.eventId ?? generateEventId(),
     timestamp: input.timestamp ?? now(),
-  } as CanonicalSessionEventMap[K];
+  };
 
   return event;
 }

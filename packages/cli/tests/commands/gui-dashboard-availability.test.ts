@@ -588,7 +588,7 @@ describe("GUI dashboard provider availability", () => {
     });
   });
 
-  it("does not pass a default tool-round budget into the interactive GUI operator transport", async () => {
+  it("does not pass a surface-owned turn-convergence limit into the interactive GUI operator transport", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await guiCommand(APP_CONFIG, {

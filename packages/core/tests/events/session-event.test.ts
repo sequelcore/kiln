@@ -506,6 +506,27 @@ describe("session event envelope", () => {
         sequence: 30,
         turnId: "turn-1",
         outcome: "completed",
+        dispositionReason: "completion_eligible",
+        completion: {
+          obligations: [],
+          producerEvidence: [],
+          eligibility: { status: "eligible" },
+        },
+        convergence: {
+          policy: {
+            policyId: "session-event-test",
+            configurationHash: `sha256:${"0".repeat(64)}`,
+            providerRequests: 1,
+            toolRounds: 1,
+            toolCalls: 1,
+            cumulativeInputTokens: 1,
+            elapsedMs: 1,
+            activeMs: 1,
+            recoveryAttempts: 1,
+            consecutiveNoProgressSteps: 1,
+          },
+          progressEvidence: [],
+        },
         outputMessageId: "msg-assistant-1",
         durationMs: 1450,
       }, { generateEventId: () => `evt-${++idCounter}` }),
@@ -513,6 +534,14 @@ describe("session event envelope", () => {
 
     expect(events).toHaveLength(kinds.length);
     expect(events.map((event) => event.kind)).toEqual(kinds);
+    const completed = events.find((event) => event.kind === "turn_completed");
+    expect(completed).toMatchObject({
+      outcome: "completed",
+      dispositionReason: "completion_eligible",
+      completion: { eligibility: { status: "eligible" } },
+      convergence: { policy: { policyId: "session-event-test" } },
+    });
+    expect(completed).not.toHaveProperty("disposition");
   });
 
   it("requires versioned staged economic denial evidence", () => {

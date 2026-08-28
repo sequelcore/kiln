@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalSessionEvent, ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core/events";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 describe("runtime session tool usage events", () => {
@@ -66,7 +66,7 @@ describe("runtime session tool usage events", () => {
       channel: "gui",
       userMessageContent: "Research with a max of 8 searches.",
       assistantMessageContent: "I used about 6 searches.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: completedAt,
@@ -162,7 +162,7 @@ describe("runtime session tool usage events", () => {
       channel: "gui",
       userMessageContent: "Run both searches.",
       assistantMessageContent: "Finished.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: new Date("2026-06-29T12:00:00.500Z"),
@@ -234,7 +234,7 @@ describe("runtime session tool usage events", () => {
       channel: "gui",
       userMessageContent: "Replay the persisted tool result.",
       assistantMessageContent: "Replayed.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: new Date("2026-06-29T12:00:02.000Z"),
@@ -289,7 +289,7 @@ describe("runtime session tool usage events", () => {
       channel: "gui",
       userMessageContent: "Run a search.",
       assistantMessageContent: "Finished.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: new Date("2026-06-29T12:00:00.500Z"),
@@ -318,7 +318,7 @@ describe("runtime session tool usage events", () => {
       channel: "gui",
       userMessageContent: "Run a search.",
       assistantMessageContent: "Finished.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: new Date("2026-06-29T12:00:00.500Z"),
@@ -363,7 +363,7 @@ describe("runtime session tool usage events", () => {
       channel: "gui",
       userMessageContent: "Run a search.",
       assistantMessageContent: "Finished.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: new Date("2026-06-29T12:00:00.500Z"),

@@ -23,6 +23,7 @@ import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { resolveNativeCommunication } from "../config/native-communication-capabilities.js";
 import { deriveCodexRuntimePermissionRequest, type RuntimePermissionObservationWriter } from "./runtime-permission-observation.js";
+import { nativeHarnessCancellationDisposition, nativeHarnessTerminalDisposition } from "./native-harness-terminal-disposition.js";
 
 export interface CodexSdkThread {
   readonly id: string | null;
@@ -150,7 +151,7 @@ export class CodexSdkSession implements IKilnSession {
       yield { type: "error", code: options.abortSignal?.aborted ? "ABORTED" : "CODEX_SDK_ERROR", message: lastError, isRetryable: false };
     } finally { options.abortSignal?.removeEventListener("abort", relayAbort); this._abortController = null; }
     if (!completed) {
-      yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome: options.abortSignal?.aborted ? "cancelled" : lastError ? "failed" : "completed", isPreflightCrash: !started };
+      yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, disposition: options.abortSignal?.aborted ? nativeHarnessCancellationDisposition("operator_cancelled") : nativeHarnessTerminalDisposition({ harness: "codex", outcome: lastError ? "failed" : "completed" }), isPreflightCrash: !started };
     }
     // Both provider terminal events and Kiln's synthetic terminal event settle
     // through this single point, preserving the thread for the next turn.
@@ -187,7 +188,7 @@ function aborted(): Extract<ExecutionSessionEvent, { type: "error" }> { return {
 function boundedError(value: unknown): string { const message = value instanceof Error ? value.message : String(value); return message.length > 4096 ? `${message.slice(0, 4093)}...` : message; }
 
 function mapSdkEvent(event: ThreadEvent, identities: NativeToolEventIdentity, cwd: string, model: string): ExecutionSessionEvent[] {
-  if (event.type === "turn.completed") return [{ type: "cost_update", usd: 0, mode: "computed", provider: "codex", model, canonicalModel: model, inputTokens: event.usage.input_tokens, outputTokens: event.usage.output_tokens, cacheReadTokens: event.usage.cached_input_tokens }, { type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false }];
+  if (event.type === "turn.completed") return [{ type: "cost_update", usd: 0, mode: "computed", provider: "codex", model, canonicalModel: model, inputTokens: event.usage.input_tokens, outputTokens: event.usage.output_tokens, cacheReadTokens: event.usage.cached_input_tokens }, { type: "completed", totalUsd: 0, durationMs: 0, disposition: nativeHarnessTerminalDisposition({ harness: "codex", outcome: "completed" }), isPreflightCrash: false }];
   if (event.type === "turn.failed") return [{ type: "error", code: "CODEX_TURN_ERROR", message: boundedError(event.error.message), isRetryable: false }];
   if (event.type === "error") return [{ type: "error", code: "CODEX_TURN_ERROR", message: boundedError(event.message), isRetryable: false }];
   if (event.type !== "item.started" && event.type !== "item.completed") return [];

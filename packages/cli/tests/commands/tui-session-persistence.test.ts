@@ -10,6 +10,7 @@ import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-config-fixture.js";
 import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../../src/config/model-facing-permission-policy.js";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
+import { runtimeCompletedDisposition } from "../fixtures/terminal-disposition.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
 
@@ -691,7 +692,7 @@ describe("makeMultiProviderSessionFactory", () => {
     );
   });
 
-  it("does not pass a default tool-round budget into the interactive TUI gateway", async () => {
+  it("does not pass a surface-owned turn-convergence limit into the interactive TUI gateway", async () => {
     await tuiCommand(APP_CONFIG as never, {
       cwd: PROJECT_ROOT,
     });
@@ -1361,7 +1362,13 @@ describe("makeMultiProviderSessionFactory", () => {
           yield { type: "tool_use", toolCallId: "call-search", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "web_search", input: {} };
           yield { type: "tool_result", toolCallId: "call-search", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "web_search", output: "1 source for kiln docs\n1. Kiln docs https://docs.example.com/kiln" };
           yield { type: "text_delta", content: "Research complete with cited sources." };
-          yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "completed", isPreflightCrash: false };
+          yield {
+            type: "completed",
+            totalUsd: 0,
+            durationMs: 10,
+            disposition: runtimeCompletedDisposition(),
+            isPreflightCrash: false,
+          };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];

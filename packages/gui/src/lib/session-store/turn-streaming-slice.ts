@@ -31,7 +31,7 @@ import {
   isWorkflowLifecycleTimelineEventKind,
   normalizeLoadedChangeType,
   providerIdentity,
-  turnOutcomePresentation,
+  turnCompletedTimelineEntry,
   workflowLifecycleTimelineEntry,
 } from "./session-event-projection.js";
 import { syncTimelineMessages, timelineTurnId } from "./session-timeline-types.js";
@@ -568,7 +568,6 @@ function handleContinuityDecided(ctx: SessionEventContext): void {
 
 function handleTurnCompleted(ctx: SessionEventContext): void {
   const { set, get, event, payload } = ctx;
-  const outcomePresentation = turnOutcomePresentation(payload.outcome);
   const current = get();
   const routingRationale = isObjectRecord(payload.routingRationale) ? payload.routingRationale : null;
   const routedProvider = readString(payload.routedProvider)
@@ -583,18 +582,13 @@ function handleTurnCompleted(ctx: SessionEventContext): void {
   set({
     timelineEntries: [
       ...current.timelineEntries,
-      {
+      turnCompletedTimelineEntry({
         id: `timeline:${event.eventId}`,
-        type: "event",
-        eventKind: event.kind,
-        createdAt: event.timestamp,
+        payload,
+        timestamp: event.timestamp,
         sequence: event.sequence,
-        ...timelineTurnId(event),
-        title: outcomePresentation.title,
-        summary: readString(payload.outcome) ?? undefined,
-        tone: outcomePresentation.tone,
-        details: payload,
-      },
+        turnId: event.turnId,
+      }),
     ],
     currentAssistant: null,
     status: "ready",
@@ -867,7 +861,16 @@ export const createTurnStreamingSlice: StateCreator<
     const finalizedModel = frame.routedModel ?? state.respondingModel ?? activeRoute?.providerModelId ?? undefined;
     const responseParts = frame.parts && frame.parts.length > 0 ? frame.parts : undefined;
     const voiceSynthesisStatus = responseParts && hasAudioPart(responseParts) ? "ready" as const : "idle" as const;
-    const outcomePresentation = turnOutcomePresentation(frame.outcome);
+    const terminalPayload = {
+      ...frame,
+      ...(finalizedProvider ? { routedProvider: finalizedProvider } : {}),
+      ...(finalizedModel ? { routedModel: finalizedModel } : {}),
+    };
+    const terminalPresentation = turnCompletedTimelineEntry({
+      id: `timeline:turn-complete:${state.turnCounter + 1}:${Date.now()}`,
+      payload: terminalPayload,
+      timestamp: nowIso(),
+    });
 
     let nextInputTokens = state.inputTokens;
     let nextOutputTokens = state.outputTokens;
@@ -936,25 +939,7 @@ export const createTurnStreamingSlice: StateCreator<
     }
     nextTimelineEntries = [
       ...nextTimelineEntries,
-      {
-        id: `timeline:turn-complete:${state.turnCounter + 1}:${Date.now()}`,
-        type: "event",
-        eventKind: "turn_completed",
-        createdAt: nowIso(),
-        title: outcomePresentation.title,
-        summary: finalizedProvider ? [finalizedProvider, finalizedModel].filter(Boolean).join(" · ") : undefined,
-        tone: outcomePresentation.tone,
-        details: {
-          outcome: frame.outcome,
-          routedProvider: finalizedProvider,
-          routedModel: finalizedModel,
-          routingRationale: frame.routingRationale,
-          runtimeContinuity: frame.runtimeContinuity,
-          authorityStatus: frame.authorityStatus,
-          inputTokens: frame.inputTokens,
-          outputTokens: frame.outputTokens,
-        },
-      },
+      terminalPresentation,
     ];
 
     const clearTimeoutId = state.clearTimeoutId;

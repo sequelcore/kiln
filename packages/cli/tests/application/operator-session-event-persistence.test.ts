@@ -7,6 +7,7 @@ import { createOperatorSessionEventPersistence } from "../../src/application/ope
 import { loadOperatorSessionSummaries } from "../../src/application/operator-session-history.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../../src/application/operator-transcript-projection.js";
 import { type PersistedSessionMeta, SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
+import { runtimeCompletedDisposition } from "../fixtures/terminal-disposition.js";
 
 describe("operator session event persistence", () => {
   const roots: string[] = [];
@@ -530,7 +531,7 @@ function turnEvents(input: {
       sequence: input.sequence + 5,
       kind: "turn_completed",
       turnId,
-      outcome: "completed",
+      ...runtimeCompletedDisposition(),
       outputMessageId: `${turnId}:assistant`,
       timestamp: timestamp(5),
     }),

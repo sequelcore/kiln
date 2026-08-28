@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime specification session events", () => {
   it("projects structured specification and clarification artifacts into canonical session events", async () => {
@@ -19,7 +19,7 @@ describe("runtime specification session events", () => {
       channel: "gui",
       userMessageContent: "Plan with structured intake",
       assistantMessageContent: "Specification captured.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,
@@ -69,7 +69,7 @@ describe("runtime specification session events", () => {
       channel: "gui",
       userMessageContent: "Analyze plan/spec consistency",
       assistantMessageContent: "Analysis complete.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,

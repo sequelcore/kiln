@@ -5,9 +5,11 @@ import {
   createExecutionAccountPolicyId,
   createExecutionAccountRef,
   defineExecutionTargetCatalog,
+  type RuntimeTurnTerminalDisposition,
   type ProviderAdapter,
 } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
+import { parseHarnessIngressServerFrame } from "@kilnai/gateway-contracts";
 import { createHarnessIngressRoutes } from "../../src/gateway/harness-ingress-routes.js";
 import { FixedTargetGatewayAuthorityAdmission, type GatewayAuthorityAdmissionPort } from "../../src/gateway/gateway-authority-admission.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
@@ -52,6 +54,121 @@ function makeUpgrade() {
 
 function frame(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({ protocolVersion: "2", type: "turn_start", requestId: "request-1", content: "hello", ...overrides });
+}
+
+const convergencePolicy = {
+  policyId: "test.runtime.turn-convergence",
+  configurationHash: `sha256:${"0".repeat(64)}`,
+  providerRequests: 10,
+  toolRounds: 8,
+  toolCalls: 24,
+  cumulativeInputTokens: 256_000,
+  elapsedMs: 600_000,
+  activeMs: 600_000,
+  recoveryAttempts: 3,
+  consecutiveNoProgressSteps: 3,
+} as const;
+
+const completedDisposition = {
+  outcome: "completed",
+  dispositionReason: "completion_eligible",
+  completion: {
+    obligations: [],
+    producerEvidence: [],
+    eligibility: { status: "eligible" },
+  },
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [],
+  },
+} satisfies RuntimeTurnTerminalDisposition;
+
+const noProgressDisposition = {
+  outcome: "paused",
+  dispositionReason: "no_progress",
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [{
+      kind: "no_progress",
+      reason: "repeated_result",
+      strategyFingerprint: "strategy:repeated-result",
+      supportingToolCallIds: ["tool-call:1"],
+    }],
+    pause: {
+      status: "pause",
+      reason: "no_progress",
+      metric: "consecutiveNoProgressSteps",
+      observed: 3,
+      limit: 3,
+    },
+  },
+} satisfies RuntimeTurnTerminalDisposition;
+
+const toolRoundLimitDisposition = {
+  outcome: "paused",
+  dispositionReason: "tool_round_limit",
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [],
+    pause: {
+      status: "pause",
+      reason: "tool_round_limit",
+      metric: "toolRounds",
+      observed: 8,
+      limit: 8,
+    },
+  },
+} satisfies RuntimeTurnTerminalDisposition;
+
+const requiredProducerNotRunDisposition = {
+  outcome: "paused",
+  dispositionReason: "required_producer_not_run",
+  completion: {
+    obligations: [{
+      kind: "required_producer",
+      obligationId: "required-producer:formal_verify",
+      canonicalToolId: "formal_verify",
+      acceptedEquivalentToolIds: [],
+      sourceAlias: "Dafny",
+    }],
+    producerEvidence: [],
+    eligibility: {
+      status: "ineligible",
+      unmet: [{
+        obligationId: "required-producer:formal_verify",
+        canonicalToolId: "formal_verify",
+        sourceAlias: "Dafny",
+        status: "not_run",
+      }],
+    },
+  },
+  convergence: {
+    policy: convergencePolicy,
+    progressEvidence: [],
+  },
+} satisfies RuntimeTurnTerminalDisposition;
+
+const runtimeFailureDisposition = {
+  outcome: "failed",
+  dispositionReason: "runtime_failure",
+} satisfies RuntimeTurnTerminalDisposition;
+
+const operatorCancelledDisposition = {
+  outcome: "cancelled",
+  dispositionReason: "operator_cancelled",
+} satisfies RuntimeTurnTerminalDisposition;
+
+const runtimeCancelledDisposition = {
+  outcome: "cancelled",
+  dispositionReason: "runtime_cancelled",
+} satisfies RuntimeTurnTerminalDisposition;
+
+function admittedResult(disposition: RuntimeTurnTerminalDisposition, parts = textParts("safe reply")) {
+  return {
+    sessionId: "session-canonical",
+    parts,
+    ...disposition,
+  };
 }
 
 function makeRuntime() {
@@ -200,7 +317,7 @@ function createFixture(overrides: Record<string, unknown> = {}) {
   const upgrade = makeUpgrade();
   const processAdmittedTurn = vi.fn().mockResolvedValue({
     ok: true,
-    result: { sessionId: "session-canonical", parts: [{ type: "text", text: "safe reply" }] },
+    result: admittedResult(completedDisposition),
   });
   const authenticate = vi.fn().mockResolvedValue({ callerId: "caller-1", appName: "app-one", userId: "user-1", tenantId: "tenant-1" });
   const resolveTarget = vi.fn().mockReturnValue(makeRuntime());
@@ -315,8 +432,39 @@ describe("createHarnessIngressRoutes", () => {
     await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     expect(sent(ws)).toEqual([
       { protocolVersion: "2", type: "turn_accepted", requestId: "request-1", turnId: "request-1", sessionId: "session-requested" },
-      { protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed", content: "safe reply" },
+      {
+        protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical",
+        outcome: "completed", dispositionReason: "completion_eligible", completion: completedDisposition.completion,
+        convergence: completedDisposition.convergence, content: "safe reply",
+      },
     ]);
+  });
+
+  it.each([
+    ["completed", completedDisposition],
+    ["no-progress", noProgressDisposition],
+    ["tool-round bound", toolRoundLimitDisposition],
+    ["required producer not run", requiredProducerNotRunDisposition],
+    ["runtime failure", runtimeFailureDisposition],
+    ["operator cancellation", operatorCancelledDisposition],
+    ["runtime cancellation", runtimeCancelledDisposition],
+  ] as const)("projects the exact %s terminal disposition and evidence", async (_label, disposition) => {
+    const fixture = createFixture({
+      processAdmittedTurn: vi.fn().mockResolvedValue({ ok: true, result: admittedResult(disposition) }),
+    });
+    const { handlers, ws } = fixture.upgrade.connect();
+    await open(handlers, ws);
+    await message(handlers, ws, frame());
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
+
+    const completed = parseHarnessIngressServerFrame(sent(ws).at(-1));
+    expect(completed).toMatchObject({
+      type: "turn_completed",
+      requestId: "request-1",
+      turnId: "request-1",
+      sessionId: "session-canonical",
+      ...disposition,
+    });
   });
 
   it("persists real Gateway admission and claims the real Runtime model round before provider dispatch", async () => {
@@ -370,10 +518,10 @@ describe("createHarnessIngressRoutes", () => {
     expect(frames).toContainEqual({ protocolVersion: "2", type: "turn_cancel_result", requestId: "cancel-1", turnId: "request-1", status: "accepted" });
     const call = processAdmittedTurn.mock.calls[0]![0] as { perCallConfig: { abortSignal: AbortSignal } };
     expect(call.perCallConfig.abortSignal.aborted).toBe(true);
-    finish({ ok: true, result: { sessionId: "session-canonical", parts: [] } });
+    finish({ ok: true, result: admittedResult(completedDisposition, []) });
   });
 
-  it("redacts internal failures and does not leak them through outbound frames", async () => {
+  it("maps a route-level failure to a typed runtime failure without leaking internal details", async () => {
     const fixture = createFixture({ processAdmittedTurn: vi.fn().mockRejectedValue(new Error("provider secret detail")) });
     const { handlers, ws } = fixture.upgrade.connect();
     await open(handlers, ws);
@@ -381,7 +529,29 @@ describe("createHarnessIngressRoutes", () => {
     await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     const frames = sent(ws);
     expect(JSON.stringify(frames)).not.toContain("provider secret detail");
-    expect(frames.at(-1)).toEqual({ protocolVersion: "2", type: "error", requestId: "request-1", code: "internal", redacted: true });
+    expect(frames.at(-1)).toEqual({
+      protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-new",
+      ...runtimeFailureDisposition,
+    });
+  });
+
+  it("maps an operator cancellation that interrupts route execution to a typed cancellation", async () => {
+    let reject!: (reason: unknown) => void;
+    const pending = new Promise<never>((_resolve, nextReject) => { reject = nextReject; });
+    const fixture = createFixture({ processAdmittedTurn: vi.fn().mockReturnValue(pending) });
+    const { handlers, ws } = fixture.upgrade.connect();
+    await open(handlers, ws);
+    await message(handlers, ws, frame());
+    await Promise.resolve();
+    await message(handlers, ws, JSON.stringify({
+      protocolVersion: "2", type: "turn_cancel", requestId: "cancel-1", turnId: "request-1",
+    }));
+    reject(new Error("operator cancelled"));
+    await vi.waitFor(() => expect(sent(ws)).toHaveLength(3));
+    expect(sent(ws).at(-1)).toEqual({
+      protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-new",
+      ...operatorCancelledDisposition,
+    });
   });
 
   it("projects only validated safe completion parts and never forwards provider/internal parts", async () => {
@@ -396,6 +566,7 @@ describe("createHarnessIngressRoutes", () => {
             { type: "tool_call", name: "internal_tool", arguments: "secret" },
             { type: "file", mimeType: "text/plain", data: "aGVsbG8=", filename: "output.txt", providerTrace: "private" },
           ],
+          ...completedDisposition,
         },
       }),
     });
@@ -405,7 +576,8 @@ describe("createHarnessIngressRoutes", () => {
     await vi.waitFor(() => expect(sent(ws)).toHaveLength(2));
     const completion = sent(ws).at(-1);
     expect(completion).toEqual({
-      protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed",
+      protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical",
+      ...completedDisposition,
       parts: [
         { type: "text", text: "safe response" },
         { type: "image", mimeType: "image/png", data: "aGVsbG8=" },
@@ -452,6 +624,6 @@ describe("createHarnessIngressRoutes", () => {
     expect(sent(second.ws).at(-1)).toEqual({ protocolVersion: "2", type: "turn_cancel_result", requestId: "cancel-other", turnId: "request-1", status: "not_active" });
     const call = processAdmittedTurn.mock.calls[0]![0] as { perCallConfig: { abortSignal: AbortSignal } };
     expect(call.perCallConfig.abortSignal.aborted).toBe(false);
-    finish({ ok: true, result: { sessionId: "shared-session", parts: [] } });
+    finish({ ok: true, result: admittedResult(completedDisposition, []) });
   });
 });

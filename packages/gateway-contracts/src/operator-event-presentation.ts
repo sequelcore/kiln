@@ -3117,29 +3117,195 @@ function continuityPresentation(payload: Record<string, unknown>): OperatorEvent
   };
 }
 
+const TERMINAL_OUTCOME_LABELS = {
+  completed: "Completed",
+  paused: "Paused",
+  failed: "Failed",
+  cancelled: "Cancelled",
+} as const;
+
+const TERMINAL_DISPOSITIONS = {
+  completion_eligible: { outcome: "completed", label: "Completion eligible" },
+  provider_request_limit: { outcome: "paused", label: "Provider request limit reached" },
+  tool_round_limit: { outcome: "paused", label: "Tool round limit reached" },
+  tool_call_limit: { outcome: "paused", label: "Tool call limit reached" },
+  cumulative_input_limit: { outcome: "paused", label: "Cumulative input limit reached" },
+  elapsed_time_limit: { outcome: "paused", label: "Elapsed time limit reached" },
+  active_time_limit: { outcome: "paused", label: "Active time limit reached" },
+  recovery_limit: { outcome: "paused", label: "Recovery limit reached" },
+  no_progress: { outcome: "paused", label: "No progress detected" },
+  observation_unavailable: { outcome: "paused", label: "Convergence observation unavailable" },
+  required_producer_not_run: { outcome: "paused", label: "Required producer was not run" },
+  required_producer_unavailable: { outcome: "failed", label: "Required producer unavailable" },
+  required_producer_execution_failed: { outcome: "failed", label: "Required producer failed" },
+  required_producer_invalid_evidence: { outcome: "failed", label: "Required producer returned invalid evidence" },
+  managed_invocation_state_transition_required: { outcome: "failed", label: "Managed invocation transition required" },
+  governed_work_materialization_required: { outcome: "failed", label: "Governed work materialization required" },
+  governed_work_incomplete: { outcome: "failed", label: "Governed work is incomplete" },
+  outer_authority_denied: { outcome: "failed", label: "Outer authority denied the turn" },
+  runtime_failure: { outcome: "failed", label: "Runtime failure" },
+  external_harness_completed: { outcome: "completed", label: "Native harness completed" },
+  external_harness_failed: { outcome: "failed", label: "Native harness failed" },
+  session_not_active: { outcome: "paused", label: "Session is not active" },
+  operator_cancelled: { outcome: "cancelled", label: "Cancelled by operator" },
+  runtime_cancelled: { outcome: "cancelled", label: "Cancelled by runtime" },
+} as const;
+
+type TerminalOutcome = keyof typeof TERMINAL_OUTCOME_LABELS;
+type TerminalDispositionReason = keyof typeof TERMINAL_DISPOSITIONS;
+
+function readTerminalOutcome(value: unknown): TerminalOutcome | null {
+  return value === "completed" || value === "paused" || value === "failed" || value === "cancelled"
+    ? value
+    : null;
+}
+
+function readTerminalDispositionReason(value: unknown): TerminalDispositionReason | null {
+  return typeof value === "string" && Object.hasOwn(TERMINAL_DISPOSITIONS, value)
+    ? value as TerminalDispositionReason
+    : null;
+}
+
+function invalidTurnCompletedPresentation(): OperatorEventPresentation {
+  const summary = "Typed terminal disposition unavailable";
+  return {
+    title: "Turn disposition unavailable",
+    summary,
+    compactText: summary,
+    tone: "error",
+    details: [{ label: "Terminal disposition", value: "Unavailable" }],
+    surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "exception",
+  };
+}
+
+function terminalDispositionSummary(
+  outcome: TerminalOutcome,
+  reason: TerminalDispositionReason,
+  routeSummary: string | undefined,
+): string {
+  const summary = `${TERMINAL_OUTCOME_LABELS[outcome]} · ${TERMINAL_DISPOSITIONS[reason].label} (${reason})`;
+  return routeSummary ? `${summary} · ${routeSummary}` : summary;
+}
+
+function appendConvergencePresentation(
+  details: OperatorEventDetailItem[],
+  convergence: Record<string, unknown> | null,
+): void {
+  const policy = asRecord(convergence?.policy);
+  addItem(details, "Convergence policy", policy?.policyId);
+  addItem(details, "Convergence policy hash", policy?.configurationHash);
+
+  const pause = asRecord(convergence?.pause);
+  if (pause?.status !== "pause") return;
+
+  const reason = readTerminalDispositionReason(pause.reason);
+  addItem(
+    details,
+    "Convergence pause",
+    reason ? `${TERMINAL_DISPOSITIONS[reason].label} (${reason})` : undefined,
+  );
+  addItem(details, "Convergence metric", pause.metric);
+  if (pause.reason === "observation_unavailable") {
+    addItem(details, "Convergence unknown reason", pause.unknownReason);
+    return;
+  }
+  addItem(details, "Convergence observed", readNumber(pause.observed));
+  addItem(details, "Convergence limit", readNumber(pause.limit));
+}
+
+function completionObligationLabel(obligation: Record<string, unknown>): string | null {
+  return readString(obligation.canonicalToolId)
+    ?? readString(obligation.canonicalProducerId)
+    ?? readString(obligation.sourceAlias)
+    ?? readString(obligation.obligationId);
+}
+
+function requiredProducerStatus(value: unknown): string | null {
+  return value === "accepted"
+    || value === "unavailable"
+    || value === "not_run"
+    || value === "execution_failed"
+    || value === "invalid_evidence"
+    ? value
+    : null;
+}
+
+function completionEvidenceItems(value: unknown, unmet: boolean): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const item = asRecord(entry);
+    if (!item) return [];
+    const label = completionObligationLabel(item);
+    const status = requiredProducerStatus(item.status);
+    if (!label || !status) return [];
+    return [`${label}: ${status}${unmet ? "" : " (evidence)"}`];
+  });
+}
+
+function appendCompletionPresentation(
+  details: OperatorEventDetailItem[],
+  completion: Record<string, unknown> | null,
+): void {
+  const eligibility = asRecord(completion?.eligibility);
+  const status = eligibility?.status === "eligible" || eligibility?.status === "ineligible"
+    ? eligibility.status
+    : null;
+  addItem(details, "Completion eligibility", status);
+
+  const unmetItems = completionEvidenceItems(eligibility?.unmet, true);
+  addItem(details, "Unmet completion obligations", unmetItems.length > 0 ? unmetItems.join(", ") : undefined);
+
+  const producerEvidence = completionEvidenceItems(completion?.producerEvidence, false);
+  addItem(details, "Producer evidence", producerEvidence.length > 0 ? producerEvidence.join(", ") : undefined);
+}
+
 function turnCompletedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const runtimeContinuity = asRecord(payload.runtimeContinuity);
   const authorityStatus = asRecord(payload.authorityStatus);
   const provider = providerIdentity(payload);
   const routeSummary = [provider.provider, provider.model].filter((value): value is string => Boolean(value)).join(" · ");
-  const summary = readString(payload.outcome) ?? (routeSummary || undefined);
+  const outcome = readTerminalOutcome(payload.outcome);
+  const dispositionReason = readTerminalDispositionReason(payload.dispositionReason);
+  if (outcome === null || dispositionReason === null || TERMINAL_DISPOSITIONS[dispositionReason].outcome !== outcome) {
+    return invalidTurnCompletedPresentation();
+  }
+
+  const summary = terminalDispositionSummary(
+    outcome,
+    dispositionReason,
+    routeSummary || undefined,
+  );
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Provider", provider.provider);
   addItem(details, "Model", provider.model);
-  addItem(details, "Outcome", payload.outcome);
+  addItem(details, "Outcome", outcome);
+  addItem(details, "Disposition reason", dispositionReason);
   addItem(details, "Continuity", runtimeContinuity?.strategy);
   addItem(details, "Why", runtimeContinuity?.selectionReason);
   addItem(details, "Authority", authorityStatus?.effective);
+  const externalHarness = asRecord(payload.externalHarness);
+  addItem(details, "External harness", externalHarness?.harness);
   addItem(details, "Input tokens", readNumber(payload.inputTokens));
   addItem(details, "Output tokens", readNumber(payload.outputTokens));
+  appendCompletionPresentation(details, asRecord(payload.completion));
+  appendConvergencePresentation(details, asRecord(payload.convergence));
+
+  const title = `Turn ${TERMINAL_OUTCOME_LABELS[outcome].toLowerCase()}`;
   return {
-    title: "Turn completed",
+    title,
     summary,
     compactText: summary,
-    tone: "success",
+    tone: outcome === "completed"
+      ? "success"
+      : outcome === "paused"
+        ? "warning"
+        : outcome === "failed"
+          ? "error"
+          : "info",
     details,
     surfaces: ACTIVITY_SURFACES,
-    conversationDisposition: "none",
+    conversationDisposition: outcome === "completed" ? "result" : "exception",
   };
 }
 

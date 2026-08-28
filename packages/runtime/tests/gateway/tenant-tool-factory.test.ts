@@ -6,7 +6,17 @@ import type {
   TenantConfig,
 } from "@kilnai/core/engine";
 import { buildTenantToolContext, clearIntegrationDeps, configureIntegrationDeps } from "../../src/gateway/tenant-tool-factory.js";
+import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
 import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
+
+function makeTenantExecutionEnvelope(toolRounds: number) {
+  return {
+    convergence: deriveRuntimeConvergencePolicyInput({
+      policyId: "kiln.tenant.tool-config",
+      toolRounds,
+    }),
+  };
+}
 
 const READ_ONLY_EFFECT: ActionEffectEnvelope = {
   operation: "observe",
@@ -253,7 +263,7 @@ describe("buildTenantToolContext", () => {
 
     const ctx = buildTenantToolContext(tenant);
 
-    expect(ctx.executionEnvelope).toEqual({ toolRounds: { max: 8 } });
+    expect(ctx.executionEnvelope).toEqual(makeTenantExecutionEnvelope(8));
   });
 
   it("execution envelope is undefined when maxIterationsPerSession not set", () => {

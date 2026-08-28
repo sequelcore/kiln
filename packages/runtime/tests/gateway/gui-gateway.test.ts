@@ -40,6 +40,7 @@ import {
 import {
   buildGuiOperatorDiscoveryResults,
 } from "../../src/gateway/gui-provider-models.js";
+import { runtimeCompletedDisposition } from "../session/runtime-terminal-fixture.js";
 
 const {guiTestRouting, guiOperatorTransportDefaults, createGuiDist, selectGuiTestExecutionTarget, makeGuiOperatorDiscoveryFromModels} = guiFixture;
 const guiSocketHarness = guiFixture.getGuiSocketHarness();
@@ -783,6 +784,7 @@ describe("GUI gateway HTTP and static assets", () => {
         sessionId: "fresh-session",
         sessionMode: "mode-a",
         traceId: "trace-fresh",
+        ...runtimeCompletedDisposition(),
       },
     } as never);
     vi.stubGlobal("Bun", {

@@ -119,7 +119,7 @@ import {
   type ProviderId,
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession, KilnPermissionPolicy } from "../../src/wrapper/session.js";
-import type { DeliberationResolution } from "@kilnai/core/agents";
+import type { DeliberationResolution, TurnTerminalDisposition } from "@kilnai/core/agents";
 import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
 import {
   createRuntimeHostToolEnforcement,
@@ -144,11 +144,42 @@ const makeMockSession = (id: string): IKilnSession => ({
     permissionPolicy: { approval: "on-request", sandbox: "read-only" },
   },
   run: async function* () {
-    yield { type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false };
+    yield {
+      type: "completed",
+      totalUsd: 0,
+      durationMs: 0,
+      disposition: TEST_RUNTIME_COMPLETED_DISPOSITION,
+      isPreflightCrash: false,
+    };
   },
   dispose: async () => {},
   providerSessionId: undefined,
 });
+
+const TEST_RUNTIME_COMPLETED_DISPOSITION = {
+  outcome: "completed",
+  dispositionReason: "completion_eligible",
+  completion: {
+    obligations: [],
+    producerEvidence: [],
+    eligibility: { status: "eligible" },
+  },
+  convergence: {
+    policy: {
+      policyId: "test-policy",
+      configurationHash: `sha256:${"0".repeat(64)}`,
+      providerRequests: 10,
+      toolRounds: 10,
+      toolCalls: 10,
+      cumulativeInputTokens: 10_000,
+      elapsedMs: 60_000,
+      activeMs: 60_000,
+      recoveryAttempts: 10,
+      consecutiveNoProgressSteps: 3,
+    },
+    progressEvidence: [],
+  },
+} as const satisfies TurnTerminalDisposition;
 
 const BASE_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 const CONSTRUCTION_ONLY_POLICY: KilnPermissionPolicy = { approval: "never" };

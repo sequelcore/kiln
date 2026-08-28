@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { CommunicationIntentSchema, type CommunicationIntentWire } from "./communication-intent.js";
+import {
+  extendOperatorTurnTerminalDispositionSchema,
+} from "./operator-turn-terminal-disposition.js";
 
 /** The first stable, harness-neutral ingress wire contract. */
 export const HARNESS_INGRESS_PROTOCOL_VERSION = "2" as const;
@@ -189,15 +192,19 @@ export const HarnessIngressTurnCancelResultSchema = z.object({
   reason: nonEmptyText.optional(),
 }).strict();
 
-export const HarnessIngressTurnCompletedSchema = z.object({
+const HarnessIngressTurnCompletedFieldsSchema = z.object({
   ...baseServerFrame,
   type: z.literal("turn_completed"),
   turnId: identifier,
   sessionId: identifier,
-  outcome: z.enum(["completed", "cancelled", "failed"]),
   content: nonEmptyText.optional(),
   parts: z.array(HarnessIngressContentPartSchema).min(1).max(HARNESS_INGRESS_MAX_PARTS).optional(),
-}).strict().superRefine((frame, context) => {
+}).strict();
+
+export const HarnessIngressTurnCompletedSchema = extendOperatorTurnTerminalDispositionSchema(
+  HarnessIngressTurnCompletedFieldsSchema,
+)
+  .superRefine((frame, context) => {
   if (frame.content !== undefined && frame.parts !== undefined) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

@@ -12,6 +12,7 @@ import {
 import { RuntimeSession } from "@kilnai/runtime";
 import { createTranscriptRuntimeSessionHydrator } from "../../src/application/runtime-session-rehydration.js";
 import { TranscriptStore, type PersistedTranscriptEventDraft } from "../../src/wrapper/session-store.js";
+import { runtimeFailureDisposition } from "../fixtures/terminal-disposition.js";
 
 async function appendTranscript(
   store: TranscriptStore,
@@ -242,7 +243,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       source: { actor: "runtime", surface: "gui" },
       payload: {
         turnId: `${sessionId}:turn:1`,
-        outcome: "failed",
+        ...runtimeFailureDisposition(),
       },
     });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { projectAppGatewayOperatorSessionSummary } from "../../src/gateway/app-gateway-operator-session-history.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { deserializeSession, serializeSession } from "../../src/session/persistence/session-serializer.js";
+import { runtimeCompletedDisposition } from "../session/runtime-terminal-fixture.js";
 
 describe("App Gateway operator session history", () => {
   it("projects process-local live lifecycle with revisioned freshness and no restart inference", () => {
@@ -68,7 +69,7 @@ describe("App Gateway operator session history", () => {
         sequence: 3,
         timestamp: new Date("2026-08-11T12:02:00.000Z"),
         kind: "turn_completed",
-        outcome: "completed",
+        ...runtimeCompletedDisposition(),
       },
     ]);
 

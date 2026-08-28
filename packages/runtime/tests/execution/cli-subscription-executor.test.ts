@@ -8,6 +8,7 @@ import {
 import { extractText } from "@kilnai/core/engine";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
+import { externalHarnessDisposition } from "../session/runtime-terminal-fixture.js";
 
 function eventStream(events: readonly ExecutionSessionEvent[]): AsyncIterable<ExecutionSessionEvent> {
   return (async function* (): AsyncGenerator<ExecutionSessionEvent> {
@@ -22,7 +23,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -41,7 +42,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -61,7 +62,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -81,7 +82,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -112,7 +113,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -139,7 +140,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -170,7 +171,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -221,7 +222,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -240,7 +241,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -263,7 +264,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -295,7 +296,7 @@ describe("CliSubscriptionExecutor", () => {
       run: () => eventStream([
         { type: "text_delta", content: "done" },
         { type: "tool_result", toolName: "Edit", output: "Updated src/app.ts" },
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -307,7 +308,7 @@ describe("CliSubscriptionExecutor", () => {
       messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
     });
 
-    expect(result.stopReason).toBe("end_turn");
+    expect(result.stopReason).toBe("external_harness_completed");
     expect(onEvent.mock.calls.some((call) => call[0]?.type === "file_changed")).toBe(false);
     expect(dispose).toHaveBeenCalledTimes(1);
   });
@@ -318,7 +319,7 @@ describe("CliSubscriptionExecutor", () => {
       run: () => eventStream([
         { type: "tool_result", toolName: "Edit", output: "Updated src/app.ts" },
         { type: "file_changed", path: "src/app.ts", changeType: "modified", linesAdded: 3, linesRemoved: 1 },
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -353,7 +354,7 @@ describe("CliSubscriptionExecutor", () => {
         { type: "text_delta", content: "world" },
         { type: "cost_update", usd: 0.02, outputTokens: 7, cacheReadTokens: 3 },
         { type: "cost_update", usd: 0.03, inputTokens: 12, outputTokens: 9, cacheReadTokens: 4 },
-        { type: "completed", totalUsd: 0.03, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0.03, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "completed"), isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -369,7 +370,7 @@ describe("CliSubscriptionExecutor", () => {
     expect(result.outputTokens).toBe(9);
     expect(result.cacheReadTokens).toBe(4);
     expect(result.toolCalls).toEqual([]);
-    expect(result.stopReason).toBe("end_turn");
+    expect(result.stopReason).toBe("external_harness_completed");
   });
 
   it("preserves a failed terminal outcome as the stop reason", async () => {
@@ -377,7 +378,7 @@ describe("CliSubscriptionExecutor", () => {
     const factory = vi.fn().mockReturnValue({
       run: () => eventStream([
         { type: "text_delta", content: "partial" },
-        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, disposition: externalHarnessDisposition("claude-code", "failed"), isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -389,7 +390,7 @@ describe("CliSubscriptionExecutor", () => {
     });
 
     expect(extractText(result.parts)).toBe("partial");
-    expect(result.stopReason).toBe("failed");
+    expect(result.stopReason).toBe("external_harness_failed");
   });
 
   it("throws on error events and still disposes in finally", async () => {

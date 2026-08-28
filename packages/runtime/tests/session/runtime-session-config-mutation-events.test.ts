@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 
 describe("runtime config mutation session events", () => {
   it("projects config proposal and apply tool results into canonical events", async () => {
@@ -21,7 +21,7 @@ describe("runtime config mutation session events", () => {
       channel: "cli",
       userMessageContent: "Add a skill",
       assistantMessageContent: "Config mutation complete.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: appliedAt,
@@ -119,7 +119,7 @@ describe("runtime config mutation session events", () => {
       channel: "cli",
       userMessageContent: "Apply config",
       assistantMessageContent: "Config mutation committed with failed reconciliation.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,
@@ -193,7 +193,7 @@ describe("runtime config mutation session events", () => {
       channel: "cli",
       userMessageContent: "Apply config",
       assistantMessageContent: "Config mutation failed.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,

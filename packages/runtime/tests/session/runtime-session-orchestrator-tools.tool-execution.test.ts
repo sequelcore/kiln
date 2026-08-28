@@ -186,7 +186,15 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
         eventBus,
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("fetch twice"));
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch twice"));
+
+      expect(result.toolExecutions?.map(({ toolCallId, toolCallScopeId }) => ({
+        toolCallId,
+        toolCallScopeId,
+      }))).toEqual([
+        { toolCallId: "tc-1", toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/) },
+        { toolCallId: "tc-2", toolCallScopeId: expect.stringMatching(/:turn:1:response:2$/) },
+      ]);
 
       const toolActivityEvents = eventBus.history()
         .filter((event): event is ToolCalledEvent | ToolResultEvent =>
@@ -2481,8 +2489,12 @@ describe("RuntimeSessionOrchestrator - tool execution", () => {
       });
 
       expect(tool).toHaveBeenCalledTimes(1);
+      type ToolEventWithId = (ToolCalledEvent | ToolResultEvent) & { readonly toolCallId: string };
       expect(eventBus.history()
-        .filter((event) => event.type === "tool_called" || event.type === "tool_result")
+        .filter((event): event is ToolEventWithId =>
+          (event.type === "tool_called" || event.type === "tool_result")
+          && "toolCallId" in event
+          && typeof event.toolCallId === "string")
         .map((event) => ({ type: event.type, toolCallId: event.toolCallId })))
         .toEqual([
           { type: "tool_called", toolCallId: "tool-1" },

@@ -17,6 +17,7 @@ import type {
 } from "./model-catalog.js";
 import type { ExecutionThreadMeta } from "./execution-thread.js";
 import type { ExecutionTargetWizardRequest, ExecutionTargetWizardResult } from "./execution-target-wizard.js";
+import type { OperatorTurnTerminalDisposition } from "./operator-turn-terminal-disposition.js";
 
 // --- Dashboard / HTTP response shapes ---
 
@@ -1206,6 +1207,44 @@ export type GuiOutboundFrame =
       gatewayTargetId?: string;
     };
 
+/** Stable envelope fields shared by every operator terminal frame. */
+export interface GuiDoneFrameFields {
+  readonly type: "done";
+  readonly kilnSessionId: string;
+  readonly sourceMessageId?: string;
+  readonly content: string;
+  readonly parts?: readonly unknown[];
+  readonly admittedInput?: {
+    readonly content: string;
+  };
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly routedRouteId?: string;
+  /** Derived execution evidence; route identity remains authoritative. */
+  readonly routedProvider?: string;
+  /** Derived execution evidence; route identity remains authoritative. */
+  readonly routedModel?: string;
+  readonly routingRationale?: GuiModelRoutingRationale;
+  readonly runtimeContinuity?: {
+    readonly strategy: string;
+    readonly feedbackLabel?: string;
+    readonly pressure?: string;
+    readonly supportArtifactCount?: number;
+    readonly supportArtifactSources?: readonly string[];
+    readonly fallbackLabel?: string;
+    readonly usedCachedSupport?: boolean;
+    readonly selectionReason?: string;
+  };
+  readonly authorityStatus?: GuiAuthorityStatus;
+}
+
+/**
+ * One terminal disposition is carried alongside the stable frame envelope.
+ * The disposition union owns outcome/reason correlation and evidence shape;
+ * the frame must not recreate or reinterpret either field.
+ */
+export type GuiDoneFrame = GuiDoneFrameFields & OperatorTurnTerminalDisposition;
+
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =
   | { type: "thinking" }
@@ -1226,36 +1265,7 @@ export type GuiInboundFrame =
   | GuiApprovalResponseResultFrame
   | GuiGoalControlResultFrame
   | GuiMemoryLatticeInvalidatedFrame
-  | {
-      type: "done";
-      kilnSessionId: string;
-      sourceMessageId?: string;
-      content: string;
-      parts?: readonly unknown[];
-      admittedInput?: {
-        content: string;
-      };
-      inputTokens: number;
-      outputTokens: number;
-      outcome: OperatorSessionTurnOutcome;
-      routedRouteId?: string;
-      /** Derived execution evidence; route identity remains authoritative. */
-      routedProvider?: string;
-      /** Derived execution evidence; route identity remains authoritative. */
-      routedModel?: string;
-      routingRationale?: GuiModelRoutingRationale;
-      runtimeContinuity?: {
-        strategy: string;
-        feedbackLabel?: string;
-        pressure?: string;
-        supportArtifactCount?: number;
-        supportArtifactSources?: readonly string[];
-        fallbackLabel?: string;
-        usedCachedSupport?: boolean;
-        selectionReason?: string;
-      };
-      authorityStatus?: GuiAuthorityStatus;
-      }
+  | GuiDoneFrame
   | {
       type: "voice_synthesis_completed";
       requestId: string;

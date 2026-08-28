@@ -12,6 +12,11 @@ import {
   resolveCommunicationIntent,
 } from "@kilnai/core/agents";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
+import {
+  nativeHarnessCancellationDisposition,
+  nativeHarnessDisposition,
+  requireCompletedExecutionSessionEvent,
+} from "../fixtures/terminal-disposition.js";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {
   return {
@@ -676,7 +681,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -708,13 +713,16 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
 
     expect(events).toContainEqual({ type: "text_delta", content: "Hello from updated text" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("opencode", "completed"),
+    }));
   });
 
   it("run() does not duplicate text when delta and updated snapshot cover the same part", async () => {
@@ -744,7 +752,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -796,7 +804,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -849,7 +857,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -874,14 +882,17 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
 
     expect(events).toContainEqual({ type: "text_delta", content: "Recovered from prompt result" });
     expect(mock.session.messages).not.toHaveBeenCalled();
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("opencode", "completed"),
+    }));
   });
 
   it("run() falls back to final assistant messages when SSE and prompt response omit text", async () => {
@@ -906,7 +917,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -916,7 +927,10 @@ describe("OpenCodeSession.run() integration", () => {
       { throwOnError: false },
     );
     expect(events).toContainEqual({ type: "text_delta", content: "Recovered from session messages" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("opencode", "completed"),
+    }));
   });
 
   it("run() reports an empty OpenCode response as a harness error", async () => {
@@ -929,7 +943,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -940,7 +954,10 @@ describe("OpenCodeSession.run() integration", () => {
       message: "OpenCode session reached idle without assistant text, usage, tool, or file-change evidence.",
       isRetryable: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      disposition: nativeHarnessDisposition("opencode", "failed"),
+    }));
   });
 
   it("run() yields tool_use for pending/running tool via message.part.updated", async () => {
@@ -968,7 +985,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -1030,7 +1047,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -1090,7 +1107,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -1141,7 +1158,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -1219,7 +1236,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig({ cwd: "/tmp/kiln-opencode-live" }));
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test", cwd: "/tmp/kiln-opencode-live" })) {
       events.push(event);
     }
@@ -1264,7 +1281,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -1288,14 +1305,13 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
 
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed");
-    expect(completed).toBeDefined();
-    expect((completed as { totalUsd: number }).totalUsd).toBe(0.0042);
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.totalUsd).toBe(0.0042);
   });
 
   it("run() yields completed with isPreflightCrash false", async () => {
@@ -1308,14 +1324,13 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
 
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed");
-    expect(completed).toBeDefined();
-    expect((completed as { isPreflightCrash: boolean }).isPreflightCrash).toBe(false);
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.isPreflightCrash).toBe(false);
   });
 
   it("run() yields error event on SDK session.create throw", async () => {
@@ -1380,7 +1395,7 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
@@ -1391,8 +1406,8 @@ describe("OpenCodeSession.run() integration", () => {
       mode: "native",
       provider: "opencode",
     }));
-    const costUpdateIndex = events.findIndex((e) => "type" in e && (e as { type: string }).type === "cost_update");
-    const completedIndex = events.findIndex((e) => "type" in e && (e as { type: string }).type === "completed");
+    const costUpdateIndex = events.findIndex((event) => event.type === "cost_update");
+    const completedIndex = events.findIndex((event) => event.type === "completed");
     expect(costUpdateIndex).toBeLessThan(completedIndex);
   });
 
@@ -1406,14 +1421,13 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
 
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed");
-    expect(completed).toBeDefined();
-    expect((completed as { outcome: string }).outcome).toBe("completed");
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.disposition).toEqual(nativeHarnessDisposition("opencode", "completed"));
   });
 
   it("run() yields a cancelled outcome for cancelled", async () => {
@@ -1426,14 +1440,13 @@ describe("OpenCodeSession.run() integration", () => {
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
 
     const session = new OpenCodeSession(baseConfig());
-    const events: object[] = [];
+    const events: ExecutionSessionEvent[] = [];
     for await (const event of await session.run({ prompt: "test" })) {
       events.push(event);
     }
 
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed");
-    expect(completed).toBeDefined();
-    expect((completed as { outcome: string }).outcome).toBe("cancelled");
+    const completed = requireCompletedExecutionSessionEvent(events);
+    expect(completed.disposition).toEqual(nativeHarnessCancellationDisposition());
   });
 
   it("run() respects abortSignal and kills subprocess", async () => {

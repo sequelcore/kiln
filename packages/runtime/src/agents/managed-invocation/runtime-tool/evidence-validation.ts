@@ -3,7 +3,6 @@
 // admission against a route profile.
 import type { ManagedAgentInvocationRecord } from "@kilnai/core";
 import { posix } from "node:path";
-import { RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON } from "../../../session/runtime-session-orchestrator.types.js";
 import type { ManagedInvocationRouteProfile } from "./types.js";
 import { unique } from "./catalog-descriptions.js";
 
@@ -21,8 +20,8 @@ export function hasSubstantiveManagedInvocationEvidence(record: ManagedAgentInvo
 function isNonSubstantiveManagedInvocationSummary(summary: string): boolean {
   return summary === "Direct provider managed invocation completed."
     || summary.startsWith("Direct provider managed invocation finished without final handoff text.")
-    || summary.includes(RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON)
-    || summary.startsWith("Managed invocation state transition is still pending after the tool-round budget was exhausted.");
+    || summary.includes("managed_invocation_state_transition_required")
+    || summary.startsWith("Managed invocation state transition is required before the governed workflow can continue.");
 }
 
 export function missingManagedInvocationRequiredTools(

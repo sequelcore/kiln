@@ -7,6 +7,40 @@ import {
 } from "../src/operator-event-presentation.js";
 import { managedAccountLeaseSettledEvent } from "./fixtures/managed-account-lease.js";
 
+const turnPolicy = {
+  policyId: "kiln.test.turn-convergence",
+  configurationHash: `sha256:${"a".repeat(64)}`,
+  providerRequests: 10,
+  toolRounds: 8,
+  toolCalls: 24,
+  cumulativeInputTokens: 256_000,
+  elapsedMs: 600_000,
+  activeMs: 600_000,
+  recoveryAttempts: 3,
+  consecutiveNoProgressSteps: 3,
+} as const;
+
+function turnPayload(disposition: Record<string, unknown>): Record<string, unknown> {
+  return {
+    routedProvider: "codex-oauth",
+    routedModel: "gpt-5.4-mini",
+    runtimeContinuity: {
+      strategy: "fallback-replay",
+      selectionReason: "no-sources",
+    },
+    authorityStatus: {
+      effective: "destructive",
+    },
+    inputTokens: 1398,
+    outputTokens: 11,
+    convergence: {
+      policy: turnPolicy,
+      progressEvidence: [],
+    },
+    ...disposition,
+  };
+}
+
 describe("operator event presentation", () => {
   it("projects Dafny observations as formal verification evidence with proof effort", () => {
     const digest = `sha256:${"a".repeat(64)}`;
@@ -785,32 +819,192 @@ describe("operator event presentation", () => {
     expect(finished.details).toContainEqual({ label: "Reference roots", value: "/workspace/references/cloned" });
   });
 
-  it("presents turn completion nested data as operator detail rows", () => {
-    const presentation = presentOperatorEventPayload("turn_completed", {
-      routedProvider: "codex-oauth",
-      routedModel: "gpt-5.4-mini",
+  it("presents a completion-eligible turn with its canonical policy and evidence", () => {
+    const presentation = presentOperatorEventPayload("turn_completed", turnPayload({
       outcome: "completed",
-      runtimeContinuity: {
-        strategy: "fallback-replay",
-        selectionReason: "no-sources",
+      dispositionReason: "completion_eligible",
+      completion: {
+        obligations: [],
+        producerEvidence: [],
+        eligibility: { status: "eligible" },
       },
-      authorityStatus: {
-        effective: "destructive",
-      },
-      inputTokens: 1398,
-      outputTokens: 11,
-    });
+    }));
 
-    expect(presentation.details).toEqual([
+    expect(presentation).toMatchObject({
+      title: "Turn completed",
+      summary: expect.stringContaining("completion_eligible"),
+      tone: "success",
+      conversationDisposition: "result",
+    });
+    expect(presentation.details).toEqual(expect.arrayContaining([
       { label: "Provider", value: "codex-oauth" },
       { label: "Model", value: "gpt-5.4-mini" },
       { label: "Outcome", value: "completed" },
+      { label: "Disposition reason", value: "completion_eligible" },
+      { label: "Completion eligibility", value: "eligible" },
+      { label: "Convergence policy", value: "kiln.test.turn-convergence" },
+      { label: "Convergence policy hash", value: `sha256:${"a".repeat(64)}` },
       { label: "Continuity", value: "fallback-replay" },
       { label: "Why", value: "no-sources" },
       { label: "Authority", value: "destructive" },
       { label: "Input tokens", value: "1398" },
       { label: "Output tokens", value: "11" },
-    ]);
+    ]));
+  });
+
+  it.each([
+    ["no_progress", "No progress detected"],
+    ["tool_round_limit", "Tool round limit reached"],
+  ] as const)("presents a %s pause with triggering convergence evidence", (reason, reasonLabel) => {
+    const presentation = presentOperatorEventPayload("turn_completed", turnPayload({
+      outcome: "paused",
+      dispositionReason: reason,
+      convergence: {
+        policy: turnPolicy,
+        progressEvidence: [],
+        pause: {
+          status: "pause",
+          reason,
+          metric: reason === "no_progress" ? "consecutiveNoProgressSteps" : "toolRounds",
+          observed: reason === "no_progress" ? 3 : 8,
+          limit: reason === "no_progress" ? 3 : 8,
+        },
+      },
+    }));
+
+    expect(presentation).toMatchObject({
+      title: "Turn paused",
+      summary: expect.stringContaining(`${reasonLabel} (${reason})`),
+      tone: "warning",
+    });
+    expect(presentation.details).toEqual(expect.arrayContaining([
+      { label: "Disposition reason", value: reason },
+      { label: "Convergence pause", value: `${reasonLabel} (${reason})` },
+      {
+        label: "Convergence metric",
+        value: reason === "no_progress" ? "consecutiveNoProgressSteps" : "toolRounds",
+      },
+      { label: "Convergence observed", value: reason === "no_progress" ? "3" : "8" },
+      { label: "Convergence limit", value: reason === "no_progress" ? "3" : "8" },
+    ]));
+  });
+
+  it("presents an unavailable convergence observation without inventing a numeric bound", () => {
+    const presentation = presentOperatorEventPayload("turn_completed", turnPayload({
+      outcome: "paused",
+      dispositionReason: "observation_unavailable",
+      convergence: {
+        policy: turnPolicy,
+        progressEvidence: [],
+        pause: {
+          status: "pause",
+          reason: "observation_unavailable",
+          metric: "cumulativeInputTokens",
+          unknownReason: "Provider did not report cumulative input usage.",
+        },
+      },
+    }));
+
+    expect(presentation.tone).toBe("warning");
+    expect(presentation.details).toEqual(expect.arrayContaining([
+      { label: "Convergence metric", value: "cumulativeInputTokens" },
+      { label: "Convergence unknown reason", value: "Provider did not report cumulative input usage." },
+    ]));
+    expect(presentation.details).not.toContainEqual({ label: "Convergence observed", value: "0" });
+  });
+
+  it.each([
+    ["required_producer_not_run", "paused", "warning"],
+    ["required_producer_unavailable", "failed", "error"],
+  ] as const)("presents required producer status %s without treating it as success", (reason, titleOutcome, tone) => {
+    const status = reason === "required_producer_not_run" ? "not_run" : "unavailable";
+    const presentation = presentOperatorEventPayload("turn_completed", turnPayload({
+      outcome: titleOutcome,
+      dispositionReason: reason,
+      completion: {
+        obligations: [{
+          kind: "required_producer",
+          obligationId: "required-producer:formal_verify",
+          canonicalToolId: "formal_verify",
+          acceptedEquivalentToolIds: [],
+          sourceAlias: "Dafny",
+        }],
+        producerEvidence: [{ canonicalProducerId: "formal_verify", status }],
+        eligibility: {
+          status: "ineligible",
+          unmet: [{
+            obligationId: "required-producer:formal_verify",
+            canonicalToolId: "formal_verify",
+            sourceAlias: "Dafny",
+            status,
+          }],
+        },
+      },
+    }));
+
+    expect(presentation).toMatchObject({
+      title: `Turn ${titleOutcome}`,
+      tone,
+      summary: expect.stringContaining(`(${reason})`),
+    });
+    expect(presentation.details).toEqual(expect.arrayContaining([
+      { label: "Completion eligibility", value: "ineligible" },
+      { label: "Unmet completion obligations", value: `formal_verify: ${status}` },
+      { label: "Producer evidence", value: `formal_verify: ${status} (evidence)` },
+    ]));
+  });
+
+  it("presents governed and runtime failures as distinct dangerous outcomes", () => {
+    const governed = presentOperatorEventPayload("turn_completed", turnPayload({
+      outcome: "failed",
+      dispositionReason: "governed_work_incomplete",
+      convergence: {
+        policy: turnPolicy,
+        progressEvidence: [],
+      },
+    }));
+    const runtime = presentOperatorEventPayload("turn_completed", {
+      outcome: "failed",
+      dispositionReason: "runtime_failure",
+    });
+
+    expect(governed).toMatchObject({
+      title: "Turn failed",
+      summary: expect.stringContaining("governed_work_incomplete"),
+      tone: "error",
+    });
+    expect(governed.details).toEqual(expect.arrayContaining([
+      { label: "Convergence policy", value: "kiln.test.turn-convergence" },
+    ]));
+    expect(runtime).toMatchObject({
+      title: "Turn failed",
+      summary: expect.stringContaining("runtime_failure"),
+      tone: "error",
+    });
+    expect(runtime.details).toContainEqual({ label: "Disposition reason", value: "runtime_failure" });
+  });
+
+  it.each([
+    ["operator_cancelled", "Cancelled by operator"],
+    ["runtime_cancelled", "Cancelled by runtime"],
+  ] as const)("presents %s as a neutral cancellation", (reason, reasonLabel) => {
+    const presentation = presentOperatorEventPayload("turn_completed", {
+      outcome: "cancelled",
+      dispositionReason: reason,
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Turn cancelled",
+      summary: expect.stringContaining(`${reasonLabel} (${reason})`),
+      tone: "info",
+    });
+  });
+
+  it("does not treat an outcome-only terminal payload as a successful turn", () => {
+    expect(presentOperatorEventPayload("turn_completed", { outcome: "completed" })).toMatchObject({
+      title: "Turn disposition unavailable",
+      tone: "error",
+    });
   });
 
   it("presents managed child invocation identity across surfaces", () => {

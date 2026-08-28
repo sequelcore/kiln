@@ -22,6 +22,7 @@ import type {
   ToolDefinition,
   ToolResultEvent,
 } from "@kilnai/core";
+import type { TurnTerminalDisposition } from "@kilnai/core/agents";
 import {
   AllCredentialsExhaustedError,
   defineManagedAgentAdapterDescriptor,
@@ -59,11 +60,7 @@ import type {
   RuntimeExecutionEnvelope,
   ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
-import {
-  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
-  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
-} from "../../session/runtime-session-orchestrator.types.js";
+import { deriveRuntimeConvergencePolicyInput } from "../../session/runtime-execution-envelope.js";
 import { admitManagedChildAuthority } from "./child-authority-admission.js";
 import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
@@ -111,7 +108,14 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
 }
 
 const TIMEOUT = { type: "managed-direct-runtime-timeout" } as const;
-const MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE: RuntimeExecutionEnvelope = { toolRounds: { max: 32 } };
+const MANAGED_DIRECT_PROVIDER_TOOL_ROUND_LIMIT = 32;
+const MANAGED_DIRECT_PROVIDER_CONVERGENCE_POLICY_INPUT = deriveRuntimeConvergencePolicyInput({
+  policyId: "kiln.managed-direct.default",
+  toolRounds: MANAGED_DIRECT_PROVIDER_TOOL_ROUND_LIMIT,
+});
+const MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE: RuntimeExecutionEnvelope = {
+  convergence: MANAGED_DIRECT_PROVIDER_CONVERGENCE_POLICY_INPUT,
+};
 const RESULT_SUMMARY_LIMIT = 2000;
 const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
 const TOOL_OUTPUT_LIMIT = 1200;
@@ -615,7 +619,11 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           builtinTools,
           perCallConfig,
         );
-        if (!handoffSubmission || handoffSubmission.result()) {
+        // A handoff is only a finalization step for a completed execution. A
+        // paused or failed child already has an authoritative typed
+        // disposition; dispatching the handoff prompt here could replace that
+        // disposition with a misleading successful finalization result.
+        if (!handoffSubmission || executionResult.outcome !== "completed" || handoffSubmission.result()) {
           result = executionResult;
         } else {
           const handoffCapability = capabilityMap.get(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME);
@@ -673,7 +681,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const replayResource = resultReplayResource(request.invocationId, resultText);
       const childExecutionResource = childExecutionReplayResource(request.invocationId, result, resultText);
       const structuredResult = handoffSubmission?.result();
-      const summary = structuredResult?.summary ?? clipSummary(resultText, replayResource?.uri, result.stopReason);
+      const summary = structuredResult?.summary ?? clipSummary(resultText, replayResource?.uri, result);
       const writeEvidence = collectDirectRuntimeWriteEvidence(request, result.toolExecutions ?? []);
       const resultResourceUris = [
         managedInvocationUri(request.invocationId, "transcript"),
@@ -688,11 +696,11 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const missingRequiredHandoff =
         handoffSubmission !== undefined &&
         structuredResult === undefined &&
-        result.stopReason !== RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
+        !isNoHandoffDisposition(result);
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
-        lifecycleState: missingRequiredHandoff ? "failed" : lifecycleStateForDirectChildStopReason(result.stopReason),
-        ...(result.stopReason ? { stopReason: result.stopReason } : {}),
+        lifecycleState: missingRequiredHandoff ? "failed" : lifecycleStateForDirectChildDisposition(result),
+        stopReason: result.dispositionReason,
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),
@@ -952,10 +960,13 @@ function boundedExecutionEnvelope(
   maxTurns: number | undefined,
 ): import("../../session/runtime-session-orchestrator.types.js").RuntimeExecutionEnvelope | undefined {
   if (maxTurns === undefined) return envelope;
-  const routeLimit = envelope?.toolRounds?.max;
+  const basePolicy = envelope?.convergence ?? MANAGED_DIRECT_PROVIDER_CONVERGENCE_POLICY_INPUT;
   return {
-    ...envelope,
-    toolRounds: { max: routeLimit === undefined ? maxTurns : Math.min(routeLimit, maxTurns) },
+    ...(envelope ?? {}),
+    convergence: deriveRuntimeConvergencePolicyInput({
+      policyId: basePolicy.policyId,
+      toolRounds: Math.min(basePolicy.toolRounds, maxTurns),
+    }, basePolicy),
   };
 }
 
@@ -1264,12 +1275,16 @@ function unknownRuntimeUsage(): ManagedAgentUsageReport {
   };
 }
 
-function clipSummary(summary: string, resultResourceUri?: string, stopReason?: string): string {
+function clipSummary(
+  summary: string,
+  resultResourceUri: string | undefined,
+  disposition: TurnTerminalDisposition,
+): string {
   const trimmed = summary.trim();
   if (trimmed.length === 0) {
     return `${NO_DIRECT_HANDOFF_SUMMARY} Inspect the transcript resource before recording governed evidence.`;
   }
-  if (isNoHandoffStopReason(stopReason)) {
+  if (isNoHandoffDisposition(disposition)) {
     return `${NO_DIRECT_HANDOFF_SUMMARY} ${trimmed}`;
   }
   if (trimmed.length <= RESULT_SUMMARY_LIMIT) {
@@ -1280,15 +1295,12 @@ function clipSummary(summary: string, resultResourceUri?: string, stopReason?: s
   return `${trimmed.slice(0, prefixLength)}${suffix}`;
 }
 
-function isNoHandoffStopReason(stopReason: string | undefined): boolean {
-  return (
-    stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON ||
-    stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON
-  );
+function isNoHandoffDisposition(disposition: TurnTerminalDisposition): boolean {
+  return disposition.outcome !== "completed";
 }
 
-function lifecycleStateForDirectChildStopReason(stopReason: string | undefined): "completed" | "failed" {
-  return isFailedDirectChildStopReason(stopReason) ? "failed" : "completed";
+function lifecycleStateForDirectChildDisposition(disposition: TurnTerminalDisposition): "completed" | "failed" {
+  return disposition.outcome === "completed" ? "completed" : "failed";
 }
 
 function mergeManagedChildResults(execution: OrchestrateResult, finalization: OrchestrateResult): OrchestrateResult {
@@ -1303,11 +1315,8 @@ function mergeManagedChildResults(execution: OrchestrateResult, finalization: Or
   };
 }
 
-function isFailedDirectChildStopReason(stopReason: string | undefined): boolean {
-  return (
-    isNoHandoffStopReason(stopReason) ||
-    stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON
-  );
+function isFailedDirectChildDisposition(disposition: TurnTerminalDisposition): boolean {
+  return disposition.outcome !== "completed";
 }
 
 function resultReplayResource(invocationId: string, text: string): ManagedAgentReplayResource | undefined {
@@ -1331,7 +1340,7 @@ function childExecutionReplayResource(
   if (
     resultText.trim().length > 0 &&
     toolExecutions.length === 0 &&
-    !isFailedDirectChildStopReason(result.stopReason)
+    !isFailedDirectChildDisposition(result)
   ) {
     return undefined;
   }
@@ -1382,7 +1391,8 @@ function formatChildExecutionEvidence(result: OrchestrateResult, resultText: str
     resultText.trim().length > 0 ? "## Final Output" : "Final output: <empty>",
     resultText.trim().length > 0 ? clipResourceText(resultText.trim(), TOOL_OUTPUT_LIMIT) : undefined,
     "",
-    `Stop reason: ${result.stopReason ?? "unknown"}`,
+    `Outcome: ${result.outcome}`,
+    `Disposition reason: ${result.dispositionReason}`,
     `Input tokens: ${result.inputTokens}`,
     `Output tokens: ${result.outputTokens}`,
     `Cache read tokens: ${result.cacheReadTokens}`,

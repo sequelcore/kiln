@@ -188,6 +188,7 @@ async function appendRecoveryEvents(input: {
       payload: {
         turnId: input.openTurn.turnId,
         outcome: "failed",
+        dispositionReason: "runtime_failure",
         durationMs: Math.max(0, input.now.getTime() - Date.parse(input.openTurn.startedAt)),
       },
     },

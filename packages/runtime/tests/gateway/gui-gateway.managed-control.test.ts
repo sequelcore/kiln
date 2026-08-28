@@ -44,6 +44,7 @@ import {
   type ManagedAgentWorktreeLeaseManager,
   type ManagedAgentRuntimeAdapter,
 } from "../../src/agents/managed-invocation/index.js";
+import { runtimeCompletedDisposition } from "../session/runtime-terminal-fixture.js";
 import {
   RuntimeSession,
 } from "../../src/session/runtime-session.js";
@@ -754,6 +755,7 @@ describe("GUI gateway managed control", () => {
           sessionId: session.id,
           sessionMode: "mode-a",
           traceId: "trace-managed-gui",
+          ...runtimeCompletedDisposition(),
         },
       } as never;
     });
@@ -1305,6 +1307,7 @@ describe("GUI gateway managed control", () => {
           sessionId: session.id,
           sessionMode: "mode-a",
           traceId: "trace-managed-denied-worktree-conflict",
+          ...runtimeCompletedDisposition(),
         },
       } as never;
     });

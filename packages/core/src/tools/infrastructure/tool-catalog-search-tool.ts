@@ -54,8 +54,12 @@ export class ToolCatalogSearchTool implements DevTool {
         && request.includeSchemas === true
         && result.stale !== true
         && result.entries.length === 1
-        && result.entries[0]?.name === request.exact
-        ? { materializableToolName: request.exact }
+        ? {
+            materializableToolName:
+              result.diagnostic?.code === "available"
+                ? result.diagnostic.canonicalName
+                : result.entries[0]?.name,
+          }
         : {}),
       verbosity: verbosity.value,
     }));
@@ -69,7 +73,7 @@ function visibleCatalog(catalog: ToolCatalogIndex, sandbox?: unknown): ToolCatal
   }
 
   const allowed = new Set(allowedToolNames);
-  return new ToolCatalogIndex(catalog.list({ includeSchemas: true }).filter((entry) => allowed.has(entry.name)));
+  return catalog.restrictToCanonicalNames(allowed);
 }
 
 function parseTags(value: unknown): { ok: true; value: readonly string[] } | { ok: false; result: ToolResult } {

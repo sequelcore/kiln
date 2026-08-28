@@ -1,3 +1,5 @@
+import type { SessionTurnOutcome } from "@kilnai/core";
+import type { RuntimeTurnTerminalDisposition } from "@kilnai/core/agents";
 import type { CanonicalSessionEvent } from "@kilnai/core/events";
 import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
@@ -17,6 +19,49 @@ export type CanonicalTurnFixtureInput = CanonicalTurnTerminalInput & {
   readonly continuity: RuntimeContinuitySnapshot;
   readonly runtimeEvents: readonly CapturedRuntimeLedgerEvent[];
 };
+
+const TEST_CONVERGENCE_POLICY = {
+  policyId: "test-policy",
+  configurationHash: `sha256:${"0".repeat(64)}`,
+  providerRequests: 10,
+  toolRounds: 10,
+  toolCalls: 10,
+  cumulativeInputTokens: 10_000,
+  elapsedMs: 60_000,
+  activeMs: 60_000,
+  recoveryAttempts: 10,
+  consecutiveNoProgressSteps: 3,
+} as const;
+
+/** Minimal portable dispositions for projection tests that do not own Runtime policy. */
+export function canonicalTurnDisposition(
+  outcome: "completed",
+): Extract<RuntimeTurnTerminalDisposition, { readonly dispositionReason: "completion_eligible" }>;
+export function canonicalTurnDisposition(outcome: SessionTurnOutcome): RuntimeTurnTerminalDisposition;
+export function canonicalTurnDisposition(outcome: SessionTurnOutcome): RuntimeTurnTerminalDisposition {
+  switch (outcome) {
+    case "completed":
+      return {
+        outcome,
+        dispositionReason: "completion_eligible",
+        completion: {
+          obligations: [],
+          producerEvidence: [],
+          eligibility: { status: "eligible" },
+        },
+        convergence: {
+          policy: TEST_CONVERGENCE_POLICY,
+          progressEvidence: [],
+        },
+      };
+    case "failed":
+      return { outcome, dispositionReason: "runtime_failure" };
+    case "cancelled":
+      return { outcome, dispositionReason: "operator_cancelled" };
+    case "paused":
+      return { outcome, dispositionReason: "session_not_active" };
+  }
+}
 
 /**
  * Drives the production lifecycle owner for ledger projection tests. Keeping

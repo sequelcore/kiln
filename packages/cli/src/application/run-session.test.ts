@@ -4,6 +4,10 @@ import type { SessionRegistry } from "../wrapper/session-registry.js";
 import type { SessionContext } from "../wrapper/index.js";
 import type { SessionHooks } from "./session-hooks.js";
 import { defineDeliberationLevelId, type DeliberationResolution } from "@kilnai/core/agents";
+import {
+  runtimeCompletedDisposition,
+  runtimeFailureDisposition,
+} from "../../tests/fixtures/terminal-disposition.js";
 
 const XHIGH_RESOLUTION: DeliberationResolution = {
   status: "exact",
@@ -12,9 +16,15 @@ const XHIGH_RESOLUTION: DeliberationResolution = {
 };
 
 describe("runSession", () => {
-  it("records a failed terminal outcome on the provider attempt", async () => {
+  it("records a failed terminal disposition on the provider attempt", async () => {
     const run = vi.fn(async function* () {
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeFailureDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const result = await runSession({
       registry: {
@@ -44,11 +54,11 @@ describe("runSession", () => {
     });
 
     expect(result.sessionSucceeded).toBe(false);
-    expect(result.lastError).toBe("Provider codex-oauth ended with terminal outcome 'failed'");
+    expect(result.lastError).toBe("Provider codex-oauth ended with terminal disposition 'runtime_failure'");
     expect(result.attempts).toEqual([expect.objectContaining({
       providerId: "codex-oauth",
       succeeded: false,
-      error: "Provider codex-oauth ended with terminal outcome 'failed'",
+      error: "Provider codex-oauth ended with terminal disposition 'runtime_failure'",
     })]);
   });
 
@@ -64,7 +74,13 @@ describe("runSession", () => {
         cacheReadTokens: 3,
         cacheWriteTokens: 4,
       };
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const createSession = vi.fn(() => ({
       run,
@@ -146,7 +162,13 @@ describe("runSession", () => {
 
   it("dispatches one exact post-fence credential-bound candidate without fallback", async () => {
     const run = vi.fn(async function* () {
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const createSession = vi.fn(() => ({
       run,
@@ -229,7 +251,13 @@ describe("runSession", () => {
         resourceLinks: [{ uri: "kiln://artifacts/evidence" }],
         toolUsage: { scope: "turn", toolName: "managed_agent.invoke", calls: 1 },
       };
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const createSession = vi.fn(() => ({
       run,
@@ -323,7 +351,13 @@ describe("runSession", () => {
         toolName: "managed_agent.invoke",
         output: "ok",
       };
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const result = await runSession({
       registry: {
@@ -370,7 +404,13 @@ describe("runSession", () => {
         toolName: "read",
         output: "content",
       };
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const result = await runSession({
       registry: {
@@ -403,10 +443,22 @@ describe("runSession", () => {
 
   it("reuses one operator correlation across provider fallback attempts", async () => {
     const firstRun = vi.fn(async function* () {
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeFailureDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const secondRun = vi.fn(async function* () {
-      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        disposition: runtimeCompletedDisposition(),
+        isPreflightCrash: false,
+      };
     });
     const sessions = [
       { run: firstRun, dispose: vi.fn(async () => undefined), sessionId: "provider-session-1" },

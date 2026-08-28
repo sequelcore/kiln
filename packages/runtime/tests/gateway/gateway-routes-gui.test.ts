@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { makeGatewayTestAdmission } from "./gateway-test-admission.js";
+import { runtimeCompletedDisposition } from "../session/runtime-terminal-fixture.js";
 
 describe("App Gateway GUI routes", () => {
   it("exposes a minimal GUI dashboard for App Gateway attach mode", async () => {
@@ -282,6 +283,7 @@ describe("App Gateway GUI routes", () => {
         sessionId: "session-gui",
         sessionMode: "ai_active",
         traceId: "trace-gui",
+        ...runtimeCompletedDisposition(),
         effectiveTurnAuthority: {
           executionMode: "execute",
           requestedAuthority: "audited",
@@ -585,6 +587,7 @@ describe("App Gateway GUI routes", () => {
         sessionId: "session-gui",
         sessionMode: "ai_active",
         traceId: "trace-gui",
+        ...runtimeCompletedDisposition(),
         effectiveTurnAuthority: {
           executionMode: "execute",
           requestedAuthority: "destructive",

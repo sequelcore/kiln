@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSessionEvent } from "@kilnai/core/events";
 import type { FeedbackEvidenceSelection } from "@kilnai/core/feedback";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
+import { canonicalTurnDisposition, projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
 import { collectRuntimeFeedbackEvidence } from "../../src/session/session-feedback-evidence.js";
 
 describe("runtime session feedback evidence", () => {
@@ -23,7 +23,7 @@ describe("runtime session feedback evidence", () => {
       channel: "cli",
       userMessageContent: "Run the typecheck.",
       assistantMessageContent: "Typecheck failed.",
-      turnOutcome: "completed",
+      disposition: canonicalTurnDisposition("completed"),
       queued: false,
       turnStartedAt: new Date("2026-05-18T10:00:00.000Z"),
       turnCompletedAt: new Date("2026-05-18T10:00:04.000Z"),
