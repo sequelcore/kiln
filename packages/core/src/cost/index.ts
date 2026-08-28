@@ -80,8 +80,6 @@ export {
   resolveExecutionPricing,
   resolveModelPricing,
 } from "./cost-tracker.js";
-export { ModelDevClient, createModelDevClient } from "./models-dev-client.js";
-export type { ModelDevPricing } from "./models-dev-client.js";
 export type {
   SessionTurnBudgetDecision,
   SessionTurnBudgetPolicy,

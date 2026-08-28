@@ -246,17 +246,8 @@ Each backend reports cost differently:
 | Backend | Mode | Mechanism |
 |---------|------|-----------|
 | Claude Code | native | SDK reports cost_update events with USD amounts |
-| Codex CLI | computed | Token counts from JSONL events, priced via models.dev cache |
+| Codex CLI | computed | Token counts from JSONL events; the current adapter reports USD as 0 |
 | OpenCode | none | No cost reporting available from SDK |
-
-### models.dev Price Cache
-
-For backends using computed cost tracking, Kiln fetches model pricing from the models.dev API and caches it locally:
-
-- Cache location: private project `cache/models-cache.json` under
-  `~/.kiln/projects/<krp_sha256>/`
-- TTL: 24 hours
-- Fallback: if fetch fails, uses last cached data (fail-open)
 
 ### Diminishing Returns Detection
 
