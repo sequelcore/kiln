@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:krp_068d3de3981b76f23d85748e601c295456aa1c0a2cdd12682c989c220be9a54d
 sourceProfiles: sequel-engineering,operator-communication
 generator: repo-shims-v1
-contentHash: sha256:cf7ac9ca718e66e161e9ceb1e98d68c921131b65ccb26c75c4cd43bb2d8ad366
+contentHash: sha256:cdca68d9308088a29d8de13a6c00124736415d6f3f05c1af426cc92aa14118ef
 -->
 # Agents
 
@@ -24,7 +24,7 @@ contentHash: sha256:cf7ac9ca718e66e161e9ceb1e98d68c921131b65ccb26c75c4cd43bb2d8a
 
 - Package manager: bun
 - Script `build`: `bun run scripts/release/cli.ts build`
-- Script `compile`: `tsc -b packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui`
+- Script `compile`: `tsc -b packages/operator-appearance packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui`
 - Script `docs:check`: `bun run scripts/validate-docs.ts`
 - Script `profile:startup`: `bun run scripts/profile-startup.ts`
 - Script `release:pack`: `bun run scripts/release/cli.ts pack`
@@ -32,21 +32,22 @@ contentHash: sha256:cf7ac9ca718e66e161e9ceb1e98d68c921131b65ccb26c75c4cd43bb2d8a
 - Script `release:publish`: `bun run scripts/release/cli.ts publish`
 - Script `release:smoke`: `bun run scripts/release/cli.ts smoke`
 - Script `release:validate`: `bun run scripts/release/cli.ts validate`
-- Script `test`: `bun run test:scripts && bun run test:foundation && bun run test:runtime && bun run test:cli && bun run test:surfaces`
+- Script `test`: `bun run test:scripts && bun run test:source-stability-recovery && bun run test:foundation && bun run test:runtime && bun run test:cli && bun run test:surfaces`
 - Script `test:benchmark-verifiers:live`: `bun run --cwd packages/cli test:live`
 - Script `test:cli`: `bun run --filter @kilnai/cli test`
 - Script `test:e2e`: `bun run --cwd packages/gui test:e2e`
-- Script `test:foundation`: `bun run --parallel --filter @kilnai/gateway-contracts --filter @kilnai/tools --filter @kilnai/core test`
+- Script `test:foundation`: `bun run --parallel --filter @kilnai/operator-appearance --filter @kilnai/gateway-contracts --filter @kilnai/tools --filter @kilnai/core test`
 - Script `test:harness`: `bun run scripts/run-managed-agent-harness-tests.ts`
 - Script `test:managed-agents:live`: `bun run scripts/run-managed-agent-live-tests.ts`
 - Script `test:model-gateway-harnesses:live`: `bun run scripts/run-model-gateway-harness-live-probe.ts`
 - Script `test:mutation:runtime`: `stryker run stryker.runtime.conf.mjs`
 - Script `test:runtime`: `bun run --filter @kilnai/runtime test`
 - Script `test:scripts`: `vitest run --config scripts/vitest.config.ts --exclude scripts/profile-startup.test.ts`
+- Script `test:source-stability-recovery`: `bun run scripts/run-source-stability-recovery-tests.ts`
 - Script `test:startup-profile`: `vitest run --config scripts/vitest.config.ts scripts/profile-startup.test.ts`
 - Script `test:surfaces`: `bun run --parallel --filter @kilnai/react --filter @kilnai/widget --filter @kilnai/tui --filter @kilnai/gui test`
 - Script `typecheck`: `bun run compile && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit && bun run typecheck:tests`
-- Script `typecheck:tests`: `tsc -p packages/tools/tsconfig.test.json && tsc -p packages/gateway-contracts/tsconfig.test.json && tsc -p packages/sdk/tsconfig.test.json && tsc -p packages/tui/tsconfig.test.json && tsc -p packages/core/tsconfig.test.json && tsc -p packages/runtime/tsconfig.test.json && tsc -p packages/cli/tsconfig.test.json && tsc -p packages/gui/tsconfig.test.json`
+- Script `typecheck:tests`: `tsc -p packages/operator-appearance/tsconfig.test.json && tsc -p packages/tools/tsconfig.test.json && tsc -p packages/gateway-contracts/tsconfig.test.json && tsc -p packages/sdk/tsconfig.test.json && tsc -p packages/tui/tsconfig.test.json && tsc -p packages/core/tsconfig.test.json && tsc -p packages/runtime/tsconfig.test.json && tsc -p packages/cli/tsconfig.test.json && tsc -p packages/gui/tsconfig.test.json`
 - Script `vendor:tools`: `bun run scripts/vendor-tools.ts`
 - Workspace package: `packages/*`
 
