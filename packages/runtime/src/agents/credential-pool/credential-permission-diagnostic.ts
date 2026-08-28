@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { isOverPermissiveCredentialMode } from "@kilnai/core";
+import { isOverPermissiveCredentialMode } from "../credential-acquisition/credential-file-mode.js";
 
 export interface OverPermissiveCredentialFile {
   /** Path relative to the credential root, so diagnostics never leak the operator's home path. */

@@ -2,9 +2,9 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
-import { KilnError } from "../../engine/errors.js";
+import { KilnError } from "@kilnai/core/engine";
 import { CREDENTIAL_FILE_MODE, applyCredentialFileMode } from "./credential-file-mode.js";
-import { resolveCoreKilnHome } from "../../kiln-home.js";
+import { resolveRuntimeKilnHome } from "../../kiln-home.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE = "https://auth.openai.com";
@@ -87,7 +87,7 @@ export class CodexOAuthAuth {
   private readonly browserAuthorizationTimeoutMs: number;
 
   constructor(options: CodexOAuthAuthOptions = {}) {
-    this.tokenPath = options.tokenPath ?? join(resolveCoreKilnHome(options.kilnHome), "auth", "codex-oauth.json");
+    this.tokenPath = options.tokenPath ?? join(resolveRuntimeKilnHome(options.kilnHome), "auth", "codex-oauth.json");
     this.browserCallbackPorts = options.browserCallbackPorts ?? BROWSER_CALLBACK_PORTS;
     this.browserAuthorizationTimeoutMs = options.browserAuthorizationTimeoutMs ?? BROWSER_AUTHORIZATION_TIMEOUT_MS;
   }

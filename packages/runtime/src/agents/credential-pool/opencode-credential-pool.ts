@@ -7,10 +7,9 @@ import {
   CredentialPool,
   type Credential,
   type CredentialOutcome,
-  type OpenCodeAuthFile,
-  type OpenCodeTier,
   type ProviderAdapter,
 } from "@kilnai/core";
+import type { OpenCodeAuthFile, OpenCodeTier } from "../credential-acquisition/opencode-credentials.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
 import { CredentialFileStore } from "./credential-file-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";

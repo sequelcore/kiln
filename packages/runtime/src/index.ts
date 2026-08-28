@@ -50,6 +50,17 @@ export {
 } from "./agent-tasks/index.js";
 export type { CredentialPoolObservation } from "./agents/credential-pool/credential-pool-observability.js";
 export { CredentialPoolObservabilityRegistry } from "./agents/credential-pool/credential-pool-observability.js";
+export { ProviderCredentialApplicationService } from "./agents/credential-acquisition/provider-credential-application-service.js";
+export type {
+  CodexNativeActivationResult,
+  CodexNativeActivationSelection,
+  CredentialPermissionFinding,
+  ImportNativeOpenCodeCredentialOptions,
+  LegacyProviderCredentialStatus,
+  ProviderCredentialApplicationServiceConfig,
+  ProviderCredentialInspection,
+} from "./agents/credential-acquisition/provider-credential-application-service.js";
+export type { OpenCodeTier } from "./agents/credential-acquisition/opencode-credentials.js";
 export type {
   CodexOAuthCredentialPoolServiceConfig,
   CodexOAuthCredentialStatus,
@@ -57,11 +68,8 @@ export type {
   CodexOAuthExecutionCredential,
   CodexOAuthPoolCredential,
   CreateExactCodexOAuthAdapterOptions,
-  CredentialFileStatus,
-  CredentialFileStoreConfig,
   CredentialHealthRecord,
   CredentialHealthStoreConfig,
-  CredentialPermissionDiagnosticConfig,
   CredentialPoolFactoryConfig,
   CredentialWatcherConfig,
   CredentialWatcherListener,
@@ -77,16 +85,11 @@ export type {
   LoadCredentialPoolOptions,
   OpenCodeCredentialPoolServiceConfig,
   OpenCodeCredentialStatus,
-  OverPermissiveCredentialFile,
   PooledDirectProviderId,
-  RuntimeCredentialFile,
-  WriteRuntimeCredential,
 } from "./agents/credential-pool/index.js";
 export {
   CODEX_OAUTH_POOL_PROVIDER_ID,
   CodexOAuthCredentialPoolService,
-  CredentialFileStore,
-  CredentialFileStoreError,
   CredentialHealthStore,
   CredentialPoolFactory,
   CredentialWatcher,
@@ -94,7 +97,6 @@ export {
   HarnessCredentialPoolService,
   isHarnessPoolProviderId,
   isPooledDirectProviderId,
-  listOverPermissiveCredentialFiles,
   mapCodexOAuthProviderError,
   mapDirectProviderError,
   mapOpenCodeProviderError,

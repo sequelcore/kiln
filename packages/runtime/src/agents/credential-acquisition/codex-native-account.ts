@@ -1,5 +1,5 @@
-import type { CodexOAuthTokenFile } from "@kilnai/core";
-import { CODEX_OAUTH_CLIENT_ID } from "@kilnai/core";
+import type { CodexOAuthTokenFile } from "./codex-oauth-auth.js";
+import { CODEX_OAUTH_CLIENT_ID } from "./codex-oauth-auth.js";
 
 /**
  * Shape of `~/.codex/auth.json` as written/read by the native Codex CLI/App

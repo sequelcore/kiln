@@ -52,13 +52,16 @@ describe("auth command", () => {
   let logs: string[];
   let previousCodexHome: string | undefined;
   let previousXdgConfigHome: string | undefined;
+  let previousXdgDataHome: string | undefined;
 
   beforeEach(async () => {
     logs = [];
     previousCodexHome = process.env.CODEX_HOME;
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    previousXdgDataHome = process.env.XDG_DATA_HOME;
     delete process.env.CODEX_HOME;
     delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_DATA_HOME;
     vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
       logs.push(String(message ?? ""));
     });
@@ -111,6 +114,8 @@ describe("auth command", () => {
     else process.env.CODEX_HOME = previousCodexHome;
     if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    if (previousXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+    else process.env.XDG_DATA_HOME = previousXdgDataHome;
     await rm(homeDir, { recursive: true, force: true });
   });
 
@@ -379,6 +384,29 @@ describe("auth command", () => {
     await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
   }, 10_000);
 
+  it("reports an absorbed native account even when the requested activation cannot proceed", async () => {
+    const nativeAuthPath = join(homeDir, ".codex", "auth.json");
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(nativeAuthPath, JSON.stringify({
+      auth_mode: "chatgpt",
+      OPENAI_API_KEY: null,
+      tokens: {
+        id_token: "native-id-token",
+        access_token: codexCredential("account-native").access_token,
+        refresh_token: "native-refresh",
+        account_id: "account-native",
+      },
+      last_refresh: "2026-07-01T00:00:00.000Z",
+    }), "utf8");
+
+    await runAuth(["codex", "activate", "does-not-exist"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Absorbed currently active native Codex account (account-native) into the Kiln pool");
+    expect(output).toContain("Unknown Codex OAuth credential: does-not-exist");
+    expect(JSON.parse(await readFile(nativeAuthPath, "utf8")).tokens.account_id).toBe("account-native");
+  }, 10_000);
+
   it.each([[[]], [["--auto", "extra"]], [["--bogus"]], [["work", "second"]]])(
     "rejects malformed activate arguments %j without touching native auth",
     async (args: string[]) => {
@@ -468,6 +496,25 @@ describe("auth command", () => {
       updatedAt: expect.any(String),
     });
     expect(logs.join("\n")).toContain("Linked OpenCode (zen) as zen-work from --key");
+  }, 10_000);
+
+  it("imports native OpenCode credentials through the Runtime application boundary", async () => {
+    const dataHome = join(homeDir, "opencode-data");
+    await mkdir(join(dataHome, "opencode"), { recursive: true });
+    await writeFile(
+      join(dataHome, "opencode", "auth.json"),
+      JSON.stringify({ "opencode-zen": { type: "api", key: "sk-native-zen" } }),
+      "utf8",
+    );
+    process.env.XDG_DATA_HOME = dataHome;
+
+    await runAuth(["opencode", "import", "--tier", "zen", "--id", "zen-imported"]);
+
+    const raw = JSON.parse(
+      await readFile(join(homeDir, ".kiln", "auth", "opencode-api", "zen-imported.json"), "utf8"),
+    );
+    expect(raw.auth).toMatchObject({ api_key: "sk-native-zen", tier: "zen" });
+    expect(logs.join("\n")).toContain("Imported OpenCode (zen) as zen-imported from OpenCode config");
   }, 10_000);
 
   it("filters OpenCode status by tier", async () => {

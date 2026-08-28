@@ -1,8 +1,8 @@
 import {
   CODEX_DEVICE_VERIFICATION_URI,
   CodexOAuthAuth,
-  type OpenCodeTier,
-} from "@kilnai/core";
+} from "../agents/credential-acquisition/codex-oauth-auth.js";
+import type { OpenCodeTier } from "../agents/credential-acquisition/opencode-credentials.js";
 import {
   CodexOAuthCredentialPoolService,
   OpenCodeCredentialPoolService,

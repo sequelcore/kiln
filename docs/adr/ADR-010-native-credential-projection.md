@@ -55,9 +55,10 @@ Projection is bound by these invariants:
 - Projection does not change Kiln's own routing. Which account Kiln uses for
   its own calls stays governed by pool selection and routing config.
 
-Native file shape knowledge lives in `@kilnai/cli` beside the other native
-projection writers. Runtime exposes the pooled credential and the recovery of
-provider-required fields; it does not encode native file layouts.
+Native credential shape, path, permission, backup, and atomic-write knowledge
+lives in Runtime's private credential-acquisition capability. CLI requests the
+operation and renders its secret-free result; it does not read or write native
+credential files.
 
 ## Consequences
 
@@ -82,8 +83,10 @@ translation and the same invariants. It is deliberately not a generic
 
 ## Verification
 
-- `packages/cli/tests/config/codex-native-account-sync.test.ts` covers native
+- `packages/runtime/tests/agents/credential-acquisition/codex-native-account.test.ts` covers native
   shape translation in both directions and rejection of malformed native files.
+- `packages/runtime/tests/agents/credential-acquisition/provider-credential-application-service.test.ts`
+  covers the application boundary for native import and secret-free inventory.
 - `packages/cli/tests/commands/auth.test.ts` covers absorb, backup location,
   bounded retention, atomic replacement, fail-closed behavior when a required
   field cannot be recovered, and the distinct failure diagnostics.

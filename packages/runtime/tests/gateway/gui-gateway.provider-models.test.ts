@@ -12,9 +12,8 @@ import {
 } from "node:events";
 import {
   CredentialPool,
-  type OpenCodeAuthFile,
-  type OpenCodeTier,
 } from "@kilnai/core/agents";
+import type { OpenCodeAuthFile, OpenCodeTier } from "../../src/agents/credential-acquisition/opencode-credentials.js";
 import { GPT4O } from "../../src/agents/provider-adapters/openai.js";
 import { OPENCODE_BASE_URL } from "../../src/agents/provider-adapters/opencode.js";
 import {

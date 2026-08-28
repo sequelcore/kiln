@@ -1,7 +1,8 @@
 import { OpenAICompatAdapter } from "./openai-compat.js";
-import type { AgentResponse, CreateMessageOptions, OpenCodeTier } from "@kilnai/core/agents";
+import type { AgentResponse, CreateMessageOptions } from "@kilnai/core/agents";
 import { safeProviderRequestIdentity } from "@kilnai/core/agents";
 import { KilnError } from "@kilnai/core/engine";
+import type { OpenCodeTier } from "../credential-acquisition/opencode-credentials.js";
 
 export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";

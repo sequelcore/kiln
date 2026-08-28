@@ -24,7 +24,7 @@ const coreMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@kilnai/core", () => ({
+vi.mock("../../src/agents/credential-acquisition/codex-oauth-auth.js", () => ({
   CODEX_DEVICE_VERIFICATION_URI: "https://mock.openai.com/activate",
   CodexOAuthAuth: coreMocks.CodexOAuthAuth,
 }));

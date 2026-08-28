@@ -3,12 +3,12 @@ import {
   type ExecutionSessionBindingEvidence,
   type ProviderAdapter,
 } from "@kilnai/core";
-import type { OpenCodeTier } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
   DirectProviderCredentialPoolService,
   OpenCodeCredentialPoolService,
   type ConfiguredExecutionCredential,
+  type OpenCodeTier,
   isPooledDirectProviderId,
 } from "@kilnai/runtime";
 

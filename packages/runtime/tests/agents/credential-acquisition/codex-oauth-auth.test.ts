@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { get } from "node:http";
-import { KilnError } from "../../../engine/errors.js";
+import { KilnError } from "@kilnai/core/engine";
 
 type CodexOAuthTokenFile = {
   access_token: string;
@@ -15,18 +15,29 @@ type DeviceAuthorizationResult = {
   intervalSeconds: number;
 };
 
-const mockMkdir = vi.fn();
-const mockReadFile = vi.fn();
-const mockWriteFile = vi.fn();
-const mockUnlink = vi.fn();
-const mockJoin = vi.fn((...parts: string[]) => parts.join("/"));
-const mockDirname = vi.fn((input: string) => {
-  const parts = input.split("/");
-  parts.pop();
-  return parts.length > 0 ? parts.join("/") : ".";
-});
-const mockHomedir = vi.fn(() => "/mock-home");
-const mockFetch = vi.fn();
+const {
+  mockMkdir,
+  mockReadFile,
+  mockWriteFile,
+  mockUnlink,
+  mockJoin,
+  mockDirname,
+  mockHomedir,
+  mockFetch,
+} = vi.hoisted(() => ({
+  mockMkdir: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockWriteFile: vi.fn(),
+  mockUnlink: vi.fn(),
+  mockJoin: vi.fn((...parts: string[]) => parts.join("/")),
+  mockDirname: vi.fn((input: string) => {
+    const parts = input.split("/");
+    parts.pop();
+    return parts.length > 0 ? parts.join("/") : ".";
+  }),
+  mockHomedir: vi.fn(() => "/mock-home"),
+  mockFetch: vi.fn(),
+}));
 
 vi.mock("node:fs/promises", () => ({
   mkdir: mockMkdir,
@@ -69,8 +80,8 @@ function jwtWithExp(exp: number): string {
   return `header.${payload}.signature`;
 }
 
-async function loadModule(): Promise<typeof import("../codex-oauth-auth.js")> {
-  return import("../codex-oauth-auth.js");
+async function loadModule(): Promise<typeof import("../../../src/agents/credential-acquisition/codex-oauth-auth.js")> {
+  return import("../../../src/agents/credential-acquisition/codex-oauth-auth.js");
 }
 
 async function createAuth(tokenPath = "/tmp/codex-oauth.json") {

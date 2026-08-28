@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CREDENTIAL_FILE_MODE, applyCredentialFileMode, type CredentialSource } from "@kilnai/core";
+import type { CredentialSource } from "@kilnai/core";
+import { CREDENTIAL_FILE_MODE, applyCredentialFileMode } from "../credential-acquisition/credential-file-mode.js";
 
 export interface CredentialFileStoreConfig {
   readonly rootDir: string;

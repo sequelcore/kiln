@@ -255,22 +255,6 @@ export { type CatalogPricing, MODEL_CATALOG, CODEX_DEFAULT_MODEL } from "./model
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
 export { ToolCache } from "./tool-cache.js";
-export { CodexOAuthAuth } from "./infrastructure/codex-oauth-auth.js";
-export { CODEX_DEVICE_VERIFICATION_URI, CODEX_OAUTH_CLIENT_ID } from "./infrastructure/codex-oauth-auth.js";
-export {
-  CREDENTIAL_FILE_MODE,
-  applyCredentialFileMode,
-  isOverPermissiveCredentialMode,
-} from "./infrastructure/credential-file-mode.js";
-export type {
-  BrowserAuthorizationResult,
-  CodexOAuthAuthOptions,
-  CodexOAuthTokenFile,
-  DeviceAuthorizationResult,
-  PollAuthorizationParams,
-} from "./infrastructure/codex-oauth-auth.js";
-export { OpenCodeAuth } from "./infrastructure/opencode-auth.js";
-export type { OpenCodeAuthFile, OpenCodeAuthOptions, OpenCodeTier } from "./infrastructure/opencode-auth.js";
 export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";

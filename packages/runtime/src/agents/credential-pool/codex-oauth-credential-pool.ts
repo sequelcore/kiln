@@ -4,15 +4,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { CodexOAuthAdapter } from "../provider-adapters/codex-oauth.js";
 import {
-  CodexOAuthAuth,
   CredentialPool,
   KilnError,
-  type CodexOAuthTokenFile,
   type Credential,
   type CredentialOutcome,
   type ProviderUsageSnapshot,
   type ProviderAdapter,
 } from "@kilnai/core";
+import { CodexOAuthAuth, type CodexOAuthTokenFile } from "../credential-acquisition/codex-oauth-auth.js";
 import { CodexProviderUsageReader } from "../provider-usage/codex-provider-usage-reader.js";
 import { FileProviderUsageStore, type ProviderUsageStore } from "../provider-usage/file-provider-usage-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";

@@ -3,7 +3,7 @@ import {
   fromNativeCodexAuthFile,
   parseNativeCodexAuthFile,
   toNativeCodexAuthFile,
-} from "../../src/config/codex-native-account-sync.js";
+} from "../../../src/agents/credential-acquisition/codex-native-account.js";
 
 function jwtWithClaims(claims: Record<string, unknown>): string {
   const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");

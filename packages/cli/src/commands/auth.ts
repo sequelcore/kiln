@@ -1,35 +1,16 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import {
-  CREDENTIAL_FILE_MODE,
-  OpenCodeAuth,
-  type CodexOAuthTokenFile,
-  type OpenCodeTier,
   type ProviderUsageSnapshot,
 } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
   OpenCodeCredentialPoolService,
-  listOverPermissiveCredentialFiles,
+  ProviderCredentialApplicationService,
+  type CodexNativeActivationResult,
+  type CredentialPermissionFinding,
+  type OpenCodeTier,
   startProviderAuthRequest,
 } from "@kilnai/runtime";
-import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
 import { resolveKilnHomePath } from "../config/global-config/path.js";
-import { backupNativeProjectionFile } from "../config/native-projection-backup.js";
-import {
-  fromNativeCodexAuthFile,
-  parseNativeCodexAuthFile,
-  toNativeCodexAuthFile,
-  type NativeCodexAuthFile,
-} from "../config/codex-native-account-sync.js";
-
-const EXPIRING_SOON_MS = 120 * 1000;
-const NATIVE_CODEX_AUTH_BACKUP_TARGET_ID = "codex-native-auth";
-/** Enough history to recover across a few bad switches without retaining token material indefinitely. */
-const NATIVE_CODEX_AUTH_BACKUP_RETENTION = 5;
-const POOLED_PROVIDER_AUTH_FILES = new Set(["opencode.json", "codex-oauth.json"]);
-const DIRECT_OPENCODE_AUTH_DIR = "opencode-api";
 
 export interface AuthCommandOptions {
   /** Canonical operator Kiln home supplied by CLI composition. */
@@ -38,10 +19,6 @@ export interface AuthCommandOptions {
 
 function resolveAuthKilnHome(explicitKilnHome?: string): string {
   return explicitKilnHome?.trim() || resolveKilnHomePath();
-}
-
-function resolveAuthDirectory(kilnHome?: string): string {
-  return join(resolveAuthKilnHome(kilnHome), "auth");
 }
 
 export async function runAuth(args: string[], options: AuthCommandOptions = {}): Promise<void> {
@@ -178,61 +155,24 @@ function describeUsageCause(usage: ProviderUsageSnapshot): string {
   return " (provider reported no usage)";
 }
 
-type CodexActivateSelection =
-  | { readonly kind: "auto" }
-  | { readonly kind: "explicit"; readonly id: string };
-
-/**
- * A credential proven activatable: `id_token` is required by the type, so a
- * native auth file can never be written from a credential lacking one.
- */
-interface CodexActivationTarget {
-  readonly id: string;
-  readonly tokenFile: CodexOAuthTokenFile & { readonly id_token: string };
-}
-
-/** Distinguishes "nothing had quota" from "something had quota but could not be made activatable". */
-type CodexActivationOutcome =
-  | { readonly kind: "selected"; readonly target: CodexActivationTarget }
-  | { readonly kind: "unknown-credential"; readonly id: string }
-  | { readonly kind: "no-available-credential" }
-  | { readonly kind: "no-activatable-credential"; readonly blockedIds: readonly string[] };
-
 async function runCodexActivate(rest: string[], kilnHome?: string): Promise<void> {
   const selection = parseCodexActivateOptions(rest);
-  const pool = new CodexOAuthCredentialPoolService({ kilnHome });
-  const nativeAuthPath = join(resolveNativeHarnessDir("codex"), "auth.json");
-
-  const absorbedAccountId = await absorbCurrentNativeAccount(pool, nativeAuthPath);
-  if (absorbedAccountId) {
-    console.log(`Absorbed currently active native Codex account (${absorbedAccountId}) into the Kiln pool.`);
+  const outcome = await new ProviderCredentialApplicationService({ kilnHome })
+    .activateNativeCodexCredential(selection);
+  if (outcome.absorbedAccountId) {
+    console.log(`Absorbed currently active native Codex account (${outcome.absorbedAccountId}) into the Kiln pool.`);
   }
-
-  const outcome = await resolveActivationTarget(pool, selection);
-  if (outcome.kind !== "selected") {
+  if (outcome.kind !== "activated") {
     console.log(describeActivationFailure(outcome));
     return;
   }
-  const target = outcome.target;
-
-  const backupPath = backupNativeProjectionFile({
-    kilnDir: resolveAuthKilnHome(kilnHome),
-    targetId: NATIVE_CODEX_AUTH_BACKUP_TARGET_ID,
-    filePath: nativeAuthPath,
-    retain: NATIVE_CODEX_AUTH_BACKUP_RETENTION,
-    mode: CREDENTIAL_FILE_MODE,
-  });
-  if (backupPath) {
-    console.log(`Backed up previous native Codex auth to ${backupPath}`);
+  if (outcome.backupPath) {
+    console.log(`Backed up previous native Codex auth to ${outcome.backupPath}`);
   }
-
-  await writeNativeAuthFileAtomically(nativeAuthPath, toNativeCodexAuthFile(target.tokenFile, new Date().toISOString()));
-
-  const email = (await pool.listCredentialEmails()).get(target.id);
-  console.log(`Activated Codex OAuth credential ${target.id}${email ? ` (${email})` : ""} in native Codex CLI/App.`);
+  console.log(`Activated Codex OAuth credential ${outcome.id}${outcome.email ? ` (${outcome.email})` : ""} in native Codex CLI/App.`);
 }
 
-function parseCodexActivateOptions(rest: string[]): CodexActivateSelection {
+function parseCodexActivateOptions(rest: string[]): { readonly kind: "auto" } | { readonly kind: "explicit"; readonly id: string } {
   const [only] = rest;
   if (rest.length !== 1 || !only) throw new Error("Usage: kiln auth codex activate <id> | --auto");
   if (only === "--auto") return { kind: "auto" };
@@ -240,66 +180,7 @@ function parseCodexActivateOptions(rest: string[]): CodexActivateSelection {
   return { kind: "explicit", id: only };
 }
 
-/** Never fails the activation flow; a missing or unreadable native auth file just means nothing to absorb. */
-async function absorbCurrentNativeAccount(
-  pool: CodexOAuthCredentialPoolService,
-  nativeAuthPath: string,
-): Promise<string | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(nativeAuthPath, "utf8");
-  } catch {
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-  const native: NativeCodexAuthFile | null = parseNativeCodexAuthFile(parsed);
-  if (!native) return undefined;
-  await pool.linkCredential({ tokenFile: fromNativeCodexAuthFile(native) });
-  return native.tokens.account_id ?? undefined;
-}
-
-async function resolveActivationTarget(
-  pool: CodexOAuthCredentialPoolService,
-  selection: CodexActivateSelection,
-): Promise<CodexActivationOutcome> {
-  if (selection.kind === "explicit") {
-    const id = selection.id;
-    const tokenFile = await pool.ensureCredentialIdToken(id);
-    if (!tokenFile) return { kind: "unknown-credential", id };
-    return tokenFile.id_token
-      ? { kind: "selected", target: { id, tokenFile: { ...tokenFile, id_token: tokenFile.id_token } } }
-      : { kind: "no-activatable-credential", blockedIds: [id] };
-  }
-
-  const [usage, status] = await Promise.all([pool.refreshUsage(), pool.listStatus()]);
-  const executableIds = new Set(
-    status.filter((entry) => entry.status === "valid" || entry.status === "expiring-soon").map((entry) => entry.id),
-  );
-  const ranked = usage
-    .filter((entry) => executableIds.has(entry.credentialId) && entry.availability === "available")
-    .sort((a, b) => (a.primary?.usedPercent ?? 0) - (b.primary?.usedPercent ?? 0));
-  if (ranked.length === 0) return { kind: "no-available-credential" };
-
-  const blockedIds: string[] = [];
-  for (const candidate of ranked) {
-    const tokenFile = await pool.ensureCredentialIdToken(candidate.credentialId);
-    if (tokenFile?.id_token) {
-      return {
-        kind: "selected",
-        target: { id: candidate.credentialId, tokenFile: { ...tokenFile, id_token: tokenFile.id_token } },
-      };
-    }
-    blockedIds.push(candidate.credentialId);
-  }
-  return { kind: "no-activatable-credential", blockedIds };
-}
-
-function describeActivationFailure(outcome: Exclude<CodexActivationOutcome, { kind: "selected" }>): string {
+function describeActivationFailure(outcome: Exclude<CodexNativeActivationResult, { kind: "activated" }>): string {
   switch (outcome.kind) {
     case "unknown-credential":
       return `Unknown Codex OAuth credential: ${outcome.id}. Run 'kiln auth codex status' to list linked credentials.`;
@@ -307,19 +188,6 @@ function describeActivationFailure(outcome: Exclude<CodexActivationOutcome, { ki
       return "No Codex OAuth credential currently has available quota. Run 'kiln auth codex status --usage' to see reset times.";
     case "no-activatable-credential":
       return `Native Codex CLI/App requires an id_token, and none could be recovered for: ${outcome.blockedIds.join(", ")}. Run 'kiln auth codex login' to relink ${outcome.blockedIds.length === 1 ? "this account" : "these accounts"}, then activate again.`;
-  }
-}
-
-async function writeNativeAuthFileAtomically(nativeAuthPath: string, native: NativeCodexAuthFile): Promise<void> {
-  await mkdir(dirname(nativeAuthPath), { recursive: true });
-  const tempPath = join(dirname(nativeAuthPath), `.auth.json.${randomBytes(8).toString("hex")}.tmp`);
-  let renamed = false;
-  try {
-    await writeFile(tempPath, `${JSON.stringify(native, null, 2)}\n`, { encoding: "utf8", mode: CREDENTIAL_FILE_MODE });
-    await rename(tempPath, nativeAuthPath);
-    renamed = true;
-  } finally {
-    if (!renamed) await rm(tempPath, { force: true });
   }
 }
 
@@ -358,8 +226,6 @@ function parseCodexLogoutOptions(rest: string[]): string | undefined {
 async function runOpenCodeLink(rest: string[], kilnHome?: string): Promise<void> {
   const options = parseOpenCodeOptions(rest);
   const id = options.id ?? `${options.tier}-primary`;
-  const auth = new OpenCodeAuth({ kilnHome });
-  const pool = new OpenCodeCredentialPoolService({ kilnHome });
 
   if (options.key) {
     const linked = await startProviderAuthRequest({
@@ -379,14 +245,9 @@ async function runOpenCodeLink(rest: string[], kilnHome?: string): Promise<void>
     return;
   }
 
-  const imported = await auth.readFromOpenCodeConfig({ tier: options.tier });
+  const imported = await new ProviderCredentialApplicationService({ kilnHome })
+    .importNativeOpenCodeCredential({ tier: options.tier, id });
   if (imported) {
-    await pool.linkCredential({
-      id,
-      apiKey: imported.api_key,
-      tier: imported.tier,
-      createdAt: imported.created_at,
-    });
     console.log(`Linked OpenCode (${options.tier}) as ${id} from OpenCode config`);
     return;
   }
@@ -417,19 +278,12 @@ async function runOpenCodeLink(rest: string[], kilnHome?: string): Promise<void>
 async function runOpenCodeImport(rest: string[], kilnHome?: string): Promise<void> {
   const options = parseOpenCodeOptions(rest, { allowKey: false });
   const id = options.id ?? `${options.tier}-primary`;
-  const auth = new OpenCodeAuth({ kilnHome });
-  const pool = new OpenCodeCredentialPoolService({ kilnHome });
-  const imported = await auth.readFromOpenCodeConfig({ tier: options.tier });
+  const imported = await new ProviderCredentialApplicationService({ kilnHome })
+    .importNativeOpenCodeCredential({ tier: options.tier, id });
   if (!imported) {
     console.log(`No OpenCode ${options.tier} API key found in OpenCode config`);
     return;
   }
-  await pool.linkCredential({
-    id,
-    apiKey: imported.api_key,
-    tier: imported.tier,
-    createdAt: imported.created_at,
-  });
   console.log(`Imported OpenCode (${options.tier}) as ${id} from OpenCode config`);
 }
 
@@ -548,60 +402,35 @@ function readLineFromStdin(): Promise<string> {
 }
 
 async function printAllProviderStatuses(kilnHome?: string): Promise<void> {
-  const authDir = resolveAuthDirectory(kilnHome);
-  let entries: string[];
-  try {
-    entries = await readdir(authDir);
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? (error as { code?: string }).code : undefined;
-    if (code === "ENOENT") {
-      console.log("No authenticated providers");
-      return;
-    }
-    throw error;
-  }
-
-  const providerFiles = entries.filter((entry) => entry.endsWith(".json") && !POOLED_PROVIDER_AUTH_FILES.has(entry));
-  const providerDirs = entries.filter((entry) => !entry.endsWith(".json"));
-  if (providerFiles.length === 0 && providerDirs.length === 0) {
+  const inspection = await new ProviderCredentialApplicationService({ kilnHome }).inspectStoredCredentials();
+  if (!inspection.hasStoredEntries) {
     console.log("No authenticated providers");
     return;
   }
 
-  if (providerDirs.includes(DIRECT_OPENCODE_AUTH_DIR)) {
+  if (inspection.hasOpenCodePool) {
     await runOpenCodeStatus([], kilnHome);
   }
-  if (providerDirs.includes("codex-oauth")) {
+  if (inspection.hasCodexOAuthPool) {
     await runCodexStatus([], kilnHome);
   }
 
-  for (const file of providerFiles) {
-    const tokenPath = join(authDir, file);
-
-    const provider = file.slice(0, -".json".length);
-    const tokenFile = await loadGenericTokenFile(tokenPath);
-    if (!tokenFile) {
-      console.log(`${provider}: unreadable`);
+  for (const provider of inspection.legacyProviders) {
+    if (provider.status === "unreadable") {
+      console.log(`${provider.provider}: unreadable`);
       continue;
     }
-
-    const expiry = typeof tokenFile.expires_at === "string" ? tokenFile.expires_at : "unknown";
-    const status = typeof tokenFile.expires_at === "string"
-      ? describeExpiry(tokenFile.expires_at)
-      : "unknown";
-    console.log(`${provider}: ${status}${expiry === "unknown" ? "" : ` (expires ${expiry})`}`);
+    console.log(`${provider.provider}: ${provider.status}${provider.expiresAt ? ` (expires ${provider.expiresAt})` : ""}`);
   }
 
-  await printCredentialPermissionWarnings(kilnHome);
+  printCredentialPermissionWarnings(inspection.permissionFindings);
 }
 
 /**
  * Store-wide finding, so it belongs on the store-wide command rather than being
  * repeated by each provider status.
  */
-async function printCredentialPermissionWarnings(kilnHome?: string): Promise<void> {
-  const authDir = resolveAuthDirectory(kilnHome);
-  const findings = await listOverPermissiveCredentialFiles({ rootDir: authDir });
+function printCredentialPermissionWarnings(findings: readonly CredentialPermissionFinding[]): void {
   if (findings.length === 0) return;
   console.log("");
   console.log("Warning: credential files readable beyond their owner:");
@@ -609,30 +438,7 @@ async function printCredentialPermissionWarnings(kilnHome?: string): Promise<voi
     console.log(`  ${finding.relativePath} (mode ${finding.mode})`);
   }
   console.log("These repair themselves the next time Kiln writes them. To fix now:");
-  console.log(`  chmod 600 ${findings.map((finding) => `${authDir}/${finding.relativePath}`).join(" ")}`);
-}
-
-async function loadGenericTokenFile(path: string): Promise<Partial<CodexOAuthTokenFile> | null> {
-  try {
-    const contents = await readFile(path, "utf8");
-    return JSON.parse(contents) as Partial<CodexOAuthTokenFile>;
-  } catch {
-    return null;
-  }
-}
-
-function describeExpiry(expiresAt: string): string {
-  const expiresAtMs = new Date(expiresAt).getTime();
-  if (Number.isNaN(expiresAtMs)) {
-    return "unknown";
-  }
-  if (expiresAtMs <= Date.now()) {
-    return "expired";
-  }
-  if (expiresAtMs <= Date.now() + EXPIRING_SOON_MS) {
-    return "expiring soon";
-  }
-  return "valid";
+  console.log(`  chmod 600 ${findings.map((finding) => finding.repairPath).join(" ")}`);
 }
 
 function describeCredentialHealth(

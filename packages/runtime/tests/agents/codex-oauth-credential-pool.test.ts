@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AgentResponse,
-  type CodexOAuthTokenFile,
   type CreateMessageOptions,
   type ProviderAdapter,
 } from "@kilnai/core/agents";
 import { KilnError } from "@kilnai/core/engine";
+import type { CodexOAuthTokenFile } from "../../src/agents/credential-acquisition/codex-oauth-auth.js";
 import {
   CodexOAuthCredentialPoolService,
   mapCodexOAuthProviderError,
