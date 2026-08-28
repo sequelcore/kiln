@@ -56,17 +56,20 @@ describe("config setup actions", () => {
     expect(result.setup.projectContext.status).toBe("valid");
   });
 
-  it("syncs repo shims without using force overrides", async () => {
+  it("syncs the private workflow snapshot without changing project instructions", async () => {
     const result = await executeConfigSetupAction({
       projectPath: tempDir,
-      action: "sync-repo-shims",
+      action: "sync-workflow-snapshot",
     });
 
     expect(result.status).toBe("applied");
     expect(result.errors).toEqual([]);
-    expect(result.setup.repoShims).toEqual(expect.arrayContaining([
-      expect.objectContaining({ targetId: "repo-shim:agents", status: "current" }),
-      expect.objectContaining({ targetId: "repo-shim:claude", status: "current" }),
+    expect(result.setup.workflowSnapshots).toEqual([
+      expect.objectContaining({ targetId: "workflow-snapshot:manifest", status: "current" }),
+    ]);
+    expect(result.setup.projectInstructions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "project-instruction:agents", status: "missing" }),
+      expect.objectContaining({ targetId: "project-instruction:claude", status: "missing" }),
     ]));
   });
 

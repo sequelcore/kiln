@@ -75,6 +75,7 @@ describe("Runtime configuration revision pin", () => {
           reconciliationGenerations: [
             { target: "native-skills", generation: DIGEST_D },
             { target: "native-agents", generation: DIGEST_C },
+            { target: "workflow-snapshot", generation: DIGEST_B },
           ],
         },
       ],
@@ -89,6 +90,7 @@ describe("Runtime configuration revision pin", () => {
           path: ".kiln/kiln.yaml",
           committedRevision: DIGEST_B,
           reconciliationGenerations: [
+            { target: "workflow-snapshot", generation: DIGEST_B },
             { target: "native-agents", generation: DIGEST_C },
             { target: "native-skills", generation: DIGEST_D },
           ],
@@ -105,6 +107,8 @@ describe("Runtime configuration revision pin", () => {
     const generation = first.activationLineage?.[0]?.reconciliationGenerations[0];
     expect(Object.isFrozen(generation)).toBe(true);
     expect(Reflect.set(generation!, "generation", DIGEST_A)).toBe(false);
+    expect(first.activationLineage?.[0]?.reconciliationGenerations.map((entry) => entry.target))
+      .toContain("workflow-snapshot");
   });
 
   it("rejects malformed activation lineage instead of treating it as activation evidence", () => {

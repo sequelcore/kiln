@@ -113,8 +113,8 @@ activate uncommitted fallback or overage.
 Projects do not redefine the operator's provider, model, target catalog,
 authority profiles, agent roster, permissions, or native harness projections.
 Project config contains repository identity and project limits only. Durable
-repository guidance belongs in the private project's `context` file and
-generated repo shims; it is not stored in the repository's Kiln state.
+team guidance belongs in the repository-owned `AGENTS.md`; private reviewed
+operator notes that cannot be derived belong in the project's private context.
 
 ## Model Gateway
 
@@ -147,7 +147,7 @@ kiln config read agents
 kiln target
 kiln sync --agents
 kiln sync --global-instructions
-kiln sync --repo-shims
+kiln sync --workflow-snapshot
 ```
 
 `doctor` diagnoses catalog health, authentication, competing executables,

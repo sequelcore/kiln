@@ -29,7 +29,8 @@ describe("operator workspace home projection", () => {
         status: "valid",
         recommendation: "none",
       },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],
@@ -721,15 +722,17 @@ describe("operator workspace home projection", () => {
         error: "Project context is malformed.",
         recommendation: "review-project-context",
       },
-      repoShims: [
+      projectInstructions: [
         {
           target: "agents",
-          targetId: "repo-shim:agents",
+          targetId: "project-instruction:agents",
           path: "C:/workspace/kiln/AGENTS.md",
-          status: "stale",
-          recommendation: "sync-repo-shims",
+          status: "unreadable",
+          details: "Project instruction target is not a regular file.",
+          recommendation: "review-project-instructions",
         },
       ],
+      workflowSnapshots: [],
       nativeProjections: [
         {
           targetId: "native-projection:codex",
@@ -742,7 +745,7 @@ describe("operator workspace home projection", () => {
       globalInstructionShims: [],
       permissionIntegrity: [],
       skillDiagnostics: { state: "pending" },
-      recommendedActions: ["review-project-context", "sync-repo-shims", "review-native-projection-drift"],
+      recommendedActions: ["review-project-context", "review-project-instructions", "review-native-projection-drift"],
     });
 
     expect(health).toMatchObject({
@@ -755,9 +758,9 @@ describe("operator workspace home projection", () => {
           recommendation: "review-project-context",
         },
         {
-          id: "repo-shim:agents",
-          status: "degraded",
-          recommendation: "sync-repo-shims",
+          id: "project-instruction:agents",
+          status: "blocked",
+          recommendation: "review-project-instructions",
         },
         {
           id: "native-projection:codex",
@@ -866,7 +869,8 @@ describe("operator workspace home projection", () => {
         status: "valid",
         recommendation: "none",
       },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       nativeProjections: [],
       globalInstructionShims: [],
       permissionIntegrity: [{

@@ -102,16 +102,17 @@ vi.mock("../src/api/client.js", () => ({
           status: "valid",
           recommendation: "none",
         },
-        repoShims: [
+        projectInstructions: [
           {
             target: "agents",
-            targetId: "repo-shim:agents",
+            targetId: "project-instruction:agents",
             path: "C:/workspace/kiln/AGENTS.md",
-            status: "current",
+            status: "project-owned",
             recommendation: "none",
           },
         ],
-        globalInstructionShims: [],
+        workflowSnapshots: [],
+      globalInstructionShims: [],
         nativeProjections: [],
         permissionIntegrity: [],
         skillDiagnostics: { state: "current" },
@@ -383,16 +384,17 @@ describe("AppShell sidebar modes", () => {
               status: "valid" as const,
               recommendation: "none" as const,
             },
-            repoShims: [
+            projectInstructions: [
               {
                 target: "agents" as const,
-                targetId: "repo-shim:agents",
+                targetId: "project-instruction:agents",
                 path: "C:/workspace/kiln/AGENTS.md",
-                status: "current" as const,
+                status: "project-owned" as const,
                 recommendation: "none" as const,
               },
             ],
-            globalInstructionShims: [],
+            workflowSnapshots: [],
+      globalInstructionShims: [],
             nativeProjections: [],
             permissionIntegrity: [],
             skillDiagnostics: { state: "current" as const },

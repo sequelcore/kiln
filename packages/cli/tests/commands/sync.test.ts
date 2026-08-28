@@ -13,7 +13,7 @@ const syncMocks = vi.hoisted(() => ({
   syncNativeHookProjections: vi.fn(),
   syncNativeAgentProjections: vi.fn(),
   resolveProjectRoot: vi.fn(),
-  writeRepoShimProjections: vi.fn(),
+  syncWorkflowSnapshotProjection: vi.fn(),
   syncGlobalInstructionShimProjections: vi.fn(),
   syncGlobalCommunicationProjection: vi.fn(),
   syncNativeSkillProjections: vi.fn(),
@@ -48,8 +48,8 @@ vi.mock("../../src/application/project-root-resolver.js", () => ({
   resolveProjectRoot: syncMocks.resolveProjectRoot,
 }));
 
-vi.mock("../../src/application/repo-shim-projection.js", () => ({
-  writeRepoShimProjections: syncMocks.writeRepoShimProjections,
+vi.mock("../../src/application/workflow-snapshot-projection.js", () => ({
+  syncWorkflowSnapshotProjection: syncMocks.syncWorkflowSnapshotProjection,
 }));
 
 vi.mock("../../src/application/global-instruction-shim-projection.js", () => ({
@@ -130,12 +130,8 @@ describe("syncCommand", () => {
       hasGitRoot: true,
       projectName: "sync-project",
     });
-    syncMocks.writeRepoShimProjections.mockResolvedValue({
+    syncMocks.syncWorkflowSnapshotProjection.mockResolvedValue({
       written: true,
-      targets: [
-        { kind: "agents", path: "AGENTS.md", written: true, status: "written", errors: [] },
-        { kind: "claude", path: "CLAUDE.md", written: true, status: "written", errors: [] },
-      ],
       outcomes: [],
       errors: [],
     });
@@ -204,8 +200,8 @@ describe("syncCommand", () => {
   });
 
   it("parses explicit target values and comma-separated target lists", () => {
-    expect(parseSyncFlags(["--target", "permissions,hooks", "--target=repo-shims"])).toEqual({
-      targets: ["permissions", "hooks", "repo-shims"],
+    expect(parseSyncFlags(["--target", "permissions,hooks", "--target=workflow-snapshot"])).toEqual({
+      targets: ["permissions", "hooks", "workflow-snapshot"],
       force: false,
       syncAll: false,
       dryRun: false,
@@ -214,8 +210,8 @@ describe("syncCommand", () => {
   });
 
   it("parses explicit project paths for repo-aware sync targets", () => {
-    expect(parseSyncFlags(["--repo-shims", "--project", "C:/work/project"])).toEqual({
-      targets: ["repo-shims"],
+    expect(parseSyncFlags(["--workflow-snapshot", "--project", "C:/work/project"])).toEqual({
+      targets: ["workflow-snapshot"],
       force: false,
       syncAll: false,
       dryRun: false,
@@ -253,7 +249,7 @@ describe("syncCommand", () => {
 
   it("rejects unknown explicit targets", () => {
     expect(() => parseSyncFlags(["--target", "unknown"])).toThrow(
-      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, repo-shims, global-instructions, skills',
+      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, workflow-snapshot, global-instructions, skills',
     );
   });
 
@@ -269,7 +265,7 @@ describe("syncCommand", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--permissions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(true);
-    expect(requiresForceSyncConfirmation(parseSyncFlags(["--repo-shims", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--workflow-snapshot", "--force"]))).toBe(false);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--global-instructions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--all", "--force"]))).toBe(true);
@@ -465,14 +461,17 @@ describe("syncCommand", () => {
     });
 
     try {
-      await syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims", "--project", join(projectRootPath, "packages", "api")]);
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--workflow-snapshot", "--project", join(projectRootPath, "packages", "api")]);
     } finally {
       consoleLogSpy.mockRestore();
     }
 
     expect(syncMocks.resolveProjectRoot).toHaveBeenCalledWith({ explicitPath: join(projectRootPath, "packages", "api") });
     expect(syncMocks.loadKilnConfigWithGlobalAuthority).toHaveBeenCalledWith(projectRootPath, { projectStateBinding });
-    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith(projectRootPath, { force: false, dryRun: false });
+    expect(syncMocks.syncWorkflowSnapshotProjection).toHaveBeenCalledWith(projectRootPath, {
+      dryRun: false,
+      projectStateBinding,
+    });
   });
 
   it("syncs global instruction shims as a separate native instruction target", async () => {
@@ -503,18 +502,18 @@ describe("syncCommand", () => {
       dryRun: false,
       intent: expect.objectContaining({ intent: expect.objectContaining({ responseDetail: "provider-default" }) }),
     }));
-    expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
+    expect(syncMocks.syncWorkflowSnapshotProjection).not.toHaveBeenCalled();
     expect(output).toContain(`${join(projectRootPath, "global", "codex", "AGENTS.md")}: WRITTEN`);
     expect(output).toContain(`${join(projectRootPath, "global", "claude", "settings.json")}: WRITTEN`);
   });
 
-  it("fails repo-shim sync when the projection operation fails", async () => {
+  it("fails workflow snapshot sync when the projection operation fails", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code}`);
     }) as never);
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    syncMocks.writeRepoShimProjections.mockRejectedValue(new Error("repo-shim projection failed"));
+    syncMocks.syncWorkflowSnapshotProjection.mockRejectedValue(new Error("workflow snapshot projection failed"));
     syncMocks.resolveProjectRoot.mockReturnValue({
       rootPath: projectRootPath,
       source: "git",
@@ -523,14 +522,17 @@ describe("syncCommand", () => {
     });
 
     try {
-      await expect(syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims"])).rejects.toThrow("process.exit:1");
+      await expect(syncCommand(MOCK_APP_CONFIG, undefined, ["--workflow-snapshot"])).rejects.toThrow("process.exit:1");
     } finally {
       exitSpy.mockRestore();
       consoleLogSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     }
 
-    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith(projectRootPath, { force: false, dryRun: false });
+    expect(syncMocks.syncWorkflowSnapshotProjection).toHaveBeenCalledWith(projectRootPath, {
+      dryRun: false,
+      projectStateBinding,
+    });
   });
 
   it("prints each skill projection outcome by path", async () => {

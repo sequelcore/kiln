@@ -62,20 +62,26 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
       status: "missing",
       recommendation: "adopt-project-context",
     },
-    repoShims: [
+    projectInstructions: [
       {
         target: "agents",
-        targetId: "repo-shim:agents",
+        targetId: "project-instruction:agents",
         path: "C:/workspace/kiln/AGENTS.md",
-        status: "stale",
-        recommendation: "sync-repo-shims",
+        status: "project-owned",
+        recommendation: "none",
       },
     ],
+    workflowSnapshots: [{
+      targetId: "workflow-snapshot:manifest",
+      path: "C:/Users/operator/.kiln/projects/example/projections/workflow-snapshot-manifest.json",
+      kind: "workflow-snapshot",
+      status: "missing",
+    }],
     globalInstructionShims: [],
     nativeProjections: [],
     permissionIntegrity: [],
     skillDiagnostics: { state: "pending" },
-    recommendedActions: ["adopt-project-context", "sync-repo-shims"],
+    recommendedActions: ["adopt-project-context", "sync-workflow-snapshot"],
     ...overrides,
   };
 }
@@ -162,12 +168,12 @@ describe("SetupPanel", () => {
 
     const actions = screen.getByRole("region", { name: "Required Configuration Actions" });
     expect(within(actions).getByRole("button", { name: "Adopt Project Context" })).toBeInTheDocument();
-    expect(within(actions).getByRole("button", { name: "Sync Repo Shims" })).toBeInTheDocument();
+    expect(within(actions).getByRole("button", { name: "Sync Workflow Snapshot" })).toBeInTheDocument();
     expect(within(actions).queryByText("C:/workspace/kiln/AGENTS.md")).not.toBeInTheDocument();
 
-    fireEvent.click(within(actions).getByRole("button", { name: "Sync Repo Shims" }));
+    fireEvent.click(within(actions).getByRole("button", { name: "Sync Workflow Snapshot" }));
 
-    expect(onExecuteAction).toHaveBeenCalledWith("sync-repo-shims");
+    expect(onExecuteAction).toHaveBeenCalledWith("sync-workflow-snapshot");
   });
 
   it("renders a quiet current state without required action buttons", () => {
@@ -179,15 +185,21 @@ describe("SetupPanel", () => {
             status: "valid",
             recommendation: "none",
           },
-          repoShims: [
+          projectInstructions: [
             {
               target: "agents",
-              targetId: "repo-shim:agents",
+              targetId: "project-instruction:agents",
               path: "C:/workspace/kiln/AGENTS.md",
-              status: "current",
+              status: "project-owned",
               recommendation: "none",
             },
           ],
+          workflowSnapshots: [{
+            targetId: "workflow-snapshot:manifest",
+            path: "C:/Users/operator/.kiln/projects/example/projections/workflow-snapshot-manifest.json",
+            kind: "workflow-snapshot",
+            status: "current",
+          }],
           recommendedActions: ["none"],
         })}
         loading={false}
@@ -212,7 +224,8 @@ describe("SetupPanel", () => {
             status: "valid",
             recommendation: "none",
           },
-          repoShims: [],
+          projectInstructions: [],
+          workflowSnapshots: [],
           nativeProjections: [],
           permissionIntegrity: [permissionIntegrity()],
           recommendedActions: ["none"],
@@ -261,7 +274,7 @@ describe("SetupPanel", () => {
     expect(screen.queryByRole("heading", { name: "Setup Sources" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Configuration Overview" })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Canonical configuration sources" })).toHaveTextContent(
-      "Durable project guidance projected to every harness",
+      "Private reviewed notes for project facts that cannot be derived from repository evidence",
     );
     expect(screen.getByRole("table", { name: "Native harness projections" })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Native harness projections" })).toHaveTextContent("1 managed field");
@@ -340,7 +353,7 @@ describe("SetupPanel", () => {
     );
 
     expect(screen.getByText("3 Actions Need Attention")).toBeInTheDocument();
-    expect(screen.getByText("5 sources")).toBeInTheDocument();
+    expect(screen.getByText("6 sources")).toBeInTheDocument();
     expect(screen.getAllByText("Global Instruction Shims")).toHaveLength(2);
     const inventory = screen.getByRole("table", { name: "Global instruction shims" });
     expect(inventory).toHaveTextContent("codex-global-instructions");

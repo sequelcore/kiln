@@ -1126,22 +1126,23 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
     status: "valid",
     recommendation: "none",
   },
-  repoShims: [
+  projectInstructions: [
     {
       target: "agents",
-      targetId: "agents",
+      targetId: "project-instruction:agents",
       path: "C:/workspace/kiln/AGENTS.md",
-      status: "current",
+      status: "project-owned",
       recommendation: "none",
     },
     {
       target: "claude",
-      targetId: "claude",
+      targetId: "project-instruction:claude",
       path: "C:/workspace/kiln/CLAUDE.md",
-      status: "current",
+      status: "project-owned",
       recommendation: "none",
     },
   ],
+  workflowSnapshots: [],
   globalInstructionShims: [],
   nativeProjections: [],
   permissionIntegrity: [],

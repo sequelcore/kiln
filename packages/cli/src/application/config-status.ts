@@ -15,8 +15,9 @@ import type {
   KilnGlobalInstructionShimSetupSnapshot,
   KilnHarnessCapabilitySnapshot,
   KilnMcpStatusSnapshot,
+  KilnProjectInstructionSnapshot,
   KilnProjectionTargetSnapshot,
-  KilnRepoShimProjectionSnapshot,
+  KilnWorkflowSnapshotSetupSnapshot,
   KilnConfigActivationStatusEntry,
   KilnSkillCatalogDiagnosticsSnapshot,
 } from "@kilnai/gateway-contracts";
@@ -68,10 +69,8 @@ import {
   type ProjectStateBinding,
   resolveProjectStateBinding,
 } from "./project-state-root.js";
-import {
-  readRepoShimProjectionStatuses,
-  readWorkflowSnapshotManifestStatus,
-} from "./repo-shim-projection.js";
+import { readProjectInstructionStatuses } from "./project-instruction-status.js";
+import { readWorkflowSnapshotManifestStatus } from "./workflow-snapshot-projection.js";
 import { readGlobalInstructionShimProjectionSnapshots } from "./global-instruction-shim-projection.js";
 import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
 import { readSkillCatalogDiagnostics, refreshSkillCatalogDiagnostics } from "../config/skill-catalog-diagnostics.js";
@@ -217,7 +216,7 @@ export async function readConfigStatusSnapshot(
     const setup = buildSetupSnapshot({
       rootPath,
       projectContext,
-      repoShims: [],
+      projectInstructions: [],
       globalInstructionShims: [],
       projections: [],
       permissionIntegrity,
@@ -315,7 +314,7 @@ export async function readConfigStatusSnapshot(
   const setup = buildSetupSnapshot({
     rootPath,
     projectContext,
-    repoShims: projectionState.repoShims,
+    projectInstructions: projectionState.projectInstructions,
     globalInstructionShims: projectionState.globalInstructionShims,
     projections: projectionState.projections,
     permissionIntegrity,
@@ -652,35 +651,30 @@ async function readProjectionSnapshots(
   now = new Date(),
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
-  readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly projectInstructions: readonly KilnProjectInstructionSnapshot[];
   readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
 }> {
   const projections: KilnProjectionTargetSnapshot[] = [];
-  const repoShimSnapshots: KilnRepoShimProjectionSnapshot[] = [];
+  const projectInstructionSnapshots: KilnProjectInstructionSnapshot[] = [];
   const globalInstructionShimSnapshots: KilnGlobalInstructionShimSetupSnapshot[] = [];
   const runtimeObservationStore = createRuntimePermissionObservationStore({ projectPath, projectStateBinding });
   const semanticLimitationBaseDir = join(projectStateBinding.kilnHome, "trust", "semantic-limitations");
 
   try {
-    const repoShims = await readRepoShimProjectionStatuses(projectPath, { projectStateBinding });
-    for (const shim of repoShims) {
-      const targetId = `repo-shim:${shim.target}`;
-      repoShimSnapshots.push({
-        target: shim.target,
+    const projectInstructions = await readProjectInstructionStatuses(projectPath, { projectStateBinding });
+    for (const instruction of projectInstructions) {
+      const targetId = `project-instruction:${instruction.target}`;
+      projectInstructionSnapshots.push({
+        target: instruction.target,
         targetId,
-        path: shim.path,
-        status: shim.status,
-        recommendation: repoShimRecommendation(shim.status),
-      });
-      projections.push({
-        targetId,
-        path: shim.path,
-        kind: "repo-shim" as const,
-        status: shim.status,
+        path: instruction.path,
+        status: instruction.status,
+        ...("details" in instruction && instruction.details ? { details: instruction.details } : {}),
+        recommendation: projectInstructionRecommendation(instruction.status),
       });
     }
   } catch (error) {
-    errors.push(`repo-shims: ${errorMessage(error)}`);
+    errors.push(`project-instructions: ${errorMessage(error)}`);
   }
 
   try {
@@ -780,7 +774,7 @@ async function readProjectionSnapshots(
 
   return {
     projections: projections.sort((left, right) => left.targetId.localeCompare(right.targetId)),
-    repoShims: repoShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
+    projectInstructions: projectInstructionSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
     globalInstructionShims: globalInstructionShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
   };
 }
@@ -1052,7 +1046,7 @@ function selectEffectiveFields(
 function buildSetupSnapshot(input: {
   readonly rootPath: string;
   readonly projectContext: KilnConfigSourceSnapshot;
-  readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly projectInstructions: readonly KilnProjectInstructionSnapshot[];
   readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"];
@@ -1061,11 +1055,15 @@ function buildSetupSnapshot(input: {
   readonly mcp: KilnMcpStatusSnapshot;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
+  const workflowSnapshots = input.projections.filter(
+    (projection): projection is KilnWorkflowSnapshotSetupSnapshot => projection.kind === "workflow-snapshot",
+  );
   const globalInstructionShims = input.globalInstructionShims;
   const projectContextRecommendation = projectContextRecommendationFor(input.projectContext);
   const actions = uniqueSetupActions([
     projectContextRecommendation,
-    ...input.repoShims.map((shim) => shim.recommendation),
+    ...input.projectInstructions.map((instruction) => instruction.recommendation),
+    ...workflowSnapshots.map(workflowSnapshotRecommendation),
     ...nativeProjections.map(nativeProjectionRecommendation),
     ...globalInstructionShims.map((projection) => projection.recommendation),
     ...skillProjectionRecommendations(input.skillCatalog),
@@ -1076,7 +1074,8 @@ function buildSetupSnapshot(input: {
       ...input.projectContext,
       recommendation: projectContextRecommendation,
     },
-    repoShims: input.repoShims,
+    projectInstructions: input.projectInstructions,
+    workflowSnapshots,
     globalInstructionShims,
     nativeProjections,
     permissionIntegrity: input.permissionIntegrity,
@@ -1138,17 +1137,14 @@ function projectContextRecommendationFor(source: KilnConfigSourceSnapshot): Kiln
   return "none";
 }
 
-function repoShimRecommendation(status: KilnRepoShimProjectionSnapshot["status"]): KilnConfigSetupAction {
-  if (status === "missing" || status === "stale") {
-    return "sync-repo-shims";
-  }
-  if (status === "drifted") {
-    return "review-and-force-sync-repo-shims";
-  }
-  if (status === "unmanaged") {
-    return "adopt-or-back-up-native-guidance";
-  }
-  return "none";
+function projectInstructionRecommendation(
+  status: KilnProjectInstructionSnapshot["status"],
+): KilnConfigSetupAction {
+  return status === "project-owned" ? "none" : "review-project-instructions";
+}
+
+function workflowSnapshotRecommendation(projection: KilnProjectionTargetSnapshot): KilnConfigSetupAction {
+  return projection.status === "current" ? "none" : "sync-workflow-snapshot";
 }
 
 function nativeProjectionRecommendation(projection: KilnProjectionTargetSnapshot): KilnConfigSetupAction {

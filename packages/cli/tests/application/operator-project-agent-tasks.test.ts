@@ -133,7 +133,7 @@ vi.mock("../../src/application/config-status.js", () => ({
       }],
     };
     return {
-      evidenceVersion: 3,
+      evidenceVersion: 4,
       generatedAt: new Date().toISOString(),
       project: {
         rootPath: projectRoot,
@@ -156,8 +156,9 @@ vi.mock("../../src/application/config-status.js", () => ({
           status: "valid",
           recommendation: "none",
         },
-        repoShims: [],
-        globalInstructionShims: [],
+        projectInstructions: [],
+        workflowSnapshots: [],
+      globalInstructionShims: [],
         nativeProjections: [],
         permissionIntegrity: [],
         skillDiagnostics: { state: "current" },

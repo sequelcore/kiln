@@ -126,12 +126,12 @@ describe("private project-state cutover", () => {
     mkdirSync(binding.projectStateRoot, { recursive: true });
     writeFileSync(binding.configPath, "version: '1'\ndomain: first\n", "utf8");
     writeFileSync(binding.contextPath, "first\n", "utf8");
-    const first = captureCanonicalReconciliationGeneration(projectPath, "repo-shims", { projectStateBinding: binding });
+    const first = captureCanonicalReconciliationGeneration(projectPath, "workflow-snapshot", { projectStateBinding: binding });
     writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), "version: '1'\ndomain: ignored\n", "utf8");
-    const legacyOnly = captureCanonicalReconciliationGeneration(projectPath, "repo-shims", { projectStateBinding: binding });
+    const legacyOnly = captureCanonicalReconciliationGeneration(projectPath, "workflow-snapshot", { projectStateBinding: binding });
     expect(legacyOnly).toBe(first);
     writeFileSync(binding.contextPath, "second\n", "utf8");
-    expect(captureCanonicalReconciliationGeneration(projectPath, "repo-shims", { projectStateBinding: binding })).not.toBe(first);
+    expect(captureCanonicalReconciliationGeneration(projectPath, "workflow-snapshot", { projectStateBinding: binding })).not.toBe(first);
   });
 
   it("projects private config, context, and configured agents as status evidence", async () => {

@@ -49,7 +49,7 @@ function resetFixture(): void {
     "  - sequel-engineering",
     "",
   ].join("\n"), "utf-8");
-  writeGlobalProfile("No dead code.\n\nCodex OAuth, OpenCode Go, and OpenCode Zen are Kiln direct providers.");
+  writeGlobalProfile("No dead code.");
 }
 
 function projectionOptions(options: GlobalInstructionShimProjectionOptions = {}): GlobalInstructionShimProjectionOptions {
@@ -162,19 +162,22 @@ describe("global instruction shim projection", () => {
     for (const content of [codex, claude, opencode]) {
       expect(content).toContain("kiln:global-instruction-shim:v1");
       expect(content).toContain("sourceProfiles: sequel-engineering");
-      expect(content).toContain("generator: global-instruction-shims-v1");
-      expect(content).toContain("# Sequel Global Instructions");
-      expect(content).toContain("## Direct Provider Boundary");
-      expect(content).toContain("codex-oauth");
-      expect(content).toContain("opencode-go");
-      expect(content).toContain("opencode-zen");
+      expect(content).toContain("generator: global-instruction-shims-v2");
+      expect(content).toContain("# Global Instructions");
       expect(content).toContain("No dead code.");
+      expect(content).not.toContain("## Direct Provider Boundary");
+      expect(content).not.toContain("codex-oauth");
+      expect(content).not.toContain("opencode-go");
+      expect(content).not.toContain("opencode-zen");
       expect(content).not.toContain("## Project");
       expect(content).not.toContain("## Agents");
     }
     expect(codex).toContain("target: codex");
+    expect(codex).toContain("Codex layers project-owned `AGENTS.md`");
     expect(claude).toContain("target: claude");
+    expect(claude).toContain("a project may import `@AGENTS.md`");
     expect(opencode).toContain("target: opencode");
+    expect(opencode).toContain("OpenCode layers the project-owned `AGENTS.md`");
 
     const state = readNativeProjectionInstallState(GLOBAL_PROJECTION_STATE_DIR);
     expect(Object.keys(state.targets).sort()).toEqual([
@@ -195,7 +198,7 @@ describe("global instruction shim projection", () => {
     writeFileSync(secondBinding.configPath, [
       "version: \"1\"",
       "activeInstructionProfiles:",
-      "  - sequel-engineering",
+      "  - a-project-only-profile-must-not-affect-global-projections",
       "",
     ].join("\n"), "utf-8");
 

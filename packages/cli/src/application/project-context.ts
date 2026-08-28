@@ -100,8 +100,8 @@ export function renderProjectContextMarkdown(adoption: ProjectContextAdoption = 
     "",
     "This file owns reviewed repository-wide notes that cannot be derived from",
     "executable repository evidence. Package facts, commands, workspaces, and",
-    "standard references are derived when Kiln generates repository shims.",
-    "Do not put durable repo guidance directly in `AGENTS.md` or `CLAUDE.md`.",
+    "standard references remain with their canonical repository owners.",
+    "Keep durable team guidance in project-owned `AGENTS.md`; reserve this private context for reviewed facts that cannot be derived or shared.",
     "Regenerate this descriptor through `kiln project adopt` when replacement is",
     "intended.",
   ];

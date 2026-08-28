@@ -575,14 +575,14 @@ describe("GUI dashboard provider availability", () => {
           recommendation: "adopt-project-context",
         }),
         expect.objectContaining({
-          id: "repo-shim:agents",
+          id: "project-instruction:agents",
           status: "degraded",
-          recommendation: "sync-repo-shims",
+          recommendation: "review-project-instructions",
         }),
         expect.objectContaining({
-          id: "repo-shim:claude",
+          id: "project-instruction:claude",
           status: "degraded",
-          recommendation: "sync-repo-shims",
+          recommendation: "review-project-instructions",
         }),
       ]),
     });

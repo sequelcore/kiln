@@ -30,15 +30,72 @@ function defineBuiltinSkill(input: {
 
 export const KILN_CORE_BUILTIN_SKILLS: readonly SkillConfig[] = [
   defineBuiltinSkill({
+    name: "agent-context-doctor",
+    description: "Diagnose repository guidance ownership and private/global leakage, classify content, and propose a safe diff without mutating project files.",
+    tools: ["read", "grep", "glob"],
+    tags: ["kiln", "context", "repository", "doctor"],
+    instructions: `
+# Agent Context Doctor
+
+Use this skill when repository guidance, native harness files, or context and
+configuration placement is uncertain.
+
+Rules:
+- Treat repository \`AGENTS.md\` as project/team-owned guidance. Existing files
+  are project-owned by default.
+- A project-owned \`CLAUDE.md\` may import \`@AGENTS.md\` and add only genuine
+  Claude-specific deltas. OpenCode consumes \`AGENTS.md\` natively. Do not
+  create a second policy body for either harness.
+- Kiln never routinely regenerates or overwrites repository files.
+- Keep global native instruction projections opt-in managed renderings of
+  neutral doctrine. They are not repository guidance. A private workflow
+  snapshot remains a generated projection in private state, not repository
+  guidance.
+
+Classify each guidance block as exactly one of:
+
+First resolve ownership before assigning a category:
+
+- Derived repository evidence (manifests, scripts, workspace metadata, and
+  generated facts) stays with its executable or source owner; do not copy it
+  into private context.
+- Project/team-owned guidance belongs in \`AGENTS.md\`; a project-owned \`CLAUDE.md\` may
+  import it and add genuine Claude-specific deltas.
+- Private reviewed project context is for non-derivable operator or project
+  notes that Kiln needs, not a mirror of repository structure or commands.
+
+Then classify the content:
+
+- \`project context\`: non-derivable reviewed project notes, kept in their
+  private project-context owner when they are not shared repository guidance.
+- \`global preference/doctrine\`: operator or team preferences in a global or
+  private-project instruction profile, not copied into repository facts.
+- \`runtime config\`: provider, model, routing, workers, depth, permissions,
+  sandbox, or MCP credentials; keep these in canonical configuration, never in
+  prose guidance.
+- \`procedure/skill\`: reusable task procedure; put it in a skill and reference
+  the skill rather than duplicating its steps in guidance.
+- \`executable enforcement\`: hard policy that must be enforced by schema,
+  runtime, tool, hook, or test rather than asserted only in prose.
+- \`derived/redundant cache\`: generated snapshots, indexes, or status material
+  with no authority; regenerate or discard it from its canonical source.
+
+Default output is a diagnosis and proposed diff. Name the evidence, ownership,
+classification, leakage or duplication risk, and files to add, edit, preserve,
+or remove. Do not mutate repository files unless the user explicitly requests
+the proposed change and the owning authority is clear.
+`,
+  }),
+  defineBuiltinSkill({
     name: "repo-context-review",
-    description: "Validate canonical Kiln project context against durable, conflicting, and incomplete repository evidence before adoption or sync.",
+    description: "Validate private reviewed project context against durable, conflicting, and incomplete repository evidence before adoption.",
     tools: ["read", "grep", "glob", "bash"],
-    tags: ["kiln", "project-context", "repo-shims"],
+    tags: ["kiln", "project-context", "repository"],
     instructions: `
 # Repo Context Review
 
-Use this skill when a task asks for project context adoption, repo instruction
-generation, or review of generated AGENTS.md / CLAUDE.md shims.
+Use this skill when a task asks to review or adopt private project context from
+repository evidence.
 
 Workflow:
 1. Run kiln project scout --json when available and record failure rather than
@@ -54,31 +111,33 @@ Workflow:
    Kiln status. Verify that named commands
    exist and are portable, but reject frontmatter/body disagreement and do not
    execute destructive or externally mutating commands merely to review them.
-4. Keep derived repository facts in their executable owners and projections;
-   do not persist copied commands, workspace metadata, or package facts as
-   canonical project context. Keep only durable repository-wide notes and links
-   to owning doctrine.
-   Preserve reviewed durable human notes when evidence still supports them. Do
-   not encode personal preferences, transient incidents, branch state,
-   provider/model policy, or duplicated architecture doctrine as project facts.
+4. Keep derived repository facts in their executable or source owners; do not
+   persist copied commands, structure, workspace metadata, or package facts as
+   private project context. Keep only reviewed non-derivable operator or project
+   notes in that private owner. Project/team guidance belongs in project-owned
+   AGENTS.md; a project-owned CLAUDE.md may import @AGENTS.md and add genuine Claude
+   deltas. Do not encode personal preferences, transient incidents, branch
+   state, provider/model policy, or duplicated architecture doctrine as project
+   facts. Preserve reviewed durable human notes when evidence still supports
+   them.
 5. Recommend concrete canonical edits when context is missing, misleading, or
    unsupported. Treat the review as blocked only when critical evidence cannot
    be resolved; optional missing metadata is not a blocker.
-6. Do not edit generated AGENTS.md or CLAUDE.md shims directly. Do not repair
-   projection drift; route that to config-projection review. After an accepted
-   canonical change, state whether kiln sync --repo-shims must run.
+6. Do not mutate repository guidance during review. Existing AGENTS.md and
+   CLAUDE.md files are project-owned. Do not repair native projection drift;
+   route that to config-projection review.
 
 Review Criteria:
 - Project name, package manager, scripts, workspaces, and canonical docs match the repository.
 - Guidance points to canonical architecture/docs instead of duplicating them.
-- No local absolute paths, secrets, machine-specific state, or legacy provider instructions are introduced.
+- No local absolute paths, secrets, machine-specific state, or provider/runtime
+  instructions are introduced as project facts.
 - Any proposed addition is backed by a file path, script, or architecture doc.
 
 Output:
 - status: valid, needs_changes, or blocked.
 - evidence: concise references for each accepted fact, conflict, or unknown.
 - recommendedChanges: concrete edits for the canonical private project context.
-- projectionImpact: whether kiln sync --repo-shims should be rerun.
 `,
   }),
   defineBuiltinSkill({
@@ -877,7 +936,7 @@ evidence is strong.
     instructions: `
 # Config Projection Review
 
-Use this skill when reviewing global config, project config, generated shims, or
+Use this skill when reviewing global config, private project config, or opt-in
 native harness projection.
 
 Workflow:
@@ -890,16 +949,18 @@ Workflow:
    and digest, target path, managed fields or files, target evidence, and any
    unresolved read or version failure.
 3. Separate canonical-content defects from projection-lifecycle defects.
-   Repository-context review owns whether canonical project facts are true;
-   this skill owns whether intent and generated surfaces converge safely.
+   Repository-context review owns whether private project facts are true;
+   agent-context-doctor owns repository guidance placement and ownership; this
+   skill owns whether selected native surfaces converge safely.
 4. Never mutate while reviewing. Preserve unmanaged content and unrelated
    operator-owned fields. Block automatic repair for unmanaged content,
    ambiguous ownership, invalid canonical config, stale approval, incomplete
    inventory, or authority/permission drift whose safe merge is unproven.
 5. Recommend the narrow owning operation: edit canonical state, review a
-   preview, then synchronize its projection. Model-callable mutations must use
-   proposal, approval, and apply with stale-base rejection. Never recommend
-   direct edits to generated shims or native skill files.
+   preview, then synchronize an explicitly selected native projection.
+   Model-callable mutations must use proposal, approval, and apply with
+   stale-base rejection. Never recommend direct edits to repository guidance or
+   native skill files.
 6. Account for partial failure per target. State whether convergence is safe,
    needs review, or is blocked; do not report a whole operation successful when
    one target is unreadable or unsettled.

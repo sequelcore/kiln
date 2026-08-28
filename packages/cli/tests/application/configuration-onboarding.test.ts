@@ -332,15 +332,15 @@ describe("configuration onboarding application", () => {
           ...input,
           reconcile: async () => reconciliationAttempt === 1
             ? [{
-                target: "repo-shims" as const,
+                target: "workflow-snapshot" as const,
                 status: "failed" as const,
-                summary: "repo-shims reconciliation failed",
+                summary: "workflow-snapshot reconciliation failed",
                 errors: ["EACCES opening C:\\Users\\ExampleUser\\Project Files\\AGENTS.md"],
               }]
             : [{
-                target: "repo-shims" as const,
+                target: "workflow-snapshot" as const,
                 status: "ok" as const,
-                summary: "repo-shims reconciled",
+                summary: "workflow-snapshot reconciled",
                 errors: [],
               }],
         }));
@@ -383,9 +383,9 @@ describe("configuration onboarding application", () => {
           announceReconciliation();
           await reconciliationMayFinish;
           return [{
-            target: "repo-shims" as const,
+            target: "workflow-snapshot" as const,
             status: "failed" as const,
-            summary: "repo-shims reconciliation failed",
+            summary: "workflow-snapshot reconciliation failed",
             errors: ["fixture reconciliation failure"],
           }];
         },

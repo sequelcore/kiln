@@ -4,9 +4,10 @@ Kiln treats `~/.kiln/config.yaml` as the global source of truth for providers,
 models, execution targets, reusable authority profiles, economics, and local
 harness configuration. Each project has one operator-private state namespace
 under `~/.kiln/projects/<krp_sha256>/`; its canonical project document is
-`config.yaml` in that namespace. Project config may only add repository context
-and narrow global limits for that workspace. It cannot redefine those global
-catalogs. Native harness files are projected artifacts, not source state.
+`config.yaml` in that namespace. Project config may only add reviewed,
+non-derivable project context and narrow global limits for that workspace. It
+cannot redefine those global catalogs. Native harness files are projected
+artifacts, not source state.
 
 The project identity is derived from the canonical physical project root and is
 represented by an opaque `krp_<sha256>` id. `adoption.json` is an identity-only,
@@ -16,12 +17,12 @@ operator paths. A missing, malformed, copied, or unsafe manifest is an
 unadopted project and fails closed. Relocating a project produces a new identity
 and requires explicit re-adoption; Kiln does not migrate or alias the old state.
 
-The private namespace also owns project context, agents, instruction profiles,
-skills, runtime state, sessions, caches, evidence, backups, mutations,
-projections, domains, memory, feedback, benchmarks, and temporary files. The
-repository contains only source files and deliberate native guidance
-projections such as `AGENTS.md` and `CLAUDE.md`; it is never a mutable project
-state root.
+The private namespace also owns reviewed private project context, agents,
+instruction profiles, skills, runtime state, sessions, caches, evidence,
+backups, mutations, projections, domains, memory, feedback, benchmarks, and
+temporary files. The repository contains source files and project-owned
+guidance such as `AGENTS.md` and an optional `CLAUDE.md`; it is not a mutable
+Kiln state root and those guidance files are not Kiln-generated authority.
 
 Supported native projection targets are Claude Code, Codex, and OpenCode.
 
@@ -68,11 +69,17 @@ The config projection boundary is owned by the CLI config layer.
   user-scoped Claude `outputStyle` projection from canonical global
   communication intent. It owns one field, not the whole settings file.
 - `packages/cli/src/application/global-instruction-shim-projection.ts` owns
-  generated global instruction entrypoints for native harness startup:
+  opt-in global instruction projections for native harness startup:
   `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, and
   `~/.config/opencode/AGENTS.md`.
+- `packages/cli/src/application/project-instruction-status.ts` owns the
+  read-only status of project-owned `AGENTS.md` and `CLAUDE.md`.
+- `packages/cli/src/application/workflow-snapshot-projection.ts` owns the
+  private workflow snapshot projection and manifest; it never reads or writes
+  repository guidance.
 - `packages/cli/src/application/instruction-profile-loader.ts` owns canonical
-  instruction profile loading from Kiln filesystem config.
+  global and private-project instruction profile loading from Kiln filesystem
+  config.
 - `packages/cli/src/config/native-projection-state.ts` owns install-state,
   managed-field hashes, whole-file hashes, and drift detection.
 - `packages/cli/src/config/managed-agent-routes.ts` projects enabled engine and
@@ -85,6 +92,10 @@ The config projection boundary is owned by the CLI config layer.
 No GUI, TUI, runtime, SDK, or MCP surface may rebuild these rules independently.
 Those surfaces consume resolved config, route health, gateway contracts, or
 runtime tool options.
+
+Project-instruction status is read-only and classifies each target as `missing`,
+`project-owned`, or `unreadable`. Any regular file is project-owned; diagnostics
+never grant Kiln write authority over it.
 
 The property-level owner, classification, current activation evidence, and
 roadmap transfer for every canonical YAML field are recorded in
@@ -187,13 +198,13 @@ equivalent producer unless Core explicitly lists that equivalence.
 
 Instruction profiles, agents, and skills are canonical filesystem config, not
 inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
-`~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under the
-bound private namespace's `instructions/`, `agents/`, and `skills/` directories.
-Native harness
-agent, skill, and global instruction files remain generated projections.
-Repo-local `AGENTS.md` and `CLAUDE.md` may reference active instruction profile
-ids and canonical file paths for project startup, but they must not duplicate
-global doctrine or global agent rosters.
+`~/.kiln/agents/`, and `~/.kiln/skills/`; private project definitions live under
+the bound namespace's `instructions/`, `agents/`, and `skills/` directories.
+Native harness agent, skill, and instruction files are opt-in projections. The
+project-owned `AGENTS.md` remains repository guidance consumed natively by
+Codex and OpenCode. A project-owned `CLAUDE.md` may import `@AGENTS.md` and add only genuine
+Claude-specific deltas; neither adapter should duplicate global doctrine or
+agent rosters in repository files.
 Kiln core built-in skills are lowest-precedence product defaults controlled by
 `skills.builtin` activation policy. They are projected like other skills during
 native sync, but user and project skills with the same id override them.
@@ -225,48 +236,44 @@ exact token utilization without versioned native evidence.
 
 ## Sync Contract
 
-`kiln sync` projects the merged Kiln config into supported native harness files
-when native projection is the selected harness strategy. Projection is one-way.
-The command requires explicit target flags, `--target`, or `--all`; a bare sync
-does not infer permission to write every project and user-level target.
+`kiln sync` projects selected canonical Kiln config into supported native
+harness files when that projection is explicitly enabled. It never writes or
+overwrites repository guidance. A bare sync does not infer permission to write
+every project or user-level target; callers select the target and opt into the
+native projection family.
 
-`kiln sync --all --dry-run` runs the same target classification without creating
-directories, backups, projection files, or install-state. Preview output names
-every affected path, its planned status, and any refusal reason.
+Preview and status surfaces classify each target without mutating it. A preview
+names every affected path, planned status, ownership evidence, and refusal
+reason. Unmanaged repository guidance remains project-owned and is diagnosed by
+`agent-context-doctor`; it is not adopted or replaced by sync.
 
-Sync executes serially by projection surface and target. Successful writes remain
-committed if a later target fails; Kiln does not automatically roll native files
-back. It reports all observed target errors and exits non-zero on any target
-operational failure. Protected managed drift is reported inline as `BLOCKED`
-and does not make the command fail because the refusal preserves operator state.
+Native sync executes serially by projection surface and target. Successful
+writes remain committed if a later target fails; Kiln reports each target error
+and does not silently roll native files back. Protected managed drift is a
+refusal that preserves operator state. Before overwriting a managed native
+projection file, Kiln writes a retained backup under that projection's private
+state namespace. New files are not backed up.
 
-Before overwriting an existing native projection file, Kiln writes a retained
-backup under the state namespace owned by that projection. Project-scoped
-targets use the bound private project namespace; user-scoped targets use the
-global native-projection namespace. New files are not backed up.
+If global config marks a known harness engine as `enabled: false`, sync removes
+recorded managed projections for that harness and excludes it from new native
+permission, hook, agent, and skill projection writes.
 
-If global config marks a known harness engine as `enabled: false`, sync first
-uninstalls recorded managed projections for that harness and excludes that
-harness from new permission, hook, agent, and skill projection writes.
-
-`kiln sync --global-instructions` projects global Kiln instruction profiles
-into the official native harness user-level instruction entrypoints:
+Global native instruction projections are opt-in managed renderings of neutral
+Kiln doctrine. When selected, the projection writes these harness user-level
+instruction entrypoints:
 
 - Codex: `~/.codex/AGENTS.md`
 - Claude Code: `~/.claude/CLAUDE.md`
 - OpenCode: `~/.config/opencode/AGENTS.md`
 
-These files are signed whole-file projections recorded in install-state.
-Unmanaged files, including symlinked entrypoints with no install-state
-ownership, block until explicit adoption backs them up. Managed drift blocks
-until explicit force. Symlinked entrypoints that Kiln already owns are treated
-as stale because each harness target needs independent metadata, hash
-ownership, and drift classification.
-
-Global instruction shims include the direct-provider boundary: `codex-oauth`,
-`opencode-go`, and `opencode-zen` are Kiln direct providers governed by Kiln
-runtime authority. Native Codex/OpenCode/Claude CLI permission files apply only
-to explicit native harness routes, not to Kiln direct-provider execution.
+These files are signed whole-file projections recorded in private install-state.
+Unmanaged files and managed drift are diagnosed and require explicit review
+before adoption or repair. Global instruction projection never changes
+repository guidance. The direct-provider boundary remains explicit:
+`codex-oauth`, `opencode-go`, and `opencode-zen` are Kiln direct providers
+governed by Kiln runtime authority. Native Codex/OpenCode/Claude CLI permission
+files apply only to explicit native harness routes, not to Kiln direct-provider
+execution.
 
 ## Native Route Defaults
 
@@ -480,105 +487,42 @@ harness cannot preserve Kiln's canonical semantics, the adapter must emit
 lossy or unsupported evidence and fail closed for authority-sensitive
 background work instead of silently broadening or narrowing the policy.
 
-## Project Roots And Repo Shims
+## Repository Guidance And Native Projections
 
-Global native projections and repo-local instruction shims are different target
-families.
+Repository guidance is a project/team-owned source, not a Kiln-generated
+projection. `AGENTS.md` is the shared guidance file consumed natively by Codex
+and OpenCode. A project-owned `CLAUDE.md` may import `@AGENTS.md` and add only genuine
+Claude-specific deltas. An existing `AGENTS.md` or `CLAUDE.md` is therefore
+project-owned by default, and Kiln never routinely regenerates or overwrites
+either file.
 
-Global native projections write into harness-owned user config locations such as
-Claude Code, Codex, and OpenCode config, instruction, agent, and skill
-directories. They make direct standalone harness use see Kiln's canonical
-operator doctrine and projected capabilities.
+The `agent-context-doctor` skill diagnoses ownership, classification, private or
+global leakage, duplicate policy, and a proposed diff. The default result is
+diagnosis plus proposed diff. Mutation requires an explicit user request and a
+clear project-owned authority.
 
-Repo shims write into a specific project root, such as generated `AGENTS.md` and
-generated `CLAUDE.md`. They are scoped project entrypoints for harnesses that
-load repository guidance before Kiln runtime exists. Repo shims must be derived
-from the merged canonical config for that project: global config, active
-instruction profile references, private project `config.yaml`, private project
-context, and private project `instructions|agents|skills`. Global doctrine and
-global agent rosters belong to global native projections, not repo-local shim
-bodies.
+Repository guidance may contain project context and durable team conventions,
+but it must not become a private workflow or runtime configuration file.
+Provider, model, routing, workers, depth, permissions, sandbox, and MCP
+credentials remain in canonical runtime configuration. Reusable procedures use
+skills, and hard policy is executable in schemas, runtime, tools, hooks, or
+tests. See [Repository Hygiene](../../guides/ops/repo-hygiene.md) for the full
+content-placement classification.
 
-Repo-shim projection must resolve the project root before writing. The durable
-resolution order is:
+Global native instruction projections are a separate, opt-in target family.
+They are managed renderings of neutral doctrine in harness-owned user locations
+and do not become repository guidance. Ownership and drift evidence stay in
+private state. A native adapter may translate the neutral projection or add a
+genuine harness delta, but it must not copy private runtime state or invent
+project policy.
 
-1. explicit CLI path such as `--project` or `--cwd`
-2. nearest repository root when it can be treated as a Kiln project root
-
-The ancestor search for step 2 is bounded by the user home directory.
-The home directory and everything above it hold shared operator state, never a
-single project, so no marker found there may be adopted while walking upward: a
-git-tracked home directory would otherwise capture every nested directory,
-including the Windows temporary directory. The starting directory named by step
-1, or the current working directory when no explicit path is given, stays
-eligible on its own; only the walk above it is bounded.
-
-If the root is ambiguous or lacks enough Kiln project identity for a repo-local
-shim, sync must fail closed instead of writing generated instructions into an
-incidental current working directory. Running sync from a subdirectory of the
-same project must resolve the same repo-shim target paths.
-
-`kiln sync --repo-shims` generates repo instruction entrypoints. `AGENTS.md` is
-the shared repo shim for Codex CLI and OpenCode. `CLAUDE.md` is the repo shim
-for Claude Code. Future harness-specific repo entrypoints must be added to the
-same projection pipeline instead of creating another source of truth. The
-projection may summarize canonical doctrine and link profile ids, but it must
-not become a second source of truth for identity, workflow, agent profiles,
-skills, route policy, or permissions.
-
-Repo context adoption may use a managed agent and a dedicated repo-context skill
-to synthesize project guidance from real repository evidence. That agent output
-is advisory until Kiln validates it against the project-context schema and the
-operator approves adoption. Deterministic commands own root resolution, stack
-and script detection, generated-file signatures, install-state records, drift
-detection, backups, and projection writes.
-
-`kiln project scout` exposes deterministic repository evidence. `kiln project
-adopt` writes the private namespace's `context` file as canonical project
-context and blocks when existing context differs unless the operator explicitly
-forces replacement. Generated repo shims may summarize private context, but they
-must not own its content. Project context, project instruction profiles, project
-agents, and project skills are operator-private canonical state and are not
-versioned in the repository.
-
-Generated repo shims must contain a stable Kiln signature and projection
-metadata: target kind, project root identity, source profile ids, generator
-version, and content hash. Sync uses that metadata to block unmanaged files and
-drifted managed files unless `--force` is explicit; forced overwrites are backed
-up under the private namespace's `backups/repo-shims/`. Config/status surfaces use the same
-metadata to classify each repo guidance file as current managed projection,
-stale managed projection, managed file with drift, unmanaged existing guidance,
-missing projection, or blocked by ambiguous root. Unmanaged files are never
-overwritten silently; Kiln may recommend adoption or backup, but the adoption
-command must make the source and target explicit.
-
-Repo-shim sync also exports a workflow snapshot for native harnesses and other
-tools that can read project files but cannot query Kiln runtime state directly.
-The canonical snapshot is built from deterministic project context, resolved
-work-governance config, static workflow profiles, active instruction profiles,
-authority posture, and model policy guidance. Sync writes:
-
-- private `projections/workflow-snapshot.md` as a readable generated projection.
-- private `projections/workflow-snapshot-manifest.json` as the manifest containing
-  generator id, generation timestamp, source ids, generated file list, and the
-  canonical snapshot hash.
-
-These files are generated projections only. They are not durable doctrine and
-must not be edited to change Kiln behavior. The manifest hash is computed from
-canonical workflow evidence, not from the markdown projection alone. Re-running
-sync with unchanged canonical evidence leaves the repo shims, manifest, and
-workflow snapshot markdown unchanged. Config/status surfaces report
-`workflow-snapshot:manifest` as missing, current, stale, or drifted; stale and
-drifted diagnostics are read-only and must not mutate the manifest or canonical
-workflow state.
-
-Workflow snapshot export is intentionally static. It projects project context,
-workflow policy, instruction profiles, authority posture, model policy, and
-profile guidance for native harness startup. It does not project live goal
-runs, work-item execution attempts, managed invocation records, or closeout
-summaries. Those are session evidence and remain available through canonical
-session events and resources such as `kiln://session/goals` and
-`kiln://session/work-items`.
+The private workflow snapshot remains a generated projection under the bound
+private namespace, with a private manifest and content hash when enabled. It is
+for private consumers that need a static context view; it is not repository
+guidance, durable doctrine, or execution authority. It must never be exported
+by a repository-guidance operation or used to overwrite `AGENTS.md` or
+`CLAUDE.md`. Stale or drifted snapshot diagnostics are read-only and do not
+mutate canonical workflow state.
 
 Configuration inspection uses the same canonical status contract across
 operator surfaces. Status evidence V3 replaces the former untyped raw
@@ -592,8 +536,9 @@ emits only `{ present: true }` for those families. The resolved runtime object i
 request-local by the CLI application owner and is never part of the transport.
 
 `KilnConfigStatusSnapshot` also reports resolved project root, global config
-status, project config status, adopted project-context status, repo-shim projection status, native projection
-install-state status, workflow snapshot manifest status, skill catalog status,
+status, project config status, private project-context status,
+repository-guidance diagnostics, native projection install-state status,
+workflow snapshot manifest status, skill catalog status,
 permission integrity, and harness integration capabilities. Skill catalog
 status includes origin, built-in flag, source path, native projection status
 for Claude Code, Codex, and OpenCode, and admission availability. CLI commands,
@@ -620,13 +565,12 @@ project omission or rejected override cannot silently remove global safety
 posture.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
-read model. It contains project-context status, repo-shim status, native
-projection status, global instruction shim status, permission-integrity
-status, skill projection/admission diagnostics, and deterministic recommended
-actions such as `adopt-project-context`, `sync-repo-shims`,
-`sync-native-projections`, `sync-global-instruction-shims`,
-`adopt-or-back-up-global-instructions`, or
-`review-global-instruction-drift`. Native skill adoption is explicit: setup
+read model. It contains private project-context status,
+repository-guidance diagnostics, native projection status, global instruction
+projection status, permission-integrity status, skill projection/admission
+diagnostics, and deterministic recommended actions for diagnosis, explicit
+native projection, and reviewed adoption. Native skill adoption is explicit:
+setup
 may copy parseable, non-conflicting harness-local skills into the canonical
 global Kiln registry, then run native skill projection so every supported
 harness sees the same governed copy. Conflicting same-name native skills block
@@ -667,8 +611,8 @@ setup` prints the raw setup snapshot, `kiln status` includes deterministic
 setup actions, the GUI reads `/gui/api/config/setup`, and the TUI `/setup`
 command renders the same status. GUI passive reads omit query parameters;
 `refreshSkillDiagnostics=true` is the explicit retry port used only by the
-operator refresh action. Surfaces must not infer setup state by
-re-reading YAML, repo shims, or native harness files.
+operator refresh action. Surfaces must not infer setup state by re-reading YAML,
+repository guidance, or native harness files.
 
 GUI setup actions use a separate governed action boundary:
 `POST /gui/api/config/setup/actions`. The runtime validates the request through
@@ -676,15 +620,15 @@ the shared gateway contract, enforces the shared GUI-executable action allowlist
 and delegates only allowed actions to CLI-owned setup services. Button disabled
 state is defense in depth, not the authority boundary: valid but disallowed
 actions return a deterministic blocked setup result and never reach CLI mutation
-services. GUI may
-execute project-context adoption, repo-shim sync, native projection sync, and
-safe global instruction shim sync. The global sync service itself blocks
-unmanaged files and managed drift unless the CLI receives a separate explicit
-adoption or force request. Adoption or backup actions, force, and
-drift-sensitive actions return blocked results and keep the operator in an
-explicit review flow.
+services. GUI may execute private project-context adoption and explicitly
+selected native projection actions. It may present repository-guidance
+diagnosis and proposed diffs, but it must not write repository guidance as a
+side effect. The global projection service itself blocks unmanaged files and
+managed drift unless the CLI receives a separate explicit adoption or repair
+request. Adoption or backup actions and drift-sensitive actions return blocked
+results and keep the operator in an explicit review flow.
 
-Global instruction shim setup snapshots carry canonical `harness` identity from
+Global instruction projection setup snapshots carry canonical `harness` identity from
 the shared setup contract (`codex`, `claude-code`, or `opencode`); GUI and TUI
 render that field directly and do not derive identity from target IDs.
 
@@ -1050,7 +994,8 @@ tool behavior or write authority.
 
 ## Invariants
 
-- Native harness files are projected artifacts.
+- Native user-level harness files are opt-in projected artifacts; repository
+  guidance is project/team-owned.
 - Harness integration decisions come from the shared capability model, not
   scattered per-command conditionals.
 - Drift is an error condition, not a steady state.
@@ -1059,21 +1004,23 @@ tool behavior or write authority.
 - Model names are provider-specific; cross-provider defaults must not be blindly
   copied into harness config.
 - Config projection must be shared by all operator surfaces.
-- Repo-local generated shims require an explicitly resolved project root; the
-  command's current working directory is not a sufficient architecture contract.
-- Generated repo shims must be self-identifying through Kiln projection
-  metadata so status surfaces can explain whether a file is managed, stale,
-  drifted, unmanaged, or missing.
-- Workflow snapshot markdown and manifest files are generated projections from
-  canonical workflow evidence; status surfaces may report drift, but must not
-  repair them implicitly.
+- `AGENTS.md` is project/team-owned guidance consumed natively by Codex and
+  OpenCode; a project-owned `CLAUDE.md` may import `@AGENTS.md` and add only genuine
+  Claude-specific deltas.
+- Existing repository guidance is project-owned by default. Kiln does not
+  routinely regenerate or overwrite it.
+- Global native instruction projections are opt-in managed renderings of neutral
+  doctrine and never become repository guidance.
+- Private workflow snapshot markdown and its manifest are generated projections
+  from canonical workflow evidence; status surfaces may report drift, but must
+  not repair or export them as repository guidance implicitly.
 - Managed-agent target projection is governed config, not assistant preference.
 - The target catalog and authority-profile catalog remain separate; runtime and
   operator surfaces consume their exact references instead of inferring target
   or authority from provider, model, persona, or admission class.
 - Instruction profile, agent, and skill definitions are canonical only under
-  the global `~/.kiln` directories or the bound private project namespace,
-  never in native harness folders or the repository.
+  global `~/.kiln` directories or the bound private project namespace, never in
+  native harness folders or repository guidance.
 - Native harness-local skills are setup diagnostics until explicitly adopted or
   imported into Kiln canonical config; they are never admitted into managed
   invocation by their native presence alone.

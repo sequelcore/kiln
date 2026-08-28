@@ -81,7 +81,7 @@ export interface HarnessDoctorReport {
 
 export interface HarnessDoctorProjectionReport {
   readonly targetId: string;
-  readonly kind: string;
+  readonly kind: KilnProjectionTargetSnapshot["kind"];
   readonly status: string;
   readonly path: string;
   readonly permissionIntegrity?: TrustedExecutionIntegrity;

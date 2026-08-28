@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   routeAuthority: { executionCatalog: { targets: [{ id: "terra" }] } } as unknown,
   syncPermissions: vi.fn(),
   syncAgents: vi.fn(),
+  syncWorkflowSnapshot: vi.fn(),
   loadConfigWithAuthority: vi.fn(),
   generations: new Map<string, string>(),
 }));
@@ -32,7 +33,9 @@ vi.mock("../../src/config/native-permission-projection.js", () => ({
 
 vi.mock("../../src/config/native-agent-projection.js", () => ({ syncNativeAgentProjections: mocks.syncAgents }));
 vi.mock("../../src/config/native-skill-projection.js", () => ({ syncNativeSkillProjections: vi.fn() }));
-vi.mock("../../src/application/repo-shim-projection.js", () => ({ writeRepoShimProjections: vi.fn() }));
+vi.mock("../../src/application/workflow-snapshot-projection.js", () => ({
+  syncWorkflowSnapshotProjection: mocks.syncWorkflowSnapshot,
+}));
 vi.mock("../../src/config/communication-policy.js", () => ({ configuredCommunicationCandidates: vi.fn() }));
 vi.mock("../../src/kiln-yaml.js", () => ({ readKilnYamlFile: vi.fn() }));
 vi.mock("../../src/application/config-reconciliation-generation.js", () => ({
@@ -60,6 +63,7 @@ describe("configuration mutation reconciliation", () => {
     mocks.routeAuthority = { executionCatalog: { targets: [{ id: "terra" }] } };
     mocks.syncPermissions.mockReset().mockResolvedValue({ errors: [], outcomes: [] });
     mocks.syncAgents.mockReset().mockResolvedValue({ errors: [], synced: 1 });
+    mocks.syncWorkflowSnapshot.mockReset().mockResolvedValue({ errors: [], written: true, outcomes: [] });
     mocks.loadConfigWithAuthority.mockReset().mockResolvedValue({ kilnYaml: { version: "1" }, globalConfig: mocks.globalConfig });
     mocks.generations.clear();
   });
@@ -103,6 +107,19 @@ describe("configuration mutation reconciliation", () => {
       status: "ok",
       summary: "1 execution targets verified from canonical intent and evidence.",
       errors: [],
+      generation: `sha256:${"a".repeat(64)}`,
+    });
+  });
+
+  it("reconciles the private workflow snapshot without writing repository instructions", async () => {
+    const [effect] = await reconcileConfigMutation(projectRoot, ["workflow-snapshot"], { kilnHome });
+
+    expect(mocks.syncWorkflowSnapshot).toHaveBeenCalledWith(projectRoot, {
+      projectStateBinding: expect.objectContaining({ canonicalRoot: projectRoot }),
+    });
+    expect(effect).toMatchObject({
+      target: "workflow-snapshot",
+      status: "ok",
       generation: `sha256:${"a".repeat(64)}`,
     });
   });

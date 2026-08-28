@@ -33,7 +33,7 @@ describe("project-root-resolver", () => {
     expect(resolved.projectName).toBe("fixture-project");
   });
 
-  it("falls back to git root for repository shims when no kiln.yaml exists", () => {
+  it("falls back to the git root when no kiln.yaml exists", () => {
     const root = resetFixture();
     mkdirSync(join(root, ".git"), { recursive: true });
     mkdirSync(join(root, "apps", "web"), { recursive: true });

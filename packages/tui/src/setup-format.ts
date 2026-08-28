@@ -8,9 +8,9 @@ const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
   none: "none",
   "adopt-project-context": "adopt project context",
   "review-project-context": "review project context",
-  "sync-repo-shims": "sync repo shims",
+  "review-project-instructions": "review project instructions",
+  "sync-workflow-snapshot": "sync workflow snapshot",
   "sync-native-projections": "sync native projections",
-  "review-and-force-sync-repo-shims": "review shim drift",
   "adopt-or-back-up-native-guidance": "adopt native guidance",
   "review-native-projection-drift": "review native drift",
   "sync-global-instruction-shims": "sync global instruction shims",
@@ -22,8 +22,14 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
   const actions = snapshot.recommendedActions.length > 0
     ? snapshot.recommendedActions.map((action) => SETUP_ACTION_LABELS[action]).join(", ")
     : SETUP_ACTION_LABELS.none;
-  const repoShims = snapshot.repoShims.length > 0
-    ? snapshot.repoShims.map((shim) => `  - ${shim.target}: ${shim.status}`).join("\n")
+  const projectInstructions = snapshot.projectInstructions.length > 0
+    ? snapshot.projectInstructions.map((instruction) => `  - ${instruction.target}: ${instruction.status}`).join("\n")
+    : "  - none";
+  const workflowSnapshots = snapshot.workflowSnapshots.length > 0
+    ? snapshot.workflowSnapshots.map((projection) => [
+      `  - ${projection.targetId}: ${projection.status}`,
+      `    target=${projection.path}${projection.details ? ` details=${projection.details}` : ""}`,
+    ].join("\n")).join("\n")
     : "  - none";
   const globalInstructionShims = snapshot.globalInstructionShims.length > 0
     ? snapshot.globalInstructionShims.map((shim) => [
@@ -66,8 +72,10 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     `effective configuration: ${snapshot.effectiveConfig?.health ?? "unknown"}`,
     effectiveConfig,
     `actions: ${actions}`,
-    "repo shims:",
-    repoShims,
+    "project instructions:",
+    projectInstructions,
+    "workflow snapshots:",
+    workflowSnapshots,
     "global instruction shims:",
     globalInstructionShims,
     "native projections:",

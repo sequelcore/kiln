@@ -144,8 +144,8 @@ describe("KilnConfigActivationStatusSchema", () => {
 });
 
 describe("KilnSkillCatalogSnapshotSchema", () => {
-  it("publishes the effective-configuration read model as evidence version 3", () => {
-    expect(KILN_STATUS_EVIDENCE_VERSION).toBe(3);
+  it("publishes the project-instruction read model as evidence version 4", () => {
+    expect(KILN_STATUS_EVIDENCE_VERSION).toBe(4);
   });
   it("publishes exact source inventory and unknown budget evidence", () => {
     const parsed = KilnSkillCatalogSnapshotSchema.parse({
@@ -412,7 +412,8 @@ describe("KilnConfig setup and status permission integrity", () => {
         status: "valid",
         recommendation: "none",
       },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       globalInstructionShims: [{
         targetId: "codex-global-instructions",
         harness: "codex",
@@ -456,12 +457,32 @@ describe("KilnConfig setup and status permission integrity", () => {
     expect(() => KilnConfigSetupSnapshotSchema.parse({
       projectRoot: "C:/repo/kiln",
       projectContext: { path: "C:/repo/kiln/.kiln/project-context.md", status: "valid", recommendation: "none" },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       globalInstructionShims: [shim],
       nativeProjections: [],
       permissionIntegrity: [],
       skillDiagnostics: { state: "current" },
       recommendedActions: ["sync-global-instruction-shims"],
+    })).toThrow();
+  });
+
+  it("rejects non-workflow projections in the workflow snapshot setup field", () => {
+    expect(() => KilnConfigSetupSnapshotSchema.parse({
+      projectRoot: "C:/repo/kiln",
+      projectContext: { path: "C:/repo/kiln/context.md", status: "valid", recommendation: "none" },
+      projectInstructions: [],
+      workflowSnapshots: [{
+        targetId: "codex-config",
+        path: "C:/Users/test/.codex/config.toml",
+        kind: "native",
+        status: "managed",
+      }],
+      globalInstructionShims: [],
+      nativeProjections: [],
+      permissionIntegrity: [],
+      skillDiagnostics: { state: "current" },
+      recommendedActions: ["none"],
     })).toThrow();
   });
 
@@ -474,7 +495,8 @@ describe("KilnConfig setup and status permission integrity", () => {
         status: "valid",
         recommendation: "none",
       },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [integrity],

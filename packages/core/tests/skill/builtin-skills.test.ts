@@ -11,6 +11,7 @@ describe("Kiln core builtin skills", () => {
     const names = KILN_CORE_BUILTIN_SKILLS.map((skill) => skill.name);
 
     expect(names).toEqual([
+      "agent-context-doctor",
       "repo-context-review",
       "codebase-scouting",
       "implementation-planning",
@@ -42,11 +43,11 @@ describe("Kiln core builtin skills", () => {
   });
 
   it("renders valid SKILL.md markdown for projection", () => {
-    const markdown = renderSkillMarkdown(KILN_CORE_BUILTIN_SKILLS[0]!);
+    const markdown = renderSkillMarkdown(KILN_CORE_BUILTIN_SKILLS.find((skill) => skill.name === "repo-context-review")!);
 
     expect(markdown).toContain("name: repo-context-review");
     expect(markdown).toContain("description:");
-    expect(markdown).toContain("# Repo Context Review");
+    expect(markdown).toContain("Do not mutate repository guidance");
   });
 
   it("requires evidence-backed actionable code review findings", () => {
@@ -256,19 +257,26 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/Never mutate while reviewing/);
     expect(skill?.instructions).toMatch(/unmanaged content,\s+ambiguous ownership, invalid canonical config/);
     expect(skill?.instructions).toContain("proposal, approval, and apply");
+    expect(skill?.instructions).toMatch(/agent-context-doctor owns repository guidance placement and ownership/);
+    expect(skill?.instructions).toMatch(/Never recommend direct edits to repository guidance or\s+native skill files/);
   });
 
-  it("requires conflict-aware repository context review", () => {
+  it("keeps private project-context review separate from repository guidance", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "repo-context-review");
 
     expect(skill).toBeDefined();
+    expect(skill?.description).toMatch(/private reviewed project context.*repository evidence.*adoption/i);
     expect(skill?.instructions).toMatch(/facts, inferences, conflicts, and unknowns/);
     expect(skill?.instructions).toMatch(/manifests, lockfiles,\s+workspace metadata, CI or build configuration/);
     expect(skill?.instructions).toMatch(/direct executable or configuration evidence before documentation/);
     expect(skill?.instructions).toContain("Preserve reviewed durable human notes");
     expect(skill?.instructions).toMatch(/blocked only when critical evidence cannot\s+be resolved/);
-    expect(skill?.instructions).toMatch(/Do not repair\s+projection drift/);
+    expect(skill?.instructions).toMatch(/Do not repair .*projection\s+drift/s);
     expect(skill?.instructions).toMatch(/derived repository facts/i);
+    expect(skill?.instructions).toMatch(/executable or source owners/);
+    expect(skill?.instructions).toMatch(/non-derivable operator or project\s+notes/);
+    expect(skill?.instructions).toMatch(/Project\/team guidance belongs in\s+project-owned\s+AGENTS\.md/si);
+    expect(skill?.instructions).toMatch(/Do not mutate repository guidance/);
     expect(skill?.instructions).toMatch(/frontmatter.*body/i);
   });
 
@@ -319,5 +327,25 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions.replace(/\s+/g, " ")).toContain(
       "does not prove correctness, maintainability, or productivity",
     );
+  });
+
+  it("defines agent-context-doctor as a non-mutating ownership and leakage diagnostic", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "agent-context-doctor");
+
+    expect(skill).toBeDefined();
+    expect(skill?.description).toMatch(/repository guidance ownership.*private\/global leakage.*propose a safe diff/i);
+    expect(skill?.tools).toEqual(["read", "grep", "glob"]);
+    expect(skill?.instructions).toMatch(/existing files\s+are project-owned by default/i);
+    expect(skill?.instructions).toMatch(/Derived repository evidence.*executable or source owner/s);
+    expect(skill?.instructions).toMatch(/private reviewed project context.*non-derivable/i);
+    expect(skill?.instructions).toMatch(/global or\s+private-project instruction profile/si);
+    expect(skill?.instructions).toMatch(/project-owned `CLAUDE\.md` may import `@AGENTS\.md`.*genuine\s+Claude-specific deltas/si);
+    expect(skill?.instructions).toMatch(/OpenCode consumes `AGENTS\.md` natively/);
+    expect(skill?.instructions).toMatch(/provider, model, routing, workers, depth, permissions,\s+sandbox, or MCP credentials/);
+    expect(skill?.instructions).toMatch(/procedures\/skills.*reusable task procedure|reusable task procedure.*skill/);
+    expect(skill?.instructions).toMatch(/hard policy that must be enforced by schema,\s+runtime, tool, hook, or test/);
+    expect(skill?.instructions).toMatch(/Default output is a diagnosis and proposed diff/);
+    expect(skill?.instructions).toMatch(/Do not mutate repository files unless the user explicitly requests/);
+    expect(skill?.instructions).toMatch(/private workflow\s+snapshot remains a generated projection.*not repository\s+guidance/si);
   });
 });

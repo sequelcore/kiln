@@ -71,8 +71,8 @@ loops and capabilities.
 under `~/.kiln/projects/<krp_sha256>/`. The namespace contains the project
 `config.yaml`, identity-only `adoption.json`, context, profiles, skills,
 sessions, runtime state, caches, evidence, and backups. The repository is not a
-mutable Kiln state root; `AGENTS.md` and `CLAUDE.md` are deliberate generated
-guidance projections. Relocating a project creates a new identity and requires
+mutable Kiln state root; `AGENTS.md` and `CLAUDE.md` are project-owned guidance
+reviewed and versioned with the code. Relocating a project creates a new identity and requires
 explicit re-adoption. Kiln does not read or migrate a repository-local `.kiln/`
 tree.
 

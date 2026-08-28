@@ -2,6 +2,7 @@ import type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigSourceStatus,
+  KilnProjectInstructionSnapshot,
   KilnProjectionTargetStatus,
   TrustedExecutionIntegrity,
 } from "@kilnai/gateway-contracts";
@@ -43,9 +44,9 @@ const ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
   none: "Current",
   "adopt-project-context": "Adopt Project Context",
   "review-project-context": "Review Project Context",
-  "sync-repo-shims": "Sync Repo Shims",
+  "review-project-instructions": "Review Project Instructions",
+  "sync-workflow-snapshot": "Sync Workflow Snapshot",
   "sync-native-projections": "Sync Native Projections",
-  "review-and-force-sync-repo-shims": "Review Shim Drift",
   "adopt-or-back-up-native-guidance": "Review Native Guidance",
   "review-native-projection-drift": "Review Native Drift",
   "sync-global-instruction-shims": "Sync Global Instruction Shims",
@@ -57,9 +58,9 @@ const ACTION_DESCRIPTIONS: Record<KilnConfigSetupAction, string> = {
   none: "All setup sources are aligned.",
   "adopt-project-context": "Create the canonical project-context document from deterministic repository evidence.",
   "review-project-context": "The project-context document exists but needs manual review before replacement.",
-  "sync-repo-shims": "Regenerate AGENTS.md, CLAUDE.md, and workflow projection files from canonical Kiln context.",
+  "review-project-instructions": "Review project-owned AGENTS.md and CLAUDE.md with the agent-context-doctor skill.",
+  "sync-workflow-snapshot": "Refresh the private workflow snapshot from canonical Kiln configuration.",
   "sync-native-projections": "Refresh managed native harness projections from canonical Kiln config.",
-  "review-and-force-sync-repo-shims": "Repo shims drifted from generated output; review before forcing replacement.",
   "adopt-or-back-up-native-guidance": "Native guidance is unmanaged; review before adopting or backing it up.",
   "review-native-projection-drift": "Native projection files drifted; review before overwriting managed fields.",
   "sync-global-instruction-shims": "Generate managed global instruction shims from canonical Kiln doctrine.",
@@ -70,7 +71,8 @@ const ACTION_DESCRIPTIONS: Record<KilnConfigSetupAction, string> = {
 export function SetupPanel(props: SetupPanelProps) {
   const summary = summarizeSetup(props.snapshot);
   const actionItems = setupActionItems(props.snapshot);
-  const repoShims = props.snapshot?.repoShims ?? [];
+  const projectInstructions = props.snapshot?.projectInstructions ?? [];
+  const workflowSnapshots = props.snapshot?.workflowSnapshots ?? [];
   const globalInstructionShims = props.snapshot?.globalInstructionShims ?? [];
   const nativeProjections = props.snapshot?.nativeProjections ?? [];
   const permissionIntegrity = props.snapshot?.permissionIntegrity ?? [];
@@ -83,7 +85,7 @@ export function SetupPanel(props: SetupPanelProps) {
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">Configuration Health</h2>
             <p className="truncate text-xs text-muted-foreground">
-              {props.snapshot?.projectRoot ?? "Global config, project context, shims, native projections"}
+              {props.snapshot?.projectRoot ?? "Global config, project instructions, and native projections"}
             </p>
           </div>
         </div>
@@ -117,17 +119,18 @@ export function SetupPanel(props: SetupPanelProps) {
                   </CardAction>
                 </CardHeader>
                 <CardContent>
-                  <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-5 sm:divide-x sm:divide-y-0">
+                  <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-6 sm:divide-x sm:divide-y-0">
                     <SetupHealthFact label="Project Context" value={props.snapshot.projectContext.status} />
-                    <SetupHealthFact label="Repo Shims" value={statusSummary(repoShims)} />
+                    <SetupHealthFact label="Project Instructions" value={statusSummary(projectInstructions)} />
+                    <SetupHealthFact label="Workflow Snapshot" value={statusSummary(workflowSnapshots)} />
                     <SetupHealthFact label="Global Instruction Shims" value={statusSummary(globalInstructionShims)} />
                     <SetupHealthFact label="Native Projections" value={statusSummary(nativeProjections)} />
                     <SetupHealthFact label="MCP Servers" value={mcpStatusSummary(props.snapshot.mcp)} />
                   </dl>
                 </CardContent>
                 <CardFooter className="justify-between gap-4 text-sm text-muted-foreground">
-                  <span>{summary.actionCount === 0 ? "No configuration repair is required." : "Resolve required actions before trusting generated guidance."}</span>
-                  <span className="shrink-0 tabular-nums">{repoShims.length + globalInstructionShims.length + nativeProjections.length + 1} sources</span>
+                  <span>{summary.actionCount === 0 ? "No configuration repair is required." : "Resolve required actions before trusting configuration status."}</span>
+                  <span className="shrink-0 tabular-nums">{projectInstructions.length + workflowSnapshots.length + globalInstructionShims.length + nativeProjections.length + 1} sources</span>
                 </CardFooter>
               </Card>
             </section>
@@ -136,7 +139,7 @@ export function SetupPanel(props: SetupPanelProps) {
               <Card>
                 <CardHeader>
                   <CardTitle><h3>Required Configuration Actions</h3></CardTitle>
-                  <CardDescription>Repair generated state here; inspect drift before any destructive replacement.</CardDescription>
+                  <CardDescription>Run safe convergence actions here; review owned files and drift before replacement.</CardDescription>
                 </CardHeader>
                 <CardContent className="divide-y divide-border/70 p-0">
                   {actionItems.length === 0 ? (
@@ -285,7 +288,7 @@ function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {
     return {
       actionCount,
       title: "Configuration Is Current",
-      description: "Global config, project context, repo shims, global instruction shims, and native projections are aligned.",
+      description: "Global config, project context, project instructions, workflow evidence, global instruction shims, and native projections are aligned.",
       badge: "Current",
     };
   }
@@ -415,14 +418,14 @@ function SetupActionRow(props: {
 }
 
 function statusSummary(
-  items: readonly { readonly status: KilnConfigSourceStatus | KilnProjectionTargetStatus }[],
+  items: readonly { readonly status: KilnConfigSourceStatus | KilnProjectionTargetStatus | KilnProjectInstructionSnapshot["status"] }[],
 ): string {
   if (items.length === 0) {
     return "none";
   }
-  if (items.every((item) => item.status === "current" || item.status === "managed" || item.status === "valid")) {
+  if (items.every((item) => item.status === "current" || item.status === "managed" || item.status === "valid" || item.status === "project-owned")) {
     return "current";
   }
-  const firstProblem = items.find((item) => item.status !== "current" && item.status !== "managed" && item.status !== "valid");
+  const firstProblem = items.find((item) => item.status !== "current" && item.status !== "managed" && item.status !== "valid" && item.status !== "project-owned");
   return firstProblem?.status ?? "current";
 }

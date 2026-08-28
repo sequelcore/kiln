@@ -227,7 +227,7 @@ function normalizeContextGovernanceAdaptation(binding: ProjectStateBinding, rawP
     diagnostics,
     authorityImpact: "none",
     affectedOwners: ["context-governance"],
-    reconciliationTargets: ["repo-shims"],
+    reconciliationTargets: ["workflow-snapshot"],
     activation: "next-session",
   };
 }
@@ -285,7 +285,7 @@ function normalizeSkillUpsert(context: ConfigMutationContext, rawPayload: unknow
     diagnostics,
     authorityImpact: "none",
     affectedOwners: [userScope ? "user-skill-catalog" : "project-skill-catalog"],
-    reconciliationTargets: ["native-skills", "repo-shims"],
+    reconciliationTargets: ["native-skills", "workflow-snapshot"],
     activation: "reconcile",
   };
 }
@@ -649,7 +649,7 @@ function normalizeProjectAdopt(
     diagnostics,
     authorityImpact,
     affectedOwners: ["project-configuration", "model-facing-execution-authority"],
-    reconciliationTargets: ["repo-shims"],
+    reconciliationTargets: ["workflow-snapshot"],
     activation: "next-session",
   };
 }
@@ -1108,7 +1108,7 @@ function normalizeAgentUpsert(binding: ProjectStateBinding, rawPayload: unknown)
     diagnostics,
     authorityImpact: agentToolAuthorityImpact(currentTools, tools),
     affectedOwners: ["project-agent-catalog"],
-    reconciliationTargets: ["native-agents", "repo-shims"],
+    reconciliationTargets: ["native-agents", "workflow-snapshot"],
     activation: "reconcile",
   };
 }
@@ -1144,7 +1144,7 @@ function normalizeAgentAttachSkills(binding: ProjectStateBinding, rawPayload: un
     diagnostics,
     authorityImpact: "none",
     affectedOwners: ["project-agent-catalog"],
-    reconciliationTargets: ["native-agents", "repo-shims"],
+    reconciliationTargets: ["native-agents", "workflow-snapshot"],
     activation: "reconcile",
   };
 }

@@ -7,7 +7,7 @@ import type {
 } from "./config-mutation.js";
 
 /** Version of status evidence that native-harness readers may treat as compatible. */
-export const KILN_STATUS_EVIDENCE_VERSION = 3 as const;
+export const KILN_STATUS_EVIDENCE_VERSION = 4 as const;
 
 /** Breaking revision of the secret-free effective-configuration projection. */
 export const KILN_EFFECTIVE_CONFIG_SCHEMA_REVISION = 1 as const;
@@ -224,10 +224,10 @@ export const KILN_CONFIG_SETUP_ACTIONS = [
   "none",
   "adopt-project-context",
   "review-project-context",
-  "sync-repo-shims",
+  "review-project-instructions",
+  "sync-workflow-snapshot",
   "sync-native-projections",
   "sync-global-instruction-shims",
-  "review-and-force-sync-repo-shims",
   "adopt-or-back-up-native-guidance",
   "adopt-or-back-up-global-instructions",
   "review-native-projection-drift",
@@ -648,7 +648,7 @@ export interface KilnSkillCatalogDiagnosticsSnapshot {
 export interface KilnProjectionTargetSnapshot {
   readonly targetId: string;
   readonly path: string;
-  readonly kind: "repo-shim" | "native" | "global-instruction-shim" | "workflow-snapshot";
+  readonly kind: "native" | "global-instruction-shim" | "workflow-snapshot";
   readonly status: KilnProjectionTargetStatus;
   readonly details?: string;
   readonly managedFieldCount?: number;
@@ -697,11 +697,16 @@ export interface KilnGlobalInstructionShimSetupSnapshot extends KilnProjectionTa
   readonly recommendation: KilnConfigSetupAction;
 }
 
-export interface KilnRepoShimProjectionSnapshot {
+export interface KilnWorkflowSnapshotSetupSnapshot extends KilnProjectionTargetSnapshot {
+  readonly kind: "workflow-snapshot";
+}
+
+export interface KilnProjectInstructionSnapshot {
   readonly target: "agents" | "claude";
   readonly targetId: string;
   readonly path: string;
-  readonly status: Extract<KilnProjectionTargetStatus, "missing" | "current" | "stale" | "drifted" | "unmanaged">;
+  readonly status: "missing" | "project-owned" | "unreadable";
+  readonly details?: string;
   readonly recommendation: KilnConfigSetupAction;
 }
 
@@ -709,10 +714,10 @@ export type KilnConfigSetupAction =
   | "none"
   | "adopt-project-context"
   | "review-project-context"
-  | "sync-repo-shims"
+  | "review-project-instructions"
+  | "sync-workflow-snapshot"
   | "sync-native-projections"
   | "sync-global-instruction-shims"
-  | "review-and-force-sync-repo-shims"
   | "adopt-or-back-up-native-guidance"
   | "adopt-or-back-up-global-instructions"
   | "review-native-projection-drift"
@@ -720,7 +725,7 @@ export type KilnConfigSetupAction =
 
 export const GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS = [
   "adopt-project-context",
-  "sync-repo-shims",
+  "sync-workflow-snapshot",
   "sync-native-projections",
   "sync-global-instruction-shims",
 ] as const satisfies readonly KilnConfigSetupAction[];
@@ -750,7 +755,8 @@ export interface KilnConfigSetupSnapshot {
   readonly projectContext: KilnConfigSourceSnapshot & {
     readonly recommendation: KilnConfigSetupAction;
   };
-  readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly projectInstructions: readonly KilnProjectInstructionSnapshot[];
+  readonly workflowSnapshots: readonly KilnWorkflowSnapshotSetupSnapshot[];
   readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
@@ -926,7 +932,7 @@ const KilnConfigActivationStatusRevisionSchema = z.union([
 ]);
 
 const KilnConfigActivationStatusGenerationSchema = z.object({
-  target: z.enum(["native-agents", "native-skills", "native-permissions", "repo-shims", "execution-targets"]),
+  target: z.enum(["native-agents", "native-skills", "native-permissions", "workflow-snapshot", "execution-targets"]),
   generation: KilnConfigActivationStatusDigestSchema,
 }).strict();
 
@@ -1031,7 +1037,7 @@ const NativeRouteIntegrityClassificationSchema = z.enum([
 export const KilnProjectionTargetSnapshotSchema = z.object({
   targetId: z.string(),
   path: z.string(),
-  kind: z.enum(["repo-shim", "native", "global-instruction-shim", "workflow-snapshot"]),
+  kind: z.enum(["native", "global-instruction-shim", "workflow-snapshot"]),
   status: z.enum(KILN_PROJECTION_TARGET_STATUSES),
   details: z.string().optional(),
   managedFieldCount: z.number().int().nonnegative().optional(),
@@ -1081,11 +1087,16 @@ export const KilnGlobalInstructionShimSetupSnapshotSchema = KilnProjectionTarget
   recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
 });
 
-export const KilnRepoShimProjectionSnapshotSchema = z.object({
+export const KilnWorkflowSnapshotSetupSnapshotSchema = KilnProjectionTargetSnapshotSchema.extend({
+  kind: z.literal("workflow-snapshot"),
+});
+
+export const KilnProjectInstructionSnapshotSchema = z.object({
   target: z.enum(["agents", "claude"]),
   targetId: z.string(),
   path: z.string(),
-  status: z.enum(["missing", "current", "stale", "drifted", "unmanaged"]),
+  status: z.enum(["missing", "project-owned", "unreadable"]),
+  details: z.string().optional(),
   recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
 });
 
@@ -1230,7 +1241,8 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   projectContext: KilnConfigSourceSnapshotSchema.extend({
     recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
   }),
-  repoShims: z.array(KilnRepoShimProjectionSnapshotSchema),
+  projectInstructions: z.array(KilnProjectInstructionSnapshotSchema),
+  workflowSnapshots: z.array(KilnWorkflowSnapshotSetupSnapshotSchema),
   globalInstructionShims: z.array(KilnGlobalInstructionShimSetupSnapshotSchema),
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),

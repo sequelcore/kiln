@@ -73,7 +73,7 @@ function canonicalInputs(
     case "native-permissions":
     case "execution-targets":
       return [globalPath];
-    case "repo-shims":
+    case "workflow-snapshot":
       return [
         projectPathname,
         binding.contextPath,

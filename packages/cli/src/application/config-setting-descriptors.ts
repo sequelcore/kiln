@@ -253,7 +253,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["activeInstructionProfiles"],
     scopes: BOTH,
     value: { kind: "string-list" },
-    reconciliationTargets: ["repo-shims"],
+    reconciliationTargets: ["workflow-snapshot"],
   }),
   descriptor({
     key: "skills.selection.mode",
@@ -323,7 +323,7 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["domain"],
     scopes: PROJECT,
     value: { kind: "text" },
-    reconciliationTargets: ["repo-shims"],
+    reconciliationTargets: ["workflow-snapshot"],
   }),
   descriptor({
     key: "channels",
@@ -354,13 +354,13 @@ const CONFIG_SETTING_DESCRIPTORS: ReadonlyMap<string, ConfigSettingDescriptor> =
     path: ["permissions", "approval"],
     scopes: PROJECT,
     value: { kind: "enum", allowed: ["never", "on-request", "on-failure", "untrusted"] },
-    reconciliationTargets: ["repo-shims"],
+    reconciliationTargets: ["workflow-snapshot"],
   }),
   descriptor({
     key: "permissions.sandbox",
     path: ["permissions", "sandbox"],
     scopes: PROJECT,
     value: { kind: "enum", allowed: ["read-only", "workspace-write", "danger-full-access"] },
-    reconciliationTargets: ["repo-shims"],
+    reconciliationTargets: ["workflow-snapshot"],
   }),
 ]);

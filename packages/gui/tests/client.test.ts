@@ -651,13 +651,14 @@ describe("GuiGatewayClient", () => {
         status: "valid",
         recommendation: "none",
       },
-      repoShims: [{
+      projectInstructions: [{
         target: "agents",
-        targetId: "repo-shim:agents",
+        targetId: "project-instruction:agents",
         path: "C:/workspace/kiln/AGENTS.md",
-        status: "current",
+        status: "project-owned",
         recommendation: "none",
       }],
+      workflowSnapshots: [],
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],
@@ -673,16 +674,16 @@ describe("GuiGatewayClient", () => {
     const setup = await client.loadConfigSetup({ refreshSkillDiagnostics: true });
 
     expect(setup.projectContext.status).toBe("valid");
-    expect(setup.repoShims[0]?.targetId).toBe("repo-shim:agents");
+    expect(setup.projectInstructions[0]?.targetId).toBe("project-instruction:agents");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/config/setup");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("refreshSkillDiagnostics=true");
   });
 
   it("executes setup actions through the GUI gateway", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      action: "sync-repo-shims",
+      action: "sync-workflow-snapshot",
       status: "applied",
-      message: "Repo shims synced.",
+      message: "Workflow snapshot synced.",
       errors: [],
       setup: {
         projectRoot: "C:/workspace/kiln",
@@ -691,12 +692,18 @@ describe("GuiGatewayClient", () => {
           status: "valid",
           recommendation: "none",
         },
-        repoShims: [{
+        projectInstructions: [{
           target: "agents",
-          targetId: "repo-shim:agents",
+          targetId: "project-instruction:agents",
           path: "C:/workspace/kiln/AGENTS.md",
-          status: "current",
+          status: "project-owned",
           recommendation: "none",
+        }],
+        workflowSnapshots: [{
+          targetId: "workflow-snapshot:manifest",
+          path: "C:/Users/operator/.kiln/projects/example/projections/workflow-snapshot-manifest.json",
+          kind: "workflow-snapshot",
+          status: "current",
         }],
         globalInstructionShims: [],
         nativeProjections: [],
@@ -711,15 +718,15 @@ describe("GuiGatewayClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new GuiGatewayClient("http://localhost:4810");
-    const result = await client.executeConfigSetupAction("sync-repo-shims");
+    const result = await client.executeConfigSetupAction("sync-workflow-snapshot");
 
     expect(result.status).toBe("applied");
-    expect(result.setup.repoShims[0]?.status).toBe("current");
+    expect(result.setup.workflowSnapshots[0]?.status).toBe("current");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/config/setup/actions");
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify({ action: "sync-repo-shims" }),
+      body: JSON.stringify({ action: "sync-workflow-snapshot" }),
     });
   });
 

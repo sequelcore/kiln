@@ -9,7 +9,7 @@ import { syncNativeAgentProjections } from "../config/native-agent-projection.js
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { readKilnYamlFile } from "../kiln-yaml.js";
-import { writeRepoShimProjections } from "./repo-shim-projection.js";
+import { syncWorkflowSnapshotProjection } from "./workflow-snapshot-projection.js";
 import { runConfigReconciliationTarget } from "./config-reconciliation-target.js";
 import {
   type ProjectStateBinding,
@@ -90,8 +90,8 @@ async function reconcileTargetOnce(
       return await reconcileNativeAgents(projectPath, binding);
     case "native-skills":
       return await reconcileNativeSkills(projectPath, binding);
-    case "repo-shims":
-      return await reconcileRepoShims(projectPath);
+    case "workflow-snapshot":
+      return await reconcileWorkflowSnapshot(projectPath, binding);
     case "native-permissions":
       return await reconcileNativePermissions(projectPath, binding);
     case "execution-targets":
@@ -175,12 +175,15 @@ function reconcileExecutionRoutes(): KilnConfigReconciliationEffect {
   };
 }
 
-async function reconcileRepoShims(projectPath: string): Promise<KilnConfigReconciliationEffect> {
-  const result = await writeRepoShimProjections(projectPath);
+async function reconcileWorkflowSnapshot(
+  projectPath: string,
+  binding: ProjectStateBinding,
+): Promise<KilnConfigReconciliationEffect> {
+  const result = await syncWorkflowSnapshotProjection(projectPath, { projectStateBinding: binding });
   return {
-    target: "repo-shims",
+    target: "workflow-snapshot",
     status: result.errors.length === 0 ? "ok" : "failed",
-    summary: `${result.targets.filter((entry) => entry.status === "written").length} repo shim projections written`,
+    summary: result.written ? "Workflow snapshot projection written." : "Workflow snapshot projection is current.",
     errors: result.errors,
   };
 }

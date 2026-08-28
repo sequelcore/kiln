@@ -325,17 +325,17 @@ export function createOperatorWorkspaceConfigHealthSummary(
       ...(setup.projectContext.recommendation !== "none" ? { recommendation: setup.projectContext.recommendation } : {}),
     });
   }
-  for (const repoShim of setup.repoShims) {
-    const status = projectionStatusToHealth(repoShim.status);
-    if (status === "healthy" && repoShim.recommendation === "none") {
+  for (const instruction of setup.projectInstructions) {
+    const status = projectInstructionStatusToHealth(instruction.status);
+    if (status === "healthy" && instruction.recommendation === "none") {
       continue;
     }
     items.push({
-      id: repoShim.targetId,
+      id: instruction.targetId,
       status,
-      summary: `Repo shim ${repoShim.target} is ${repoShim.status}.`,
-      source: repoShim.path,
-      ...(repoShim.recommendation !== "none" ? { recommendation: repoShim.recommendation } : {}),
+      summary: instruction.details ?? `Project instruction ${instruction.target} is ${instruction.status}.`,
+      source: instruction.path,
+      ...(instruction.recommendation !== "none" ? { recommendation: instruction.recommendation } : {}),
     });
   }
   for (const projection of setup.nativeProjections) {
@@ -723,6 +723,18 @@ function projectionStatusToHealth(status: KilnProjectionTargetStatus): OperatorW
     return "healthy";
   }
   if (status === "drifted") {
+    return "blocked";
+  }
+  return "degraded";
+}
+
+function projectInstructionStatusToHealth(
+  status: KilnConfigSetupSnapshot["projectInstructions"][number]["status"],
+): OperatorWorkspaceHealthStatus {
+  if (status === "project-owned") {
+    return "healthy";
+  }
+  if (status === "unreadable") {
     return "blocked";
   }
   return "degraded";

@@ -137,15 +137,12 @@ for the repository. File-count and coarse risk thresholds are deliberately not p
 they do not identify entanglement, authority, parallelism, or verification
 needs.
 
-The resolved policy is projected as required instruction context in CLI, GUI,
-TUI, and benchmark sessions. Repo shims also include the resolved policy so
-standalone native harness usage sees the same posture. Projection is not the
-authority boundary; managed invocations, tools, approvals, and verification
-gates still enforce the actual authority.
-Because repo shims are generated from resolved global and project Kiln config,
-this projection rule is not local to one repository. Any project that enables
-work governance receives the same cross-harness authority posture after it
-syncs repo shims with a Kiln version that includes this contract.
+The resolved policy is admitted as required context in CLI, GUI, TUI, and
+benchmark sessions. Repository instruction files do not mirror this runtime
+configuration. Standalone native harnesses receive only their own configured
+global guidance plus project-owned repository guidance. Managed invocations,
+tools, approvals, and verification gates enforce the actual authority; prose
+projection never does.
 
 ## Bounded Work Authority
 
@@ -208,7 +205,7 @@ matrix and explicit no-parity claims.
 
 ## Cross-Harness Authority Degradation
 
-Repo shims and native harness instructions may require orchestration, delegated
+Project-owned instructions and native harness guidance may require orchestration, delegated
 review, or subagent execution. Those requirements are valid workflow policy,
 but they are not proof that the active harness can actually perform the
 required action in the current turn.

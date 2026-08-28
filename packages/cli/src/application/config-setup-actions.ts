@@ -11,7 +11,7 @@ import { syncNativeMcpProjections } from "../config/native-mcp-projection-sync.j
 import { adoptNativeHarnessSkills } from "../config/native-skill-adoption.js";
 import { writeProjectContextAdoption } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
-import { writeRepoShimProjections } from "./repo-shim-projection.js";
+import { syncWorkflowSnapshotProjection } from "./workflow-snapshot-projection.js";
 import { syncGlobalInstructionShimProjections } from "./global-instruction-shim-projection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import { syncGlobalControlPlaneMcpProjections } from "../config/global-control-plane-mcp-projection.js";
@@ -46,16 +46,16 @@ export async function executeConfigSetupAction(
         return await result(input.action, "noop", "No setup action is required.", [], projectPath);
       case "adopt-project-context":
         return await adoptProjectContext(projectPath, input.action, binding);
-      case "sync-repo-shims":
-        return await syncRepoShims(projectPath, input.action, binding);
+      case "sync-workflow-snapshot":
+        return await syncWorkflowSnapshot(projectPath, input.action, binding);
       case "sync-native-projections":
         return await syncNativeProjections(projectPath, input.action, input.userHome, binding);
       case "sync-global-instruction-shims":
         return await syncGlobalInstructionShims(projectPath, input.action, input.userHome, binding);
       case "review-project-context":
         return await result(input.action, "blocked", "Review the project context before replacing it.", [], projectPath);
-      case "review-and-force-sync-repo-shims":
-        return await result(input.action, "blocked", "Review repo-shim drift before running a force sync.", [], projectPath);
+      case "review-project-instructions":
+        return await result(input.action, "blocked", "Review project-owned AGENTS.md and CLAUDE.md with the agent-context-doctor skill.", [], projectPath);
       case "adopt-or-back-up-native-guidance":
         return await adoptNativeGuidance(projectPath, input.action, input.userHome, binding);
       case "adopt-or-back-up-global-instructions":
@@ -88,19 +88,20 @@ async function adoptProjectContext(
   );
 }
 
-async function syncRepoShims(
+async function syncWorkflowSnapshot(
   projectPath: string,
   action: KilnConfigSetupAction,
-  _binding: ProjectStateBinding,
+  binding: ProjectStateBinding,
 ): Promise<KilnConfigSetupActionResult> {
-  const sync = await requireCurrentProjection(projectPath, "repo-shims", () => writeRepoShimProjections(projectPath));
+  const sync = await requireCurrentProjection(projectPath, "workflow-snapshot", () =>
+    syncWorkflowSnapshotProjection(projectPath, { projectStateBinding: binding }));
   if (sync.errors.length > 0) {
-    return result(action, "failed", "Repo-shim sync failed.", sync.errors, projectPath);
+    return result(action, "failed", "Workflow snapshot sync failed.", sync.errors, projectPath);
   }
   return result(
     action,
     sync.written ? "applied" : "noop",
-    sync.written ? "Repo shims synced." : "Repo shims are already current.",
+    sync.written ? "Workflow snapshot synced." : "Workflow snapshot is already current.",
     [],
     projectPath,
   );
@@ -206,7 +207,7 @@ async function syncNativeProjections(
 
 async function requireCurrentProjection<T>(
   projectPath: string,
-  target: "native-agents" | "native-skills" | "native-permissions" | "repo-shims",
+  target: "native-agents" | "native-skills" | "native-permissions" | "workflow-snapshot",
   run: () => T | Promise<T>,
 ): Promise<T> {
   const result = await runConfigReconciliationTarget(projectPath, target, run);

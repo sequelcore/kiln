@@ -3,8 +3,10 @@
 The global `sequel-engineering` instruction profile is the canonical owner of
 Sequel-wide engineering doctrine. This document owns Kiln-specific application
 of that doctrine and the repository facts and contracts that other Sequel
-projects must not inherit. Generated `CLAUDE.md` and `AGENTS.md` files only
-project the applicable owners.
+projects must not inherit. `AGENTS.md` is project/team-owned repository
+guidance. A project-owned `CLAUDE.md` may import `@AGENTS.md` and add only genuine
+Claude-specific deltas; OpenCode consumes `AGENTS.md` natively. Kiln-generated
+native files remain opt-in projections and never replace repository ownership.
 
 ## Source Of Truth
 
@@ -12,8 +14,45 @@ project the applicable owners.
 - Kiln architecture and repository-specific standards live in `docs/architecture/`.
 - Guides explain usage; they do not create doctrine.
 - Research explains rationale; it does not override contracts.
-- Generated agent instruction files are operational projections, never durable
-  owners.
+- Project-owned `AGENTS.md` is durable repository guidance; an optional
+  project-owned `CLAUDE.md` may import it and add genuine Claude-specific
+  deltas.
+- Global native instruction files and private workflow snapshots are generated
+  projections, never durable owners or repository guidance.
+
+## Content Ownership
+
+Classify context before placing or projecting it:
+
+- **Project context** — non-derivable reviewed project notes belong in the
+  private project-context owner when they are not shared repository guidance.
+  Derived repository evidence such as manifests, scripts, workspace metadata,
+  and generated facts stays with its executable or source owner. Intentional
+  shared guidance belongs in project-owned `AGENTS.md`; a project-owned `CLAUDE.md` may
+  import it and add genuine Claude-specific deltas.
+- **Global preference/doctrine** — operator or team defaults belong in a
+  global or private-project instruction profile, not in repository guidance by
+  accident.
+- **Runtime config** — provider, model, routing, workers, depth, permissions,
+  sandbox, and MCP credentials belong in canonical configuration, never prose.
+- **Procedure/skill** — reusable procedures belong in skills; guidance may
+  reference a skill but must not duplicate its workflow.
+- **Executable enforcement** — hard policy belongs in schemas, runtime, tools,
+  hooks, or tests. Prose explains policy but does not enforce it.
+- **Derived/redundant cache** — generated snapshots, indexes, status, and
+  workflow evidence are disposable projections with no authority.
+
+Private or global material must not leak into repository guidance. In
+particular, runtime route details, operator paths, credentials, and local
+permission or sandbox posture stay out of `AGENTS.md` and `CLAUDE.md`.
+
+Global native instruction projections are opt-in managed renderings of neutral
+doctrine. The private workflow snapshot is likewise a generated projection for
+private consumers; neither is repository guidance or an authority source.
+
+The `agent-context-doctor` skill diagnoses ownership, classification, leakage,
+and proposed diffs. Existing repository guidance is project-owned by default;
+Kiln never routinely regenerates or overwrites it.
 
 ## Consumer Surface
 

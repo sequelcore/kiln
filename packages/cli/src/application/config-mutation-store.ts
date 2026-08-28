@@ -63,7 +63,7 @@ const RECONCILIATION_TARGETS = [
   "native-agents",
   "native-skills",
   "native-permissions",
-  "repo-shims",
+  "workflow-snapshot",
   "execution-targets",
 ] as const;
 

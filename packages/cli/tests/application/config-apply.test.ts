@@ -39,8 +39,8 @@ vi.mock("../../src/config/native-skill-projection.js", () => ({
   syncNativeSkillProjections: vi.fn(async () => ({ claude: true, codex: true, opencode: true, synced: 1, errors: [] })),
 }));
 
-vi.mock("../../src/application/repo-shim-projection.js", () => ({
-  writeRepoShimProjections: vi.fn(async () => ({ written: false, targets: [], errors: [] })),
+vi.mock("../../src/application/workflow-snapshot-projection.js", () => ({
+  syncWorkflowSnapshotProjection: vi.fn(async () => ({ written: false, outcomes: [], errors: [] })),
 }));
 
 let tempDir: string;
@@ -94,7 +94,7 @@ describe("config apply", () => {
 
     expect(result.settlement.outcome).toBe("committed");
     expect(readFileSync(join(projectStateBinding.skillsPath, "repo-review", "SKILL.md"), "utf-8")).toContain("name: repo-review");
-    expect(result.settlement.reconciliationEffects.map((effect) => effect.target)).toEqual(["native-skills", "repo-shims"]);
+    expect(result.settlement.reconciliationEffects.map((effect) => effect.target)).toEqual(["native-skills", "workflow-snapshot"]);
     expect(vi.mocked(syncNativeSkillProjections)).toHaveBeenCalledWith(tempDir, {
       disabledHarnesses: [],
       projectStateBinding,

@@ -17,7 +17,7 @@ import {
 } from "../../src/application/config-status.js";
 import { readSettingsSnapshot } from "../../src/application/config-settings.js";
 import { KilnConfigActivationStatusSchema, type KilnConfigReadView, type KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
-import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
+import { syncWorkflowSnapshotProjection } from "../../src/application/workflow-snapshot-projection.js";
 import { bootstrapProjectAdoption } from "../../src/application/project-adoption-manifest.js";
 import { ConfigMutationStore, type StoredConfigMutationSettlement } from "../../src/application/config-mutation-store.js";
 import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
@@ -186,8 +186,7 @@ describe("config-status", () => {
       health: "current",
     }));
     expect(snapshot.projections).toEqual(expect.arrayContaining([
-      expect.objectContaining({ targetId: "repo-shim:agents", status: "missing" }),
-      expect.objectContaining({ targetId: "repo-shim:claude", status: "missing" }),
+      expect.objectContaining({ targetId: "workflow-snapshot:manifest", status: "missing" }),
     ]));
     expect(snapshot.setup).toMatchObject({
       projectRoot: tempDir,
@@ -195,13 +194,16 @@ describe("config-status", () => {
         status: "missing",
         recommendation: "adopt-project-context",
       },
-      repoShims: expect.arrayContaining([
+      projectInstructions: expect.arrayContaining([
         expect.objectContaining({
           target: "agents",
-          targetId: "repo-shim:agents",
+          targetId: "project-instruction:agents",
           status: "missing",
-          recommendation: "sync-repo-shims",
+          recommendation: "review-project-instructions",
         }),
+      ]),
+      workflowSnapshots: expect.arrayContaining([
+        expect.objectContaining({ targetId: "workflow-snapshot:manifest", status: "missing" }),
       ]),
       globalInstructionShims: expect.arrayContaining([
         expect.objectContaining({
@@ -228,7 +230,8 @@ describe("config-status", () => {
       ]),
       recommendedActions: expect.arrayContaining([
         "adopt-project-context",
-        "sync-repo-shims",
+        "review-project-instructions",
+        "sync-workflow-snapshot",
         "sync-global-instruction-shims",
       ]),
     });
@@ -645,30 +648,33 @@ describe("config-status", () => {
     });
   });
 
-  it("marks generated repo shims as current", async () => {
+  it("reports project-owned instructions and the private workflow snapshot independently", async () => {
     writeProjectConfig(tempDir);
-    await writeRepoShimProjections(tempDir);
+    writeFileSync(join(tempDir, "AGENTS.md"), "# Project guidance\n", "utf-8");
+    writeFileSync(join(tempDir, "CLAUDE.md"), "@AGENTS.md\n", "utf-8");
+    await syncWorkflowSnapshotProjection(tempDir);
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
 
     expect(snapshot.projections).toEqual(expect.arrayContaining([
-      expect.objectContaining({ targetId: "repo-shim:agents", status: "current" }),
-      expect.objectContaining({ targetId: "repo-shim:claude", status: "current" }),
       expect.objectContaining({
         targetId: "workflow-snapshot:manifest",
         kind: "workflow-snapshot",
         status: "current",
       }),
     ]));
-    expect(snapshot.setup.repoShims).toEqual(expect.arrayContaining([
-      expect.objectContaining({ targetId: "repo-shim:agents", status: "current", recommendation: "none" }),
-      expect.objectContaining({ targetId: "repo-shim:claude", status: "current", recommendation: "none" }),
+    expect(snapshot.setup.projectInstructions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "project-instruction:agents", status: "project-owned", recommendation: "none" }),
+      expect.objectContaining({ targetId: "project-instruction:claude", status: "project-owned", recommendation: "none" }),
     ]));
+    expect(snapshot.setup.workflowSnapshots).toEqual([
+      expect.objectContaining({ targetId: "workflow-snapshot:manifest", status: "current" }),
+    ]);
   });
 
   it("reports workflow snapshot manifest drift without mutating canonical state", async () => {
     writeProjectConfig(tempDir);
-    await writeRepoShimProjections(tempDir);
+    await syncWorkflowSnapshotProjection(tempDir);
     const manifestPath = join(projectStateBinding.projectionsPath, "workflow-snapshot-manifest.json");
     const originalManifest = readFileSync(manifestPath, "utf-8");
     const staleManifest = JSON.stringify({

@@ -108,9 +108,11 @@ Runtime app configuration is YAML-based. Use:
 - [Gateway YAML](configuration/gateway-yaml.md)
 - [Global Config](guides/config/global-config.md)
 
-Repo shims such as `AGENTS.md` and `CLAUDE.md` are generated projections. Update
-the canonical Kiln config or project context, then regenerate the shims instead
-of editing generated guidance by hand.
+Repository `AGENTS.md` and `CLAUDE.md` files are project-owned guidance, not
+Kiln projections. Keep portable project invariants in `AGENTS.md`; a minimal
+project-owned `CLAUDE.md` may import it and add only Claude-specific deltas.
+Kiln configuration, permissions, routing, and private context remain in their
+executable or private owners.
 
 ## How does governed memory work?
 

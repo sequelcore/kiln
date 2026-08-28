@@ -201,7 +201,7 @@ function readProfilesFromDirectory(
      * catch converted a partial silent drop into a silent total drop (the S2
      * trap), so schema errors are allowed to propagate: the projection entry
      * points (`syncGlobalInstructionShimProjections`,
-     * `writeRepoShimProjections`) and `resolveInstructionProfileContextCandidates`
+     * `syncWorkflowSnapshotProjection`) and `resolveInstructionProfileContextCandidates`
      * already convert thrown errors into their existing failure surfaces, so
      * the diagnostic reaches the operator without aborting unrelated work.
      */
@@ -226,6 +226,16 @@ export interface LoadInstructionProfilesOptions extends ProjectStateRootOptions 
   readonly projectInstructionsDirectory?: string;
   /** Already-established private project binding. */
   readonly projectStateBinding?: ProjectStateBinding;
+}
+
+/** Load only user/global doctrine without allowing private project profiles to shadow it. */
+export function loadGlobalInstructionProfiles(
+  userHome: string | undefined = undefined,
+  options: Pick<LoadInstructionProfilesOptions, "kilnHome" | "globalInstructionsDirectory"> = {},
+): readonly KilnInstructionProfileDefinition[] {
+  const globalDirectory = options.globalInstructionsDirectory
+    ?? join(resolveConfiguredKilnHome(userHome, options), "instructions");
+  return readProfilesFromDirectory(globalDirectory, "global");
 }
 
 export function loadInstructionProfiles(

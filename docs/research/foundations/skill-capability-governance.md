@@ -63,7 +63,7 @@ evidence.
 - **value** is a paired empirical result for a versioned task environment.
 
 No one field substitutes for another. Skills never own provider routing,
-permissions, stack versions, generated repository shims, or acceptance truth.
+permissions, stack versions, repository guidance, or acceptance truth.
 
 ## Catalog maintenance
 
@@ -180,8 +180,9 @@ widen route, provider, permission, budget, approval, or lifecycle authority.
 
 Repository-context authoring follows the same boundary. Deterministic scouting
 may propose or write the canonical bound private project `context` artifact
-under `<Kiln home>/projects/<project-id>/`; generated `AGENTS.md` and
-`CLAUDE.md` remain sync projections and are never the durable authoring target.
+under `<Kiln home>/projects/<project-id>/`. Repository `AGENTS.md` and
+`CLAUDE.md` are project-owned guidance; Kiln diagnoses and proposes reviewed
+changes but does not maintain them as sync projections.
 
 ## Non-claims
 

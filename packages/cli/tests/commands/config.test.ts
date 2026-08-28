@@ -236,8 +236,7 @@ describe("configCommand", () => {
     await configCommand(MOCK_APP_CONFIG, "read", ["projections"], tempDir);
 
     const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
-    expect(output).toContain("repo-shim:agents");
-    expect(output).toContain("repo-shim:claude");
+    expect(output).toContain("workflow-snapshot:manifest");
   });
 
   it("read setup prints cross-surface setup recommendations", async () => {
@@ -247,7 +246,8 @@ describe("configCommand", () => {
 
     const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain('"projectRoot"');
-    expect(output).toContain('"repoShims"');
+    expect(output).toContain('"projectInstructions"');
+    expect(output).toContain('"workflowSnapshots"');
     expect(output).toContain('"recommendedActions"');
   });
 

@@ -243,13 +243,13 @@ describe("harness doctor", () => {
       fileExists: () => false,
       runVersion: vi.fn(async () => undefined),
       readConfigProjections: vi.fn(async () => [{
-        targetId: "repo-shim:agents",
-        kind: "repo-shim",
+        targetId: "workflow-snapshot:manifest",
+        kind: "workflow-snapshot" as const,
         status: "current",
-        path: "C:\\repo\\AGENTS.md",
+        path: "C:\\Users\\ExampleUser\\.kiln\\projects\\id\\projections\\workflow-snapshot-manifest.json",
       }, {
         targetId: "codex-config",
-        kind: "native",
+        kind: "native" as const,
         status: "managed",
         path: "C:\\Users\\ExampleUser\\.codex\\config.toml",
         permissionIntegrity: integrity,
@@ -272,7 +272,7 @@ describe("harness doctor", () => {
     expect(output).toContain("Claude Code");
     expect(output).toContain("Codex CLI executable was not found.");
     expect(output).toContain("Config projections:");
-    expect(output).toContain("repo-shim:agents: current");
+    expect(output).toContain("workflow-snapshot:manifest: current");
     expect(output).toContain("Permission integrity:");
     expect(output).toContain("codex: runtime-policy-mismatch");
     expect(output).toContain("desired=trusted-full-access");

@@ -327,7 +327,8 @@ describe("GUI gateway HTTP and static assets", () => {
         status: "valid" as const,
         recommendation: "none" as const,
       },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],
@@ -337,7 +338,7 @@ describe("GUI gateway HTTP and static assets", () => {
     const executeSetupAction = vi.fn(async (action: KilnConfigSetupAction) => ({
       action,
       status: "applied" as const,
-      message: "Repo shims synced.",
+      message: "Workflow snapshot synced.",
       errors: [],
       setup,
     }));
@@ -387,7 +388,7 @@ describe("GUI gateway HTTP and static assets", () => {
         "adopt-or-back-up-global-instructions",
         "review-global-instruction-drift",
         "adopt-or-back-up-native-guidance",
-        "review-and-force-sync-repo-shims",
+        "review-project-instructions",
         "review-native-projection-drift",
       ] as const) {
         const blocked = await appFetch!(new Request("http://localhost/gui/api/config/setup/actions", {

@@ -25,6 +25,40 @@ work, and evidence required before closeout. Instruction profiles may express
 team doctrine, but the cross-surface policy lives in resolved
 `workGovernance` config and is projected as required context.
 
+Repository guidance is a separate ownership boundary. `AGENTS.md` is
+project/team-owned guidance consumed natively by Codex and OpenCode. A
+project-owned `CLAUDE.md` may import `@AGENTS.md` and add only genuine
+Claude-specific deltas.
+Existing repository files are project-owned by default; Kiln never routinely
+regenerates or overwrites them.
+
+The `agent-context-doctor` skill diagnoses placement, ownership, duplication,
+and private/global leakage. Its default result is a diagnosis plus proposed
+diff; mutation requires an explicit user request and a clear owner. Global
+native instruction projections are opt-in managed renderings of neutral
+doctrine. A private workflow snapshot remains a generated projection for
+private consumers, not repository guidance or execution authority.
+
+Before admitting prose, classify it and keep it with the narrowest owner:
+
+- **Project context** — non-derivable reviewed project notes in private project
+  context when they are not shared guidance. Derived repository evidence stays
+  with manifests, scripts, and other executable/source owners; intentional
+  shared guidance belongs in project-owned `AGENTS.md`.
+- **Global preference/doctrine** — operator or team defaults in a global or
+  private-project instruction profile.
+- **Runtime config** — provider, model, routing, workers, depth, permissions,
+  sandbox, and MCP credentials in canonical configuration, never prose.
+- **Procedure/skill** — reusable procedures in skills, not duplicated in
+  guidance.
+- **Executable enforcement** — hard policy in schemas, runtime, tools, hooks, or
+  tests; prose alone is not enforcement.
+- **Derived/redundant cache** — generated snapshots, indexes, and status with
+  no authority.
+
+Private or global content must not leak into repository guidance, and a
+projection must not become a second source of truth.
+
 ## Model-Facing Semantics
 
 `DefaultContextGovernor` is the sole owner of context admission and carries a
@@ -60,7 +94,7 @@ not apply to directives or guidance.
 | Surface | Purpose | Native or personalizable |
 | --- | --- | --- |
 | `OperatorIdentity` | Operator metadata for prompt context and UI personalization. | Native schema, personal content. |
-| `InstructionProfile` | Durable doctrine: standards, preferences, policies, principles. | Native precedence/admission, personal/team content. |
+| `InstructionProfile` | Durable doctrine: standards, preferences, policies, principles. | Global or private-project precedence/admission, personal/team content. |
 | `WorkGovernancePolicy` | Default posture, explicit delegation triggers, and evidence expectations. | Native schema, global/project values. |
 | `AgentProfile` | Executable role configuration for parent agents, subagents, and managed children. | Native schema/admission, personal/team definitions. |
 | `SkillPackage` | Reusable procedural context, references, scripts, and resources. | Native registry/admission, personal/team/community packages. |
@@ -114,8 +148,9 @@ context sources that shape agent behavior across surfaces. They should be
 stored as scoped documents or references, not repeated inside every agent
 definition.
 
-Canonical instruction profiles live in `~/.kiln/instructions/*.md` and in the
-bound private project namespace's `instructions/*.md`. The file format is markdown with YAML
+Canonical instruction profiles are scope-aware. Global profiles live in
+`~/.kiln/instructions/*.md`; private-project profiles live in the bound
+namespace's `instructions/*.md`. The file format is markdown with YAML
 frontmatter:
 
 ```markdown
@@ -154,8 +189,10 @@ the referenced canonical profile cannot be found.
 
 An instruction profile is the place where Kiln carries an operator or team's
 working "soul": standards, habits, taste, non-negotiables, and expected
-workflow. This must be canonical Kiln state, not a one-off `AGENTS.md` prompt
-that only one harness happens to read.
+workflow. A profile is canonical global or private-project state, not a
+one-off repository prompt. Project/team guidance belongs in project-owned
+`AGENTS.md`; a project-owned `CLAUDE.md` may import it and add only genuine Claude
+specifics.
 
 The markdown body is the human-readable doctrine. The optional `doctrine`
 frontmatter is the structured surface contract. It lets GUI, TUI, CLI, SDK,
@@ -230,11 +267,11 @@ name for that repository, but they may only reference global targets and
 authority profiles; they cannot define provider, model, target, or authority
 inline.
 
-HOME native projection consumes only global agents. Project agents remain
-available to Kiln within that repository and cannot overwrite global Codex,
-Claude Code, or OpenCode agent files. A future starter roster must be explicit
-scaffolding that writes ordinary global agent definitions, not a hidden runtime
-fallback.
+Opt-in native projection consumes only global agents. Project agents remain
+available to Kiln within that repository and cannot overwrite native user-level
+Codex, Claude Code, or OpenCode agent files. A future starter roster must be
+explicit scaffolding that writes ordinary global agent definitions, not a hidden
+runtime fallback.
 
 ## Skill Packages
 
@@ -467,7 +504,8 @@ The built-in skill ids are:
 
 | Skill | Purpose | Typical agents |
 | --- | --- | --- |
-| `repo-context-review` | Resolve durable repository facts and conflicts before canonical context adoption or shim sync. | `scout`, `architect` |
+| `agent-context-doctor` | Diagnose repository guidance ownership, placement, leakage, and proposed diffs without mutating project files by default. | `scout`, `architect`, `reviewer` |
+| `repo-context-review` | Resolve durable repository facts and conflicts before adopting private project context. | `scout`, `architect` |
 | `codebase-scouting` | Map repository ownership, causal dependency paths, affected verification, and uncertainty before broad changes. | `scout` |
 | `implementation-planning` | Convert a scoped objective into an evidence-bound, dependency-ordered sequence with verification and recovery. | `planner`, `architecture-planner` |
 | `tdd-workflow` | Design failing tests, implement only the target behavior, and verify. | `tdd`, `coder` |
@@ -565,7 +603,7 @@ Native Kiln behavior:
 - event evidence and replay references
 - surface parity across GUI, TUI, CLI, SDK/widget, App Gateway, and Operator
   Gateway
-- native harness projection from canonical Kiln state
+- opt-in native harness projection from canonical Kiln state
 
 Personalizable behavior:
 
@@ -618,7 +656,8 @@ No surface owns agent context semantics.
 - CLI prints and records the same selected profile, skills, and target.
 - SDK/widget receives the same session event contract.
 - MCP/resources expose the same replayable artifacts.
-- Native harness sync projects from Kiln contracts only.
+- Opted-in native harness projections render from Kiln contracts only; they do
+  not own or overwrite repository guidance.
 
 If a surface cannot display the full detail inline, it must expose a resource
 or detail view rather than dropping the evidence.

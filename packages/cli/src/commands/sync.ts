@@ -3,7 +3,7 @@ import { loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
 import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
-import { writeRepoShimProjections } from "../application/repo-shim-projection.js";
+import { syncWorkflowSnapshotProjection } from "../application/workflow-snapshot-projection.js";
 import { syncGlobalInstructionShimProjections } from "../application/global-instruction-shim-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
@@ -16,14 +16,14 @@ import { configuredCommunicationCandidates, resolveConfiguredCommunication } fro
 import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 
-export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "global-instructions", "skills"] as const;
+export const SYNC_TARGETS = ["permissions", "hooks", "agents", "workflow-snapshot", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
 
 const SYNC_TARGET_FLAGS: Readonly<Record<string, SyncTargetId>> = {
   "--permissions": "permissions",
   "--hooks": "hooks",
   "--agents": "agents",
-  "--repo-shims": "repo-shims",
+  "--workflow-snapshot": "workflow-snapshot",
   "--global-instructions": "global-instructions",
   "--skills": "skills",
 };
@@ -115,7 +115,6 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
     isSyncTargetSelected(flags, "permissions")
     || isSyncTargetSelected(flags, "hooks")
     || isSyncTargetSelected(flags, "agents")
-    || isSyncTargetSelected(flags, "repo-shims")
     || isSyncTargetSelected(flags, "global-instructions")
     || isSyncTargetSelected(flags, "skills")
   );
@@ -195,7 +194,6 @@ export async function syncCommand(
   const forcePermissionSync = isForceSyncTargetSelected(flags, "permissions");
   const forceHookSync = isForceSyncTargetSelected(flags, "hooks");
   const forceAgentSync = isForceSyncTargetSelected(flags, "agents");
-  const forceRepoShimSync = isForceSyncTargetSelected(flags, "repo-shims");
   const forceGlobalInstructionSync = isForceSyncTargetSelected(flags, "global-instructions");
   const forceSkillSync = isForceSyncTargetSelected(flags, "skills");
 
@@ -222,7 +220,7 @@ export async function syncCommand(
   let permResult: Awaited<ReturnType<typeof syncNativePermissionProjections>> | null = null;
   let hookResult: Awaited<ReturnType<typeof syncNativeHookProjections>> | null = null;
   let agentResult: Awaited<ReturnType<typeof syncNativeAgentProjections>> | null = null;
-  let repoShimResult: Awaited<ReturnType<typeof writeRepoShimProjections>> | null = null;
+  let workflowSnapshotResult: Awaited<ReturnType<typeof syncWorkflowSnapshotProjection>> | null = null;
   let globalInstructionResult: Awaited<ReturnType<typeof syncGlobalInstructionShimProjections>> | null = null;
   let globalCommunicationResult: ReturnType<typeof syncGlobalCommunicationProjection> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
@@ -265,10 +263,10 @@ export async function syncCommand(
       })));
   }
 
-  if (isSyncTargetSelected(flags, "repo-shims")) {
-    repoShimResult = await captureProjectionFailure(unexpectedOutcomes, "repo-shims", root, () =>
-      requireCurrentProjection(root, "repo-shims", () =>
-        writeRepoShimProjections(root, { force: forceRepoShimSync, dryRun: flags.dryRun })));
+  if (isSyncTargetSelected(flags, "workflow-snapshot")) {
+    workflowSnapshotResult = await captureProjectionFailure(unexpectedOutcomes, "workflow-snapshot", root, () =>
+      requireCurrentProjection(root, "workflow-snapshot", () =>
+        syncWorkflowSnapshotProjection(root, { dryRun: flags.dryRun, projectStateBinding })));
   }
 
   if (isSyncTargetSelected(flags, "global-instructions")) {
@@ -313,7 +311,7 @@ export async function syncCommand(
 
   const outcomes = [
     ...unexpectedOutcomes,
-    ...[permResult, hookResult, agentResult, repoShimResult, globalInstructionResult, exposureResult, openCodeSkillVisibilityResult, skillsResult]
+    ...[permResult, hookResult, agentResult, workflowSnapshotResult, globalInstructionResult, exposureResult, openCodeSkillVisibilityResult, skillsResult]
       .flatMap((result) => result?.outcomes ?? []),
     ...(globalCommunicationResult ? [globalCommunicationResult.outcome] : []),
   ];
@@ -332,7 +330,7 @@ export async function syncCommand(
 
 async function requireCurrentProjection<T>(
   projectPath: string,
-  target: "native-agents" | "native-skills" | "native-permissions" | "repo-shims",
+  target: "native-agents" | "native-skills" | "native-permissions" | "workflow-snapshot",
   run: () => T | Promise<T>,
 ): Promise<T> {
   const result = await runConfigReconciliationTarget(projectPath, target, run);

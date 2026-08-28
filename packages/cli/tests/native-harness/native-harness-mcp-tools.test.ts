@@ -82,7 +82,7 @@ function nativeHarnessDispatchFixture(overrides: {
 
 function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfigStatusSnapshot {
   return {
-    evidenceVersion: 3,
+    evidenceVersion: 4,
     generatedAt: "2026-07-13T18:00:00.000Z",
     project: {
       rootPath: "C:\\workspace\\kiln",
@@ -105,7 +105,8 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
     setup: {
       projectRoot: "C:\\workspace\\kiln",
       projectContext: { path: "C:\\workspace\\kiln\\.kiln\\project-context.md", status: "valid", recommendation: "none" },
-      repoShims: [],
+      projectInstructions: [],
+      workflowSnapshots: [],
       globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [],

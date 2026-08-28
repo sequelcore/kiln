@@ -10,7 +10,8 @@ function setupSnapshot(): KilnConfigSetupSnapshot {
       status: "valid",
       recommendation: "none",
     },
-    repoShims: [],
+    projectInstructions: [],
+    workflowSnapshots: [],
     globalInstructionShims: [],
     nativeProjections: [],
     permissionIntegrity: [{
@@ -206,6 +207,25 @@ describe("formatSetupSnapshot", () => {
 
   it("renders an absent skill summary explicitly", () => {
     expect(formatSetupSnapshot(setupSnapshot())).toContain("skills:\n  - diagnostics=current\n  - unavailable");
+  });
+
+  it("renders private workflow snapshot status, path, and drift detail", () => {
+    const output = formatSetupSnapshot({
+      ...setupSnapshot(),
+      workflowSnapshots: [{
+        targetId: "workflow-snapshot:manifest",
+        path: "C:/Users/test/.kiln/projects/id/projections/workflow-snapshot-manifest.json",
+        kind: "workflow-snapshot",
+        status: "stale",
+        details: "workflow snapshot markdown drifted",
+      }],
+      recommendedActions: ["sync-workflow-snapshot"],
+    });
+
+    expect(output).toContain("workflow snapshots:");
+    expect(output).toContain("workflow-snapshot:manifest: stale");
+    expect(output).toContain("workflow-snapshot-manifest.json");
+    expect(output).toContain("workflow snapshot markdown drifted");
   });
 
   it("tells the operator how to refresh pending skill diagnostics", () => {

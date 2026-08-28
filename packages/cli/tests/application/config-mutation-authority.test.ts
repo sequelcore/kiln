@@ -329,7 +329,7 @@ describe("config mutation authority", () => {
       proposalId: initial.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [{
-        target: "repo-shims",
+        target: "workflow-snapshot",
         status: "failed",
         summary: "initial reconciliation failed",
         errors: ["fixture failure"],
@@ -369,7 +369,7 @@ describe("config mutation authority", () => {
         announceA();
         await aMayFinish;
         return [{
-          target: "repo-shims",
+          target: "workflow-snapshot",
           status: "failed",
           summary: "recovery A failed",
           errors: ["fixture failure A"],
@@ -384,7 +384,7 @@ describe("config mutation authority", () => {
       proposalId: recoveryB.proposal.proposalId,
       requester: "operator",
       reconcile: async () => [{
-        target: "repo-shims",
+        target: "workflow-snapshot",
         status: "ok",
         summary: "recovery B succeeded",
         errors: [],

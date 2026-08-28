@@ -286,6 +286,14 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
     return rejected(input, attemptedAt, proposal.scope, [diagnostic("proposal", "Only valid config proposals can be applied.")], proposal);
   }
 
+  const reconciliationTargets = resolvePersistedReconciliationTargets(proposal.reconciliationTargets);
+  if (reconciliationTargets === null) {
+    return rejected(input, attemptedAt, proposal.scope, [diagnostic(
+      "reconciliationTargets",
+      "The stored proposal contains an unsupported reconciliation target; create a new proposal.",
+    )], proposal);
+  }
+
   const approvalDiagnostics = checkApproval(store, record, input.approvalId, input.requester);
   if (approvalDiagnostics.length > 0) {
     return rejected(input, attemptedAt, proposal.scope, approvalDiagnostics, proposal);
@@ -362,7 +370,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
       const reconcile = input.reconcile
         ?? ((projectPath: string, targets: readonly KilnConfigReconciliationTarget[]) =>
           reconcileConfigMutation(projectPath, targets, { projectStateBinding }));
-      const reconciliationOutcomes = await reconcile(input.projectPath, proposal.reconciliationTargets);
+      const reconciliationOutcomes = await reconcile(input.projectPath, reconciliationTargets);
       const reconciliationEffects = reconciliationOutcomes.map(({ generation: _generation, ...effect }) => effect);
       const reconciliationGenerations = reconciliationOutcomes.flatMap((effect) =>
         effect.status === "ok" && effect.generation !== undefined
@@ -433,6 +441,28 @@ interface CommitOutcome {
   readonly committedRevision: string;
   /** Set when an unreadable configuration was retained before being replaced. */
   readonly invalidBackupPath?: string;
+}
+
+function resolvePersistedReconciliationTargets(
+  observed: readonly KilnConfigReconciliationTarget[],
+): readonly KilnConfigReconciliationTarget[] | null {
+  const current = new Set<KilnConfigReconciliationTarget>([
+    "native-agents",
+    "native-skills",
+    "native-permissions",
+    "workflow-snapshot",
+    "execution-targets",
+  ]);
+  const resolved: KilnConfigReconciliationTarget[] = [];
+  for (const value of observed as readonly unknown[]) {
+    if (typeof value !== "string" || !current.has(value as KilnConfigReconciliationTarget)) {
+      return null;
+    }
+    if (!resolved.includes(value as KilnConfigReconciliationTarget)) {
+      resolved.push(value as KilnConfigReconciliationTarget);
+    }
+  }
+  return resolved;
 }
 
 type MutationBindingInput = ProjectStateRootOptions & {

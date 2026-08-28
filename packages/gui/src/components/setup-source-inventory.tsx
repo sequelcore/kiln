@@ -1,6 +1,7 @@
 import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceStatus,
+  KilnProjectInstructionSnapshot,
   KilnProjectionTargetStatus,
   KilnSkillCatalogSummarySnapshot,
 } from "@kilnai/gateway-contracts";
@@ -29,7 +30,7 @@ interface SetupSourceInventoryProps {
   readonly onPreviewSource: (path: string) => void;
 }
 
-const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "secondary" | "destructive" | "outline"> = {
+const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus | KilnProjectInstructionSnapshot["status"], "secondary" | "destructive" | "outline"> = {
   current: "outline",
   valid: "outline",
   managed: "outline",
@@ -38,6 +39,8 @@ const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "
   unmanaged: "secondary",
   invalid: "destructive",
   drifted: "destructive",
+  "project-owned": "outline",
+  unreadable: "destructive",
 };
 
 const PROJECTION_UPDATED_AT_FORMATTER = new Intl.DateTimeFormat(undefined, {
@@ -49,6 +52,7 @@ export function SetupSourceInventory(props: SetupSourceInventoryProps) {
   return (
     <section aria-label="Configuration Details" className="flex flex-col gap-6">
       <CanonicalSourcesCard snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
+      <WorkflowSnapshotsCard projections={props.snapshot.workflowSnapshots} />
       <GlobalInstructionShimsCard projections={props.snapshot.globalInstructionShims} />
       <NativeProjectionsCard projections={props.snapshot.nativeProjections} />
       <SkillCatalogCard skills={props.snapshot.skills} diagnostics={props.snapshot.skillDiagnostics} />
@@ -163,6 +167,36 @@ function SkillCatalogCard(props: {
             ) : null}
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WorkflowSnapshotsCard(props: { readonly projections: KilnConfigSetupSnapshot["workflowSnapshots"] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle><h3>Workflow Snapshot</h3></CardTitle>
+        <CardDescription>Private generated workflow evidence used by Kiln; it is not repository instruction authority.</CardDescription>
+        <CardAction><Badge variant="outline">{props.projections.length} targets</Badge></CardAction>
+      </CardHeader>
+      <CardContent className="divide-y divide-border/70 p-0">
+        {props.projections.length === 0 ? (
+          <p className="px-4 py-5 text-sm text-muted-foreground">No workflow snapshot evidence is available.</p>
+        ) : props.projections.map((projection) => (
+          <div key={projection.targetId} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">{projection.targetId}</p>
+              <p className="truncate text-xs text-muted-foreground">{projection.details ?? projection.path}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={STATUS_TONE[projection.status]}>{projection.status}</Badge>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label="Copy workflow snapshot path" onClick={() => void copyText(projection.path)}>
+                <Clipboard aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
@@ -361,19 +395,19 @@ function canonicalSourceRows(snapshot: KilnConfigSetupSnapshot) {
       id: "project-context",
       label: "Project Context",
       location: "Private project state",
-      purpose: "Durable project guidance projected to every harness.",
+      purpose: "Private reviewed notes for project facts that cannot be derived from repository evidence.",
       path: snapshot.projectContext.path,
       status: snapshot.projectContext.status,
     },
-    ...snapshot.repoShims.map((shim) => ({
-      id: shim.targetId,
-      label: shim.target === "agents" ? "AGENTS.md" : "CLAUDE.md",
+    ...snapshot.projectInstructions.map((instruction) => ({
+      id: instruction.targetId,
+      label: instruction.target === "agents" ? "AGENTS.md" : "CLAUDE.md",
       location: "Repository root",
-      purpose: shim.target === "agents"
-        ? "Generated instructions for Codex CLI and OpenCode."
-        : "Generated instructions for Claude Code.",
-      path: shim.path,
-      status: shim.status,
+      purpose: instruction.target === "agents"
+        ? "Project-owned guidance for Codex and OpenCode."
+        : "Project-owned Claude adapter and Claude-specific guidance.",
+      path: instruction.path,
+      status: instruction.status,
     })),
   ];
 }

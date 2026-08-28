@@ -140,7 +140,7 @@ export type KilnConfigReconciliationTarget =
   | "native-agents"
   | "native-skills"
   | "native-permissions"
-  | "repo-shims"
+  | "workflow-snapshot"
   | "execution-targets";
 
 export interface KilnConfigReconciliationEffect {
