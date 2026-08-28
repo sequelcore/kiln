@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolResultEvent } from "@kilnai/core";
+import type { ToolResultEvent } from "@kilnai/core/events";
 import { resolveTurnToolExecutions } from "../../src/gateway/message-pipeline/runtime-ledger-replay.js";
 
 describe("runtime ledger tool execution replay", () => {
