@@ -38,32 +38,30 @@ Create or edit the profile at `~/.kiln/instructions/sequel-engineering.md`:
 ---
 name: sequel-engineering
 displayName: Sequel Engineering
-description: Engineering standards, workflow, and quality doctrine.
+description: Cross-project engineering invariants.
 tags:
   - engineering
 doctrine:
   principles:
-    - No dead code.
-    - No redundancy.
-    - No legacy compatibility hacks without real consumers.
-    - Respect DDD and Clean Architecture boundaries.
+    - Keep changes scoped to the user's task and preserve unrelated behavior.
+    - Keep one canonical owner per concept and respect repository boundaries.
+    - Follow project-owned repository guidance for project facts and invariants.
+    - Do not weaken security or validation merely to make a task pass.
   workflow:
-    - Scout before broad or architecture-sensitive changes.
-    - Plan when work crosses contracts or bounded contexts.
-    - Use TDD for behavior changes when practical.
+    - Load specialized procedures through relevant skills.
   qualityGates:
-    - Run focused checks before broad gates.
-    - Verify before claiming complete.
-  reviewPosture:
-    - Findings before summaries.
-    - Treat missing tests, hidden coupling, unclear authority, and boundary drift as real risks.
-  delegation:
-    - Use configured specialist profiles for architecture, TDD, implementation, and review.
+    - Verify changed behavior with the smallest relevant external oracle and report anything not verified.
 ---
 
-Use direct, pragmatic engineering communication. Keep changes atomic, tested,
-and aligned with repository architecture.
+Human judgment remains authoritative for destructive actions and ambiguous
+high-risk decisions.
 ```
+
+Keep global profiles small because every selected profile is projected into
+each supported harness's startup context. Put scouting, TDD, review,
+architecture, and orchestration procedures in skills instead of repeating them
+here. Keep provider, model, routing, permissions, and sandbox policy in
+executable configuration.
 
 Set the global work posture:
 

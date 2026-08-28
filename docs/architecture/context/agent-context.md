@@ -150,36 +150,32 @@ definition.
 
 Canonical instruction profiles are scope-aware. Global profiles live in
 `~/.kiln/instructions/*.md`; private-project profiles live in the bound
-namespace's `instructions/*.md`. The file format is markdown with YAML
-frontmatter:
+namespace's `instructions/*.md`. Global profiles are always-on context, so keep
+them limited to cross-project invariants and preferences. Put task procedures
+in skills and executable policy in configuration or enforcement. The file
+format is markdown with YAML frontmatter:
 
 ```markdown
 ---
 name: sequel-engineering
 displayName: Sequel Engineering
-description: Engineering standards and collaboration doctrine.
+description: Cross-project engineering invariants.
 tags:
   - engineering
 doctrine:
   principles:
-    - No dead code.
-    - No redundancy.
-    - Respect DDD and Clean Architecture boundaries.
+    - Keep changes scoped to the user's task and preserve unrelated behavior.
+    - Keep one canonical owner per concept and respect repository boundaries.
+    - Follow project-owned repository guidance for project facts and invariants.
+    - Do not weaken security or validation merely to make a task pass.
   workflow:
-    - Scout before broad or architecture-sensitive changes.
-    - Use TDD for behavior changes when practical.
+    - Load specialized procedures through relevant skills.
   qualityGates:
-    - Run focused checks before broad gates.
-    - Verify before claiming complete.
-  reviewPosture:
-    - Findings before summaries.
-    - Treat missing tests and boundary drift as real risks.
-  delegation:
-    - Use specialist child profiles for architecture, TDD, implementation, and review when the task crosses boundaries.
+    - Verify changed behavior with the smallest relevant external oracle and report anything not verified.
 ---
 
-No dead code. No redundancy. Use Clean Architecture boundaries. Verify before
-claiming complete.
+Human judgment remains authoritative for destructive actions and ambiguous
+high-risk decisions.
 ```
 
 Global `activeInstructionProfiles`, project `activeInstructionProfiles`, and
