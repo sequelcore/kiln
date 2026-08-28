@@ -17,6 +17,7 @@ import { digestDafnyInstallation } from "../../src/config/verification/dafny.js"
 import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
+  createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
     constructor(readonly options?: unknown) {}
   },

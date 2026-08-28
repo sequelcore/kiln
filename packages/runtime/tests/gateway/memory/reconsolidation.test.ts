@@ -2,24 +2,25 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
 import {
   MemoryReconsolidationService,
   MemoryRelationService,
-  SqliteMemoryRepository,
   type CreateMemoryRecordInput,
   type MemoryProvenance,
-} from "../../src/memory/index.js";
+  type MemoryRepository,
+} from "@kilnai/core/memory";
 
 describe("MemoryReconsolidationService", () => {
   let tmpDir: string;
-  let repository: SqliteMemoryRepository;
+  let repository: MemoryRepository;
   let relations: MemoryRelationService;
   let service: MemoryReconsolidationService;
   let sequence = 0;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-reconsolidation-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
     relations = new MemoryRelationService({
       repository,
       idGenerator: () => `relation-${++sequence}`,
@@ -267,12 +268,12 @@ describe("MemoryReconsolidationService", () => {
 
 describe("MemoryRelationService", () => {
   let tmpDir: string;
-  let repository: SqliteMemoryRepository;
+  let repository: MemoryRepository;
   let service: MemoryRelationService;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-relations-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
     service = new MemoryRelationService({
       repository,
       idGenerator: () => "relation-1",

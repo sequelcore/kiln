@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SqliteMemoryRepository } from "@kilnai/core/memory";
+import { createSqliteMemoryRepository } from "../../src/index.js";
+import type { MemoryRepository } from "@kilnai/core/memory";
 import { SwarmStore } from "../../src/mcp/swarm-store.js";
 
 describe("SwarmStore", () => {
-  let memoryRepository: SqliteMemoryRepository;
+  let memoryRepository: MemoryRepository;
   let swarmStore: SwarmStore;
 
   beforeEach(() => {
-    memoryRepository = new SqliteMemoryRepository({ dbPath: ":memory:" });
+    memoryRepository = createSqliteMemoryRepository({ dbPath: ":memory:" });
     swarmStore = new SwarmStore({ repository: memoryRepository });
   });
 

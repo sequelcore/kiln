@@ -8,8 +8,6 @@ export * from "./efficiency.js";
 export * from "./resources/index.js";
 export { MemoryMutationService } from "./service.js";
 export type { MemoryMutationServiceOptions } from "./service.js";
-export { SqliteMemoryRepository } from "./sqlite-repository.js";
-export type { SqliteMemoryRepositoryOptions } from "./sqlite-repository.js";
 export type {
   CreateMemoryRecordInput,
   MemoryRecordQuery,

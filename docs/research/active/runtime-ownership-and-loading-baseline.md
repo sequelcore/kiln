@@ -126,7 +126,7 @@ reason, or moved in its own behavior-preserving slice.
 | S1B | SQLite checkpoint store | Only Core tests found; prove and delete, or identify a productive lifecycle. |
 | S1C | SQLite field store | No productive constructor found; prove and delete, or identify a productive lifecycle. |
 | S1D | JSONL audit log | Concrete implementation exported from Core with no external constructor found. |
-| S1E | SQLite memory repository | Productive Runtime and CLI consumers; separate the pure repository contract from SQLite execution. |
+| S1E | SQLite memory repository | Completed 2026-08-28: Core retains the pure `MemoryRepository` contract and Runtime owns one private SQLite adapter/factory; Runtime, CLI, and GUI consumers pass explicit database paths. Concrete-backed integration tests moved to Runtime. |
 | S1F | AES file secret store | Productive CLI and Runtime consumers; Runtime must own file persistence if moved. |
 | S1G | file artifact resource store | Productive benchmark consumer; preserve the provider-neutral artifact contract. |
 | S1H | trusted-execution receipt persistence | CLI trust/integrity consumer; preserve semantic receipt rules while assigning JSONL I/O. |

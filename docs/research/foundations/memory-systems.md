@@ -143,8 +143,9 @@ retrieval rules should differ by layer.
 
 Post-lattice architecture implements these mappings through Memory Lattice:
 
-- `MemoryRepository` is the persistence port
-- `SqliteMemoryRepository` is the current local adapter
+- `MemoryRepository` is the Core persistence port
+- Runtime owns the current local SQLite adapter and exposes its explicit-path
+  factory from the Runtime root
 - `MemoryMutationService` owns governed writes
 - lifecycle policy owns decay, forgetting, compaction, promotion, salience, and
   inhibition

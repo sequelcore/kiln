@@ -76,6 +76,12 @@ const coreMocks = vi.hoisted(() => {
   };
 });
 
+const runtimeMocks = vi.hoisted(() => ({
+  createSqliteMemoryRepository: vi.fn((options: unknown) => ({ options })),
+}));
+
+vi.mock("@kilnai/runtime", () => runtimeMocks);
+
 const configMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
 }));
@@ -98,9 +104,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     ...actual,
     createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
     projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
-    SqliteMemoryRepository: class MockSqliteMemoryRepository {
-      constructor(readonly options: unknown) {}
-    },
     DevToolsMcpServer: class MockDevToolsMcpServer {
       constructor(options: unknown) {
         expect(options).toEqual({

@@ -2,19 +2,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
 import {
   createManagedAgentMemoryWriteProposal,
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
   MemoryArtifactResourceStore,
-  SqliteMemoryRepository,
   storeManagedAgentArtifactWriteProposal,
-} from "../../src/index.js";
+} from "@kilnai/core";
 import type {
   ManagedAgentInvocationRequest,
   MemoryRepository,
-} from "../../src/index.js";
+} from "@kilnai/core";
 
 function makeWriteScope() {
   return defineManagedAgentWriteScope({
@@ -100,7 +100,7 @@ describe("managed agent governed write integration", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-managed-write-integration-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
   });
 
   afterEach(() => {

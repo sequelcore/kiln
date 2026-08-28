@@ -2,16 +2,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
 import {
   EventBus,
   trustedInternalMemoryAuthority,
   MemoryLifecycleApplicationService,
   MemoryMutationService,
-  SqliteMemoryRepository,
   type KilnEvent,
   type MemoryLifecycleAction,
   type MemoryRepository,
-} from "../../../src/index.js";
+} from "@kilnai/core";
 
 describe("MemoryLifecycleApplicationService", () => {
   let tmpDir: string;
@@ -23,7 +23,7 @@ describe("MemoryLifecycleApplicationService", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-lifecycle-service-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
     eventBus = new EventBus();
     events = [];
     eventBus.onAny((event) => events.push(event));

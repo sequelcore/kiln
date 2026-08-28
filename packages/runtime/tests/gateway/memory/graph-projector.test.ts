@@ -2,22 +2,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
 import {
   MemoryGraphProjector,
-  SqliteMemoryRepository,
   type CreateMemoryRecordInput,
   type MemoryProvenance,
   type MemoryRepository,
-} from "../../../src/index.js";
+} from "@kilnai/core";
 
 describe("MemoryGraphProjector", () => {
   let tmpDir: string;
-  let repository: SqliteMemoryRepository;
+  let repository: MemoryRepository;
   let projector: MemoryGraphProjector;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-graph-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
     projector = new MemoryGraphProjector({ repository });
   });
 

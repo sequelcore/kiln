@@ -26,8 +26,9 @@ The memory model has these rules:
 - Memory layers include working, episodic, semantic, procedural, coordination,
   and audit memory.
 - `MemoryMutationService` is the write boundary for memory changes.
-- `MemoryRepository` and `SqliteMemoryRepository` provide persistence behind
-  the domain contract.
+- `MemoryRepository` is the Core persistence port. Runtime owns the concrete
+  SQLite adapter and exposes one `createSqliteMemoryRepository({ dbPath })`
+  factory; Core does not own a concrete storage implementation.
 - Relation, lifecycle, reconsolidation, recall, and graph projection services
   operate on the core memory model.
 - `MemoryContextAdmission` records how memory entered or was deferred from a

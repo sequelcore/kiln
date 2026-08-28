@@ -31,8 +31,9 @@ claim that Kiln reproduces biological recall or plasticity.
 ## Implemented State
 
 - Working memory is carried by `RuntimeSession` and related session state.
-- Durable records are stored through `MemoryRepository`, currently backed by
-  `SqliteMemoryRepository`.
+- Durable records are stored through the Core `MemoryRepository` contract. The
+  Runtime gateway owns the concrete SQLite adapter and exposes
+  `createSqliteMemoryRepository({ dbPath })` from its root surface.
 - Episodic traces can be written as scoped memory records with provenance,
   revisions, relations, and context-admission evidence.
 - Procedural memory exists through the skill system and enters admitted-turn
@@ -63,6 +64,10 @@ MCP surfaces that need a project-scoped SQLite backing store must resolve it
 through the shared CLI memory storage resolver, which stores data under the
 bound private project namespace's `memory/` directory keyed by the normalized
 `krp_<sha256>` project identity.
+
+The CLI owns project identity and path resolution, then passes the explicit
+database path to the Runtime factory. Runtime owns opening, schema migration,
+WAL, queries, transactions, archival, and close behavior for that path.
 
 The repository is never a Kiln project-state root. A surface must not create a
 `.kiln/` tree or `memory.db` in the current working directory as an implicit

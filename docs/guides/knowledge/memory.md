@@ -7,14 +7,17 @@ role, start with:
 - [Context Governance](../../architecture/context/context-governance.md)
 - [Context Resource Plane](../../architecture/context/context-resource-plane.md)
 
-Source: `packages/core/src/memory/`
+Domain source: `packages/core/src/memory/`; SQLite execution is owned by the
+Runtime gateway and is created through its root `createSqliteMemoryRepository`
+factory.
 
 ## Current Model
 
 Kiln memory is governed memory, not loose saved text.
 
-The canonical persistence boundary is `MemoryRepository`, currently backed by
-`SqliteMemoryRepository`. Records are stored with explicit:
+The canonical persistence boundary is the Core `MemoryRepository` contract.
+Runtime provides the local SQLite adapter without changing the contract.
+Records are stored with explicit:
 
 - `MemoryScope`: `user`, `agent`, `team`, `project`, `org`, `app`, `tenant`, or
   `session`
@@ -149,9 +152,10 @@ evidence and are visible through Memory Lattice resources.
 
 ## Configuration
 
-The current local backing store is SQLite. CLI surfaces store mutable memory
+The current local backing store is SQLite. CLI surfaces resolve mutable memory
 under the bound private project namespace's `memory/` directory, keyed by the
-normalized `krp_<sha256>` project identity. They must not create a `.kiln/`
+normalized `krp_<sha256>` project identity, and pass that explicit path to the
+Runtime factory. They must not create a `.kiln/`
 tree or `memory.db` in arbitrary working directories as an implicit side
 effect. Repository-local `.kiln/memory.db` files are legacy debris, not
 supported Kiln state; remove them instead of importing them into the current

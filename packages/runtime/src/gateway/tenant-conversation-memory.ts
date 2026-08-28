@@ -5,7 +5,6 @@ import {
   evaluateMemoryInjectionEligibility,
   MemoryMutationService,
   scoreMemoryRecall,
-  SqliteMemoryRepository,
   trustedInternalMemoryAuthority,
   toMemoryContextCandidates,
   type ContextCandidate,
@@ -15,6 +14,7 @@ import {
   type MemoryRepository,
   type MemoryScope,
 } from "@kilnai/core";
+import { createSqliteMemoryRepository } from "./memory/sqlite-repository.js";
 
 const DEFAULT_RECALL_LIMIT = 20;
 const TOKEN_CHAR_ESTIMATE = 4;
@@ -147,9 +147,9 @@ export class TenantConversationMemory {
   }
 }
 
-export function createTenantConversationMemoryRepository(memoryBasePath: string): SqliteMemoryRepository {
+export function createTenantConversationMemoryRepository(memoryBasePath: string): MemoryRepository {
   mkdirSync(memoryBasePath, { recursive: true });
-  return new SqliteMemoryRepository({ dbPath: join(memoryBasePath, "memory.db") });
+  return createSqliteMemoryRepository({ dbPath: join(memoryBasePath, "memory.db") });
 }
 
 export function participantMemoryTag(participantId: string): string {

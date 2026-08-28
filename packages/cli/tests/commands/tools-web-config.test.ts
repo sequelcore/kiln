@@ -12,6 +12,12 @@ const toolsMocks = vi.hoisted(() => ({
   serveStdio: null as unknown,
 }));
 
+const runtimeMocks = vi.hoisted(() => ({
+  createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
+}));
+
+vi.mock("@kilnai/runtime", () => runtimeMocks);
+
 vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();
   return {
@@ -20,9 +26,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
       toolsMocks.surfaceOptions = options;
       return { bridge: {}, tools: [], resources: { marker: "resources" } };
     }),
-    SqliteMemoryRepository: class MockSqliteMemoryRepository {
-      constructor(readonly options: { readonly dbPath: string }) {}
-    },
     DevToolsMcpServer: class {
       constructor(options: unknown) {
         toolsMocks.serverOptions = options;

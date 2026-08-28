@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
 import {
   defineMemoryAuthorityPolicy,
   governedMemoryAuthority,
   MemoryGraphResourceProvider,
-  SqliteMemoryRepository,
   ToolCatalogIndex,
   ToolResourceRegistry,
   MonitorRegistry,
@@ -20,16 +20,16 @@ import {
   type MemoryLayerKind,
   type MemoryProvenance,
   type MemoryRepository,
-} from "../../../src/index.js";
+} from "@kilnai/core";
 
 describe("MemoryGraphResourceProvider", () => {
   let tmpDir: string;
-  let repository: SqliteMemoryRepository;
+  let repository: MemoryRepository;
   let registry: ToolResourceRegistry;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-resources-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
     registry = new ToolResourceRegistry({
       catalog: new ToolCatalogIndex([]),
       monitorRegistry: new MonitorRegistry(),

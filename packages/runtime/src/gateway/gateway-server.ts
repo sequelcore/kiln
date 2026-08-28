@@ -8,7 +8,6 @@ import {
   KilnError,
   OTelExporter,
   SafetyPipeline,
-  SqliteMemoryRepository,
   AesSecretStore,
   MemoryArtifactResourceStore,
   DeterministicDangerousCommandDetector,
@@ -30,6 +29,8 @@ import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { readGatewayConfigurationSource } from "./gateway-configuration-source.js";
+import { createSqliteMemoryRepository } from "./memory/sqlite-repository.js";
+import type { MemoryRepository } from "@kilnai/core/memory";
 import {
   createGatewayDrainController,
   handleAppGatewayControlRequest,
@@ -1010,13 +1011,13 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
 
   // Project-local swarm coordination is an explicit CLI development capability,
   // independent from any presentation surface.
-  let swarmMemoryRepository: SqliteMemoryRepository | undefined;
+  let swarmMemoryRepository: MemoryRepository | undefined;
   if (options?.swarmCoordination === "project-local") {
     const firstResolved = resolvedApps[0];
     if (firstResolved) {
       const devMemoryDir = join(firstResolved.memoryBasePath, "dev");
       mkdirSync(devMemoryDir, { recursive: true });
-      swarmMemoryRepository = new SqliteMemoryRepository({
+      swarmMemoryRepository = createSqliteMemoryRepository({
         dbPath: join(devMemoryDir, "swarm.db"),
       });
     }

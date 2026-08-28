@@ -4,7 +4,6 @@ import {
   MEMORY_LAYER_KINDS,
   PACKAGE_MANAGER_DOMAINS,
   SandboxPolicy,
-  SqliteMemoryRepository,
   MemoryMutationService,
   WebSearchProviderError,
   type MemoryAuthorityCaller,
@@ -23,6 +22,7 @@ import {
   type WebSourceMetadata,
   type MemoryScope,
 } from "@kilnai/core";
+import { createSqliteMemoryRepository } from "@kilnai/runtime";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { KilnAppConfig } from "../config.js";
@@ -324,7 +324,7 @@ function createProjectMemoryResources(
   ensurePrivateStateDirectorySync(binding.projectStateRoot, memoryStorage.stateDir);
   assertPrivateStateFileTargetSync(binding.projectStateRoot, memoryStorage.memoryDbPath);
   return {
-    repository: new SqliteMemoryRepository({ dbPath: memoryStorage.memoryDbPath }),
+    repository: createSqliteMemoryRepository({ dbPath: memoryStorage.memoryDbPath }),
     authority: governedMemoryAuthority(authority),
   };
 }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   buildGuiOperatorDiscoveryResults,
   createRuntimeMediaActionClaimContext,
+  createSqliteMemoryRepository,
   CliSubscriptionExecutor,
   defineRuntimeSessionAuthorityFacet,
   OperatorSessionAuthorityAdmissionBridge,
@@ -35,7 +36,6 @@ import {
 } from "../../../../cli/src/config/execution-target-evidence-store.js";
 import {
   InMemoryContextArtifactCache,
-  SqliteMemoryRepository,
   createExecutionAccountRef,
   defineExecutionTargetCatalog,
   trustedInternalMemoryAuthority,
@@ -45,6 +45,7 @@ import {
   type ExecutionTargetCatalogInput,
   type MemoryProvenance,
 } from "@kilnai/core";
+import type { MemoryRepository } from "@kilnai/core/memory";
 import {
   createFixtureModelRoundStore,
   createFixtureToolActionStore,
@@ -1118,7 +1119,7 @@ let continuationSessionId: string | null = null;
 
 const contextArtifactCache = new InMemoryContextArtifactCache();
 const memoryDbDir = mkdtempSync(join(tmpdir(), "kiln-gui-memory-"));
-const memoryRepository = new SqliteMemoryRepository({ dbPath: join(memoryDbDir, "memory.db") });
+const memoryRepository = createSqliteMemoryRepository({ dbPath: join(memoryDbDir, "memory.db") });
 const setupSnapshot: KilnConfigSetupSnapshot = {
   projectRoot: "C:/workspace/kiln",
   projectContext: {
@@ -1460,7 +1461,7 @@ void main().catch((error) => {
   process.exit(1);
 });
 
-function seedMemoryRepository(repository: SqliteMemoryRepository): void {
+function seedMemoryRepository(repository: MemoryRepository): void {
   const contract = repository.saveRecord(memoryRecord({
     id: "memory-lattice-contract",
     content: "Memory Lattice contract is exposed through runtime resources for GUI, TUI, CLI, and YAML consumers.",

@@ -19,7 +19,7 @@ An App Gateway process owns:
 - channel adapters and webhook/API boundaries
 - provider/model routing and readiness evidence
 - tool and MCP admission
-- memory and context policy
+- memory and context policy, with Runtime-owned SQLite repository execution
 - safety and authority policy
 - session events and replay
 - managed invocation lifecycle

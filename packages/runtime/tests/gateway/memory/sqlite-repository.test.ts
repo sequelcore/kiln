@@ -3,20 +3,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  SqliteMemoryRepository,
-  type CreateMemoryRecordInput,
-} from "../../src/memory/index.js";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
+import type {
+  CreateMemoryRecordInput,
+  MemoryRepository,
+} from "@kilnai/core/memory";
 
 describe("SqliteMemoryRepository", () => {
   let tmpDir: string;
   let dbPath: string;
-  let repository: SqliteMemoryRepository;
+  let repository: MemoryRepository;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-memory-lattice-"));
     dbPath = join(tmpDir, "memory.db");
-    repository = new SqliteMemoryRepository({ dbPath });
+    repository = createSqliteMemoryRepository({ dbPath });
   });
 
   afterEach(() => {
@@ -264,7 +265,7 @@ describe("SqliteMemoryRepository", () => {
       );
     `);
     legacyDb.close();
-    repository = new SqliteMemoryRepository({ dbPath });
+  repository = createSqliteMemoryRepository({ dbPath });
 
     await repository.saveRecord(recordInput({
       content: "First episodic memory.",

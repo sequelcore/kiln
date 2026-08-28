@@ -512,6 +512,7 @@ export {
 } from "./gateway/app-gateway-supervisor.js";
 export type { ResolvedApp } from "./gateway/app-resolver.js";
 export { resolveApps } from "./gateway/app-resolver.js";
+export { createSqliteMemoryRepository } from "./gateway/memory/sqlite-repository.js";
 export type { ApprovalTarget } from "./gateway/approval-registry.js";
 export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
 export type {

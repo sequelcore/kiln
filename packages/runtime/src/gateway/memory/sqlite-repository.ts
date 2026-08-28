@@ -14,13 +14,13 @@ import {
   type MemoryRelationTarget,
   type MemoryRevision,
   type MemoryScope,
-} from "./domain/index.js";
+} from "@kilnai/core/memory";
 import type {
   CreateMemoryRecordInput,
   MemoryRecordQuery,
   MemoryRecordSearchResult,
   MemoryRepository,
-} from "./repository.js";
+} from "@kilnai/core/memory";
 
 const DEFAULT_LIMIT = 50;
 const MAX_RECORD_LIMIT = 500;
@@ -30,7 +30,7 @@ const MAX_ADMISSION_LIMIT = 501;
 
 type SqlBinding = string | number | null;
 
-export interface SqliteMemoryRepositoryOptions {
+interface SqliteMemoryRepositoryOptions {
   readonly dbPath: string;
 }
 
@@ -101,7 +101,7 @@ interface SqliteIndexInfoRow {
   readonly name: string;
 }
 
-export class SqliteMemoryRepository implements MemoryRepository {
+class SqliteMemoryRepository implements MemoryRepository {
   private readonly db: Database;
   private inTransaction = false;
 
@@ -935,6 +935,10 @@ export class SqliteMemoryRepository implements MemoryRepository {
       createdAt: row.created_at,
     });
   }
+}
+
+export function createSqliteMemoryRepository(options: { readonly dbPath: string }): MemoryRepository {
+  return new SqliteMemoryRepository(options);
 }
 
 function normalizeProvenance(provenance: MemoryProvenance): MemoryProvenance {

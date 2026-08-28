@@ -2,21 +2,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createSqliteMemoryRepository } from "../../../src/index.js";
 import {
   DefaultContextGovernor,
-  SqliteMemoryRepository,
   type CreateMemoryRecordInput,
   type MemoryProvenance,
   type ContextAuditBlock,
-} from "../../src/index.js";
+  type MemoryRepository,
+} from "@kilnai/core";
 
 describe("DefaultContextGovernor memory admission provenance", () => {
   let tmpDir: string;
-  let repository: SqliteMemoryRepository;
+  let repository: MemoryRepository;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-context-admission-"));
-    repository = new SqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
+    repository = createSqliteMemoryRepository({ dbPath: join(tmpDir, "memory.db") });
   });
 
   afterEach(() => {
