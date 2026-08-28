@@ -21,6 +21,7 @@
     "test:surfaces": "bun run --parallel --filter @kilnai/react --filter @kilnai/widget --filter @kilnai/tui --filter @kilnai/gui test",
     "test:e2e": "bun run --cwd packages/gui test:e2e",
     "test:benchmark-verifiers:live": "bun run --cwd packages/cli test:live",
+    "report:architecture-baseline": "bun run scripts/report-architecture-baseline.ts",
     "profile:startup": "bun run scripts/profile-startup.ts",
     "test:harness": "bun run scripts/run-managed-agent-harness-tests.ts",
     "test:managed-agents:live": "bun run scripts/run-managed-agent-live-tests.ts",

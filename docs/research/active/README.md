@@ -19,6 +19,9 @@ Every note must name or link:
 - [CI Test Suite Performance](ci-test-suite-performance.md) tracks the
   owner-backed investigation into deterministic suite throughput and resource
   isolation.
+- [Runtime Ownership And Loading Baseline](runtime-ownership-and-loading-baseline.md)
+  freezes the residual Core execution candidates, package-root import graph,
+  CLI loading graph, and existing agent-turn controls before further slices.
 - [Prompt Component and Response Governance](prompt-component-governance.md)
   supports [Roadmap 06](../../roadmap/06-prompt-governance-plane.md).
 - [Harness Cache and End-to-End Efficiency](harness-efficiency.md) supports
