@@ -54,7 +54,6 @@
       "name": "@kilnai/core",
       "version": "3.0.0-beta.1",
       "dependencies": {
-        "@anthropic-ai/sdk": "^0.115.0",
         "@kilnai/tools": "3.0.0-beta.1",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@sinclair/typebox": "0.34.52",
@@ -152,6 +151,7 @@
       "version": "3.0.0-beta.1",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.3.237",
+        "@anthropic-ai/sdk": "^0.115.0",
         "@kilnai/core": "3.0.0-beta.1",
         "@kilnai/gateway-contracts": "3.0.0-beta.1",
         "@kilnai/gui": "3.0.0-beta.1",

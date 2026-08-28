@@ -5,14 +5,16 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
-} from "../index.js";
-import type { ContentPart, ToolResultPayloadPart } from "../../engine/domain/content.js";
-import { textPart, extractText } from "../../engine/domain/content.js";
-import { KilnError } from "../../engine/errors.js";
-import { withRetry } from "./retry.js";
-import type { RetryOptions } from "./retry.js";
-import { assertValidToolCallIds, normalizeToolInput } from "../tool-call-input.js";
-import { admitDeliberationForExecution } from "../deliberation-policy.js";
+  RetryOptions,
+} from "@kilnai/core/agents";
+import {
+  assertValidToolCallIds,
+  admitDeliberationForExecution,
+  normalizeToolInput,
+  withRetry,
+} from "@kilnai/core/agents";
+import type { ContentPart, ToolResultPayloadPart } from "@kilnai/core/engine";
+import { textPart, extractText, KilnError } from "@kilnai/core/engine";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
 export const CLAUDE_SONNET = "claude-sonnet-4-6";

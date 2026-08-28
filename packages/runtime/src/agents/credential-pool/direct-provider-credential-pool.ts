@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
+import { AnthropicAdapter } from "../provider-adapters/anthropic.js";
 import {
-  AnthropicAdapter,
   CredentialPool,
   DeepSeekAdapter,
   LmStudioAdapter,

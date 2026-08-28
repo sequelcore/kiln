@@ -3,9 +3,9 @@ import type {
   CreateMessageOptions,
   ToolDefinition,
   AgentStreamEvent,
-} from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/engine/domain/content.js";
-import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
+} from "@kilnai/core/agents";
+import { extractText, textParts } from "@kilnai/core/engine";
+import { getInvalidToolInputDetails } from "@kilnai/core/agents";
 
 const mockCreate = vi.fn();
 const mockConstructor = vi.fn();
@@ -34,7 +34,7 @@ import {
   CLAUDE_OPUS,
   CLAUDE_SONNET,
   CLAUDE_HAIKU,
-} from "../../../src/agents/infrastructure/anthropic.js";
+} from "../../../src/agents/provider-adapters/anthropic.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},

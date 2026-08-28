@@ -247,12 +247,8 @@ export interface ToolCall {
 }
 
 export { ToolRegistry } from "./tool-registry.js";
-export {
-  AnthropicAdapter,
-  CLAUDE_OPUS,
-  CLAUDE_SONNET,
-  CLAUDE_HAIKU,
-} from "./infrastructure/anthropic.js";
+export { withRetry } from "./infrastructure/retry.js";
+export type { RetryOptions } from "./infrastructure/retry.js";
 export { ProviderRegistry } from "./provider-registry.js";
 export type { DiscoveredDirectProviderModelCapabilities } from "./provider-execution-profiles.js";
 export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "./infrastructure/openai.js";

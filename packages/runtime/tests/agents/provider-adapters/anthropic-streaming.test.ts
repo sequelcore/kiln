@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type {
   CreateMessageOptions,
   AgentStreamEvent,
-} from "../../../src/agents/index.js";
-import { textParts } from "../../../src/engine/domain/content.js";
-import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
+} from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import { getInvalidToolInputDetails } from "@kilnai/core/agents";
 
 const mockCreate = vi.fn();
 
@@ -27,7 +27,7 @@ vi.mock("@anthropic-ai/sdk", () => {
   return { default: MockAnthropic, APIError: MockAPIError };
 });
 
-import { AnthropicAdapter } from "../../../src/agents/infrastructure/anthropic.js";
+import { AnthropicAdapter } from "../../../src/agents/provider-adapters/anthropic.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},

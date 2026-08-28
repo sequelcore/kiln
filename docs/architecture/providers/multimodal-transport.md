@@ -210,7 +210,7 @@ Primary code owners:
 - `packages/core/src/engine/domain/multimodal-routing.ts`
 - `packages/core/src/tools/infrastructure/artifact-resource-store.ts`
 - `packages/core/src/agents/model-capability-registry.ts`
-- `packages/core/src/agents/infrastructure/anthropic.ts`
+- `packages/runtime/src/agents/provider-adapters/anthropic.ts`
 - `packages/core/src/agents/infrastructure/openai-compat.ts`
 - `packages/core/src/agents/infrastructure/ollama.ts`
 - `packages/core/src/events/index.ts`
@@ -254,7 +254,7 @@ Focused coverage lives in:
 - `packages/core/tests/engine/domain/multimodal-routing.test.ts`
 - `packages/core/tests/tools/domain/artifact-resource-store.test.ts`
 - `packages/core/tests/agents/model-capability-registry.test.ts`
-- `packages/core/tests/agents/infrastructure/anthropic.test.ts`
+- `packages/runtime/tests/agents/provider-adapters/anthropic.test.ts`
 - `packages/core/tests/agents/infrastructure/openai-compat.test.ts`
 - `packages/core/tests/agents/infrastructure/ollama.test.ts`
 - `packages/core/tests/events/session-event.test.ts`
