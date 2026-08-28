@@ -114,6 +114,25 @@ describe("operator execution target selection", () => {
     expect(resolveAccountAvailability).toHaveBeenCalledTimes(2);
   });
 
+  it("does not misreport account-resolution failures as missing credentials", async () => {
+    const port = createOperatorExecutionTargetSelectionPort({
+      readConfigSnapshot: () => ({ config: managedAgentIntentConfig(), revision: `sha256:${"a".repeat(64)}` }),
+      readExecutionTargetCatalog,
+      resolveAccountAvailability: async () => {
+        throw new Error("candidate evidence is internally inconsistent");
+      },
+    });
+
+    const [target] = await port.getTargets();
+    expect(target).toMatchObject({
+      targetId: "codex-standard",
+      availability: "unresolved",
+      reasonCodes: ["target-health-unknown"],
+      repairActions: ["retry-target", "refresh-model-catalog"],
+      eligibleAccountCount: 0,
+    });
+  });
+
   it.each([
     ["account-capacity-exhausted", ["account-capacity-exhausted"]],
     ["quota-exhausted", ["quota-exhausted"]],

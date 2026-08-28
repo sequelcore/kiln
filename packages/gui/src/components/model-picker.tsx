@@ -9,7 +9,7 @@ import {
   type ModelCatalogEntry,
   type ModelCatalogItem,
 } from "@kilnai/gateway-contracts";
-import { CheckIcon, CircleAlertIcon, Settings2Icon, WrenchIcon } from "lucide-react";
+import { CheckIcon, CircleAlertIcon, Settings2Icon } from "lucide-react";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { ModelSelectorCommand } from "@/components/ai-elements/model-selector";
 import { Badge } from "@/components/ui/badge";
@@ -94,7 +94,6 @@ export function ModelPicker(props: {
                     key={item.key}
                     item={item}
                     active={item.targets.some((target) => target.targetId === props.activeTargetId)}
-                    previewed={item.key === preview?.key}
                     onPreview={() => setPreviewKey(item.key)}
                   />
                 ))}
@@ -116,12 +115,12 @@ export function ModelPicker(props: {
   );
 }
 
-function ModelRow(props: { readonly item: ModelCatalogItem; readonly active: boolean; readonly previewed: boolean; readonly onPreview: () => void }) {
+function ModelRow(props: { readonly item: ModelCatalogItem; readonly active: boolean; readonly onPreview: () => void }) {
   return (
     <CommandItem
       value={props.item.key}
       aria-label={`${props.item.label}, ${props.item.providerId}${props.active ? ", current" : ""}`}
-      data-checked={props.previewed || undefined}
+      data-checked={props.active || undefined}
       onSelect={props.onPreview}
       className="items-start rounded-lg px-2.5 py-2.5"
     >
@@ -129,12 +128,12 @@ function ModelRow(props: { readonly item: ModelCatalogItem; readonly active: boo
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{props.item.label}</span>
-          {props.active ? <span className="text-xs text-primary">Current</span> : null}
-          {!props.item.configured ? <Badge variant="outline">Setup</Badge> : null}
         </span>
         <span className="truncate text-xs text-muted-foreground">{props.item.providerId} · {props.item.family}</span>
       </span>
-      <span className={cn("mt-1 size-2 rounded-full", props.item.availability === "available" ? "bg-success" : props.item.availability === "unavailable" ? "bg-error" : "bg-muted-foreground/50")} aria-hidden="true" />
+      {!props.item.configured ? <span className="mt-0.5 text-xs text-muted-foreground">Not configured</span>
+        : props.item.availability !== "available" ? <span className="mt-0.5 text-xs text-muted-foreground">Unavailable</span>
+          : null}
     </CommandItem>
   );
 }
@@ -174,8 +173,10 @@ function ModelDetail(props: {
   if (!item) return <div className="grid min-h-52 place-items-center p-6 text-sm text-muted-foreground">Select a model to inspect it.</div>;
   const action = modelCatalogPrimaryAction(item.model);
   const capabilities = item.model.capabilities;
+  const repairAction = selectedTarget?.repairActions[0];
   return (
-    <section aria-label={`${item.label} details`} className="min-w-0 overflow-y-auto p-5">
+    <section aria-label={`${item.label} details`} className="flex min-w-0 flex-col overflow-y-auto">
+      <div className="flex-1 p-5">
       <div className="flex items-start gap-3">
         <ProviderGlyph providerId={item.providerId} className="mt-0.5 size-8" />
         <div className="min-w-0 flex-1">
@@ -194,16 +195,11 @@ function ModelDetail(props: {
 
       <div className="mt-5">
         <p className="text-xs font-medium text-muted-foreground">Accepts</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">{(capabilities?.inputModalities ?? ["text"]).map((value) => <Badge key={value} variant="secondary">{value}</Badge>)}</div>
+        <p className="mt-1.5 text-sm">{(capabilities?.inputModalities ?? ["text"]).join(" · ")}</p>
       </div>
       <div className="mt-4">
         <p className="text-xs font-medium text-muted-foreground">Capabilities</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {capabilities?.tools ? <Badge variant="secondary">Tool calling</Badge> : null}
-          {capabilities?.structuredOutput ? <Badge variant="secondary">Structured output</Badge> : null}
-          {capabilities?.reasoning ? <Badge variant="secondary">Reasoning</Badge> : null}
-          {!capabilities ? <span className="text-sm text-muted-foreground">No capability metadata yet.</span> : null}
-        </div>
+        <p className="mt-1.5 text-sm">{capabilityLabels(capabilities).join(" · ") || "No capability metadata yet"}</p>
       </div>
 
       {item.targets.length > 1 ? (
@@ -228,8 +224,9 @@ function ModelDetail(props: {
           </Select>
         </div>
       ) : null}
+      </div>
 
-      <div className="mt-6 border-t border-border/70 pt-4">
+      <div className="border-t border-border/70 p-4">
         {action.kind === "configure" ? (
           <Button className="w-full" disabled={props.pending} onClick={() => void props.onConfigure(item.model)}><Settings2Icon />Configure this model</Button>
         ) : selectedTarget?.availability === "available" ? (
@@ -238,9 +235,10 @@ function ModelDetail(props: {
             {isCurrentSelection ? "Current model" : `Use ${item.label}`}
           </Button>
         ) : selectedTarget ? (
-          <div className="space-y-2">
-            <div className="flex items-start gap-2 text-sm text-muted-foreground"><CircleAlertIcon className="mt-0.5 size-4 shrink-0" /><span>{humanizeReason(selectedTarget.reasonCodes[0] ?? "target unavailable")}</span></div>
-            {selectedTarget.repairActions.map((repair) => <Button key={repair} variant="outline" className="w-full" disabled={props.pending} onClick={() => void props.onRepair({ targetId: selectedTarget.targetId, providerId: item.providerId, action: repair })}><WrenchIcon />{repairLabel(repair, item.providerId)}</Button>)}
+          <div className="flex items-center gap-3">
+            <CircleAlertIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">{humanizeReason(selectedTarget.reasonCodes[0] ?? "target unavailable")}</p>
+            {repairAction ? <Button variant="outline" disabled={props.pending} onClick={() => void props.onRepair({ targetId: selectedTarget.targetId, providerId: item.providerId, action: repairAction })}>{repairLabel(repairAction, item.providerId)}</Button> : null}
           </div>
         ) : null}
       </div>
@@ -263,7 +261,17 @@ function formatTokens(value: number | undefined): string {
   return String(value);
 }
 
+function capabilityLabels(capabilities: ModelCatalogEntry["capabilities"]): string[] {
+  if (!capabilities) return [];
+  return [
+    capabilities.tools ? "Tool calling" : null,
+    capabilities.structuredOutput ? "Structured output" : null,
+    capabilities.reasoning ? "Reasoning" : null,
+  ].filter((value): value is string => value !== null);
+}
+
 function humanizeReason(value: string): string {
+  if (value === "target-health-unknown") return "Availability could not be checked.";
   const text = value.replaceAll("-", " ");
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
 }

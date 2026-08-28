@@ -128,6 +128,7 @@ async function projectTargets(
   revision: string,
 ): Promise<readonly OperatorExecutionTargetCatalogEntry[]> {
   const availabilityByTarget = new Map<string, readonly OperatorExecutionTargetAccountAvailability[]>();
+  const unresolvedTargets = new Set<string>();
   for (const target of catalog.targets) {
     try {
       const admission = admitOperatorExecutionIntent(catalog, { targetId: target.id });
@@ -138,6 +139,7 @@ async function projectTargets(
       }));
     } catch {
       availabilityByTarget.set(target.id, []);
+      unresolvedTargets.add(target.id);
     }
   }
 
@@ -151,6 +153,21 @@ async function projectTargets(
       .map((accountId) => accountAvailability.find((account) => account.accountId === accountId)
         ?? { accountId, available: false, reasonCodes: ["missing-credentials"] as const })
       .filter((account) => !account.available);
+    if (unresolvedTargets.has(target.id)) {
+      return {
+        targetId: target.id,
+        label: target.label,
+        providerId: target.providerId,
+        providerModelId: target.providerModelId,
+        access: getGuiProviderMetadata(target.providerId)?.access ?? "api",
+        availability: "unresolved",
+        reasonCodes: ["target-health-unknown"],
+        repairActions: ["retry-target", "refresh-model-catalog"],
+        eligibleAccountCount: 0,
+        accountOverrideIds: [],
+        cost: projectCost(target.economics.priceEvidence),
+      };
+    }
     const available = executableAccountIds.length > 0;
     const reasonCodes = available ? [] : targetReasonCodes(unavailableAccounts);
     return {

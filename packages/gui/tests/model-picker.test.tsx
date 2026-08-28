@@ -50,7 +50,7 @@ describe("ModelPicker", () => {
     expect(screen.getByRole("button", { name: "Configure this model" })).toBeInTheDocument();
   });
 
-  it("keeps unavailable diagnostics actionable", () => {
+  it("keeps unavailable diagnostics concise with one contextual recovery action", () => {
     const onRepair = vi.fn();
     renderPicker({ onRepair });
     fireEvent.click(screen.getByRole("option", { name: /Private V1/u }));
@@ -62,6 +62,19 @@ describe("ModelPicker", () => {
       providerId: "private-provider",
       action: "authenticate-provider",
     });
+    expect(screen.queryByRole("button", { name: "Refresh model catalog" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check account" })).not.toBeInTheDocument();
+  });
+
+  it("uses the checkmark for the active model, not the previewed row", () => {
+    renderPicker({ activeTargetId: "codex-auto" });
+    const active = screen.getByRole("option", { name: /GPT 5.6, codex-oauth, current/iu });
+    const preview = screen.getByRole("option", { name: /Luna, opencode-go/u });
+
+    fireEvent.click(preview);
+
+    expect(active).toHaveAttribute("data-checked", "true");
+    expect(preview).not.toHaveAttribute("data-checked");
   });
 
   it("marks the active target and reports authoritative progress and failure", () => {
