@@ -18,15 +18,18 @@ import { DevToolExecutionBridge } from "../tool-executor.js";
 const SERVER_NAME = "kilnai-dev-tools";
 const SERVER_VERSION = "0.1.0";
 const PROGRESS_INTERVAL_MS = 30_000;
+const MCP_PROTOCOL_REVISION = "2026-07-28" as const;
 
 interface McpServerInstance {
   setRequestHandler(
-    schema: unknown,
+    method: string,
     handler: (
       request: { params: Record<string, unknown> },
       extra?: McpRequestHandlerExtra,
     ) => unknown,
   ): void;
+  sendResourceUpdated(params: { readonly uri: string }): Promise<void>;
+  sendResourceListChanged(): Promise<void>;
 }
 
 interface McpRequestHandlerExtra {
@@ -43,36 +46,37 @@ interface McpRequestHandlerExtra {
   } | ToolResourceNotification) => Promise<void>;
   readonly sessionId?: string;
   readonly elicit?: OperatorElicitationResponder["elicit"];
+  /** v2 context keeps request metadata and notification helpers under mcpReq. */
+  readonly mcpReq?: {
+    readonly _meta?: {
+      readonly progressToken?: string | number;
+    };
+    readonly notify?: (notification: ToolResourceNotification | {
+      readonly method: "notifications/progress";
+      readonly params: {
+        readonly progressToken: string | number;
+        readonly progress: number;
+        readonly message: string;
+      };
+    }) => Promise<void>;
+  };
 }
 
 interface SdkModules {
   Server: new (
     info: { name: string; version: string },
-    opts: { capabilities: Record<string, unknown> },
+    opts: {
+      capabilities: Record<string, unknown>;
+      supportedProtocolVersions: readonly string[];
+    },
   ) => McpServerInstance;
-  ListToolsRequestSchema: unknown;
-  CallToolRequestSchema: unknown;
-  ListResourcesRequestSchema: unknown;
-  ListResourceTemplatesRequestSchema: unknown;
-  ReadResourceRequestSchema: unknown;
-  SubscribeRequestSchema: unknown;
-  UnsubscribeRequestSchema: unknown;
 }
 
-function loadSdkModules(): Promise<SdkModules> {
-  return Promise.all([
-    import("@modelcontextprotocol/sdk/server/index.js"),
-    import("@modelcontextprotocol/sdk/types.js"),
-  ]).then(([serverModule, typesModule]) => ({
+async function loadSdkModules(): Promise<SdkModules> {
+  const serverModule = await import("@modelcontextprotocol/server");
+  return {
     Server: serverModule.Server as unknown as SdkModules["Server"],
-    ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
-    CallToolRequestSchema: typesModule.CallToolRequestSchema,
-    ListResourcesRequestSchema: typesModule.ListResourcesRequestSchema,
-    ListResourceTemplatesRequestSchema: typesModule.ListResourceTemplatesRequestSchema,
-    ReadResourceRequestSchema: typesModule.ReadResourceRequestSchema,
-    SubscribeRequestSchema: typesModule.SubscribeRequestSchema,
-    UnsubscribeRequestSchema: typesModule.UnsubscribeRequestSchema,
-  }));
+  };
 }
 
 export interface DevToolsMcpServerOptions {
@@ -143,7 +147,7 @@ export class DevToolsMcpServer {
   }
 
   listTools(): readonly DevToolsMcpToolSchema[] {
-    return projectDevToolSchemas(this.tools ?? this.bridge.listTools());
+    return projectDevToolSchemas(this.tools ?? this.bridge.listTools()).filter((tool) => tool.name !== "operator_elicit");
   }
 
   listResources(options: Pick<ToolResourceListOptions, "cursor"> = {}): DevToolsMcpListResourcesResult {
@@ -188,7 +192,7 @@ export class DevToolsMcpServer {
       const execution = await this.bridge.execute({
         name,
         input: args,
-        ...(extra?.elicit ? { sandbox: { operatorElicitation: { elicit: extra.elicit } } } : {}),
+        ...(resolveMcpElicitation(extra) ? { sandbox: { operatorElicitation: { elicit: resolveMcpElicitation(extra) } } } : {}),
       });
 
       const payload = {
@@ -210,46 +214,40 @@ export class DevToolsMcpServer {
       throw new Error("Dev tools MCP server not initialized");
     }
 
-    const {
-      Server,
-      ListToolsRequestSchema,
-      CallToolRequestSchema,
-      ListResourcesRequestSchema,
-      ListResourceTemplatesRequestSchema,
-      ReadResourceRequestSchema,
-      SubscribeRequestSchema,
-      UnsubscribeRequestSchema,
-    } = this.sdk;
+    const { Server } = this.sdk;
     const resourceCapabilities = this.resources
       ? {
-        ...(this.resourceNotifications ? { subscribe: true, listChanged: true } : {}),
+        ...(this.resourceNotifications ? { listChanged: true } : {}),
       }
       : {};
     const server = new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
-      { capabilities: { tools: {}, resources: resourceCapabilities } },
+      {
+        capabilities: { tools: {}, resources: resourceCapabilities },
+        supportedProtocolVersions: [MCP_PROTOCOL_REVISION],
+      },
     );
 
     server.setRequestHandler(
-      ListResourcesRequestSchema,
+      "resources/list",
       async (request: { params?: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
-        this.registerResourceSession(extra);
+        this.registerResourceSession(server, extra);
         return this.listResources(parseResourceListParams(request.params));
       },
     );
 
     server.setRequestHandler(
-      ListResourceTemplatesRequestSchema,
+      "resources/templates/list",
       async (request: { params?: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
-        this.registerResourceSession(extra);
+        this.registerResourceSession(server, extra);
         return this.listResourceTemplates(parseResourceListParams(request.params));
       },
     );
 
     server.setRequestHandler(
-      ReadResourceRequestSchema,
+      "resources/read",
       async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
-        this.registerResourceSession(extra);
+        this.registerResourceSession(server, extra);
         const uri = request.params["uri"];
         if (typeof uri !== "string") {
           throw new KilnError("INTERNAL_ERROR", "Invalid MCP resource URI", {
@@ -261,28 +259,12 @@ export class DevToolsMcpServer {
       },
     );
 
-    server.setRequestHandler(
-      SubscribeRequestSchema,
-      async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
-        this.subscribeResource(parseResourceUriParam(request.params), extra);
-        return {};
-      },
-    );
-
-    server.setRequestHandler(
-      UnsubscribeRequestSchema,
-      async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
-        this.unsubscribeResource(parseResourceUriParam(request.params), extra);
-        return {};
-      },
-    );
-
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler("tools/list", async () => ({
       tools: this.listTools(),
     }));
 
     server.setRequestHandler(
-      CallToolRequestSchema,
+      "tools/call",
       async (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => {
         const params = request.params as {
           name: string;
@@ -307,50 +289,23 @@ export class DevToolsMcpServer {
     };
   }
 
-  private registerResourceSession(extra: McpRequestHandlerExtra | undefined): void {
-    if (!this.resourceNotifications || !extra?.sendNotification) {
+  private registerResourceSession(server: McpServerInstance, extra: McpRequestHandlerExtra | undefined): void {
+    if (!this.resourceNotifications) {
       return;
     }
     const sessionId = resolveMcpSessionId(extra);
     this.subscribedSessionIds.add(sessionId);
     this.resourceNotifications.registerSession({
       sessionId,
+      receivesAllResourceUpdates: true,
       sendNotification: async (notification) => {
-        await extra.sendNotification?.(notification);
+        if (notification.method === "notifications/resources/updated") {
+          await server.sendResourceUpdated(notification.params);
+          return;
+        }
+        await server.sendResourceListChanged();
       },
     });
-  }
-
-  private subscribeResource(uri: string, extra: McpRequestHandlerExtra | undefined): void {
-    if (!this.resourceNotifications) {
-      throw new KilnError("INTERNAL_ERROR", "MCP resource subscriptions are not configured", {
-        context: { uri },
-        retryable: false,
-      });
-    }
-    if (!extra?.sendNotification) {
-      throw new KilnError("INTERNAL_ERROR", "MCP resource subscription requires notification support", {
-        context: { uri },
-        retryable: false,
-      });
-    }
-    const sessionId = resolveMcpSessionId(extra);
-    this.subscribedSessionIds.add(sessionId);
-    this.resourceNotifications.subscribeResource({
-      sessionId,
-      uri,
-      sendNotification: async (notification) => {
-        await extra.sendNotification?.(notification);
-      },
-    });
-  }
-
-  private unsubscribeResource(uri: string, extra: McpRequestHandlerExtra | undefined): void {
-    if (!this.resourceNotifications) {
-      return;
-    }
-    const sessionId = resolveMcpSessionId(extra);
-    this.resourceNotifications.unsubscribeResource({ sessionId, uri });
   }
 
   private errorResult(message: string): DevToolsMcpCallResult {
@@ -371,15 +326,16 @@ export class DevToolsMcpServer {
     toolName: string,
     extra: McpRequestHandlerExtra | undefined,
   ): { stop: () => void } {
-    const progressToken = extra?._meta?.progressToken;
-    if (!progressToken || !extra?.sendNotification) {
+    const progressToken = extra?._meta?.progressToken ?? extra?.mcpReq?._meta?.progressToken;
+    const sendNotification = resolveMcpNotificationSender(extra);
+    if (!progressToken || !sendNotification) {
       return { stop: () => undefined };
     }
 
     let progress = 0;
     const timer = setInterval(() => {
       progress += 1;
-      void extra.sendNotification?.({
+      void sendNotification({
         method: "notifications/progress",
         params: {
           progressToken,
@@ -420,17 +376,16 @@ function parseResourceListParams(params: Record<string, unknown> | undefined): P
   return { cursor };
 }
 
-function parseResourceUriParam(params: Record<string, unknown>): string {
-  const uri = params["uri"];
-  if (typeof uri !== "string") {
-    throw new KilnError("INTERNAL_ERROR", "Invalid MCP resource URI", {
-      context: { uri },
-      retryable: false,
-    });
-  }
-  return uri;
-}
-
 function resolveMcpSessionId(extra: McpRequestHandlerExtra | undefined): string {
   return extra?.sessionId ?? "stdio";
+}
+
+function resolveMcpNotificationSender(extra: McpRequestHandlerExtra | undefined): McpRequestHandlerExtra["sendNotification"] {
+  if (extra?.sendNotification) return extra.sendNotification;
+  if (extra?.mcpReq?.notify) return extra.mcpReq.notify;
+  return undefined;
+}
+
+function resolveMcpElicitation(extra: McpRequestHandlerExtra | undefined): OperatorElicitationResponder["elicit"] | undefined {
+  return extra?.elicit;
 }

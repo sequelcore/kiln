@@ -13,7 +13,7 @@ function fixtureServer(args: readonly string[] = []): ResolvedMcpServer {
     command: process.execPath,
     args: [fixturePath, ...args],
     startupTimeoutMs: 2_000,
-    requestTimeoutMs: 100,
+    requestTimeoutMs: 1_000,
     admission: { state: "admitted" },
     source: "project",
     provenance: {},

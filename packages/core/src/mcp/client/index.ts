@@ -1,6 +1,25 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import type {
+  CallToolRequest,
+  CallToolResult,
+  CacheableRequestOptions,
+  CallToolRequestOptions,
+  ConnectOptions,
+  GetPromptRequest,
+  GetPromptResult,
+  ListPromptsRequest,
+  ListPromptsResult,
+  ListResourcesRequest,
+  ListResourcesResult,
+  ListToolsRequest,
+  ListToolsResult,
+  ProtocolEra,
+  ReadResourceRequest,
+  ReadResourceResult,
+  RequestOptions,
+  Transport,
+} from "@modelcontextprotocol/client";
 import type { Capability } from "../../engine/domain/capability.js";
 import type { PromptScanner } from "../../security/prompt-scanner.js";
 import {
@@ -16,6 +35,8 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const STDERR_CAPTURE_LIMIT = 8_192;
 const RESPONSE_SIZE_LIMIT_BYTES = 1_048_576;
 const DEFAULT_CAPABILITY_LIMIT = 128;
+/** The only MCP wire revision admitted by the Core client. */
+export const MCP_PROTOCOL_REVISION = "2026-07-28" as const;
 
 export type McpClientErrorCode =
   | "MCP_NOT_ADMITTED"
@@ -27,7 +48,8 @@ export type McpClientErrorCode =
   | "MCP_CAPABILITY_NOT_FOUND"
   | "MCP_RESPONSE_TOO_LARGE"
   | "MCP_CATALOG_CHANGED"
-  | "MCP_SECRET_REFERENCE_MISSING";
+  | "MCP_SECRET_REFERENCE_MISSING"
+  | "MCP_PROTOCOL_UNSUPPORTED";
 
 export class KilnMcpClientError extends Error {
   readonly code: McpClientErrorCode;
@@ -41,28 +63,20 @@ export class KilnMcpClientError extends Error {
   }
 }
 
-export interface McpRequestOptions {
-  readonly signal?: AbortSignal;
-  readonly timeout?: number;
-  readonly resetTimeoutOnProgress?: boolean;
-  readonly onprogress?: (progress: unknown) => void;
-}
-
-interface McpPage {
-  readonly nextCursor?: string;
-  readonly [key: string]: unknown;
-}
+export type McpRequestOptions = RequestOptions;
 
 export interface McpSdkClient {
-  connect(transport: unknown, options?: McpRequestOptions): Promise<void>;
+  connect(transport: Transport, options?: ConnectOptions): Promise<void>;
   close(): Promise<void>;
-  listTools(params?: { cursor?: string }, options?: McpRequestOptions): Promise<McpPage & { tools: readonly McpToolDescriptor[] }>;
-  listResources(params?: { cursor?: string }, options?: McpRequestOptions): Promise<McpPage & { resources: readonly McpResourceDescriptor[] }>;
-  listPrompts(params?: { cursor?: string }, options?: McpRequestOptions): Promise<McpPage & { prompts: readonly McpPromptDescriptor[] }>;
-  callTool(params: { name: string; arguments?: Record<string, unknown> }, resultSchema?: unknown, options?: McpRequestOptions): Promise<unknown>;
-  readResource(params: { uri: string }, options?: McpRequestOptions): Promise<unknown>;
-  getPrompt(params: { name: string; arguments?: Record<string, string> }, options?: McpRequestOptions): Promise<unknown>;
-  getServerVersion?(): { readonly name: string; readonly version: string } | undefined;
+  listTools(params?: ListToolsRequest["params"], options?: CacheableRequestOptions): Promise<ListToolsResult>;
+  listResources(params?: ListResourcesRequest["params"], options?: CacheableRequestOptions): Promise<ListResourcesResult>;
+  listPrompts(params?: ListPromptsRequest["params"], options?: CacheableRequestOptions): Promise<ListPromptsResult>;
+  callTool(params: CallToolRequest["params"], options?: CallToolRequestOptions): Promise<CallToolResult>;
+  readResource(params: ReadResourceRequest["params"], options?: CacheableRequestOptions): Promise<ReadResourceResult>;
+  getPrompt(params: GetPromptRequest["params"], options?: RequestOptions): Promise<GetPromptResult>;
+  getServerVersion(): { readonly name: string; readonly version: string } | undefined;
+  getNegotiatedProtocolVersion(): string | undefined;
+  getProtocolEra(): ProtocolEra | undefined;
 }
 
 export interface McpTransportHandle {
@@ -120,7 +134,16 @@ export interface McpDiscoverySnapshot {
   readonly tools: readonly QualifiedMcpCapability<McpToolDescriptor>[];
   readonly resources: readonly QualifiedMcpCapability<McpResourceDescriptor>[];
   readonly prompts: readonly QualifiedMcpCapability<McpPromptDescriptor>[];
+  readonly protocolRevision: typeof MCP_PROTOCOL_REVISION;
+  readonly completeness: "complete";
+  readonly invalidated: boolean;
   readonly discoveredAt: string;
+  readonly freshness: {
+    readonly observedAt: string;
+    readonly validUntil?: string;
+    readonly ttlMs?: number;
+    readonly cacheScope?: "public" | "private";
+  };
   readonly serverIdentity?: { readonly name: string; readonly version: string };
   readonly catalog?: readonly {
     readonly selector: string;
@@ -153,6 +176,7 @@ export class KilnMcpClient {
   private connected = false;
   private stderr = "";
   private catalogInvalidated = false;
+  private catalogInvalidationRevision = 0;
 
   constructor(server: ResolvedMcpServer, options: KilnMcpClientOptions = {}) {
     this.server = server;
@@ -201,14 +225,25 @@ export class KilnMcpClient {
   }
 
   async discover(options: { readonly signal?: AbortSignal } = {}): Promise<McpDiscoverySnapshot> {
+    return this.settleDiscovery(options, true);
+  }
+
+  private async settleDiscovery(
+    options: { readonly signal?: AbortSignal },
+    clearInvalidation: boolean,
+  ): Promise<McpDiscoverySnapshot> {
+    const startingInvalidationRevision = this.catalogInvalidationRevision;
     await this.connect(options);
-    const request = this.requestOptions(options.signal);
+    const request = this.discoveryRequestOptions(options.signal);
     try {
-      const [tools, resources, prompts] = await Promise.all([
+      const [toolPage, resourcePage, promptPage] = await Promise.all([
         this.listTools(request),
         collectPages<McpResourceDescriptor>((cursor) => this.sdk.listResources(cursor ? { cursor } : undefined, request), "resources"),
         collectPages<McpPromptDescriptor>((cursor) => this.sdk.listPrompts(cursor ? { cursor } : undefined, request), "prompts"),
       ]);
+      const tools = toolPage.values;
+      const resources = resourcePage.values;
+      const prompts = promptPage.values;
       const serverIdentity = this.sdk.getServerVersion?.();
       const capabilityCount = tools.length + resources.length + prompts.length;
       const capabilityLimit = this.server.maxCapabilities ?? DEFAULT_CAPABILITY_LIMIT;
@@ -224,7 +259,10 @@ export class KilnMcpClient {
         ...resources.map((resource) => ({ selector: formatMcpCapabilitySelector(this.server.id, "resource", resource.uri), kind: "resource" as const, name: resource.uri, admitted: this.isCapabilityAdmitted("resource", resource.uri) })),
         ...prompts.map((prompt) => ({ selector: formatMcpCapabilitySelector(this.server.id, "prompt", prompt.name), kind: "prompt" as const, name: prompt.name, admitted: this.isCapabilityAdmitted("prompt", prompt.name) })),
       ];
-      const snapshot = {
+      const discoveredAt = new Date().toISOString();
+      const invalidated = !clearInvalidation
+        || startingInvalidationRevision !== this.catalogInvalidationRevision;
+      const snapshot: McpDiscoverySnapshot = {
         serverId: this.server.id,
         tools: tools
           .filter((tool) => this.isCapabilityAdmitted("tool", tool.name))
@@ -248,11 +286,15 @@ export class KilnMcpClient {
           selector: formatMcpCapabilitySelector(this.server.id, "prompt", prompt.name),
           descriptor: prompt,
         })),
-        discoveredAt: new Date().toISOString(),
+        protocolRevision: MCP_PROTOCOL_REVISION,
+        completeness: "complete",
+        invalidated,
+        discoveredAt,
+        freshness: deriveDiscoveryFreshness(discoveredAt, [toolPage, resourcePage, promptPage]),
         ...(serverIdentity ? { serverIdentity } : {}),
         catalog,
       };
-      this.catalogInvalidated = false;
+      if (!invalidated) this.catalogInvalidated = false;
       return snapshot;
     } catch (error) {
       throw this.requestFailure(error);
@@ -265,7 +307,7 @@ export class KilnMcpClient {
     this.assertCapabilityAdmitted("tool", name);
     await this.connect(options);
     try {
-      return assertBoundedResponse(await this.sdk.callTool({ name, arguments: args }, undefined, this.requestOptions(options.signal, options.timeoutMs)), this.server.id);
+      return assertBoundedResponse(await this.sdk.callTool({ name, arguments: args }, this.requestOptions(options.signal, options.timeoutMs)), this.server.id);
     } catch (error) {
       throw this.requestFailure(error);
     }
@@ -356,6 +398,7 @@ export class KilnMcpClient {
       { name: this.options.clientName ?? "kiln", version: this.options.clientVersion ?? "3.0.0" },
       {
         capabilities: {},
+        versionNegotiation: { mode: { pin: MCP_PROTOCOL_REVISION } },
         listChanged: {
           tools: { onChanged: () => void this.handleListChanged() },
           resources: { onChanged: () => void this.handleListChanged() },
@@ -384,7 +427,17 @@ export class KilnMcpClient {
           ));
         }, timeoutMs);
       });
-      await Promise.race([this.sdk.connect(transport, { signal: combinedSignal, timeout: timeoutMs }), timeout]);
+      await Promise.race([this.sdk.connect(transport as Transport, { signal: combinedSignal, timeout: timeoutMs }), timeout]);
+      if (
+        this.sdk.getNegotiatedProtocolVersion() !== MCP_PROTOCOL_REVISION ||
+        this.sdk.getProtocolEra() !== "modern"
+      ) {
+        throw new KilnMcpClientError(
+          "MCP_PROTOCOL_UNSUPPORTED",
+          this.server.id,
+          `MCP server ${this.server.id} did not negotiate protocol revision ${MCP_PROTOCOL_REVISION}`,
+        );
+      }
       this.connected = true;
     } catch (error) {
       await transport.close().catch(() => undefined);
@@ -441,6 +494,10 @@ export class KilnMcpClient {
       resetTimeoutOnProgress: true,
       onprogress: () => undefined,
     };
+  }
+
+  private discoveryRequestOptions(signal?: AbortSignal): CacheableRequestOptions {
+    return { ...this.requestOptions(signal), cacheMode: "refresh" };
   }
 
   private parseSelector(selector: string, expectedKind: McpCapabilityKind): string {
@@ -504,7 +561,7 @@ export class KilnMcpClient {
     return list?.allow ? list.allow.includes(name) : true;
   }
 
-  private listTools(options: McpRequestOptions): Promise<McpToolDescriptor[]> {
+  private listTools(options: McpRequestOptions): Promise<CollectedMcpPage<McpToolDescriptor>> {
     return collectPages<McpToolDescriptor>(
       (cursor) => this.sdk.listTools(cursor ? { cursor } : undefined, options),
       "tools",
@@ -513,12 +570,14 @@ export class KilnMcpClient {
 
   private async handleListChanged(): Promise<void> {
     if (!this.connected) return;
+    this.catalogInvalidated = true;
+    this.catalogInvalidationRevision += 1;
     try {
-      const snapshot = await this.discover();
-      this.catalogInvalidated = true;
+      const snapshot = await this.settleDiscovery({}, false);
       await this.options.onDiscoveryChanged?.(snapshot);
     } catch {
-      this.catalogInvalidated = true;
+      // The synchronous invalidation remains authoritative until an explicit
+      // caller performs and adopts a fresh discovery.
     }
   }
 }
@@ -593,6 +652,7 @@ function makeSdkTransport(descriptor: McpTransportDescriptor): McpTransportHandl
   }
   const reconnect = descriptor.reconnect;
   return new StreamableHTTPClientTransport(descriptor.url, {
+    protocolVersion: MCP_PROTOCOL_REVISION,
     ...(descriptor.headers ? { requestInit: { headers: { ...descriptor.headers } } } : {}),
     ...(reconnect ? {
       reconnectionOptions: {
@@ -606,18 +666,68 @@ function makeSdkTransport(descriptor: McpTransportDescriptor): McpTransportHandl
 }
 
 async function collectPages<T>(
-  load: (cursor?: string) => Promise<McpPage & Record<string, unknown>>,
+  load: (cursor?: string) => Promise<unknown>,
   key: string,
-): Promise<T[]> {
+): Promise<CollectedMcpPage<T>> {
   const result: T[] = [];
   let cursor: string | undefined;
+  let ttlMs: number | undefined;
+  let cacheScope: "public" | "private" | undefined;
+  let firstPage = true;
   do {
     const page = await load(cursor);
+    if (!isRecord(page)) return { values: result };
+    if (firstPage) {
+      ttlMs = finiteNonNegativeNumber(page["ttlMs"]);
+      cacheScope = page["cacheScope"] === "public" || page["cacheScope"] === "private"
+        ? page["cacheScope"]
+        : undefined;
+      firstPage = false;
+    }
     const values = page[key];
     if (Array.isArray(values)) result.push(...values as T[]);
-    cursor = page.nextCursor;
+    const nextCursor = page["nextCursor"];
+    cursor = typeof nextCursor === "string" ? nextCursor : undefined;
   } while (cursor);
-  return result;
+  return {
+    values: result,
+    ...(ttlMs !== undefined ? { ttlMs } : {}),
+    ...(cacheScope !== undefined ? { cacheScope } : {}),
+  };
+}
+
+interface CollectedMcpPage<T> {
+  readonly values: T[];
+  readonly ttlMs?: number;
+  readonly cacheScope?: "public" | "private";
+}
+
+function deriveDiscoveryFreshness(
+  observedAt: string,
+  pages: readonly CollectedMcpPage<unknown>[],
+): McpDiscoverySnapshot["freshness"] {
+  const ttlValues = pages.map((page) => page.ttlMs);
+  const ttlMs = ttlValues.every((value): value is number => value !== undefined && value > 0)
+    ? Math.min(...ttlValues)
+    : undefined;
+  const scopes = pages.map((page) => page.cacheScope).filter((scope): scope is "public" | "private" => scope !== undefined);
+  const cacheScope = scopes.length === pages.length && scopes.every((scope) => scope === scopes[0]) ? scopes[0] : undefined;
+  return {
+    observedAt,
+    ...(ttlMs !== undefined ? {
+      ttlMs,
+      validUntil: new Date(Date.parse(observedAt) + ttlMs).toISOString(),
+    } : {}),
+    ...(cacheScope !== undefined ? { cacheScope } : {}),
+  };
+}
+
+function finiteNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function withoutAnnotations(tool: McpToolDescriptor): McpToolDescriptor {

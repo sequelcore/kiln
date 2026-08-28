@@ -194,6 +194,42 @@ describe("createOperatorRuntimeService", () => {
     await service.close();
   });
 
+  it("rejects legacy MCP traffic at the strict modern HTTP entrypoint", async () => {
+    const project = adoptedProject("strict-modern-mcp");
+    const createComposition = vi.fn(async () => composition());
+    const { service, claims } = await openedService(project, "codex", "strict-modern-session", { createComposition });
+    const response = await service.onMcpRequest({
+      claims,
+      request: new Request("http://127.0.0.1:43123/.well-known/kiln/operator-runtime/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "legacy-client", version: "1" },
+          },
+        }),
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: -32022,
+        data: { supported: ["2026-07-28"] },
+      },
+    });
+    expect(createComposition).not.toHaveBeenCalled();
+    await service.close();
+  });
+
   it("uses harness-specific inspection rooted to the verified project without returning the raw root", async () => {
     const project = adoptedProject("inspection");
     const { service, claims } = await openedService(project, "claude", "inspect-session", {
@@ -780,8 +816,23 @@ function mcpInput(claims: OperatorSessionClaims, method: string, params?: Record
       headers: {
         accept: "application/json, text/event-stream",
         "content-type": "application/json",
+        "mcp-method": method,
+        "mcp-protocol-version": "2026-07-28",
+        ...(typeof params?.["name"] === "string" ? { "mcp-name": params["name"] } : {}),
       },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, ...(params ? { params } : {}) }),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method,
+        params: {
+          ...(params ?? {}),
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "kiln-cli-test", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
     }),
   };
 }

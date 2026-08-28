@@ -1,7 +1,7 @@
 # Kiln Examples
 
 These examples show the current source runtime: application declarations,
-gateway bindings, tenant isolation, MCP tools, safety policy, triggers, and
+gateway bindings, tenant isolation, strict MCP `2026-07-28` tools, safety policy, triggers, and
 embeddable surfaces.
 
 Run them from a source checkout. There is no supported package release for the

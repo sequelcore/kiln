@@ -1,25 +1,55 @@
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { createMcpHandler, Server } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
 import type { ResolvedMcpServer } from "../../../src/mcp/index.js";
 import { KilnMcpClient, KilnMcpClientError } from "../../../src/mcp/client/index.js";
 
 describe("KilnMcpClient Streamable HTTP integration", () => {
+  it("rejects a legacy initialize opening instead of exposing a v1 route", async () => {
+    const handler = createMcpHandler(() => createFixtureServer(), { legacy: "reject", responseMode: "auto" });
+    try {
+      const response = await handler.fetch(new Request("http://127.0.0.1/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "legacy-client", version: "1.0.0" },
+          },
+        }),
+      }));
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: -32022, data: { supported: ["2026-07-28"] } },
+      });
+    } finally {
+      await handler.close();
+    }
+  });
+
   it("connects, discovers, sends referenced headers, and enforces request timeout", async () => {
     let observedAuthorization: string | undefined;
+    const handler = createMcpHandler(() => createFixtureServer(), { legacy: "reject", responseMode: "auto" });
     const httpServer = createServer(async (request, response) => {
       observedAuthorization = request.headers.authorization;
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const sdkServer = createFixtureServer();
-      await sdkServer.connect(transport);
-      await transport.handleRequest(request, response);
-      response.on("close", () => {
-        void transport.close();
-        void sdkServer.close();
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = Buffer.concat(chunks);
+      const webRequest = new Request(`http://${request.headers.host ?? "127.0.0.1"}${request.url ?? "/mcp"}`, {
+        method: request.method,
+        headers: request.headers as Record<string, string>,
+        body: body.length > 0 ? body : undefined,
       });
+      const webResponse = await handler.fetch(webRequest);
+      response.statusCode = webResponse.status;
+      webResponse.headers.forEach((value, key) => response.setHeader(key, value));
+      response.end(Buffer.from(await webResponse.arrayBuffer()));
     });
     httpServer.listen(0, "127.0.0.1");
     await once(httpServer, "listening");
@@ -47,6 +77,7 @@ describe("KilnMcpClient Streamable HTTP integration", () => {
       await expect(client.callTool("mcp:http-fixture:tool:wait", {})).rejects.toBeInstanceOf(KilnMcpClientError);
     } finally {
       await client.disconnect();
+      await handler.close();
       httpServer.close();
       await once(httpServer, "close");
     }
@@ -77,14 +108,17 @@ describe("KilnMcpClient Streamable HTTP integration", () => {
 function createFixtureServer(): Server {
   const server = new Server(
     { name: "http-fixture", version: "1.0.0" },
-    { capabilities: { tools: {}, resources: {}, prompts: {} } },
+    {
+      capabilities: { tools: {}, resources: {}, prompts: {} },
+      supportedProtocolVersions: ["2026-07-28"],
+    },
   );
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler("tools/list", async () => ({
     tools: [{ name: "echo", inputSchema: { type: "object" } }, { name: "wait", inputSchema: { type: "object" } }],
   }));
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
-  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
-  server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+  server.setRequestHandler("resources/list", async () => ({ resources: [] }));
+  server.setRequestHandler("prompts/list", async () => ({ prompts: [] }));
+  server.setRequestHandler("tools/call", async ({ params }) => {
     if (params.name === "wait") await new Promise((resolve) => setTimeout(resolve, 1_000));
     return { content: [{ type: "text", text: "ok" }] };
   });

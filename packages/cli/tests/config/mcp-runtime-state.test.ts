@@ -14,10 +14,14 @@ afterEach(() => {
 function snapshot(tools: string[]) {
   return {
     serverId: "fixture",
+    protocolRevision: "2026-07-28" as const,
+    completeness: "complete" as const,
+    invalidated: false,
     tools: tools.map((selector) => ({ serverId: "fixture", kind: "tool" as const, selector, descriptor: { name: selector, inputSchema: {} } })),
     resources: [],
     prompts: [],
     discoveredAt: "2026-07-19T00:00:00.000Z",
+    freshness: { observedAt: "2026-07-19T00:00:00.000Z" },
   };
 }
 

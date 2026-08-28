@@ -61,13 +61,13 @@ function readTextContent(content: NonNullable<ToolResult["content"]>): string {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 47 native tool schemas", () => {
+  it("lists the native tool schemas without projecting operator elicitation", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(47);
+    expect(tools).toHaveLength(46);
     expect(names).toEqual([
       "bash",
       "read",
@@ -109,7 +109,6 @@ describe("DevToolsMcpServer", () => {
       "monitor_list",
       "task_list",
       "task_update",
-      "operator_elicit",
       "tool_catalog_search",
       "memory_search",
       "memory_save",
@@ -132,7 +131,7 @@ describe("DevToolsMcpServer", () => {
     const surface = createDefaultBuiltinToolSurface();
     const server = new DevToolsMcpServer({ bridge: surface.bridge, tools: surface.tools });
 
-    expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools));
+    expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools).filter((tool) => tool.name !== "operator_elicit"));
   });
 
   it("lists MCP resources and templates from the canonical core surface", () => {
@@ -296,76 +295,27 @@ describe("DevToolsMcpServer", () => {
     expect(secondPage.nextCursor).toBeUndefined();
   });
 
-  it("registers MCP resource subscribe and unsubscribe handlers with session isolation", async () => {
-    vi.useFakeTimers();
-    try {
-      const surface = createDefaultBuiltinToolSurface({
-        resourceNotifications: { debounceMs: 5 },
-      });
-      const server = new DevToolsMcpServer({
-        bridge: surface.bridge,
-        tools: surface.tools,
-        resources: surface.resources,
-        resourceNotifications: surface.resourceNotifications,
-      });
-      await server.initialize();
-      const mcpServer = server.createServer();
-      const handlers = (mcpServer as unknown as { _requestHandlers: Map<string, unknown> })._requestHandlers;
-      const capabilities = (mcpServer as unknown as { _capabilities: Record<string, unknown> })._capabilities;
-      const subscribe = handlers.get("resources/subscribe") as (
-        request: { method: "resources/subscribe"; params: Record<string, unknown> },
-        extra: Record<string, unknown>,
-      ) => Promise<Record<string, never>>;
-      const unsubscribe = handlers.get("resources/unsubscribe") as (
-        request: { method: "resources/unsubscribe"; params: Record<string, unknown> },
-        extra: Record<string, unknown>,
-      ) => Promise<Record<string, never>>;
-      const first: unknown[] = [];
-      const second: unknown[] = [];
+  it("does not register legacy resource subscription handlers", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      resourceNotifications: { debounceMs: 5 },
+    });
+    const server = new DevToolsMcpServer({
+      bridge: surface.bridge,
+      tools: surface.tools,
+      resources: surface.resources,
+      resourceNotifications: surface.resourceNotifications,
+    });
+    await server.initialize();
+    const mcpServer = server.createServer();
+    const handlers = (mcpServer as unknown as { _requestHandlers: Map<string, unknown> })._requestHandlers;
+    const capabilities = (mcpServer as unknown as { _capabilities: Record<string, unknown> })._capabilities;
 
-      expect(capabilities.resources).toEqual({ subscribe: true, listChanged: true });
-      await subscribe(
-        { method: "resources/subscribe", params: { uri: "kiln://session/tasks" } },
-        {
-          sessionId: "first",
-          sendNotification: async (notification: unknown) => {
-            first.push(notification);
-          },
-        },
-      );
-      await subscribe(
-        { method: "resources/subscribe", params: { uri: "kiln://session/monitors" } },
-        {
-          sessionId: "second",
-          sendNotification: async (notification: unknown) => {
-            second.push(notification);
-          },
-        },
-      );
-
-      const task = surface.taskStateStore.update({ title: "Notify client", status: "completed" });
-      await vi.advanceTimersByTimeAsync(5);
-
-      expect(first).toEqual([
-        { method: "notifications/resources/updated", params: { uri: "kiln://session/tasks" } },
-        { method: "notifications/resources/updated", params: { uri: `kiln://session/tasks/${task.id}` } },
-      ]);
-      expect(second).toEqual([]);
-
-      await unsubscribe(
-        { method: "resources/unsubscribe", params: { uri: "kiln://session/tasks" } },
-        { sessionId: "first" },
-      );
-      surface.taskStateStore.update({ id: task.id, title: "No notify", status: "completed" });
-      await vi.advanceTimersByTimeAsync(5);
-
-      expect(first).toHaveLength(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(handlers.has("resources/subscribe")).toBe(false);
+    expect(handlers.has("resources/unsubscribe")).toBe(false);
+    expect(capabilities.resources).toEqual({ listChanged: true });
   });
 
-  it("sends MCP resource list changes to sessions that listed resources without subscribing", async () => {
+  it("publishes MCP resource changes through the modern server subscription router", async () => {
     vi.useFakeTimers();
     try {
       const artifactStore = new MemoryArtifactResourceStore({
@@ -388,15 +338,12 @@ describe("DevToolsMcpServer", () => {
         request: { method: "resources/list"; params: Record<string, unknown> },
         extra: Record<string, unknown>,
       ) => Promise<{ resources: readonly unknown[] }>;
-      const notifications: unknown[] = [];
+      const sendResourceListChanged = vi.spyOn(mcpServer, "sendResourceListChanged").mockResolvedValue();
 
       await listResources(
         { method: "resources/list", params: {} },
         {
           sessionId: "listed-only",
-          sendNotification: async (notification: unknown) => {
-            notifications.push(notification);
-          },
         },
       );
       artifactStore.put({
@@ -409,7 +356,7 @@ describe("DevToolsMcpServer", () => {
       });
       await vi.advanceTimersByTimeAsync(5);
 
-      expect(notifications).toEqual([{ method: "notifications/resources/list_changed" }]);
+      expect(sendResourceListChanged).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -638,28 +585,18 @@ describe("DevToolsMcpServer", () => {
     });
   });
 
-  it("exposes operator elicitation through MCP", async () => {
+  it("does not expose operator elicitation through modern MCP", async () => {
     const server = createServer();
 
-    expect(server.listTools().find((tool) => tool.name === "operator_elicit")).toMatchObject({
-      name: "operator_elicit",
-      inputSchema: {
-        type: "object",
-        required: ["mode", "message"],
-        properties: {
-          mode: expect.objectContaining({ enum: ["form", "url"] }),
-          message: expect.objectContaining({ type: "string" }),
-          schema: expect.objectContaining({ type: "object" }),
-          url: expect.objectContaining({ type: "string" }),
-          sensitive: expect.objectContaining({ type: "boolean" }),
-          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
-        },
-      },
-    });
+    expect(server.listTools().find((tool) => tool.name === "operator_elicit")).toBeUndefined();
   });
 
-  it("maps operator_elicit to an MCP-provided elicitation responder when available", async () => {
+  it("does not invoke the deprecated v2 elicitInput helper for operator elicitation", async () => {
     const server = createServer();
+    const elicitInput = vi.fn(async () => ({
+      action: "accept",
+      content: { environment: "dev" },
+    }));
 
     const response = await server.callTool(
       "operator_elicit",
@@ -670,28 +607,12 @@ describe("DevToolsMcpServer", () => {
         verbosity: "structured",
       },
       {
-        elicit: async (request) => ({
-          outcome: "submitted",
-          values: { environment: "dev" },
-          surface: "mcp",
-          request,
-        }),
-      },
+        mcpReq: { elicitInput },
+      } as unknown as Parameters<typeof server.callTool>[2],
     );
 
-    expect(response.isError).toBeUndefined();
-    expect(response.structuredContent).toMatchObject({
-      result: {
-        isError: false,
-        metadata: {
-          toolName: "operator_elicit",
-          kind: "elicitation",
-          outcome: "submitted",
-          surface: "mcp",
-          valueKeys: ["environment"],
-        },
-      },
-    });
+    expect(response.isError).toBe(true);
+    expect(elicitInput).not.toHaveBeenCalled();
   });
 
 

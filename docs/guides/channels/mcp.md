@@ -2,7 +2,22 @@
 
 Kiln owns MCP configuration. Native Codex, Claude Code, and OpenCode files are
 projections, not additional sources of truth. Supported transports are `stdio`
-and MCP Streamable HTTP; legacy HTTP+SSE is intentionally unsupported.
+and MCP Streamable HTTP on the exact `2026-07-28` protocol revision. Every
+Kiln-owned client pins that revision without probing or fallback, and every
+Kiln-owned server rejects 2025-era traffic. Legacy HTTP+SSE, `initialize`, and
+all other MCP 2025 compatibility paths are intentionally unsupported.
+
+Kiln pins the split TypeScript SDK packages at `2.0.0`. The protocol revision
+is a product contract, not an operator-configurable preference. A server that
+cannot complete exact `server/discover` negotiation fails closed and must be
+upgraded before Kiln will inspect or execute its tools.
+
+The installed dependency graph may still contain monolithic SDK v1 bytes as a
+transitive implementation detail of pinned third-party packages such as the
+Anthropic agent SDK or shadcn. No Kiln-owned module imports those entry points,
+and they do not define a supported protocol path. Do not add an override,
+bridge, fallback, or compatibility shim to remove or activate them; physical
+removal waits for an admitted vendor upgrade or replacement.
 
 ## Configuration and precedence
 
@@ -220,6 +235,9 @@ post-uninstall comparison remain the supervised steps above.
   credential; values remain redacted.
 - Startup timeout: verify the exact executable, array arguments, working
   directory, and stderr. JSON-RPC must stay on stdout.
+- Unsupported protocol: upgrade the server to MCP `2026-07-28`; Kiln does not
+  retry with `initialize`, auto-negotiate a 2025 revision, or project a legacy
+  bridge.
 - Incompatible projection: use Kiln-owned direct execution or explicitly revise
   canonical policy; omission is not automatic.
 - Drift: inspect the native file and install state before `--repair`.

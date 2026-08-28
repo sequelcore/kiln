@@ -4,7 +4,6 @@ import type { ResolvedInvocationEffect } from "@kilnai/core/engine";
 import type { DefaultBuiltinToolRegistryOptions, ToolResourceReadResult } from "@kilnai/core/tools";
 
 const coreMocks = vi.hoisted(() => {
-  const connect = vi.fn().mockResolvedValue(undefined);
   const bridge = { source: "core-default-bridge" };
   const toolNames = [
     "bash",
@@ -73,8 +72,7 @@ const coreMocks = vi.hoisted(() => {
       mimeType: resource.mimeType,
     })),
     initialize: vi.fn().mockResolvedValue(undefined),
-    connect,
-    createServer: vi.fn(() => ({ connect })),
+    createServer: vi.fn(() => ({})),
   };
 });
 
@@ -82,12 +80,16 @@ const configMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
 }));
 
+const mcpMocks = vi.hoisted(() => ({
+  serveStdio: vi.fn(() => ({ close: vi.fn().mockResolvedValue(undefined) })),
+}));
+
 vi.mock("../src/config/config-merger.js", () => ({
   loadKilnConfig: configMocks.loadKilnConfig,
 }));
 
-vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
-  StdioServerTransport: class MockStdioServerTransport {},
+vi.mock("@modelcontextprotocol/server/stdio", () => ({
+  serveStdio: mcpMocks.serveStdio,
 }));
 
 vi.mock("@kilnai/core", async (importOriginal) => {
@@ -155,7 +157,8 @@ describe("tools command", () => {
     });
     expect(coreMocks.initialize).toHaveBeenCalledTimes(1);
     expect(coreMocks.createServer).toHaveBeenCalledTimes(1);
-    expect(coreMocks.connect).toHaveBeenCalledTimes(1);
+    expect(mcpMocks.serveStdio).toHaveBeenCalledTimes(1);
+    expect(mcpMocks.serveStdio).toHaveBeenCalledWith(expect.any(Function), { legacy: "reject" });
     expect(stderrSpy).toHaveBeenCalledWith(
       "kiln dev tools MCP server running (stdio)",
     );

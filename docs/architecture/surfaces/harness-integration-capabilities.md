@@ -185,8 +185,8 @@ HTTP Model Gateway process. Repository-local legacy declarations are not read,
 migrated, or treated as authority. Generated native
 MCP files are projection state and are not committed as doctrine. Codex App's MCP lifecycle and
 tool calls are documented by the [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
-The [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
-and [tool error contract](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+The [MCP stdio transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports)
+and [tool error contract](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 govern lifecycle and error mapping.
 
 Each harness integration declares explicit support for:

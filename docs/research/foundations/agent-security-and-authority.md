@@ -76,7 +76,7 @@ results may carry sensitive content.
   [secrets](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html),
   [error handling](https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html)
 - [A2A specification](https://a2a-protocol.org/latest/specification/),
-  [MCP authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization),
+  [MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
   [OpenTelemetry GenAI](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/)
 
 ## Accepted separations

@@ -1,5 +1,5 @@
 // MCP server: tool input schemas for the gateway MCP tools
-// JSON Schema objects used by @modelcontextprotocol/sdk CallToolRequest validation
+// JSON Schema objects exposed through @modelcontextprotocol/server tool contracts
 
 export const COST_SUMMARY_SCHEMA = {
   type: "object" as const,

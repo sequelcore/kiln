@@ -95,6 +95,31 @@ describe("ToolResourceNotificationHub", () => {
     }
   });
 
+  it("forwards every update to adapters that own downstream URI filtering", async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new ToolResourceNotificationHub({ debounceMs: 5 });
+      const notifications: unknown[] = [];
+      hub.registerSession({
+        sessionId: "modern-mcp",
+        receivesAllResourceUpdates: true,
+        sendNotification: async (notification) => {
+          notifications.push(notification);
+        },
+      });
+
+      hub.notifyResourceUpdated("kiln://session/tasks/task_1");
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(notifications).toEqual([{
+        method: "notifications/resources/updated",
+        params: { uri: "kiln://session/tasks/task_1" },
+      }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("emits session resource updates after task and monitor mutations", async () => {
     vi.useFakeTimers();
     try {

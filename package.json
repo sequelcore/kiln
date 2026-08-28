@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",
+    "@modelcontextprotocol/server": "2.0.0",
     "@playwright/test": "^1.52.0",
     "@stryker-mutator/core": "10.0.0",
     "@stryker-mutator/vitest-runner": "10.0.0",

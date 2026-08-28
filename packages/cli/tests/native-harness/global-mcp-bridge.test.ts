@@ -62,7 +62,9 @@ describe("global MCP bridge", () => {
     expect(fixture.serverOptions).toEqual({
       capabilities: { tools: {} },
       instructions: KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
+      supportedProtocolVersions: ["2026-07-28"],
     });
+    expect(fixture.serveStdioOptions).toMatchObject({ legacy: "reject" });
     const response = await fixture.listHandler!({ params: {} }) as { tools: readonly { name: string }[] };
     expect(response.tools).toHaveLength(12);
     expect(response.tools.map((tool) => tool.name)).toEqual([
@@ -123,6 +125,10 @@ describe("global MCP bridge", () => {
       sessionId: "session-01",
     });
     expect(fixture.remoteCalls).toEqual([{ name: "kiln_status_inspect", arguments: {} }]);
+    expect(fixture.clientOptions).toEqual({
+      capabilities: {},
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+    });
     await handle.close();
   });
 
@@ -325,9 +331,7 @@ async function sessionFetch(url: string | URL): Promise<Response> {
     : Response.json({});
 }
 
-function sdkFixture(options: { connectFetch?: boolean; rejectLocalClose?: boolean } = {}) {
-  const listSchema = Symbol("list");
-  const callSchema = Symbol("call");
+function sdkFixture(fixtureOptions: { connectFetch?: boolean; rejectLocalClose?: boolean } = {}) {
   const fixture: {
     sdk: GlobalMcpBridgeSdk;
     listHandler?: (request: { params: Record<string, unknown> }) => unknown;
@@ -335,6 +339,8 @@ function sdkFixture(options: { connectFetch?: boolean; rejectLocalClose?: boolea
     localConnected: boolean;
     localCloseCount: number;
     serverOptions?: Record<string, unknown>;
+    serveStdioOptions?: Record<string, unknown>;
+    clientOptions?: Record<string, unknown>;
     remoteCalls: unknown[];
     remoteResult: unknown;
   } = {
@@ -353,33 +359,43 @@ function sdkFixture(options: { connectFetch?: boolean; rejectLocalClose?: boolea
       constructor(_info: unknown, serverOptions: Record<string, unknown>) {
         fixture.serverOptions = serverOptions;
       }
-      setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void {
-        if (schema === listSchema) fixture.listHandler = handler;
-        if (schema === callSchema) fixture.callHandler = handler;
+      setRequestHandler(method: "tools/list" | "tools/call", handler: (request: { params: Record<string, unknown> }) => unknown): void {
+        if (method === "tools/list") fixture.listHandler = handler;
+        if (method === "tools/call") fixture.callHandler = handler;
       }
-      async connect(): Promise<void> { fixture.localConnected = true; }
       async close(): Promise<void> {
         fixture.localCloseCount += 1;
-        if (options.rejectLocalClose) throw new Error(`${ROOT} token=secret`);
+        if (fixtureOptions.rejectLocalClose) throw new Error(`${ROOT} token=secret`);
       }
+    },
+    serveStdio: (_factory, options) => {
+      fixture.serveStdioOptions = options;
+      fixture.localConnected = true;
+      return {
+        async close(): Promise<void> {
+          fixture.localCloseCount += 1;
+          if (fixtureOptions.rejectLocalClose) throw new Error(`${ROOT} token=secret`);
+        },
+      };
     },
     Client: class {
       private transport?: StreamTransport;
+      constructor(_info: unknown, clientOptions: Record<string, unknown>) {
+        fixture.clientOptions = clientOptions;
+      }
       async connect(transport: unknown): Promise<void> {
         this.transport = transport as StreamTransport;
-        if (options.connectFetch) await this.transport.options.fetch(this.transport.url, { method: "POST", body: "{}" });
+        if (fixtureOptions.connectFetch) await this.transport.options.fetch(this.transport.url, { method: "POST", body: "{}" });
       }
       async callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<unknown> {
         fixture.remoteCalls.push(params);
-        if (options.connectFetch) await this.transport!.options.fetch(this.transport!.url, { method: "POST", body: "{}" });
+        if (fixtureOptions.connectFetch) await this.transport!.options.fetch(this.transport!.url, { method: "POST", body: "{}" });
         return fixture.remoteResult;
       }
       async close(): Promise<void> {}
     },
     StdioServerTransport: class { async close(): Promise<void> {} },
     StreamableHTTPClientTransport: StreamTransport,
-    ListToolsRequestSchema: listSchema,
-    CallToolRequestSchema: callSchema,
   };
   return fixture;
 }

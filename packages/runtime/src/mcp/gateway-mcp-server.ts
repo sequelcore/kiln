@@ -1,6 +1,6 @@
 // MCP server: exposes gateway capabilities as MCP tools via Streamable HTTP
 // Uses the low-level Server class with raw JSON Schema (no Zod dependency)
-// @modelcontextprotocol/sdk is an optional peer dep — dynamically imported
+// @modelcontextprotocol/server is an optional peer dep — dynamically imported
 
 import type { GatewayMcpDeps } from "./gateway-mcp-types.js";
 import { GATEWAY_MCP_TOOLS } from "./tool-schemas.js";
@@ -8,6 +8,7 @@ import type { GatewayMcpToolName } from "./tool-schemas.js";
 
 const SERVER_NAME = "kilnai-gateway";
 const SERVER_VERSION = "0.1.0";
+const MCP_PROTOCOL_REVISION = "2026-07-28";
 export interface GatewayMcpServerOptions {
   readonly deps: GatewayMcpDeps;
   /** Optional API key for authentication (resolved from config.auth.keyEnv by the gateway) */
@@ -18,14 +19,16 @@ export interface GatewayMcpServerOptions {
 interface SdkModules {
   Server: new (
     info: { name: string; version: string },
-    opts: { capabilities: Record<string, unknown>; instructionsText?: string },
+    opts: {
+      capabilities: Record<string, unknown>;
+      instructions?: string;
+      supportedProtocolVersions: string[];
+    },
   ) => McpServerInstance;
-  WebStandardStreamableHTTPServerTransport: new (opts: {
-    sessionIdGenerator?: (() => string) | undefined;
-    enableJsonResponse?: boolean;
-  }) => McpTransport;
-  ListToolsRequestSchema: unknown;
-  CallToolRequestSchema: unknown;
+  createMcpHandler: (
+    factory: () => McpServerInstance,
+    options: { legacy: "reject"; responseMode: "auto" },
+  ) => McpHttpHandler;
 }
 
 const EAGER_TOOL_NAMES = new Set(["cost_summary", "safety_check"] as const);
@@ -63,28 +66,20 @@ function buildInstructionsText(
 
 interface McpServerInstance {
   setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void;
-  connect(transport: McpTransport): Promise<void>;
   close(): Promise<void>;
 }
 
-interface McpTransport {
-  handleRequest(req: Request): Promise<Response>;
-  close?(): Promise<void>;
+interface McpHttpHandler {
+  fetch(request: Request): Promise<Response>;
+  close(): Promise<void>;
 }
 
 let sdkModulesPromise: Promise<SdkModules> | undefined;
 
 function loadSdkModules(): Promise<SdkModules> {
-  return Promise.all([
-    import("@modelcontextprotocol/sdk/server/index.js"),
-    import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"),
-    import("@modelcontextprotocol/sdk/types.js"),
-  ]).then(([serverModule, transportModule, typesModule]) => ({
+  return import("@modelcontextprotocol/server").then((serverModule) => ({
     Server: serverModule.Server as unknown as SdkModules["Server"],
-    WebStandardStreamableHTTPServerTransport:
-      transportModule.WebStandardStreamableHTTPServerTransport as unknown as SdkModules["WebStandardStreamableHTTPServerTransport"],
-    ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
-    CallToolRequestSchema: typesModule.CallToolRequestSchema,
+    createMcpHandler: serverModule.createMcpHandler as unknown as SdkModules["createMcpHandler"],
   }));
 }
 
@@ -98,15 +93,16 @@ void sdkWarmupPromise.catch(() => undefined);
  * integrations, routing, evaluation, budget, and swarm coordination)
  * as tools for external agents via Streamable HTTP transport.
  *
- * Each request creates a fresh Server+Transport pair (stateless mode) to comply with
- * the MCP Streamable HTTP spec. Handler registration is amortized via a shared setup fn.
+ * The strict modern handler creates a fresh Server per request and rejects every
+ * request that does not carry the exact MCP 2026-07-28 envelope.
  *
- * Dynamic-imports @modelcontextprotocol/sdk at startup — fails gracefully if not installed.
+ * Dynamic-imports @modelcontextprotocol/server at startup — fails gracefully if not installed.
  */
 export class GatewayMcpServer {
   private readonly deps: GatewayMcpDeps;
   private readonly apiKey?: string;
   private sdk: SdkModules | undefined;
+  private handler: McpHttpHandler | undefined;
 
   constructor(options: GatewayMcpServerOptions) {
     this.deps = options.deps;
@@ -118,11 +114,15 @@ export class GatewayMcpServer {
     sdkModulesPromise ??= sdkWarmupPromise;
 
     this.sdk = await sdkModulesPromise;
+    this.handler = this.sdk.createMcpHandler(
+      () => this.createServer(),
+      { legacy: "reject", responseMode: "auto" },
+    );
   }
 
   /** Route an incoming HTTP request to a per-request MCP server. */
   async handleRequest(req: Request): Promise<Response> {
-    if (!this.sdk) {
+    if (!this.sdk || !this.handler) {
       return new Response(JSON.stringify({ error: "MCP server not initialized" }), {
         status: 503,
         headers: { "Content-Type": "application/json" },
@@ -139,23 +139,13 @@ export class GatewayMcpServer {
       }
     }
 
-    // Stateless mode: fresh Server + Transport per request (MCP Streamable HTTP spec)
-    const server = this.createServer();
-    const transport = new this.sdk.WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    await server.connect(transport);
-
-    try {
-      return await transport.handleRequest(req);
-    } finally {
-      await server.close();
-    }
+    return this.handler.fetch(req);
   }
 
-  /** Shut down (no-op for stateless mode, kept for interface symmetry). */
+  /** Shut down the modern per-request handler. */
   async close(): Promise<void> {
+    await this.handler?.close();
+    this.handler = undefined;
     this.sdk = undefined;
   }
 
@@ -164,14 +154,18 @@ export class GatewayMcpServer {
   // ---------------------------------------------------------------------------
 
   private createServer(): McpServerInstance {
-    const { Server, ListToolsRequestSchema, CallToolRequestSchema } = this.sdk!;
+    const { Server } = this.sdk!;
     const instructions = buildInstructionsText(GATEWAY_MCP_TOOLS);
     const server = new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
-      { capabilities: { tools: {} }, instructionsText: instructions },
+      {
+        capabilities: { tools: {} },
+        instructions,
+        supportedProtocolVersions: [MCP_PROTOCOL_REVISION],
+      },
     );
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler("tools/list", async () => ({
       tools: GATEWAY_MCP_TOOLS.map((t) => ({
         name: t.name,
         description: t.description,
@@ -179,7 +173,7 @@ export class GatewayMcpServer {
       })),
     }));
 
-    server.setRequestHandler(CallToolRequestSchema, async (request: { params: Record<string, unknown> }) => {
+    server.setRequestHandler("tools/call", async (request: { params: Record<string, unknown> }) => {
       const params = request.params as { name: string; arguments?: Record<string, unknown> };
       return this.dispatch(params.name as GatewayMcpToolName, params.arguments ?? {});
     });

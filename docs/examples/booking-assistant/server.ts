@@ -34,7 +34,7 @@ async function waitForServer(url: string, name: string, maxRetries = 30) {
 }
 
 await Promise.all([
-  waitForServer("http://localhost:3200/mcp", "Tools server"),
+  waitForServer("http://localhost:3200/health", "Tools server"),
   waitForServer("http://localhost:3300/health", "Billing server"),
 ]);
 

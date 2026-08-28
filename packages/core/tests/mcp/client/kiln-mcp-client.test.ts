@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedMcpServer } from "../../../src/mcp/index.js";
 import {
+  MCP_PROTOCOL_REVISION,
   KilnMcpClient,
   KilnMcpClientError,
   McpCapabilityRegistry,
@@ -24,7 +25,7 @@ function server(overrides: Partial<ResolvedMcpServer> = {}): ResolvedMcpServer {
   };
 }
 
-function sdkClient(overrides: Partial<McpSdkClient> = {}): McpSdkClient {
+function sdkClient(overrides: Record<string, unknown> = {}): McpSdkClient {
   return {
     connect: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
@@ -38,8 +39,10 @@ function sdkClient(overrides: Partial<McpSdkClient> = {}): McpSdkClient {
     callTool: vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] })),
     readResource: vi.fn(async () => ({ contents: [{ uri: "fixture://state", text: "ready" }] })),
     getPrompt: vi.fn(async () => ({ messages: [{ role: "user", content: { type: "text", text: "inspect" } }] })),
+    getNegotiatedProtocolVersion: vi.fn(() => MCP_PROTOCOL_REVISION),
+    getProtocolEra: vi.fn(() => "modern"),
     ...overrides,
-  };
+  } as unknown as McpSdkClient;
 }
 
 describe("KilnMcpClient", () => {
@@ -87,6 +90,70 @@ describe("KilnMcpClient", () => {
     expect(discovery.resources[0]?.selector).toBe("mcp:fixture:resource:fixture%3A%2F%2Fstate");
     expect(discovery.prompts[0]?.selector).toBe("mcp:fixture:prompt:inspect");
     expect(discovery.tools[0]?.annotations).toBeUndefined();
+    expect(discovery).toMatchObject({
+      protocolRevision: MCP_PROTOCOL_REVISION,
+      completeness: "complete",
+      invalidated: false,
+      freshness: { observedAt: discovery.discoveredAt },
+    });
+    expect(discovery.freshness.validUntil).toBeUndefined();
+  });
+
+  it("derives snapshot freshness from every settled list result without inventing a TTL", async () => {
+    const ttlMs = 5_000;
+    const sdk = sdkClient({
+      listTools: vi.fn(async () => ({
+        tools: [{ name: "same-name", inputSchema: { type: "object" } }],
+        ttlMs,
+        cacheScope: "public",
+      })),
+      listResources: vi.fn(async () => ({ resources: [], ttlMs, cacheScope: "public" })),
+      listPrompts: vi.fn(async () => ({ prompts: [], ttlMs, cacheScope: "public" })),
+    });
+    const client = new KilnMcpClient(server(), { sdkClient: sdk, makeTransport: () => ({ close: async () => undefined }) });
+
+    const discovery = await client.discover();
+
+    expect(discovery.freshness).toMatchObject({
+      ttlMs,
+      cacheScope: "public",
+      validUntil: expect.any(String),
+    });
+    const validUntil = discovery.freshness.validUntil;
+    expect(validUntil).toEqual(expect.any(String));
+    expect(Date.parse(validUntil ?? "") - Date.parse(discovery.freshness.observedAt)).toBe(ttlMs);
+    expect(sdk.listTools).toHaveBeenCalledWith(undefined, expect.objectContaining({ cacheMode: "refresh" }));
+    expect(sdk.listResources).toHaveBeenCalledWith(undefined, expect.objectContaining({ cacheMode: "refresh" }));
+    expect(sdk.listPrompts).toHaveBeenCalledWith(undefined, expect.objectContaining({ cacheMode: "refresh" }));
+  });
+
+  it("does not claim snapshot validity when a settled list result is immediately stale", async () => {
+    const sdk = sdkClient({
+      listTools: vi.fn(async () => ({ tools: [{ name: "same-name", inputSchema: { type: "object" } }], ttlMs: 0, cacheScope: "private" })),
+      listResources: vi.fn(async () => ({ resources: [], ttlMs: 0, cacheScope: "private" })),
+      listPrompts: vi.fn(async () => ({ prompts: [], ttlMs: 0, cacheScope: "private" })),
+    });
+    const client = new KilnMcpClient(server(), { sdkClient: sdk, makeTransport: () => ({ close: async () => undefined }) });
+
+    const discovery = await client.discover();
+
+    expect(discovery.freshness.validUntil).toBeUndefined();
+    expect(discovery.freshness.ttlMs).toBeUndefined();
+    expect(discovery.freshness.cacheScope).toBe("private");
+  });
+
+  it("rejects a legacy SDK result instead of falling back to a 2025 handshake", async () => {
+    const sdk = sdkClient({
+      getNegotiatedProtocolVersion: vi.fn(() => "2025-11-25"),
+      getProtocolEra: vi.fn(() => "legacy"),
+    });
+    const client = new KilnMcpClient(server(), {
+      sdkClient: sdk,
+      makeTransport: () => ({ close: async () => undefined }),
+    });
+
+    await expect(client.connect()).rejects.toMatchObject({ code: "MCP_PROTOCOL_UNSUPPORTED" });
+    expect(sdk.listTools).not.toHaveBeenCalled();
   });
 
   it("calls, reads, and gets capabilities using qualified selectors", async () => {
@@ -96,7 +163,7 @@ describe("KilnMcpClient", () => {
     await expect(client.callTool("mcp:fixture:tool:same-name", { value: 1 })).resolves.toMatchObject({ content: [{ text: "ok" }] });
     await expect(client.readResource("mcp:fixture:resource:fixture%3A%2F%2Fstate")).resolves.toMatchObject({ contents: [{ text: "ready" }] });
     await expect(client.getPrompt("mcp:fixture:prompt:inspect", { detail: "short" })).resolves.toMatchObject({ messages: expect.any(Array) });
-    expect(sdk.callTool).toHaveBeenCalledWith({ name: "same-name", arguments: { value: 1 } }, undefined, expect.objectContaining({ timeout: 120_000 }));
+    expect(sdk.callTool).toHaveBeenCalledWith({ name: "same-name", arguments: { value: 1 } }, expect.objectContaining({ timeout: 120_000 }));
   });
 
   it("projects admitted resources and prompts as qualified provider capabilities and dispatches by kind", async () => {
@@ -233,7 +300,14 @@ describe("KilnMcpClient", () => {
 
   it("refreshes discovery when the SDK reports a capability-list change", async () => {
     let changed: (() => Promise<void>) | undefined;
-    const sdk = sdkClient();
+    let releaseList: (() => void) | undefined;
+    const listBarrier = new Promise<void>((resolve) => { releaseList = resolve; });
+    const sdk = sdkClient({
+      listTools: vi.fn(async () => {
+        await listBarrier;
+        return { tools: [{ name: "same-name", inputSchema: { type: "object" as const } }] };
+      }),
+    });
     const onDiscoveryChanged = vi.fn();
     const client = new KilnMcpClient(server(), {
       sdkClient: sdk,
@@ -243,10 +317,20 @@ describe("KilnMcpClient", () => {
     });
     await client.connect();
 
-    await changed?.();
-
-    expect(onDiscoveryChanged).toHaveBeenCalledWith(expect.objectContaining({ tools: expect.any(Array) }));
+    const refresh = changed?.();
     await expect(client.executeCapability("mcp:fixture:tool:same-name", {})).rejects.toMatchObject({ code: "MCP_CATALOG_CHANGED" });
+    releaseList?.();
+    await refresh;
+
+    expect(onDiscoveryChanged).toHaveBeenCalledWith(expect.objectContaining({
+      invalidated: true,
+      tools: expect.any(Array),
+    }));
+    await expect(client.executeCapability("mcp:fixture:tool:same-name", {})).rejects.toMatchObject({ code: "MCP_CATALOG_CHANGED" });
+
+    const adopted = await client.discover();
+    expect(adopted.invalidated).toBe(false);
+    await expect(client.executeCapability("mcp:fixture:tool:same-name", {})).resolves.toBeDefined();
   });
 
   it("disconnect is idempotent and prevents transport orphans", async () => {

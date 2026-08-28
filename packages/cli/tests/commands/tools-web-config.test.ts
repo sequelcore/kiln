@@ -9,6 +9,7 @@ const toolsMocks = vi.hoisted(() => ({
   serverOptions: null as unknown,
   initialized: false,
   connected: false,
+  serveStdio: null as unknown,
 }));
 
 vi.mock("@kilnai/core", async (importOriginal) => {
@@ -31,19 +32,17 @@ vi.mock("@kilnai/core", async (importOriginal) => {
         toolsMocks.initialized = true;
       }
 
-      createServer() {
-        return {
-          async connect() {
-            toolsMocks.connected = true;
-          },
-        };
-      }
+      createServer() { return {}; }
     },
   };
 });
 
-vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
-  StdioServerTransport: class {},
+vi.mock("@modelcontextprotocol/server/stdio", () => ({
+  serveStdio: (factory: () => unknown, options: unknown) => {
+    toolsMocks.serveStdio = { factory, options };
+    toolsMocks.connected = true;
+    return { close: async () => undefined };
+  },
 }));
 
 import { toolsCommand } from "../../src/commands/tools.js";

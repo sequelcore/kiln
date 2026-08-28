@@ -114,6 +114,30 @@ yet. Slice 2 makes the candidates portable and discoverable inside Kiln; the
 deferred-search and portable-execution slices must prove each native harness
 route before those callers can be advertised.
 
+## MCP Tool Discovery
+
+The MCP adapter consumes only a settled, plain-data snapshot produced by the
+Kiln-owned client. It has no transport, configuration, filesystem, credential,
+or execution access. Kiln supports only the exact MCP `2026-07-28` revision:
+clients pin it without negotiation fallback, servers reject legacy traffic,
+and a snapshot without proven modern negotiation is unavailable evidence.
+
+An eligible MCP tool binds an operator-owned server identity, secret-free
+server-binding and authorization-context digests, a complete non-invalidated
+tool-list observation, and current TTL-bounded freshness. Self-reported
+`serverInfo`, tool descriptions, schemas, `_meta`, and annotations are retained
+only as untrusted declaration evidence. They cannot select a capability ID,
+effect, permission, approval, data, network, or ownership posture.
+
+Provider-neutral capability identity and governance posture come from an
+explicit local binding for the exact case-sensitive tool name. The adapter
+validates a bounded JSON Schema 2020-12 object input, refuses external schema
+references, and includes the complete source declaration plus protocol,
+binding, and authorization context in deterministic revision evidence. An
+absent output schema remains absent and visible; it is never replaced by an
+empty schema or inferred from prose. Resources and prompts remain distinct MCP
+contexts and are not synthesized as executable capabilities by this adapter.
+
 ## Invariants
 
 - Discovery is evidence, never execution authority.
@@ -130,6 +154,7 @@ route before those callers can be advertised.
 
 - Core catalog: `packages/core/src/capabilities/capability-catalog.ts`
 - Verification discovery: `packages/core/src/capabilities/verification-capability-discovery.ts`
+- MCP tool discovery: `packages/core/src/capabilities/mcp-tool-capability-discovery.ts`
 - CLI evidence projection: `packages/cli/src/config/verification/discovery.ts`
 - Public schema: `packages/gateway-contracts/src/capability-catalog.ts`
 - Runtime projection: `packages/runtime/src/capabilities/capability-catalog-projector.ts`
@@ -137,6 +162,9 @@ route before those callers can be advertised.
 - Public contract tests: `packages/gateway-contracts/tests/capability-catalog.test.ts`
 - Projection tests: `packages/runtime/tests/capabilities/capability-catalog-projector.test.ts`
 
-The verification discovery delivery of Roadmap 11 Slice 2 is complete.
-Protocol-wide adapters remain later Slice 2 work. Execution ports, deferred
-search, persistence, and surface presentation remain owned by later slices.
+The verification discovery delivery is complete. The exact MCP transport
+migration and pure tool-adapter primitive are complete, but Slice 2 still owns
+the productive projection that supplies operator-owned server-binding and
+authorization-context digests to that adapter. OpenAPI and other protocol
+adapters follow that closure. Execution ports, deferred search, persistence,
+and surface presentation remain owned by later slices.

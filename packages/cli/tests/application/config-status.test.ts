@@ -539,8 +539,12 @@ describe("config-status", () => {
     });
     recordMcpDiscovery(tempDir, {
       serverId: "fixture",
+      protocolRevision: "2026-07-28",
+      completeness: "complete",
+      invalidated: false,
       tools: [{ serverId: "fixture", kind: "tool", selector: "mcp:fixture:tool:echo", descriptor: { name: "echo", inputSchema: {} } }],
       resources: [], prompts: [], discoveredAt: "2026-07-19T00:00:00.000Z",
+      freshness: { observedAt: "2026-07-19T00:00:00.000Z" },
     });
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });

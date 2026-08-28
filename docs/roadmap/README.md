@@ -29,7 +29,7 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Select and implement the next exact-contract read-only adapter after the completed verification discovery vertical. |
+| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Complete the operator-owned MCP binding/auth digest projection into the strict v2 tool adapter; then begin OpenAPI discovery. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 when Capability Fabric reaches a blocker or the remote-access need becomes current again. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Admit the narrow capability-disclosure dependency when Roadmap 11 Slice 2 completes; broader prompt evaluation remains behind higher-priority Ready work. |

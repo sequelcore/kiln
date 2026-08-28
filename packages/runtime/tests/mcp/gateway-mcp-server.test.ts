@@ -10,6 +10,13 @@ import { GATEWAY_MCP_TOOLS } from "../../src/mcp/tool-schemas.js";
 const MCP_HEADERS = {
   "Content-Type": "application/json",
   Accept: "application/json, text/event-stream",
+  "MCP-Protocol-Version": "2026-07-28",
+};
+
+const MCP_META = {
+  "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+  "io.modelcontextprotocol/clientCapabilities": {},
+  "io.modelcontextprotocol/clientInfo": { name: "kiln-runtime-test", version: "1.0.0" },
 };
 
 function jsonRpc(method: string, params: Record<string, unknown> = {}, id = 1): string {
@@ -17,10 +24,12 @@ function jsonRpc(method: string, params: Record<string, unknown> = {}, id = 1): 
 }
 
 function mcpRequest(method: string, params: Record<string, unknown> = {}, extraHeaders?: Record<string, string>): Request {
+  const headers: Record<string, string> = { ...MCP_HEADERS, "MCP-Method": method, ...extraHeaders };
+  if (typeof params["name"] === "string") headers["MCP-Name"] = params["name"];
   return new Request("http://localhost/mcp", {
     method: "POST",
-    headers: { ...MCP_HEADERS, ...extraHeaders },
-    body: jsonRpc(method, params),
+    headers,
+    body: jsonRpc(method, { ...params, _meta: MCP_META }),
   });
 }
 
@@ -68,7 +77,9 @@ async function callTool(
   args: Record<string, unknown> = {},
 ): Promise<{ result: { content: { type: string; text: string }[]; isError?: boolean } }> {
   const res = await server.handleRequest(mcpRequest("tools/call", { name, arguments: args }));
-  return res.json();
+  const body = await res.json() as { result?: { content: { type: string; text: string }[]; isError?: boolean }; error?: unknown };
+  if (!body.result) throw new Error(`MCP tools/call failed: ${JSON.stringify(body.error)}`);
+  return { result: body.result };
 }
 
 async function listTools(server: GatewayMcpServer): Promise<{ result: { tools: { name: string }[] } }> {
@@ -176,6 +187,20 @@ describe("GatewayMcpServer", () => {
       expect(names).toContain("swarm_broadcast");
       expect(names).toContain("swarm_claim");
       expect(names).toContain("swarm_release");
+    });
+  });
+
+  describe("protocol contract", () => {
+    it("rejects requests that omit the exact 2026-07-28 envelope", async () => {
+      const server = new GatewayMcpServer({ deps: makeDeps() });
+      await server.initialize();
+      const response = await server.handleRequest(new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: { ...MCP_HEADERS, "MCP-Method": "tools/list" },
+        body: jsonRpc("tools/list"),
+      }));
+      const body = await response.json() as { error?: { code?: number } };
+      expect(body.error?.code).toBe(-32602);
     });
   });
 

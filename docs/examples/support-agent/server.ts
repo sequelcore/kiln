@@ -8,7 +8,7 @@ const toolsProc = Bun.spawn(["bun", "run", join(import.meta.dir, "tools-server.t
 });
 
 // Wait for tools server to be ready
-const toolsUrl = "http://localhost:3100/mcp";
+const toolsUrl = "http://localhost:3100/health";
 for (let i = 0; i < 30; i++) {
   try {
     const res = await fetch(toolsUrl);

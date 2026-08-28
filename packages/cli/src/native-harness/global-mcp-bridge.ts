@@ -15,9 +15,14 @@ import {
   type NativeHarnessMcpCallResult,
 } from "./native-harness-mcp-tools.js";
 
+const MCP_PROTOCOL_VERSION = "2026-07-28" as const;
+
 interface LocalServer {
-  setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void;
-  connect(transport: ClosableTransport): Promise<void>;
+  setRequestHandler(method: "tools/list" | "tools/call", handler: (request: { params: Record<string, unknown> }) => unknown): void;
+  close(): Promise<void>;
+}
+
+interface StdioServerHandle {
   close(): Promise<void>;
 }
 
@@ -34,19 +39,28 @@ interface ClosableTransport {
 export interface GlobalMcpBridgeSdk {
   readonly Server: new (
     info: { readonly name: string; readonly version: string },
-    options: { readonly capabilities: Record<string, unknown>; readonly instructions?: string },
+    options: {
+      readonly capabilities: Record<string, unknown>;
+      readonly instructions?: string;
+      readonly supportedProtocolVersions: readonly [typeof MCP_PROTOCOL_VERSION];
+    },
   ) => LocalServer;
+  readonly serveStdio: (
+    factory: (context: { readonly era: "modern" }) => LocalServer | Promise<LocalServer>,
+    options: { readonly legacy: "reject"; readonly transport: ClosableTransport },
+  ) => StdioServerHandle;
   readonly Client: new (
     info: { readonly name: string; readonly version: string },
-    options: { readonly capabilities: Record<string, unknown> },
+    options: {
+      readonly capabilities: Record<string, unknown>;
+      readonly versionNegotiation: { readonly mode: { readonly pin: typeof MCP_PROTOCOL_VERSION } };
+    },
   ) => RemoteClient;
   readonly StdioServerTransport: new () => ClosableTransport;
   readonly StreamableHTTPClientTransport: new (
     url: URL,
     options: { readonly fetch: (url: string | URL, init?: RequestInit) => Promise<Response> },
   ) => ClosableTransport;
-  readonly ListToolsRequestSchema: unknown;
-  readonly CallToolRequestSchema: unknown;
 }
 
 export interface GlobalMcpBridgeSupervisor {
@@ -93,9 +107,9 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     {
       capabilities: { tools: {} },
       instructions: KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
+      supportedProtocolVersions: [MCP_PROTOCOL_VERSION],
     },
   );
-  const localTransport = new sdk.StdioServerTransport();
   const runtimeSession = createOperatorRuntimeClientSession({
     principal: { kind: "native-harness", harness: options.harness },
     supervisor: options.supervisor,
@@ -132,7 +146,8 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     );
     const client = new sdk.Client(
       { name: `kiln-${options.harness}-global-bridge`, version: "0.1.0" },
-      { capabilities: {} },
+      // A pinned modern client keeps this bridge bound to one protocol contract.
+      { capabilities: {}, versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION } } },
     );
     active = { transport, client };
     try {
@@ -153,8 +168,8 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     return operation;
   };
 
-  localServer.setRequestHandler(sdk.ListToolsRequestSchema, async () => ({ tools: nativeHarnessMcpToolCatalog() }));
-  localServer.setRequestHandler(sdk.CallToolRequestSchema, async (request) => {
+  localServer.setRequestHandler("tools/list", async () => ({ tools: nativeHarnessMcpToolCatalog() }));
+  localServer.setRequestHandler("tools/call", async (request) => {
     const params = request.params as { readonly name?: unknown; readonly arguments?: unknown };
     try {
       if (!(await ensureAttached()) || !active) return unavailableResult();
@@ -168,7 +183,11 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     }
   });
 
-  await localServer.connect(localTransport);
+  const localTransport = new sdk.StdioServerTransport();
+  const localServerHandle = sdk.serveStdio(
+    async () => localServer,
+    { legacy: "reject", transport: localTransport },
+  );
 
   const onSignal = (): void => {
     void close().catch(() => writeDiagnostic("Kiln global MCP bridge shutdown did not complete cleanly."));
@@ -184,8 +203,7 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     closePromise = (async () => {
       await closeRemote();
       runtimeSession.close();
-      await localTransport.close().catch(() => undefined);
-      await localServer.close();
+      await localServerHandle.close();
     })();
     return closePromise;
   };
@@ -224,19 +242,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function loadSdk(): Promise<GlobalMcpBridgeSdk> {
-  const [server, client, stdio, streamable, types] = await Promise.all([
-    import("@modelcontextprotocol/sdk/server/index.js"),
-    import("@modelcontextprotocol/sdk/client/index.js"),
-    import("@modelcontextprotocol/sdk/server/stdio.js"),
-    import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-    import("@modelcontextprotocol/sdk/types.js"),
+  const [server, client, stdio] = await Promise.all([
+    import("@modelcontextprotocol/server"),
+    import("@modelcontextprotocol/client"),
+    import("@modelcontextprotocol/server/stdio"),
   ]);
   return {
     Server: server.Server as unknown as GlobalMcpBridgeSdk["Server"],
+    serveStdio: stdio.serveStdio as unknown as GlobalMcpBridgeSdk["serveStdio"],
     Client: client.Client as unknown as GlobalMcpBridgeSdk["Client"],
     StdioServerTransport: stdio.StdioServerTransport as unknown as GlobalMcpBridgeSdk["StdioServerTransport"],
-    StreamableHTTPClientTransport: streamable.StreamableHTTPClientTransport as unknown as GlobalMcpBridgeSdk["StreamableHTTPClientTransport"],
-    ListToolsRequestSchema: types.ListToolsRequestSchema,
-    CallToolRequestSchema: types.CallToolRequestSchema,
+    StreamableHTTPClientTransport: client.StreamableHTTPClientTransport as unknown as GlobalMcpBridgeSdk["StreamableHTTPClientTransport"],
   };
 }

@@ -1,4 +1,5 @@
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import type { McpServer, Server } from "@modelcontextprotocol/server";
 import {
   createDefaultBuiltinToolSurface,
   DevToolsMcpServer,
@@ -23,10 +24,6 @@ export interface ToolsCommandFlags {
   readonly appId?: string;
   readonly tenantId?: string;
   readonly sessionId?: string;
-}
-
-interface ConnectableMcpServer {
-  connect(transport: StdioServerTransport): Promise<void>;
 }
 
 export async function toolsCommand(
@@ -79,9 +76,8 @@ export async function toolsCommand(
 
   await server.initialize();
 
-  const mcpServer = server.createServer() as unknown as ConnectableMcpServer;
-  const transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
+  const mcpServer = server.createServer();
+  serveStdio(() => mcpServer as unknown as McpServer | Server, { legacy: "reject" });
 
   console.error("kiln dev tools MCP server running (stdio)");
 }

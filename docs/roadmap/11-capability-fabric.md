@@ -2,8 +2,9 @@
 
 Status: Ready capability-portability track
 Priority: High
-Execution: In progress - the Slice 2 verification-capability discovery
-vertical is complete; broader protocol discovery is next. The 2026-08-28 operator priority decision moves this track ahead of
+Execution: In progress - the Slice 2 verification discovery vertical and exact
+MCP protocol migration are complete; productive MCP binding projection is next.
+The 2026-08-28 operator priority decision moves this track ahead of
 Roadmap 08; remote pairing remains Ready but is no longer the current
 operational priority.
 Created: 2026-08-14
@@ -302,7 +303,9 @@ Runtime failure was introduced.
 
 ### Slice 2 - Read-Only Discovery Adapters
 
-Status: In progress; verification-capability discovery delivery complete.
+Status: In progress; verification-capability discovery and the exact MCP
+protocol migration are complete. The pure MCP tool adapter is implemented;
+its productive binding projection remains open.
 
 Implement read-only adapters for Codex, Claude, OpenCode V2, MCP, OpenAPI,
 GraphQL, admitted CLIs, and Kiln-owned tools. Normalize their declarations into
@@ -329,9 +332,10 @@ flattened into the deterministic CLI contract used by Dafny or Oxlint.
 
 CLI discovery must bind an exact implementation artifact, version, digest,
 provenance, and portable machine-readable contract. It must not execute an
-arbitrary command resolved from ambient `PATH`. MCP discovery must bind an exact server identity,
-protocol revision, selected-tool allowlist, schema digest, and freshness. An
-upstream schema change cannot silently become current execution authority.
+arbitrary command resolved from ambient `PATH`. MCP discovery must bind an
+exact server identity, protocol revision, selected-tool allowlist, schema
+digest, and freshness. An upstream schema change cannot silently become
+current execution authority.
 
 Acceptance: the same source revision yields deterministic descriptors; unknown
 fields or semantics remain visible as ineligible rather than guessed; adapter
@@ -353,9 +357,57 @@ eligibility. Current global operator configuration resolves all four
 capabilities as eligible. `supportedCallers` remains `kiln-runtime` until the
 search and execution slices prove native harness access.
 
+The current MCP delivery migrates every Kiln-owned consumer and producer from the
+monolithic SDK v1 contract to the split TypeScript SDK `2.0.0` packages and
+admits only protocol revision `2026-07-28`. Clients pin the revision without
+probe fallback; HTTP and stdio servers reject legacy openings. Core also owns
+a pure MCP tool adapter over settled plain-data snapshots and explicit local
+bindings. It requires complete, non-invalidated, TTL-bounded evidence plus
+secret-free server-binding and authorization-context digests; validates
+bounded JSON Schema 2020-12 object inputs without external references; keeps
+missing output schemas explicit; treats descriptions, annotations, `_meta`,
+and `serverInfo` as untrusted; and never synthesizes resources or prompts as
+tools.
+
+Verification on 2026-08-28 passed workspace typecheck, 82 focused Core
+MCP/capability tests, 40 focused Runtime gateway tests, strict example
+typecheck, documentation validation, and a wire smoke proof that returned 200
+for the modern opening and 400 for legacy `initialize`. Independent review
+closed all six findings covering invalidation races, stale cache reuse,
+duplicate selectors, JSON Schema dialect, removed descriptor kinds, and
+expired freshness. The selected CLI protocol suites and Runtime MCP end-to-end
+suite remain uncollected because Microsoft Defender blocked access to the
+compiled `dangerous-command-detector.js` as potentially unwanted software.
+They must be rerun in an approved protected environment where that repository
+artifact is readable; endpoint protection must not be disabled to make the
+gate pass.
+
+The installed dependency graph still contains the monolithic SDK v1 only as a
+transitive implementation detail of the pinned Anthropic agent SDK and shadcn.
+No Kiln-owned module imports it, exposes its entry points, or admits its legacy
+wire contract. Physical removal of those transitive bytes depends on an
+admitted vendor upgrade or replacement and is not retained legacy support.
+
+Before this MCP adapter vertical is complete:
+
+1. the canonical MCP configuration projection must own a stable, secret-free
+   server-binding digest;
+2. the credential or lease identity authority must project an opaque
+   authorization-context digest and revision without a raw secret or secret
+   hash;
+3. a Kiln-owned projector must join those values, the client's fresh
+   non-invalidated snapshot, and exact per-tool local bindings without giving
+   the pure adapter transport, configuration, or credential access; and
+4. focused tests must prove binding changes, authorization rotation,
+   invalidation, TTL expiry, and cross-server mismatches fail closed.
+
+The adapter deliberately does not derive these identities from credentials,
+endpoints, `serverInfo`, or tool prose. OpenAPI work waits until this authority
+boundary is owned and tested instead of being guessed inside the adapter.
+
 ### Slice 3 - Deferred Tool Search
 
-Status: Blocked on the verification delivery of Slice 2 and the narrow Roadmap
+Status: Blocked on completion of the remaining Slice 2 discovery adapters and the narrow Roadmap
 06 progressive-disclosure admission required for capability descriptors.
 
 Introduce small provider-neutral `capability.search` and
@@ -613,6 +665,19 @@ to the former workflow or tool names.
 - The MCP 2026-07-28 specification adds stateless operation and dynamic server
   discovery, so the protocol remains an active transport and discovery input:
   <https://blog.modelcontextprotocol.io/posts/2026-07-28/>.
+- The official TypeScript SDK v2 migration contract requires explicit 2026
+  opt-in and documents exact pinning without legacy fallback:
+  <https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28>.
+- MCP tool declarations and annotations are untrusted hints, and current
+  security guidance treats recursive tool schemas as a tool-poisoning surface:
+  <https://modelcontextprotocol.io/specification/2026-07-28/server/tools> and
+  <https://owasp.org/www-community/attacks/MCP_Tool_Poisoning>.
+- Anthropic's tool-writing guidance supports narrow, namespaced, high-signal
+  contracts rather than exposing implementation inventories directly:
+  <https://www.anthropic.com/engineering/writing-tools-for-agents>.
+- Recent tool-poisoning research reinforces binding reviewed declarations and
+  detecting post-review changes rather than trusting server text at runtime:
+  <https://arxiv.org/abs/2603.22489>.
 - The 2026 preprint *The Scaffolding Matters More Than the Interface* finds no
   stable universal MCP-versus-CLI cost winner across its tested scaffolds. Its
   evidence is limited to one GitHub task with a mature `gh` CLI and therefore

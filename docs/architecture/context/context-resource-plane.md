@@ -28,14 +28,18 @@ The plane supports:
 
 ## MCP Basis
 
-The design follows MCP resource semantics reviewed on 2026-04-29:
+The design follows MCP `2026-07-28` resource semantics reviewed on 2026-08-28:
 
 - resources are read-only context
 - `resources/list` and `resources/templates/list` are cursor-paginated
 - `resources/read` returns text or blob contents
-- `resources/subscribe` and `resources/unsubscribe` own client subscriptions
-- `notifications/resources/list_changed` invalidates list caches
-- `notifications/resources/updated` tells subscribed clients to re-read a URI
+- clients select list and URI updates through `subscriptions/listen`
+- `notifications/resources/list_changed` invalidates opted-in list caches
+- `notifications/resources/updated` tells opted-in clients to re-read a URI
+
+The removed 2025 `resources/subscribe` and `resources/unsubscribe` methods are
+not projected or served. The internal notification hub publishes changes to
+the SDK v2 subscription router, which owns the final per-listener filter.
 
 Kiln keeps MCP as the external protocol projection. Internally, all consumers
 attach to the same `ToolResourceRegistry` and related core resource services.

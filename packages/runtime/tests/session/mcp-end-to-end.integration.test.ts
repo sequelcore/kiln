@@ -2,9 +2,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { createMcpHandler, Server } from "@modelcontextprotocol/server";
 import type { ProviderAdapter } from "@kilnai/core/agents";
 import { textParts, type AuthorityDescriptor, type ResolvedInvocationEffect, type ToolAuthorizer } from "@kilnai/core/engine";
 import { EventBus } from "@kilnai/core/events";
@@ -128,16 +126,36 @@ describe("canonical MCP execution end to end", () => {
   });
 
   it("executes the equivalent admitted path over Streamable HTTP", async () => {
+    const mcpHandler = createMcpHandler(() => {
+      const sdkServer = new Server(
+        { name: "http-e2e", version: "1.0.0" },
+        {
+          capabilities: { tools: {}, resources: {}, prompts: {} },
+          supportedProtocolVersions: ["2026-07-28"],
+        },
+      );
+      sdkServer.setRequestHandler("tools/list", async () => ({ tools: [{ name: "echo", inputSchema: { type: "object" } }] }));
+      sdkServer.setRequestHandler("resources/list", async () => ({ resources: [] }));
+      sdkServer.setRequestHandler("prompts/list", async () => ({ prompts: [] }));
+      sdkServer.setRequestHandler("tools/call", async () => ({ content: [{ type: "text", text: "http-ok" }] }));
+      return sdkServer;
+    }, { legacy: "reject" });
     const httpServer = createServer(async (request, response) => {
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      const sdkServer = new Server({ name: "http-e2e", version: "1.0.0" }, { capabilities: { tools: {}, resources: {}, prompts: {} } });
-      sdkServer.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [{ name: "echo", inputSchema: { type: "object" } }] }));
-      sdkServer.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
-      sdkServer.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
-      sdkServer.setRequestHandler(CallToolRequestSchema, async () => ({ content: [{ type: "text", text: "http-ok" }] }));
-      await sdkServer.connect(transport);
-      await transport.handleRequest(request, response);
-      response.on("close", () => { void transport.close(); void sdkServer.close(); });
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (Array.isArray(value)) value.forEach((entry) => headers.append(name, entry));
+        else if (value !== undefined) headers.set(name, value);
+      }
+      const webRequest = new Request(`http://127.0.0.1${request.url ?? "/mcp"}`, {
+        method: request.method,
+        headers,
+        body: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
+      });
+      const webResponse = await mcpHandler.fetch(webRequest);
+      response.writeHead(webResponse.status, Object.fromEntries(webResponse.headers.entries()));
+      response.end(Buffer.from(await webResponse.arrayBuffer()));
     });
     httpServer.listen(0, "127.0.0.1");
     await once(httpServer, "listening");
@@ -152,6 +170,7 @@ describe("canonical MCP execution end to end", () => {
       await client.disconnect();
       httpServer.close();
       await once(httpServer, "close");
+      await mcpHandler.close();
     }
   });
 });

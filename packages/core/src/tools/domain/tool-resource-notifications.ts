@@ -27,6 +27,8 @@ export interface ToolResourceNotificationHubOptions {
 export interface ToolResourceSessionRegistration {
   readonly sessionId: string;
   readonly sendNotification: ToolResourceNotificationSender;
+  /** Let a downstream protocol adapter perform its own URI subscription filtering. */
+  readonly receivesAllResourceUpdates?: boolean;
 }
 
 export interface ToolResourceSubscription extends ToolResourceSessionRegistration {
@@ -35,6 +37,7 @@ export interface ToolResourceSubscription extends ToolResourceSessionRegistratio
 
 interface ResourceNotificationSession {
   sendNotification: ToolResourceNotificationSender;
+  receivesAllResourceUpdates: boolean;
   readonly subscriptions: Set<string>;
   readonly pendingUpdatedUris: Set<string>;
   pendingListChanged: boolean;
@@ -55,10 +58,12 @@ export class ToolResourceNotificationHub implements ToolResourceChangeNotifier {
     const session = this.sessions.get(registration.sessionId);
     if (session) {
       session.sendNotification = registration.sendNotification;
+      session.receivesAllResourceUpdates = registration.receivesAllResourceUpdates === true;
       return;
     }
     this.sessions.set(registration.sessionId, {
       sendNotification: registration.sendNotification,
+      receivesAllResourceUpdates: registration.receivesAllResourceUpdates === true,
       subscriptions: new Set<string>(),
       pendingUpdatedUris: new Set<string>(),
       pendingListChanged: false,
@@ -131,7 +136,7 @@ export class ToolResourceNotificationHub implements ToolResourceChangeNotifier {
       await session.sendNotification({ method: "notifications/resources/list_changed" });
     }
     for (const uri of updatedUris) {
-      if (hasMatchingSubscription(session.subscriptions, uri)) {
+      if (session.receivesAllResourceUpdates || hasMatchingSubscription(session.subscriptions, uri)) {
         await session.sendNotification({
           method: "notifications/resources/updated",
           params: { uri },

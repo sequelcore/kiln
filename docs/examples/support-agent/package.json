@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@kilnai/core": "workspace:*",
-    "@kilnai/runtime": "workspace:*"
+    "@kilnai/runtime": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0"
   }
 }

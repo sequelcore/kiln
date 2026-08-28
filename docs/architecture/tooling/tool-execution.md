@@ -334,11 +334,12 @@ assistant prose. Resource tools can only list or read context; any action still
 routes through the normal tool execution bridge and authority contract.
 
 Resource notifications are owned by the same core surface. A
-`ToolResourceNotificationHub` tracks active consumer sessions, per-session
-subscriptions, debounced pending updates, list-change notices, and teardown.
-MCP projects that contract as `resources/subscribe`, `resources/unsubscribe`,
-`notifications/resources/updated`, and
-`notifications/resources/list_changed` when the shared hub is configured.
+`ToolResourceNotificationHub` tracks active consumer sessions, debounced
+pending updates, list-change notices, and teardown. MCP `2026-07-28` projects
+them through the SDK v2 `subscriptions/listen` router as
+`notifications/resources/updated` and
+`notifications/resources/list_changed`. Removed 2025 subscribe and
+unsubscribe methods are not registered.
 
 Notifications are invalidation hints only. They tell a subscribed client to
 re-read a resource URI; they never push hidden payloads into model context.

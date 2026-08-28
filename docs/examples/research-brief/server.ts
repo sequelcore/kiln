@@ -6,7 +6,7 @@ const toolsProc = Bun.spawn(["bun", "run", join(import.meta.dir, "tools-server.t
   stderr: "inherit",
 });
 
-const toolsUrl = "http://localhost:3400/mcp";
+const toolsUrl = "http://localhost:3400/health";
 for (let i = 0; i < 30; i++) {
   try {
     const res = await fetch(toolsUrl);

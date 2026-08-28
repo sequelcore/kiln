@@ -523,9 +523,10 @@ subscribe by resource URI and receive MCP-compatible invalidation messages:
 Task updates, monitor lifecycle/output changes, and artifact writes notify
 after mutation. The notification is only a re-read hint; consumers should call
 `resources/read` or the in-process registry again instead of treating the
-notification as payload content. MCP clients use `resources/subscribe` and
-`resources/unsubscribe`; CLI `kiln tools --mcp` wires those handlers from the
-same core surface.
+notification as payload content. MCP `2026-07-28` clients select these updates
+through `subscriptions/listen`; CLI `kiln tools --mcp` publishes the same core
+events through the SDK v2 subscription router. The removed 2025 resource
+subscribe methods are not exposed.
 
 The completed resource-plane contract is documented in
 `docs/architecture/context-resource-plane.md`. Pagination, workspace-file
@@ -1305,7 +1306,10 @@ same tool implementations over stdio.
 - successful calls return JSON-formatted text content
 - failed calls return `isError: true`
 
-The server lazily loads `@modelcontextprotocol/sdk`, caches the resolved modules on the instance, and clears the in-flight promise if initialization fails so a later retry can succeed.
+The server lazily loads the exact `@modelcontextprotocol/server@2.0.0` package,
+opts into revision `2026-07-28`, and clears the in-flight module promise if
+startup fails so a later retry can succeed. Its stdio entry rejects every
+2025-era opening instead of negotiating or serving a compatibility path.
 
 ### CLI entrypoint
 

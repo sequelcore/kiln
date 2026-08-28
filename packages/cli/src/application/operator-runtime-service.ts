@@ -41,6 +41,7 @@ import {
 
 const DEFAULT_MAX_SESSIONS = 1_024;
 const DEFAULT_SESSION_LIFETIME_SECONDS = OPERATOR_SESSION_MAX_LIFETIME_SECONDS;
+const MCP_PROTOCOL_VERSION = "2026-07-28" as const;
 
 interface OperatorRuntimeSessionRecord {
   readonly canonicalRoot: string;
@@ -74,27 +75,27 @@ export interface OperatorRuntimeSessionOpenResult {
 }
 
 interface McpServerInstance {
-  setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void;
-  connect(transport: McpTransport): Promise<void>;
+  setRequestHandler(method: "tools/list" | "tools/call", handler: (request: { params: Record<string, unknown> }) => unknown): void;
   close(): Promise<void>;
 }
 
-interface McpTransport {
-  handleRequest(request: Request): Promise<Response>;
-  close?(): Promise<void>;
+interface McpHandler {
+  fetch(request: Request): Promise<Response>;
+  close(): Promise<void>;
 }
 
 export interface OperatorRuntimeMcpSdk {
   readonly Server: new (
     info: { readonly name: string; readonly version: string },
-    options: { readonly capabilities: Record<string, unknown> },
+    options: {
+      readonly capabilities: Record<string, unknown>;
+      readonly supportedProtocolVersions: readonly [typeof MCP_PROTOCOL_VERSION];
+    },
   ) => McpServerInstance;
-  readonly WebStandardStreamableHTTPServerTransport: new (options: {
-    readonly sessionIdGenerator?: (() => string) | undefined;
-    readonly enableJsonResponse?: boolean;
-  }) => McpTransport;
-  readonly ListToolsRequestSchema: unknown;
-  readonly CallToolRequestSchema: unknown;
+  readonly createMcpHandler: (
+    factory: (context: { readonly era: "modern"; readonly requestInfo?: Request }) => McpServerInstance | Promise<McpServerInstance>,
+    options: { readonly legacy: "reject"; readonly responseMode: "json" },
+  ) => McpHandler;
 }
 
 export interface OperatorRuntimeServiceOptions {
@@ -598,55 +599,51 @@ async function handleMcpRequest(input: {
     return unavailableResponse();
   }
 
-  const agentTasks = createLazyAgentTaskPort(input.registry, input.session);
-  const adapter = new NativeHarnessMcpTools({
-    harness: requireNativeHarness(input.session.principal),
-    kilnHome: resolveKilnHomePath(),
-    inspection: createNativeHarnessInspectionService({
+  const handler = sdk.createMcpHandler(async () => {
+    const agentTasks = createLazyAgentTaskPort(input.registry, input.session);
+    const adapter = new NativeHarnessMcpTools({
       harness: requireNativeHarness(input.session.principal),
-      readProjectRoot: async () => ({ status: "resolved", rootPath: input.session.canonicalRoot }),
-      ...(input.userHome !== undefined ? {
-        readStatus: (options) => readConfigStatusSnapshot({ ...options, userHome: input.userHome }),
-      } : {}),
-      readBridgeProjection: async () => "current",
-      readManagedAgents: async () => (await input.registry.ensure({
-        canonicalRoot: input.session.canonicalRoot,
-        binding: input.session.binding,
-      })).configuredAgents,
-    }),
-    agentTasks,
-    settings: createConfigSettingsApplication({ projectPath: input.session.canonicalRoot }),
-    requestIdentity: () => ({
-      callerId: deriveOperatorRuntimeCallerId({
-        projectRuntimeId: input.session.binding.projectRuntimeId,
-        principal: input.session.principal,
-        sessionId: input.session.sessionId,
+      kilnHome: resolveKilnHomePath(),
+      inspection: createNativeHarnessInspectionService({
+        harness: requireNativeHarness(input.session.principal),
+        readProjectRoot: async () => ({ status: "resolved", rootPath: input.session.canonicalRoot }),
+        ...(input.userHome !== undefined ? {
+          readStatus: (options) => readConfigStatusSnapshot({ ...options, userHome: input.userHome }),
+        } : {}),
+        readBridgeProjection: async () => "current",
+        readManagedAgents: async () => (await input.registry.ensure({
+          canonicalRoot: input.session.canonicalRoot,
+          binding: input.session.binding,
+        })).configuredAgents,
       }),
-      requestId: input.requestId,
-    }),
-  });
-  const server = new sdk.Server(
-    { name: "kiln-operator-runtime", version: "0.1.0" },
-    { capabilities: { tools: {} } },
-  );
-  server.setRequestHandler(sdk.ListToolsRequestSchema, async () => ({ tools: adapter.listTools() }));
-  server.setRequestHandler(sdk.CallToolRequestSchema, async (request) => {
-    const params = request.params as { readonly name?: unknown; readonly arguments?: unknown };
-    return adapter.callTool(typeof params.name === "string" ? params.name : "", params.arguments ?? {});
-  });
-  const transport = new sdk.WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
+      agentTasks,
+      settings: createConfigSettingsApplication({ projectPath: input.session.canonicalRoot }),
+      requestIdentity: () => ({
+        callerId: deriveOperatorRuntimeCallerId({
+          projectRuntimeId: input.session.binding.projectRuntimeId,
+          principal: input.session.principal,
+          sessionId: input.session.sessionId,
+        }),
+        requestId: input.requestId,
+      }),
+    });
+    const server = new sdk.Server(
+      { name: "kiln-operator-runtime", version: "0.1.0" },
+      { capabilities: { tools: {} }, supportedProtocolVersions: [MCP_PROTOCOL_VERSION] },
+    );
+    server.setRequestHandler("tools/list", async () => ({ tools: adapter.listTools() }));
+    server.setRequestHandler("tools/call", async (request) => {
+      const params = request.params as { readonly name?: unknown; readonly arguments?: unknown };
+      return adapter.callTool(typeof params.name === "string" ? params.name : "", params.arguments ?? {});
+    });
+    return server;
+  }, { legacy: "reject", responseMode: "json" });
   try {
-    await server.connect(transport);
-    return await transport.handleRequest(input.request);
+    return await handler.fetch(input.request);
   } catch {
     return unavailableResponse();
   } finally {
-    await server.close().catch(async () => {
-      await transport.close?.().catch(() => undefined);
-    });
+    await handler.close().catch(() => undefined);
   }
 }
 
@@ -756,16 +753,9 @@ function unavailable(): Error {
 }
 
 async function loadMcpSdk(): Promise<OperatorRuntimeMcpSdk> {
-  const [serverModule, transportModule, typesModule] = await Promise.all([
-    import("@modelcontextprotocol/sdk/server/index.js"),
-    import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"),
-    import("@modelcontextprotocol/sdk/types.js"),
-  ]);
+  const serverModule = await import("@modelcontextprotocol/server");
   return {
     Server: serverModule.Server as unknown as OperatorRuntimeMcpSdk["Server"],
-    WebStandardStreamableHTTPServerTransport:
-      transportModule.WebStandardStreamableHTTPServerTransport as unknown as OperatorRuntimeMcpSdk["WebStandardStreamableHTTPServerTransport"],
-    ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
-    CallToolRequestSchema: typesModule.CallToolRequestSchema,
+    createMcpHandler: serverModule.createMcpHandler as unknown as OperatorRuntimeMcpSdk["createMcpHandler"],
   };
 }
