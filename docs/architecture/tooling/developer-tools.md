@@ -410,11 +410,12 @@ bun add -d playwright
 bun x playwright install chromium
 ```
 
-On Windows when the runtime host itself runs on Bun, the Playwright provider
-executes browser automation through a persistent Node sidecar. This keeps Kiln's
-main runtime on Bun while using Playwright in the runtime it supports reliably
-on Windows. The sidecar is an implementation detail of `@kilnai/runtime`; it
-does not change tool schemas, config authority, session ids, or metadata.
+The Playwright provider executes browser automation directly in Kiln's Bun
+runtime on every supported platform, including Windows. The runtime host does
+not require a separate Node.js executable or a process protocol for browser
+sessions. Playwright remains an optional peer dependency and browser binaries
+remain operator-installed resources; direct execution does not change tool
+schemas, config authority, session ids, or metadata.
 
 Browser observations that include screenshots must store the image in the
 session artifact resource plane and expose a `kiln://artifacts/.../content`
@@ -457,8 +458,8 @@ links.
 Agents should call `browser_session_stop` before their final answer for one-off
 browser tasks. Runtime providers also enforce an idle-session TTL as a cleanup
 backstop so forgotten Playwright sessions do not accumulate, while explicit
-session stop remains the preferred lifecycle signal. The Windows+Bun sidecar
-exits once no browser sessions remain and is recreated on demand.
+session stop remains the preferred lifecycle signal. Runtime owns browser,
+context, page, stream, and timer settlement directly.
 
 `allowedDomains` scopes browser automation. `allowExternalBrowser: true` is an
 explicit escape hatch for attaching to an operator-controlled browser instead

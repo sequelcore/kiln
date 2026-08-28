@@ -914,10 +914,9 @@ bun add -d playwright
 bun x playwright install chromium
 ```
 
-On Windows+Bun, Kiln runs Playwright through a persistent Node sidecar because
-Chromium launch can hang under Bun while the same Playwright call succeeds
-under Node. Operators do not need to start that sidecar manually; `node` must be
-available on PATH for the browser provider.
+Kiln runs Playwright directly in its Bun runtime on every supported platform,
+including Windows. The browser provider does not require a separate Node.js
+executable or a sidecar process.
 
 Screenshot observations are artifact-backed. A provider may capture an internal
 data URL, but the shared tool layer writes it to
@@ -925,8 +924,8 @@ data URL, but the shared tool layer writes it to
 store is available, and transcript metadata keeps the URI instead of the base64
 payload. Agents should call `browser_session_stop` when a one-off browser task
 is finished; Playwright sessions also have an idle cleanup backstop if the stop
-call is missed. On Windows+Bun, the Node sidecar exits once all browser
-sessions are closed and restarts on demand.
+call is missed. Runtime closes the owned page, context, browser, stream, and
+timers when the session settles.
 
 GUI resolves browser screenshot artifact URIs through the runtime resource
 plane for display. Browser screenshot evidence should first appear in the

@@ -1,6 +1,3 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import type {
   InteractiveObservationMetadata,
   InteractiveUseProvider,
@@ -19,14 +16,9 @@ export const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
   "Playwright browser use provider is not available. Install the optional peer dependency 'playwright' in the runtime host and install a browser before enabling interactiveUse.browserProvider=playwright. For Bun: bun add -d playwright && bun x playwright install chromium.";
 
 type PlaywrightLoader = () => Promise<PlaywrightModule>;
-type PlaywrightNodeSidecarRunner = {
-  execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult>;
-  closeAll(): Promise<void>;
-};
 
 export interface PlaywrightBrowserUseProviderOptions {
   readonly loader?: PlaywrightLoader;
-  readonly sidecarRunner?: PlaywrightNodeSidecarRunner;
   readonly allowedDomains?: readonly string[];
   readonly allowExternalBrowser?: boolean;
   readonly headless?: boolean;
@@ -81,22 +73,6 @@ export interface PlaywrightBrowserSessionState {
     readonly height?: number;
     readonly transport?: PlaywrightBrowserLiveViewportTransport;
   };
-}
-
-interface PlaywrightNodeSidecarBrowserSessionState extends Omit<PlaywrightBrowserSessionState, "latestCapture"> {
-  readonly latestCapture?: {
-    readonly dataUrl: string;
-    readonly relation: "snapshot";
-    readonly mimeType: "image/png";
-    readonly width?: number;
-    readonly height?: number;
-    readonly transport?: PlaywrightBrowserLiveViewportTransport;
-  };
-}
-
-interface PlaywrightNodeSidecarBrowserSessionUpdateEvent {
-  readonly type: "browser_session_updated";
-  readonly state: PlaywrightNodeSidecarBrowserSessionState;
 }
 
 interface PlaywrightModule {
@@ -200,13 +176,11 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly liveStream: Required<PlaywrightBrowserLiveStreamOptions>;
   private readonly now: () => Date;
   private onBrowserSessionUpdated?: (state: PlaywrightBrowserSessionState) => void | Promise<void>;
-  private readonly sidecarRunner?: PlaywrightNodeSidecarRunner;
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly cdpStreams = new Map<string, BrowserCdpScreencastStream>();
   private readonly recorderSessionIds = new Set<string>();
-  private readonly pendingSidecarUpdates = new Map<string, Set<Promise<void>>>();
   private activeSessionId: string | undefined;
   private sequence = 0;
 
@@ -226,26 +200,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     };
     this.now = options.now ?? (() => new Date());
     this.onBrowserSessionUpdated = options.onBrowserSessionUpdated;
-    this.sidecarRunner = options.sidecarRunner ?? (
-      options.loader
-        ? undefined
-        : shouldUseNodeSidecar()
-          ? createPlaywrightNodeSidecarRunner(() => ({
-              allowedDomains: this.allowedDomains,
-              allowExternalBrowser: this.allowExternalBrowser,
-              headless: this.headless,
-              allowHeaded: this.allowHeaded,
-              defaultTimeoutMs: this.defaultTimeoutMs,
-              idleSessionTtlMs: this.idleSessionTtlMs,
-              liveStream: {
-                enabled: this.liveStream.enabled && Boolean(this.onBrowserSessionUpdated || this.captureRecorder),
-                intervalMs: this.liveStream.intervalMs,
-              },
-            }), {
-              onBrowserSessionUpdated: (event) => this.forwardSidecarBrowserSessionUpdate(event),
-            })
-          : undefined
-    );
   }
 
   async execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
@@ -282,7 +236,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       return result;
     }
     try {
-      await this.flushSidecarBrowserSessionUpdates(sessionId);
       const proof = await this.finalizeRecorderSession(sessionId, completedAt, result.observation?.title);
       return {
         ...result,
@@ -303,10 +256,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   }
 
   private async executeBrowserRequest(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
-    if (this.sidecarRunner) {
-      return this.sidecarRunner.execute(request);
-    }
-
     switch (request.operation) {
       case "session_start":
         return this.startSession(request);
@@ -380,12 +329,8 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.streamTimers.clear();
     await Promise.allSettled([...this.cdpStreams.keys()].map((sessionId) => this.stopCdpScreencast(sessionId)));
     this.recorderSessionIds.clear();
-    this.pendingSidecarUpdates.clear();
     this.activeSessionId = undefined;
-    await Promise.allSettled([
-      ...sessions.map((session) => this.closeSession(session)),
-      ...(this.sidecarRunner ? [this.sidecarRunner.closeAll()] : []),
-    ]);
+    await Promise.allSettled(sessions.map((session) => this.closeSession(session)));
   }
 
   private async startSession(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
@@ -878,19 +823,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     return state;
   }
 
-  private forwardSidecarBrowserSessionUpdate(event: PlaywrightNodeSidecarBrowserSessionUpdateEvent): void {
-    if (!this.onBrowserSessionUpdated && !this.captureRecorder) {
-      return;
-    }
-    const update = this.materializeSidecarBrowserSessionState(event)
-      .then((state) => {
-        this.recordBrowserCaptureState(state);
-        return this.onBrowserSessionUpdated?.(state);
-      })
-      .catch(() => {});
-    this.trackSidecarBrowserSessionUpdate(event.state.sessionId, update);
-  }
-
   private recordBrowserCaptureState(state: PlaywrightBrowserSessionState): void {
     const recorder = this.captureRecorder;
     if (!recorder || !this.recorderSessionIds.has(state.sessionId) || !state.latestCapture?.uri) {
@@ -907,36 +839,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       ...(state.latestCapture.width !== undefined ? { width: state.latestCapture.width } : {}),
       ...(state.latestCapture.height !== undefined ? { height: state.latestCapture.height } : {}),
     });
-  }
-
-  private async materializeSidecarBrowserSessionState(
-    event: PlaywrightNodeSidecarBrowserSessionUpdateEvent,
-  ): Promise<PlaywrightBrowserSessionState> {
-    const { latestCapture, ...state } = event.state;
-    if (!latestCapture || !this.artifactSink) {
-      return state;
-    }
-    const content = parseImageDataUrl(latestCapture.dataUrl);
-    if (!content) {
-      return state;
-    }
-    const uri = await this.artifactSink.writeInteractiveArtifact({
-      sessionId: state.sessionId,
-      kind: "screenshot",
-      mimeType: latestCapture.mimeType,
-      content,
-    });
-    return {
-      ...state,
-      latestCapture: {
-        uri,
-        relation: latestCapture.relation,
-        mimeType: latestCapture.mimeType,
-        ...(latestCapture.width ? { width: latestCapture.width } : {}),
-        ...(latestCapture.height ? { height: latestCapture.height } : {}),
-        transport: latestCapture.transport ?? "snapshot-polling",
-      },
-    };
   }
 
   private markRecorderSessionIfRequested(
@@ -980,31 +882,6 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       video,
       editor,
     };
-  }
-
-  private trackSidecarBrowserSessionUpdate(sessionId: string, update: Promise<void>): void {
-    let updates = this.pendingSidecarUpdates.get(sessionId);
-    if (!updates) {
-      updates = new Set();
-      this.pendingSidecarUpdates.set(sessionId, updates);
-    }
-    updates.add(update);
-    update.finally(() => {
-      updates?.delete(update);
-      if (updates?.size === 0) {
-        this.pendingSidecarUpdates.delete(sessionId);
-      }
-    });
-  }
-
-  private async flushSidecarBrowserSessionUpdates(sessionId: string): Promise<void> {
-    while (true) {
-      const updates = this.pendingSidecarUpdates.get(sessionId);
-      if (!updates || updates.size === 0) {
-        return;
-      }
-      await Promise.allSettled([...updates]);
-    }
   }
 
   private scheduleIdleClose(session: BrowserSession): void {
@@ -1145,10 +1022,6 @@ function domainMatches(hostname: string, configuredDomain: string): boolean {
   return normalized === "*" || host === normalized || host.endsWith(`.${normalized}`);
 }
 
-function shouldUseNodeSidecar(): boolean {
-  return Boolean(process.versions.bun) && process.platform === "win32";
-}
-
 function normalizeIdleSessionTtl(value: number | undefined): number | undefined {
   if (value === undefined) {
     return 120_000;
@@ -1220,159 +1093,4 @@ function recorderResourceLink(
       priority,
     },
   };
-}
-
-interface PlaywrightNodeSidecarConfig {
-  readonly allowedDomains: readonly string[];
-  readonly allowExternalBrowser: boolean;
-  readonly headless: boolean;
-  readonly allowHeaded: boolean;
-  readonly defaultTimeoutMs: number;
-  readonly idleSessionTtlMs?: number;
-  readonly liveStream?: Required<PlaywrightBrowserLiveStreamOptions>;
-}
-
-interface PlaywrightNodeSidecarWireRequest {
-  readonly id: number;
-  readonly config: PlaywrightNodeSidecarConfig;
-  readonly request:
-    | InteractiveUseRequest
-    | { readonly operation: "close_all" };
-}
-
-interface PlaywrightNodeSidecarWireResponse {
-  readonly id: number;
-  readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult;
-  readonly error?: string;
-}
-
-interface PlaywrightNodeSidecarRunnerEvents {
-  readonly onBrowserSessionUpdated?: (event: PlaywrightNodeSidecarBrowserSessionUpdateEvent) => void;
-}
-
-function createPlaywrightNodeSidecarRunner(
-  readConfig: () => PlaywrightNodeSidecarConfig,
-  events: PlaywrightNodeSidecarRunnerEvents = {},
-): PlaywrightNodeSidecarRunner {
-  const sidecarPath = fileURLToPath(new URL("./playwright-node-sidecar.js", import.meta.url));
-  let child: ChildProcessWithoutNullStreams | undefined;
-  let sequence = 0;
-  const pending = new Map<number, {
-    readonly resolve: (value: InteractiveUseProviderResult) => void;
-    readonly reject: (error: Error) => void;
-    readonly timer: ReturnType<typeof setTimeout>;
-  }>();
-  let stderrTail = "";
-
-  function ensureChild(): ChildProcessWithoutNullStreams {
-    if (child && !child.killed && child.exitCode === null) {
-      return child;
-    }
-    child = spawn("node", [sidecarPath], {
-      cwd: fileURLToPath(new URL(".", import.meta.url)),
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    stderrTail = "";
-    child.stderr.on("data", (chunk) => {
-      stderrTail = `${stderrTail}${String(chunk)}`.slice(-4000);
-    });
-    child.on("exit", () => {
-      const suffix = stderrTail.trim() ? ` Stderr: ${stderrTail.trim()}` : "";
-      for (const [id, entry] of pending) {
-        clearTimeout(entry.timer);
-        entry.reject(new Error(`Playwright browser sidecar exited before completing request ${id}.${suffix}`));
-      }
-      pending.clear();
-      child = undefined;
-    });
-    const lines = createInterface({ input: child.stdout });
-    lines.on("line", (line) => {
-      let message: PlaywrightNodeSidecarWireResponse | PlaywrightNodeSidecarBrowserSessionUpdateEvent;
-      try {
-        message = JSON.parse(line) as PlaywrightNodeSidecarWireResponse | PlaywrightNodeSidecarBrowserSessionUpdateEvent;
-      } catch {
-        return;
-      }
-      if (isPlaywrightNodeSidecarBrowserSessionUpdateEvent(message)) {
-        events.onBrowserSessionUpdated?.(message);
-        return;
-      }
-      const entry = pending.get(message.id);
-      if (!entry) {
-        return;
-      }
-      pending.delete(message.id);
-      clearTimeout(entry.timer);
-      if (message.ok && message.result) {
-        entry.resolve(message.result);
-      } else {
-        entry.reject(new Error(message.error ?? "Playwright browser sidecar failed."));
-      }
-    });
-    return child;
-  }
-
-  async function send<TResult extends InteractiveUseProviderResult>(
-    config: PlaywrightNodeSidecarConfig,
-    request: PlaywrightNodeSidecarWireRequest["request"],
-    timeoutMs: number,
-  ): Promise<TResult> {
-    const activeChild = ensureChild();
-    const id = ++sequence;
-    const payload: PlaywrightNodeSidecarWireRequest = { id, config, request };
-    return await new Promise<TResult>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        activeChild.kill();
-        reject(new Error(`Playwright browser sidecar timed out after ${timeoutMs}ms.`));
-      }, timeoutMs);
-      pending.set(id, { resolve: (value) => resolve(value as TResult), reject, timer });
-      activeChild.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
-        if (error) {
-          pending.delete(id);
-          clearTimeout(timer);
-          reject(error);
-        }
-      });
-    });
-  }
-
-  return {
-    execute(request) {
-      const config = readConfig();
-      return send<InteractiveUseProviderResult>(config, request, request.timeoutMs ?? config.defaultTimeoutMs);
-    },
-    async closeAll() {
-      if (!child || child.killed || child.exitCode !== null) {
-        return;
-      }
-      try {
-        await send<InteractiveUseProviderResult>(readConfig(), { operation: "close_all" }, 5_000);
-      } finally {
-        child.kill();
-      }
-    },
-  };
-}
-
-function isPlaywrightNodeSidecarBrowserSessionUpdateEvent(
-  value: unknown,
-): value is PlaywrightNodeSidecarBrowserSessionUpdateEvent {
-  return Boolean(
-    value
-      && typeof value === "object"
-      && (value as { type?: unknown }).type === "browser_session_updated"
-      && typeof (value as { state?: { sessionId?: unknown } }).state?.sessionId === "string",
-  );
-}
-
-function parseImageDataUrl(value: string): Uint8Array | undefined {
-  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/u.exec(value);
-  if (!match) {
-    return undefined;
-  }
-  const base64 = match[1];
-  return base64 ? Buffer.from(base64, "base64") : undefined;
 }
