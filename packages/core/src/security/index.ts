@@ -2,7 +2,6 @@
 
 export { ActionEffectAuthorizer } from "./action-effect-authorizer.js";
 
-export { JsonlAuditLog } from "./audit-log.js";
 export { DeterministicDangerousCommandDetector } from "./dangerous-command-detector.js";
 export type { InjectionPattern } from "./prompt-scanner.js";
 export { INJECTION_PATTERNS, PromptScanner } from "./prompt-scanner.js";
