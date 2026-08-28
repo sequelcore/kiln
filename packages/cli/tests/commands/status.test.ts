@@ -274,7 +274,7 @@ describe("statusCommand", () => {
       },
     });
     persistGlobalConfig({
-      version: "5",
+      version: "6",
       web: {
         enabled: true,
         netPolicy: "full",
@@ -312,7 +312,7 @@ describe("statusCommand", () => {
     process.env.TAVILY_API_KEY = "tv-test";
     process.env.FIRECRAWL_API_KEY = "fc-test";
     persistGlobalConfig({
-      version: "5",
+      version: "6",
       web: {
         enabled: true,
         netPolicy: "full",
@@ -389,7 +389,7 @@ describe("statusCommand", () => {
       },
     });
     persistGlobalConfig({
-      version: "5",
+      version: "6",
       web: {
         enabled: true,
         netPolicy: "documentation",

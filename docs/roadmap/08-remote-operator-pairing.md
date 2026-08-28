@@ -2,10 +2,11 @@
 
 Status: Ready
 Priority: Normal
-Execution: Ready - begin Slice 0 with the threat model and portable negative
-contract fixtures; the supported source baseline is now established.
+Execution: Ready but queued behind the 2026-08-28 Capability Fabric priority
+decision. Begin Slice 0 when Roadmap 11 reaches a declared blocker or remote
+access becomes a current operator need again.
 Created: 2026-07-24
-Reprioritized: 2026-08-25
+Reprioritized: 2026-08-28
 
 ## Objective
 

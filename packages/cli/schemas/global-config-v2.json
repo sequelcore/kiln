@@ -362,14 +362,24 @@
                   "minLength": 1,
                   "type": "string"
                 },
+                "expectedInstallationDigest": {
+                  "pattern": "^sha256:[a-f0-9]{64}$",
+                  "type": "string"
+                },
                 "expectedVersion": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "installationRoot": {
                   "minLength": 1,
                   "type": "string"
                 }
               },
               "required": [
                 "executable",
-                "expectedVersion"
+                "installationRoot",
+                "expectedVersion",
+                "expectedInstallationDigest"
               ],
               "type": "object"
             },
@@ -455,18 +465,13 @@
             "oxlint": {
               "additionalProperties": false,
               "properties": {
-                "executable": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "expectedVersion": {
-                  "minLength": 1,
-                  "type": "string"
+                "enabled": {
+                  "const": true,
+                  "type": "boolean"
                 }
               },
               "required": [
-                "executable",
-                "expectedVersion"
+                "enabled"
               ],
               "type": "object"
             },
@@ -508,7 +513,7 @@
       "type": "object"
     },
     "version": {
-      "const": "5",
+      "const": "6",
       "type": "string"
     },
     "web": {

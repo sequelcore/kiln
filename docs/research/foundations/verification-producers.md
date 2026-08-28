@@ -63,9 +63,11 @@ that candidate rather than risking a falsely clean observation.
 
 Kiln disposition:
 
-- retain the immutable single-file `correctness + suspicious` profile and JSON
-  output;
+- retain an immutable single-file profile of explicit native rules and JSON
+  output; the admitted profile is `oxlint.sequel-typescript/v1`;
 - reject candidate-controlled inline suppression;
+- keep general correctness, safety, and structural budgets in Oxlint without
+  duplicating Kiln Quality's cast, complexity, or test-integrity rules;
 - do not add fixes, JavaScript plugins, project configuration, or type-aware
   linting to this producer;
 - evaluate type-aware analysis later as a distinct project-bound producer if a

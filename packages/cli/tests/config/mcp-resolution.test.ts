@@ -37,7 +37,7 @@ describe("Kiln MCP configuration boundary", () => {
 
   it("rejects an incomplete global MCP definition", () => {
     expect(() => validateGlobalConfig({
-      version: "5",
+      version: "6",
       mcp: {
         servers: {
           incomplete: { transport: "stdio" },
@@ -48,7 +48,7 @@ describe("Kiln MCP configuration boundary", () => {
 
   it("rejects unknown server fields and malformed nested policy at the YAML boundary", () => {
     expect(() => validateGlobalConfig({
-      version: "5",
+      version: "6",
       mcp: {
         servers: {
           invalid: {
@@ -61,7 +61,7 @@ describe("Kiln MCP configuration boundary", () => {
     })).toThrow(/Unknown mcp\.servers\.invalid field: type/);
 
     expect(() => validateGlobalConfig({
-      version: "5",
+      version: "6",
       mcp: {
         servers: {
           invalid: {
@@ -74,7 +74,7 @@ describe("Kiln MCP configuration boundary", () => {
     })).toThrow(/mcp\.servers\.invalid\.admission\.tools\.allow must be an array/);
 
     expect(() => validateGlobalConfig({
-      version: "5",
+      version: "6",
       mcp: {
         servers: {
           invalid: {
@@ -90,7 +90,7 @@ describe("Kiln MCP configuration boundary", () => {
   it("resolves global and project sources without losing provenance", () => {
     const result = resolveKilnMcpConfiguration({
       globalConfig: {
-        version: "5",
+        version: "6",
         mcp: {
           servers: {
             studio: {

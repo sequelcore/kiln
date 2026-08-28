@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import type { StaticAnalyzeToolOptions } from "@kilnai/core";
-import { resolveNativeCliExecutable } from "../../wrapper/native-cli-executable.js";
+import type { StaticAnalyzeToolOptions } from "@kilnai/core/tools";
+import { STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST } from "@kilnai/core/verification";
+import { resolveVendoredToolBinary, type ResolvedVendoredToolBinary } from "@kilnai/tools";
 import type { KilnGlobalConfig } from "../global-config.js";
 
 export type StaticAnalysisConfigurationDiagnosticCode =
   | "not_configured"
-  | "executable_unavailable"
+  | "managed_artifact_unavailable"
   | "version_probe_failed"
   | "version_unparseable"
   | "version_mismatch";
@@ -13,21 +14,32 @@ export type StaticAnalysisConfigurationDiagnosticCode =
 export interface StaticAnalysisConfigurationDiagnostic {
   readonly code: StaticAnalysisConfigurationDiagnosticCode;
   readonly message: string;
-  readonly executable?: string;
   readonly expectedVersion?: string;
   readonly observedVersion?: string;
 }
 
+export interface StaticAnalysisImplementationIdentity {
+  readonly version: string;
+  readonly executableDigest: `sha256:${string}`;
+  readonly sourceArchiveDigest: `sha256:${string}`;
+  readonly profileConfigDigest: `sha256:${string}`;
+}
+
 export interface StaticAnalysisConfigurationResolution {
   readonly options?: StaticAnalyzeToolOptions;
+  readonly identity?: StaticAnalysisImplementationIdentity;
   readonly diagnostic?: StaticAnalysisConfigurationDiagnostic;
 }
 
 export interface ResolveStaticAnalysisConfigurationInput {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly platform?: NodeJS.Platform;
-  readonly discoveredPaths?: readonly string[];
+  readonly arch?: string;
   readonly runVersion?: (executable: string) => string;
+  readonly resolveManagedBinary?: (
+    platform: NodeJS.Platform,
+    arch: string,
+  ) => ResolvedVendoredToolBinary | undefined;
 }
 
 const CANONICAL_VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
@@ -45,78 +57,67 @@ export function parseObservedOxlintVersion(output: string): string {
 export function resolveStaticAnalysisConfiguration(
   input: ResolveStaticAnalysisConfigurationInput,
 ): StaticAnalysisConfigurationResolution {
-  const oxlint = input.globalConfig?.verification?.static?.oxlint;
-  if (oxlint === undefined) {
+  if (input.globalConfig?.verification?.static?.oxlint === undefined) {
     return failure({
       code: "not_configured",
-      message: "Oxlint static analysis is not configured in the operator global config.",
+      message: "Oxlint static analysis is not enabled in the operator global config.",
     });
   }
 
-  const executableReference = oxlint.executable.trim();
-  const discoveredPaths = input.discoveredPaths ?? (/[\\/]/u.test(executableReference) ? [] : undefined);
-  const observedOutputs = new Map<string, string>();
-  const runVersion = input.runVersion ?? observeOxlintVersion;
-  let lastProbeFailure: unknown;
-  const probe = (executable: string): string => {
-    const cached = observedOutputs.get(executable);
-    if (cached !== undefined) return cached;
-    const output = runVersion(executable);
-    observedOutputs.set(executable, output);
-    return output;
-  };
-
-  let executable: string;
-  try {
-    executable = resolveNativeCliExecutable({
-      command: executableReference,
-      fallbackPaths: [executableReference],
-      ...(input.platform === undefined ? {} : { platform: input.platform }),
-      ...(discoveredPaths === undefined ? {} : { discoveredPaths }),
-      verify: (candidate) => {
-        try {
-          probe(candidate);
-          return true;
-        } catch (error) {
-          lastProbeFailure = error;
-          return false;
-        }
-      },
-    });
-  } catch (error) {
-    const detail = errorMessage(lastProbeFailure ?? error);
+  const platform = input.platform ?? process.platform;
+  const arch = input.arch ?? process.arch;
+  const resolveManagedBinary =
+    input.resolveManagedBinary ??
+    ((targetPlatform, targetArch) =>
+      resolveVendoredToolBinary("oxlint", { platform: targetPlatform, arch: targetArch }));
+  const managedBinary = resolveManagedBinary(platform, arch);
+  if (managedBinary === undefined) {
     return failure({
-      code: lastProbeFailure === undefined ? "executable_unavailable" : "version_probe_failed",
-      message:
-        lastProbeFailure === undefined
-          ? `Configured Oxlint executable "${executableReference}" is unavailable: ${detail}`
-          : `Configured Oxlint executable "${executableReference}" could not report its version: ${detail}`,
-      executable: executableReference,
-      expectedVersion: oxlint.expectedVersion,
+      code: "managed_artifact_unavailable",
+      message: `Kiln's managed Oxlint artifact is unavailable for ${platform}-${arch}.`,
+    });
+  }
+
+  let rawVersion: string;
+  try {
+    rawVersion = (input.runVersion ?? observeOxlintVersion)(managedBinary.path);
+  } catch (error) {
+    return failure({
+      code: "version_probe_failed",
+      message: `Kiln's managed Oxlint artifact could not report its version: ${errorMessage(error)}`,
+      expectedVersion: managedBinary.version,
     });
   }
 
   let observedVersion: string;
   try {
-    observedVersion = parseObservedOxlintVersion(probe(executable));
+    observedVersion = parseObservedOxlintVersion(rawVersion);
   } catch (error) {
     return failure({
       code: "version_unparseable",
-      message: `Configured Oxlint executable "${executable}" returned an unrecognized version: ${errorMessage(error)}`,
-      executable,
-      expectedVersion: oxlint.expectedVersion,
+      message: `Kiln's managed Oxlint artifact returned an unrecognized version: ${errorMessage(error)}`,
+      expectedVersion: managedBinary.version,
     });
   }
-  if (observedVersion !== oxlint.expectedVersion) {
+
+  if (observedVersion !== managedBinary.version) {
     return failure({
       code: "version_mismatch",
-      message: `Configured Oxlint executable "${executable}" reported version "${observedVersion}", expected "${oxlint.expectedVersion}".`,
-      executable,
-      expectedVersion: oxlint.expectedVersion,
+      message: `Kiln's managed Oxlint artifact reported version "${observedVersion}", expected "${managedBinary.version}".`,
+      expectedVersion: managedBinary.version,
       observedVersion,
     });
   }
-  return { options: { executable, analyzerVersion: observedVersion } };
+
+  return {
+    options: { executable: managedBinary.path, analyzerVersion: observedVersion },
+    identity: {
+      version: observedVersion,
+      executableDigest: `sha256:${managedBinary.binarySha256}`,
+      sourceArchiveDigest: `sha256:${managedBinary.archiveSha256}`,
+      profileConfigDigest: STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST,
+    },
+  };
 }
 
 function failure(diagnostic: StaticAnalysisConfigurationDiagnostic): StaticAnalysisConfigurationResolution {

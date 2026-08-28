@@ -704,7 +704,7 @@ describe("config mutation authority", () => {
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     const authored = [
       "# Operator-authored global configuration",
-      "version: '5'",
+      "version: '6'",
       "",
       "ui:",
       "  # keep this note",
@@ -1097,7 +1097,7 @@ describe("config mutation authority", () => {
   it("derives native import approval from the permission delta and preserves YAML comments", async () => {
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     const before = [
-      "version: '5'",
+      "version: '6'",
       "engines:",
       "  codex:",
       "    enabled: false",

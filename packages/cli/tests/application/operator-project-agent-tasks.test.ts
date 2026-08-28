@@ -92,7 +92,7 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
   const fixtures = await import("../config/execution-target-evidence-fixture.js");
   const config = (): import("../../src/config/global-config.js").KilnGlobalConfig => ({
-    version: "5",
+    version: "6",
     managedAgents: TEST_MANAGED_AGENTS_CONFIG,
     authorityProfiles: TEST_AUTHORITY_PROFILES,
     targetCatalog: TEST_TARGET_CATALOG,
@@ -340,7 +340,7 @@ describe("operator project agent-task production composition", () => {
     mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
     writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
     const mixedGlobalConfig = {
-      version: "5",
+      version: "6",
       managedAgents: TEST_MANAGED_AGENTS_CONFIG,
       authorityProfiles: TEST_AUTHORITY_PROFILES,
       targetCatalog: {

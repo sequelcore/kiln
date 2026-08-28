@@ -26,6 +26,7 @@ export type {
 export {
   STATIC_ANALYSIS_OBSERVATION_SCHEMA,
   STATIC_ANALYSIS_PROFILE,
+  STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST,
   isStaticAnalysisObservation,
   parseStaticAnalysisObservation,
   staticAnalysisObservation,

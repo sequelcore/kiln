@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import { QUALITY_PROFILE_ORDER } from "@kilnai/core";
+import { QUALITY_PROFILE_ORDER } from "@kilnai/core/verification";
 import { KilnYamlError } from "../../kiln-yaml.js";
 import { isRecord, rejectUnknownFields } from "../global-config/admission/shared.js";
 
@@ -26,6 +26,7 @@ function validateInferentialReview(value: unknown): void {
   );
   if (typeof value.gentleAi.executable !== "string" || value.gentleAi.executable.trim().length === 0)
     throw new KilnYamlError("verification.inferential.gentleAi.executable must be a non-empty string");
+  validateAbsolutePath(value.gentleAi.executable, "verification.inferential.gentleAi.executable");
   if (typeof value.gentleAi.expectedVersion !== "string" || !isCanonicalSemver(value.gentleAi.expectedVersion))
     throw new KilnYamlError("verification.inferential.gentleAi.expectedVersion must be a canonical version");
   if (
@@ -41,12 +42,24 @@ function validateFormalVerification(value: unknown): void {
   if (!isRecord(value.dafny)) {
     throw new KilnYamlError("verification.formal.dafny must be an object");
   }
-  rejectUnknownFields(value.dafny, ["executable", "expectedVersion"], "verification.formal.dafny");
+  rejectUnknownFields(
+    value.dafny,
+    ["executable", "installationRoot", "expectedVersion", "expectedInstallationDigest"],
+    "verification.formal.dafny",
+  );
   if (typeof value.dafny.executable !== "string" || value.dafny.executable.trim().length === 0) {
     throw new KilnYamlError("verification.formal.dafny.executable must be a non-empty string");
   }
+  validateAbsolutePath(value.dafny.executable, "verification.formal.dafny.executable");
+  validateAbsolutePath(value.dafny.installationRoot, "verification.formal.dafny.installationRoot");
   if (typeof value.dafny.expectedVersion !== "string" || !isCanonicalVersion(value.dafny.expectedVersion)) {
     throw new KilnYamlError("verification.formal.dafny.expectedVersion must be a canonical version");
+  }
+  if (
+    typeof value.dafny.expectedInstallationDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/u.test(value.dafny.expectedInstallationDigest)
+  ) {
+    throw new KilnYamlError("verification.formal.dafny.expectedInstallationDigest must be a sha256 digest");
   }
   const screening = value.screening;
   if (screening === undefined) return;
@@ -80,11 +93,9 @@ function validateStaticAnalysis(value: unknown): void {
     throw new KilnYamlError("verification.static must configure oxlint or quality");
   if (value.oxlint !== undefined) {
     if (!isRecord(value.oxlint)) throw new KilnYamlError("verification.static.oxlint must be an object");
-    rejectUnknownFields(value.oxlint, ["executable", "expectedVersion"], "verification.static.oxlint");
-    if (typeof value.oxlint.executable !== "string" || value.oxlint.executable.trim().length === 0)
-      throw new KilnYamlError("verification.static.oxlint.executable must be a non-empty string");
-    if (typeof value.oxlint.expectedVersion !== "string" || !isCanonicalVersion(value.oxlint.expectedVersion))
-      throw new KilnYamlError("verification.static.oxlint.expectedVersion must be a canonical version");
+    rejectUnknownFields(value.oxlint, ["enabled"], "verification.static.oxlint");
+    if (value.oxlint.enabled !== true)
+      throw new KilnYamlError("verification.static.oxlint.enabled must be true when the managed provider is configured");
   }
   if (value.quality !== undefined) validateQualityAnalysis(value.quality);
 }

@@ -1,9 +1,13 @@
 # 11 - Capability Fabric
 
-Status: Research capability-portability track
-Execution: Research - Slice 2 is next, but implementation is not admitted ahead
-of the Ready Roadmap 08 track without an explicit priority decision.
+Status: Ready capability-portability track
+Priority: High
+Execution: In progress - the Slice 2 verification-capability discovery
+vertical is complete; broader protocol discovery is next. The 2026-08-28 operator priority decision moves this track ahead of
+Roadmap 08; remote pairing remains Ready but is no longer the current
+operational priority.
 Created: 2026-08-14
+Reprioritized: 2026-08-28
 
 ## Objective
 
@@ -39,6 +43,14 @@ Kiln already has the foundations this track must reuse:
 These foundations do not yet form a shared tool catalog. Harness tools remain
 surface-specific, large inventories may be projected eagerly, and a capability
 owned by one harness or model cannot yet be requested portably from another.
+
+The verification plane exposes the most mature local gap. Kiln already owns
+typed, globally configured producers for Dafny, Oxlint, Kiln Quality, and
+Gentle AI. Kiln-owned sessions can register those tools, but a standalone
+Codex, Claude, or OpenCode session cannot discover or request the same
+capabilities through a portable contract. Native skills can teach procedure;
+they cannot grant the missing executable capability or turn an ordinary shell
+result into Assurance evidence.
 
 ## Interface Position
 
@@ -89,6 +101,9 @@ result-contract evidence. Adapter availability alone is never authority.
   approvals, cancellation, replay safety, and content-free audit evidence.
 - Provide the same capability semantics through CLI, GUI, TUI, SDK, Codex,
   Claude, and OpenCode V2 even when their wire representations differ.
+- Make globally configured verification producers discoverable by capability
+  rather than provider name while preserving their existing candidate-bound
+  observations and Assurance boundary.
 - Provide one portable operator-question lifecycle for clarification and
   decision elicitation, with correlated pause, answer, cancellation, expiry,
   and resume semantics across every admitted surface.
@@ -128,6 +143,8 @@ No adapter may become a second capability-selection or policy authority.
 - Provider-neutral `search`, `describe`, and invocation planning contracts.
 - Native hosted tool search when proven and deterministic client-executed
   selection for harnesses or models without it.
+- Globally configured local verification producers and their existing typed
+  Kiln tool adapters.
 - MCP, OpenAPI, GraphQL, admitted CLI, local function, and approved service
   execution ports.
 - Server-side code-mode execution for large API surfaces when its sandbox and
@@ -153,6 +170,8 @@ No adapter may become a second capability-selection or policy authority.
 - No eager projection of every discovered tool to every model.
 - No ambient `PATH`, shell interpolation, or operator-local executable state as
   durable CLI execution authority.
+- No executable paths, provider routing, or Assurance claims encoded in a
+  projected verification skill.
 - No unrestricted client-side code mode for remote SaaS or consequential
   operations.
 - No credentials, raw tokens, operator paths, unbounded payloads, or raw
@@ -177,6 +196,16 @@ No adapter may become a second capability-selection or policy authority.
   search are research inputs, not adopted authorities.
 - CLI and MCP are implementation transports, not capability identities. A
   provider or surface cannot select one by bypassing the Runtime resolver.
+- The first implementation vertical is local verification. Exact
+  provider-neutral capability ids are frozen by Slice 2 rather than inferred
+  from current tool names. Dafny, Oxlint, Kiln Quality, and Gentle AI remain
+  implementation identities and keep their distinct evidence semantics.
+- `verification-evidence` is a permanent procedural skill, not a temporary
+  bridge. It maps claims to evidence classes and consumes a Runtime-resolved
+  capability decision. Before that resolver exists, native harnesses may use
+  repository-owned verification commands and must report advanced capabilities
+  as unavailable; the skill never embeds global binary paths or directly
+  selects a provider.
 - Mature local developer operations may prefer an admitted CLI. Remote SaaS,
   OAuth, structured multimodal results, and portable cross-harness services
   normally prefer MCP or an official API. High-risk mutations use the narrowest
@@ -273,7 +302,7 @@ Runtime failure was introduced.
 
 ### Slice 2 - Read-Only Discovery Adapters
 
-Status: Research; not admitted ahead of the Ready Roadmap 08 track.
+Status: In progress; verification-capability discovery delivery complete.
 
 Implement read-only adapters for Codex, Claude, OpenCode V2, MCP, OpenAPI,
 GraphQL, admitted CLIs, and Kiln-owned tools. Normalize their declarations into
@@ -281,19 +310,53 @@ catalog candidates without mutating harness configuration or executing tools.
 Preserve source-specific effect semantics such as safe reads, mutations,
 destructive hints, and provider-hosted execution.
 
-CLI discovery must bind an exact executable, version, digest, provenance, and
-portable machine-readable contract. It must not execute an arbitrary command
-resolved from ambient `PATH`. MCP discovery must bind an exact server identity,
+Begin with the four existing verification implementations before broad
+protocol discovery:
+
+1. inventory the registered `formal_verify`, `static_analyze`,
+   `quality_analyze`, and `gentle_review` contracts without executing them;
+2. define provider-neutral formal, static, artifact-quality, and inferential
+   review capability candidates while preserving distinct input, output,
+   authority, and evidence semantics;
+3. bind configured implementations to the exact version and artifact digest
+   evidence already owned by global verification configuration; and
+4. represent an unavailable or invalid configured producer as an ineligible
+   candidate with its existing diagnostic rather than omitting or guessing it.
+
+`quality_analyze` is a Kiln local-function implementation and has no binary to
+discover. Gentle AI remains a read-only active-transaction observer. Neither is
+flattened into the deterministic CLI contract used by Dafny or Oxlint.
+
+CLI discovery must bind an exact implementation artifact, version, digest,
+provenance, and portable machine-readable contract. It must not execute an
+arbitrary command resolved from ambient `PATH`. MCP discovery must bind an exact server identity,
 protocol revision, selected-tool allowlist, schema digest, and freshness. An
 upstream schema change cannot silently become current execution authority.
 
 Acceptance: the same source revision yields deterministic descriptors; unknown
 fields or semantics remain visible as ineligible rather than guessed; adapter
-tests prove no external effect during discovery.
+tests prove no external effect during discovery; and all four verification
+implementations retain their current tool, observation, and Assurance
+boundaries. The first delivery ends there before MCP, OpenAPI, GraphQL, or
+arbitrary CLI discovery expands the slice.
+
+Evidence: Core now owns four deterministic provider-neutral candidates and
+keeps missing, invalid, stale, or mismatched producers visible as ineligible.
+The CLI projects settled global-config evidence without paths, commands, raw
+diagnostic messages, or callbacks. Oxlint is resolved only from Kiln's exact
+platform package with archive, executable, and fixed-profile digests; Dafny
+binds its configured installation digest; Gentle AI binds its configured
+executable digest; Kiln Quality binds the running release and
+ordered compiled profiles. Focused Core and CLI tests cover inert inspection,
+distinct effect and evidence semantics, safe failure projection, and all-four
+eligibility. Current global operator configuration resolves all four
+capabilities as eligible. `supportedCallers` remains `kiln-runtime` until the
+search and execution slices prove native harness access.
 
 ### Slice 3 - Deferred Tool Search
 
-Status: Blocked on Slice 2 and Roadmap 06 progressive-disclosure admission.
+Status: Blocked on the verification delivery of Slice 2 and the narrow Roadmap
+06 progressive-disclosure admission required for capability descriptors.
 
 Introduce small provider-neutral `capability.search` and
 `capability.describe` contracts. Resolve candidates against the current route,
@@ -306,6 +369,13 @@ Acceptance: initial prompt/tool-schema cost is independent of total catalog
 size within defined bounds; the selected descriptors and search evidence are
 replayable; required safety or authority information is present before the
 effect it governs; unsupported native tool-search requests fail closed.
+
+After the resolver is executable, project `verification-evidence` to supported
+native harnesses. The skill consumes `capability.search` and
+`capability.describe`; it does not inspect global configuration, resolve a
+binary, choose Dafny/Oxlint/Gentle directly, or treat skill availability as tool
+authority. Its repository-command fallback remains useful for harnesses that
+cannot reach the fabric and produces ordinary verification evidence only.
 
 ### Slice 4 - Portable Tool Execution
 
@@ -326,14 +396,26 @@ port enforces server identity, selected schema revision, scopes, approval,
 bounded structured or multimodal results, and cache freshness. Code mode is a
 separate sandboxed execution port, not an alias for unrestricted shell access.
 
-The first vertical proof is `web.search`. It must use a documented, supported
-provider or local service contract; an experimental ChatGPT alpha endpoint may
-be used for research only, never as the release authority.
+The first vertical proof is configured local verification. Start with Oxlint
+static analysis because it already has an exact executable version, immutable
+candidate bytes, a closed profile, bounded JSON output, and a facts-only
+observation. Add Kiln Quality, Dafny, and Gentle AI only through their existing
+distinct adapters; a shared execution port must not erase their different
+candidate, lifecycle, or evidence contracts. Global executable paths stay
+host-side and project repositories do not repeat them.
 
-Acceptance: one `web.search` request works from every admitted surface with the
-same semantic result contract; destructive or credential-bearing variants are
-rejected; cancellation, timeout, malformed response, and provider failure settle
-honestly.
+Acceptance: one provider-neutral static-analysis request resolves to the
+configured Oxlint implementation and returns the existing candidate-bound
+observation without changing its Assurance authority; unavailable, mismatched,
+cancelled, timed-out, malformed, and candidate-mutation cases settle exactly as
+the current producer does. The equivalent local-function proof covers Kiln
+Quality. Dafny and Gentle AI then demonstrate that the resolver preserves
+formal and inferential semantics rather than generalizing them into one lint
+result.
+
+`web.search` remains the next portable-service proof. It must use a documented,
+supported provider or local service contract; an experimental ChatGPT alpha
+endpoint may be used for research only, never as release authority.
 
 ### Slice 5 - Agent-Backed Capabilities
 
@@ -409,8 +491,10 @@ cancel, validation, error, and correlation behavior passes the shared
 conformance fixtures. TUI and native adapters then reuse those fixtures while
 presenting interaction appropriate to their environment.
 
-Acceptance: web search, vision analysis, and presentation workflows pass
-cross-surface conformance fixtures; no surface recomputes capability policy;
+Acceptance: verification, web search, vision analysis, and presentation
+workflows pass cross-surface conformance fixtures; a fresh Codex, Claude, and
+OpenCode session can request admitted verification without knowing a binary
+path or provider tool name; no surface recomputes capability policy;
 operator status shows the actual executor rather than implying native model
 support; a clarification flow started by the same canonical request can pause
 and resume through GUI, TUI, and every supported native harness with equivalent
@@ -486,6 +570,9 @@ to the former workflow or tool names.
   CLI, a large API surface, a consequential approved mutation, and a
   multimodal artifact result. No single GitHub or token-count benchmark may
   establish a universal default.
+- The mature local CLI evaluation begins with the existing Oxlint verifier and
+  compares current direct-tool execution with capability-resolved execution
+  over identical candidates, profiles, versions, permissions, and oracles.
 - Discovery performs no external effect, and execution cannot begin before all
   owning authorities admit it.
 - Every execution has bounded input, output, time, cancellation, settlement,
@@ -564,6 +651,9 @@ The track-level evidence set must include:
 - exact harness compatibility fixtures and live version reports;
 - capability catalog validation and deterministic projection;
 - no-effect discovery tests;
+- verification-capability discovery and execution across Kiln-owned and native
+  Codex, Claude, and OpenCode surfaces, with exact producer attribution and no
+  binary paths in projected context;
 - deferred versus eager schema-token measurements;
 - paired CLI, MCP, API, and code-mode outcome measurements with the actual
   execution transport recorded;
@@ -579,7 +669,8 @@ The track-level evidence set must include:
 - operator-question pause, validation, answer, skip, cancel, expiry, resume,
   and approval-separation conformance, promoted GUI first and then reproduced
   in TUI and native harness interactions;
-- end-to-end `web.search`, `vision.analyze`, and presentation workflows.
+- end-to-end verification, `web.search`, `vision.analyze`, and presentation
+  workflows.
 
 ## Completion Criteria
 
@@ -592,6 +683,9 @@ to architecture and guides. Work governance and the projected orchestration
 skills consume the same capability-first execution decision, so moving between
 direct, native, portable, local-agent, and remote-agent implementations does
 not require the operator or parent model to reconstruct the workflow.
+The permanent `verification-evidence` skill consumes that decision across
+surfaces; repository-owned commands remain the fallback for an unsupported
+standalone harness and never impersonate Kiln Assurance.
 Experimental research paths and superseded procedures are removed, and this
 roadmap closes or splits only when no duplicated owner or unnamed residual
 remains.

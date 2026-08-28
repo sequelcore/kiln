@@ -151,7 +151,14 @@ owner. Generated editor-schema and descriptor projections are committed under
 | `permissionCeiling.approval` | GP | I | C | intersects global permissions | session | supported until typed bounds replace it in Slice 1 |
 | `permissionCeiling.sandbox` | GP | I | C | intersects global permissions | session | supported until typed bounds replace it in Slice 1 |
 | `verification.formal.dafny.executable` | G | I | H ref | exact operator selection | session | supported |
+| `verification.formal.dafny.installationRoot` | G | I | H ref | dedicated absolute installation root | session | supported |
 | `verification.formal.dafny.expectedVersion` | G | I | H | exact match | session | supported |
+| `verification.formal.dafny.expectedInstallationDigest` | G | I | H | exact canonical installation paths and bytes | session | supported |
+| `verification.static.oxlint.enabled` | G | I | L | omitted | session | supported; version and artifact identity are Kiln release-owned |
+| `verification.static.quality.typescript` | G | I | L | omitted | session | supported closed compiled profile list |
+| `verification.inferential.gentleAi.executable` | G | I | H ref | exact operator selection | session | supported |
+| `verification.inferential.gentleAi.expectedVersion` | G | I | H | exact match | session | supported |
+| `verification.inferential.gentleAi.expectedExecutableDigest` | G | I | H | exact executable bytes | session | supported |
 | `ui.appearance.mode` | G | I | L | `system` | hot | supported |
 | `ui.appearance.themeByScheme.light` | G | I | L | `tesota` | hot | supported |
 | `ui.appearance.themeByScheme.dark` | G | I | L | `tesota` | hot | supported |

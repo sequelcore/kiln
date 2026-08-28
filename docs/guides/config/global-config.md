@@ -5,7 +5,7 @@
 `~/.kiln/config.yaml` is the global source of truth for operator intent. It
 owns target and account choices, reusable authority, model policy, native
 projections, and operator preferences. Managed target facts live in immutable
-snapshots beside it. The canonical global schema version is `"5"`.
+snapshots beside it. The canonical global schema version is `"6"`.
 
 Project configuration has a narrower job. The private project
 `~/.kiln/projects/<krp_sha256>/config.yaml` may define project context and
@@ -84,7 +84,7 @@ store performs one YAML parse and returns only the schema-admitted value;
 `packages/cli/schemas/global-config-descriptors-v2.json`. Regenerate them with
 `bun run --cwd packages/cli config:schema:generate` after changing the owner.
 
-The main V5 fields are:
+The main V6 fields are:
 
 | Field | Purpose |
 | --- | --- |
@@ -108,8 +108,8 @@ The main V5 fields are:
 Use the parser-validated examples instead of assembling a partial operational
 catalog:
 
-- [V5 target catalog](../../examples/configs/managed-targets-v5-subscription.yaml)
-- [V5 task-aware model team](../../examples/configs/task-aware-model-team.yaml)
+- [V6 target catalog](../../examples/configs/managed-targets-v6-subscription.yaml)
+- [V6 task-aware model team](../../examples/configs/task-aware-model-team.yaml)
 
 The examples contain synthetic identities. Replace them with current provider
 and account intent before use. Managed discovery, data-policy, capacity, and
@@ -139,20 +139,20 @@ response contract; it should not duplicate the operator's normal workflow.
 
 ## Verification providers
 
-Dafny, Oxlint, and Gentle AI are global machine capabilities, not project configuration.
-Configure only the providers the operator wants to expose, with an exact
-expected version, in `~/.kiln/config.yaml`:
+Dafny, Oxlint, Kiln Quality, and Gentle AI are global machine capabilities,
+not project instructions. Enable only the capabilities the operator wants to
+expose in `~/.kiln/config.yaml`:
 
 ```yaml
 verification:
   formal:
     dafny:
-      executable: dafny
+      executable: /opt/dafny/dafny
+      installationRoot: /opt/dafny
       expectedVersion: 4.11.0
+      expectedInstallationDigest: sha256:<published-installation-digest>
   static:
-    oxlint:
-      executable: C:/tools/oxlint.exe
-      expectedVersion: 1.80.0
+    oxlint: { enabled: true }
     quality:
       typescript:
         - type-integrity
@@ -165,20 +165,22 @@ verification:
       expectedExecutableDigest: sha256:<published-platform-artifact-digest>
 ```
 
-The `formal`, `static`, and `inferential` arms are independent and optional. `executable` may
-be an explicit path or a bare command written by the operator. Kiln never
-discovers or installs an omitted provider. At startup it executes each
-configured binary with `--version`, reduces accepted build metadata to the
-canonical three-part version, and registers the corresponding tool only when
-the observed version exactly matches `expectedVersion`. On Windows, only a
-native `.exe` or `.com` target is accepted; `.cmd` and `.bat` shims are
-rejected.
+The `formal`, `static`, and `inferential` arms are independent and optional.
+Oxlint is distributed by Kiln for each supported platform. `enabled: true`
+admits only that release-owned artifact after its executable digest and
+version are verified; no user installation, project path, or ambient `PATH`
+lookup is involved. Dafny and Gentle AI remain external capabilities. Dafny's
+operator-owned digest covers the canonical paths and bytes of its complete
+installation tree; Gentle AI retains an exact executable digest. Exact
+versions are required for both. On Windows, command shims remain ineligible.
 
 `formal_verify` emits Dafny proof evidence. `static_analyze` runs one source
-file through Kiln's fixed Oxlint `correctness + suspicious` profile and emits
-diagnostics bound to the analyzed bytes. A clean static-analysis observation
-is evidence only; it does not satisfy an Assurance obligation or authorize an
-action by itself.
+file through the fixed `oxlint.sequel-typescript/v1` profile: general
+correctness and safety rules plus objective structural budgets. Kiln Quality
+owns the separate cast-integrity, cyclomatic-complexity, and test-integrity
+rules. Diagnostics remain bound to the analyzed bytes. A clean static-analysis
+observation is evidence only; it does not satisfy an Assurance obligation or
+authorize an action by itself.
 
 `quality_analyze` is registered only when
 `verification.static.quality.typescript` contains one or more unique compiled
@@ -219,7 +221,7 @@ harness target declares its native boundary. Both bind managed facts through
 `targetCatalog.evidenceRevision`.
 
 ```yaml
-version: "5"
+version: "6"
 
 targetCatalog:
   evidenceRevision: sha256:<exact-admitted-snapshot>

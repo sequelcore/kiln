@@ -1,11 +1,12 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join } from "node:path";
 
 const requireFromHere = createRequire(import.meta.url);
-const VENDORED_TOOLS = ["rg", "fd", "jq"] as const;
-const UNIX_MATERIALIZED_TOOLS = ["rg", "fd", "jq"] as const;
-const DARWIN_X64_MATERIALIZED_TOOLS = ["rg", "jq"] as const;
+const VENDORED_TOOLS = ["rg", "fd", "jq", "oxlint"] as const;
+const UNIX_MATERIALIZED_TOOLS = ["rg", "fd", "jq", "oxlint"] as const;
+const DARWIN_X64_MATERIALIZED_TOOLS = ["rg", "jq", "oxlint"] as const;
 
 export type VendoredToolBinary = (typeof VENDORED_TOOLS)[number];
 
@@ -28,7 +29,10 @@ export interface ResolvedVendoredToolBinary {
   readonly platform: string;
   readonly arch: string;
   readonly version: string;
-  readonly sha256: string;
+  /** SHA-256 of the upstream release archive/file used for vendoring. */
+  readonly archiveSha256: string;
+  /** SHA-256 of the executable materialized in the platform package. */
+  readonly binarySha256: string;
 }
 
 export interface VendoredPackageTarget {
@@ -45,13 +49,15 @@ export interface ResolveVendoredPackageOptions {
 export interface ResolveVendoredToolBinaryOptions extends ResolveVendoredPackageOptions {
   readonly fileExists?: (path: string) => boolean;
   readonly readTextFile?: (path: string) => string;
+  readonly readBinaryFile?: (path: string) => Uint8Array;
 }
 
 interface VendoredToolManifestEntry {
   readonly path: string;
   readonly version: string;
   readonly source: string;
-  readonly sha256: string;
+  readonly archiveSha256: string;
+  readonly binarySha256: string;
 }
 
 interface VendoredToolsManifest {
@@ -89,18 +95,14 @@ export function listVendoredPlatformPackages(): readonly VendoredPlatformPackage
   return PLATFORM_PACKAGES;
 }
 
+/** Return only an exact target match; native binaries are never cross-loaded. */
 export function getVendoredPackageCandidates(
   target: VendoredPackageTarget = { platform: process.platform, arch: process.arch },
 ): readonly VendoredPlatformPackageDescriptor[] {
-  const preferred = PLATFORM_PACKAGES.filter(
+  return PLATFORM_PACKAGES.filter(
     (candidate) =>
       candidate.platform === target.platform && candidate.arch === target.arch,
   );
-  const remaining = PLATFORM_PACKAGES.filter(
-    (candidate) =>
-      candidate.platform !== target.platform || candidate.arch !== target.arch,
-  );
-  return [...preferred, ...remaining];
 }
 
 export function resolveVendoredPlatformPackage(
@@ -110,16 +112,19 @@ export function resolveVendoredPlatformPackage(
   const arch = options.arch ?? process.arch;
   const resolvePackageJson = options.resolvePackageJson ?? defaultResolvePackageJson;
 
-  for (const candidate of getVendoredPackageCandidates({ platform, arch })) {
-    try {
-      const packageJsonPath = resolvePackageJson(`${candidate.packageName}/package.json`);
-      return {
-        ...candidate,
-        packageJsonPath,
-      };
-    } catch {
-      // Continue probing candidates until one resolves.
-    }
+  const candidate = getVendoredPackageCandidates({ platform, arch })[0];
+  if (!candidate) {
+    return undefined;
+  }
+
+  try {
+    const packageJsonPath = resolvePackageJson(`${candidate.packageName}/package.json`);
+    return {
+      ...candidate,
+      packageJsonPath,
+    };
+  } catch {
+    // The exact platform package is unavailable. Never substitute another target.
   }
 
   return undefined;
@@ -152,6 +157,17 @@ export function resolveVendoredToolBinary(
     return undefined;
   }
 
+  const readBinaryFile = options.readBinaryFile ?? ((path: string) => readFileSync(path));
+  let actualBinarySha256: string;
+  try {
+    actualBinarySha256 = sha256(readBinaryFile(binaryPath));
+  } catch {
+    return undefined;
+  }
+  if (actualBinarySha256 !== manifestEntry.binarySha256) {
+    return undefined;
+  }
+
   return {
     binary,
     path: binaryPath,
@@ -160,7 +176,8 @@ export function resolveVendoredToolBinary(
     platform: resolvedPackage.platform,
     arch: resolvedPackage.arch,
     version: manifestEntry.version,
-    sha256: manifestEntry.sha256,
+    archiveSha256: manifestEntry.archiveSha256,
+    binarySha256: manifestEntry.binarySha256,
   };
 }
 
@@ -200,9 +217,15 @@ function isManifestEntry(value: unknown): value is VendoredToolManifestEntry {
     typeof value.path === "string" &&
     typeof value.version === "string" &&
     typeof value.source === "string" &&
-    typeof value.sha256 === "string" &&
-    /^[a-f0-9]{64}$/u.test(value.sha256)
+    typeof value.archiveSha256 === "string" &&
+    /^[a-f0-9]{64}$/u.test(value.archiveSha256) &&
+    typeof value.binarySha256 === "string" &&
+    /^[a-f0-9]{64}$/u.test(value.binarySha256)
   );
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

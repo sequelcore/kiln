@@ -6,6 +6,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertCompleteBundle,
+  assertPackedToolExecutables,
   assertPackedLegalFiles,
   assertTrustedPublishingEnvironment,
   buildReleasePlan,
@@ -19,6 +20,7 @@ import {
   selectInstallTarballs,
   validateRegistryState,
   type RegistryPackageState,
+  type PackedFileMetadata,
   type ReleasePlan,
   type ReleaseTarball,
 } from "./release.js";
@@ -144,7 +146,8 @@ async function pack(): Promise<void> {
       bundleRoot,
     ]);
     const packed = parsePackOutput(result.stdout, pkg.name);
-    assertPackedLegalFiles(pkg, packed.files);
+    assertPackedLegalFiles(pkg, packed.files.map((file) => file.path));
+    assertPackedToolExecutables(pkg, packed.files);
     const integrity = await calculateIntegrity(join(bundleRoot, packed.filename));
     if (packed.integrity !== integrity) {
       throw new Error(`${pkg.name}: npm pack integrity ${packed.integrity} does not match local ${integrity}`);
@@ -459,12 +462,12 @@ async function runNpm(
 function parsePackOutput(
   stdout: string,
   expectedName: string,
-): { filename: string; integrity: string; files: readonly string[] } {
+): { filename: string; integrity: string; files: readonly PackedFileMetadata[] } {
   const value = JSON.parse(stdout) as Array<{
     name?: string;
     filename?: string;
     integrity?: string;
-    files?: Array<{ path?: string }>;
+    files?: Array<{ path?: string; mode?: number }>;
   }>;
   const packed = value[0];
   if (
@@ -473,14 +476,14 @@ function parsePackOutput(
     typeof packed.filename !== "string" ||
     typeof packed.integrity !== "string" ||
     !Array.isArray(packed.files) ||
-    packed.files.some((file) => typeof file.path !== "string")
+    packed.files.some((file) => typeof file.path !== "string" || !Number.isSafeInteger(file.mode))
   ) {
     throw new Error(`${expectedName}: npm pack returned invalid metadata`);
   }
   return {
     filename: packed.filename,
     integrity: packed.integrity,
-    files: packed.files.map((file) => file.path!),
+    files: packed.files.map((file) => ({ path: file.path!, mode: file.mode! })),
   };
 }
 

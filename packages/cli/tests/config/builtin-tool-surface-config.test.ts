@@ -13,6 +13,7 @@ import {
   withProgressiveRuntimeToolProjection,
 } from "../../src/config/builtin-tool-surface-config.js";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
+import { digestDafnyInstallation } from "../../src/config/verification/dafny.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
@@ -26,6 +27,9 @@ vi.mock("@kilnai/runtime", () => ({
     }
   },
 }));
+
+const DAFNY_FILES = [{ relativePath: "dafny.exe", bytes: new TextEncoder().encode("dafny fixture") }] as const;
+const DAFNY_DIGEST = digestDafnyInstallation(DAFNY_FILES);
 
 describe("builtin tool surface config", () => {
   it("derives bounded-work capability from the validated tool registration", () => {
@@ -47,12 +51,14 @@ describe("builtin tool surface config", () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-formal-surface-"));
     try {
       const globalConfig: KilnGlobalConfig = {
-        version: "5",
+        version: "6",
         verification: {
           formal: {
             dafny: {
               executable: "C:/tools/dafny.exe",
+              installationRoot: "C:/tools",
               expectedVersion: "4.11.0",
+              expectedInstallationDigest: DAFNY_DIGEST,
             },
           },
         },
@@ -60,8 +66,8 @@ describe("builtin tool surface config", () => {
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig,
         runDafnyVersion: () => "Dafny 4.11.0+build.123",
+        observeDafnyInstallationDigest: () => DAFNY_DIGEST,
         platform: "win32",
-        discoveredPaths: [],
       });
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
@@ -83,19 +89,20 @@ describe("builtin tool surface config", () => {
     try {
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig: {
-          version: "5",
+          version: "6",
           verification: {
             formal: {
               dafny: {
                 executable: "C:/tools/dafny.exe",
+                installationRoot: "C:/tools",
                 expectedVersion: "4.11.0",
+                expectedInstallationDigest: DAFNY_DIGEST,
               },
             },
           },
         },
         runDafnyVersion: () => "Dafny 4.10.0",
         platform: "win32",
-        discoveredPaths: [],
       });
 
       expect(options.configuredProducerDiagnostics).toMatchObject([{
@@ -133,12 +140,14 @@ describe("builtin tool surface config", () => {
       writeFileSync(executablePath, executableBytes);
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig: {
-          version: "5",
+          version: "6",
           verification: {
             formal: {
               dafny: {
                 executable: "C:\\Users\\operator\\bin\\dafny.exe",
+                installationRoot: "C:\\Users\\operator\\bin",
                 expectedVersion: "4.11.0",
+                expectedInstallationDigest: DAFNY_DIGEST,
               },
             },
             inferential: {
@@ -154,9 +163,7 @@ describe("builtin tool surface config", () => {
           throw new Error(rawProbeError);
         },
         platform: "win32",
-        discoveredPaths: [],
         runGentleAiVersion: () => "gentle-ai 2.5.0-rc.1",
-        discoveredGentleAiPaths: [executablePath],
       });
       const surface = createDefaultBuiltinToolSurface(options);
       const searchTool = new ToolCatalogSearchTool(() => surface.catalog);
@@ -194,13 +201,10 @@ describe("builtin tool surface config", () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-static-surface-"));
     try {
       const globalConfig: KilnGlobalConfig = {
-        version: "5",
+        version: "6",
         verification: {
           static: {
-            oxlint: {
-              executable: "C:/tools/oxlint.exe",
-              expectedVersion: "1.80.0",
-            },
+            oxlint: { enabled: true },
           },
         },
       };
@@ -208,7 +212,18 @@ describe("builtin tool surface config", () => {
         globalConfig,
         runOxlintVersion: () => "Version: 1.80.0",
         platform: "win32",
-        discoveredOxlintPaths: [],
+        arch: "x64",
+        resolveManagedOxlintBinary: () => ({
+          binary: "oxlint",
+          path: "C:/tools/oxlint.exe",
+          packageName: "@kilnai/tools-win32-x64",
+          packageRoot: "C:/tools",
+          platform: "win32",
+          arch: "x64",
+          version: "1.80.0",
+          archiveSha256: "a".repeat(64),
+          binarySha256: "b".repeat(64),
+        }),
       });
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
@@ -234,7 +249,7 @@ describe("builtin tool surface config", () => {
       writeFileSync(executable, bytes);
       const expectedExecutableDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
       const globalConfig: KilnGlobalConfig = {
-        version: "5",
+        version: "6",
         verification: {
           inferential: {
             gentleAi: {
@@ -249,7 +264,6 @@ describe("builtin tool surface config", () => {
         globalConfig,
         runGentleAiVersion: () => "gentle-ai 2.5.0-rc.1",
         platform: "win32",
-        discoveredGentleAiPaths: [executable],
       });
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
@@ -273,7 +287,7 @@ describe("builtin tool surface config", () => {
     try {
       const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
         globalConfig: {
-          version: "5",
+          version: "6",
           verification: {
             static: { quality: { typescript: ["test-integrity", "type-integrity", "complexity"] } },
           },

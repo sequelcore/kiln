@@ -65,6 +65,11 @@ export interface ReleaseTarball extends LocalTarball {
   readonly filename: string;
 }
 
+export interface PackedFileMetadata {
+  readonly path: string;
+  readonly mode: number;
+}
+
 export interface RegistryPackageState {
   readonly versionIntegrity: string | null;
   readonly channelVersion: string | null;
@@ -307,6 +312,30 @@ export function assertPackedLegalFiles(pkg: ReleasePackage, packedPaths: readonl
   );
   if (forbidden.length > 0) {
     throw new Error(`${pkg.name}: packed tarball contains private workflow material: ${forbidden.join(", ")}`);
+  }
+}
+
+/**
+ * Unix platform packages are executed directly from their installed package.
+ * Publishing is Linux-only, so fail the canonical pack before a non-executable
+ * archive can become release authority.
+ */
+export function assertPackedToolExecutables(
+  pkg: ReleasePackage,
+  packedFiles: readonly PackedFileMetadata[],
+): void {
+  const isUnixToolPackage =
+    pkg.name.startsWith("@kilnai/tools-") &&
+    pkg.os?.some((platform) => platform === "linux" || platform === "darwin") === true;
+  if (!isUnixToolPackage) return;
+
+  const binaries = packedFiles.filter((file) => /^bin\/[^/]+$/u.test(file.path.replaceAll("\\", "/")));
+  if (binaries.length === 0) {
+    throw new Error(`${pkg.name}: packed tarball contains no managed tool binaries`);
+  }
+  const invalid = binaries.filter((file) => file.mode !== 0o755).map((file) => file.path);
+  if (invalid.length > 0) {
+    throw new Error(`${pkg.name}: packed managed tools must have mode 0755: ${invalid.join(", ")}`);
   }
 }
 

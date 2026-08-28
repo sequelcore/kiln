@@ -1,6 +1,6 @@
-# Synthetic, parser-validated V5 target intent. Managed discovery, data-policy,
+# Synthetic, parser-validated V6 target intent. Managed discovery, data-policy,
 # account-capacity, and price evidence lives in the referenced immutable JSON.
-version: "5"
+version: "6"
 
 managedAgents:
   defaultAuthorityProfileId: readonly-plan

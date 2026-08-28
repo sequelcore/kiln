@@ -1550,7 +1550,7 @@ export const TOOL_SCHEMAS: Record<
   static_analyze: {
     name: "static_analyze",
     description:
-      "Run the fixed Oxlint correctness+suspicious profile over one immutable source copy and report diagnostics. This reports analyzer output only: it does not accept work, load repository lint policy, or decide which acceptance criterion the observation satisfies.",
+      "Run Kiln's fixed, versioned Oxlint profile over one immutable JavaScript or TypeScript source copy and report correctness, safety, and structural-budget diagnostics. This reports analyzer output only: it does not accept work, load repository lint policy, or decide which acceptance criterion the observation satisfies.",
     inputSchema: {
       type: "object",
       properties: {

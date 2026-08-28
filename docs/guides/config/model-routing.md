@@ -5,7 +5,7 @@ different problems and do not fall back to one another.
 
 | Concern | Owner | Applies to |
 | --- | --- | --- |
-| Operator execution | Global V5 `targetCatalog` intent, exact managed evidence, and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
+| Operator execution | Global V6 `targetCatalog` intent, exact managed evidence, and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
 | Tenant model routing | Application `modelConfig` | That application's session orchestrator and provider pool |
 
 ## Operator targets
@@ -84,7 +84,7 @@ YAML retains billing channel, execution mode, service tier, envelope, fallback,
 and overage choices.
 
 Do not copy partial YAML fragments from prose. Use the complete
-[V5 target example](../../examples/configs/managed-targets-v5-subscription.yaml).
+[V6 target example](../../examples/configs/managed-targets-v6-subscription.yaml).
 Its adjacent JSON demonstrates the managed store; operational snapshots are
 published by Kiln and must not be hand-edited.
 

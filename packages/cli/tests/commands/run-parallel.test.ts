@@ -474,7 +474,7 @@ function createManagedInvocation(input: {
 
 function sessionTurnBudgetGlobalConfig() {
   return {
-    version: "5",
+    version: "6",
     engines: {
       codex: {
         enabled: true,

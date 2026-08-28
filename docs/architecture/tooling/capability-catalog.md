@@ -91,6 +91,29 @@ commands, endpoints, environment values, or paths. Public discovery therefore
 cannot bypass later Runtime selection, permission, data-policy, budget,
 approval, or execution admission.
 
+## Verification Discovery
+
+The first read-only adapter projects the four configured verification
+producers into provider-neutral candidates without carrying executable paths,
+commands, callbacks, repositories, or raw diagnostic messages:
+
+| Implementation | Capability | Current caller | Evidence posture |
+| --- | --- | --- | --- |
+| Dafny / `formal_verify` | `verify.formal` | `kiln-runtime` | exact external version and complete installation digest |
+| Oxlint / `static_analyze` | `verify.static` | `kiln-runtime` | exact Kiln-managed version, binary digest, archive provenance, and fixed profile |
+| Kiln Quality / `quality_analyze` | `verify.artifact-quality` | `kiln-runtime` | running Kiln release and ordered compiled profiles |
+| Gentle AI / `gentle_review` | `verify.inferential-review` | `kiln-runtime` | exact external version, executable digest, and review contract |
+
+Configuration resolution remains the owner of executable validation. The CLI
+adapter consumes only its settled evidence and reduces failures to stable safe
+codes. Core preserves unavailable or invalid producers as ineligible
+candidates rather than omitting them or guessing an implementation.
+
+Codex, Claude, and OpenCode are intentionally not listed as supported callers
+yet. Slice 2 makes the candidates portable and discoverable inside Kiln; the
+deferred-search and portable-execution slices must prove each native harness
+route before those callers can be advertised.
+
 ## Invariants
 
 - Discovery is evidence, never execution authority.
@@ -106,12 +129,14 @@ approval, or execution admission.
 ## Implementation
 
 - Core catalog: `packages/core/src/capabilities/capability-catalog.ts`
+- Verification discovery: `packages/core/src/capabilities/verification-capability-discovery.ts`
+- CLI evidence projection: `packages/cli/src/config/verification/discovery.ts`
 - Public schema: `packages/gateway-contracts/src/capability-catalog.ts`
 - Runtime projection: `packages/runtime/src/capabilities/capability-catalog-projector.ts`
 - Core behavior tests: `packages/core/tests/capabilities/capability-catalog.test.ts`
 - Public contract tests: `packages/gateway-contracts/tests/capability-catalog.test.ts`
 - Projection tests: `packages/runtime/tests/capabilities/capability-catalog-projector.test.ts`
 
-Read-only discovery adapters are deliberately deferred to Roadmap 11 Slice 2.
-Execution ports, search, configuration, persistence, and surface presentation
-remain owned by their later slices.
+The verification discovery delivery of Roadmap 11 Slice 2 is complete.
+Protocol-wide adapters remain later Slice 2 work. Execution ports, deferred
+search, persistence, and surface presentation remain owned by later slices.

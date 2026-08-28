@@ -6,13 +6,14 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 
-type ToolName = "rg" | "fd" | "jq";
+type ToolName = "rg" | "fd" | "jq" | "oxlint";
 
 interface ToolManifestEntry {
   readonly path: string;
   readonly version: string;
   readonly source: string;
-  readonly sha256: string;
+  readonly archiveSha256: string;
+  readonly binarySha256: string;
   readonly sourceType?: "archive" | "file";
   readonly archivePath?: string;
 }
@@ -66,7 +67,7 @@ async function readManifest(path: string): Promise<ToolsManifest> {
   }
 
   const tools: Partial<Record<ToolName, ToolManifestEntry>> = {};
-  for (const toolName of ["rg", "fd", "jq"] as const) {
+  for (const toolName of ["rg", "fd", "jq", "oxlint"] as const) {
     const entry = parsed.tools[toolName];
     if (entry === undefined) {
       continue;
@@ -96,15 +97,18 @@ async function vendorTool(
 
   try {
     await download(entry.source, downloadedPath);
-    await verifySha256(downloadedPath, entry.sha256);
+    await verifySha256(downloadedPath, entry.archiveSha256, "archive");
     const destinationPath = resolve(platformPackage.packageRoot, entry.path);
     assertInsideDirectory(destinationPath, platformPackage.packageRoot, "path");
 
+    const sourceBinaryPath = await resolveDownloadedBinary(downloadedPath, extractDir, entry);
+    await verifySha256(sourceBinaryPath, entry.binarySha256, "materialized binary");
     await mkdir(dirname(destinationPath), { recursive: true });
-    await copyFile(await resolveDownloadedBinary(downloadedPath, extractDir, entry), destinationPath);
+    await copyFile(sourceBinaryPath, destinationPath);
     if (!destinationPath.endsWith(".exe")) {
       await chmod(destinationPath, 0o755);
     }
+    await verifySha256(destinationPath, entry.binarySha256, "materialized binary");
 
     console.log(`Vendored ${toolName} ${entry.version} -> ${destinationPath}`);
   } finally {
@@ -148,10 +152,10 @@ async function download(url: string, destinationPath: string): Promise<void> {
   await pipeline(response.body, createWriteStream(destinationPath));
 }
 
-async function verifySha256(path: string, expectedSha256: string): Promise<void> {
+async function verifySha256(path: string, expectedSha256: string, artifact: string): Promise<void> {
   const actualSha256 = createHash("sha256").update(await readFile(path)).digest("hex");
   if (actualSha256 !== expectedSha256) {
-    throw new Error(`SHA-256 mismatch for ${path}: expected ${expectedSha256}, got ${actualSha256}`);
+    throw new Error(`SHA-256 mismatch for ${artifact} ${path}: expected ${expectedSha256}, got ${actualSha256}`);
   }
 }
 
@@ -184,8 +188,10 @@ function isToolManifestEntry(value: unknown): value is ToolManifestEntry {
     typeof value.source === "string" &&
     (value.sourceType === undefined || value.sourceType === "archive" || value.sourceType === "file") &&
     (value.sourceType === "file" || typeof value.archivePath === "string") &&
-    typeof value.sha256 === "string" &&
-    /^[a-f0-9]{64}$/u.test(value.sha256)
+    typeof value.archiveSha256 === "string" &&
+    /^[a-f0-9]{64}$/u.test(value.archiveSha256) &&
+    typeof value.binarySha256 === "string" &&
+    /^[a-f0-9]{64}$/u.test(value.binarySha256)
   );
 }
 

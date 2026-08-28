@@ -1,16 +1,36 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { KilnGlobalConfig } from "./global-config.js";
+import type { KilnGlobalConfig } from "../global-config.js";
 import {
+  digestDafnyInstallation,
+  observeDafnyInstallationDigest,
   parseObservedDafnyVersion,
   resolveFormalVerificationConfiguration,
 } from "./dafny.js";
 
-function globalConfig(executable = "dafny", expectedVersion = "4.11.0"): KilnGlobalConfig {
+const installationFiles = [
+  { relativePath: "Dafny.exe", bytes: new TextEncoder().encode("dafny fixture") },
+  { relativePath: "DafnyCore.dll", bytes: new TextEncoder().encode("core fixture") },
+] as const;
+const expectedInstallationDigest = digestDafnyInstallation(installationFiles);
+
+function globalConfig(
+  executable = "C:/tools/dafny.exe",
+  expectedVersion = "4.11.0",
+  installationRoot = "C:/tools",
+): KilnGlobalConfig {
   return {
-    version: "5",
+    version: "6",
     verification: {
       formal: {
-        dafny: { executable, expectedVersion },
+        dafny: {
+          executable,
+          installationRoot,
+          expectedVersion,
+          expectedInstallationDigest,
+        },
       },
     },
   };
@@ -28,8 +48,8 @@ describe("formal-verification-config", () => {
     const result = resolveFormalVerificationConfiguration({
       globalConfig: globalConfig("C:/tools/dafny.exe"),
       platform: "win32",
-      discoveredPaths: [],
       runVersion,
+      observeInstallationDigest: () => expectedInstallationDigest,
     });
 
     expect(result).toEqual({
@@ -37,15 +57,20 @@ describe("formal-verification-config", () => {
         executable: "C:/tools/dafny.exe",
         verifierVersion: "4.11.0",
       },
+      identity: {
+        version: "4.11.0",
+        installationDigest: expectedInstallationDigest,
+      },
     });
     expect(runVersion).toHaveBeenCalledWith("C:/tools/dafny.exe");
   });
 
   it("returns a typed diagnostic without registration when the version mismatches", () => {
     const result = resolveFormalVerificationConfiguration({
-      globalConfig: globalConfig(),
+      globalConfig: globalConfig("/opt/dafny/dafny", "4.11.0", "/opt/dafny"),
       platform: "linux",
       runVersion: () => "Dafny 4.3.0",
+      observeInstallationDigest: () => expectedInstallationDigest,
     });
 
     expect(result.options).toBeUndefined();
@@ -69,12 +94,61 @@ describe("formal-verification-config", () => {
     const result = resolveFormalVerificationConfiguration({
       globalConfig: globalConfig("dafny"),
       platform: "win32",
-      discoveredPaths: ["C:\\tools\\dafny.cmd"],
       runVersion,
+      observeInstallationDigest: () => expectedInstallationDigest,
     });
 
     expect(result.diagnostic).toMatchObject({ code: "executable_unavailable" });
-    expect(result.diagnostic?.message).toContain("native Windows executable");
+    expect(result.diagnostic?.message).toContain("absolute native executable path");
     expect(runVersion).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before execution when any configured installation bytes drift", () => {
+    const runVersion = vi.fn(() => "Dafny 4.11.0");
+    const result = resolveFormalVerificationConfiguration({
+      globalConfig: globalConfig("C:/tools/dafny.exe"),
+      platform: "win32",
+      runVersion,
+      observeInstallationDigest: () => digestDafnyInstallation([
+        installationFiles[0],
+        { relativePath: "DafnyCore.dll", bytes: new TextEncoder().encode("different core") },
+      ]),
+    });
+
+    expect(result.diagnostic).toMatchObject({
+      code: "digest_mismatch",
+      expectedInstallationDigest,
+    });
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
+  it("hashes the complete installation canonically and rejects ambiguous paths", () => {
+    expect(digestDafnyInstallation([...installationFiles].reverse())).toBe(expectedInstallationDigest);
+    expect(() => digestDafnyInstallation([
+      ...installationFiles,
+      { relativePath: "DafnyCore.dll", bytes: new Uint8Array() },
+    ])).toThrow(/duplicate relative paths/u);
+    expect(() => digestDafnyInstallation([
+      { relativePath: "../outside.dll", bytes: new Uint8Array() },
+    ])).toThrow(/unsafe relative path/u);
+  });
+
+  it("streams only a dedicated real installation root and rejects an outside executable", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-dafny-installation-"));
+    const outside = mkdtempSync(join(tmpdir(), "kiln-dafny-outside-"));
+    try {
+      const executable = join(root, "Dafny.exe");
+      const core = join(root, "DafnyCore.dll");
+      const outsideExecutable = join(outside, "Dafny.exe");
+      writeFileSync(executable, installationFiles[0].bytes);
+      writeFileSync(core, installationFiles[1].bytes);
+      writeFileSync(outsideExecutable, installationFiles[0].bytes);
+
+      expect(observeDafnyInstallationDigest(root, executable)).toBe(expectedInstallationDigest);
+      expect(() => observeDafnyInstallationDigest(root, outsideExecutable)).toThrow(/outside/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

@@ -8,7 +8,7 @@ dependency.
 
 ## Canonical Preference
 
-Global config v5 owns the durable preference as one atomic value:
+Global config v6 owns the durable preference as one atomic value:
 
 ```yaml
 ui:
@@ -26,9 +26,8 @@ revision fencing, locking, atomic replacement, and read-back. GUI localStorage
 is only a versioned startup projection cache and is replaced from the settings
 snapshot. It is never configuration authority.
 
-Legacy appearance contracts have no compatibility reader or migration path.
-There are no external consumers; canonical operator state was replaced with
-v5 in place.
+There are no external consumers; canonical operator state uses v6 directly
+without a compatibility reader or migration path.
 
 ## Resolution and Surface Boundaries
 

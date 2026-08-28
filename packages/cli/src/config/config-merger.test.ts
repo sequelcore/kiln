@@ -76,7 +76,7 @@ describe("config-merger", () => {
     const ambientHome = join(root, "ambient-home");
     const binding = resolveProjectStateBinding(root, { kilnHome: bindingHome });
     const globalConfig = {
-      version: "5",
+      version: "6",
       mcp: {
         servers: {
           shared: {
@@ -147,7 +147,7 @@ describe("config-merger", () => {
 
   it("rejects a project sandbox or approval policy that broadens global authority", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       permissions: { approval: "on-request", sandbox: "read-only" },
     } as KilnGlobalConfig;
     const projectConfig = {
@@ -163,7 +163,7 @@ describe("config-merger", () => {
 
   it("rejects a project bounded work ceiling because the ceiling is global-only", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       workGovernance: {
         boundedWorkCeiling: {
           allowedEffects: ["inspect", "modify_source"],
@@ -207,7 +207,7 @@ describe("config-merger", () => {
 
   it("rejects a project request above global permissions even when the ceiling is wider", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       permissions: { approval: "on-request", sandbox: "read-only" },
       permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
       workGovernance: {
@@ -233,7 +233,7 @@ describe("config-merger", () => {
 
   it("checks global permissions and permissionCeiling as independent scalar bounds", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       permissions: { approval: "on-request", sandbox: "read-only" },
       permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
     } as KilnGlobalConfig;
@@ -244,7 +244,7 @@ describe("config-merger", () => {
     })).toThrow("Project permissions.sandbox cannot broaden global.permissions.");
 
     expect(() => deriveEffectiveKilnYaml({
-      version: "5",
+      version: "6",
       permissionCeiling: { sandbox: "read-only" },
     } as KilnGlobalConfig, {
       version: "1",
@@ -254,7 +254,7 @@ describe("config-merger", () => {
 
   it("rejects project authority-bearing dimensions with a stable path diagnostic", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       permissions: {
         approval: "on-request",
         sandbox: "read-only",
@@ -272,7 +272,7 @@ describe("config-merger", () => {
 
   it("admits only a project subset of global active instruction profiles", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       activeInstructionProfiles: ["sequel-engineering", "operator-communication"],
     } as KilnGlobalConfig;
     const projectConfig = {
@@ -300,7 +300,7 @@ describe("config-merger", () => {
       ...override,
     }));
 
-    expect(() => deriveEffectiveKilnYaml({ version: "5" } as KilnGlobalConfig, projectConfig)).toThrow(
+    expect(() => deriveEffectiveKilnYaml({ version: "6" } as KilnGlobalConfig, projectConfig)).toThrow(
       "Project permissions.sandbox has no global permission ceiling.",
     );
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
@@ -308,7 +308,7 @@ describe("config-merger", () => {
 
   it("denies an unbounded project permission sibling in a partial global ceiling", () => {
     expect(() => deriveEffectiveKilnYaml({
-      version: "5",
+      version: "6",
       permissions: { sandbox: "read-only" },
     } as KilnGlobalConfig, {
       version: "1",
@@ -318,7 +318,7 @@ describe("config-merger", () => {
 
   it("denies an execution limit whose matching global bound is omitted", () => {
     expect(() => deriveEffectiveKilnYaml({
-      version: "5",
+      version: "6",
       workGovernance: { boundedWorkCeiling: { maximumLimits: { maxChildDepth: 2 } } },
     } as unknown as KilnGlobalConfig, {
       version: "1",
@@ -328,7 +328,7 @@ describe("config-merger", () => {
 
   it("rejects project web policy and domains that broaden the global ceiling", () => {
     const globalConfig = {
-      version: "5",
+      version: "6",
       web: {
         enabled: true,
         netPolicy: "documentation",
@@ -367,7 +367,7 @@ describe("config-merger", () => {
   it("rejects project-only MCP servers instead of granting project connection authority", () => {
     expect(() => deriveEffectiveKilnYaml(
       {
-        version: "5",
+        version: "6",
         mcp: { servers: { global: { type: "stdio", command: "global" } } },
       } as unknown as KilnGlobalConfig,
       {
@@ -387,7 +387,7 @@ describe("config-merger", () => {
   it("rejects project execution limits above the global bounded-work ceiling", () => {
     expect(() => deriveEffectiveKilnYaml(
       {
-        version: "5",
+        version: "6",
         workGovernance: {
           boundedWorkCeiling: {
             maximumLimits: {
@@ -407,7 +407,7 @@ describe("config-merger", () => {
 
   it("returns global-converted-to-ResolvedKilnConfig when only global config exists", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "5",
+      version: "6",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],
@@ -531,7 +531,7 @@ describe("config-merger", () => {
 
   it("merges global as base with project as override - project scalar wins", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "5",
+      version: "6",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],
@@ -593,7 +593,7 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps provider, model, permissions, mcp, hooks correctly", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "5",
+      version: "6",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],
@@ -697,7 +697,7 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps undefined model to undefined", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "5",
+      version: "6",
       engines: { claude: { enabled: true, billing: "subscription" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],

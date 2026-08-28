@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ describe("resolveFormalScreeningConfig", () => {
   });
 
   it("fails closed when screening is not configured", () => {
-    expect(() => resolveFormalScreeningConfig({ version: "5" })).toThrow(
+    expect(() => resolveFormalScreeningConfig({ version: "6" })).toThrow(
       "Formal screening requires global verification.formal.screening configuration.",
     );
   });
@@ -74,10 +75,15 @@ function createFixture(): {
 
 function configFor(fixture: ReturnType<typeof createFixture>): KilnGlobalConfig {
   return {
-    version: "5",
+    version: "6",
     verification: {
       formal: {
-        dafny: { executable: fixture.dafny, expectedVersion: "4.11.0" },
+        dafny: {
+          executable: fixture.dafny,
+          installationRoot: fixture.root,
+          expectedVersion: "4.11.0",
+          expectedInstallationDigest: `sha256:${createHash("sha256").update("dafny installation").digest("hex")}`,
+        },
         screening: {
           packagePath: fixture.privatePackage,
           lemmaScript: {

@@ -139,7 +139,7 @@ Global config is the active user-level contract. It includes:
   economic evidence is projected read-only
 - `identity`, atomic `ui.appearance`, and bundled `components`
 
-The current canonical global schema version is `"5"`. Kiln does not support
+The current canonical global schema version is `"6"`. Kiln does not support
 compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.

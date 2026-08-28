@@ -36,7 +36,7 @@ describe("TUI verification presentation", () => {
       engine: { name: "oxlint", version: "1.80.0" },
       candidate: { digest, subjects: [{ path: "policy.ts", contentDigest: digest }] },
       outcome: "violations",
-      profile: { id: "oxlint.correctness+suspicious/v1", rulesAnalyzed: 245 },
+      profile: { id: "oxlint.sequel-typescript/v1", rulesAnalyzed: 106 },
       diagnostics: [{ rule: "no-unused-vars", severity: "warning", message: "Unused parameter", file: "policy.ts", line: 4, column: 8 }],
       authority: { kind: "evidence_only", establishes: [] },
     };

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertCompleteBundle,
   assertPackedLegalFiles,
+  assertPackedToolExecutables,
   assertTrustedPublishingEnvironment,
   buildReleasePlan,
   buildWorkspaceOrder,
@@ -361,6 +362,25 @@ describe("release bundle", () => {
         "HANDOFF-formal-verification.md",
       ]),
     ).toThrow(/private workflow material/);
+  });
+
+  it("requires mode 0755 for every managed binary in Unix platform tarballs", () => {
+    const linuxPackage = {
+      name: "@kilnai/tools-linux-x64",
+      directory: "tools-linux-x64",
+      version: "2.2.0-beta.1",
+      os: ["linux"],
+      cpu: ["x64"],
+    } as const;
+    expect(() => assertPackedToolExecutables(linuxPackage, [
+      { path: "bin/rg", mode: 0o755 },
+      { path: "bin/oxlint", mode: 0o755 },
+    ])).not.toThrow();
+    expect(() => assertPackedToolExecutables(linuxPackage, [
+      { path: "bin/rg", mode: 0o755 },
+      { path: "bin/oxlint", mode: 0o644 },
+    ])).toThrow(/mode 0755.*bin\/oxlint/u);
+    expect(() => assertPackedToolExecutables(linuxPackage, [])).toThrow(/no managed tool binaries/u);
   });
 
   it("installs the full portable cohort plus only the host-compatible platform tarball", () => {

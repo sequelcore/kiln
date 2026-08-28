@@ -59,6 +59,7 @@ const statSyncMock = statSync as unknown as ReturnType<typeof vi.fn>;
 const chmodSyncMock = chmodSync as unknown as ReturnType<typeof vi.fn>;
 const fsyncSyncMock = fsyncSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = homedir as unknown as ReturnType<typeof vi.fn>;
+const EXECUTABLE_DIGEST = `sha256:${"a".repeat(64)}`;
 
 function revisionOf(raw: string | null): string {
   if (raw === null) return "absent";
@@ -75,27 +76,27 @@ function commitGlobalConfigForTest(
   } = {},
 ) {
   return commitGlobalConfigBytes({
-    content: input.content ?? 'version: "5"\n',
-    expectedRevision: revisionOf(input.currentRaw === undefined ? 'version: "5"\n' : input.currentRaw),
+    content: input.content ?? 'version: "6"\n',
+    expectedRevision: revisionOf(input.currentRaw === undefined ? 'version: "6"\n' : input.currentRaw),
     ...(input.invalidCurrent === undefined ? {} : { invalidCurrent: input.invalidCurrent }),
   });
 }
 
-const V5_DIRECT_TARGET_INTENT_YAML =
+const V6_DIRECT_TARGET_INTENT_YAML =
   "    - { id: codex-terra, kind: direct, label: Codex Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountPolicyId: codex-policy, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }";
-const V5_HARNESS_TARGET_INTENT_YAML =
+const V6_HARNESS_TARGET_INTENT_YAML =
   "    - { id: claude-cli, kind: harness, label: Claude CLI, providerId: claude, providerModelId: claude-opus-4-6, dataClassification: internal }";
 
-function canonicalV5GlobalYaml(): string {
+function canonicalV6GlobalYaml(): string {
   return [
-    'version: "5"',
+    'version: "6"',
     "targetCatalog:",
     `  evidenceRevision: sha256:${"a".repeat(64)}`,
     "  accounts: [{ id: codex-account, providerId: codex-oauth, credentialId: codex-credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
     "  accountPolicies: [{ id: codex-policy, accountIds: [codex-account], strategy: economic-least-pressure }]",
     "  targets:",
-    V5_DIRECT_TARGET_INTENT_YAML,
-    V5_HARNESS_TARGET_INTENT_YAML,
+    V6_DIRECT_TARGET_INTENT_YAML,
+    V6_HARNESS_TARGET_INTENT_YAML,
     "authorityProfiles:",
     "  - { id: readonly-scout, admissionProfile: foundation-readonly-plan, workingDirectory: project }",
     "targetRouting: { defaultTargetId: codex-terra }",
@@ -166,7 +167,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "targetCatalog:",
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts:",
@@ -190,7 +191,7 @@ describe("global-config", () => {
     const config = readGlobalConfig();
 
     expect(config).toEqual({
-      version: "5",
+      version: "6",
       targetCatalog: {
         evidenceRevision: `sha256:${"a".repeat(64)}`,
         accounts: [
@@ -243,20 +244,24 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "verification:",
         "  formal:",
         "    dafny:",
-        "      executable: dafny",
+        "      executable: /opt/dafny/dafny",
+        "      installationRoot: /opt/dafny",
         "      expectedVersion: 4.11.0",
+        `      expectedInstallationDigest: ${EXECUTABLE_DIGEST}`,
       ].join("\n"),
     );
 
     expect(readGlobalConfig()?.verification).toEqual({
       formal: {
         dafny: {
-          executable: "dafny",
+          executable: "/opt/dafny/dafny",
+          installationRoot: "/opt/dafny",
           expectedVersion: "4.11.0",
+          expectedInstallationDigest: EXECUTABLE_DIGEST,
         },
       },
     });
@@ -266,12 +271,14 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "verification:",
         "  formal:",
         "    dafny:",
         "      executable: /opt/dafny/dafny",
+        "      installationRoot: /opt/dafny",
         "      expectedVersion: 4.11.0",
+        `      expectedInstallationDigest: ${EXECUTABLE_DIGEST}`,
         "    screening:",
         "      packagePath: /private/kiln-formal-screening",
         "      lemmaScript:",
@@ -315,12 +322,14 @@ describe("global-config", () => {
   ])("readGlobalConfig() rejects a formal screening %s", (_case, replacement, message) => {
     existsSyncMock.mockReturnValue(true);
     const lines = [
-      'version: "5"',
+      'version: "6"',
       "verification:",
       "  formal:",
       "    dafny:",
       "      executable: /opt/dafny/dafny",
+      "      installationRoot: /opt/dafny",
       "      expectedVersion: 4.11.0",
+      `      expectedInstallationDigest: ${EXECUTABLE_DIGEST}`,
       "    screening:",
       "      packagePath: /private/kiln-formal-screening",
       "      lemmaScript:",
@@ -352,24 +361,62 @@ describe("global-config", () => {
     ],
     [
       "non-canonical version",
-      ["verification:", "  formal:", "    dafny:", "      executable: dafny", "      expectedVersion: 4.11"],
+      [
+        "verification:",
+        "  formal:",
+        "    dafny:",
+        "      executable: /opt/dafny/dafny",
+        "      installationRoot: /opt/dafny",
+        "      expectedVersion: 4.11",
+      ],
       "verification.formal.dafny.expectedVersion must be a canonical version",
+    ],
+    [
+      "relative installation root",
+      [
+        "verification:",
+        "  formal:",
+        "    dafny:",
+        "      executable: /opt/dafny/dafny",
+        "      installationRoot: tools/dafny",
+      ],
+      "verification.formal.dafny.installationRoot must be an absolute path",
+    ],
+    [
+      "relative executable",
+      ["verification:", "  formal:", "    dafny:", "      executable: dafny"],
+      "verification.formal.dafny.executable must be an absolute path",
     ],
   ])("readGlobalConfig() rejects Dafny %s", (_case, lines, message) => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(['version: "5"', ...lines].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', ...lines].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(message);
   });
 
-  it("readGlobalConfig() accepts the V5 target-intent catalog and reusable authority profiles", () => {
+  it("rejects a relative Gentle AI executable at admission", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(canonicalV5GlobalYaml());
+    readFileSyncMock.mockReturnValue([
+      'version: "6"',
+      "verification:",
+      "  inferential:",
+      "    gentleAi:",
+      "      executable: gentle-ai",
+    ].join("\n"));
+
+    expect(() => readGlobalConfig()).toThrow(
+      "verification.inferential.gentleAi.executable must be an absolute path",
+    );
+  });
+
+  it("readGlobalConfig() accepts the V6 target-intent catalog and reusable authority profiles", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(canonicalV6GlobalYaml());
 
     const config = readGlobalConfig();
 
     expect(config).toMatchObject({
-      version: "5",
+      version: "6",
       targetCatalog: {
         accounts: [{ id: "codex-account" }],
         accountPolicies: [{ id: "codex-policy" }],
@@ -435,7 +482,7 @@ describe("global-config", () => {
     ],
   ])("readGlobalConfig() rejects obsolete V2 target surface %s", (_case, obsoleteYaml, message) => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(['version: "5"', obsoleteYaml].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', obsoleteYaml].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(message);
   });
@@ -443,12 +490,12 @@ describe("global-config", () => {
   it.each([
     [
       "default operator target",
-      canonicalV5GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: claude-cli"),
+      canonicalV6GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: claude-cli"),
       "targetRouting.defaultTargetId must reference a direct target",
     ],
     [
       "selected operator target",
-      canonicalV5GlobalYaml().replace(
+      canonicalV6GlobalYaml().replace(
         "targetSelection: { targetId: codex-terra",
         "targetSelection: { targetId: claude-cli",
       ),
@@ -463,15 +510,15 @@ describe("global-config", () => {
   it.each([
     [
       "target IDs",
-      canonicalV5GlobalYaml().replace(
-        V5_HARNESS_TARGET_INTENT_YAML,
-        `${V5_HARNESS_TARGET_INTENT_YAML}\n${V5_DIRECT_TARGET_INTENT_YAML}`,
+      canonicalV6GlobalYaml().replace(
+        V6_HARNESS_TARGET_INTENT_YAML,
+        `${V6_HARNESS_TARGET_INTENT_YAML}\n${V6_DIRECT_TARGET_INTENT_YAML}`,
       ),
       "targetCatalog.targets[2].id must be unique",
     ],
     [
       "authority profile IDs",
-      canonicalV5GlobalYaml().replace(
+      canonicalV6GlobalYaml().replace(
         "targetRouting: { defaultTargetId: codex-terra }",
         "  - { id: readonly-scout, admissionProfile: foundation-readonly-plan, workingDirectory: sandbox }\ntargetRouting: { defaultTargetId: codex-terra }",
       ),
@@ -487,7 +534,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects the replaced economic policy surface", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      canonicalV5GlobalYaml().replace("  intents:", "  economicPolicies: []\n  intents:"),
+      canonicalV6GlobalYaml().replace("  intents:", "  economicPolicies: []\n  intents:"),
     );
 
     expect(() => readGlobalConfig()).toThrow("Unknown managedAgents field: economicPolicies");
@@ -496,12 +543,12 @@ describe("global-config", () => {
   it.each([
     [
       "default target",
-      canonicalV5GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: missing-target"),
+      canonicalV6GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: missing-target"),
       "targetRouting.defaultTargetId references an unknown target",
     ],
     [
       "selected target",
-      canonicalV5GlobalYaml().replace(
+      canonicalV6GlobalYaml().replace(
         "targetSelection: { targetId: codex-terra",
         "targetSelection: { targetId: missing-target",
       ),
@@ -509,7 +556,7 @@ describe("global-config", () => {
     ],
     [
       "default authority profile",
-      canonicalV5GlobalYaml().replace(
+      canonicalV6GlobalYaml().replace(
         "defaultAuthorityProfileId: readonly-scout",
         "defaultAuthorityProfileId: missing-profile",
       ),
@@ -517,7 +564,7 @@ describe("global-config", () => {
     ],
     [
       "intent target",
-      canonicalV5GlobalYaml().replace("targetId: codex-terra }, model", "targetId: missing-target }, model"),
+      canonicalV6GlobalYaml().replace("targetId: codex-terra }, model", "targetId: missing-target }, model"),
       "managedAgents.intents[0].target.targetId references an unknown target",
     ],
   ])("readGlobalConfig() rejects an unknown %s reference", (_case, yaml, message) => {
@@ -528,11 +575,11 @@ describe("global-config", () => {
   });
 
   it.each([
-    ["V1", 'version: "1"', 'Global config version must be "5"'],
-    ["legacy direct models", 'version: "5"\ndirectModels: []', "Unknown global config field: directModels"],
+    ["V1", 'version: "1"', 'Global config version must be "6"'],
+    ["legacy direct models", 'version: "6"\ndirectModels: []', "Unknown global config field: directModels"],
     [
       "secret",
-      `version: "5"\ntargetCatalog: { evidenceRevision: sha256:${"a".repeat(64)}, accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], targets: [] }`,
+      `version: "6"\ntargetCatalog: { evidenceRevision: sha256:${"a".repeat(64)}, accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], targets: [] }`,
       "Unknown targetCatalog.accounts[0] field: token",
     ],
   ])("rejects %s", (_case, yaml, message) => {
@@ -545,7 +592,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "targetCatalog:",
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: [{ id: work, providerId: codex-oauth, credentialId: work, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
@@ -578,7 +625,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "modelGateway:",
         "  port: 4819",
         "  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }",
@@ -595,7 +642,7 @@ describe("global-config", () => {
     });
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "modelGateway:", "  port: 4819", "  token: raw-secret"].join("\n"),
+      ['version: "6"', "modelGateway:", "  port: 4819", "  token: raw-secret"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("Invalid global modelGateway");
   });
@@ -605,47 +652,47 @@ describe("global-config", () => {
     readFileSyncMock.mockReturnValue(['version: "1"', "provider: codex"].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(
-      'Global config version must be "5". Recreate the canonical config through an explicit adoption flow.',
+      'Global config version must be "6". Recreate the canonical config through an explicit adoption flow.',
     );
   });
 
   it("readGlobalConfig() rejects unknown top-level fields and invalid billing modes", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(['version: "5"', "provider: codex"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "provider: codex"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("Unknown global config field: provider");
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "engines:", "  codex:", "    billing: credits"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "engines:", "  codex:", "    billing: credits"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("engines.codex.billing has an unknown billing mode");
   });
 
   it("readGlobalConfig() validates global identity fields", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "identity:", "  name: Alex", "  timezone: America/Tijuana"].join("\n"),
+      ['version: "6"', "identity:", "  name: Alex", "  timezone: America/Tijuana"].join("\n"),
     );
     expect(readGlobalConfig()?.identity).toEqual({
       name: "Alex",
       timezone: "America/Tijuana",
     });
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "identity:", "  personality: helpful"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "identity:", "  personality: helpful"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("Unknown identity field: personality");
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "identity:", '  timezone: ""'].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "identity:", '  timezone: ""'].join("\n"));
     expect(() => readGlobalConfig()).toThrow("identity.timezone must be a non-empty string");
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "identity:", "  timezone: Not/A_Timezone"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "identity:", "  timezone: Not/A_Timezone"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("identity.timezone must be a valid IANA time zone");
   });
 
   it("readGlobalConfig() validates active instruction profiles", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "activeInstructionProfiles:", "  - sequel-engineering"].join("\n"),
+      ['version: "6"', "activeInstructionProfiles:", "  - sequel-engineering"].join("\n"),
     );
     expect(readGlobalConfig()?.activeInstructionProfiles).toEqual(["sequel-engineering"]);
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "activeInstructionProfiles:", '  - ""'].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "activeInstructionProfiles:", '  - ""'].join("\n"));
     expect(() => readGlobalConfig()).toThrow("activeInstructionProfiles must be an array of non-empty strings");
   });
 
@@ -653,7 +700,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "skills:",
         "  builtin:",
         "    enabled: true",
@@ -676,15 +723,15 @@ describe("global-config", () => {
       },
     });
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "skills:", "  builtin:", "    enabled: yes"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "skills:", "  builtin:", "    enabled: yes"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("skills.builtin.enabled must be a boolean");
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "skills:", "  selection:", "    mode: eager"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "skills:", "  selection:", "    mode: eager"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("skills.selection.mode must be advisory or auto");
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "skills:",
         "  visibility:",
         "    default: implicit",
@@ -699,14 +746,14 @@ describe("global-config", () => {
     });
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "skills:", "  visibility:", "    overrides:", "      planner: sometimes"].join("\n"),
+      ['version: "6"', "skills:", "  visibility:", "    overrides:", "      planner: sometimes"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "skills.visibility.overrides.planner must be implicit, explicit-only, or disabled",
     );
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "skills:", "  visibility:", "    overrides:", "      Planner: disabled"].join("\n"),
+      ['version: "6"', "skills:", "  visibility:", "    overrides:", "      Planner: disabled"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "skills.visibility.overrides key must be a lowercase kebab-case skill name: Planner",
@@ -727,7 +774,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "workGovernance:",
         "  defaultPosture: orchestrate",
         "  requireDelegationFor:",
@@ -746,12 +793,12 @@ describe("global-config", () => {
     });
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "workGovernance:", "  requireDelegationFor:", "    - vibes"].join("\n"),
+      ['version: "6"', "workGovernance:", "  requireDelegationFor:", "    - vibes"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("workGovernance.requireDelegationFor contains unsupported trigger: vibes");
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "workGovernance:", "  directExecution:", "    maxFiles: 1"].join("\n"),
+      ['version: "6"', "workGovernance:", "  directExecution:", "    maxFiles: 1"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("Unknown workGovernance field: directExecution");
   });
@@ -759,13 +806,13 @@ describe("global-config", () => {
   it("rejects unknown or widening bounded-work ceiling fields", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "workGovernance:", "  boundedWorkCeiling:", "    unexpected: true"].join("\n"),
+      ['version: "6"', "workGovernance:", "  boundedWorkCeiling:", "    unexpected: true"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("Unknown workGovernance.boundedWorkCeiling field: unexpected");
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "workGovernance:",
         "  boundedWorkCeiling:",
         "    maximumLimits:",
@@ -779,7 +826,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "web:",
         "  searchProvider:",
         "    type: tavily",
@@ -806,7 +853,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -861,7 +908,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -897,7 +944,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -924,7 +971,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "operatorVoice:",
         "  stt:",
         "    provider: imaginary-stt",
@@ -942,7 +989,7 @@ describe("global-config", () => {
   it("readGlobalConfig() accepts global web capability ceilings", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "web:", "  enabled: true", "  netPolicy: full", "  allowedDomains: ['*']"].join("\n"),
+      ['version: "6"', "web:", "  enabled: true", "  netPolicy: full", "  allowedDomains: ['*']"].join("\n"),
     );
 
     expect(readGlobalConfig()?.web).toEqual({
@@ -952,22 +999,21 @@ describe("global-config", () => {
     });
   });
 
-  it("readGlobalConfig() accepts an independent operator-owned Oxlint declaration", () => {
+  it("readGlobalConfig() accepts the managed Oxlint capability opt-in", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "verification:",
         "  static:",
         "    oxlint:",
-        "      executable: oxlint",
-        "      expectedVersion: 1.80.0",
+        "      enabled: true",
       ].join("\n"),
     );
 
     expect(readGlobalConfig()?.verification).toEqual({
       static: {
-        oxlint: { executable: "oxlint", expectedVersion: "1.80.0" },
+        oxlint: { enabled: true },
       },
     });
   });
@@ -979,18 +1025,18 @@ describe("global-config", () => {
       "Unknown verification.static.oxlint field: path",
     ],
     [
-      "empty executable",
-      ["verification:", "  static:", "    oxlint:", '      executable: ""', "      expectedVersion: 1.80.0"],
-      "verification.static.oxlint.executable must be a non-empty string",
+      "disabled managed provider",
+      ["verification:", "  static:", "    oxlint:", "      enabled: false"],
+      "verification.static.oxlint.enabled must be true",
     ],
     [
-      "non-canonical version",
-      ["verification:", "  static:", "    oxlint:", "      executable: oxlint", "      expectedVersion: latest"],
-      "verification.static.oxlint.expectedVersion must be a canonical version",
+      "missing opt-in",
+      ["verification:", "  static:", "    oxlint: {}"],
+      "verification.static.oxlint.enabled must be true",
     ],
   ])("readGlobalConfig() rejects Oxlint %s", (_case, lines, message) => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(['version: "5"', ...lines].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', ...lines].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(message);
   });
@@ -1003,7 +1049,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "ui:",
         "  appearance:",
         "    mode: system",
@@ -1017,7 +1063,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects invalid target catalog references and account policies", () => {
     existsSyncMock.mockReturnValue(true);
     const valid = [
-      'version: "5"',
+      'version: "6"',
       "targetCatalog:",
       `  evidenceRevision: sha256:${"a".repeat(64)}`,
       "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
@@ -1058,7 +1104,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "modelTaskSuitability:",
         "  - provider: codex-oauth",
         "    model: gpt-5.4-mini",
@@ -1080,7 +1126,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "modelTaskSuitability:",
         "  - provider: codex-oauth",
         "    model: gpt-5.4-mini",
@@ -1099,7 +1145,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "deliberationPolicy:",
         "  default:",
         "    mode: adaptive",
@@ -1146,14 +1192,14 @@ describe("global-config", () => {
     });
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "deliberationPolicy:", "  byTask:", "    frontend-design:", "      mode: fixed"].join("\n"),
+      ['version: "6"', "deliberationPolicy:", "  byTask:", "    frontend-design:", "      mode: fixed"].join("\n"),
     );
 
     expect(() => readGlobalConfig()).toThrow(
       "deliberationPolicy.byTask.frontend-design.preferredLevel is required when mode is fixed",
     );
 
-    readFileSyncMock.mockReturnValue(['version: "5"', "reasoningPolicy:", "  default: medium"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "6"', "reasoningPolicy:", "  default: medium"].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow("Unknown global config field: reasoningPolicy");
   });
@@ -1162,7 +1208,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "authorityProfiles:",
         "  - id: approved-write",
         "    admissionProfile: foundation-apply-approved-writes",
@@ -1188,7 +1234,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "authorityProfiles:",
         "  - id: approved-write",
         "    admissionProfile: foundation-apply-approved-writes",
@@ -1207,7 +1253,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "managedAgents:",
         "  enabled: true",
         "  worktreeLease:",
@@ -1238,7 +1284,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "authorityProfiles:",
         "  - id: sandbox-readonly",
         "    admissionProfile: foundation-readonly-plan",
@@ -1256,7 +1302,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "targetCatalog:",
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
@@ -1283,7 +1329,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "targetCatalog:",
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
@@ -1307,7 +1353,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "targetCatalog:",
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
@@ -1331,7 +1377,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "targetCatalog:",
         `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
@@ -1358,7 +1404,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "managedAgents:",
         "  worktreeLease:",
         "    mode: shell",
@@ -1369,14 +1415,14 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow('managedAgents.worktreeLease.mode must be "git"');
 
     readFileSyncMock.mockReturnValue(
-      ['version: "5"', "managedAgents:", "  worktreeLease:", "    mode: git"].join("\n"),
+      ['version: "6"', "managedAgents:", "  worktreeLease:", "    mode: git"].join("\n"),
     );
 
     expect(() => readGlobalConfig()).toThrow("managedAgents.worktreeLease.rootPath is required");
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "authorityProfiles:",
         "  - id: invalid-workdir",
         "    admissionProfile: foundation-readonly-plan",
@@ -1388,7 +1434,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "managedAgents:",
         "  worktreeLease:",
         "    mode: git",
@@ -1404,7 +1450,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "authorityProfiles:",
         "  - id: readonly-scout",
         "    admissionProfile: foundation-readonly-plan",
@@ -1419,7 +1465,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "5"',
+        'version: "6"',
         "authorityProfiles:",
         "  - id: readonly-scout",
         "    admissionProfile: foundation-readonly-plan",
@@ -1443,14 +1489,14 @@ describe("global-config", () => {
   it("commitGlobalConfigBytes() atomically replaces on Windows without unlinking the destination", () => {
     existsSyncMock.mockImplementation((path: string) => String(path).endsWith("config.yaml"));
     readFileSyncMock
-      .mockReturnValueOnce('version: "5"\nidentity:\n  name: before\n')
-      .mockReturnValueOnce('version: "5"\nidentity:\n  name: after\n');
+      .mockReturnValueOnce('version: "6"\nidentity:\n  name: before\n')
+      .mockReturnValueOnce('version: "6"\nidentity:\n  name: after\n');
     statSyncMock.mockReturnValue({ mode: 0o100640 });
 
-    const currentRaw = 'version: "5"\nidentity:\n  name: before\n';
+    const currentRaw = 'version: "6"\nidentity:\n  name: before\n';
     const result = commitGlobalConfigForTest({
       currentRaw,
-      content: 'version: "5"\nidentity:\n  name: after\n',
+      content: 'version: "6"\nidentity:\n  name: after\n',
     });
 
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
@@ -1482,10 +1528,10 @@ describe("global-config", () => {
 
   it("commitGlobalConfigBytes() returns deterministic revision conflict evidence", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('version: "5"\n');
+    readFileSyncMock.mockReturnValue('version: "6"\n');
     expect(() =>
       commitGlobalConfigBytes({
-        content: 'version: "5"\n',
+        content: 'version: "6"\n',
         expectedRevision: "sha256:stale",
       }),
     ).toThrow(
@@ -1502,7 +1548,7 @@ describe("global-config", () => {
 
   it("commitGlobalConfigBytes() cannot delete a successor lock acquired after its atomic release claim", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('version: "5"\n');
+    readFileSyncMock.mockReturnValue('version: "6"\n');
     statSyncMock.mockReturnValue({ mode: 0o100600 });
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
     const lockPath = `${configPath}.lock`;
@@ -1598,7 +1644,7 @@ describe("global-config", () => {
           acquisitionId: staleAcquisitionId,
         });
       }
-      return 'version: "5"\n';
+      return 'version: "6"\n';
     });
     existsSyncMock.mockReturnValue(false);
     const kill = vi.spyOn(process, "kill").mockImplementation(() => {
@@ -1661,12 +1707,12 @@ describe("global-config", () => {
 
   it("commitGlobalConfigBytes() backs up invalid bytes while holding the lock before replacement", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValueOnce("invalid: [\n").mockReturnValueOnce('version: "5"\n');
+    readFileSyncMock.mockReturnValueOnce("invalid: [\n").mockReturnValueOnce('version: "6"\n');
     statSyncMock.mockReturnValue({ mode: 0o100600 });
 
     const result = commitGlobalConfigForTest({
       currentRaw: "invalid: [\n",
-      content: 'version: "5"\n',
+      content: 'version: "6"\n',
       invalidCurrent: "backup-and-replace",
     });
 
@@ -1711,7 +1757,7 @@ describe("global-config", () => {
 
   it("defaultGlobalConfig() returns expected shape", () => {
     expect(defaultGlobalConfig()).toEqual({
-      version: "5",
+      version: "6",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: false, billing: "plus-quota" },
@@ -1749,7 +1795,7 @@ describe("global-config", () => {
 
   it("resolves provider, model, and UI theme through projection helpers", () => {
     const config = {
-      version: "5" as const,
+      version: "6" as const,
       targetCatalog: {
         accounts: [
           {

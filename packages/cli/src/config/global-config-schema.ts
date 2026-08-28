@@ -1,9 +1,6 @@
-import {
-  type CommunicationIntent,
-  type ModelGatewayConfig,
-  QUALITY_PROFILE_ORDER,
-  type VoiceConfig,
-} from "@kilnai/core";
+import type { CommunicationIntent } from "@kilnai/core/agents";
+import type { ModelGatewayConfig, VoiceConfig } from "@kilnai/core/engine";
+import { QUALITY_PROFILE_ORDER } from "@kilnai/core/verification";
 import { type ObjectOptions, type Static, type TObject, type TProperties, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { describeRunningCliBuild } from "../build-identity.js";
@@ -27,7 +24,7 @@ import { KilnYamlError } from "../kiln-yaml-types.js";
 
 export const GLOBAL_CONFIG_SCHEMA_REVISION = 2;
 export const GLOBAL_CONFIG_SCHEMA_ID = "https://kiln.dev/schemas/global-config-v2.json";
-export const CANONICAL_GLOBAL_CONFIG_VERSION = "5" as const;
+export const CANONICAL_GLOBAL_CONFIG_VERSION = "6" as const;
 
 export type GlobalConfigActivation = "hot" | "next-turn" | "next-session" | "reconcile" | "restart-required";
 export type GlobalConfigSensitivity = "public" | "secret-reference";
@@ -109,7 +106,9 @@ const web = strictObject({
 });
 const dafny = strictObject({
   executable: Type.Readonly(nonEmptyString),
+  installationRoot: Type.Readonly(nonEmptyString),
   expectedVersion: Type.Readonly(nonEmptyString),
+  expectedInstallationDigest: Type.Readonly(Type.String({ pattern: "^sha256:[a-f0-9]{64}$" })),
 });
 const lemmaScript = strictObject({
   packageRoot: Type.Readonly(nonEmptyString),
@@ -125,8 +124,7 @@ const formalVerification = strictObject({
   screening: Type.ReadonlyOptional(formalScreening),
 });
 const oxlint = strictObject({
-  executable: Type.Readonly(nonEmptyString),
-  expectedVersion: Type.Readonly(nonEmptyString),
+  enabled: Type.Readonly(Type.Literal(true)),
 });
 const qualityAnalysis = strictObject({
   typescript: Type.Readonly(

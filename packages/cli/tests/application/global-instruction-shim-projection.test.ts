@@ -37,7 +37,7 @@ function resetFixture(): void {
   mkdirSync(join(KILN_HOME, "instructions"), { recursive: true });
   mkdirSync(join(FIXTURE_ROOT, "xdg-config", "kiln"), { recursive: true });
   writeFileSync(join(KILN_HOME, "config.yaml"), [
-    "version: '5'",
+    "version: '6'",
     "activeInstructionProfiles:",
     "  - sequel-engineering",
     "",

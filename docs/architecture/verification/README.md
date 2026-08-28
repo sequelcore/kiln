@@ -41,14 +41,15 @@ not a second selection or trust authority.
 | Inferential review | Gentle AI 2.5.0-rc.1 | `gentle_review` | Experimental opt-in, read-only active-transaction observer | Facts only; never Assurance or Runtime authority |
 
 `static_analyze` is intentionally narrow. It analyzes one immutable copied
-JavaScript or TypeScript file with a fixed `correctness + suspicious` profile.
+JavaScript or TypeScript file with the fixed `oxlint.sequel-typescript/v1`
+profile of explicit native rules.
 It does not load repository configuration, nested configuration, plugins,
 type-aware rules, or fixes. Candidate-controlled Oxlint and ESLint disable
 tokens are rejected before invocation because inline directives override linter
 configuration and could otherwise suppress the fixed profile. Its observation records the source digest, pinned
 Oxlint version, profile revision, number of rules, diagnostics, and outcome.
 
-This fixed profile is the smallest reproducible second verifier class. Project
+This fixed profile is a reproducible general TypeScript verifier class. Project
 lint policy remains owned by the project's normal lint command; Kiln does not
 silently reinterpret that policy as assurance evidence.
 
@@ -74,20 +75,22 @@ contributions shipped in a release; there is no runtime plugin registry.
 
 ## Configuration
 
-Providers are absent unless the operator explicitly configures their native
-executable and exact observed version in `~/.kiln/config.yaml`:
+Verification capabilities are absent unless the operator enables or configures
+them in `~/.kiln/config.yaml`. Oxlint is a Kiln-managed platform artifact;
+Dafny and Gentle AI remain externally supplied. Dafny binds the complete
+installation tree; Gentle AI binds its exact executable:
 
 ```yaml
-version: "5"
+version: "6"
 verification:
   formal:
     dafny:
       executable: C:/tools/dafny.exe
+      installationRoot: C:/tools/dafny
       expectedVersion: 4.11.0
+      expectedInstallationDigest: sha256:<published-installation-digest>
   static:
-    oxlint:
-      executable: C:/tools/oxlint.exe
-      expectedVersion: 1.80.0
+    oxlint: { enabled: true }
     quality:
       typescript:
         - type-integrity
@@ -100,14 +103,25 @@ verification:
       expectedExecutableDigest: sha256:<published-executable-digest>
 ```
 
-Each producer class may be configured independently. Kiln probes
-`--version`, requires an exact canonical version match, rejects unavailable or
-non-native Windows launch paths, and omits the tool when resolution fails.
+Each producer class may be configured independently. For Oxlint, Kiln resolves
+only the exact platform package shipped with its release, verifies the
+materialized binary digest, fixed profile configuration digest, and declared
+version; it never falls back to `PATH` or another platform. Dafny is admitted
+only when the canonical digest of every regular file under its installation
+root matches. Symlinks and non-regular entries fail closed. Gentle AI retains
+its executable digest contract. A failed resolution omits the tool.
 The tools remain deferred rather than always present in model context.
 `quality_analyze` has no external executable to probe and is registered only
 when the closed TypeScript profile list is present. The agent chooses only the
 artifact path; it cannot choose profiles, rules, severities, thresholds, or
 exclusions.
+
+`static_analyze` uses the fixed `oxlint.sequel-typescript/v1` profile: 105
+explicit native rules plus unused-suppression reporting. Oxlint owns general
+correctness, safety, and structural budgets. Kiln Quality retains the distinct
+compiled rules for cast integrity, cyclomatic complexity, and focused or empty
+tests; the two producers do not duplicate those checks. Neither a clean lint
+result nor an LLM review establishes an Assurance claim by itself.
 
 `gentle_review` negotiates `gentle-ai.review-integration/v2` capabilities v2.2,
 discovers the current transaction through the provider's structured binding,

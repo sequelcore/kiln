@@ -496,10 +496,10 @@ describe("config-status", () => {
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
     expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Global config version must be "5"/),
+      expect.stringMatching(/Global config version must be "6"/),
     ]));
     expect(health.value).toMatchObject({
-      global: { error: expect.stringContaining('Global config version must be "5"') },
+      global: { error: expect.stringContaining('Global config version must be "6"') },
     });
   });
 
@@ -1315,7 +1315,7 @@ describe("config-status", () => {
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [
-      'version: "5"',
+      'version: "6"',
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",

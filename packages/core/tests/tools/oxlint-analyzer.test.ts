@@ -29,7 +29,7 @@ function output(diagnostics: readonly unknown[] = []): string {
   return JSON.stringify({
     diagnostics,
     number_of_files: 1,
-    number_of_rules: 126,
+    number_of_rules: 106,
     threads_count: 1,
     start_time: 0.001,
   });
@@ -49,10 +49,8 @@ describe("OxlintAnalyzer", () => {
       ".kiln-oxlint.json",
       "--disable-nested-config",
       "--no-ignore",
-      "-D",
-      "correctness",
-      "-D",
-      "suspicious",
+      "--report-unused-disable-directives-severity",
+      "error",
       "src/solution.ts",
     ]);
   });
@@ -66,7 +64,7 @@ describe("OxlintAnalyzer", () => {
     expect(run).toMatchObject({
       status: "completed",
       filesAnalyzed: 1,
-      rulesAnalyzed: 126,
+      rulesAnalyzed: 106,
       diagnostics: [],
     });
   });

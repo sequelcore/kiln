@@ -17,7 +17,10 @@ import { resolveFormalVerificationConfiguration } from "./verification/dafny.js"
 import { type KilnGlobalConfig, readGlobalConfig } from "./global-config.js";
 import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
 import { digestKilnPermissionPolicy } from "./model-facing-permission-policy.js";
-import { resolveStaticAnalysisConfiguration } from "./verification/oxlint.js";
+import {
+  resolveStaticAnalysisConfiguration,
+  type ResolveStaticAnalysisConfigurationInput,
+} from "./verification/oxlint.js";
 import { resolveGentleAiConfiguration } from "./verification/gentle-ai.js";
 import { resolveQualityAnalysisConfiguration } from "./verification/quality.js";
 import {
@@ -78,12 +81,14 @@ export function observeFormalVerificationCapability(
 export interface LoadConfiguredBuiltinToolSurfaceOptionsInput extends LoadConfiguredWebToolSurfaceOptionsInput {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly runDafnyVersion?: (executable: string) => string;
+  readonly observeDafnyInstallationDigest?: Parameters<
+    typeof resolveFormalVerificationConfiguration
+  >[0]["observeInstallationDigest"];
   readonly runOxlintVersion?: (executable: string) => string;
   readonly platform?: NodeJS.Platform;
-  readonly discoveredPaths?: readonly string[];
-  readonly discoveredOxlintPaths?: readonly string[];
+  readonly arch?: string;
+  readonly resolveManagedOxlintBinary?: ResolveStaticAnalysisConfigurationInput["resolveManagedBinary"];
   readonly runGentleAiVersion?: (executable: string) => string;
-  readonly discoveredGentleAiPaths?: readonly string[];
 }
 
 /**
@@ -195,21 +200,25 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
   const formalVerification = resolveFormalVerificationConfiguration({
     globalConfig,
     ...(options.runDafnyVersion === undefined ? {} : { runVersion: options.runDafnyVersion }),
+    ...(options.observeDafnyInstallationDigest === undefined
+      ? {}
+      : { observeInstallationDigest: options.observeDafnyInstallationDigest }),
     ...(options.platform === undefined ? {} : { platform: options.platform }),
-    ...(options.discoveredPaths === undefined ? {} : { discoveredPaths: options.discoveredPaths }),
   });
   const staticAnalysis = resolveStaticAnalysisConfiguration({
     globalConfig,
     ...(options.runOxlintVersion === undefined ? {} : { runVersion: options.runOxlintVersion }),
     ...(options.platform === undefined ? {} : { platform: options.platform }),
-    ...(options.discoveredOxlintPaths === undefined ? {} : { discoveredPaths: options.discoveredOxlintPaths }),
+    ...(options.arch === undefined ? {} : { arch: options.arch }),
+    ...(options.resolveManagedOxlintBinary === undefined
+      ? {}
+      : { resolveManagedBinary: options.resolveManagedOxlintBinary }),
   });
   const gentleReview = resolveGentleAiConfiguration({
     globalConfig,
     repositoryRoot: resolveProjectRoot({ explicitPath: projectPath }).rootPath,
     ...(options.runGentleAiVersion === undefined ? {} : { runVersion: options.runGentleAiVersion }),
     ...(options.platform === undefined ? {} : { platform: options.platform }),
-    ...(options.discoveredGentleAiPaths === undefined ? {} : { discoveredPaths: options.discoveredGentleAiPaths }),
   });
   const qualityAnalysis = resolveQualityAnalysisConfiguration(globalConfig);
   const configuredProducerDiagnostics = collectConfiguredProducerDiagnostics([
@@ -258,7 +267,7 @@ function collectConfiguredProducerDiagnostics(
     if (!diagnostic || diagnostic.code === "not_configured") {
       return [];
     }
-    const status = diagnostic.code === "executable_unavailable"
+    const status = diagnostic.code === "executable_unavailable" || diagnostic.code === "managed_artifact_unavailable"
       ? "configured_unavailable"
       : "validation_failed";
     return [{
@@ -289,7 +298,7 @@ function projectConfiguredProducerDiagnostic(
   const expectedVersion = versionRelated ? optionalDiagnosticVersion(diagnostic, "expectedVersion") : undefined;
   const observedVersion = versionRelated ? optionalDiagnosticVersion(diagnostic, "observedVersion") : undefined;
   return {
-    code: diagnostic.code,
+    code: diagnostic.code === "managed_artifact_unavailable" ? "executable_unavailable" : diagnostic.code,
     message: `Configured producer "${canonicalName}" reported ${diagnostic.code}.`,
     ...(expectedVersion === undefined ? {} : { expectedVersion }),
     ...(observedVersion === undefined ? {} : { observedVersion }),

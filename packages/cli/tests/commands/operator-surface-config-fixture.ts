@@ -25,7 +25,7 @@ export function makeOperatorSurfaceGlobalConfig(
   const evidence = makeOperatorSurfaceTargetEvidence(providerId, providerModelId, targetId);
   return {
     ...base,
-    version: "5",
+    version: "6",
     managedAgents: {
       ...base.managedAgents,
       intents: base.managedAgents?.intents?.map((intent) => ({

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KilnGlobalConfig } from "../global-config.js";
 import { parseObservedGentleAiVersion, resolveGentleAiConfiguration } from "./gentle-ai.js";
 
@@ -34,7 +34,6 @@ describe("Gentle AI configuration", () => {
       globalConfig,
       repositoryRoot: root,
       platform: "win32",
-      discoveredPaths: [executable],
       runVersion: () => "gentle-ai 2.5.0-rc.1",
     });
     expect(resolution.diagnostic).toBeUndefined();
@@ -70,12 +69,38 @@ describe("Gentle AI configuration", () => {
       globalConfig,
       repositoryRoot: root,
       platform: "win32",
-      discoveredPaths: [executable],
       runVersion: () => "2.5.0-rc.1",
       readExecutable: () => {
         throw new Error("access denied");
       },
     });
     expect(resolution.diagnostic).toMatchObject({ code: "digest_probe_failed" });
+  });
+
+  it("does not execute an executable whose digest does not match", () => {
+    root = mkdtempSync(join(tmpdir(), "kiln-gentle-config-"));
+    const executable = join(root, "gentle-ai.exe");
+    writeFileSync(executable, "unexpected bytes");
+    const runVersion = vi.fn(() => "gentle-ai 2.5.0-rc.1");
+    const resolution = resolveGentleAiConfiguration({
+      globalConfig: {
+        version: "6",
+        verification: {
+          inferential: {
+            gentleAi: {
+              executable,
+              expectedVersion: "2.5.0-rc.1",
+              expectedExecutableDigest: `sha256:${"ab".repeat(32)}`,
+            },
+          },
+        },
+      },
+      repositoryRoot: root,
+      platform: "win32",
+      runVersion,
+    });
+
+    expect(resolution.diagnostic).toMatchObject({ code: "digest_mismatch" });
+    expect(runVersion).not.toHaveBeenCalled();
   });
 });

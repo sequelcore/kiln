@@ -58,11 +58,11 @@ describe("initCommand", () => {
   let originalTTY: PropertyDescriptor | undefined;
 
   beforeEach(() => {
-    projectPath = mkdtempSync(join(tmpdir(), "kiln-init-v5-"));
-    globalHome = mkdtempSync(join(tmpdir(), "kiln-init-v5-global-"));
+    projectPath = mkdtempSync(join(tmpdir(), "kiln-init-v6-"));
+    globalHome = mkdtempSync(join(tmpdir(), "kiln-init-v6-global-"));
     mkdirSync(join(globalHome, "kiln"), { recursive: true });
     writeFileSync(join(globalHome, "kiln", "config.yaml"), [
-      "version: '5'",
+      "version: '6'",
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",
@@ -187,7 +187,7 @@ describe("initCommand", () => {
     const result = await initCommand(appConfig, projectPath, {
       interactive: false,
       dependencies: {
-        readGlobalConfig: () => ({ version: "5" }),
+        readGlobalConfig: () => ({ version: "6" }),
         readTargetAuthority: () => undefined,
       },
     });

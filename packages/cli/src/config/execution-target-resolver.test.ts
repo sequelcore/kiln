@@ -40,7 +40,7 @@ describe("resolveExecutionTargetCandidates", () => {
   });
 
   it("does not infer execution candidates without canonical target authority", () => {
-    expect(resolveExecutionTargetCandidates({ globalConfig: { version: "5" }, executionCatalog: undefined })).toEqual([]);
+    expect(resolveExecutionTargetCandidates({ globalConfig: { version: "6" }, executionCatalog: undefined })).toEqual([]);
   });
 
   it("rejects native harness targets instead of treating them as direct execution targets", () => {

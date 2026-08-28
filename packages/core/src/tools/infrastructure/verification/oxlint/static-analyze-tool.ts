@@ -21,7 +21,7 @@ import {
   toSuccessResult,
   validateReadPath,
 } from "../../tool-helpers.js";
-import { OXLINT_ISOLATED_CONFIG_FILE, OxlintAnalyzer } from "./oxlint-analyzer.js";
+import { OXLINT_ISOLATED_CONFIG, OXLINT_ISOLATED_CONFIG_FILE, OxlintAnalyzer } from "./oxlint-analyzer.js";
 
 export const STATIC_ANALYZE_CAPABILITY = "verify.static" as const;
 
@@ -100,7 +100,7 @@ export function createStaticAnalyzeTool(options: StaticAnalyzeToolOptions): DevT
         await writeFile(snapshotPath, source, { mode: 0o444 });
         await chmod(snapshotPath, 0o444);
         const isolatedConfigPath = join(snapshotRoot, OXLINT_ISOLATED_CONFIG_FILE);
-        await writeFile(isolatedConfigPath, "{}\n", { mode: 0o444 });
+        await writeFile(isolatedConfigPath, OXLINT_ISOLATED_CONFIG, { mode: 0o444 });
         await chmod(isolatedConfigPath, 0o444);
 
         const analyzer = new OxlintAnalyzer(options.runner ?? new SpawnCommandProcessRunner(), {

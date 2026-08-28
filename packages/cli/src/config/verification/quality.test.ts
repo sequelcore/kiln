@@ -7,7 +7,7 @@ describe("quality analysis configuration", () => {
     expect(resolveQualityAnalysisConfiguration(null)).toMatchObject({ diagnostic: { code: "not_configured" } });
     expect(
       resolveQualityAnalysisConfiguration({
-        version: "5",
+        version: "6",
         verification: { static: { quality: { typescript: ["test-integrity", "type-integrity", "complexity"] } } },
       }),
     ).toEqual({

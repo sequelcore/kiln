@@ -29,13 +29,13 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 with the threat model and portable negative contract fixtures. |
-| 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
-| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds after higher-priority Ready work. |
-| 4 | [06.5 - End-To-End Harness Efficiency](06.5-end-to-end-harness-efficiency.md) | Research | Normal | Define the production-path benchmark and attribution contract after higher-priority Ready work; optimization waits on a measured bottleneck. |
-| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
-| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters only after an explicit priority decision. |
+| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Select and implement the next exact-contract read-only adapter after the completed verification discovery vertical. |
+| 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 when Capability Fabric reaches a blocker or the remote-access need becomes current again. |
+| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
+| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Admit the narrow capability-disclosure dependency when Roadmap 11 Slice 2 completes; broader prompt evaluation remains behind higher-priority Ready work. |
+| 5 | [06.5 - End-To-End Harness Efficiency](06.5-end-to-end-harness-efficiency.md) | Research | Normal | Define the production-path benchmark and attribution contract after higher-priority Ready work; optimization waits on a measured bottleneck. |
+| 6 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
+| 7 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
 | 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Its bounded verification surface remains independently useful but is not the default ahead of the Ready track. |
 | 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
@@ -59,12 +59,15 @@ roadmap reorganization.
 - The 2026-08-14 operator decision removed `07` as a prerequisite for `08`.
   Roadmap 12 then completed the first safe-turn-without-YAML vertical proof.
   The 2026-08-23 source-stability decision temporarily superseded the former
-  Connect priority. Roadmap `00` completed the supported local source baseline
-  on 2026-08-25, so Roadmap `08` is now the default Ready track. Roadmap `08.5`
-  Slice 0 remains its independently completed safety boundary, and later
-  connectivity slices wait on Roadmap `08` session identity. This sequencing
-  does not transfer bounded-context ownership. Neither Connect track admits a
-  Kiln-hosted cloud; a managed relay requires a separate future decision.
+  Connect priority, and Roadmap `00` completed the supported local source
+  baseline on 2026-08-25. On 2026-08-28 the operator moved Roadmap `11` ahead
+  of Connect because remote pairing is no longer the current operational need
+  and cross-harness verification is. Roadmap `08` remains Ready rather than
+  blocked; Roadmap `08.5` Slice 0 remains its independently completed safety
+  boundary, and later connectivity slices still wait on Roadmap `08` session
+  identity. This sequencing does not transfer bounded-context ownership.
+  Neither Connect track admits a Kiln-hosted cloud; a managed relay requires a
+  separate future decision.
 - `08.75` owns inbound agents Kiln did not launch: their identity, bounded
   verification surface, lease-scoped sandboxes, and settlement. It consumes `08`
   identity and `08.5` transport and widens neither. An agent identity never
@@ -82,7 +85,10 @@ roadmap reorganization.
   lifecycle. It reuses `06` progressive disclosure and existing Agent Task and
   managed-invocation authority instead of duplicating them. Interaction promotion is GUI-first,
   then behaviorally equivalent in TUI and native harnesses; GUI components are
-  never shared execution authority.
+  never shared execution authority. Its first implementation vertical is the
+  existing verification plane; the narrow Roadmap `06` disclosure work becomes
+  an admitted dependency after Slice 2 rather than a reason to return Connect
+  to the front of the queue.
 - Configuration discoverability, desired intent, effective-value explanation,
   governed mutation, activation planning, and cross-surface settings parity
   are stable architecture. Project-state relocation is tracked by

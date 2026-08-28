@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { KilnYamlError } from "../kiln-yaml.js";
+import { KilnYamlError } from "../kiln-yaml-types.js";
 import {
   GLOBAL_CONFIG_FIELD_DESCRIPTORS,
   GLOBAL_CONFIG_SCHEMA,
@@ -17,9 +17,9 @@ describe("global configuration schema", () => {
   it("owns one strict versioned global document boundary", () => {
     expect(GLOBAL_CONFIG_SCHEMA.$id).toBe("https://kiln.dev/schemas/global-config-v2.json");
     expect(GLOBAL_CONFIG_SCHEMA.additionalProperties).toBe(false);
-    expect(parseGlobalConfigStructure({ version: "5" }, "fixtures/config.yaml")).toEqual({ version: "5" });
+    expect(parseGlobalConfigStructure({ version: "6" }, "fixtures/config.yaml")).toEqual({ version: "6" });
     expect(() => parseGlobalConfigStructure(
-      { version: "5", unexpected: true },
+      { version: "6", unexpected: true },
       "fixtures/config.yaml",
     )).toThrow(KilnYamlError);
   });
@@ -47,7 +47,7 @@ describe("global configuration schema", () => {
 
   it("owns physical interactive-use providers globally", () => {
     expect(parseGlobalConfigStructure({
-      version: "5",
+      version: "6",
       interactiveUse: {
         enabled: true,
         browserProvider: "playwright",

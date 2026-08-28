@@ -16,7 +16,7 @@ import {
 export function managedAgentIntentConfig(): KilnGlobalConfig {
   const evidence = managedAgentTargetEvidence();
   return {
-    version: "5",
+    version: "6",
     workGovernance: {
       defaultPosture: "direct",
       requireDelegationFor: ["managed-agents"],

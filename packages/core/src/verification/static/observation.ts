@@ -1,7 +1,10 @@
 import { normalizeFormalProofSubjects } from "../../work-governance/formal-proof-subjects.js";
 
 export const STATIC_ANALYSIS_OBSERVATION_SCHEMA = "kiln.static-analysis-observation/v1" as const;
-export const STATIC_ANALYSIS_PROFILE = "oxlint.correctness+suspicious/v1" as const;
+export const STATIC_ANALYSIS_PROFILE = "oxlint.sequel-typescript/v1" as const;
+/** SHA-256 of the exact JSON bytes admitted by this profile revision. */
+export const STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST =
+  "sha256:a6486ff2cd022065743711911907b608d4e5022a1a90364e57902525e94e5d72" as const;
 
 export type StaticAnalysisOutcome = "clean" | "violations";
 export type StaticAnalysisSeverity = "error" | "warning";

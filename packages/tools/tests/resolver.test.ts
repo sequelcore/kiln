@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   getVendoredPackageCandidates,
@@ -8,6 +9,10 @@ import {
 
 function normalizePath(path: string | undefined): string | undefined {
   return path?.replace(/\\/g, "/");
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 describe("listVendoredPlatformPackages", () => {
@@ -22,10 +27,10 @@ describe("listVendoredPlatformPackages", () => {
       "@kilnai/tools-linux-x64",
     ]);
     expect(descriptors.map((descriptor) => descriptor.binaries)).toEqual([
-      ["rg", "fd", "jq"],
-      ["rg", "fd", "jq"],
-      ["rg", "jq"],
-      ["rg", "fd", "jq"],
+      ["rg", "fd", "jq", "oxlint"],
+      ["rg", "fd", "jq", "oxlint"],
+      ["rg", "jq", "oxlint"],
+      ["rg", "fd", "jq", "oxlint"],
     ]);
   });
 });
@@ -40,23 +45,18 @@ describe("getVendoredPackageCandidates", () => {
     expect(candidates[0]?.packageName).toBe("@kilnai/tools-darwin-arm64");
   });
 
-  it("returns known packages in fallback order when no exact match exists", () => {
+  it("returns no package when no exact platform+arch match exists", () => {
     const candidates = getVendoredPackageCandidates({
       platform: "linux",
       arch: "arm64",
     });
 
-    expect(candidates.map((candidate) => candidate.packageName)).toEqual([
-      "@kilnai/tools-win32-x64",
-      "@kilnai/tools-darwin-arm64",
-      "@kilnai/tools-darwin-x64",
-      "@kilnai/tools-linux-x64",
-    ]);
+    expect(candidates).toEqual([]);
   });
 });
 
 describe("resolveVendoredPlatformPackage", () => {
-  it("resolves the first candidate whose package.json can be resolved", () => {
+  it("resolves the exact platform package", () => {
     const resolved = resolveVendoredPlatformPackage({
       platform: "win32",
       arch: "x64",
@@ -72,7 +72,7 @@ describe("resolveVendoredPlatformPackage", () => {
       packageName: "@kilnai/tools-win32-x64",
       platform: "win32",
       arch: "x64",
-      binaries: ["rg", "fd", "jq"],
+      binaries: ["rg", "fd", "jq", "oxlint"],
       packageJsonPath: "C:/mock/tools-win32-x64/package.json",
     });
   });
@@ -87,6 +87,21 @@ describe("resolveVendoredPlatformPackage", () => {
     });
 
     expect(resolved).toBeUndefined();
+  });
+
+  it("does not fall back to another platform package or PATH", () => {
+    const attempted: string[] = [];
+    const resolved = resolveVendoredPlatformPackage({
+      platform: "linux",
+      arch: "arm64",
+      resolvePackageJson: (specifier) => {
+        attempted.push(specifier);
+        return "C:/wrong-platform/package.json";
+      },
+    });
+
+    expect(resolved).toBeUndefined();
+    expect(attempted).toEqual([]);
   });
 });
 
@@ -109,8 +124,10 @@ describe("resolveVendoredToolBinary", () => {
                 path: "bin/rg.exe",
                 version: "15.1.0",
                 source: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip",
-                sha256:
+                archiveSha256:
                   "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+                binarySha256: sha256("windows-rg"),
+                archivePath: "rg.exe",
               },
             },
           });
@@ -118,6 +135,7 @@ describe("resolveVendoredToolBinary", () => {
         throw new Error("not found");
       },
       fileExists: (path) => normalizePath(path) === "C:/mock/tools-win32-x64/bin/rg.exe",
+      readBinaryFile: () => Buffer.from("windows-rg"),
     });
 
     expect({
@@ -132,7 +150,9 @@ describe("resolveVendoredToolBinary", () => {
       platform: "win32",
       arch: "x64",
       version: "15.1.0",
-      sha256: "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+      archiveSha256:
+        "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+      binarySha256: sha256("windows-rg"),
     });
   });
 
@@ -154,8 +174,9 @@ describe("resolveVendoredToolBinary", () => {
                 path: "bin/rg",
                 version: "15.1.0",
                 source: "https://example.test/rg.tar.gz",
-                sha256:
-                  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                archiveSha256: "a".repeat(64),
+                binarySha256: sha256("linux-rg"),
+                archivePath: "rg",
               },
             },
           });
@@ -163,6 +184,7 @@ describe("resolveVendoredToolBinary", () => {
         throw new Error("not found");
       },
       fileExists: (path) => normalizePath(path) === "/mock/tools-linux-x64/bin/rg",
+      readBinaryFile: () => Buffer.from("linux-rg"),
     });
 
     expect(normalizePath(resolved?.path)).toBe("/mock/tools-linux-x64/bin/rg");
@@ -180,8 +202,9 @@ describe("resolveVendoredToolBinary", () => {
               path: "bin/rg.exe",
               version: "15.1.0",
               source: "https://example.test/rg.zip",
-              sha256:
-                "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+              archiveSha256: "a".repeat(64),
+              binarySha256: "b".repeat(64),
+              archivePath: "rg.exe",
             },
           },
         }),
@@ -218,8 +241,9 @@ describe("resolveVendoredToolBinary", () => {
               path: "bin/fd",
               version: "10.4.2",
               source: "https://example.test/fd.tar.gz",
-              sha256:
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              archiveSha256: "b".repeat(64),
+              binarySha256: "b".repeat(64),
+              archivePath: "fd",
             },
           },
         }),
@@ -241,15 +265,77 @@ describe("resolveVendoredToolBinary", () => {
               path: "bin/jq.exe",
               version: "1.8.2",
               source: "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-windows-amd64.exe",
-              sha256:
+              archiveSha256:
                 "a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627",
+              binarySha256: sha256("windows-jq"),
             },
           },
         }),
       fileExists: (path) => normalizePath(path) === "C:/mock/tools-win32-x64/bin/jq.exe",
+      readBinaryFile: () => Buffer.from("windows-jq"),
     });
 
     expect(normalizePath(resolved?.path)).toBe("C:/mock/tools-win32-x64/bin/jq.exe");
     expect(resolved?.version).toBe("1.8.2");
+  });
+
+  it("resolves Oxlint with separate archive and materialized binary digests", () => {
+    const resolved = resolveVendoredToolBinary("oxlint", {
+      platform: "linux",
+      arch: "x64",
+      resolvePackageJson: (specifier) => {
+        if (specifier === "@kilnai/tools-linux-x64/package.json") {
+          return "/mock/tools-linux-x64/package.json";
+        }
+        throw new Error("not found");
+      },
+      readTextFile: () =>
+        JSON.stringify({
+          tools: {
+            oxlint: {
+              path: "bin/oxlint",
+              version: "1.80.0",
+              source: "https://github.com/oxc-project/oxc/releases/download/apps_v1.80.0/oxlint-x86_64-unknown-linux-musl.tar.gz",
+              archiveSha256: "a".repeat(64),
+              binarySha256: sha256("oxlint"),
+              archivePath: "oxlint-x86_64-unknown-linux-musl",
+            },
+          },
+        }),
+      fileExists: () => true,
+      readBinaryFile: () => Buffer.from("oxlint"),
+    });
+
+    expect(resolved).toMatchObject({
+      binary: "oxlint",
+      version: "1.80.0",
+      archiveSha256: "a".repeat(64),
+      binarySha256: sha256("oxlint"),
+    });
+  });
+
+  it("rejects a tampered materialized binary even when it exists", () => {
+    const resolved = resolveVendoredToolBinary("oxlint", {
+      platform: "win32",
+      arch: "x64",
+      resolvePackageJson: () => "C:/mock/tools-win32-x64/package.json",
+      readTextFile: () =>
+        JSON.stringify({
+          tools: {
+            oxlint: {
+              path: "bin/oxlint.exe",
+              version: "1.80.0",
+              source: "https://example.test/oxlint.zip",
+              archiveSha256: "a".repeat(64),
+              binarySha256: sha256("original"),
+              archivePath: "oxlint.exe",
+            },
+          },
+        }),
+      fileExists: () => true,
+      readBinaryFile: () => Buffer.from("tampered"),
+    });
+
+    expect(resolved).toBeUndefined();
   });
 });

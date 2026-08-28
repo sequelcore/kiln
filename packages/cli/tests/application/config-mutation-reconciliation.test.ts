@@ -6,7 +6,7 @@ import { reconcileConfigMutation } from "../../src/application/config-mutation-r
 import { resolveProjectStateBinding } from "../../src/application/project-state-root.js";
 
 const mocks = vi.hoisted(() => ({
-  globalConfig: { version: "5", modelGateway: { enabled: true } } as Record<string, unknown> | null,
+  globalConfig: { version: "6", modelGateway: { enabled: true } } as Record<string, unknown> | null,
   routeAuthority: { executionCatalog: { targets: [{ id: "terra" }] } } as unknown,
   syncPermissions: vi.fn(),
   syncAgents: vi.fn(),
@@ -59,7 +59,7 @@ describe("configuration mutation reconciliation", () => {
     writeFileSync(binding.configPath, 'version: "1"\n', "utf-8");
     process.env.TEMP = fixtureRoot;
     process.env.XDG_CONFIG_HOME = join(fixtureRoot, "xdg");
-    mocks.globalConfig = { version: "5", modelGateway: { enabled: true } };
+    mocks.globalConfig = { version: "6", modelGateway: { enabled: true } };
     mocks.routeAuthority = { executionCatalog: { targets: [{ id: "terra" }] } };
     mocks.syncPermissions.mockReset().mockResolvedValue({ errors: [], outcomes: [] });
     mocks.syncAgents.mockReset().mockResolvedValue({ errors: [], synced: 1 });

@@ -33,6 +33,6 @@ describe("global config persistence", () => {
 
     expect(result.invalidBackupPath).toBeDefined();
     expect(readFileSync(result.invalidBackupPath!, "utf-8")).toBe(invalidBytes);
-    expect(readFileSync(configPath, "utf-8")).toContain('version: "5"');
+    expect(readFileSync(configPath, "utf-8")).toContain('version: "6"');
   });
 });
