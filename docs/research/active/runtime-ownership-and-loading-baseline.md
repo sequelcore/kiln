@@ -228,6 +228,19 @@ No security exception or bypass was attempted. Instead, the repeated S0
 baseline ran in Docker Desktop's Linux environment from a clean, detached clone
 at exact commit `2cce142cf660c8a0a1fbac42d18ed37b97b93a1a`.
 
+The Windows test blockade was resolved later without changing Defender policy.
+Threat history identified `Trojan:Script/ObfusScript.A!ml` against the single
+dense download-and-execute regular expression in the emitted detector. Kiln
+replaced that expression with explicit pipeline segmentation and manual ASCII
+word-boundary evaluation while retaining the same deny/ask outcomes, including
+the prior boundary edge cases. A forced Core compile followed by a custom
+Defender scan produced no new detection and left the emitted JavaScript
+readable. On the Windows host, the full Core suite then passed 280 files and
+3,430 tests; the full Runtime suite passed 312 files and 3,866 tests with five
+skips, plus its Bun/SQLite probes; eight selected CLI MCP and native-projection
+files passed 93 tests. These are correctness gates, not replacement measurements
+for the isolated Linux baseline above.
+
 The runner used:
 
 - Docker image `node:24-bookworm`, Node 24.20.0, Git 2.39.5, digest

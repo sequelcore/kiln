@@ -375,12 +375,16 @@ typecheck, documentation validation, and a wire smoke proof that returned 200
 for the modern opening and 400 for legacy `initialize`. Independent review
 closed all six findings covering invalidation races, stale cache reuse,
 duplicate selectors, JSON Schema dialect, removed descriptor kinds, and
-expired freshness. The selected CLI protocol suites and Runtime MCP end-to-end
-suite remain uncollected because Microsoft Defender blocked access to the
-compiled `dangerous-command-detector.js` as potentially unwanted software.
-They must be rerun in an approved protected environment where that repository
-artifact is readable; endpoint protection must not be disabled to make the
-gate pass.
+expired freshness. Microsoft Defender subsequently classified the compiled
+`dangerous-command-detector.js` as `Trojan:Script/ObfusScript.A!ml`, preventing
+the selected CLI protocol suites and Runtime MCP end-to-end suite from being
+collected on Windows at that checkpoint. The detector now evaluates the same
+download-and-execute policy through explicit pipeline segments and ASCII word
+boundaries rather than one dense regular expression. A forced Windows compile
+and explicit Defender scan left the artifact readable with no new detection;
+the complete Core and Runtime suites then passed, as did the eight selected CLI
+protocol files with 93 tests. No endpoint-protection setting or repository
+exclusion was changed.
 
 The installed dependency graph still contains the monolithic SDK v1 only as a
 transitive implementation detail of the pinned Anthropic agent SDK and shadcn.

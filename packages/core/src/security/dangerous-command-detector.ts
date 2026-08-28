@@ -5,8 +5,63 @@ import type {
   DangerousCommandRequest,
 } from "../engine/domain/tool-execution.js";
 
-const DOWNLOAD_EXEC_PATTERN =
-  /\b(?:curl|wget|invoke-webrequest|iwr)\b[^\n|]*\|\s*(?:bash|sh|zsh|iex|invoke-expression)\b/i;
+const DOWNLOAD_COMMANDS = ["curl", "wget", "invoke-webrequest", "iwr"] as const;
+const EXECUTION_COMMANDS = ["bash", "sh", "zsh", "iex", "invoke-expression"] as const;
+
+function isAsciiWordCharacter(character: string | undefined): boolean {
+  if (character === undefined) return false;
+  const code = character.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || code === 95
+    || (code >= 97 && code <= 122)
+  );
+}
+
+function containsDelimitedWord(value: string, word: string): boolean {
+  const normalized = value.toLowerCase();
+  let index = normalized.indexOf(word);
+  while (index >= 0) {
+    const before = normalized[index - 1];
+    const after = normalized[index + word.length];
+    if (!isAsciiWordCharacter(before) && !isAsciiWordCharacter(after)) {
+      return true;
+    }
+    index = normalized.indexOf(word, index + 1);
+  }
+  return false;
+}
+
+function containsDownloadCommand(segment: string): boolean {
+  return DOWNLOAD_COMMANDS.some((command) => containsDelimitedWord(segment, command));
+}
+
+function startsWithDelimitedWord(value: string, word: string): boolean {
+  const normalized = value.trimStart().toLowerCase();
+  return normalized.startsWith(word) && !isAsciiWordCharacter(normalized[word.length]);
+}
+
+function startsWithExecutionCommand(segment: string): boolean {
+  return EXECUTION_COMMANDS.some((command) => startsWithDelimitedWord(segment, command));
+}
+
+function isDownloadExecutePipeline(command: string): boolean {
+  for (const line of command.split("\n")) {
+    const segments = line.split("|");
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const left = segments[index] ?? "";
+      const right = segments[index + 1] ?? "";
+      if (!containsDownloadCommand(left)) {
+        continue;
+      }
+      if (startsWithExecutionCommand(right)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 const UNIX_DESTRUCTIVE_PATTERN =
   /\brm\b\s+(?:(?:-[^\s]+\s+)*)\S+|\bsudo\s+(?:rm|dd|mkfs(?:\.\S+)?|shutdown|reboot)\b/i;
@@ -71,7 +126,7 @@ function normalizeShell(shell?: CommandShell): CommandShell {
 }
 
 function evaluatePrimitive(command: string, shell: CommandShell): DangerousCommandDecision {
-  if (DOWNLOAD_EXEC_PATTERN.test(command)) {
+  if (isDownloadExecutePipeline(command)) {
     return deny("download_execute", "Detected remote download-and-execute command pipeline.");
   }
   if (shouldCheckUnix(shell) && UNIX_DESTRUCTIVE_PATTERN.test(command)) {
