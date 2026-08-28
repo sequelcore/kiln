@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { OpenAISttAdapter } from "../../../src/voice/stt/openai-stt.js";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 
 function makeTranscriptionResponse(overrides: Record<string, unknown> = {}) {
   return {

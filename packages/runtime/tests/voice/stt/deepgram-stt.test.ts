@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { DeepgramSttAdapter } from "../../../src/voice/stt/deepgram-stt.js";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 
 function makeDeepgramResponse(overrides: Record<string, unknown> = {}) {
   return {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { OpenAITtsAdapter } from "../../../src/voice/tts/openai-tts.js";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 
 function mockAudioResponse(status = 200, contentType = "audio/mpeg") {
   return {
