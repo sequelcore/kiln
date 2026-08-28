@@ -64,8 +64,8 @@ import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.
 import { TenantRegistry } from "../tenant/tenant-registry.js";
 import { assertValidStartupConfig } from "./config-validator.js";
 import { HealthRegistry } from "./health-registry.js";
-import { createSttAdapter } from "./stt-factory.js";
-import { createTtsAdapter } from "./tts-factory.js";
+import { createSttAdapter } from "../voice/stt-factory.js";
+import { createTtsAdapter } from "../voice/tts-factory.js";
 import type { SignedArtifactMediaOptions } from "./public-media-delivery.js";
 import { extractText, textParts } from "@kilnai/core";
 import { WebhookDedup } from "./webhook-dedup.js";

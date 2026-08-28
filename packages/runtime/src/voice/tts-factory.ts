@@ -1,7 +1,9 @@
 // TTS adapter factory -- resolves config to concrete adapter
 
 import type { TtsAdapter, TtsProviderConfig } from "@kilnai/core";
-import { ElevenLabsTtsAdapter, KilnError, OpenAITtsAdapter } from "@kilnai/core";
+import { KilnError } from "@kilnai/core";
+import { ElevenLabsTtsAdapter } from "./tts/elevenlabs-tts.js";
+import { OpenAITtsAdapter } from "./tts/openai-tts.js";
 import { KokoroLocalTtsAdapter } from "./local-voice-adapters.js";
 
 export function createTtsAdapter(config: TtsProviderConfig): TtsAdapter {

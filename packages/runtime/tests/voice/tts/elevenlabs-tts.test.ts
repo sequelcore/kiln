@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { OpenAITtsAdapter } from "../../../src/agents/infrastructure/openai-tts.js";
-import { KilnError } from "../../../src/engine/errors.js";
+import { ElevenLabsTtsAdapter } from "../../../src/voice/tts/elevenlabs-tts.js";
+import { KilnError } from "@kilnai/core";
 
 function mockAudioResponse(status = 200, contentType = "audio/mpeg") {
   return {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ "content-type": contentType }),
-    arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer),
+    arrayBuffer: () => Promise.resolve(new Uint8Array([4, 5, 6]).buffer),
     text: () => Promise.resolve("provider error"),
   };
 }
 
-describe("OpenAITtsAdapter", () => {
-  let adapter: OpenAITtsAdapter;
+describe("ElevenLabsTtsAdapter", () => {
+  let adapter: ElevenLabsTtsAdapter;
 
   beforeEach(() => {
-    adapter = new OpenAITtsAdapter({ apiKey: "test-key" });
+    adapter = new ElevenLabsTtsAdapter({ apiKey: "test-key", voice: "voice-123" });
   });
 
   afterEach(() => {
@@ -29,34 +29,32 @@ describe("OpenAITtsAdapter", () => {
 
     const result = await adapter.synthesize("Hello world");
 
-    expect(result.audio).toEqual(new Uint8Array([1, 2, 3]));
+    expect(result.audio).toEqual(new Uint8Array([4, 5, 6]));
     expect(result.mimeType).toBe("audio/mpeg");
   });
 
-  it("sends OpenAI speech request with configured model and voice", async () => {
+  it("sends ElevenLabs speech request with configured model and voice", async () => {
     const mockFetch = vi.fn().mockResolvedValue(mockAudioResponse());
     vi.stubGlobal("fetch", mockFetch);
-    const configured = new OpenAITtsAdapter({
+    const configured = new ElevenLabsTtsAdapter({
       apiKey: "test-key",
-      model: "gpt-4o-mini-tts",
-      voice: "alloy",
+      model: "eleven_multilingual_v2",
+      voice: "voice-123",
     });
 
-    await configured.synthesize("Hola", { voice: "verse", speed: 1.1, format: "wav" });
+    await configured.synthesize("Hola", { voice: "voice-override" });
 
     const [url, init] = mockFetch.mock.calls[0]!;
-    expect(url).toBe("https://api.openai.com/v1/audio/speech");
+    expect(url).toBe("https://api.elevenlabs.io/v1/text-to-speech/voice-override");
     expect(init.method).toBe("POST");
     expect(init.headers).toEqual({
-      Authorization: "Bearer test-key",
+      "xi-api-key": "test-key",
       "Content-Type": "application/json",
+      Accept: "audio/mpeg",
     });
     expect(JSON.parse(init.body as string)).toEqual({
-      model: "gpt-4o-mini-tts",
-      input: "Hola",
-      voice: "verse",
-      response_format: "wav",
-      speed: 1.1,
+      text: "Hola",
+      model_id: "eleven_multilingual_v2",
     });
   });
 
@@ -71,17 +69,6 @@ describe("OpenAITtsAdapter", () => {
     expect(mockFetch.mock.calls[0]![1].signal).toBe(abort.signal);
   });
 
-  it("uses format mime fallback when provider omits content type", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ...mockAudioResponse(),
-      headers: new Headers(),
-    }));
-
-    const result = await adapter.synthesize("Hello", { format: "wav" });
-
-    expect(result.mimeType).toBe("audio/wav");
-  });
-
   it("throws KilnError on non-retryable provider errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockAudioResponse(401)));
 
@@ -92,7 +79,7 @@ describe("OpenAITtsAdapter", () => {
     } catch (e) {
       const err = e as KilnError;
       expect(err.code).toBe("TTS_FAILED");
-      expect(err.context.provider).toBe("openai");
+      expect(err.context.provider).toBe("elevenlabs");
       expect(err.context.status).toBe(401);
       expect(err.retryable).toBe(false);
     }

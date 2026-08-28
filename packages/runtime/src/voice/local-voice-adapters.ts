@@ -1,4 +1,4 @@
-// Local voice adapters -- runtime-side command protocol for offline STT/TTS
+// Local voice adapters -- private Runtime command protocol for offline STT/TTS
 
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";

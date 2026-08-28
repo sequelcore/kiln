@@ -1,5 +1,5 @@
-import type { TtsAdapter, TtsOptions, TtsResult } from "../../engine/domain/speech-config.js";
-import { KilnError } from "../../engine/errors.js";
+import type { TtsAdapter, TtsOptions, TtsResult } from "@kilnai/core";
+import { KilnError } from "@kilnai/core";
 
 export interface OpenAITtsConfig {
   readonly apiKey: string;

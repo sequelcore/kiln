@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createSttAdapter } from "../../src/gateway/stt-factory.js";
-import { DeepgramSttAdapter, OpenAISttAdapter } from "@kilnai/core/agents";
-import { WhisperLocalSttAdapter } from "../../src/gateway/local-voice-adapters.js";
+import { createSttAdapter } from "../../src/voice/stt-factory.js";
+import { DeepgramSttAdapter } from "../../src/voice/stt/deepgram-stt.js";
+import { OpenAISttAdapter } from "../../src/voice/stt/openai-stt.js";
+import { WhisperLocalSttAdapter } from "../../src/voice/local-voice-adapters.js";
 
 describe("createSttAdapter", () => {
   const originalEnv = process.env;

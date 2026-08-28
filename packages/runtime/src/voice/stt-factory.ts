@@ -1,7 +1,9 @@
 // STT adapter factory -- resolves config to concrete adapter
 
 import type { SttAdapter, SttProviderConfig } from "@kilnai/core";
-import { OpenAISttAdapter, DeepgramSttAdapter, KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core";
+import { DeepgramSttAdapter } from "./stt/deepgram-stt.js";
+import { OpenAISttAdapter } from "./stt/openai-stt.js";
 import { WhisperLocalSttAdapter } from "./local-voice-adapters.js";
 
 export function createSttAdapter(config: SttProviderConfig): SttAdapter {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KokoroLocalTtsAdapter, WhisperLocalSttAdapter } from "../../src/gateway/local-voice-adapters.js";
+import { KokoroLocalTtsAdapter, WhisperLocalSttAdapter } from "../../src/voice/local-voice-adapters.js";
 
 function protocolScript(handler: string): string {
   return `

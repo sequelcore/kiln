@@ -613,8 +613,6 @@ export type { ResolvedOperation } from "./gateway/integration-registry.js";
 // Integration Runtime
 export { IntegrationRegistry } from "./gateway/integration-registry.js";
 export { LocalCredentialResolver } from "./gateway/local-credential-resolver.js";
-export type { KokoroLocalTtsAdapterConfig, WhisperLocalSttAdapterConfig } from "./gateway/local-voice-adapters.js";
-export { KokoroLocalTtsAdapter, WhisperLocalSttAdapter } from "./gateway/local-voice-adapters.js";
 export type {
   AdmittedTurnContext,
   AdmittedTurnResult,
@@ -704,7 +702,7 @@ export { normalizeRuntimeProviderDiscoveryCatalog } from "./gateway/provider-mod
 export type { RoutingTestRoutesConfig } from "./gateway/routing-test-routes.js";
 export { createRoutingTestRoutes } from "./gateway/routing-test-routes.js";
 export { SqliteEmailThreadStore } from "./gateway/sqlite-email-thread-store.js";
-export { createSttAdapter } from "./gateway/stt-factory.js";
+export { createSttAdapter } from "./voice/stt-factory.js";
 export type { TenantAdminRoutesConfig } from "./gateway/tenant-admin-routes.js";
 export { createTenantAdminRoutes } from "./gateway/tenant-admin-routes.js";
 export type { TenantAppRuntime } from "./gateway/tenant-routes.js";
@@ -713,7 +711,7 @@ export type { IntegrationDeps } from "./gateway/tenant-tool-factory.js";
 export { clearIntegrationDeps, configureIntegrationDeps } from "./gateway/tenant-tool-factory.js";
 // Trace
 export { TraceContext } from "./gateway/trace-context.js";
-export { createTtsAdapter } from "./gateway/tts-factory.js";
+export { createTtsAdapter } from "./voice/tts-factory.js";
 export type { TuiGateway, TuiGatewayOptions } from "./gateway/tui-gateway.js";
 export { startTuiGateway } from "./gateway/tui-gateway.js";
 export { WebhookDedup } from "./gateway/webhook-dedup.js";

@@ -255,14 +255,6 @@ export { type CatalogPricing, MODEL_CATALOG, CODEX_DEFAULT_MODEL } from "./model
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
 export { ToolCache } from "./tool-cache.js";
-export { OpenAISttAdapter } from "./infrastructure/openai-stt.js";
-export type { OpenAISttConfig } from "./infrastructure/openai-stt.js";
-export { DeepgramSttAdapter } from "./infrastructure/deepgram-stt.js";
-export type { DeepgramSttConfig } from "./infrastructure/deepgram-stt.js";
-export { OpenAITtsAdapter } from "./infrastructure/openai-tts.js";
-export type { OpenAITtsConfig } from "./infrastructure/openai-tts.js";
-export { ElevenLabsTtsAdapter } from "./infrastructure/elevenlabs-tts.js";
-export type { ElevenLabsTtsConfig } from "./infrastructure/elevenlabs-tts.js";
 export { CodexOAuthAuth } from "./infrastructure/codex-oauth-auth.js";
 export { CODEX_DEVICE_VERIFICATION_URI, CODEX_OAUTH_CLIENT_ID } from "./infrastructure/codex-oauth-auth.js";
 export {

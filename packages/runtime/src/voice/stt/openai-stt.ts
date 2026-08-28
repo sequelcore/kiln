@@ -1,5 +1,5 @@
-import type { SttAdapter, SttOptions, SttResult } from "../../engine/domain/speech-config.js";
-import { KilnError } from "../../engine/errors.js";
+import type { SttAdapter, SttOptions, SttResult } from "@kilnai/core";
+import { KilnError } from "@kilnai/core";
 
 export interface OpenAISttConfig {
   readonly apiKey: string;

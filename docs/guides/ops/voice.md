@@ -548,9 +548,9 @@ Focused tests:
 
 ```bash
 bun run --cwd packages/cli test src/config/global-config.test.ts
-bun run --cwd packages/core test tests/agents/infrastructure/openai-tts.test.ts tests/agents/infrastructure/elevenlabs-tts.test.ts
 bun run --cwd packages/core test tests/engine/domain/speech-config.test.ts tests/engine/loader/app-loader.test.ts
-bun run --cwd packages/runtime test tests/gateway/stt-factory.test.ts tests/gateway/tts-factory.test.ts tests/gateway/local-voice-adapters.test.ts tests/gateway/message-pipeline.test.ts
+bun run --cwd packages/runtime test tests/voice tests/gateway/message-pipeline.test.ts
+bun run --cwd packages/cli test tests/config/operator-voice.test.ts
 bun run --cwd packages/gateway-contracts test tests/voice-input-parts.test.ts
 bun run --cwd packages/gateway-contracts test tests/voice-output-parts.test.ts
 bun run --cwd packages/runtime test tests/gateway/gui-frame-parts.test.ts
