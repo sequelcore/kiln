@@ -2,12 +2,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
 import { AnthropicAdapter } from "../provider-adapters/anthropic.js";
+import { OllamaAdapter } from "../provider-adapters/ollama.js";
 import {
   CredentialPool,
   DeepSeekAdapter,
   LmStudioAdapter,
   LMSTUDIO_BASE_URL,
-  OllamaAdapter,
   OpenAIAdapter,
   OpenRouterAdapter,
   type Credential,

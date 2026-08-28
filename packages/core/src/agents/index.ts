@@ -255,7 +255,6 @@ export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "./infrastructure/
 export { LmStudioAdapter, LMSTUDIO_BASE_URL, LMSTUDIO_DEFAULT_MODEL } from "./infrastructure/lmstudio.js";
 export type { LmStudioAdapterConfig } from "./infrastructure/lmstudio.js";
 export { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "./infrastructure/deepseek.js";
-export { OllamaAdapter, LLAMA3, CODELLAMA, DEEPSEEK_CODER } from "./infrastructure/ollama.js";
 export {
   OpenRouterAdapter,
   NEMOTRON_NANO_FREE,

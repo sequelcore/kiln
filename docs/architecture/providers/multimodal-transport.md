@@ -212,7 +212,7 @@ Primary code owners:
 - `packages/core/src/agents/model-capability-registry.ts`
 - `packages/runtime/src/agents/provider-adapters/anthropic.ts`
 - `packages/core/src/agents/infrastructure/openai-compat.ts`
-- `packages/core/src/agents/infrastructure/ollama.ts`
+- `packages/runtime/src/agents/provider-adapters/ollama.ts`
 - `packages/core/src/events/index.ts`
 - `packages/core/src/events/session-event.ts`
 - `packages/core/src/observability/span-mapper.ts`
@@ -256,7 +256,7 @@ Focused coverage lives in:
 - `packages/core/tests/agents/model-capability-registry.test.ts`
 - `packages/runtime/tests/agents/provider-adapters/anthropic.test.ts`
 - `packages/core/tests/agents/infrastructure/openai-compat.test.ts`
-- `packages/core/tests/agents/infrastructure/ollama.test.ts`
+- `packages/runtime/tests/agents/provider-adapters/ollama.test.ts`
 - `packages/core/tests/events/session-event.test.ts`
 - `packages/core/tests/observability/span-mapper.test.ts`
 - `packages/gateway-contracts/tests/operator-event-presentation.test.ts`

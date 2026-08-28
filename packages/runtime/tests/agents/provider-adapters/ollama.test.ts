@@ -3,14 +3,14 @@ import type {
   CreateMessageOptions,
   AgentStreamEvent,
   ToolDefinition,
-} from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/engine/domain/content.js";
+} from "@kilnai/core/agents";
+import { extractText, textParts } from "@kilnai/core/engine";
 import {
   OllamaAdapter,
   LLAMA3,
   CODELLAMA,
   DEEPSEEK_CODER,
-} from "../../../src/agents/infrastructure/ollama.js";
+} from "../../../src/agents/provider-adapters/ollama.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},

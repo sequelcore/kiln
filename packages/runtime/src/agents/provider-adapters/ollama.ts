@@ -5,12 +5,14 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
-} from "../index.js";
-import type { ContentPart } from "../../engine/domain/content.js";
-import { textPart, extractText } from "../../engine/domain/content.js";
-import { KilnError } from "../../engine/errors.js";
-import { assertValidToolCallIds, buildSyntheticToolCallId } from "../tool-call-input.js";
-import { admitDeliberationForExecution } from "../deliberation-policy.js";
+} from "@kilnai/core/agents";
+import {
+  admitDeliberationForExecution,
+  assertValidToolCallIds,
+  buildSyntheticToolCallId,
+} from "@kilnai/core/agents";
+import type { ContentPart } from "@kilnai/core/engine";
+import { extractText, KilnError, textPart } from "@kilnai/core/engine";
 
 export const LLAMA3 = "llama3.1";
 export const CODELLAMA = "codellama";
