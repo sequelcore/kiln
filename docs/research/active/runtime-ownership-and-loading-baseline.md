@@ -206,7 +206,7 @@ narrow Core imports, while the CLI lane remains dominated by import time. S0's
 repeated lane runs freeze a same-machine baseline; results are added only after
 all repetitions pass under the same commit and environment.
 
-### Repeated baseline blocked on Windows
+### Repeated baseline: Windows blocked, isolated Linux runner complete
 
 The first repeated Foundation attempt exposed a non-hermetic test in
 `tool-environment.test.ts`: two cases launched real host binaries and one timed
@@ -223,27 +223,79 @@ emitted its declarations and source map, but the JavaScript file was unavailable
 software, and importing the Core package failed with `EUNKNOWN`. No security
 exception or bypass was attempted.
 
-That host intervention prevents comparable Core-root, Runtime-root, Runtime-lane,
-and CLI-lane measurements in an isolated checkout. The required ten lane runs
-therefore remain incomplete, and S0 makes no performance claim. The earlier
-fresh-process table remains diagnostic evidence from a source-equivalent main
-worktree only. Measurement resumes after the emitted-file false positive has an
-operator-approved resolution or a clean supported runner is available.
+That host intervention still prevents a comparable isolated Windows baseline.
+No security exception or bypass was attempted. Instead, the repeated S0
+baseline ran in Docker Desktop's Linux environment from a clean, detached clone
+at exact commit `2cce142cf660c8a0a1fbac42d18ed37b97b93a1a`.
+
+The runner used:
+
+- Docker image `node:24-bookworm`, Node 24.20.0, Git 2.39.5, digest
+  `sha256:be23f54a88d34e8824c741b19b91064094f92c1c97b194144bfc8b50d67258e2`;
+- the exact Bun 1.4.0 binary from `oven/bun:1.4.0`, digest
+  `sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6`;
+- `bun install --force --frozen-lockfile --ignore-scripts`, a forced TypeScript
+  compile, and `npm rebuild better-sqlite3` under Node 24;
+- the repository's committed Vitest isolation and worker settings unchanged;
+- one warm Docker volume, with no other intentionally scheduled heavy work,
+  reused across samples. Container startup is excluded from the timings.
+
+The Node image is intentional. The official Bun image aliases `node` to Bun in
+this environment, which changed the test runner's Node compatibility behavior.
+The mixed runner preserves Bun 1.4.0 for package scripts while providing an
+actual Node 24 process for Vitest and native module rebuilding.
+
+Fresh Bun child-process diagnostics, 20 samples each on the warm volume:
+
+| Operation | p50 | p95 | Range |
+| --- | ---: | ---: | ---: |
+| Empty Bun process | 6.65ms | 7.94ms | 6.33-8.20ms |
+| Core root import | 649.01ms | 807.38ms | 577.96-966.15ms |
+| Runtime root import | 852.19ms | 916.37ms | 773.25-934.06ms |
+| CLI source `--help` | 908.31ms | 989.54ms | 833.46-1,016.89ms |
+
+Repeated complete lane results use the arithmetic midpoint for p50 with ten
+samples and nearest-rank p95, which is the maximum sample at `n=10`:
+
+| Lane | Passed | p50 | p95 | Range |
+| --- | ---: | ---: | ---: | ---: |
+| Foundation | 10/10 | 30.623s | 49.277s | 26.287-49.277s |
+| Runtime | 10/10 | 96.293s | 124.261s | 88.607-124.261s |
+| CLI | 10/10 | 368.071s | 411.694s | 306.308-411.694s |
+
+Raw elapsed seconds, in execution order:
+
+| Lane | Samples |
+| --- | --- |
+| Foundation | 26.287, 27.570, 44.488, 37.137, 49.277, 31.136, 30.110, 31.194, 29.560, 28.680 |
+| Runtime | 111.886, 94.620, 90.690, 88.607, 102.068, 94.481, 101.300, 124.261, 97.965, 94.499 |
+| CLI | 316.720, 306.308, 309.424, 321.355, 370.027, 366.114, 383.864, 411.694, 406.955, 375.905 |
+
+A separate CLI validation run passed 250 files and 2,669 tests in 276.72s:
+11.93s transform, 211.13s import, 30.73s test bodies, 2.31s setup, and
+25ms environment. A separate Runtime validation passed 303 files and 3,786
+tests in 76.12s, including the Bun/SQLite durability, fencing, recovery,
+permissions, and startup-cleanup probes. The full Foundation gate passed 289
+Core files and 3,531 Core tests plus 413 gateway-contract, 11 tools, and 8
+operator-appearance tests before its repeated series.
+
+These results are a reproducible within-runner baseline, not a cross-platform,
+cold-filesystem, CI, or product-performance claim. The upward drift visible in
+the CLI series is retained rather than discarded; any later comparison must use
+the same runner contract and report sample order, failures, p50, and p95. The
+Windows false positive remains a platform-specific measurement limitation.
 
 ## Revised Promotion Sequence
 
-1. Resolve or move the blocked Windows baseline to a clean supported runner,
-   then complete the repeated S0 lane baseline and preserve the environment and
-   failures.
-2. Scout and promote one S1 candidate at a time; do not absorb another ID.
-3. Migrate one proven Core root-import owner at a time from the closed analyzer
+1. Scout and promote one S1 candidate at a time; do not absorb another ID.
+2. Migrate one proven Core root-import owner at a time from the closed analyzer
    inventory.
-4. Add the missing CLI measurement classes, then test the single-entrypoint
+3. Add the missing CLI measurement classes, then test the single-entrypoint
    separation candidate.
-5. Run the long-turn gap audit against existing convergence, compaction, and
+4. Run the long-turn gap audit against existing convergence, compaction, and
    closeout owners; add no mechanism unless the audit fails.
-6. Remeasure imports, lanes, startup, and the deterministic turn fixture.
-7. Profile local CPU/allocation/serialization only after avoidable loading and
+5. Remeasure imports, lanes, startup, and the deterministic turn fixture.
+6. Profile local CPU/allocation/serialization only after avoidable loading and
    provider-loop work is removed.
 
 Rust remains rejected unless one local deterministic kernel accounts for at
