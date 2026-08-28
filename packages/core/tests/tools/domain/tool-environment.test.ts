@@ -13,7 +13,9 @@ describe("detectToolEnvironment", () => {
   });
 
   it("returns an object with optional binary info fields", async () => {
-    const environment = await detectToolEnvironment();
+    const environment = await detectToolEnvironment({
+      commandExecutor: makeToolEnvironmentExecutor(),
+    });
 
     expect(environment).toBeDefined();
     expect(typeof environment).toBe("object");
@@ -51,11 +53,18 @@ describe("detectToolEnvironment", () => {
   });
 
   it("accepts searchPaths option", async () => {
+    const commandExecutor = makeToolEnvironmentExecutor();
+    const searchPaths = ["/synthetic/tools"];
     const environment = await detectToolEnvironment({
-      searchPaths: ["/nonexistent/path"],
+      searchPaths,
+      commandExecutor,
     });
 
     expect(environment).toBeDefined();
+    expect(commandExecutor).toHaveBeenCalled();
+    expect(commandExecutor.mock.calls.every(([, , observedSearchPaths]) => (
+      observedSearchPaths === searchPaths
+    ))).toBe(true);
   });
 
   it("skips located binaries that cannot launch from their exact path", async () => {
