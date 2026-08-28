@@ -8,10 +8,10 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
-  GPT4O,
   type ManagedAgentInvocationRequest,
   type ManagedAgentInvocationRecord,
 } from "@kilnai/core/agents";
+import { GPT4O } from "../../src/agents/provider-adapters/openai.js";
 import {
   textParts,
 } from "@kilnai/core/engine";

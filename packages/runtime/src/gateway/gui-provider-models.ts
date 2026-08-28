@@ -2,13 +2,13 @@ import { execFileSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
-  OPENCODE_BASE_URL,
   createProviderModelEvidence,
   deriveProviderModelEligibility,
   formatProviderModelRouteCooldown,
   type ProviderModelEvidence,
   type ProviderModelEvidenceValue,
 } from "@kilnai/core";
+import { OPENCODE_BASE_URL } from "../agents/provider-adapters/opencode.js";
 import {
   CodexOAuthCredentialPoolService,
   OpenCodeCredentialPoolService,

@@ -1,29 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { writeFile } from "node:fs/promises";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { OpenCodeAuthFile } from "../opencode-auth.js";
+import { OpenCodeAdapter } from "../../../src/agents/provider-adapters/opencode.js";
+
+type FetchCall = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 describe("OpenCodeAdapter", () => {
-  let tempDir: string;
-  let tokenPath: string;
   let originalFetch: typeof globalThis.fetch;
 
-  beforeEach(async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "opencode-adapter-test-"));
-    tokenPath = join(tempDir, "auth.json");
+  beforeEach(() => {
     originalFetch = globalThis.fetch;
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    rmSync(tempDir, { recursive: true, force: true });
   });
 
   describe("constructor", () => {
     it("tier 'go' uses providerName 'opencode-go' and the selected model", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       const adapter = new OpenCodeAdapter({
         apiKey: "sk-test",
@@ -38,7 +30,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("tier 'zen' uses providerName 'opencode-zen' and the selected model", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       const adapter = new OpenCodeAdapter({
         apiKey: "sk-test",
@@ -52,7 +43,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("fails fast when the selected model is blank", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       expect(() => new OpenCodeAdapter({
         apiKey: "sk-test",
@@ -62,7 +52,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("explicit defaultModel override is honored for tier 'go'", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       const adapter = new OpenCodeAdapter({
         apiKey: "sk-test",
@@ -76,7 +65,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("explicit defaultModel override is honored for tier 'zen'", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
 
       const adapter = new OpenCodeAdapter({
         apiKey: "sk-test",
@@ -90,8 +78,7 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("routes tier 'go' chat calls through the OpenCode Go subscription endpoint", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      const fetchMock = vi.fn<FetchCall>(async () => new Response(JSON.stringify({
         choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
         usage: { prompt_tokens: 1, completion_tokens: 1 },
       })));
@@ -128,7 +115,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("uses the official streaming chat path for tool-capable OpenCode Go turns", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
       const stream = [
         `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "write", arguments: '{"filePath":"proof.txt",' } }] }, finish_reason: null }] })}`,
         `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"content":"after"}' } }] }, finish_reason: "tool_calls" }] })}`,
@@ -136,7 +122,7 @@ describe("OpenCodeAdapter", () => {
         "data: [DONE]",
         "",
       ].join("\n");
-      const fetchMock = vi.fn(async () => new Response(stream, {
+      const fetchMock = vi.fn<FetchCall>(async () => new Response(stream, {
         headers: { "Content-Type": "text/event-stream" },
       }));
       globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
@@ -175,7 +161,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("does not wait for transport cancellation after the provider sends DONE", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -219,8 +204,7 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("lowers Moonshot tool schemas and caps Kimi output tokens to the official catalog limit", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const fetchMock = vi.fn(async () => new Response([
+      const fetchMock = vi.fn<FetchCall>(async () => new Response([
         `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] })}`,
         `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } })}`,
         "data: [DONE]",
@@ -256,7 +240,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("bounds non-2xx tool-stream bodies and records a safe failure phase", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
       globalThis.fetch = vi.fn(async () => new Response("provider failure", { status: 503 })) as unknown as typeof globalThis.fetch;
       const events: unknown[] = [];
       const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
@@ -274,8 +257,7 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("omits unsafe identity values from both OpenCode headers and transport observations", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      const fetchMock = vi.fn<FetchCall>(async () => new Response(JSON.stringify({
         choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
         usage: { prompt_tokens: 1, completion_tokens: 1 },
       })));
@@ -297,7 +279,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("cancels the response body when the first-byte watchdog expires", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
       let cancelled = false;
       const stream = new ReadableStream<Uint8Array>({
         cancel() { cancelled = true; },
@@ -319,7 +300,6 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("reports first-byte phase when the caller aborts an open response body", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
       const stream = new ReadableStream<Uint8Array>({});
       globalThis.fetch = vi.fn(async () => new Response(stream)) as unknown as typeof globalThis.fetch;
       const controller = new AbortController();
@@ -339,8 +319,7 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("routes tier 'zen' chat calls through the OpenCode Zen endpoint", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      const fetchMock = vi.fn<FetchCall>(async () => new Response(JSON.stringify({
         choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
         usage: { prompt_tokens: 1, completion_tokens: 1 },
       })));
@@ -364,8 +343,7 @@ describe("OpenCodeAdapter", () => {
     });
 
     it("passes caller abort signals to OpenCode chat requests", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      const fetchMock = vi.fn<FetchCall>(async () => new Response(JSON.stringify({
         choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
         usage: { prompt_tokens: 1, completion_tokens: 1 },
       })));
@@ -391,72 +369,4 @@ describe("OpenCodeAdapter", () => {
     });
   });
 
-  describe("fromAuth", () => {
-    it("throws KilnError('PROVIDER_AUTH_FAILED') when no auth file exists", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const { OpenCodeAuth } = await import("../opencode-auth.js");
-
-      const auth = new OpenCodeAuth({ tokenPath });
-
-      await expect(
-        OpenCodeAdapter.fromAuth({ auth, defaultModel: "minimax-m2.5" }),
-      ).rejects.toThrow();
-    });
-
-    it("fails fast when fromAuth receives a blank selected model", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const { OpenCodeAuth } = await import("../opencode-auth.js");
-
-      const authFile: OpenCodeAuthFile = {
-        api_key: "sk-from-test",
-        tier: "go",
-        created_at: "2026-04-09T12:00:00.000Z",
-      };
-
-      await writeFile(tokenPath, JSON.stringify(authFile), "utf8");
-
-      const auth = new OpenCodeAuth({ tokenPath });
-
-      await expect(
-        OpenCodeAdapter.fromAuth({ auth, defaultModel: "   " }),
-      ).rejects.toThrow("OpenCode adapter requires a selected model");
-    });
-
-    it("with a saved auth file returns an adapter whose tier matches the stored tier", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const { OpenCodeAuth } = await import("../opencode-auth.js");
-
-      const authFile: OpenCodeAuthFile = {
-        api_key: "sk-from-test",
-        tier: "zen",
-        created_at: "2026-04-09T12:00:00.000Z",
-      };
-
-      await writeFile(tokenPath, JSON.stringify(authFile), "utf8");
-
-      const auth = new OpenCodeAuth({ tokenPath });
-      const adapter = await OpenCodeAdapter.fromAuth({ auth, defaultModel: "anthropic/claude-sonnet-4-6" });
-
-      expect(adapter.tier).toBe("zen");
-    });
-
-    it("saves and loads tier 'go' correctly", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const { OpenCodeAuth } = await import("../opencode-auth.js");
-
-      const authFile: OpenCodeAuthFile = {
-        api_key: "sk-go-key",
-        tier: "go",
-        created_at: "2026-04-09T12:00:00.000Z",
-      };
-
-      await writeFile(tokenPath, JSON.stringify(authFile), "utf8");
-
-      const auth = new OpenCodeAuth({ tokenPath });
-      const adapter = await OpenCodeAdapter.fromAuth({ auth, defaultModel: "minimax-m2.5" });
-
-      expect(adapter.tier).toBe("go");
-      expect(adapter.name).toBe("opencode-go");
-    });
-  });
 });

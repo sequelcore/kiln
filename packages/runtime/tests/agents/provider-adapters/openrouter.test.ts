@@ -2,8 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import type {
   CreateMessageOptions,
   AgentStreamEvent,
-} from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/engine/domain/content.js";
+} from "@kilnai/core/agents";
+import { extractText, textParts } from "@kilnai/core/engine";
 import {
   OpenRouterAdapter,
   NEMOTRON_NANO_FREE,
@@ -13,7 +13,7 @@ import {
   GEMMA_3_27B_FREE,
   QWEN3_CODER_FREE,
   MISTRAL_SMALL_FREE,
-} from "../../../src/agents/infrastructure/openrouter.js";
+} from "../../../src/agents/provider-adapters/openrouter.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},

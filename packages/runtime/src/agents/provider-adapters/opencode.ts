@@ -1,8 +1,7 @@
 import { OpenAICompatAdapter } from "./openai-compat.js";
-import type { AgentResponse, CreateMessageOptions } from "../index.js";
-import { safeProviderRequestIdentity } from "../provider-request-identity.js";
-import { OpenCodeAuth, type OpenCodeTier } from "./opencode-auth.js";
-import { KilnError } from "../../engine/errors.js";
+import type { AgentResponse, CreateMessageOptions, OpenCodeTier } from "@kilnai/core/agents";
+import { safeProviderRequestIdentity } from "@kilnai/core/agents";
+import { KilnError } from "@kilnai/core/engine";
 
 export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
@@ -62,26 +61,6 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
 
   protected override projectToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
     return isMoonshotModel(this.defaultModel) ? lowerMoonshotSchema(schema) : schema;
-  }
-
-  static async fromAuth(opts: {
-    auth?: OpenCodeAuth;
-    /** Canonical operator Kiln home supplied by CLI/Runtime composition. */
-    kilnHome?: string;
-    defaultModel: string;
-  }): Promise<OpenCodeAdapter> {
-    const auth = opts.auth ?? new OpenCodeAuth({ kilnHome: opts.kilnHome });
-    const file = await auth.loadAuthFile();
-    if (!file) {
-      throw new KilnError("PROVIDER_AUTH_FAILED", "OpenCode auth file not found", {
-        context: { hint: "run `kiln auth opencode link`" },
-      });
-    }
-    return new OpenCodeAdapter({
-      apiKey: file.api_key,
-      tier: file.tier,
-      defaultModel: opts.defaultModel,
-    });
   }
 }
 

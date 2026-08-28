@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type {
   CreateMessageOptions,
   AgentStreamEvent,
-} from "../../../src/agents/index.js";
-import { textParts } from "../../../src/engine/domain/content.js";
-import { OpenAIAdapter } from "../../../src/agents/infrastructure/openai.js";
-import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
+} from "@kilnai/core/agents";
+import { getInvalidToolInputDetails } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import { OpenAIAdapter } from "../../../src/agents/provider-adapters/openai.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},

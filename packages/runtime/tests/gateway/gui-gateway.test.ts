@@ -6,9 +6,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  GPT4O,
-} from "@kilnai/core/agents";
+import { GPT4O } from "../../src/agents/provider-adapters/openai.js";
 import type {
   ToolResourceProvider,
 } from "@kilnai/core/tools";

@@ -1,4 +1,4 @@
-import type { CreateMessageOptions } from "../index.js";
+import type { CreateMessageOptions } from "@kilnai/core/agents";
 
 export interface ProviderToolNameCodec {
   toProviderName(canonicalName: string): string;

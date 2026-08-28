@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toStrictToolSchema } from "../strict-tool-schema.js";
+import { toStrictToolSchema } from "../../../../src/agents/provider-adapters/openai-tool-protocol/strict-tool-schema.js";
 
 describe("toStrictToolSchema", () => {
   it("rejects provider-unsupported oneOf schemas locally with their exact path", () => {

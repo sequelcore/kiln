@@ -4,21 +4,25 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   ToolCall,
-} from "../index.js";
-import { safeProviderRequestIdentity } from "../provider-request-identity.js";
-import type { ContentPart } from "../../engine/domain/content.js";
-import { textPart, extractText } from "../../engine/domain/content.js";
-import { KilnError } from "../../engine/errors.js";
-import { withRetry } from "./retry.js";
-import type { RetryOptions } from "./retry.js";
-import { assertValidToolCallIds, buildSyntheticToolCallId, normalizeToolInput } from "../tool-call-input.js";
+  ProviderTransportEvent,
+  RetryOptions,
+} from "@kilnai/core/agents";
+import {
+  admitDeliberationForExecution,
+  assertValidToolCallIds,
+  buildSyntheticToolCallId,
+  normalizeToolInput,
+  safeProviderRequestIdentity,
+  withRetry,
+} from "@kilnai/core/agents";
+import type { ContentPart } from "@kilnai/core/engine";
+import { extractText, KilnError, textPart } from "@kilnai/core/engine";
 import {
   collectCanonicalToolNames,
   createProviderToolNameCodec,
   type ProviderToolNameCodec,
-} from "./tool-name-codec.js";
-import { toStrictToolSchema } from "./strict-tool-schema.js";
-import { admitDeliberationForExecution } from "../deliberation-policy.js";
+} from "./openai-tool-protocol/tool-name-codec.js";
+import { toStrictToolSchema } from "./openai-tool-protocol/strict-tool-schema.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -631,7 +635,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     }
   }
 
-  private emitTransport(options: CreateMessageOptions, event: import("../index.js").ProviderTransportEvent): void {
+  private emitTransport(options: CreateMessageOptions, event: ProviderTransportEvent): void {
     try {
       options.transportObserver?.onEvent(event);
     } catch {

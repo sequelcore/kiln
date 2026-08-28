@@ -12,11 +12,11 @@ import {
 } from "node:events";
 import {
   CredentialPool,
-  GPT4O,
-  OPENCODE_BASE_URL,
   type OpenCodeAuthFile,
   type OpenCodeTier,
 } from "@kilnai/core/agents";
+import { GPT4O } from "../../src/agents/provider-adapters/openai.js";
+import { OPENCODE_BASE_URL } from "../../src/agents/provider-adapters/opencode.js";
 import {
   afterEach,
   describe,

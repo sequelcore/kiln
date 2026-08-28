@@ -251,20 +251,6 @@ export { withRetry } from "./infrastructure/retry.js";
 export type { RetryOptions } from "./infrastructure/retry.js";
 export { ProviderRegistry } from "./provider-registry.js";
 export type { DiscoveredDirectProviderModelCapabilities } from "./provider-execution-profiles.js";
-export { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "./infrastructure/openai.js";
-export { LmStudioAdapter, LMSTUDIO_BASE_URL, LMSTUDIO_DEFAULT_MODEL } from "./infrastructure/lmstudio.js";
-export type { LmStudioAdapterConfig } from "./infrastructure/lmstudio.js";
-export { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "./infrastructure/deepseek.js";
-export {
-  OpenRouterAdapter,
-  NEMOTRON_NANO_FREE,
-  STEP_FLASH_FREE,
-  TRINITY_LARGE_FREE,
-  LLAMA_33_70B_FREE,
-  GEMMA_3_27B_FREE,
-  QWEN3_CODER_FREE,
-  MISTRAL_SMALL_FREE,
-} from "./infrastructure/openrouter.js";
 export { type CatalogPricing, MODEL_CATALOG, CODEX_DEFAULT_MODEL } from "./model-pricing.js";
 export { CircuitBreaker } from "./circuit-breaker.js";
 export type { CircuitBreakerConfig, CircuitState } from "./circuit-breaker.js";
@@ -284,7 +270,6 @@ export {
   applyCredentialFileMode,
   isOverPermissiveCredentialMode,
 } from "./infrastructure/credential-file-mode.js";
-export { CodexOAuthAdapter } from "./infrastructure/codex-oauth.js";
 export type {
   BrowserAuthorizationResult,
   CodexOAuthAuthOptions,
@@ -294,13 +279,6 @@ export type {
 } from "./infrastructure/codex-oauth-auth.js";
 export { OpenCodeAuth } from "./infrastructure/opencode-auth.js";
 export type { OpenCodeAuthFile, OpenCodeAuthOptions, OpenCodeTier } from "./infrastructure/opencode-auth.js";
-export {
-  OpenCodeAdapter,
-  OpenCodeRateLimitError,
-  OpenCodeQuotaError,
-  OPENCODE_BASE_URL,
-} from "./infrastructure/opencode-provider.js";
-export type { OpenCodeAdapterConfig } from "./infrastructure/opencode-provider.js";
 export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";

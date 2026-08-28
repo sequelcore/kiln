@@ -5,20 +5,23 @@ import type {
   DeliberationLevelId,
   ProviderAdapter,
   ToolCall,
-} from "../index.js";
-import { admitCommunicationForExecution, admitDeliberationForExecution } from "../index.js";
-import { textPart, extractText } from "../../engine/domain/content.js";
-import type { ContentPart } from "../../engine/domain/content.js";
-import { KilnError } from "../../engine/errors.js";
-import { CodexOAuthAuth } from "./codex-oauth-auth.js";
-import { assertValidToolCallIds, buildSyntheticToolCallId, normalizeToolInput } from "../tool-call-input.js";
+} from "@kilnai/core/agents";
+import {
+  admitCommunicationForExecution,
+  admitDeliberationForExecution,
+  assertValidToolCallIds,
+  buildSyntheticToolCallId,
+  normalizeToolInput,
+  withRetry,
+} from "@kilnai/core/agents";
+import type { ContentPart } from "@kilnai/core/engine";
+import { extractText, KilnError, textPart } from "@kilnai/core/engine";
 import {
   collectCanonicalToolNames,
   createProviderToolNameCodec,
   type ProviderToolNameCodec,
-} from "./tool-name-codec.js";
-import { toStrictToolSchema } from "./strict-tool-schema.js";
-import { withRetry } from "./retry.js";
+} from "./openai-tool-protocol/tool-name-codec.js";
+import { toStrictToolSchema } from "./openai-tool-protocol/strict-tool-schema.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 const STREAMED_CONTENT_IDLE_MS = 2000;
@@ -31,9 +34,7 @@ interface AccessTokenProvider {
 }
 
 interface CodexOAuthAdapterConfig {
-  readonly auth?: AccessTokenProvider;
-  /** Canonical operator Kiln home supplied by CLI/Runtime composition. */
-  readonly kilnHome?: string;
+  readonly auth: AccessTokenProvider;
   readonly defaultModel: string;
   /** Disable all automatic request replay for an outer one-effect claim. */
   readonly internalRetry?: boolean;
@@ -140,7 +141,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private readonly internalRetry: boolean;
 
   constructor(config: CodexOAuthAdapterConfig) {
-    this.auth = config.auth ?? new CodexOAuthAuth({ kilnHome: config.kilnHome });
+    this.auth = config.auth;
     this.model = config.defaultModel.trim();
     this.internalRetry = config.internalRetry ?? true;
     if (this.model.length === 0) {

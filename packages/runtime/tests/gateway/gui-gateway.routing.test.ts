@@ -3,9 +3,7 @@ import * as guiFixture from "./gui-gateway-test-fixture.js";
 import {
   rmSync,
 } from "node:fs";
-import {
-  GPT4O,
-} from "@kilnai/core/agents";
+import { GPT4O } from "../../src/agents/provider-adapters/openai.js";
 import type {
   OperatorExecutionTargetSelectionPort,
 } from "../../src/gateway/operator-execution-target-selection.js";

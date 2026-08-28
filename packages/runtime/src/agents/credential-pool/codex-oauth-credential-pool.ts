@@ -2,8 +2,8 @@ import { constants, type BigIntStats } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { CodexOAuthAdapter } from "../provider-adapters/codex-oauth.js";
 import {
-  CodexOAuthAdapter,
   CodexOAuthAuth,
   CredentialPool,
   KilnError,

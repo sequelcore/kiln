@@ -3,11 +3,11 @@ import type {
   CreateMessageOptions,
   ToolDefinition,
   AgentStreamEvent,
-} from "../../../src/agents/index.js";
-import { extractText, textParts } from "../../../src/engine/domain/content.js";
-import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "../../../src/agents/infrastructure/openai.js";
-import { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "../../../src/agents/infrastructure/deepseek.js";
-import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
+} from "@kilnai/core/agents";
+import { getInvalidToolInputDetails } from "@kilnai/core/agents";
+import { extractText, textParts } from "@kilnai/core/engine";
+import { OpenAIAdapter, GPT4O, GPT4O_MINI, O3, O3_MINI } from "../../../src/agents/provider-adapters/openai.js";
+import { DeepSeekAdapter, DEEPSEEK_CHAT, DEEPSEEK_REASONER } from "../../../src/agents/provider-adapters/deepseek.js";
 
 function makeOptions(
   overrides: Partial<CreateMessageOptions> = {},

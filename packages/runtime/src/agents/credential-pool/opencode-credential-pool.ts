@@ -2,9 +2,9 @@ import { constants, type BigIntStats } from "node:fs";
 import { createHash } from "node:crypto";
 import { lstat, open, readdir, unlink, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
+import { OpenCodeAdapter } from "../provider-adapters/opencode.js";
 import {
   CredentialPool,
-  OpenCodeAdapter,
   type Credential,
   type CredentialOutcome,
   type OpenCodeAuthFile,

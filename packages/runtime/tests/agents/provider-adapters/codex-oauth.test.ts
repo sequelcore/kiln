@@ -3,28 +3,17 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   CreateMessageOptions,
-} from "../../index.js";
+} from "@kilnai/core/agents";
 import {
   KNOWN_DELIBERATION_LEVEL_IDS,
+  getInvalidToolInputDetails,
   resolveCommunicationIntent,
   resolveCommunicationProfile,
-} from "../../index.js";
-import { getInvalidToolInputDetails } from "../../tool-call-input.js";
+} from "@kilnai/core/agents";
+import { CodexOAuthAdapter } from "../../../src/agents/provider-adapters/codex-oauth.js";
 
 const mockFetch = vi.fn();
 const mockGetValidAccessToken = vi.fn();
-
-vi.mock("../codex-oauth-auth.js", () => ({
-  CodexOAuthAuth: vi.fn(function MockCodexOAuthAuth() {
-    return {
-      getValidAccessToken: mockGetValidAccessToken,
-    };
-  }).mockImplementation(function MockCodexOAuthAuth() {
-    return {
-      getValidAccessToken: mockGetValidAccessToken,
-    };
-  }),
-}));
 
 function jsonResponse(status: number, body: unknown, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
@@ -217,11 +206,7 @@ async function resolveAfterIncompleteIdle<T>(
 }
 
 async function createAdapter(defaultModel = "gpt-5.4", internalRetry?: boolean) {
-  const { CodexOAuthAdapter } = await import("../codex-oauth.js");
-  const { CodexOAuthAuth } = await import("../codex-oauth-auth.js");
-  const auth = new CodexOAuthAuth() as unknown as {
-    getValidAccessToken: typeof mockGetValidAccessToken;
-  };
+  const auth = { getValidAccessToken: mockGetValidAccessToken };
   const adapter = new CodexOAuthAdapter({
     auth,
     defaultModel,
@@ -270,9 +255,8 @@ describe("CodexOAuthAdapter", () => {
     });
 
     it("fails fast when the selected model is blank", async () => {
-      const { CodexOAuthAdapter } = await import("../codex-oauth.js");
-
       expect(() => new CodexOAuthAdapter({
+        auth: { getValidAccessToken: mockGetValidAccessToken },
         defaultModel: "   ",
       })).toThrow("Codex OAuth adapter requires a selected model");
     });
@@ -1124,7 +1108,6 @@ describe("CodexOAuthAdapter", () => {
 
       const { adapter } = await createAdapter();
       const response = await adapter.createMessage(createOptions());
-      const { getInvalidToolInputDetails } = await import("../../tool-call-input.js");
       const invalidDetails = getInvalidToolInputDetails(response.toolCalls[0]!.input);
 
       expect(response.toolCalls[0]?.name).toBe("write");

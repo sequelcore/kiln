@@ -4,9 +4,7 @@ import * as guiFixture from "./gui-gateway-test-fixture.js";
 import {
   rmSync,
 } from "node:fs";
-import {
-  GPT4O,
-} from "@kilnai/core/agents";
+import { GPT4O } from "../../src/agents/provider-adapters/openai.js";
 import {
   textParts,
 } from "@kilnai/core/engine";
