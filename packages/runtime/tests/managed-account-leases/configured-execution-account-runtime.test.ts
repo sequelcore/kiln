@@ -392,7 +392,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     ]);
   });
 
-  it("keeps quota exhaustion distinct from credential health", async () => {
+  it("projects fresh quota exhaustion as unhealthy usage evidence", async () => {
     const runtime = new ConfiguredExecutionAccountRuntime({
       catalog,
       codexPool: pool([codexExecution], [usageSnapshot("credential-a", "exhausted")]),
@@ -401,7 +401,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     const admission = admitOperatorExecutionIntent(catalog, { targetId: "codex-route" });
 
     await expect(runtime.operatorSessionCandidates.resolve({ admission, ...snapshotContext(catalog) })).resolves.toMatchObject([
-      { candidate: { accountId: "account-a", health: "healthy", quota: "exhausted" } },
+      { candidate: { accountId: "account-a", health: "unhealthy", quota: "exhausted" } },
     ]);
   });
 });

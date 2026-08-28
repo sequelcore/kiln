@@ -640,10 +640,9 @@ function deriveUsageEvidence(
     ? "fresh"
     : "stale";
   return {
-    // Credential/provider health is enforced by the executable-account pool.
-    // Usage availability belongs exclusively to the quota facet so admission
-    // can retain the actual fail-closed reason (unknown versus exhausted).
-    health: "healthy",
+    // Fresh exhaustion is unhealthy usage evidence at the shared capacity
+    // boundary. The separate quota facet retains the actionable reason.
+    health: freshness === "fresh" && usage.availability === "exhausted" ? "unhealthy" : "healthy",
     freshness,
     availability: usage.availability,
     observedAt: usage.observedAt,
