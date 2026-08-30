@@ -18,6 +18,7 @@ import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
   createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
+  createNativeWebFetchClient: vi.fn(() => vi.fn()),
   createFormalVerifyTool: vi.fn(() => ({
     name: "formal_verify",
     description: "Configured formal verification",

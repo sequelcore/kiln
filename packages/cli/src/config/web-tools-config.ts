@@ -22,7 +22,7 @@ import {
   type WebSourceMetadata,
   type MemoryScope,
 } from "@kilnai/core";
-import { createSqliteMemoryRepository } from "@kilnai/runtime";
+import { createNativeWebFetchClient, createSqliteMemoryRepository } from "@kilnai/runtime";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { KilnAppConfig } from "../config.js";
@@ -156,7 +156,10 @@ export function createWebToolSurfaceOptions(
     workspaceResources,
     ...(memoryResources ? { memoryResources } : {}),
     ...(memoryMutations ? { memoryMutations } : {}),
-    webFetch: { networkPolicy },
+    webFetch: {
+      networkPolicy,
+      fetchClient: createNativeWebFetchClient(input.fetchImpl === undefined ? {} : { fetchImpl: input.fetchImpl }),
+    },
     webExtract: {
       networkPolicy,
       ...(extractProvider ? { extractProvider } : {}),

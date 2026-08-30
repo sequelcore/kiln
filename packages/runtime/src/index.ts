@@ -1280,6 +1280,8 @@ export type { WebhookHandlerConfig } from "./trigger/webhook-handler.js";
 export { createWebhookHandler, validateWebhookSignature } from "./trigger/webhook-handler.js";
 // Utils
 export { verifyHmacSha256 } from "./utils/hmac.js";
+export type { NativeFetchImplementation, NativeWebFetchClientOptions } from "./web/native-web-fetch-client.js";
+export { createNativeWebFetchClient } from "./web/native-web-fetch-client.js";
 export {
   isRuntimeOwnedFormalVerificationFinishInvocation,
   readRuntimeFormalVerificationFinishTransport,

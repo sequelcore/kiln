@@ -14,6 +14,7 @@ const toolsMocks = vi.hoisted(() => ({
 
 const runtimeMocks = vi.hoisted(() => ({
   createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
+  createNativeWebFetchClient: vi.fn(() => vi.fn()),
   DevToolsMcpServer: class {
     constructor(options: unknown) {
       toolsMocks.serverOptions = options;

@@ -22,7 +22,6 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_BYTES = 200_000;
 const MAX_BYTES = 1_000_000;
-const MAX_REDIRECTS = 5;
 const SUPPORTED_CONTENT_TYPES = [
   "text/html",
   "text/plain",
@@ -64,7 +63,7 @@ export class WebFetchTool implements DevTool {
   private readonly networkPolicy?: SandboxPolicy;
 
   constructor(options: WebFetchToolOptions = {}) {
-    this.fetchClient = options.fetchClient ?? nativeWebFetchClient;
+    this.fetchClient = options.fetchClient ?? unconfiguredWebFetchClient;
     this.networkPolicy = options.networkPolicy;
   }
 
@@ -192,47 +191,8 @@ export class WebFetchTool implements DevTool {
   }
 }
 
-async function nativeWebFetchClient(request: WebFetchClientRequest): Promise<WebFetchClientResponse> {
-  const redirectChain: string[] = [request.url];
-  let currentUrl = request.url;
-
-  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), request.timeoutMs);
-    try {
-      const response = await fetch(currentUrl, {
-        redirect: "manual",
-        signal: controller.signal,
-        headers: { Accept: "text/html,text/plain,text/markdown,application/json,application/xml,text/xml,*/*;q=0.1" },
-      });
-
-      if (isRedirectStatus(response.status)) {
-        const location = response.headers.get("location");
-        if (!location) {
-          throw new Error(`Redirect response ${response.status} did not include a Location header`);
-        }
-        currentUrl = new URL(location, currentUrl).toString();
-        redirectChain.push(currentUrl);
-        continue;
-      }
-
-      const bodyBuffer = Buffer.from(await response.arrayBuffer());
-      const bytesRead = bodyBuffer.byteLength;
-      const body = bodyBuffer.subarray(0, request.maxBytes).toString("utf8");
-      return {
-        url: currentUrl,
-        status: response.status,
-        contentType: response.headers.get("content-type") ?? undefined,
-        body,
-        bytesRead,
-        redirectChain,
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  throw new Error(`Too many redirects after ${MAX_REDIRECTS} hops`);
+async function unconfiguredWebFetchClient(): Promise<WebFetchClientResponse> {
+  throw new Error("Web fetch execution is unavailable because no Runtime client was configured");
 }
 
 function parseBoundedNumber(
@@ -282,8 +242,4 @@ function clipToBytes(value: string, maxBytes: number): { readonly text: string; 
     return { text: value, truncated: false };
   }
   return { text: buffer.subarray(0, maxBytes).toString("utf8"), truncated: true };
-}
-
-function isRedirectStatus(status: number): boolean {
-  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }

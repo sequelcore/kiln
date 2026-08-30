@@ -44,6 +44,24 @@ describe("web policy helpers", () => {
 });
 
 describe("WebFetchTool", () => {
+  it("fails closed without a Runtime-owned fetch client", async () => {
+    const tool = new WebFetchTool();
+
+    const result = await tool.execute(
+      { name: "web_fetch", input: { url: "https://example.com" } },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["example.com"],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      isError: true,
+      metadata: { errorCode: "unavailable" },
+    });
+    expect(result.output).toContain("no Runtime client was configured");
+  });
+
   it("fetches allowed text content with sanitized structured output and metadata", async () => {
     const fetchClient = vi.fn<WebFetchClient>(async () => ({
       url: "https://docs.example.com/start",
