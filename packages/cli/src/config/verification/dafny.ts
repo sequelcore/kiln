@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, lstatSync, openSync, readSync, realpathSync, readdirSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import type { FormalVerifyToolOptions } from "@kilnai/core/tools";
+import type { FormalVerifyToolOptions } from "@kilnai/runtime";
 import type { KilnGlobalConfig } from "../global-config.js";
 
 export type FormalVerificationConfigurationDiagnosticCode =

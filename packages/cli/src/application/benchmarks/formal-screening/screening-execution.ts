@@ -25,11 +25,14 @@ export function resolveFormalScreeningCase(
   return screeningCase;
 }
 
-export function omitFormalVerificationCapability<T extends { readonly formalVerify?: unknown }>(
-  options: T,
-): Omit<T, "formalVerify"> {
-  const { formalVerify: _formalVerify, ...without } = options;
-  return without;
+export function omitFormalVerificationCapability<
+  T extends { readonly verificationTools?: readonly { readonly name: string }[] },
+>(options: T): T {
+  if (!options.verificationTools?.some((tool) => tool.name === "formal_verify")) return options;
+  return {
+    ...options,
+    verificationTools: options.verificationTools.filter((tool) => tool.name !== "formal_verify"),
+  } as T;
 }
 export function toBackendVerifierCasePayload(value: PrivateFormalScreeningCaseFacts): BackendVerifierCasePayload {
   return {

@@ -94,6 +94,17 @@ const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
   idempotency: "non-idempotent",
 };
 
+function testFormalVerifyTool(): DevTool {
+  return {
+    name: "formal_verify",
+    description: "Test formal verifier.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    async execute() {
+      return { output: "verified", isError: false };
+    },
+  };
+}
+
 const TEST_PARENT_AUTHORITY = {
   executionMode: "execute",
   requestedAuthority: "read_only",
@@ -559,7 +570,7 @@ describe("attached runtime builtin tool surface", () => {
     };
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: createSessionBuiltinToolOptions({
-        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        verificationTools: [testFormalVerifyTool()],
         additionalTools: [finishTool, otherTool],
       }),
       boundedWork: {
@@ -650,7 +661,7 @@ describe("attached runtime builtin tool surface", () => {
     };
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: createSessionBuiltinToolOptions({
-        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        verificationTools: [testFormalVerifyTool()],
         additionalTools: [finishTool],
       }),
     });

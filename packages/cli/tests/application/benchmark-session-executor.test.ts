@@ -148,7 +148,9 @@ vi.mock("../../src/config/builtin-tool-surface-config.js", () => ({
   loadConfiguredBuiltinToolSurfaceOptions: benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions,
   observeFormalVerificationCapability: vi.fn((options) => ({
     metric: "formal_verification",
-    status: options.formalVerify === undefined ? "unavailable" : "available",
+    status: options.verificationTools?.some((tool: { readonly name: string }) => tool.name === "formal_verify") === true
+      ? "available"
+      : "unavailable",
   })),
   withProgressiveRuntimeToolProjection: vi.fn((options, profile) => ({
     ...options,

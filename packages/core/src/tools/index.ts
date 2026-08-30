@@ -339,8 +339,6 @@ export { BashTool } from "./infrastructure/bash-tool.js";
 export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 export { CodeIntelligenceTool } from "./infrastructure/code-intelligence-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
-export type { FormalVerifyToolOptions } from "./infrastructure/verification/dafny/formal-verify-tool.js";
-export { createFormalVerifyTool, FORMAL_VERIFY_CAPABILITY } from "./infrastructure/verification/dafny/formal-verify-tool.js";
 export type { GitToolOptions } from "./infrastructure/git-tool.js";
 export { GitTool } from "./infrastructure/git-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";

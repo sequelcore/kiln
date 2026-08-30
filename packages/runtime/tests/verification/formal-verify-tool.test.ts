@@ -1,30 +1,27 @@
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
 import {
-  createFormalVerifyTool,
-  FORMAL_VERIFY_CAPABILITY,
-} from "../../src/tools/infrastructure/verification/dafny/formal-verify-tool.js";
-import { TOOL_SCHEMAS } from "../../src/tools/domain/tool.js";
-import { createDefaultBuiltinTools } from "../../src/tools/default-tool-surface.js";
-import { BUILTIN_TOOL_EFFECT_ENVELOPES } from "../../src/tools/domain/tool-effect-envelopes.js";
-import {
+  BUILTIN_TOOL_EFFECT_ENVELOPES,
+  type CommandProcessRequest,
+  type CommandProcessResult,
+  type CommandProcessRunner,
+  type CommandProcessSink,
+  createDefaultBuiltinTools,
+  FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
+  type FormalVerificationToolResultMetadata,
   isFormalVerificationToolResultMetadata,
   parseFormalVerificationToolResultMetadata,
-  type FormalVerificationToolResultMetadata,
-} from "../../src/tools/domain/tool-result-metadata.js";
-import { FORMAL_VERIFICATION_OBSERVATION_SCHEMA } from "../../src/verification/formal/observation.js";
-import type {
-  CommandProcessRequest,
-  CommandProcessResult,
-  CommandProcessRunner,
-  CommandProcessSink,
-} from "../../src/tools/infrastructure/command-process.js";
-import { makeSandbox, makeTempDir as makePlainTempDir, removeTempDir } from "./infrastructure/test-utils.js";
+  TOOL_SCHEMAS,
+} from "@kilnai/core";
+import { afterEach, describe, expect, it } from "vitest";
+import { createFormalVerifyTool, FORMAL_VERIFY_CAPABILITY } from "../../src/verification/dafny/formal-verify-tool.js";
+import { makeTempDir as makePlainTempDir, makeSandbox, removeTempDir } from "./test-utils.js";
+
+const createTool = () => createFormalVerifyTool({ executable: "dafny", verifierVersion: "4.11.0" });
 
 class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;
@@ -79,10 +76,10 @@ const makeGitRepo = (): Promise<string> => makeTempDir("kiln-formal-git-");
 
 describe("formal_verify registration", () => {
   it("declares a schema that does not accept an acceptance-criterion mapping", () => {
-    const properties = (TOOL_SCHEMAS.formal_verify.inputSchema as {
+    const properties = TOOL_SCHEMAS.formal_verify.inputSchema as {
       properties: Record<string, unknown>;
       additionalProperties: boolean;
-    });
+    };
     expect(Object.keys(properties.properties)).toEqual(["file"]);
     expect(properties.additionalProperties).toBe(false);
   });
@@ -127,7 +124,10 @@ describe("formal_verify execution", () => {
 
   it("reports a run that did not complete as an error, not as a clean verification", async () => {
     const filePath = await executionFile();
-    const result = await tool(new ScriptedRunner({ timedOut: true })).execute(call(filePath), makeSandbox(executionDir!));
+    const result = await tool(new ScriptedRunner({ timedOut: true })).execute(
+      call(filePath),
+      makeSandbox(executionDir!),
+    );
     expect(result.isError).toBe(true);
     expect(result.output).toContain("did not complete");
     expect(result.output).toContain("timed_out");
@@ -135,9 +135,10 @@ describe("formal_verify execution", () => {
 
   it("reports a missing executable as an error", async () => {
     const filePath = await executionFile();
-    const result = await tool(
-      new ScriptedRunner({ error: new Error("spawn dafny ENOENT") }),
-    ).execute(call(filePath), makeSandbox(executionDir!));
+    const result = await tool(new ScriptedRunner({ error: new Error("spawn dafny ENOENT") })).execute(
+      call(filePath),
+      makeSandbox(executionDir!),
+    );
     expect(result.isError).toBe(true);
     expect(result.output).toContain("ENOENT");
   }, 15_000);
@@ -178,7 +179,10 @@ describe("formal_verify observation metadata", () => {
    * `createFormalVerifyTool`), so only a run backed by real files ever reaches
    * `status: "completed"`.
    */
-  async function runWithLog(rows: readonly string[], jsonLines = ""): Promise<{
+  async function runWithLog(
+    rows: readonly string[],
+    jsonLines = "",
+  ): Promise<{
     readonly result: Awaited<ReturnType<ReturnType<typeof tool>["execute"]>>;
     readonly fileBytes: Buffer;
     readonly filePath: string;
@@ -213,7 +217,9 @@ describe("formal_verify observation metadata", () => {
       kind: "formal_verification",
       verifier: { name: "dafny", version: "4.11.0" },
       artifact: { contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` },
-      subjects: [{ path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` }],
+      subjects: [
+        { path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` },
+      ],
       checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved", durationMs: 23, resourceCount: 26_991 }],
       establishes: [],
     });
@@ -253,9 +259,7 @@ describe("formal_verify observation metadata", () => {
   });
 
   it("emits an error result and no metadata for a completed run with no correctness checks", async () => {
-    const result = await runWithLog([
-      "admitPath (well-formedness),Passed,00:00:00.0100000,100,0",
-    ]);
+    const result = await runWithLog(["admitPath (well-formedness),Passed,00:00:00.0100000,100,0"]);
     expect(result.result.isError).toBe(true);
     expect(result.result.metadata).toBeUndefined();
   });
@@ -292,10 +296,10 @@ describe("formal_verify observation metadata", () => {
     dir = await makeTempDir();
     const filePath = join(dir, "policy.dfy");
     await writeFile(filePath, "method Foo() ensures true {}\n");
-    await writeFile(`${filePath}.verification.csv`, [
-      CSV_HEADER,
-      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
-    ].join("\n"));
+    await writeFile(
+      `${filePath}.verification.csv`,
+      [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n"),
+    );
     const runner = new ScriptedRunner({ exitCode: 0 });
 
     const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
@@ -321,8 +325,9 @@ describe("formal_verify observation metadata", () => {
     expect(first.request?.cwd).toBeDefined();
     expect(second.request?.cwd).toBeDefined();
     expect(first.request?.cwd).not.toBe(second.request?.cwd);
-    expect(first.request?.args.find((argument) => argument.startsWith("csv;LogFileName=")))
-      .not.toBe(second.request?.args.find((argument) => argument.startsWith("csv;LogFileName=")));
+    expect(first.request?.args.find((argument) => argument.startsWith("csv;LogFileName="))).not.toBe(
+      second.request?.args.find((argument) => argument.startsWith("csv;LogFileName=")),
+    );
   });
 
   it("verifies an isolated read-only snapshot when the source changes and is restored", async () => {
@@ -333,20 +338,25 @@ describe("formal_verify observation metadata", () => {
     const csv = [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n");
     let observedSnapshot: Buffer | undefined;
     let observedRequestPath = "";
-    const runner = new ScriptedRunner({ exitCode: 0 }, (request) => {
-      const inputArgument = request.args.at(-1)!;
-      observedRequestPath = resolve(request.cwd, inputArgument);
-      observedSnapshot = readFileSync(observedRequestPath);
-      writeFileSync(filePath, "method Foo() ensures false {}\n");
-      writeFileSync(filePath, original);
-    }, csv);
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      (request) => {
+        const inputArgument = request.args.at(-1)!;
+        observedRequestPath = resolve(request.cwd, inputArgument);
+        observedSnapshot = readFileSync(observedRequestPath);
+        writeFileSync(filePath, "method Foo() ensures false {}\n");
+        writeFileSync(filePath, original);
+      },
+      csv,
+    );
 
     const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(false);
     expect(observedRequestPath).not.toBe(filePath);
     expect(observedSnapshot).toEqual(original);
-    expect((result.metadata as FormalVerificationToolResultMetadata).artifact.contentDigest)
-      .toBe(`sha256:${createHash("sha256").update(original).digest("hex")}`);
+    expect((result.metadata as FormalVerificationToolResultMetadata).artifact.contentDigest).toBe(
+      `sha256:${createHash("sha256").update(original).digest("hex")}`,
+    );
   });
 
   it("preserves quoted local include dependencies inside the snapshot boundary", async () => {
@@ -356,17 +366,27 @@ describe("formal_verify observation metadata", () => {
     await writeFile(join(dir, "helper.dfy"), "lemma Helper() ensures true {}\n");
     const csv = [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n");
     let snapshotHasHelper = false;
-    const runner = new ScriptedRunner({ exitCode: 0 }, (request) => {
-      const snapshotInputPath = resolve(request.cwd, request.args.at(-1)!);
-      snapshotHasHelper = existsSync(join(dirname(snapshotInputPath), "helper.dfy"));
-    }, csv);
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      (request) => {
+        const snapshotInputPath = resolve(request.cwd, request.args.at(-1)!);
+        snapshotHasHelper = existsSync(join(dirname(snapshotInputPath), "helper.dfy"));
+      },
+      csv,
+    );
 
     const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(false);
     expect(snapshotHasHelper).toBe(true);
     expect((result.metadata as FormalVerificationToolResultMetadata).subjects).toEqual([
-      { path: "helper.dfy", contentDigest: `sha256:${createHash("sha256").update("lemma Helper() ensures true {}\n").digest("hex")}` },
-      { path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update('include "helper.dfy"\nmethod Foo() ensures true {}\n').digest("hex")}` },
+      {
+        path: "helper.dfy",
+        contentDigest: `sha256:${createHash("sha256").update("lemma Helper() ensures true {}\n").digest("hex")}`,
+      },
+      {
+        path: "policy.dfy",
+        contentDigest: `sha256:${createHash("sha256").update('include "helper.dfy"\nmethod Foo() ensures true {}\n').digest("hex")}`,
+      },
     ]);
   });
 
@@ -374,10 +394,11 @@ describe("formal_verify observation metadata", () => {
     dir = await makeTempDir();
     const filePath = join(dir, "policy.dfy");
     await writeFile(filePath, "method Foo() ensures true {}\n");
-    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
-      CSV_HEADER,
-      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
-    ].join("\n"));
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      undefined,
+      [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n"),
+    );
 
     const result = await tool(runner).execute(call(filePath), { cwd: join(dir, "missing") });
     expect(result.isError).toBe(true);
@@ -391,10 +412,11 @@ describe("formal_verify observation metadata", () => {
     await git(dir, "init", "--bare", "--quiet");
     const filePath = join(dir, "policy.dfy");
     await writeFile(filePath, "method Foo() ensures true {}\n");
-    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
-      CSV_HEADER,
-      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
-    ].join("\n"));
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      undefined,
+      [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n"),
+    );
 
     const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(true);
@@ -411,15 +433,13 @@ describe("formal_verify observation metadata", () => {
     await mkdir(candidateRoot, { recursive: true });
     await mkdir(outsideRoot, { recursive: true });
     await writeFile(filePath, "method Foo() ensures true {}\n");
-    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
-      CSV_HEADER,
-      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
-    ].join("\n"));
-
-    const result = await tool(runner).execute(
-      call(filePath),
-      makeSandbox(candidateRoot, { allowedPaths: [dir] }),
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      undefined,
+      [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n"),
     );
+
+    const result = await tool(runner).execute(call(filePath), makeSandbox(candidateRoot, { allowedPaths: [dir] }));
     expect(result.isError).toBe(true);
     expect(result.output).toMatch(/candidate-relative|outside|subject/u);
     expect(result.metadata).toBeUndefined();
@@ -440,10 +460,11 @@ describe("formal_verify observation metadata", () => {
     const cleanHelperBytes = Buffer.from("lemma Helper() ensures true {}\n", "utf8");
     let observedFileBytes: Buffer | undefined;
     let observedHelperBytes: Buffer | undefined;
-    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
-      CSV_HEADER,
-      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
-    ].join("\n"));
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      undefined,
+      [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n"),
+    );
     const originalStart = runner.start.bind(runner);
     runner.start = (request, sink) => {
       const snapshotInputPath = resolve(request.cwd, request.args.at(-1)!);
@@ -473,10 +494,7 @@ describe("formal_verify observation metadata", () => {
     await writeFile(join(outsideDir, "helper.dfy"), "method Helper() {}\n");
 
     const runner = new ScriptedRunner();
-    const result = await tool(runner).execute(
-      call(filePath),
-      makeSandbox(allowedDir, { allowedPaths: [allowedDir] }),
-    );
+    const result = await tool(runner).execute(call(filePath), makeSandbox(allowedDir, { allowedPaths: [allowedDir] }));
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("dependency read denied");
@@ -507,10 +525,7 @@ describe("formal_verify observation metadata", () => {
     }
 
     const runner = new ScriptedRunner();
-    const result = await tool(runner).execute(
-      call(filePath),
-      makeSandbox(allowedDir, { allowedPaths: [allowedDir] }),
-    );
+    const result = await tool(runner).execute(call(filePath), makeSandbox(allowedDir, { allowedPaths: [allowedDir] }));
 
     expect(result.isError).toBe(true);
     expect(result.output).toMatch(/dependency read denied|symlink|boundary/u);
@@ -523,11 +538,15 @@ describe("formal_verify observation metadata", () => {
     const filePath = join(dir, "policy.dfy");
     await writeFile(filePath, "method Foo() ensures true {}\n");
     const csv = [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n");
-    const runner = new ScriptedRunner({ exitCode: 0 }, (request) => {
-      const snapshotPath = resolve(request.cwd, request.args.at(-1)!);
-      chmodSync(snapshotPath, 0o600);
-      writeFileSync(snapshotPath, "method Foo() ensures false {}\n");
-    }, csv);
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      (request) => {
+        const snapshotPath = resolve(request.cwd, request.args.at(-1)!);
+        chmodSync(snapshotPath, 0o600);
+        writeFileSync(snapshotPath, "method Foo() ensures false {}\n");
+      },
+      csv,
+    );
 
     const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(true);
@@ -540,9 +559,13 @@ describe("formal_verify observation metadata", () => {
     const filePath = join(dir, "policy.dfy");
     await writeFile(filePath, "method Foo() ensures true {}\n");
     const csv = [CSV_HEADER, "admitPath (correctness),Passed,00:00:00.0230392,26991,0"].join("\n");
-    const runner = new ScriptedRunner({ exitCode: 0 }, (request) => {
-      unlinkSync(resolve(request.cwd, request.args.at(-1)!));
-    }, csv);
+    const runner = new ScriptedRunner(
+      { exitCode: 0 },
+      (request) => {
+        unlinkSync(resolve(request.cwd, request.args.at(-1)!));
+      },
+      csv,
+    );
 
     const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(true);
@@ -571,14 +594,26 @@ describe("formal_verify observation parser", () => {
   });
 
   it("rejects subject paths that are not canonical candidate-relative POSIX paths", () => {
-    for (const path of ["../outside.dfy", "/absolute.dfy", "C:/absolute.dfy", "dir\\file.dfy", "dir//file.dfy", "dir/./file.dfy", "dir/../file.dfy", " file.dfy", "file.dfy "]) {
+    for (const path of [
+      "../outside.dfy",
+      "/absolute.dfy",
+      "C:/absolute.dfy",
+      "dir\\file.dfy",
+      "dir//file.dfy",
+      "dir/./file.dfy",
+      "dir/../file.dfy",
+      " file.dfy",
+      "file.dfy ",
+    ]) {
       const malformed = { ...valid(), subjects: [{ path, contentDigest: `sha256:${"b".repeat(64)}` }] };
       expect(isFormalVerificationToolResultMetadata(malformed)).toBe(false);
       expect(() => parseFormalVerificationToolResultMetadata(malformed)).toThrow(/subject/u);
     }
-    const internalSpace = { ...valid(), subjects: [{ path: "formal proofs/policy.dfy", contentDigest: `sha256:${"b".repeat(64)}` }] };
-    expect(parseFormalVerificationToolResultMetadata(internalSpace).subjects[0]?.path)
-      .toBe("formal proofs/policy.dfy");
+    const internalSpace = {
+      ...valid(),
+      subjects: [{ path: "formal proofs/policy.dfy", contentDigest: `sha256:${"b".repeat(64)}` }],
+    };
+    expect(parseFormalVerificationToolResultMetadata(internalSpace).subjects[0]?.path).toBe("formal proofs/policy.dfy");
   });
 
   it("rejects duplicate or non-canonical subject ordering", () => {
@@ -654,7 +689,13 @@ describe("formal_verify observation parser", () => {
       ...valid(),
       checks: [
         { symbol: "zeta", check: "correctness" as const, outcome: "proved" as const, durationMs: 1, resourceCount: 1 },
-        { symbol: "admitPath", check: "correctness" as const, outcome: "proved" as const, durationMs: 1, resourceCount: 1 },
+        {
+          symbol: "admitPath",
+          check: "correctness" as const,
+          outcome: "proved" as const,
+          durationMs: 1,
+          resourceCount: 1,
+        },
       ],
     };
     expect(isFormalVerificationToolResultMetadata(value)).toBe(false);
@@ -696,14 +737,14 @@ describe("formal_verify in the default tool surface", () => {
   });
 
   it("is offered once a verifier is configured", () => {
-    const names = createDefaultBuiltinTools({ formalVerify: { executable: "dafny", verifierVersion: "4.11.0" } })
-      .map((tool) => tool.name);
+    const names = createDefaultBuiltinTools({ verificationTools: [createTool()] }).map((tool) => tool.name);
     expect(names).toContain("formal_verify");
   });
 
   it("carries its effect envelope into the surface", () => {
-    const tool = createDefaultBuiltinTools({ formalVerify: { executable: "dafny", verifierVersion: "4.11.0" } })
-      .find((entry) => entry.name === "formal_verify");
+    const tool = createDefaultBuiltinTools({ verificationTools: [createTool()] }).find(
+      (entry) => entry.name === "formal_verify",
+    );
     expect(tool?.effectEnvelope?.operation).toBe("mutate");
   });
 });

@@ -18,6 +18,12 @@ import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
   createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
+  createFormalVerifyTool: vi.fn(() => ({
+    name: "formal_verify",
+    description: "Configured formal verification",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    execute: vi.fn(async () => ({ output: "ok", isError: false })),
+  })),
   createQualityAnalyzeTool: vi.fn(() => ({
     name: "quality_analyze",
     description: "Configured quality analysis",
@@ -58,7 +64,14 @@ describe("builtin tool surface config", () => {
     });
     expect(
       observeFormalVerificationCapability({
-        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        verificationTools: [
+          {
+            name: "formal_verify",
+            description: "Configured formal verification",
+            inputSchema: { type: "object", properties: {}, required: [] },
+            execute: vi.fn(async () => ({ output: "ok", isError: false })),
+          },
+        ],
       }),
     ).toEqual({
       metric: "formal_verification",
@@ -91,10 +104,7 @@ describe("builtin tool surface config", () => {
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
 
-      expect(options.formalVerify).toEqual({
-        executable: "C:/tools/dafny.exe",
-        verifierVersion: "4.11.0",
-      });
+      expect(options.verificationTools).toEqual([expect.objectContaining({ name: "formal_verify" })]);
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("formal_verify");
       expect(surface.registry.has("formal_verify")).toBe(true);
       expect(surface.toolNames).not.toContain("formal_verify");
@@ -125,12 +135,14 @@ describe("builtin tool surface config", () => {
         platform: "win32",
       });
 
-      expect(options.configuredProducerDiagnostics).toMatchObject([{
-        canonicalName: "formal_verify",
-        status: "validation_failed",
-        configuration: { code: "version_mismatch" },
-      }]);
-      expect(options.formalVerify).toBeUndefined();
+      expect(options.configuredProducerDiagnostics).toMatchObject([
+        {
+          canonicalName: "formal_verify",
+          status: "validation_failed",
+          configuration: { code: "version_mismatch" },
+        },
+      ]);
+      expect(options.verificationTools).toEqual([]);
 
       const surface = createDefaultBuiltinToolSurface(options);
       expect(surface.registry.has("formal_verify")).toBe(false);
@@ -208,9 +220,15 @@ describe("builtin tool surface config", () => {
         expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(
           "C:\\Users\\operator\\bin\\dafny.exe",
         );
-        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(rawProbeError);
-        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(expectedDigest);
-        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(observedDigest);
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(
+          rawProbeError,
+        );
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(
+          expectedDigest,
+        );
+        expect(JSON.stringify({ output: toolResult.output, metadata: toolResult.metadata })).not.toContain(
+          observedDigest,
+        );
       }
     } finally {
       rmSync(projectPath, { recursive: true, force: true });
@@ -248,10 +266,8 @@ describe("builtin tool surface config", () => {
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
 
-      expect(options.verificationTools).toEqual([
-        expect.objectContaining({ name: "static_analyze" }),
-      ]);
-      expect(options.formalVerify).toBeUndefined();
+      expect(options.verificationTools).toEqual([expect.objectContaining({ name: "static_analyze" })]);
+      expect(options.verificationTools?.some((tool) => tool.name === "formal_verify")).toBe(false);
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("static_analyze");
       expect(surface.registry.has("static_analyze")).toBe(true);
       expect(surface.toolNames).not.toContain("static_analyze");
@@ -287,9 +303,7 @@ describe("builtin tool surface config", () => {
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
 
-      expect(options.verificationTools).toEqual([
-        expect.objectContaining({ name: "gentle_review" }),
-      ]);
+      expect(options.verificationTools).toEqual([expect.objectContaining({ name: "gentle_review" })]);
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("gentle_review");
       expect(surface.registry.has("gentle_review")).toBe(true);
       expect(surface.toolNames).not.toContain("gentle_review");
@@ -311,9 +325,7 @@ describe("builtin tool surface config", () => {
       });
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
-      expect(options.verificationTools).toEqual([
-        expect.objectContaining({ name: "quality_analyze" }),
-      ]);
+      expect(options.verificationTools).toEqual([expect.objectContaining({ name: "quality_analyze" })]);
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("quality_analyze");
       expect(surface.registry.has("quality_analyze")).toBe(true);
       expect(surface.toolNames).not.toContain("quality_analyze");

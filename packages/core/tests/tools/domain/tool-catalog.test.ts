@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
+import type { DevTool } from "../../../src/tools/contracts.js";
 import { createDefaultBuiltinTools } from "../../../src/tools/default-tool-surface.js";
 import { ToolCatalogIndex } from "../../../src/tools/domain/tool-catalog.js";
+
+function verificationTool(name: string): DevTool {
+  return {
+    name,
+    description: `${name} verification tool`,
+    inputSchema: { type: "object", properties: {}, required: [] },
+    async execute() {
+      return { output: "ok", isError: false };
+    },
+  };
+}
 
 describe("ToolCatalogIndex", () => {
   it("indexes names, descriptions, schemas, tags, authority, and source package", () => {
@@ -41,10 +53,7 @@ describe("ToolCatalogIndex", () => {
       "browser_scroll",
       "browser_session_stop",
     ]);
-    expect(catalog.search({ tags: ["media"] }).entries.map((entry) => entry.name)).toEqual([
-      "view_image",
-      "ocr_image",
-    ]);
+    expect(catalog.search({ tags: ["media"] }).entries.map((entry) => entry.name)).toEqual(["view_image", "ocr_image"]);
     expect(catalog.search({ query: "apply patch dry run", limit: 1 }).entries[0]?.name).toBe("patch");
   });
 
@@ -83,14 +92,11 @@ describe("ToolCatalogIndex", () => {
   ])("resolves the %s catalog alias to the canonical %s identity", (alias, canonicalName) => {
     const catalog = ToolCatalogIndex.fromTools([
       ...createDefaultBuiltinTools({
-        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
-        staticAnalyze: { executable: "oxlint", analyzerVersion: "1.80.0" },
-        gentleReview: {
-          executable: "gentle-ai",
-          expectedVersion: "2.5.0-rc.1",
-          expectedExecutableDigest: "sha256:fixture",
-          repositoryRoot: "/workspace",
-        },
+        verificationTools: [
+          verificationTool("formal_verify"),
+          verificationTool("static_analyze"),
+          verificationTool("gentle_review"),
+        ],
       }),
     ]);
 
@@ -110,16 +116,18 @@ describe("ToolCatalogIndex", () => {
 
   it("reports an unavailable configured producer while keeping it out of the executable catalog", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools(), undefined, {
-      configuredProducerDiagnostics: [{
-        canonicalName: "formal_verify",
-        status: "validation_failed",
-        configuration: {
-          code: "version_mismatch",
-          message: "Dafny version mismatch",
-          expectedVersion: "4.11.0",
-          observedVersion: "4.10.0",
+      configuredProducerDiagnostics: [
+        {
+          canonicalName: "formal_verify",
+          status: "validation_failed",
+          configuration: {
+            code: "version_mismatch",
+            message: "Dafny version mismatch",
+            expectedVersion: "4.11.0",
+            observedVersion: "4.10.0",
+          },
         },
-      }],
+      ],
     });
 
     expect(catalog.search({ exact: "Dafny", includeSchemas: true })).toMatchObject({
@@ -138,7 +146,7 @@ describe("ToolCatalogIndex", () => {
   it("returns a typed unauthorized diagnostic when an alias resolves outside the allowlist", () => {
     const catalog = ToolCatalogIndex.fromTools([
       ...createDefaultBuiltinTools({
-        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        verificationTools: [verificationTool("formal_verify")],
       }),
     ]).restrictToCanonicalNames(new Set(["tool_catalog_search"]));
 
@@ -287,7 +295,7 @@ describe("ToolCatalogIndex", () => {
       "resource_template_list",
       "resource_read",
     ]);
-expect(catalog.search({ exact: "resource_read" }).entries[0]).toMatchObject({
+    expect(catalog.search({ exact: "resource_read" }).entries[0]).toMatchObject({
       name: "resource_read",
       sourcePackage: "@kilnai/core",
       authority: "standard",

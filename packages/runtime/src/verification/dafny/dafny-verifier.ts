@@ -16,9 +16,12 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { DafnyProofLog } from "../../../../verification/formal/dafny-proof-log.js";
-import { parseDafnyProofLog } from "../../../../verification/formal/dafny-proof-log.js";
-import type { CommandProcessResult, CommandProcessRunner } from "../../command-process.js";
+import {
+  type CommandProcessResult,
+  type CommandProcessRunner,
+  type DafnyProofLog,
+  parseDafnyProofLog,
+} from "@kilnai/core";
 
 const MAX_OUTPUT_CHARACTERS = 2_000_000;
 

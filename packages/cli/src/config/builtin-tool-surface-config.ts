@@ -3,11 +3,12 @@ import type { AuthorityDescriptor, InvocationAdmission } from "@kilnai/core";
 import {
   type DefaultBuiltinToolRegistryOptions,
   MemoryArtifactResourceStore,
-  type ToolCatalogConfiguredProducerDiagnostic,
   type ToolCatalogConfigurationDiagnostic,
+  type ToolCatalogConfiguredProducerDiagnostic,
 } from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 import {
+  createFormalVerifyTool,
   createGentleReviewTool,
   createQualityAnalyzeTool,
   createStaticAnalyzeTool,
@@ -18,15 +19,15 @@ import type { KilnAppConfig } from "../config.js";
 import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
-import { resolveFormalVerificationConfiguration } from "./verification/dafny.js";
 import { type KilnGlobalConfig, readGlobalConfig } from "./global-config.js";
 import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
 import { digestKilnPermissionPolicy } from "./model-facing-permission-policy.js";
-import {
-  resolveStaticAnalysisConfiguration,
-  type ResolveStaticAnalysisConfigurationInput,
-} from "./verification/oxlint.js";
+import { resolveFormalVerificationConfiguration } from "./verification/dafny.js";
 import { resolveGentleAiConfiguration } from "./verification/gentle-ai.js";
+import {
+  type ResolveStaticAnalysisConfigurationInput,
+  resolveStaticAnalysisConfiguration,
+} from "./verification/oxlint.js";
 import { resolveQualityAnalysisConfiguration } from "./verification/quality.js";
 import {
   type LoadConfiguredWebToolSurfaceOptionsInput,
@@ -75,11 +76,12 @@ export const PROGRESSIVE_RUNTIME_EXECUTION_TOOLS = [
 export type ProgressiveRuntimeToolProfile = "read-only" | "execute";
 
 export function observeFormalVerificationCapability(
-  options: Pick<DefaultBuiltinToolRegistryOptions, "formalVerify">,
+  options: Pick<DefaultBuiltinToolRegistryOptions, "verificationTools">,
 ): BoundedWorkCapabilityObservation {
   return {
     metric: "formal_verification",
-    status: options.formalVerify === undefined ? "unavailable" : "available",
+    status:
+      options.verificationTools?.some((tool) => tool.name === "formal_verify") === true ? "available" : "unavailable",
   };
 }
 
@@ -252,8 +254,8 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
   return {
     ...merged,
     ...(invocationPolicy ? { invocationAdmission: createConfiguredInvocationAdmission(invocationPolicy) } : {}),
-    ...(formalVerification.options === undefined ? {} : { formalVerify: formalVerification.options }),
     verificationTools: [
+      ...(formalVerification.options === undefined ? [] : [createFormalVerifyTool(formalVerification.options)]),
       ...(staticAnalysis.options === undefined ? [] : [createStaticAnalyzeTool(staticAnalysis.options)]),
       ...(qualityAnalysis.options === undefined ? [] : [createQualityAnalyzeTool(qualityAnalysis.options)]),
       ...(gentleReview.options === undefined ? [] : [createGentleReviewTool(gentleReview.options)]),
@@ -274,14 +276,17 @@ function collectConfiguredProducerDiagnostics(
     if (!diagnostic || diagnostic.code === "not_configured") {
       return [];
     }
-    const status = diagnostic.code === "executable_unavailable" || diagnostic.code === "managed_artifact_unavailable"
-      ? "configured_unavailable"
-      : "validation_failed";
-    return [{
-      canonicalName,
-      status,
-      configuration: projectConfiguredProducerDiagnostic(canonicalName, diagnostic),
-    }];
+    const status =
+      diagnostic.code === "executable_unavailable" || diagnostic.code === "managed_artifact_unavailable"
+        ? "configured_unavailable"
+        : "validation_failed";
+    return [
+      {
+        canonicalName,
+        status,
+        configuration: projectConfiguredProducerDiagnostic(canonicalName, diagnostic),
+      },
+    ];
   });
 }
 

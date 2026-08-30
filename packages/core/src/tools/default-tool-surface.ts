@@ -7,10 +7,7 @@ import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } 
 import { MemoryMutationService } from "../memory/service.js";
 import type { GoalRunStore, WorkItemStore } from "../work-governance/index.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./domain/tool.js";
-import {
-  ToolCatalogIndex,
-  type ToolCatalogConfiguredProducerDiagnostic,
-} from "./domain/tool-catalog.js";
+import { type ToolCatalogConfiguredProducerDiagnostic, ToolCatalogIndex } from "./domain/tool-catalog.js";
 import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import {
@@ -29,7 +26,6 @@ import { AuthorityStateStore, type AuthorityStateStoreOptions } from "./infrastr
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
 import { CodeIntelligenceTool, type CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
-import { createFormalVerifyTool, type FormalVerifyToolOptions } from "./infrastructure/verification/dafny/formal-verify-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
@@ -120,12 +116,6 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly browserUse?: InteractiveUseToolOptions;
   readonly computerUse?: InteractiveUseToolOptions;
   readonly git?: GitToolOptions;
-  /**
-   * Deterministic verifier for `formal_verify`. The tool is offered only when a
-   * verifier executable is configured: Kiln bundles none, and a tool that can
-   * only fail is worse than an absent one.
-   */
-  readonly formalVerify?: FormalVerifyToolOptions;
   /** Runtime-owned verification adapters admitted by executable configuration. */
   readonly verificationTools?: readonly DevTool[];
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
@@ -335,7 +325,6 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     new ResourceListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
-    ...(options.formalVerify ? [createFormalVerifyTool(options.formalVerify)] : []),
     ...(options.verificationTools ?? []),
     ...(options.additionalTools ?? []),
   ];

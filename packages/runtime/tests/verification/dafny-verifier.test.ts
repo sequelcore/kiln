@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
 import type {
   CommandProcessRequest,
   CommandProcessResult,
   CommandProcessRunner,
   CommandProcessSink,
-} from "../../src/tools/infrastructure/command-process.js";
-import { DafnyVerifier } from "../../src/tools/infrastructure/verification/dafny/dafny-verifier.js";
+} from "@kilnai/core";
+import { describe, expect, it } from "vitest";
+import { DafnyVerifier } from "../../src/verification/dafny/dafny-verifier.js";
 
 const CSV = [
   "TestResult.DisplayName,TestResult.Outcome,TestResult.Duration,TestResult.ResourceCount,RandomSeed",

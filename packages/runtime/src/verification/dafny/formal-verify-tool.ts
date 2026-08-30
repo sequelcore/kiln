@@ -25,30 +25,30 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { correctnessEfforts } from "../../../../verification/formal/dafny-proof-log.js";
-import type { DafnyProofEffort, DafnyProofLog } from "../../../../verification/formal/dafny-proof-log.js";
-import { normalizeFormalProofSubjects } from "../../../../work-governance/formal-proof-subjects.js";
-import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../../../domain/tool.js";
-import { getBuiltinEffectEnvelope } from "../../../domain/tool-effect-envelopes.js";
 import {
+  type CommandProcessRunner,
+  correctnessEfforts,
+  type DafnyProofEffort,
+  type DafnyProofLog,
+  type DevTool,
+  type FormalVerificationCheck,
+  type FormalVerificationOutcome,
+  type FormalVerificationSubject,
   formalVerificationToolMetadata,
-} from "../../../domain/tool-result-metadata.js";
-import type {
-  FormalVerificationCheck,
-  FormalVerificationOutcome,
-  FormalVerificationSubject,
-} from "../../../../verification/formal/observation.js";
-import { DafnyVerifier } from "./dafny-verifier.js";
-import { SpawnCommandProcessRunner } from "../../command-process.js";
-import type { CommandProcessRunner } from "../../command-process.js";
-import {
+  getBuiltinEffectEnvelope,
   getSandboxContext,
+  normalizeFormalProofSubjects,
   requireString,
   resolvePath,
+  SpawnCommandProcessRunner,
+  TOOL_SCHEMAS,
+  type ToolInput,
+  type ToolResult,
   toErrorResult,
   toSuccessResult,
   validateReadPath,
-} from "../../tool-helpers.js";
+} from "@kilnai/core";
+import { DafnyVerifier } from "./dafny-verifier.js";
 
 /** Capability identity this tool implements. Owned by the Capability Fabric catalog. */
 export const FORMAL_VERIFY_CAPABILITY = "verify.formal" as const;
@@ -114,13 +114,7 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
       let result: ToolResult = toErrorResult("formal verification did not produce a result");
       try {
         snapshotRoot = await mkdtemp(join(tmpdir(), "kiln-formal-verify-"));
-        const snapshot = await createVerificationSnapshot(
-          absolute,
-          snapshotRoot,
-          sandbox,
-          repositoryRoot,
-          sandboxRoot,
-        );
+        const snapshot = await createVerificationSnapshot(absolute, snapshotRoot, sandbox, repositoryRoot, sandboxRoot);
         snapshotFiles = snapshot.files;
 
         const verifier = new DafnyVerifier(options.runner ?? new SpawnCommandProcessRunner(), {
@@ -138,9 +132,7 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
           // an empty obligation set can never read as a clean verification, and
           // emit no metadata: nothing here would honestly claim a verification
           // happened.
-          result = toErrorResult(
-            `formal verification did not complete (${run.status}): ${run.failure ?? "no detail"}`,
-          );
+          result = toErrorResult(`formal verification did not complete (${run.status}): ${run.failure ?? "no detail"}`);
         } else {
           let snapshotFailure: string | undefined;
           try {
@@ -185,10 +177,7 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
   };
 }
 
-function toCheck(
-  effort: DafnyProofEffort,
-  log: DafnyProofLog,
-): FormalVerificationCheck {
+function toCheck(effort: DafnyProofEffort, log: DafnyProofLog): FormalVerificationCheck {
   const outcome = effortOutcome(effort);
   return {
     symbol: effort.symbol,
@@ -213,8 +202,7 @@ function renderDiagnostics(log: DafnyProofLog): string {
       [
         `${displayDiagnosticFile(diagnostic.file)}:${diagnostic.line}:${diagnostic.character} ${redactDiagnosticText(diagnostic.message)}`,
         ...diagnostic.related.map(redactDiagnosticText),
-      ]
-        .join(" | "),
+      ].join(" | "),
     )
     .join(" ;; ");
 }
@@ -299,13 +287,7 @@ async function createGitCandidateSnapshot(repositoryRoot: string): Promise<GitCa
     if (firstTreeObjectId !== secondTreeObjectId) {
       throw new Error("Git candidate materialization was unstable");
     }
-    const listing = await runGitCommand(repositoryRoot, [
-      "ls-tree",
-      "-r",
-      "-z",
-      "--full-tree",
-      secondTreeObjectId,
-    ]);
+    const listing = await runGitCommand(repositoryRoot, ["ls-tree", "-r", "-z", "--full-tree", secondTreeObjectId]);
     const entries = parseGitTreeEntries(listing);
     if ([...entries.values()].some((entry) => entry.type === "commit" || entry.mode === "160000")) {
       throw new Error("Git candidate contains a submodule gitlink; explicit capture is required");
@@ -347,10 +329,7 @@ function parseGitTreeEntries(output: Buffer): ReadonlyMap<string, GitTreeEntry> 
   return entries;
 }
 
-async function readGitCandidateContent(
-  candidate: GitCandidateSnapshot,
-  path: string,
-): Promise<Buffer> {
+async function readGitCandidateContent(candidate: GitCandidateSnapshot, path: string): Promise<Buffer> {
   const candidatePath = candidateRelativePath(candidate.repositoryRoot, path);
   const entry = candidate.entries.get(candidatePath);
   if (entry === undefined) {
@@ -372,22 +351,25 @@ function candidateRelativePath(repositoryRoot: string, path: string): string {
 
 function runGitCommand(cwd: string, args: readonly string[], indexPath?: string): Promise<Buffer> {
   return new Promise((resolveCommand, rejectCommand) => {
-    const environment = indexPath === undefined
-      ? process.env
-      : { ...process.env, GIT_INDEX_FILE: indexPath };
-    execFile("git", [...args], {
-      cwd,
-      encoding: "buffer",
-      maxBuffer: 64 * 1024 * 1024,
-      env: environment,
-      windowsHide: true,
-    }, (error, stdout) => {
-      if (error) {
-        rejectCommand(new Error(`git ${args.join(" ")} failed: ${errorMessage(error)}`));
-        return;
-      }
-      resolveCommand(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
-    });
+    const environment = indexPath === undefined ? process.env : { ...process.env, GIT_INDEX_FILE: indexPath };
+    execFile(
+      "git",
+      [...args],
+      {
+        cwd,
+        encoding: "buffer",
+        maxBuffer: 64 * 1024 * 1024,
+        env: environment,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error) {
+          rejectCommand(new Error(`git ${args.join(" ")} failed: ${errorMessage(error)}`));
+          return;
+        }
+        resolveCommand(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
+      },
+    );
   });
 }
 
@@ -442,7 +424,7 @@ async function createVerificationSnapshot(
     throw new Error("formal verification snapshot did not contain the input artifact");
   }
   const inputDigest = digestBytes(files.get(resolve(inputPath))!);
-  if (await digestFile(snapshotInputPath) !== inputDigest) {
+  if ((await digestFile(snapshotInputPath)) !== inputDigest) {
     throw new Error("formal verification snapshot input differs from the captured bytes");
   }
   return {
@@ -529,10 +511,14 @@ async function validateSnapshotReadPath(
   }
 
   if (!isWithin(sandboxRoot, physicalPath)) {
-    throw new Error(`formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): outside sandbox.cwd`);
+    throw new Error(
+      `formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): outside sandbox.cwd`,
+    );
   }
   if (!isWithin(repositoryRoot, physicalPath)) {
-    throw new Error(`formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): outside Git repository`);
+    throw new Error(
+      `formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): outside Git repository`,
+    );
   }
   const physicalDenied = validateReadPath(physicalPath, sandbox);
   if (physicalDenied) {
@@ -583,14 +569,10 @@ function commonPathRoot(paths: readonly string[]): string {
 
 function isWithin(root: string, path: string): boolean {
   const candidate = relative(root, path);
-  return candidate.length === 0
-    || (!candidate.startsWith("..") && !isAbsolute(candidate));
+  return candidate.length === 0 || (!candidate.startsWith("..") && !isAbsolute(candidate));
 }
 
-async function cleanupVerificationSnapshot(
-  snapshotRoot: string,
-  snapshotFiles: readonly string[],
-): Promise<void> {
+async function cleanupVerificationSnapshot(snapshotRoot: string, snapshotFiles: readonly string[]): Promise<void> {
   let firstError: unknown;
   for (const path of snapshotFiles) {
     try {
