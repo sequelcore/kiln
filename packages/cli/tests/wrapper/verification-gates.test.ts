@@ -17,10 +17,6 @@ vi.mock("node:fs", async () => {
   };
 });
 
-vi.mock("@kilnai/runtime", () => ({
-  getProjectContextArtifactCache: vi.fn().mockResolvedValue(new InMemoryContextArtifactCache()),
-}));
-
 const MOCK_CACHE: ContextArtifactCache = new InMemoryContextArtifactCache();
 
 const MOCK_WRAPPER_CONFIG: WrapperConfig = {

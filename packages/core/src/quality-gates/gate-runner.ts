@@ -1,23 +1,39 @@
-import { spawn } from "node:child_process";
 import type { QualityGate } from "../engine/domain/quality-gate.js";
-import type { VerificationCheck } from "./index.js";
+import type {
+  QualityGateCommandExecutor,
+  VerificationCheck,
+} from "./index.js";
 
 const MAX_OUTPUT_LENGTH = 2000;
 
 export class GateRunner {
   private readonly cwd: string;
   private readonly timeoutMs: number;
+  private readonly commandExecutor: QualityGateCommandExecutor;
 
-  constructor({ cwd, timeoutMs = 60_000 }: { cwd: string; timeoutMs?: number }) {
+  constructor({
+    cwd,
+    timeoutMs = 60_000,
+    commandExecutor,
+  }: {
+    cwd: string;
+    timeoutMs?: number;
+    commandExecutor: QualityGateCommandExecutor;
+  }) {
     this.cwd = cwd;
     this.timeoutMs = timeoutMs;
+    this.commandExecutor = commandExecutor;
   }
 
   async run(gate: QualityGate): Promise<VerificationCheck> {
     const start = Date.now();
 
     try {
-      const result = await this.execute(gate.command);
+      const result = await this.commandExecutor.execute({
+        command: gate.command,
+        cwd: this.cwd,
+        timeoutMs: this.timeoutMs,
+      });
       const duration = Date.now() - start;
       const output = result.output.length > MAX_OUTPUT_LENGTH
         ? result.output.slice(0, MAX_OUTPUT_LENGTH)
@@ -43,35 +59,5 @@ export class GateRunner {
     const checks = await this.runAll(gates);
     const passed = gates.every((gate, i) => !gate.required || checks[i]!.passed);
     return { passed, checks };
-  }
-
-  private execute(command: string): Promise<{ exitCode: number; output: string }> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, { cwd: this.cwd, shell: true });
-      const chunks: string[] = [];
-
-      child.stdout?.on("data", (data: Buffer) => {
-        chunks.push(data.toString());
-      });
-
-      child.stderr?.on("data", (data: Buffer) => {
-        chunks.push(data.toString());
-      });
-
-      const timer = setTimeout(() => {
-        child.kill();
-        resolve({ exitCode: 1, output: `timeout after ${this.timeoutMs}ms` });
-      }, this.timeoutMs);
-
-      child.on("error", (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        resolve({ exitCode: code ?? 1, output: chunks.join("") });
-      });
-    });
   }
 }

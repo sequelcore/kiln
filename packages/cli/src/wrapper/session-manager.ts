@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DefaultContextGovernor, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
 import type { ContextArtifactCache, DomainConfig, QualityGate, VerificationResult } from "@kilnai/core";
+import { nodeQualityGateCommandExecutor } from "@kilnai/runtime";
 import type { ResumeFeedback, ResumeStrategy, WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
@@ -403,7 +404,11 @@ export class SessionManager {
     cwd: string,
   ): Promise<VerificationResult> {
     const eventBus = new EventBus();
-    const gateRunner = new GateRunner({ cwd, timeoutMs: 60_000 });
+    const gateRunner = new GateRunner({
+      cwd,
+      timeoutMs: 60_000,
+      commandExecutor: nodeQualityGateCommandExecutor,
+    });
     const loop = new VerificationLoop({
       gateRunner,
       eventBus,

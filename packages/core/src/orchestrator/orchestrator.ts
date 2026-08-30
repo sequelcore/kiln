@@ -17,7 +17,11 @@ import type { TraceSpan } from "../events/trace.js";
 import type { CostSummary } from "../cost/index.js";
 import { TaskTree, BatchExecutor } from "../tree/index.js";
 import type { TaskNode, TreeAction, TreeConfig } from "../tree/index.js";
-import type { FixHandler, VerificationResult } from "../quality-gates/index.js";
+import type {
+  FixHandler,
+  QualityGateCommandExecutor,
+  VerificationResult,
+} from "../quality-gates/index.js";
 import type { QualityGate } from "../engine/domain/quality-gate.js";
 import type { Team } from "../engine/composites/team.js";
 import { createStrategy } from "./strategies/index.js";
@@ -223,9 +227,10 @@ export class Orchestrator {
   async runVerification(
     gates: readonly QualityGate[],
     cwd: string,
+    commandExecutor: QualityGateCommandExecutor,
     fixHandler?: FixHandler,
   ): Promise<VerificationResult> {
-    return this._verificationSupport.runVerification(gates, cwd, fixHandler);
+    return this._verificationSupport.runVerification(gates, cwd, commandExecutor, fixHandler);
   }
 
   /**

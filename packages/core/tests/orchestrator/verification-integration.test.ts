@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Orchestrator } from "../../src/orchestrator/orchestrator.js";
 import type { QualityGate } from "../../src/domain/index.js";
 import type { VerificationResultEvent } from "../../src/events/index.js";
+import type { QualityGateCommandExecutor } from "../../src/quality-gates/index.js";
 
 function passingGate(name = "echo-test"): QualityGate {
   return {
@@ -21,29 +22,47 @@ function failingGate(name = "fail-test"): QualityGate {
   };
 }
 
+function commandExecutor(): QualityGateCommandExecutor & { execute: ReturnType<typeof vi.fn> } {
+  return {
+    execute: vi.fn(async ({ command }: { readonly command: string }) => ({
+      exitCode: command.includes("process.exit(1)") ? 1 : 0,
+      output: command.includes("process.exit(1)") ? "failed" : "hello\n",
+    })),
+  };
+}
+
 describe("Orchestrator verification integration", () => {
   it("runVerification returns passed result when all gates pass", async () => {
     const orch = new Orchestrator({ requireApproval: false });
     orch.start("test task");
+    const executor = commandExecutor();
 
     const result = await orch.runVerification(
       [passingGate()],
       process.cwd(),
+      executor,
     );
 
     expect(result.passed).toBe(true);
     expect(result.checks.length).toBeGreaterThanOrEqual(1);
     expect(result.checks.every((c) => c.passed)).toBe(true);
     expect(result.iteration).toBe(1);
+    expect(executor.execute).toHaveBeenCalledWith({
+      command: "echo hello",
+      cwd: process.cwd(),
+      timeoutMs: 60_000,
+    });
   });
 
   it("runVerification returns failed result when a gate fails", async () => {
     const orch = new Orchestrator({ requireApproval: false });
     orch.start("test task");
+    const executor = commandExecutor();
 
     const result = await orch.runVerification(
       [passingGate("pass"), failingGate("fail")],
       process.cwd(),
+      executor,
     );
 
     expect(result.passed).toBe(false);
@@ -61,12 +80,14 @@ describe("Orchestrator verification integration", () => {
   it("verificationResult getter returns last result after run", async () => {
     const orch = new Orchestrator({ requireApproval: false });
     orch.start("test task");
+    const executor = commandExecutor();
 
     expect(orch.verificationResult).toBeNull();
 
     const result = await orch.runVerification(
       [passingGate()],
       process.cwd(),
+      executor,
     );
 
     expect(orch.verificationResult).toBe(result);
@@ -76,6 +97,7 @@ describe("Orchestrator verification integration", () => {
   it("emits verification_result event during run", async () => {
     const orch = new Orchestrator({ requireApproval: false });
     orch.start("test task");
+    const executor = commandExecutor();
 
     const handler = vi.fn();
     orch.eventBus.on("verification_result", handler);
@@ -83,6 +105,7 @@ describe("Orchestrator verification integration", () => {
     await orch.runVerification(
       [passingGate()],
       process.cwd(),
+      executor,
     );
 
     expect(handler).toHaveBeenCalledOnce();

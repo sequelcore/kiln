@@ -6,6 +6,26 @@ export interface VerificationCheck {
   readonly duration: number;
 }
 
+/** Request passed to the Runtime-owned quality-gate command executor. */
+export interface QualityGateCommandExecutionRequest {
+  readonly command: string;
+  readonly cwd: string;
+  readonly timeoutMs: number;
+}
+
+/** Result returned by a quality-gate command executor. */
+export interface QualityGateCommandExecutionResult {
+  readonly exitCode: number;
+  readonly output: string;
+}
+
+/** Narrow process boundary used by Core's semantic quality-gate runner. */
+export interface QualityGateCommandExecutor {
+  execute(
+    request: QualityGateCommandExecutionRequest,
+  ): Promise<QualityGateCommandExecutionResult>;
+}
+
 /** Full iterative quality-gate result. */
 export interface VerificationResult {
   readonly passed: boolean;

@@ -13,10 +13,6 @@ vi.mock("node:fs", async () => {
   };
 });
 
-vi.mock("@kilnai/runtime", () => ({
-  getProjectContextArtifactCache: vi.fn().mockResolvedValue(new InMemoryContextArtifactCache()),
-}));
-
 import { printReport, computeEvalScore } from "../../src/application/session-report.js";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";

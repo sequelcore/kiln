@@ -1,5 +1,10 @@
 import { GateRunner, VerificationLoop } from "../quality-gates/index.js";
-import type { VerificationResult, VerificationConfig, FixHandler } from "../quality-gates/index.js";
+import type {
+  FixHandler,
+  QualityGateCommandExecutor,
+  VerificationConfig,
+  VerificationResult,
+} from "../quality-gates/index.js";
 import type { EventBus } from "../events/event-bus.js";
 import type { QualityGate } from "../engine/domain/quality-gate.js";
 
@@ -21,9 +26,10 @@ export class OrchestratorVerificationSupport {
   async runVerification(
     gates: readonly QualityGate[],
     cwd: string,
+    commandExecutor: QualityGateCommandExecutor,
     fixHandler?: FixHandler,
   ): Promise<VerificationResult> {
-    const gateRunner = new GateRunner({ cwd });
+    const gateRunner = new GateRunner({ cwd, commandExecutor });
     const verificationConfig: VerificationConfig = {
       maxIterations: this.deps.getMaxIterations(),
       coverageThreshold: 0,
