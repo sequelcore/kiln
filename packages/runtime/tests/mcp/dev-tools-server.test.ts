@@ -4,7 +4,6 @@ import { join } from "node:path";
 import {
   type ActionEffectEnvelope,
   createDefaultBuiltinToolRegistry,
-  createDefaultBuiltinToolSurface,
   type DevTool,
   DevToolExecutionBridge,
   DevToolRegistry,
@@ -15,6 +14,7 @@ import {
 } from "@kilnai/core";
 import { describe, expect, it, vi } from "vitest";
 import { DevToolsMcpServer } from "../../src/mcp/dev-tools-server.js";
+import { createDefaultBuiltinToolSurface } from "../../src/tools/default-builtin-tool-surface.js";
 
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
@@ -57,8 +57,9 @@ function makeTool(
 }
 
 function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
-  const localRegistry = registry ?? createDefaultBuiltinToolRegistry();
-  const bridge = new DevToolExecutionBridge({ registry: localRegistry });
+  const bridge = registry
+    ? new DevToolExecutionBridge({ registry })
+    : createDefaultBuiltinToolSurface().bridge;
   return new DevToolsMcpServer({ bridge });
 }
 

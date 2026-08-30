@@ -1,5 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { inferFileMimeType, looksBinaryFilePath } from "./file-content-helpers.js";
@@ -20,6 +20,11 @@ export class ReadTool implements DevTool {
   readonly name = "read";
   readonly description = TOOL_SCHEMAS.read.description;
   readonly inputSchema = TOOL_SCHEMAS.read.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const filePathInput = requireString(input, "filePath");
@@ -46,7 +51,7 @@ export class ReadTool implements DevTool {
     }
 
     try {
-      const contentBuffer = await readFile(absolutePath);
+      const contentBuffer = await this.filesystem.readFile(absolutePath);
       const mimeType = inferFileMimeType(absolutePath);
       if (looksBinaryFilePath(absolutePath) || contentBuffer.includes(0)) {
         const imageGuidance = mimeType.startsWith("image/")
@@ -73,7 +78,7 @@ export class ReadTool implements DevTool {
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       const suggestions = err.code === "ENOENT"
-        ? await suggestReadAlternatives(absolutePath, sandbox)
+        ? await suggestReadAlternatives(this.filesystem, absolutePath, sandbox)
         : [];
       const suggestionText = suggestions.length > 0
         ? `\nDid you mean one of these existing files?\n${suggestions.map((path) => `- ${path}`).join("\n")}`
@@ -89,6 +94,7 @@ export class ReadTool implements DevTool {
 }
 
 async function suggestReadAlternatives(
+  filesystem: BuiltinFilesystem,
   missingPath: string,
   sandbox?: unknown,
 ): Promise<readonly string[]> {
@@ -102,7 +108,7 @@ async function suggestReadAlternatives(
     const requestedName = basename(missingPath).toLowerCase();
     const requestedStem = requestedName.replace(/\.[^.]+$/, "");
     const requestedExtension = extname(requestedName);
-    const entries = await readdir(parentPath, { withFileTypes: true });
+    const entries = await filesystem.readdir(parentPath, { withFileTypes: true });
     const siblingSuggestions = entries
       .filter((entry) => entry.isFile())
       .map((entry) => {
@@ -127,13 +133,14 @@ async function suggestReadAlternatives(
       return siblingSuggestions;
     }
   } catch {
-    return await suggestMatchingBasenamesFromNearestAncestor(missingPath, sandbox);
+    return await suggestMatchingBasenamesFromNearestAncestor(filesystem, missingPath, sandbox);
   }
 
-  return await suggestMatchingBasenamesFromNearestAncestor(missingPath, sandbox);
+  return await suggestMatchingBasenamesFromNearestAncestor(filesystem, missingPath, sandbox);
 }
 
 async function suggestMatchingBasenamesFromNearestAncestor(
+  filesystem: BuiltinFilesystem,
   missingPath: string,
   sandbox?: unknown,
 ): Promise<readonly string[]> {
@@ -147,8 +154,8 @@ async function suggestMatchingBasenamesFromNearestAncestor(
     }
 
     try {
-      await readdir(currentPath, { withFileTypes: true });
-      return await findMatchingBasenames(currentPath, requestedName, sandbox);
+      await filesystem.readdir(currentPath, { withFileTypes: true });
+      return await findMatchingBasenames(filesystem, currentPath, requestedName, sandbox);
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code !== "ENOENT" && err.code !== "ENOTDIR") {
@@ -162,6 +169,7 @@ async function suggestMatchingBasenamesFromNearestAncestor(
 }
 
 async function findMatchingBasenames(
+  filesystem: BuiltinFilesystem,
   rootPath: string,
   requestedName: string,
   sandbox?: unknown,
@@ -178,7 +186,7 @@ async function findMatchingBasenames(
 
     let entries;
     try {
-      entries = await readdir(currentPath, { withFileTypes: true });
+      entries = await filesystem.readdir(currentPath, { withFileTypes: true });
     } catch {
       continue;
     }

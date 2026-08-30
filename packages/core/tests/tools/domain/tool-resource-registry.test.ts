@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
+import { createDefaultBuiltinToolSurface as createCoreDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
 import { ToolResourceRegistry } from "../../../src/tools/domain/tool-resource-registry.js";
 import { AnalysisStateStore } from "../../../src/tools/infrastructure/analysis-state-store.js";
 import { AuthorityStateStore } from "../../../src/tools/infrastructure/authority-state-store.js";
@@ -10,8 +10,11 @@ import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-sto
 import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
 import { GoalRunStore, startGoalExecutionAttempt, WorkItemStore } from "../../../src/work-governance/index.js";
 import { defineDeliberationLevelId } from "../../../src/agents/deliberation-policy.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "../infrastructure/test-utils.js";
 import { testBoundedWorkRevision } from "../../work-governance/bounded-work-fixtures.js";
+
+const createDefaultBuiltinToolSurface: typeof createCoreDefaultBuiltinToolSurface = (options = {}) =>
+  createCoreDefaultBuiltinToolSurface({ ...options, hostFilesystem: nodeTestFilesystem });
 
 describe("ToolResourceRegistry", () => {
   it("lists stable read-only resources and templates from the shared tool surface", () => {

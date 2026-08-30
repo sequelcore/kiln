@@ -1,5 +1,6 @@
-import { lstat, open, readdir } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { KilnError } from "../../engine/errors.js";
 import { isSubPath, type PathValidator } from "../../sandbox/path-validator.js";
 import {
@@ -27,6 +28,7 @@ const IGNORED_DIRECTORIES = new Set([".git", "build", "coverage", "dist", "node_
 
 export interface WorkspaceResourceProviderOptions {
   readonly rootPath: string;
+  readonly filesystem?: BuiltinFilesystem;
   readonly pathValidator?: PathValidator;
   readonly maxFileBytes?: number;
   readonly maxTreeEntries?: number;
@@ -71,9 +73,11 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
   private readonly maxTreeEntries: number;
   private readonly maxTreeDepth: number;
   private readonly rootReadable: boolean;
+  private readonly filesystem: BuiltinFilesystem;
 
   constructor(options: WorkspaceResourceProviderOptions) {
     this.rootPath = resolve(options.rootPath);
+    this.filesystem = options.filesystem ?? unavailableBuiltinFilesystem;
     this.pathValidator = options.pathValidator;
     this.maxFileBytes = clampPositive(options.maxFileBytes, DEFAULT_FILE_BYTES, MAX_FILE_BYTES);
     this.maxTreeEntries = clampPositive(options.maxTreeEntries, MAX_TREE_ENTRIES, MAX_TREE_ENTRIES);
@@ -154,7 +158,7 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
     const depth = clampNonNegative(parseNumber(parsed.query.get("depth")), DEFAULT_TREE_DEPTH, this.maxTreeDepth);
     const includeFiles = parseBoolean(parsed.query.get("includeFiles")) ?? true;
     const root = this.resolveWorkspacePath(requestedPath);
-    const info = await lstat(root.absolutePath);
+    const info = await this.filesystem.lstat(root.absolutePath);
     if (!info.isDirectory()) {
       throw workspaceResourceError(`${root.relativePath} is not a workspace directory`, { uri, path: root.relativePath });
     }
@@ -191,7 +195,7 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
     if (level > maxDepth || state.truncated) {
       return;
     }
-    const entries = await readdir(absoluteRoot, { withFileTypes: true });
+    const entries = await this.filesystem.readdir(absoluteRoot, { withFileTypes: true });
     const sorted = entries
       .filter((entry) => !(entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)))
       .sort((left, right) => {
@@ -209,7 +213,7 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
       if (!this.canRead(absolutePath)) {
         continue;
       }
-      const info = await lstat(absolutePath);
+      const info = await this.filesystem.lstat(absolutePath);
       const type = getEntryType(info);
       if (type !== "directory" && (!includeFiles || type !== "file")) {
         continue;
@@ -244,7 +248,7 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
       });
     }
 
-    const readResult = await readPrefix(resolvedPath.absolutePath, this.maxFileBytes);
+    const readResult = await readPrefix(this.filesystem, resolvedPath.absolutePath, this.maxFileBytes);
     const text = readResult.buffer.toString("utf8");
     const truncated = readResult.truncated || metadata.size > readResult.buffer.length;
     return {
@@ -276,7 +280,7 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
 
     const offset = Math.max(0, Math.trunc(parseNumber(parsed.query.get("offset")) ?? 0));
     const limit = clampPositive(parseNumber(parsed.query.get("limit")), DEFAULT_PREVIEW_LINE_LIMIT, MAX_PREVIEW_LINE_LIMIT);
-    const readResult = await readPrefix(resolvedPath.absolutePath, this.maxFileBytes);
+    const readResult = await readPrefix(this.filesystem, resolvedPath.absolutePath, this.maxFileBytes);
     const lines = readResult.buffer.toString("utf8").split(/\r?\n/);
     const text = lines.slice(offset, offset + limit).join("\n");
     const truncated = readResult.truncated || offset + limit < lines.length;
@@ -297,10 +301,10 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
   }
 
   private async readEntryMetadata(path: ResolvedWorkspacePath): Promise<WorkspaceEntryMetadata> {
-    const info = await lstat(path.absolutePath);
+    const info = await this.filesystem.lstat(path.absolutePath);
     const type = getEntryType(info);
     const mimeType = type === "file" ? inferFileMimeType(path.relativePath) : JSON_MIME_TYPE;
-    const binary = type === "file" && (looksBinaryFilePath(path.relativePath) || await filePrefixHasNull(path.absolutePath));
+    const binary = type === "file" && (looksBinaryFilePath(path.relativePath) || await filePrefixHasNull(this.filesystem, path.absolutePath));
     return {
       path: path.relativePath,
       type,
@@ -416,8 +420,8 @@ function countTreeEntries(entries: readonly TreeEntry[], type: TreeEntry["type"]
   return entries.filter((entry) => entry.type === type).length;
 }
 
-async function readPrefix(path: string, limit: number): Promise<{ readonly buffer: Buffer; readonly truncated: boolean }> {
-  const handle = await open(path, "r");
+async function readPrefix(filesystem: BuiltinFilesystem, path: string, limit: number): Promise<{ readonly buffer: Buffer; readonly truncated: boolean }> {
+  const handle = await filesystem.open(path, "r");
   try {
     const buffer = Buffer.alloc(limit + 1);
     const result = await handle.read(buffer, 0, limit + 1, 0);
@@ -430,12 +434,12 @@ async function readPrefix(path: string, limit: number): Promise<{ readonly buffe
   }
 }
 
-async function filePrefixHasNull(path: string): Promise<boolean> {
-  const result = await readPrefix(path, 8 * 1024);
+async function filePrefixHasNull(filesystem: BuiltinFilesystem, path: string): Promise<boolean> {
+  const result = await readPrefix(filesystem, path, 8 * 1024);
   return result.buffer.includes(0);
 }
 
-function getEntryType(info: Awaited<ReturnType<typeof lstat>>): WorkspaceEntryMetadata["type"] {
+function getEntryType(info: Stats): WorkspaceEntryMetadata["type"] {
   if (info.isDirectory()) return "directory";
   if (info.isFile()) return "file";
   if (info.isSymbolicLink()) return "symlink";

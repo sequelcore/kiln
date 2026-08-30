@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import type { ToolEnvironment } from "../domain/tool-environment.js";
 import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
@@ -62,6 +62,7 @@ interface GrepSearchTarget {
 }
 
 export interface GrepToolOptions {
+  readonly filesystem?: BuiltinFilesystem;
   readonly commandRunner?: GrepCommandRunner;
   readonly environmentProvider?: EnvironmentProvider;
   readonly searchRuntimeProvider?: SearchRuntimeProvider;
@@ -77,9 +78,11 @@ export class GrepTool implements DevTool {
 
   private readonly commandRunner: GrepCommandRunner;
   private readonly searchRuntimeProvider: SearchRuntimeProvider;
+  private readonly filesystem: BuiltinFilesystem;
 
   constructor(options: GrepToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? unavailableGrepCommandRunner;
+    this.filesystem = options.filesystem ?? unavailableBuiltinFilesystem;
     this.searchRuntimeProvider = options.searchRuntimeProvider ?? createRipgrepRuntimeProvider({
       bundledPath: options.bundledRgPath,
       configuredPath: options.configuredRgPath,
@@ -130,7 +133,7 @@ export class GrepTool implements DevTool {
     }
 
     try {
-      const searchTarget = await resolveSearchTarget(searchPath);
+      const searchTarget = await resolveSearchTarget(this.filesystem, searchPath);
       const runtime = await this.searchRuntimeProvider();
       if (!runtime) {
         return toErrorResult("ripgrep runtime is required for grep; install bundled Kiln search runtime or configure KILN_RG_PATH", searchToolMetadata("grep", {
@@ -368,8 +371,8 @@ function parseMaxResults(input: ToolInput): { ok: true; value: number } | { ok: 
   return { ok: true, value: Math.min(Math.floor(value), MAX_RESULTS_LIMIT) };
 }
 
-async function resolveSearchTarget(searchPath: string): Promise<GrepSearchTarget> {
-  const stats = await stat(searchPath);
+async function resolveSearchTarget(filesystem: BuiltinFilesystem, searchPath: string): Promise<GrepSearchTarget> {
+  const stats = await filesystem.stat(searchPath);
   if (stats.isDirectory()) {
     return {
       path: searchPath,

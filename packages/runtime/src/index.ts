@@ -1281,6 +1281,7 @@ export { createWebhookHandler, validateWebhookSignature } from "./trigger/webhoo
 // Utils
 export { verifyHmacSha256 } from "./utils/hmac.js";
 export { SpawnCommandProcessRunner } from "./tools/spawn-command-process-runner.js";
+export { nodeBuiltinFilesystem } from "./tools/node-builtin-filesystem.js";
 export {
   detectRuntimeToolEnvironment,
   runNativeCommand,

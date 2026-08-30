@@ -92,6 +92,7 @@ import {
 } from "./infrastructure/workspace-resource-provider.js";
 import { WriteTool } from "./infrastructure/write-tool.js";
 import { DevToolExecutionBridge } from "./tool-executor.js";
+import type { BuiltinFilesystem } from "./contracts/builtin-filesystem.js";
 
 export interface DevToolSchemaProjection {
   readonly name: string;
@@ -101,6 +102,7 @@ export interface DevToolSchemaProjection {
 }
 
 export interface DefaultBuiltinToolRegistryOptions {
+  readonly hostFilesystem?: BuiltinFilesystem;
   /** Outer configured authority; Core meets it with effect and caller bounds. */
   readonly invocationAdmission?: InvocationAdmission;
   readonly additionalTools?: readonly DevTool[];
@@ -277,15 +279,18 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
   const computerUse = artifactStore ? { ...(options.computerUse ?? {}), artifactStore } : options.computerUse;
   const tools = [
     new BashTool(options.bash),
-    new ReadTool(),
-    new ReadManyTool(),
-    new WriteTool(),
-    new EditTool(),
-    new PatchTool(),
-    new StatTool(),
-    new TreeTool(),
-    new ViewImageTool(),
-    new OcrImageTool(options.ocrImage),
+    new ReadTool(options.hostFilesystem),
+    new ReadManyTool(options.hostFilesystem),
+    new WriteTool(options.hostFilesystem),
+    new EditTool(options.hostFilesystem),
+    new PatchTool(options.hostFilesystem),
+    new StatTool(options.hostFilesystem),
+    new TreeTool(options.hostFilesystem),
+    new ViewImageTool(options.hostFilesystem),
+    new OcrImageTool({
+      ...options.ocrImage,
+      filesystem: options.ocrImage?.filesystem ?? options.hostFilesystem,
+    }),
     new WebSearchTool(options.webSearch),
     new WebFetchTool(options.webFetch),
     new WebExtractTool(options.webExtract),
@@ -305,8 +310,14 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     new ComputerFocusApplicationTool(computerUse),
     new ComputerMinimizeApplicationTool(computerUse),
     new ComputerCloseApplicationTool(computerUse),
-    new GrepTool(options.grep),
-    new GlobTool(options.glob),
+    new GrepTool({
+      ...options.grep,
+      filesystem: options.grep?.filesystem ?? options.hostFilesystem,
+    }),
+    new GlobTool({
+      ...options.glob,
+      filesystem: options.glob?.filesystem ?? options.hostFilesystem,
+    }),
     new JsonQueryTool(options.jsonQuery),
     new GitTool(options.git),
     new CodeIntelligenceTool(options.codeIntelligence),
@@ -428,7 +439,12 @@ export function createDefaultBuiltinToolSurface(
     configuredProducerDiagnostics: options.configuredProducerDiagnostics,
   });
   const resourceProviders = [
-    ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
+    ...(options.workspaceResources
+      ? [new WorkspaceResourceProvider({
+        ...options.workspaceResources,
+        filesystem: options.workspaceResources.filesystem ?? options.hostFilesystem,
+      })]
+      : []),
     ...(options.memoryResources ? [new MemoryGraphResourceProvider(options.memoryResources)] : []),
     new ArtifactResourceProvider({ store: artifactStore }),
     ...(options.resourceProviders ?? []),

@@ -13,6 +13,7 @@ import {
   runNativeTesseractOcr,
 } from "./native-command-execution.js";
 import { SpawnCommandProcessRunner } from "./spawn-command-process-runner.js";
+import { nodeBuiltinFilesystem } from "./node-builtin-filesystem.js";
 
 /** Materializes Core's canonical tool contracts with Runtime-owned process execution. */
 export function createDefaultBuiltinToolSurface(
@@ -31,6 +32,7 @@ function withRuntimeProcessExecution(options: DefaultBuiltinToolRegistryOptions)
   const processRunner = new SpawnCommandProcessRunner();
   return {
     ...options,
+    hostFilesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
     bash: {
       processRunner,
       environmentProvider: detectRuntimeToolEnvironment,
@@ -42,6 +44,7 @@ function withRuntimeProcessExecution(options: DefaultBuiltinToolRegistryOptions)
       ...options.git,
     },
     grep: {
+      filesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
       commandRunner: runNativeCommand,
       environmentProvider: detectRuntimeToolEnvironment,
       vendoredToolResolver: resolveVendoredToolBinary,
@@ -49,6 +52,7 @@ function withRuntimeProcessExecution(options: DefaultBuiltinToolRegistryOptions)
       ...options.grep,
     },
     glob: {
+      filesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
       commandRunner: runNativeCommand,
       environmentProvider: detectRuntimeToolEnvironment,
       vendoredToolResolver: resolveVendoredToolBinary,
@@ -61,6 +65,7 @@ function withRuntimeProcessExecution(options: DefaultBuiltinToolRegistryOptions)
       ...options.jsonQuery,
     },
     ocrImage: {
+      filesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
       ocrRunner: runNativeTesseractOcr,
       ...options.ocrImage,
     },

@@ -1,9 +1,14 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { OcrImageTool } from "../../../src/tools/infrastructure/ocr-image-tool.js";
-import { ViewImageTool } from "../../../src/tools/infrastructure/view-image-tool.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
+import { OcrImageTool as CoreOcrImageTool, type OcrImageToolOptions } from "../../../src/tools/infrastructure/ocr-image-tool.js";
+import { ViewImageTool as CoreViewImageTool } from "../../../src/tools/infrastructure/view-image-tool.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "./test-utils.js";
+
+class ViewImageTool extends CoreViewImageTool { constructor() { super(nodeTestFilesystem); } }
+class OcrImageTool extends CoreOcrImageTool {
+  constructor(options: OcrImageToolOptions = {}) { super({ ...options, filesystem: nodeTestFilesystem }); }
+}
 
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");

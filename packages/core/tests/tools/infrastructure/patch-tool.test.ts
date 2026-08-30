@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PatchTool } from "../../../src/tools/infrastructure/patch-tool.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
+import { PatchTool as CorePatchTool } from "../../../src/tools/infrastructure/patch-tool.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "./test-utils.js";
+
+class PatchTool extends CorePatchTool { constructor() { super(nodeTestFilesystem); } }
 
 describe("PatchTool", () => {
   it("applies add, update, delete, and move operations in one patch", async () => {

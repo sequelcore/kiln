@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createSessionBuiltinToolOptions,
   createDefaultBuiltinToolRegistry,
-  createDefaultBuiltinToolSurface,
+  createDefaultBuiltinToolSurface as createCoreDefaultBuiltinToolSurface,
 } from "../../src/tools/default-tool-surface.js";
 import {
   createDefaultBuiltinToolSurface as createDefaultBuiltinToolSurfaceFromBarrel,
@@ -14,10 +14,13 @@ import {
   TaskStateStore,
 } from "../../src/tools/index.js";
 import type { MemoryMutationService } from "../../src/memory/service.js";
-import { makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
+import { makeTempDir, nodeTestFilesystem, removeTempDir } from "./infrastructure/test-utils.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ActionEffectEnvelope } from "../../src/engine/domain/action-effect.js";
+
+const createDefaultBuiltinToolSurface: typeof createCoreDefaultBuiltinToolSurface = (options = {}) =>
+  createCoreDefaultBuiltinToolSurface({ ...options, hostFilesystem: nodeTestFilesystem });
 
 const BUILTIN_TOOL_NAMES = [
   "bash",

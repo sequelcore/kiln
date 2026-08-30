@@ -1,4 +1,5 @@
 import { mediaToolMetadata } from "../domain/tool-result-metadata.js";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { optionalString, requireString, toErrorResult } from "./tool-helpers.js";
 import {
@@ -24,6 +25,7 @@ export type OcrImageRunner = (request: OcrImageRequest) => Promise<OcrImageResul
 
 export interface OcrImageToolOptions {
   readonly ocrRunner?: OcrImageRunner;
+  readonly filesystem?: BuiltinFilesystem;
 }
 
 export class OcrImageTool implements DevTool {
@@ -31,9 +33,11 @@ export class OcrImageTool implements DevTool {
   readonly description = TOOL_SCHEMAS.ocr_image.description;
   readonly inputSchema = TOOL_SCHEMAS.ocr_image.inputSchema;
   private readonly ocrRunner: OcrImageRunner;
+  private readonly filesystem: BuiltinFilesystem;
 
   constructor(options: OcrImageToolOptions = {}) {
     this.ocrRunner = options.ocrRunner ?? unavailableOcrRunner;
+    this.filesystem = options.filesystem ?? unavailableBuiltinFilesystem;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -48,6 +52,7 @@ export class OcrImageTool implements DevTool {
     }
 
     const image = await readSupportedImageFile(
+      this.filesystem,
       pathInput.value,
       sandbox,
       ORIGINAL_IMAGE_MAX_BYTES,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
+import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-builtin-tool-surface.js";
 import {
   defineMemoryAuthorityPolicy,
   governedMemoryAuthority,

@@ -18,6 +18,8 @@ export {
   projectDevToolDefinitions,
   projectDevToolSchemas,
 } from "./default-tool-surface.js";
+export type { BuiltinFilesystem } from "./contracts/builtin-filesystem.js";
+export { unavailableBuiltinFilesystem } from "./contracts/builtin-filesystem.js";
 export type {
   CodeIntelligenceAdapter,
   CodeIntelligenceEntry,

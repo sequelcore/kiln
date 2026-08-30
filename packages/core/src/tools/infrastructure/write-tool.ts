@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
@@ -20,6 +20,11 @@ export class WriteTool implements DevTool {
   readonly name = "write";
   readonly description = TOOL_SCHEMAS.write.description;
   readonly inputSchema = TOOL_SCHEMAS.write.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const filePathInput = requireString(input, "filePath");
@@ -42,12 +47,12 @@ export class WriteTool implements DevTool {
     }
 
     try {
-      const previous = await readOptionalTextFile(absolutePath);
+      const previous = await readOptionalTextFile(this.filesystem, absolutePath);
       const preview = clipDiffPreview(previous === null
         ? buildAddedPreview(contentInput.value)
         : buildReplacementPreview(previous, contentInput.value));
-      await mkdir(dirname(absolutePath), { recursive: true });
-      await writeFile(absolutePath, contentInput.value, "utf8");
+      await this.filesystem.mkdir(dirname(absolutePath), { recursive: true });
+      await this.filesystem.writeFile(absolutePath, contentInput.value, "utf8");
 
       return toSuccessResult(
         `Wrote ${contentInput.value.length} characters to ${absolutePath}`,
@@ -73,9 +78,9 @@ export class WriteTool implements DevTool {
   }
 }
 
-async function readOptionalTextFile(path: string): Promise<string | null> {
+async function readOptionalTextFile(filesystem: BuiltinFilesystem, path: string): Promise<string | null> {
   try {
-    return await readFile(path, "utf8");
+    return await filesystem.readFile(path, "utf8");
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {

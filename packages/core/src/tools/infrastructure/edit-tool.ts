@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { fileToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
@@ -51,6 +51,11 @@ export class EditTool implements DevTool {
   readonly name = "edit";
   readonly description = TOOL_SCHEMAS.edit.description;
   readonly inputSchema = TOOL_SCHEMAS.edit.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const filePathInput = requireString(input, "filePath");
@@ -88,7 +93,7 @@ export class EditTool implements DevTool {
     const replaceEveryMatch = optionalBoolean(input, "replaceAll") ?? false;
 
     try {
-      const content = await readFile(absolutePath, "utf8");
+      const content = await this.filesystem.readFile(absolutePath, "utf8");
       const replacement = replaceEveryMatch
         ? replaceAll(content, oldStringInput.value, newStringInput.value)
         : replaceSingle(content, oldStringInput.value, newStringInput.value);
@@ -100,7 +105,7 @@ export class EditTool implements DevTool {
         }));
       }
 
-      await writeFile(absolutePath, replacement.value, "utf8");
+      await this.filesystem.writeFile(absolutePath, replacement.value, "utf8");
       const preview = clipDiffPreview(buildReplacementPreview(oldStringInput.value, newStringInput.value));
 
       return toSuccessResult(

@@ -1,5 +1,5 @@
-import { readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import type { BuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 
 import { PathValidator } from "../../sandbox/path-validator.js";
 import { SandboxPolicy } from "../../sandbox/policies.js";
@@ -170,19 +170,19 @@ export async function runCommand(
   throw new Error("Command execution requires a Runtime-owned command runner");
 }
 
-export async function walkFiles(rootPath: string): Promise<string[]> {
+export async function walkFiles(filesystem: BuiltinFilesystem, rootPath: string): Promise<string[]> {
   const out: string[] = [];
-  await walk(rootPath, out);
+  await walk(filesystem, rootPath, out);
   return out;
 }
 
-async function walk(currentPath: string, out: string[]): Promise<void> {
-  const entries = await readdir(currentPath, { withFileTypes: true });
+async function walk(filesystem: BuiltinFilesystem, currentPath: string, out: string[]): Promise<void> {
+  const entries = await filesystem.readdir(currentPath, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
     const fullPath = `${currentPath}/${entry.name}`;
     if (entry.isDirectory()) {
-      await walk(fullPath, out);
+      await walk(filesystem, fullPath, out);
       continue;
     }
     if (entry.isFile()) out.push(fullPath);

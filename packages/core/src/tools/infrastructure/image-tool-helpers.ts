@@ -1,4 +1,4 @@
-import { lstat, readFile } from "node:fs/promises";
+import type { BuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { mediaToolMetadata, type ImageDetail, type MediaToolName, type MediaToolOperation } from "../domain/tool-result-metadata.js";
 import type { ToolResult } from "../domain/tool.js";
 import {
@@ -38,6 +38,7 @@ export function parseImageDetail(value: string | undefined): ImageDetail | undef
 }
 
 export async function readSupportedImageFile(
+  filesystem: BuiltinFilesystem,
   pathInput: string,
   sandbox: unknown,
   maxBytes: number,
@@ -56,7 +57,7 @@ export async function readSupportedImageFile(
   }
 
   try {
-    const stat = await lstat(absolutePath);
+    const stat = await filesystem.lstat(absolutePath);
     if (!stat.isFile()) {
       return {
         ok: false,
@@ -82,7 +83,7 @@ export async function readSupportedImageFile(
       };
     }
 
-    const content = await readFile(absolutePath);
+    const content = await filesystem.readFile(absolutePath);
     const image = detectImage(content);
     if (!image) {
       return {

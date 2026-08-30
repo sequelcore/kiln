@@ -16,7 +16,6 @@ import { type ActionEffectEnvelope, textParts } from "@kilnai/core/engine";
 import { SandboxPolicy } from "@kilnai/core/sandbox";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
-  createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
   OPERATOR_ADOPTION_DECISION_TRANSPORT,
@@ -43,6 +42,7 @@ import { collectRuntimeFormalVerificationObservations } from "../../src/work-gov
 import { SqliteBoundedWorkAuthority } from "../../src/work-governance/index.js";
 import type { RuntimeFormalVerificationObservation } from "../../src/work-governance/index.js";
 import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-invocation/phase-recovery.js";
+import { createDefaultBuiltinToolSurface } from "../../src/tools/default-builtin-tool-surface.js";
 import { projectToolPermissionAdmissionFromPerCallConfig } from "../../src/session/effective-authority-admission-bundle.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";

@@ -1,8 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReadManyTool } from "../../../src/tools/infrastructure/read-many-tool.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
+import { ReadManyTool as CoreReadManyTool } from "../../../src/tools/infrastructure/read-many-tool.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "./test-utils.js";
+
+class ReadManyTool extends CoreReadManyTool { constructor() { super(nodeTestFilesystem); } }
 
 describe("ReadManyTool", () => {
   it("returns a deterministic bounded multi-file context packet", async () => {

@@ -1,5 +1,5 @@
-import { readdir, lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { inspectionToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
@@ -51,6 +51,11 @@ export class TreeTool implements DevTool {
   readonly name = "tree";
   readonly description = TOOL_SCHEMAS.tree.description;
   readonly inputSchema = TOOL_SCHEMAS.tree.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const context = getSandboxContext(sandbox);
@@ -79,7 +84,7 @@ export class TreeTool implements DevTool {
     }
 
     try {
-      const info = await lstat(rootPath);
+      const info = await this.filesystem.lstat(rootPath);
       if (!info.isDirectory()) {
         return toErrorResult(`${rootPath} is not a directory`, inspectionToolMetadata("tree", {
           operation: "tree",
@@ -99,7 +104,7 @@ export class TreeTool implements DevTool {
         entryCount: 0,
         truncated: false,
       };
-      await appendDirectoryEntries(rootPath, 1, depth, includeFiles, state, sandbox);
+      await appendDirectoryEntries(this.filesystem, rootPath, 1, depth, includeFiles, state, sandbox);
 
       const metadata = inspectionToolMetadata("tree", {
         operation: "tree",
@@ -130,6 +135,7 @@ export class TreeTool implements DevTool {
 }
 
 async function appendDirectoryEntries(
+  filesystem: BuiltinFilesystem,
   rootPath: string,
   level: number,
   maxDepth: number,
@@ -141,7 +147,7 @@ async function appendDirectoryEntries(
     return;
   }
 
-  const entries = await readEntries(rootPath, sandbox);
+  const entries = await readEntries(filesystem, rootPath, sandbox);
   for (const entry of entries) {
     if (state.entryCount >= MAX_ENTRIES) {
       state.truncated = true;
@@ -161,13 +167,13 @@ async function appendDirectoryEntries(
     state.entryCount += 1;
 
     if (entry.isDirectory && !entry.isSymbolicLink) {
-      await appendDirectoryEntries(entry.path, level + 1, maxDepth, includeFiles, state, sandbox);
+      await appendDirectoryEntries(filesystem, entry.path, level + 1, maxDepth, includeFiles, state, sandbox);
     }
   }
 }
 
-async function readEntries(rootPath: string, sandbox?: unknown): Promise<readonly TreeEntry[]> {
-  const dirEntries = await readdir(rootPath, { withFileTypes: true });
+async function readEntries(filesystem: BuiltinFilesystem, rootPath: string, sandbox?: unknown): Promise<readonly TreeEntry[]> {
+  const dirEntries = await filesystem.readdir(rootPath, { withFileTypes: true });
   const entries: TreeEntry[] = [];
 
   for (const entry of dirEntries) {

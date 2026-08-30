@@ -1,4 +1,5 @@
 import { mediaToolMetadata } from "../domain/tool-result-metadata.js";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { optionalString, requireString, toErrorResult } from "./tool-helpers.js";
 import {
@@ -12,6 +13,11 @@ export class ViewImageTool implements DevTool {
   readonly name = "view_image";
   readonly description = TOOL_SCHEMAS.view_image.description;
   readonly inputSchema = TOOL_SCHEMAS.view_image.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const pathInput = requireString(input, "path");
@@ -26,6 +32,7 @@ export class ViewImageTool implements DevTool {
 
     const maxBytes = detail === "original" ? ORIGINAL_IMAGE_MAX_BYTES : DEFAULT_IMAGE_MAX_BYTES;
     const image = await readSupportedImageFile(
+      this.filesystem,
       pathInput.value,
       sandbox,
       maxBytes,

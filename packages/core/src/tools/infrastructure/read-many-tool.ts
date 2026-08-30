@@ -1,5 +1,5 @@
-import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { fileToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { looksBinaryFilePath } from "./file-content-helpers.js";
@@ -52,6 +52,11 @@ export class ReadManyTool implements DevTool {
   readonly name = "read_many";
   readonly description = TOOL_SCHEMAS.read_many.description;
   readonly inputSchema = TOOL_SCHEMAS.read_many.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const paths = parseStringArray(input.input.paths, "paths");
@@ -72,9 +77,9 @@ export class ReadManyTool implements DevTool {
     const useDefaultExcludes = optionalBoolean(input, "useDefaultExcludes") ?? true;
     const maxFiles = clamp(optionalNumber(input, "maxFiles"), DEFAULT_MAX_FILES, MAX_FILES);
     const maxBytes = clamp(optionalNumber(input, "maxBytes"), DEFAULT_MAX_BYTES, MAX_BYTES);
-    const gitignorePatterns = respectGitIgnore ? await readGitignore(root, sandbox) : [];
+    const gitignorePatterns = respectGitIgnore ? await readGitignore(this.filesystem, root, sandbox) : [];
     const skipped: ReadManySkippedFile[] = [];
-    const candidates = await collectCandidates(paths.value, root, recursive, useDefaultExcludes, sandbox, skipped);
+    const candidates = await collectCandidates(this.filesystem, paths.value, root, recursive, useDefaultExcludes, sandbox, skipped);
 
     const files: ReadManyFile[] = [];
     let totalBytes = 0;
@@ -109,7 +114,7 @@ export class ReadManyTool implements DevTool {
         continue;
       }
 
-      const content = await readFile(candidate.path);
+      const content = await this.filesystem.readFile(candidate.path);
       if (content.includes(0)) {
         skipped.push({ path: candidate.path, reason: "binary" });
         continue;
@@ -166,6 +171,7 @@ export class ReadManyTool implements DevTool {
 }
 
 async function collectCandidates(
+  filesystem: BuiltinFilesystem,
   inputPaths: readonly string[],
   root: string,
   recursive: boolean,
@@ -182,11 +188,11 @@ async function collectCandidates(
       continue;
     }
     try {
-      const info = await lstat(path);
+      const info = await filesystem.lstat(path);
       if (info.isFile()) {
         candidates.set(path, { path });
       } else if (info.isDirectory()) {
-        await collectDirectory(path, recursive, useDefaultExcludes, sandbox, candidates);
+        await collectDirectory(filesystem, path, recursive, useDefaultExcludes, sandbox, candidates);
       } else {
         skipped.push({ path, reason: "not_file" });
       }
@@ -203,13 +209,14 @@ async function collectCandidates(
 }
 
 async function collectDirectory(
+  filesystem: BuiltinFilesystem,
   directory: string,
   recursive: boolean,
   useDefaultExcludes: boolean,
   sandbox: unknown,
   candidates: Map<string, Candidate>,
 ): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const entries = await filesystem.readdir(directory, { withFileTypes: true });
   const sorted = entries.sort((left, right) => {
     if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1;
     return left.name.localeCompare(right.name, "en");
@@ -223,7 +230,7 @@ async function collectDirectory(
     const path = join(directory, entry.name);
     if (validateReadPath(path, sandbox)) continue;
     if (entry.isDirectory()) {
-      if (recursive) await collectDirectory(path, recursive, useDefaultExcludes, sandbox, candidates);
+      if (recursive) await collectDirectory(filesystem, path, recursive, useDefaultExcludes, sandbox, candidates);
       continue;
     }
     if (entry.isFile()) candidates.set(path, { path });
@@ -251,11 +258,11 @@ function clamp(value: number | undefined, fallback: number, max: number): number
   return Math.max(1, Math.min(max, Math.floor(value)));
 }
 
-async function readGitignore(root: string, sandbox?: unknown): Promise<readonly string[]> {
+async function readGitignore(filesystem: BuiltinFilesystem, root: string, sandbox?: unknown): Promise<readonly string[]> {
   const path = join(root, ".gitignore");
   if (validateReadPath(path, sandbox)) return [];
   try {
-    const content = await readFile(path, "utf8");
+    const content = await filesystem.readFile(path, "utf8");
     return content.split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"))

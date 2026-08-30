@@ -1,9 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { StatTool } from "../../../src/tools/infrastructure/stat-tool.js";
-import { TreeTool } from "../../../src/tools/infrastructure/tree-tool.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
+import { StatTool as CoreStatTool } from "../../../src/tools/infrastructure/stat-tool.js";
+import { TreeTool as CoreTreeTool } from "../../../src/tools/infrastructure/tree-tool.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "./test-utils.js";
+
+class StatTool extends CoreStatTool { constructor() { super(nodeTestFilesystem); } }
+class TreeTool extends CoreTreeTool { constructor() { super(nodeTestFilesystem); } }
 
 describe("StatTool", () => {
   it("returns file metadata with optional sha256 hash", async () => {

@@ -1,4 +1,5 @@
 import { basename, join, relative } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import type { ToolEnvironment } from "../domain/tool-environment.js";
 import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
@@ -38,6 +39,7 @@ type GlobCommandRunner = (
 type EnvironmentProvider = () => Promise<ToolEnvironment>;
 
 export interface GlobToolOptions {
+  readonly filesystem?: BuiltinFilesystem;
   readonly commandRunner?: GlobCommandRunner;
   readonly environmentProvider?: EnvironmentProvider;
   readonly vendoredToolResolver?: VendoredToolResolver;
@@ -51,9 +53,11 @@ export class GlobTool implements DevTool {
   private readonly commandRunner: GlobCommandRunner;
   private readonly environmentProvider: EnvironmentProvider;
   private readonly vendoredToolResolver: VendoredToolResolver;
+  private readonly filesystem: BuiltinFilesystem;
 
   constructor(options: GlobToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? unavailableGlobCommandRunner;
+    this.filesystem = options.filesystem ?? unavailableBuiltinFilesystem;
     this.environmentProvider = options.environmentProvider ?? emptyToolEnvironment;
     this.vendoredToolResolver = options.vendoredToolResolver ?? noVendoredTool;
   }
@@ -185,7 +189,7 @@ export class GlobTool implements DevTool {
     verbosity: ToolOutputVerbosity,
     sandbox?: unknown,
   ): Promise<ToolResult> {
-    const files = await walkFiles(searchRoot);
+    const files = await walkFiles(this.filesystem, searchRoot);
     const matches: string[] = [];
 
     for (const filePath of files) {

@@ -1,9 +1,21 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PathValidator } from "../../../src/sandbox/path-validator.js";
 import { SandboxPolicy } from "../../../src/sandbox/policies.js";
 import type { SandboxConfig } from "../../../src/sandbox/index.js";
+import type { BuiltinFilesystem } from "../../../src/tools/contracts/builtin-filesystem.js";
+
+export const nodeTestFilesystem: BuiltinFilesystem = {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+};
 
 export async function makeTempDir(prefix = "kiln-tools-"): Promise<string> {
   return mkdtemp(join(tmpdir(), prefix));

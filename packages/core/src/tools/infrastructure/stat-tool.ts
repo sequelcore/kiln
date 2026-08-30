@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, lstat } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import { inspectionToolMetadata, type InspectionEntryType } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
@@ -17,6 +18,11 @@ export class StatTool implements DevTool {
   readonly name = "stat";
   readonly description = TOOL_SCHEMAS.stat.description;
   readonly inputSchema = TOOL_SCHEMAS.stat.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const pathInput = requireString(input, "path");
@@ -44,10 +50,10 @@ export class StatTool implements DevTool {
     }
 
     try {
-      const info = await lstat(absolutePath);
+      const info = await this.filesystem.lstat(absolutePath);
       const type = getEntryType(info);
       const hash = hashMode === "sha256" && type === "file"
-        ? await sha256File(absolutePath)
+        ? await sha256File(this.filesystem, absolutePath)
         : undefined;
       const metadata = {
         operation: "stat" as const,
@@ -85,14 +91,14 @@ function parseHashMode(value: string | undefined): HashMode | undefined {
   return undefined;
 }
 
-function getEntryType(info: Awaited<ReturnType<typeof lstat>>): InspectionEntryType {
+function getEntryType(info: Stats): InspectionEntryType {
   if (info.isFile()) return "file";
   if (info.isDirectory()) return "directory";
   if (info.isSymbolicLink()) return "symlink";
   return "other";
 }
 
-async function sha256File(path: string): Promise<string> {
-  const content = await readFile(path);
+async function sha256File(filesystem: BuiltinFilesystem, path: string): Promise<string> {
+  const content = await filesystem.readFile(path);
   return createHash("sha256").update(content).digest("hex");
 }

@@ -1,10 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EditTool } from "../../../src/tools/infrastructure/edit-tool.js";
-import { ReadTool } from "../../../src/tools/infrastructure/read-tool.js";
-import { WriteTool } from "../../../src/tools/infrastructure/write-tool.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
+import { EditTool as CoreEditTool } from "../../../src/tools/infrastructure/edit-tool.js";
+import { ReadTool as CoreReadTool } from "../../../src/tools/infrastructure/read-tool.js";
+import { WriteTool as CoreWriteTool } from "../../../src/tools/infrastructure/write-tool.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "./test-utils.js";
+
+class EditTool extends CoreEditTool { constructor() { super(nodeTestFilesystem); } }
+class ReadTool extends CoreReadTool { constructor() { super(nodeTestFilesystem); } }
+class WriteTool extends CoreWriteTool { constructor() { super(nodeTestFilesystem); } }
 
 describe("ReadTool", () => {
   it("reads file content with offset and limit", async () => {

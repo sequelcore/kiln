@@ -1,5 +1,5 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { type BuiltinFilesystem, unavailableBuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 import {
   fileToolMetadata,
   type FileToolChangeMetadata,
@@ -68,6 +68,11 @@ export class PatchTool implements DevTool {
   readonly name = "patch";
   readonly description = TOOL_SCHEMAS.patch.description;
   readonly inputSchema = TOOL_SCHEMAS.patch.inputSchema;
+  private readonly filesystem: BuiltinFilesystem;
+
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+    this.filesystem = filesystem;
+  }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const patchInput = requireString(input, "patch");
@@ -94,11 +99,11 @@ export class PatchTool implements DevTool {
     }
 
     try {
-      const planned = await planPatchOperations(parsed.operations, sandbox);
+      const planned = await planPatchOperations(this.filesystem, parsed.operations, sandbox);
       const files = planned.map((operation) => operation.metadata);
 
       if (!dryRun) {
-        await applyPlannedOperations(planned);
+        await applyPlannedOperations(this.filesystem, planned);
       }
 
       const verb = dryRun ? "Dry run validated" : "Applied";
@@ -286,6 +291,7 @@ function validatePatchPaths(operations: readonly PatchOperation[], sandbox?: unk
 }
 
 async function planPatchOperations(
+  filesystem: BuiltinFilesystem,
   operations: readonly PatchOperation[],
   sandbox?: unknown,
 ): Promise<readonly PlannedPatchOperation[]> {
@@ -294,7 +300,7 @@ async function planPatchOperations(
   for (const operation of operations) {
     if (operation.type === "add") {
       const path = resolvePath(operation.path, sandbox);
-      if (await pathExists(path)) {
+      if (await pathExists(filesystem, path)) {
         throw new Error(`Cannot add ${path}: file already exists`);
       }
       const content = operation.lines.join("\n");
@@ -317,7 +323,7 @@ async function planPatchOperations(
 
     if (operation.type === "delete") {
       const path = resolvePath(operation.path, sandbox);
-      const content = await readExistingFile(path);
+      const content = await readExistingFile(filesystem, path);
       const preview = clipDiffPreview(buildRemovedPreview(content));
       planned.push({
         type: "delete",
@@ -335,10 +341,10 @@ async function planPatchOperations(
     }
 
     const path = resolvePath(operation.path, sandbox);
-    const originalContent = await readExistingFile(path);
+    const originalContent = await readExistingFile(filesystem, path);
     const updated = applyHunks(originalContent, operation.hunks, path);
     const targetPath = operation.moveTo ? resolvePath(operation.moveTo, sandbox) : path;
-    if (operation.moveTo && await pathExists(targetPath)) {
+    if (operation.moveTo && await pathExists(filesystem, targetPath)) {
       throw new Error(`Cannot move ${path} to ${targetPath}: target already exists`);
     }
     const preview = clipDiffPreview(buildHunkPreview(operation.hunks));
@@ -360,9 +366,9 @@ async function planPatchOperations(
   return planned;
 }
 
-async function pathExists(path: string): Promise<boolean> {
+async function pathExists(filesystem: BuiltinFilesystem, path: string): Promise<boolean> {
   try {
-    await stat(path);
+    await filesystem.stat(path);
     return true;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
@@ -371,13 +377,13 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function readExistingFile(path: string): Promise<string> {
+async function readExistingFile(filesystem: BuiltinFilesystem, path: string): Promise<string> {
   try {
-    const info = await stat(path);
+    const info = await filesystem.stat(path);
     if (!info.isFile()) {
       throw new Error(`${path} is not a file`);
     }
-    return await readFile(path, "utf8");
+    return await filesystem.readFile(path, "utf8");
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {
@@ -440,30 +446,30 @@ function findLineSequence(lines: readonly string[], sequence: readonly string[],
   return -1;
 }
 
-async function applyPlannedOperations(operations: readonly PlannedPatchOperation[]): Promise<void> {
-  const snapshots = await captureSnapshots(operations);
+async function applyPlannedOperations(filesystem: BuiltinFilesystem, operations: readonly PlannedPatchOperation[]): Promise<void> {
+  const snapshots = await captureSnapshots(filesystem, operations);
   try {
     for (const operation of operations) {
       if (operation.type === "write") {
-        await mkdir(dirname(operation.path), { recursive: true });
-        await writeFile(operation.path, operation.content, "utf8");
+        await filesystem.mkdir(dirname(operation.path), { recursive: true });
+        await filesystem.writeFile(operation.path, operation.content, "utf8");
         continue;
       }
       if (operation.type === "delete") {
-        await rm(operation.path);
+        await filesystem.rm(operation.path);
         continue;
       }
-      await mkdir(dirname(operation.toPath), { recursive: true });
-      await writeFile(operation.toPath, operation.content, "utf8");
-      await rm(operation.fromPath);
+      await filesystem.mkdir(dirname(operation.toPath), { recursive: true });
+      await filesystem.writeFile(operation.toPath, operation.content, "utf8");
+      await filesystem.rm(operation.fromPath);
     }
   } catch (error) {
-    await restoreSnapshots(snapshots);
+    await restoreSnapshots(filesystem, snapshots);
     throw error;
   }
 }
 
-async function captureSnapshots(operations: readonly PlannedPatchOperation[]): Promise<ReadonlyMap<string, FileSnapshot>> {
+async function captureSnapshots(filesystem: BuiltinFilesystem, operations: readonly PlannedPatchOperation[]): Promise<ReadonlyMap<string, FileSnapshot>> {
   const paths = new Set<string>();
   for (const operation of operations) {
     if (operation.type === "move") {
@@ -477,7 +483,7 @@ async function captureSnapshots(operations: readonly PlannedPatchOperation[]): P
   const snapshots = new Map<string, FileSnapshot>();
   for (const path of paths) {
     try {
-      snapshots.set(path, { exists: true, content: await readFile(path, "utf8") });
+      snapshots.set(path, { exists: true, content: await filesystem.readFile(path, "utf8") });
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
@@ -490,13 +496,13 @@ async function captureSnapshots(operations: readonly PlannedPatchOperation[]): P
   return snapshots;
 }
 
-async function restoreSnapshots(snapshots: ReadonlyMap<string, FileSnapshot>): Promise<void> {
+async function restoreSnapshots(filesystem: BuiltinFilesystem, snapshots: ReadonlyMap<string, FileSnapshot>): Promise<void> {
   for (const [path, snapshot] of snapshots) {
     if (snapshot.exists) {
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, snapshot.content, "utf8");
+      await filesystem.mkdir(dirname(path), { recursive: true });
+      await filesystem.writeFile(path, snapshot.content, "utf8");
     } else {
-      await rm(path, { force: true });
+      await filesystem.rm(path, { force: true });
     }
   }
 }

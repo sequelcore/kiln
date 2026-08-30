@@ -1,10 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { GlobTool } from "../../../src/tools/infrastructure/glob-tool.js";
-import { GrepTool } from "../../../src/tools/infrastructure/grep-tool.js";
+import { GlobTool as CoreGlobTool, type GlobToolOptions } from "../../../src/tools/infrastructure/glob-tool.js";
+import { GrepTool as CoreGrepTool, type GrepToolOptions } from "../../../src/tools/infrastructure/grep-tool.js";
 import { resolveRipgrepRuntime } from "../../../src/tools/infrastructure/search-runtime.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
+import { makeSandbox, makeTempDir, nodeTestFilesystem, removeTempDir } from "./test-utils.js";
+
+class GlobTool extends CoreGlobTool {
+  constructor(options: GlobToolOptions = {}) { super({ ...options, filesystem: nodeTestFilesystem }); }
+}
+class GrepTool extends CoreGrepTool {
+  constructor(options: GrepToolOptions = {}) { super({ ...options, filesystem: nodeTestFilesystem }); }
+}
 
 const boundedRgArgs = (maxCount: number): readonly string[] => [
   "--no-heading",
