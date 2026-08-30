@@ -8,7 +8,6 @@ import {
   KilnError,
   OTelExporter,
   SafetyPipeline,
-  AesSecretStore,
   MemoryArtifactResourceStore,
   DeterministicDangerousCommandDetector,
   KilnMcpClient,
@@ -83,6 +82,7 @@ import {
 } from "./gui-static-assets.js";
 import { resolveGatewayPrivateState } from "./gateway-private-state.js";
 import { resolveRuntimeStoreRoot } from "../kiln-home.js";
+import { createEncryptedSecretStore } from "../credentials/encrypted-secret-store.js";
 
 type MetaVoiceChannelType = "whatsapp" | "instagram" | "messenger";
 
@@ -502,7 +502,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
   const secretKeyEnv = options?.secretKeyEnv;
   const secretMasterKey = secretKeyEnv ? process.env[secretKeyEnv] : undefined;
   const secretStore = secretMasterKey
-    ? new AesSecretStore(privateState.secretsPath, secretMasterKey)
+    ? createEncryptedSecretStore(privateState.secretsPath, secretMasterKey)
     : undefined;
 
   // Integration runtime: register adapters and configure credential resolution

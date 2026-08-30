@@ -1,7 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import {
-  AesSecretStore,
   KilnMcpClient,
   type McpDiscoverySnapshotAttestation,
   type McpValueReference,
@@ -11,6 +10,7 @@ import {
   MCP_AUTHORIZATION_CONTEXT_PROJECTION_REVISION,
   type McpAuthorizationContextEvidence,
 } from "@kilnai/core/capabilities";
+import { createEncryptedSecretStore } from "@kilnai/runtime";
 import { resolveKilnHomePath } from "./global-config/path.js";
 
 export const KILN_MCP_SECRET_KEY_ENV = "KILN_MCP_SECRET_KEY";
@@ -61,7 +61,7 @@ export function createMcpCredentialAccess(
       acquireAuthorizationContext,
     };
   }
-  const store = new AesSecretStore(join(kilnHome, "mcp-secrets.json"), masterKey);
+  const store = createEncryptedSecretStore(join(kilnHome, "mcp-secrets.json"), masterKey);
   const key = (credentialId: string) => `${MCP_CREDENTIAL_PREFIX}${credentialId}`;
   const resolve = (credentialId: string): string | undefined => store.get(key(credentialId)) ?? undefined;
   const acquireAuthorizationContext = (server: ResolvedMcpServer): McpAuthorizationContextLease =>

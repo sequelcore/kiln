@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { KilnError } from "../engine/errors.js";
-import type { SecretStore } from "./types.js";
+import { KilnError } from "@kilnai/core/engine";
+import type { SecretStore } from "@kilnai/core/security";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -56,14 +56,15 @@ function decrypt(secret: EncryptedSecret, key: Buffer): string {
   }
 }
 
-export class AesSecretStore implements SecretStore {
-  private readonly storePath: string;
+class EncryptedSecretStore implements SecretStore {
   private masterKey: string;
   private salt: Buffer | null = null;
   private store: Record<string, EncryptedSecret> = {};
 
-  constructor(storePath: string, masterKey: string) {
-    this.storePath = storePath;
+  constructor(
+    private readonly storePath: string,
+    masterKey: string,
+  ) {
     this.masterKey = masterKey;
     mkdirSync(dirname(storePath), { recursive: true });
     this.loadFromDisk();
@@ -78,16 +79,16 @@ export class AesSecretStore implements SecretStore {
   }
 
   private derivedKey(): Buffer {
-    if (!this.salt) {
-      this.salt = randomBytes(SALT_LENGTH);
-    }
+    if (!this.salt) this.salt = randomBytes(SALT_LENGTH);
     return deriveKey(this.masterKey, this.salt);
   }
 
   private persist(): void {
+    const salt = this.salt;
+    if (!salt) throw new Error("Encrypted secret store salt is not initialized.");
     const file: StoreFile = {
       version: FILE_VERSION,
-      salt: this.salt!.toString("base64"),
+      salt: salt.toString("base64"),
       secrets: this.store,
     };
     const tmpPath = `${this.storePath}.tmp`;
@@ -96,15 +97,13 @@ export class AesSecretStore implements SecretStore {
   }
 
   set(key: string, value: string): void {
-    const derivedKey = this.derivedKey();
-    this.store[key] = encrypt(value, derivedKey);
+    this.store[key] = encrypt(value, this.derivedKey());
     this.persist();
   }
 
   get(key: string): string | null {
     const secret = this.store[key];
-    if (!secret) return null;
-    return decrypt(secret, this.derivedKey());
+    return secret ? decrypt(secret, this.derivedKey()) : null;
   }
 
   has(key: string): boolean {
@@ -125,20 +124,18 @@ export class AesSecretStore implements SecretStore {
 
   rotateKey(newMasterKey: string): void {
     const oldKey = this.derivedKey();
-    const decrypted: Record<string, string> = {};
-    for (const [k, v] of Object.entries(this.store)) {
-      decrypted[k] = decrypt(v, oldKey);
-    }
+    const decrypted = Object.fromEntries(
+      Object.entries(this.store).map(([key, value]) => [key, decrypt(value, oldKey)]),
+    );
 
     this.masterKey = newMasterKey;
     this.salt = randomBytes(SALT_LENGTH);
     const newKey = this.derivedKey();
-
-    const reEncrypted: Record<string, EncryptedSecret> = {};
-    for (const [k, v] of Object.entries(decrypted)) {
-      reEncrypted[k] = encrypt(v, newKey);
-    }
-    this.store = reEncrypted;
+    this.store = Object.fromEntries(Object.entries(decrypted).map(([key, value]) => [key, encrypt(value, newKey)]));
     this.persist();
   }
+}
+
+export function createEncryptedSecretStore(storePath: string, masterKey: string): SecretStore {
+  return new EncryptedSecretStore(storePath, masterKey);
 }

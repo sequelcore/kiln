@@ -136,8 +136,8 @@ The Gateway exposes CRUD routes for managing tenants at runtime. These are mount
 | `DELETE` | `/admin/tenants/:id` | Remove a tenant. |
 
 Sensitive tenant fields (API keys, webhook secrets) are automatically encrypted
-by `AesSecretStore` before persistence. Runtime security boundaries are
-described in [Safety](../../architecture/safety/safety.md) and
+by Runtime's encrypted secret store before persistence. Runtime security
+boundaries are described in [Safety](../../architecture/safety/safety.md) and
 [Tool Execution](../../architecture/tooling/tool-execution.md).
 
 ### Mutable Tenant Config Fields
@@ -213,7 +213,8 @@ External HTTP endpoints registered as tools via `webhookTools`. Each entry defin
 | `timeout` | number | no | Timeout in seconds (default: 30) |
 | `inputSchema` | object | no | JSON Schema for tool input |
 
-Webhook secrets are encrypted by `AesSecretStore` using the key pattern `tenant:{tenantId}:webhookTool:{toolName}`.
+Webhook secrets are encrypted by Runtime's secret store using the key pattern
+`tenant:{tenantId}:webhookTool:{toolName}`.
 
 Requests include `X-Kiln-Signature: sha256=<hmac>` and `X-Kiln-Timestamp` headers for verification.
 

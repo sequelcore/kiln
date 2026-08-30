@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { TenantConfig } from "@kilnai/core/engine";
-import { AesSecretStore } from "@kilnai/core/security";
+import { createEncryptedSecretStore } from "../../src/credentials/encrypted-secret-store.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
@@ -36,7 +36,7 @@ describe("TenantRegistry - encrypted secrets", () => {
   });
 
   function makeRegistry(withSecrets = true) {
-    const secretStore = withSecrets ? new AesSecretStore(secretsPath, "master-key-123") : undefined;
+    const secretStore = withSecrets ? createEncryptedSecretStore(secretsPath, "master-key-123") : undefined;
     return new TenantRegistry(storageDir, secretStore);
   }
 
@@ -92,7 +92,7 @@ describe("TenantRegistry - encrypted secrets", () => {
   });
 
   it("remove() deletes secrets from the secret store", () => {
-    const secretStore = new AesSecretStore(secretsPath, "master-key-123");
+    const secretStore = createEncryptedSecretStore(secretsPath, "master-key-123");
     const registry = new TenantRegistry(storageDir, secretStore);
 
     const tenant = makeTenant({
@@ -138,7 +138,7 @@ describe("TenantRegistry - encrypted secrets", () => {
 
   it("load() hydrates sensitive fields when loading from disk", () => {
     // Create with one registry instance
-    const secretStore = new AesSecretStore(secretsPath, "master-key-123");
+    const secretStore = createEncryptedSecretStore(secretsPath, "master-key-123");
     const registry1 = new TenantRegistry(storageDir, secretStore);
     registry1.create(
       makeTenant({
@@ -148,7 +148,7 @@ describe("TenantRegistry - encrypted secrets", () => {
     );
 
     // Load with a fresh registry sharing the same secret store
-    const secretStore2 = new AesSecretStore(secretsPath, "master-key-123");
+    const secretStore2 = createEncryptedSecretStore(secretsPath, "master-key-123");
     const registry2 = new TenantRegistry(storageDir, secretStore2);
     registry2.load();
 

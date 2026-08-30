@@ -5,7 +5,6 @@ export { ActionEffectAuthorizer } from "./action-effect-authorizer.js";
 export { DeterministicDangerousCommandDetector } from "./dangerous-command-detector.js";
 export type { InjectionPattern } from "./prompt-scanner.js";
 export { INJECTION_PATTERNS, PromptScanner } from "./prompt-scanner.js";
-export { AesSecretStore } from "./secret-store.js";
 export type {
   SecurityAuditReport,
   SecurityCheckName,
