@@ -310,7 +310,18 @@ describe("createOperatorRuntimeService", () => {
     expect(body).toContain('"diagnostic":"route_unavailable"');
     expect(body).toContain('"configuredAgentProfileId":"global-scout"');
     expect(body).toContain('"diagnostic":"eligibility_unresolved"');
-    expect(body).not.toContain("model");
+    const payload = JSON.parse(body) as {
+      readonly result?: {
+        readonly structuredContent?: {
+          readonly capability?: {
+            readonly managedAgents?: readonly Record<string, unknown>[];
+          };
+        };
+      };
+    };
+    const projectedAgents = payload.result?.structuredContent?.capability?.managedAgents ?? [];
+    expect(projectedAgents).toHaveLength(3);
+    expect(projectedAgents.every((agent) => !("model" in agent) && !("modelId" in agent))).toBe(true);
     expect(createComposition).toHaveBeenCalledTimes(1);
     await service.close();
   });

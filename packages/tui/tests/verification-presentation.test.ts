@@ -43,7 +43,7 @@ describe("TUI verification presentation", () => {
 
     const output = formatVerificationPresentationAsText(verification);
     expect(output).toContain("violations · Oxlint 1.80.0");
-    expect(output).toContain("1 diagnostic · 245 rules");
+    expect(output).toContain("1 diagnostic · 106 rules");
     expect(output).toContain("! no-unused-vars · policy.ts:4:8 · Unused parameter");
     expect(output).toContain("Assurance: separate decision · evidence only");
   });
