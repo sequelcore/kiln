@@ -104,10 +104,12 @@ describe("default builtin tool surface", () => {
   it("registers quality_analyze only when a compiled profile is configured", () => {
     const absent = createDefaultBuiltinToolSurface({ toolProjection: { mode: "deferred" } });
     const configured = createDefaultBuiltinToolSurface({
-      qualityAnalyze: {
-        profiles: ["type-integrity", "complexity", "test-integrity"],
-        analyzerVersion: "3.0.0-beta.1",
-      },
+      verificationTools: [{
+        name: "quality_analyze",
+        description: "Configured quality analysis",
+        inputSchema: { type: "object", properties: {}, required: [] },
+        async execute() { return { output: "ok", isError: false }; },
+      }],
       toolProjection: { mode: "deferred" },
     });
     expect(absent.registry.has("quality_analyze")).toBe(false);

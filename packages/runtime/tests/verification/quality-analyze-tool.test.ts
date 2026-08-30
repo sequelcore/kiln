@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { analyzeTypeScriptQuality } from "@kilnai/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { createQualityAnalyzeTool } from "../../src/tools/infrastructure/verification/quality/quality-analyze-tool.js";
-import { analyzeTypeScriptQuality } from "../../src/tools/infrastructure/verification/quality/typescript-quality-analyzer.js";
+import { createQualityAnalyzeTool } from "../../src/verification/quality/quality-analyze-tool.js";
 
 const roots: string[] = [];
 afterEach(async () => {

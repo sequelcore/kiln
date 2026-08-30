@@ -90,8 +90,6 @@ export {
 export { BUILTIN_TOOL_EFFECT_ENVELOPES, getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 export type { GentleReviewToolOptions } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
 export { createGentleReviewTool } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
-export type { QualityAnalyzeToolOptions } from "./infrastructure/verification/quality/quality-analyze-tool.js";
-export { createQualityAnalyzeTool } from "./infrastructure/verification/quality/quality-analyze-tool.js";
 export { analyzeTypeScriptQuality, TYPESCRIPT_QUALITY_PARSER_VERSION } from "./infrastructure/verification/quality/typescript-quality-analyzer.js";
 export type {
   BinaryInfo,
@@ -447,6 +445,14 @@ export {
 } from "./infrastructure/task-state-tools.js";
 export { ToolCatalogSearchTool } from "./infrastructure/tool-catalog-search-tool.js";
 export type { ToolSandboxContext } from "./infrastructure/tool-helpers.js";
+export {
+  getSandboxContext,
+  requireString,
+  resolvePath,
+  toErrorResult,
+  toSuccessResult,
+  validateReadPath,
+} from "./infrastructure/tool-helpers.js";
 export { TreeTool } from "./infrastructure/tree-tool.js";
 export { ViewImageTool } from "./infrastructure/view-image-tool.js";
 export type {

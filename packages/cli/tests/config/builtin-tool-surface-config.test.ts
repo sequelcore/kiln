@@ -18,6 +18,12 @@ import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
   createSqliteMemoryRepository: vi.fn((options: { readonly dbPath: string }) => ({ options })),
+  createQualityAnalyzeTool: vi.fn(() => ({
+    name: "quality_analyze",
+    description: "Configured quality analysis",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    execute: vi.fn(async () => ({ output: "ok", isError: false })),
+  })),
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
     constructor(readonly options?: unknown) {}
   },
@@ -103,6 +109,7 @@ describe("builtin tool surface config", () => {
           },
         },
         runDafnyVersion: () => "Dafny 4.10.0",
+        observeDafnyInstallationDigest: () => DAFNY_DIGEST,
         platform: "win32",
       });
 
@@ -296,9 +303,9 @@ describe("builtin tool surface config", () => {
       });
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
-      expect(options.qualityAnalyze).toMatchObject({
-        profiles: ["type-integrity", "complexity", "test-integrity"],
-      });
+      expect(options.verificationTools).toEqual([
+        expect.objectContaining({ name: "quality_analyze" }),
+      ]);
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("quality_analyze");
       expect(surface.registry.has("quality_analyze")).toBe(true);
       expect(surface.toolNames).not.toContain("quality_analyze");

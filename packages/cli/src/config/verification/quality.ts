@@ -1,4 +1,4 @@
-import type { QualityAnalyzeToolOptions } from "@kilnai/core/tools";
+import type { QualityAnalyzeToolOptions } from "@kilnai/runtime";
 import { QUALITY_PROFILE_ORDER } from "@kilnai/core/verification";
 import { RUNNING_CLI_VERSION } from "../../build-identity.js";
 import type { KilnGlobalConfig } from "../global-config.js";

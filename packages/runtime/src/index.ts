@@ -649,6 +649,8 @@ export type {
   DevToolsMcpToolSchema,
 } from "./mcp/dev-tools-server.js";
 export { DevToolsMcpServer } from "./mcp/dev-tools-server.js";
+export type { QualityAnalyzeToolOptions } from "./verification/quality/quality-analyze-tool.js";
+export { createQualityAnalyzeTool } from "./verification/quality/quality-analyze-tool.js";
 export type {
   SkillPackageHealth,
   SkillPackageHealthOptions,

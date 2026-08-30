@@ -79,7 +79,6 @@ import {
 } from "./infrastructure/specification-state-store.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
 import { createStaticAnalyzeTool, type StaticAnalyzeToolOptions } from "./infrastructure/verification/oxlint/static-analyze-tool.js";
-import { createQualityAnalyzeTool, type QualityAnalyzeToolOptions } from "./infrastructure/verification/quality/quality-analyze-tool.js";
 import { createGentleReviewTool, type GentleReviewToolOptions } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
 import {
   TaskListTool,
@@ -131,8 +130,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly formalVerify?: FormalVerifyToolOptions;
   /** Fixed-profile Oxlint producer. Absent unless explicitly configured. */
   readonly staticAnalyze?: StaticAnalyzeToolOptions;
-  /** In-process deterministic artifact-quality producer. Absent unless explicitly configured. */
-  readonly qualityAnalyze?: QualityAnalyzeToolOptions;
+  /** Runtime-owned verification adapters admitted by executable configuration. */
+  readonly verificationTools?: readonly DevTool[];
   /** Read-only, exact-candidate Gentle AI status observer. */
   readonly gentleReview?: GentleReviewToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
@@ -344,7 +343,7 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     ...(options.formalVerify ? [createFormalVerifyTool(options.formalVerify)] : []),
     ...(options.staticAnalyze ? [createStaticAnalyzeTool(options.staticAnalyze)] : []),
-    ...(options.qualityAnalyze ? [createQualityAnalyzeTool(options.qualityAnalyze)] : []),
+    ...(options.verificationTools ?? []),
     ...(options.gentleReview ? [createGentleReviewTool(options.gentleReview)] : []),
     ...(options.additionalTools ?? []),
   ];

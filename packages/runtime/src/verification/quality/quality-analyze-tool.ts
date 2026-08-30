@@ -1,19 +1,23 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, sep } from "node:path";
-import { QUALITY_PROFILE_ORDER, type QualityProfileName } from "../../../../verification/static/quality-observation.js";
-import { type DevTool, TOOL_SCHEMAS, type ToolInput, type ToolResult } from "../../../domain/tool.js";
-import { getBuiltinEffectEnvelope } from "../../../domain/tool-effect-envelopes.js";
-import { qualityAnalysisToolMetadata } from "../../../domain/tool-result-metadata.js";
 import {
+  analyzeTypeScriptQuality,
+  type DevTool,
+  getBuiltinEffectEnvelope,
   getSandboxContext,
+  QUALITY_PROFILE_ORDER,
+  type QualityProfileName,
+  qualityAnalysisToolMetadata,
   requireString,
   resolvePath,
+  TOOL_SCHEMAS,
+  type ToolInput,
+  type ToolResult,
   toErrorResult,
   toSuccessResult,
   validateReadPath,
-} from "../../tool-helpers.js";
-import { analyzeTypeScriptQuality } from "./typescript-quality-analyzer.js";
+} from "@kilnai/core";
 
 const MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
