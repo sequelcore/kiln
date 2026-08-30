@@ -76,6 +76,12 @@ Canonical construction paths:
 No consumer may copy builtin schemas, create a private executor, or define
 separate metadata contracts for builtin developer tools.
 
+The repository enforces this boundary with
+`scripts/developer-tool-host-boundary.test.ts`. Core tool production code may
+depend on provider-neutral ports and deterministic path, hashing, and encoding
+utilities, but it may not import concrete process, filesystem, network, or MCP
+transport implementations or read the ambient process environment.
+
 ## Metadata Contract
 
 Builtin developer tools use the shared metadata contract in
