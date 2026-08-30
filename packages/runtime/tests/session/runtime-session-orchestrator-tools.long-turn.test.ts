@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderAdapter, ToolCall, ToolDefinition } from "@kilnai/core/agents";
-import { extractText, textParts } from "@kilnai/core";
+import { extractText, textParts } from "@kilnai/core/engine";
 import { EventBus } from "@kilnai/core/events";
 import {
   CanonicalTurnLifecycle,
