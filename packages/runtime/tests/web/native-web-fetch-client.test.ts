@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNativeWebFetchClient } from "../../src/web/native-web-fetch-client.js";
+import { createNativeWebFetchClient, type NativeFetchImplementation } from "../../src/web/native-web-fetch-client.js";
 
 describe("createNativeWebFetchClient", () => {
   it("follows manual redirects and reports the exact response provenance", async () => {
     const fetchImpl = vi
-      .fn<typeof globalThis.fetch>()
+      .fn<NativeFetchImplementation>()
       .mockResolvedValueOnce(
         new Response(null, {
           status: 302,
@@ -50,7 +50,7 @@ describe("createNativeWebFetchClient", () => {
   });
 
   it("caps returned body bytes while preserving the observed byte count", async () => {
-    const fetchImpl = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response("123456789", { status: 200 }));
+    const fetchImpl = vi.fn<NativeFetchImplementation>().mockResolvedValue(new Response("123456789", { status: 200 }));
     const client = createNativeWebFetchClient({ fetchImpl });
 
     await expect(
@@ -66,7 +66,7 @@ describe("createNativeWebFetchClient", () => {
   });
 
   it("aborts a native request at the configured timeout", async () => {
-    const fetchImpl = vi.fn<typeof globalThis.fetch>(
+    const fetchImpl = vi.fn<NativeFetchImplementation>(
       (_input, init) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new Error("request aborted")), { once: true });
@@ -85,7 +85,7 @@ describe("createNativeWebFetchClient", () => {
 
   it("stops after the admitted redirect limit", async () => {
     const fetchImpl = vi
-      .fn<typeof globalThis.fetch>()
+      .fn<NativeFetchImplementation>()
       .mockResolvedValue(new Response(null, { status: 302, headers: { location: "/again" } }));
     const client = createNativeWebFetchClient({ fetchImpl });
 
