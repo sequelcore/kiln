@@ -40,6 +40,9 @@ The foundation is implemented:
   do not yet become provider-specific cache breakpoints. Current system prompts
   can contain per-turn task, governed-context, and temporal material before the
   conversation prefix, so cache efficiency is not yet live-proven.
+- The narrow Capability Fabric descriptor-disclosure dependency is admitted as
+  an architecture boundary. This does not start this track's full progressive
+  disclosure slice or Capability Fabric Slice 3.
 
 Stable boundaries are documented in
 [Context Governance](../architecture/context/context-governance.md),
@@ -235,6 +238,42 @@ serialized request evidence agrees with component scope; and cache gains pass
 Slice 2 outcome, safety, authority, required-content, and tool-trajectory gates.
 Cold, warm, post-short-TTL, and long-session results report absolute cache
 read/write/uncached tokens and TTFT, not only a hit ratio.
+
+### Admitted Dependency Boundary - Capability Descriptor Disclosure
+
+Status: Complete as an architecture admission on 2026-08-30; no implementation
+slice started.
+
+This boundary admits only the dependency needed by Roadmap 11 Slice 3. The
+Capability Catalog remains the owner of identity, eligibility, descriptor and
+schema digests, effect posture, and freshness. The Capability Fabric resolver
+will own selection. Prompt Governance owns only disclosure timing and assembly
+of an already-eligible, already-selected descriptor and tool schema into a
+provider request, as defined by
+[Capability Descriptor Disclosure](../architecture/context/context-governance.md#capability-descriptor-disclosure).
+
+The admitted rules are:
+
+- the initial provider request exposes only a bounded discovery contract and
+  its required safe metadata, not every deferred tool definition;
+- a selected definition enters a later request only while its catalog evidence
+  remains current;
+- required safety and authority information accompanies the definition before
+  the model can request the governed effect;
+- disclosure evidence is content-free and identifies the catalog digest,
+  descriptor digest, decision, and request scope; and
+- disclosure never grants invocation authority or bypasses Runtime admission.
+
+The existing `tool_catalog_search` and progressive tool-admission flow may be
+reused as infrastructure. They do not become aliases for `capability.search` or
+`capability.describe`, and they do not become Capability Catalog or resolver
+authority.
+
+This admission does not define or implement the Roadmap 11 search contracts,
+ranking, resolver, provider adapters, schema injection, or execution. It also
+does not start the broader skill-resource, nested-instruction, cache-topology,
+or cross-harness work below. Slice 2.5 and this track's full Slice 3 retain
+their existing queue and promotion gates.
 
 ### Slice 3 - Progressive Disclosure
 

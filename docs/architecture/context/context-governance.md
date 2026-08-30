@@ -100,6 +100,32 @@ prompt memory such as `combinedMemory` after admission. Route-local retrieval
 may remain as input collection, but model admission goes through the governed
 projection.
 
+### Capability Descriptor Disclosure
+
+The [Capability Catalog](../tooling/capability-catalog.md) remains the canonical
+owner of capability identity, normalization, eligibility, descriptor and schema
+digests, effect posture, and freshness. The Capability Fabric resolver owns
+selection against the current route and policy evidence. Context Governance
+owns only when an already-eligible, already-selected descriptor and its tool
+schema enter a provider request. Disclosure does not grant execution authority;
+Runtime must still perform its normal permission, approval, data, budget, and
+effect admission before invocation.
+
+Before selection, a provider request may expose only a bounded discovery
+contract and the safe metadata that contract requires. It must not contain the
+full deferred tool definition. After selection, the next request may contain
+the selected definition, provided that the descriptor is still current and all
+safety and authority information needed to govern the call is disclosed before
+the model can request the effect. Provider-request evidence must identify the
+catalog digest, descriptor digest, disclosure decision, and request scope
+without persisting schema or prompt text.
+
+The existing [`tool_catalog_search`](../tooling/shared-tooling-intelligence.md#tool-catalog-and-deferred-discovery)
+flow is reusable infrastructure and an implementation precedent. It is not an
+alias for Capability Fabric search, a capability eligibility authority, or an
+execution grant. A future Capability Fabric implementation must replace changed
+contracts outright rather than translate between parallel discovery owners.
+
 ### Model-Facing Conversation Projection
 
 The canonical transcript and the model-facing conversation are different

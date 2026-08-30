@@ -4,10 +4,11 @@ Status: In progress capability-portability track
 Priority: High
 Execution: In progress - Slice 2 Read-Only Discovery Adapters is
 complete with post-review verification passing and no unresolved high or medium
-findings. The next bounded work is to admit the narrow Roadmap 06
-capability-disclosure dependency, then begin Slice 3 Deferred Tool Search. The
-2026-08-28 operator priority decision moves this track ahead of Roadmap 08;
-remote pairing remains Ready but is no longer the current operational priority.
+findings. The narrow Roadmap 06 capability-disclosure dependency was admitted
+on 2026-08-30. Slice 3 Deferred Tool Search is ready but has not started and is
+held at the operator's instruction. The 2026-08-28 operator priority decision
+moves this track ahead of Roadmap 08; remote pairing remains Ready but is no
+longer the current operational priority.
 Created: 2026-08-14
 Reprioritized: 2026-08-28
 
@@ -459,7 +460,8 @@ evidence.
 
 ### Slice 3 - Deferred Tool Search
 
-Status: Queued behind the narrow Roadmap 06 capability-disclosure admission.
+Status: Ready; not started. The narrow Roadmap 06 capability-disclosure
+dependency is admitted.
 
 Introduce small provider-neutral `capability.search` and
 `capability.describe` contracts. Resolve candidates against the current route,
