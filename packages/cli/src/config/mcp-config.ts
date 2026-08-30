@@ -50,7 +50,7 @@ export function readMcpConfigurationSource(input: {
 
 const SERVER_FIELDS = new Set([
   "enabled", "transport", "command", "args", "cwd", "env", "url", "headers",
-  "startupTimeoutMs", "requestTimeoutMs", "maxCapabilities", "reconnect", "admission", "trust",
+  "startupTimeoutMs", "requestTimeoutMs", "maxCapabilities", "reconnect", "admission", "capabilityBindings", "trust",
 ]);
 
 function parseServer(serverId: string, value: Record<string, unknown>): McpServerConfiguration {

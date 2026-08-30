@@ -5,6 +5,8 @@ import {
   KilnMcpClient,
   KilnMcpClientError,
   McpCapabilityRegistry,
+  assertMcpDiscoverySnapshot,
+  readMcpDiscoverySnapshotAttestation,
   type McpSdkClient,
   type McpTransportHandle,
 } from "../../../src/mcp/client/index.js";
@@ -97,6 +99,28 @@ describe("KilnMcpClient", () => {
       freshness: { observedAt: discovery.discoveredAt },
     });
     expect(discovery.freshness.validUntil).toBeUndefined();
+  });
+
+  it("brands and freezes snapshots settled by the client lifecycle", async () => {
+    const attestation = {
+      bindingDigest: `sha256:${"a".repeat(64)}` as const,
+      bindingRevision: "mcp-server-binding/v1",
+      authorizationDigest: `sha256:${"b".repeat(64)}` as const,
+      authorizationRevision: "mcp-authorization-context/v1",
+    };
+    const client = new KilnMcpClient(server(), {
+      sdkClient: sdkClient(),
+      makeTransport: () => ({ close: async () => undefined }),
+      discoveryAttestation: attestation,
+    });
+
+    const discovery = await client.discover();
+
+    expect(assertMcpDiscoverySnapshot(discovery)).toBe(discovery);
+    expect(readMcpDiscoverySnapshotAttestation(discovery)).toEqual(attestation);
+    expect(Object.isFrozen(discovery)).toBe(true);
+    expect(Object.isFrozen(discovery.tools)).toBe(true);
+    expect(() => assertMcpDiscoverySnapshot({ ...discovery })).toThrow(TypeError);
   });
 
   it("derives snapshot freshness from every settled list result without inventing a TTL", async () => {
@@ -198,6 +222,84 @@ describe("KilnMcpClient", () => {
     });
 
     await expect(client.discover()).rejects.toMatchObject({ code: "MCP_CATALOG_LIMIT_EXCEEDED" });
+  });
+
+  it("fails closed on repeated pagination cursors for every MCP capability kind", async () => {
+    const sdk = sdkClient({
+      listTools: vi.fn(async (params?: { readonly cursor?: string }) => params?.cursor
+        ? { tools: [], nextCursor: params.cursor }
+        : { tools: [], nextCursor: "same" }),
+      listResources: vi.fn(async (params?: { readonly cursor?: string }) => params?.cursor
+        ? { resources: [], nextCursor: params.cursor }
+        : { resources: [], nextCursor: "same" }),
+      listPrompts: vi.fn(async (params?: { readonly cursor?: string }) => params?.cursor
+        ? { prompts: [], nextCursor: params.cursor }
+        : { prompts: [], nextCursor: "same" }),
+    });
+    const client = new KilnMcpClient(server(), { sdkClient: sdk, makeTransport: () => ({ close: async () => undefined }) });
+
+    await expect(client.discover()).rejects.toMatchObject({ code: "MCP_REQUEST_FAILED" });
+  });
+
+  it("fails closed instead of returning a prefix when a later page is malformed", async () => {
+    const sdk = sdkClient({
+      listTools: vi.fn(async (params?: { readonly cursor?: string }) => params?.cursor
+        ? { tools: "malformed" }
+        : { tools: [{ name: "first", inputSchema: {} }], nextCursor: "later" }),
+      listResources: vi.fn(async () => ({ resources: [] })),
+      listPrompts: vi.fn(async () => ({ prompts: [] })),
+    });
+    const client = new KilnMcpClient(server(), { sdkClient: sdk, makeTransport: () => ({ close: async () => undefined }) });
+
+    await expect(client.discover()).rejects.toMatchObject({ code: "MCP_REQUEST_FAILED" });
+  });
+
+  it("bounds the total collection across tools, resources, and prompts before settlement", async () => {
+    const sdk = sdkClient({
+      listTools: vi.fn(async () => ({ tools: [{ name: "tool", inputSchema: {} }] })),
+      listResources: vi.fn(async () => ({ resources: [{ uri: "fixture://resource", name: "resource" }] })),
+      listPrompts: vi.fn(async () => ({ prompts: [{ name: "prompt" }] })),
+    });
+    const client = new KilnMcpClient(server({ maxCapabilities: 2 }), {
+      sdkClient: sdk,
+      makeTransport: () => ({ close: async () => undefined }),
+    });
+
+    await expect(client.discover()).rejects.toMatchObject({ code: "MCP_CATALOG_LIMIT_EXCEEDED" });
+  });
+
+  it("rejects an oversized page before accumulating its entries", async () => {
+    const oversized = Array.from({ length: 10_001 }, (_, index) => ({ name: `tool-${index}`, inputSchema: {} }));
+    const client = new KilnMcpClient(server({ maxCapabilities: 20_000 }), {
+      sdkClient: sdkClient({
+        listTools: vi.fn(async () => ({ tools: oversized })),
+        listResources: vi.fn(async () => ({ resources: [] })),
+        listPrompts: vi.fn(async () => ({ prompts: [] })),
+      }),
+      makeTransport: () => ({ close: async () => undefined }),
+    });
+
+    await expect(client.discover()).rejects.toMatchObject({ code: "MCP_CATALOG_LIMIT_EXCEEDED" });
+  });
+
+  it("bounds unique pagination pages even when every cursor makes progress", async () => {
+    const listTools = vi.fn(async (params?: { readonly cursor?: string }) => {
+      const page = params?.cursor ? Number(params.cursor) : 0;
+      return page >= 128
+        ? { tools: [] }
+        : { tools: [], nextCursor: String(page + 1) };
+    });
+    const client = new KilnMcpClient(server(), {
+      sdkClient: sdkClient({
+        listTools,
+        listResources: vi.fn(async () => ({ resources: [] })),
+        listPrompts: vi.fn(async () => ({ prompts: [] })),
+      }),
+      makeTransport: () => ({ close: async () => undefined }),
+    });
+
+    await expect(client.discover()).rejects.toMatchObject({ code: "MCP_REQUEST_FAILED" });
+    expect(listTools).toHaveBeenCalledTimes(128);
   });
 
   it("filters discovery and blocks external calls outside canonical capability admission", async () => {

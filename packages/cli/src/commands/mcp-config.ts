@@ -2,7 +2,8 @@ import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { syncNativeMcpProjections, uninstallNativeMcpProjections, type NativeMcpProjectionTargetResult } from "../config/native-mcp-projection-sync.js";
 import type { NativeMcpHarness } from "../config/native-mcp-projection.js";
 import type { KilnAppConfig } from "../config.js";
-import { createCanonicalMcpClient, createMcpCredentialAccess } from "../config/mcp-credentials.js";
+import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
+import { discoverCanonicalMcpToolCapabilities } from "../config/canonical-mcp-capability-discovery.js";
 import { recordMcpDiscovery, recordMcpFailure } from "../config/mcp-runtime-state.js";
 import {
   syncGlobalControlPlaneMcpProjections,
@@ -77,7 +78,7 @@ export async function mcpConfigCommand(
     throw new Error(`Canonical MCP configuration is invalid: ${resolution.diagnostics.map((item) => item.code).join(", ")}`);
   }
   if (flags.test) {
-    await testCanonicalMcpServers(resolution.servers, flags.server);
+    await testCanonicalMcpServers(resolution.servers, flags.server, projectStateBinding.kilnHome);
     return;
   }
   const globalResult = await syncGlobalControlPlaneMcpProjections({
@@ -114,6 +115,7 @@ export async function mcpConfigCommand(
 async function testCanonicalMcpServers(
   servers: Readonly<Record<string, import("@kilnai/core").ResolvedMcpServer>>,
   selectedId: string | undefined,
+  kilnHome: string,
 ): Promise<void> {
   const selected = Object.values(servers).filter((server) =>
     server.enabled
@@ -122,10 +124,20 @@ async function testCanonicalMcpServers(
   if (selectedId && selected.length === 0) throw new Error(`Enabled admitted MCP server '${selectedId}' was not found.`);
   if (selected.length === 0) throw new Error("No enabled admitted canonical MCP servers are configured.");
   for (const server of selected) {
-    const client = createCanonicalMcpClient(server);
+    let operation: Awaited<ReturnType<typeof discoverCanonicalMcpToolCapabilities>> | undefined;
     try {
-      const snapshot = await client.discover();
+      operation = await discoverCanonicalMcpToolCapabilities(server, { kilnHome });
+      const { snapshot, discovery } = operation;
       const state = recordMcpDiscovery(process.cwd(), snapshot);
+      const eligibleTools = discovery.catalog.descriptors.length;
+      const rejectedTools = Math.max(0, snapshot.tools.length - eligibleTools);
+      const diagnostics = discovery.diagnostics.map(({ code, severity }) => ({ code, severity }));
+      const decisions = discovery.catalog.decisions.map(({ capabilityId, revision, status, reasons }) => ({
+        ...(capabilityId === undefined ? {} : { capabilityId }),
+        ...(revision === undefined ? {} : { revision }),
+        status,
+        reasons: [...reasons],
+      }));
       console.log(JSON.stringify({
         server: server.id,
         health: state.health,
@@ -133,12 +145,17 @@ async function testCanonicalMcpServers(
         tools: snapshot.tools.length,
         resources: snapshot.resources.length,
         prompts: snapshot.prompts.length,
+        eligibleTools,
+        rejectedTools,
+        catalogDigest: discovery.catalog.catalogDigest,
+        diagnostics,
+        decisions,
       }));
     } catch (error) {
       recordMcpFailure(process.cwd(), server.id, error);
       throw error;
     } finally {
-      await client.disconnect();
+      await operation?.disconnect();
     }
   }
 }

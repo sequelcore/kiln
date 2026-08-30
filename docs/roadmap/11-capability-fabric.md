@@ -1,12 +1,13 @@
 # 11 - Capability Fabric
 
-Status: Ready capability-portability track
+Status: In progress capability-portability track
 Priority: High
-Execution: In progress - the Slice 2 verification discovery vertical and exact
-MCP protocol migration are complete; productive MCP binding projection is next.
-The 2026-08-28 operator priority decision moves this track ahead of
-Roadmap 08; remote pairing remains Ready but is no longer the current
-operational priority.
+Execution: In progress - Slice 2 Read-Only Discovery Adapters is
+complete with post-review verification passing and no unresolved high or medium
+findings. The next bounded work is to admit the narrow Roadmap 06
+capability-disclosure dependency, then begin Slice 3 Deferred Tool Search. The
+2026-08-28 operator priority decision moves this track ahead of Roadmap 08;
+remote pairing remains Ready but is no longer the current operational priority.
 Created: 2026-08-14
 Reprioritized: 2026-08-28
 
@@ -44,6 +45,8 @@ Kiln already has the foundations this track must reuse:
 These foundations do not yet form a shared tool catalog. Harness tools remain
 surface-specific, large inventories may be projected eagerly, and a capability
 owned by one harness or model cannot yet be requested portably from another.
+Slice 2 now records exact compatibility evidence for the three admitted
+harnesses, but that evidence produces no native executable route.
 
 The verification plane exposes the most mature local gap. Kiln already owns
 typed, globally configured producers for Dafny, Oxlint, Kiln Quality, and
@@ -303,9 +306,7 @@ Runtime failure was introduced.
 
 ### Slice 2 - Read-Only Discovery Adapters
 
-Status: In progress; verification-capability discovery and the exact MCP
-protocol migration are complete. The pure MCP tool adapter is implemented;
-its productive binding projection remains open.
+Status: Complete with post-fix verification and independent Sol review closed.
 
 Implement read-only adapters for Codex, Claude, OpenCode V2, MCP, OpenAPI,
 GraphQL, admitted CLIs, and Kiln-owned tools. Normalize their declarations into
@@ -335,14 +336,19 @@ provenance, and portable machine-readable contract. It must not execute an
 arbitrary command resolved from ambient `PATH`. MCP discovery must bind an
 exact server identity, protocol revision, selected-tool allowlist, schema
 digest, and freshness. An upstream schema change cannot silently become
-current execution authority.
+current execution authority. Harness compatibility discovery must consume the
+real Codex, Claude, and OpenCode V2 records as inert evidence, emit
+deterministic ineligible decisions without descriptors, and leave native routes
+deferred.
 
 Acceptance: the same source revision yields deterministic descriptors; unknown
 fields or semantics remain visible as ineligible rather than guessed; adapter
 tests prove no external effect during discovery; and all four verification
 implementations retain their current tool, observation, and Assurance
-boundaries. The first delivery ends there before MCP, OpenAPI, GraphQL, or
-arbitrary CLI discovery expands the slice.
+boundaries. Exact Codex, Claude, and OpenCode V2 compatibility records produce
+bounded ineligible catalog decisions with no descriptors, and native search and
+execution remain deferred. MCP, OpenAPI, GraphQL, and admitted-CLI adapters
+consume only their settled evidence contracts.
 
 Evidence: Core now owns four deterministic provider-neutral candidates and
 keeps missing, invalid, stale, or mismatched producers visible as ineligible.
@@ -357,34 +363,72 @@ eligibility. Current global operator configuration resolves all four
 capabilities as eligible. `supportedCallers` remains `kiln-runtime` until the
 search and execution slices prove native harness access.
 
+The Core harness-compatibility adapter consumes the exact checked-in Codex,
+Claude, and OpenCode V2 records as settled inert snapshots. The CLI integration
+reads each real record and synthetic fixture, supplies their record and
+fixture digests, and projects every declaration to a deterministic ineligible
+catalog decision. It emits no capability descriptors or native candidates;
+source-eligible declarations carry `native_route_deferred`, and native routes
+remain deferred to later slices.
+
 The current MCP delivery migrates every Kiln-owned consumer and producer from the
 monolithic SDK v1 contract to the split TypeScript SDK `2.0.0` packages and
 admits only protocol revision `2026-07-28`. Clients pin the revision without
 probe fallback; HTTP and stdio servers reject legacy openings. Core also owns
 a pure MCP tool adapter over settled plain-data snapshots and explicit local
-bindings. It requires complete, non-invalidated, TTL-bounded evidence plus
-secret-free server-binding and authorization-context digests; validates
-bounded JSON Schema 2020-12 object inputs without external references; keeps
-missing output schemas explicit; treats descriptions, annotations, `_meta`,
-and `serverInfo` as untrusted; and never synthesizes resources or prompts as
-tools.
+bindings. Productive canonical configuration owns exact, case-sensitive
+per-tool bindings globally; project configuration cannot add or replace them.
+The projector derives a stable secret-free server-binding digest from effective
+configuration shape and policy, then derives separate opaque owner, source, and
+implementation identities from that digest. A process-private keyed
+authorization context captures one-time credential and environment lease values
+for the client lifecycle and supplies only its opaque digest and revision to the
+adapter. Raw values and raw or unkeyed secret hashes never cross the boundary.
 
-Verification on 2026-08-28 passed workspace typecheck, 82 focused Core
-MCP/capability tests, 40 focused Runtime gateway tests, strict example
-typecheck, documentation validation, and a wire smoke proof that returned 200
-for the modern opening and 400 for legacy `initialize`. Independent review
-closed all six findings covering invalidation races, stale cache reuse,
-duplicate selectors, JSON Schema dialect, removed descriptor kinds, and
-expired freshness. Microsoft Defender subsequently classified the compiled
-`dangerous-command-detector.js` as `Trojan:Script/ObfusScript.A!ml`, preventing
-the selected CLI protocol suites and Runtime MCP end-to-end suite from being
-collected on Windows at that checkpoint. The detector now evaluates the same
-download-and-execute policy through explicit pipeline segments and ASCII word
-boundaries rather than one dense regular expression. A forced Windows compile
-and explicit Defender scan left the artifact readable with no new detection;
-the complete Core and Runtime suites then passed, as did the eight selected CLI
-protocol files with 93 tests. No endpoint-protection setting or repository
-exclusion was changed.
+The productive operation joins that binding evidence to one exact fresh,
+complete, non-invalidated tool snapshot. The client refreshes discovery and
+invalidates the catalog on list changes; missing, expired, unknown, or
+contradictory TTL evidence, authorization rotation, binding changes, and
+cross-server or revision mismatches fail closed. The adapter validates bounded
+JSON Schema 2020-12 object inputs without external references, preserves an
+absent output schema as absent, treats descriptions, annotations, `_meta`, and
+`serverInfo` as untrusted, and never synthesizes resources or prompts as tools.
+
+The client deeply freezes and process-brands each settled observation while
+keeping its exact server-binding and authorization attestations outside the
+public snapshot. Projection rejects copied or serialized snapshots and makes a
+branded snapshot ineligible after either attestation rotates. Pagination is
+bounded by page, cursor, per-page, and shared catalog limits; malformed later
+pages and repeated or non-progressing cursors fail the operation instead of
+turning a partial prefix into complete evidence. All Slice 2 inert adapters
+reject proxies before reflective inspection, so caller-defined traps cannot run
+at the discovery boundary.
+
+OpenAPI discovery now consumes a pure settled-snapshot adapter contract for the
+`3.1.x` feature line. It admits canonical patch revisions only, requires a
+complete document digest, non-invalidated fresh snapshot, and an exact local
+binding for each `openapi:<source>:<method>:<path>` selector. The binding, not
+the HTTP method, prose, or extension metadata, supplies capability identity,
+effect, posture, and explicit policy identities. The adapter does not resolve
+references, call operations, parse documents, or accept execution callbacks;
+callbacks and webhooks remain observed but ineligible event declarations.
+Request and response schemas use the bounded JSON Schema safety contract;
+external and internal references, malformed or secret-bearing data, and
+instruction injection fail closed, while missing response evidence remains
+visible and ineligible.
+
+GraphQL discovery consumes settled root-operation evidence for the exact
+`September2025` revision. Each operation is bound to its source, schema digest,
+operation-document digest, root kind/type, field, exact coordinate,
+input/output schema digests, deprecation evidence, and resolved custom-scalar
+schema evidence through an operation evidence attestation digest. An exact
+local binding supplies policy, effect, and explicit identities; descriptions,
+directives, and root kind do not choose capability identity. Introspection
+fields and deprecated fields are ineligible; missing or contradictory
+deprecation evidence, unresolved custom scalars, missing or unsafe schemas,
+stale or invalidated snapshots, and evidence-digest mismatches fail closed.
+This adapter also consumes only inert settled data and performs no network,
+introspection, parsing, execution, or schema inference.
 
 The installed dependency graph still contains the monolithic SDK v1 only as a
 transitive implementation detail of the pinned Anthropic agent SDK and shadcn.
@@ -392,27 +436,30 @@ No Kiln-owned module imports it, exposes its entry points, or admits its legacy
 wire contract. Physical removal of those transitive bytes depends on an
 admitted vendor upgrade or replacement and is not retained legacy support.
 
-Before this MCP adapter vertical is complete:
+Verification discovery covers the exact admitted CLI-backed producers Dafny and
+Oxlint, the Kiln Quality local function with ordered profiles, and the Gentle AI
+read-only hosted observer. Their provider-neutral identities and distinct
+observation contracts remain separate; unavailable or invalid configuration is
+retained as an ineligible candidate. Frozen Codex, Claude, and OpenCode V2
+compatibility records preserve unsupported and harness-private classifications.
+Native callers, deferred search, and portable execution remain later slices;
+Slice 2 does not advertise them as supported execution routes.
 
-1. the canonical MCP configuration projection must own a stable, secret-free
-   server-binding digest;
-2. the credential or lease identity authority must project an opaque
-   authorization-context digest and revision without a raw secret or secret
-   hash;
-3. a Kiln-owned projector must join those values, the client's fresh
-   non-invalidated snapshot, and exact per-tool local bindings without giving
-   the pure adapter transport, configuration, or credential access; and
-4. focused tests must prove binding changes, authorization rotation,
-   invalidation, TTL expiry, and cross-server mismatches fail closed.
-
-The adapter deliberately does not derive these identities from credentials,
-endpoints, `serverInfo`, or tool prose. OpenAPI work waits until this authority
-boundary is owned and tested instead of being guessed inside the adapter.
+Post-review evidence: the eight-file focused Core
+capability/discovery/configuration set passes 179 tests, and the four-file CLI
+MCP plus real harness-record integration set passes 26 tests. Workspace
+production and test typechecks pass, documentation validation passes, and the
+full Core suite passes 285 files with 3,544 tests. The full CLI suite passes 249
+files and 2,684 tests with one skip while reproducing exactly two pre-existing
+baseline failures already owned outside this slice: the overbroad whole-body
+`model` assertion that matches MCP response metadata, and the configured Dafny
+diagnostic expectation of `version_mismatch` when the current environment
+settles `digest_probe_failed`. Neither failure is reclassified as Slice 2
+evidence.
 
 ### Slice 3 - Deferred Tool Search
 
-Status: Blocked on completion of the remaining Slice 2 discovery adapters and the narrow Roadmap
-06 progressive-disclosure admission required for capability descriptors.
+Status: Queued behind the narrow Roadmap 06 capability-disclosure admission.
 
 Introduce small provider-neutral `capability.search` and
 `capability.describe` contracts. Resolve candidates against the current route,

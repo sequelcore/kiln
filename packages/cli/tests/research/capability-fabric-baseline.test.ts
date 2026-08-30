@@ -4,12 +4,16 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import { discoverHarnessCompatibilityCapabilities } from "@kilnai/core/capabilities";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const baselineRoot = resolve(
   repositoryRoot,
   "docs/research/fixtures/capability-fabric/v1",
 );
+const COMPATIBILITY_EVALUATED_AT = "2026-08-29T12:00:00.000Z";
+const COMPATIBILITY_OBSERVED_AT = "2026-08-29T11:00:00.000Z";
+const COMPATIBILITY_VALID_UNTIL = "2026-08-29T13:00:00.000Z";
 
 type JsonObject = Record<string, unknown>;
 
@@ -17,7 +21,7 @@ async function readJson(path: string): Promise<JsonObject> {
   return JSON.parse(await readFile(path, "utf8")) as JsonObject;
 }
 
-function sha256(value: string): string {
+function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
@@ -153,6 +157,68 @@ describe("capability-fabric compatibility baseline", () => {
       expect(JSON.stringify(record)).not.toMatch(
         /(?:bearer\s+|api[_-]?key|access[_-]?token|C:\\Users\\)/i,
       );
+    }
+  });
+
+  it("projects each exact record through the inert decision-only Core adapter", async () => {
+    const recordFiles = ["codex.json", "claude.json", "opencode-v2.json"];
+
+    for (const file of recordFiles) {
+      const recordPath = resolve(baselineRoot, "records", file);
+      const recordBytes = await readFile(recordPath);
+      const record = JSON.parse(recordBytes.toString("utf8")) as JsonObject;
+      const fixture = record.fixture as JsonObject;
+      const fixtureBytes = await readFile(resolve(baselineRoot, fixture.path as string));
+      const snapshot = {
+        ...record,
+        recordDigest: `sha256:${sha256(recordBytes)}`,
+        fixtureDigest: `sha256:${sha256(fixtureBytes)}`,
+        completeness: "complete",
+        invalidated: false,
+        freshness: {
+          observedAt: COMPATIBILITY_OBSERVED_AT,
+          validUntil: COMPATIBILITY_VALID_UNTIL,
+          status: "current",
+        },
+      };
+
+      const result = discoverHarnessCompatibilityCapabilities({
+        evaluatedAt: COMPATIBILITY_EVALUATED_AT,
+        snapshot,
+      });
+      const capabilities = record.capabilities as JsonObject[];
+      const decisions = result.catalog.decisions;
+      const diagnosticCodes = new Set(result.diagnostics.map((diagnostic) => diagnostic.code));
+
+      expect(result.candidates).toEqual([]);
+      expect(result.catalog.descriptors).toEqual([]);
+      expect(decisions).toHaveLength(capabilities.length);
+      expect(decisions.every((decision) => decision.status === "ineligible")).toBe(true);
+      for (const capability of capabilities) {
+        expect(decisions).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            capabilityId: capability.id,
+            status: "ineligible",
+          }),
+        ]));
+      }
+
+      if (capabilities.some((capability) => capability.eligible === true && capability.stability !== "experimental")) {
+        expect(diagnosticCodes.has("native_route_deferred")).toBe(true);
+      }
+      if (capabilities.some((capability) => capability.eligible === false)) {
+        expect(diagnosticCodes.has("source_declared_ineligible")).toBe(true);
+      }
+      if (capabilities.some((capability) => capability.stability === "experimental")) {
+        expect(diagnosticCodes.has("experimental_contract")).toBe(true);
+      }
+
+      const projected = JSON.stringify(result);
+      for (const artifact of record.sourceArtifacts as JsonObject[]) {
+        expect(projected).not.toContain(artifact.path as string);
+      }
+      expect(projected).not.toContain(fixture.path as string);
+      expect(projected).not.toMatch(/(?:bearer\s+|api[_-]?key|access[_-]?token|C:\\Users\\)/i);
     }
   });
 

@@ -35,6 +35,9 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const STDERR_CAPTURE_LIMIT = 8_192;
 const RESPONSE_SIZE_LIMIT_BYTES = 1_048_576;
 const DEFAULT_CAPABILITY_LIMIT = 128;
+const MAX_DISCOVERY_CAPABILITIES = 10_000;
+const MAX_DISCOVERY_PAGES = 128;
+const MAX_DISCOVERY_CURSOR_LENGTH = 4_096;
 /** The only MCP wire revision admitted by the Core client. */
 export const MCP_PROTOCOL_REVISION = "2026-07-28" as const;
 
@@ -153,6 +156,36 @@ export interface McpDiscoverySnapshot {
   }[];
 }
 
+/**
+ * Opaque evidence settled by one Kiln MCP client lifecycle. The values are
+ * intentionally kept outside the public snapshot so a serialized or copied
+ * object cannot be promoted back into capability authority.
+ */
+export interface McpDiscoverySnapshotAttestation {
+  readonly bindingDigest: `sha256:${string}`;
+  readonly bindingRevision: string;
+  readonly authorizationDigest: `sha256:${string}`;
+  readonly authorizationRevision: string;
+}
+
+const AUTHENTIC_MCP_DISCOVERY_SNAPSHOTS = new WeakMap<object, McpDiscoverySnapshotAttestation | undefined>();
+
+/** Returns only snapshots settled by this Core MCP client. */
+export function assertMcpDiscoverySnapshot(value: unknown): McpDiscoverySnapshot {
+  if (!value || typeof value !== "object" || !AUTHENTIC_MCP_DISCOVERY_SNAPSHOTS.has(value)) {
+    throw new TypeError("MCP discovery snapshot must be settled by a Kiln MCP client.");
+  }
+  return value as McpDiscoverySnapshot;
+}
+
+/** Reads the private lifecycle evidence for a Core-built snapshot. */
+export function readMcpDiscoverySnapshotAttestation(
+  value: unknown,
+): McpDiscoverySnapshotAttestation | undefined {
+  assertMcpDiscoverySnapshot(value);
+  return AUTHENTIC_MCP_DISCOVERY_SNAPSHOTS.get(value as object);
+}
+
 export interface KilnMcpClientOptions {
   readonly clientName?: string;
   readonly clientVersion?: string;
@@ -163,12 +196,15 @@ export interface KilnMcpClientOptions {
   readonly makeTransport?: (descriptor: McpTransportDescriptor) => McpTransportHandle;
   readonly installListChangedHandler?: (handler: () => Promise<void>) => void;
   readonly onDiscoveryChanged?: (snapshot: McpDiscoverySnapshot) => void | Promise<void>;
+  /** Optional capability evidence captured for this exact client lifecycle. */
+  readonly discoveryAttestation?: McpDiscoverySnapshotAttestation;
 }
 
 export class KilnMcpClient {
   readonly serverName: string;
   private readonly server: ResolvedMcpServer;
   private readonly options: KilnMcpClientOptions;
+  private readonly discoveryAttestation: McpDiscoverySnapshotAttestation | undefined;
   private readonly sdk: McpSdkClient;
   private transport: McpTransportHandle | undefined;
   private connectPromise: Promise<void> | undefined;
@@ -182,6 +218,9 @@ export class KilnMcpClient {
     this.server = server;
     this.serverName = server.id;
     this.options = options;
+    this.discoveryAttestation = options.discoveryAttestation === undefined
+      ? undefined
+      : Object.freeze({ ...options.discoveryAttestation });
     this.sdk = options.sdkClient ?? this.createSdkClient();
     options.installListChangedHandler?.(() => this.handleListChanged());
   }
@@ -236,17 +275,30 @@ export class KilnMcpClient {
     await this.connect(options);
     const request = this.discoveryRequestOptions(options.signal);
     try {
+      const capabilityLimit = this.discoveryCapabilityLimit();
+      const collectionBudget: DiscoveryCollectionBudget = {
+        remaining: Math.min(capabilityLimit, MAX_DISCOVERY_CAPABILITIES),
+      };
       const [toolPage, resourcePage, promptPage] = await Promise.all([
-        this.listTools(request),
-        collectPages<McpResourceDescriptor>((cursor) => this.sdk.listResources(cursor ? { cursor } : undefined, request), "resources"),
-        collectPages<McpPromptDescriptor>((cursor) => this.sdk.listPrompts(cursor ? { cursor } : undefined, request), "prompts"),
+        this.listTools(request, collectionBudget),
+        collectPages<McpResourceDescriptor>(
+          (cursor) => this.sdk.listResources(cursor ? { cursor } : undefined, request),
+          "resources",
+          collectionBudget,
+          this.server.id,
+        ),
+        collectPages<McpPromptDescriptor>(
+          (cursor) => this.sdk.listPrompts(cursor ? { cursor } : undefined, request),
+          "prompts",
+          collectionBudget,
+          this.server.id,
+        ),
       ]);
       const tools = toolPage.values;
       const resources = resourcePage.values;
       const prompts = promptPage.values;
       const serverIdentity = this.sdk.getServerVersion?.();
       const capabilityCount = tools.length + resources.length + prompts.length;
-      const capabilityLimit = this.server.maxCapabilities ?? DEFAULT_CAPABILITY_LIMIT;
       if (capabilityCount > capabilityLimit) {
         throw new KilnMcpClientError(
           "MCP_CATALOG_LIMIT_EXCEEDED",
@@ -295,7 +347,7 @@ export class KilnMcpClient {
         catalog,
       };
       if (!invalidated) this.catalogInvalidated = false;
-      return snapshot;
+      return settleMcpDiscoverySnapshot(snapshot, this.discoveryAttestation);
     } catch (error) {
       throw this.requestFailure(error);
     }
@@ -561,10 +613,27 @@ export class KilnMcpClient {
     return list?.allow ? list.allow.includes(name) : true;
   }
 
-  private listTools(options: McpRequestOptions): Promise<CollectedMcpPage<McpToolDescriptor>> {
+  private discoveryCapabilityLimit(): number {
+    const configured = this.server.maxCapabilities ?? DEFAULT_CAPABILITY_LIMIT;
+    if (!Number.isSafeInteger(configured) || configured < 0) {
+      throw new KilnMcpClientError(
+        "MCP_CATALOG_LIMIT_EXCEEDED",
+        this.server.id,
+        `MCP server '${this.server.id}' has an invalid capability limit.`,
+      );
+    }
+    return configured;
+  }
+
+  private listTools(
+    options: McpRequestOptions,
+    budget: DiscoveryCollectionBudget,
+  ): Promise<CollectedMcpPage<McpToolDescriptor>> {
     return collectPages<McpToolDescriptor>(
       (cursor) => this.sdk.listTools(cursor ? { cursor } : undefined, options),
       "tools",
+      budget,
+      this.server.id,
     );
   }
 
@@ -668,31 +737,109 @@ function makeSdkTransport(descriptor: McpTransportDescriptor): McpTransportHandl
 async function collectPages<T>(
   load: (cursor?: string) => Promise<unknown>,
   key: string,
+  budget: DiscoveryCollectionBudget,
+  serverId: string,
 ): Promise<CollectedMcpPage<T>> {
   const result: T[] = [];
   let cursor: string | undefined;
   let ttlMs: number | undefined;
   let cacheScope: "public" | "private" | undefined;
-  let firstPage = true;
-  do {
-    const page = await load(cursor);
-    if (!isRecord(page)) return { values: result };
-    if (firstPage) {
-      ttlMs = finiteNonNegativeNumber(page["ttlMs"]);
-      cacheScope = page["cacheScope"] === "public" || page["cacheScope"] === "private"
-        ? page["cacheScope"]
-        : undefined;
-      firstPage = false;
+  let ttlEvidenceComplete = true;
+  let ttlEvidenceSeen = false;
+  let cacheScopeEvidenceComplete = true;
+  let cacheScopeEvidenceSeen = false;
+  const seenCursors = new Set<string>();
+  for (let pageNumber = 1; ; pageNumber += 1) {
+    if (pageNumber > MAX_DISCOVERY_PAGES) {
+      throw new KilnMcpClientError(
+        "MCP_REQUEST_FAILED",
+        serverId,
+        `MCP ${key} discovery exceeded the bounded page limit.`,
+      );
     }
-    const values = page[key];
-    if (Array.isArray(values)) result.push(...values as T[]);
-    const nextCursor = page["nextCursor"];
-    cursor = typeof nextCursor === "string" ? nextCursor : undefined;
-  } while (cursor);
+    if (cursor !== undefined) {
+      if (seenCursors.has(cursor)) {
+        throw new KilnMcpClientError(
+          "MCP_REQUEST_FAILED",
+          serverId,
+          `MCP ${key} discovery returned a repeated pagination cursor.`,
+        );
+      }
+      seenCursors.add(cursor);
+    }
+    const page = await load(cursor);
+    if (!isRecord(page)) {
+      throw new KilnMcpClientError(
+        "MCP_REQUEST_FAILED",
+        serverId,
+        `MCP ${key} discovery returned a malformed page.`,
+      );
+    }
+    const values = pageField(page, key, serverId, key);
+    const pageValues = readPageValues<T>(values, serverId, key, budget.remaining);
+    if (pageValues.length > MAX_DISCOVERY_CAPABILITIES || pageValues.length > budget.remaining) {
+      throw new KilnMcpClientError(
+        "MCP_CATALOG_LIMIT_EXCEEDED",
+        serverId,
+        `MCP ${key} discovery exceeded the bounded capability limit.`,
+      );
+    }
+    budget.remaining -= pageValues.length;
+    result.push(...pageValues);
+
+    const ttl = optionalPageField(page, "ttlMs", serverId, key);
+    if (ttl === undefined) {
+      ttlEvidenceComplete = false;
+    } else {
+      const parsedTtl = finiteNonNegativeNumber(ttl);
+      if (parsedTtl === undefined) {
+        throw new KilnMcpClientError(
+          "MCP_REQUEST_FAILED",
+          serverId,
+          `MCP ${key} discovery returned malformed TTL evidence.`,
+        );
+      }
+      ttlEvidenceSeen = true;
+      ttlMs = ttlMs === undefined ? parsedTtl : Math.min(ttlMs, parsedTtl);
+    }
+
+    const scope = optionalPageField(page, "cacheScope", serverId, key);
+    if (scope === undefined) {
+      cacheScopeEvidenceComplete = false;
+    } else if (scope !== "public" && scope !== "private") {
+      throw new KilnMcpClientError(
+        "MCP_REQUEST_FAILED",
+        serverId,
+        `MCP ${key} discovery returned malformed cache-scope evidence.`,
+      );
+    } else {
+      cacheScopeEvidenceSeen = true;
+      if (cacheScope !== undefined && cacheScope !== scope) cacheScopeEvidenceComplete = false;
+      cacheScope ??= scope;
+    }
+
+    const nextCursor = optionalPageField(page, "nextCursor", serverId, key);
+    if (nextCursor === undefined || nextCursor === null) break;
+    if (typeof nextCursor !== "string" || nextCursor.length === 0 || nextCursor.length > MAX_DISCOVERY_CURSOR_LENGTH) {
+      throw new KilnMcpClientError(
+        "MCP_REQUEST_FAILED",
+        serverId,
+        `MCP ${key} discovery returned a malformed pagination cursor.`,
+      );
+    }
+    if (nextCursor === cursor || seenCursors.has(nextCursor)) {
+      throw new KilnMcpClientError(
+        "MCP_REQUEST_FAILED",
+        serverId,
+        `MCP ${key} discovery returned a non-progressing pagination cursor.`,
+      );
+    }
+    cursor = nextCursor;
+  }
   return {
     values: result,
-    ...(ttlMs !== undefined ? { ttlMs } : {}),
-    ...(cacheScope !== undefined ? { cacheScope } : {}),
+    ...(ttlEvidenceComplete && ttlEvidenceSeen && ttlMs !== undefined ? { ttlMs } : {}),
+    ...(cacheScopeEvidenceComplete && cacheScopeEvidenceSeen && cacheScope !== undefined ? { cacheScope } : {}),
   };
 }
 
@@ -700,6 +847,121 @@ interface CollectedMcpPage<T> {
   readonly values: T[];
   readonly ttlMs?: number;
   readonly cacheScope?: "public" | "private";
+}
+
+interface DiscoveryCollectionBudget {
+  remaining: number;
+}
+
+function pageField(
+  page: Record<string, unknown>,
+  field: string,
+  serverId: string,
+  kind: string,
+): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(page, field);
+  if (!descriptor || !("value" in descriptor)) {
+    throw new KilnMcpClientError(
+      "MCP_REQUEST_FAILED",
+      serverId,
+      `MCP ${kind} discovery returned a malformed page.`,
+    );
+  }
+  return descriptor.value;
+}
+
+function optionalPageField(
+  page: Record<string, unknown>,
+  field: string,
+  serverId: string,
+  kind: string,
+): unknown | undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(page, field);
+  if (!descriptor) return undefined;
+  if (!("value" in descriptor)) {
+    throw new KilnMcpClientError(
+      "MCP_REQUEST_FAILED",
+      serverId,
+      `MCP ${kind} discovery returned malformed ${field} evidence.`,
+    );
+  }
+  return descriptor.value;
+}
+
+function readPageValues<T>(value: unknown, serverId: string, kind: string, remaining: number): T[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
+    throw new KilnMcpClientError(
+      "MCP_REQUEST_FAILED",
+      serverId,
+      `MCP ${kind} discovery returned a malformed capability page.`,
+    );
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value) as Record<string, PropertyDescriptor>;
+  const lengthDescriptor = descriptors.length;
+  const length = lengthDescriptor?.value;
+  if (!lengthDescriptor || !("value" in lengthDescriptor) || !Number.isSafeInteger(length) || length < 0) {
+    throw new KilnMcpClientError(
+      "MCP_REQUEST_FAILED",
+      serverId,
+      `MCP ${kind} discovery returned a malformed capability page.`,
+    );
+  }
+  if (length > MAX_DISCOVERY_CAPABILITIES || length > remaining) {
+    throw new KilnMcpClientError(
+      "MCP_CATALOG_LIMIT_EXCEEDED",
+      serverId,
+      `MCP ${kind} discovery returned an oversized capability page.`,
+    );
+  }
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.some((key) => typeof key !== "string" || (key !== "length" && !/^(?:0|[1-9]\d*)$/u.test(key)))) {
+    throw new KilnMcpClientError(
+      "MCP_REQUEST_FAILED",
+      serverId,
+      `MCP ${kind} discovery returned a malformed capability page.`,
+    );
+  }
+  if (keys.length !== length + 1) {
+    throw new KilnMcpClientError(
+      "MCP_REQUEST_FAILED",
+      serverId,
+      `MCP ${kind} discovery returned a sparse capability page.`,
+    );
+  }
+  const result: T[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+      throw new KilnMcpClientError(
+        "MCP_REQUEST_FAILED",
+        serverId,
+        `MCP ${kind} discovery returned a malformed capability page.`,
+      );
+    }
+    result.push(descriptor.value as T);
+  }
+  return result;
+}
+
+function settleMcpDiscoverySnapshot(
+  snapshot: McpDiscoverySnapshot,
+  attestation: McpDiscoverySnapshotAttestation | undefined,
+): McpDiscoverySnapshot {
+  const frozenSnapshot = deepFreezeMcpDiscoverySnapshot(snapshot);
+  AUTHENTIC_MCP_DISCOVERY_SNAPSHOTS.set(frozenSnapshot, attestation);
+  return frozenSnapshot;
+}
+
+function deepFreezeMcpDiscoverySnapshot<T>(value: T, seen = new WeakSet<object>()): T {
+  if (!value || typeof value !== "object") return value;
+  const object = value as object;
+  if (seen.has(object)) return value;
+  seen.add(object);
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(object))) {
+    if ("value" in descriptor) deepFreezeMcpDiscoverySnapshot(descriptor.value, seen);
+  }
+  Object.freeze(object);
+  return value;
 }
 
 function deriveDiscoveryFreshness(
@@ -727,7 +989,13 @@ function finiteNonNegativeNumber(value: unknown): number | undefined {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
 }
 
 function withoutAnnotations(tool: McpToolDescriptor): McpToolDescriptor {

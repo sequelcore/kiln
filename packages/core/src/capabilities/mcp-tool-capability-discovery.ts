@@ -1,7 +1,7 @@
-import { Ajv2020 } from "ajv/dist/2020.js";
 import type { ActionEffectEnvelope } from "../engine/domain/action-effect.js";
 import { normalizeActionEffectEnvelope } from "../engine/domain/action-effect.js";
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
+import { isProxy } from "node:util/types";
 import {
   buildCapabilityCatalog,
   type CapabilityApprovalPosture,
@@ -18,6 +18,12 @@ import {
   type CapabilityProvenanceSource,
   type Sha256Digest,
 } from "./capability-catalog.js";
+import {
+  DEFAULT_JSON_SCHEMA_SAFETY_LIMITS,
+  type JsonSchemaSafetyReason,
+  type JsonSchemaSafetyResult,
+  validateJsonSchemaSafety,
+} from "./capability-json-schema-safety.js";
 
 /** The only MCP wire revision admitted by this adapter. */
 export const MCP_TOOL_PROTOCOL_REVISION = "2026-07-28" as const;
@@ -25,24 +31,26 @@ export const MCP_TOOL_PROTOCOL_REVISION = "2026-07-28" as const;
 /** Adapter contract revision. It participates in every candidate identity. */
 export const MCP_TOOL_CAPABILITY_DISCOVERY_REVISION = "mcp-tool-capability-discovery/v1" as const;
 
+/** Contract revision for the canonical server-binding projection. */
+export const MCP_SERVER_BINDING_PROJECTION_REVISION = "mcp-server-binding/v1" as const;
+
+/** Contract revision for the opaque authorization-context projection. */
+export const MCP_AUTHORIZATION_CONTEXT_PROJECTION_REVISION = "mcp-authorization-context/v1" as const;
+
 /** The digest used when a tool has no output schema declaration. */
 export const MCP_OUTPUT_SCHEMA_ABSENT_DIGEST = sha256(
   `${MCP_TOOL_CAPABILITY_DISCOVERY_REVISION}/output-schema/absent`,
 );
 
-const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const CAPABILITY_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}(?:\.[a-z0-9][a-z0-9_-]{0,62})+$/u;
 const SERVER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/u;
 const SELECTOR_PATTERN = /^mcp:[^:]+:tool:.+$/u;
 const TOOL_NAME_MAX_LENGTH = 127;
 const DESCRIPTION_MAX_LENGTH = 16_384;
-const MAX_SCHEMA_BYTES = 256 * 1024;
-const MAX_SCHEMA_NODES = 2_048;
-const MAX_SCHEMA_DEPTH = 32;
-const MAX_SCHEMA_STRING_UNITS = 65_536;
 const MAX_SNAPSHOT_TOOLS = 10_000;
 const MAX_BINDINGS = 10_000;
+const MAX_CATALOG_ENTRIES = 10_000;
 const MAX_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const PERMISSIONS = [
@@ -53,27 +61,11 @@ const PERMISSIONS = [
   "external-state",
   "credential-use",
 ] as const satisfies readonly CapabilityPermission[];
-const CALLERS = [
-  "kiln-runtime",
-  "kiln-cli",
-  "kiln-gui",
-  "kiln-tui",
-  "kiln-sdk",
-  "kiln-widget",
-  "codex",
-  "claude",
-  "opencode-v2",
-] as const satisfies readonly CapabilityCallerId[];
 const APPROVALS = ["none", "conditional", "required"] as const satisfies readonly CapabilityApprovalPosture[];
 const NETWORK_POSTURES = ["none", "restricted", "open"] as const satisfies readonly CapabilityNetworkPosture[];
 const DATA_CLASSIFICATIONS = ["public", "internal", "sensitive"] as const;
 const RETENTIONS = ["none", "ephemeral", "persistent"] as const;
 type AdapterCapabilityKind = CapabilityKind;
-const JSON_SCHEMA_VALIDATOR = new Ajv2020({
-  allErrors: false,
-  strict: false,
-  validateFormats: false,
-});
 const BINDING_KEYS = [
   "serverId",
   "selector",
@@ -127,11 +119,15 @@ export interface McpToolCapabilityDiscoverySnapshot {
   readonly invalidated: boolean;
   readonly freshness: {
     readonly observedAt: string;
-    readonly validUntil: string;
+    readonly validUntil?: string;
     readonly status?: "current" | "stale" | "unknown";
   };
   readonly bindingDigest: Sha256Digest;
   readonly authDigest: Sha256Digest;
+  /** Exact revision of the server-binding projection contract. */
+  readonly bindingRevision: string;
+  /** Opaque authorization-context evidence revision. */
+  readonly authRevision: string;
   readonly tools: readonly McpToolCapabilitySnapshotEntry[];
 }
 
@@ -144,13 +140,14 @@ export interface McpToolCapabilityBinding {
   readonly serverId: string;
   readonly selector: string;
   readonly capabilityId: string;
-  readonly bindingDigest?: Sha256Digest;
+  readonly bindingDigest: Sha256Digest;
   readonly kind: AdapterCapabilityKind;
   readonly ownerKind: CapabilityOwnerKind;
   readonly implementationKind: CapabilityImplementationKind;
-  readonly ownerIdentityDigest?: Sha256Digest;
-  readonly sourceIdentityDigest?: Sha256Digest;
-  readonly implementationIdentityDigest?: Sha256Digest;
+  /** Explicit identities are supplied by the owning projection authority. */
+  readonly ownerIdentityDigest: Sha256Digest;
+  readonly sourceIdentityDigest: Sha256Digest;
+  readonly implementationIdentityDigest: Sha256Digest;
   readonly contractRevision?: string;
   readonly effect: ActionEffectEnvelope;
   readonly permissions: readonly CapabilityPermission[];
@@ -177,12 +174,15 @@ export type McpToolCapabilityDiscoveryDiagnosticCode =
   | "snapshot_stale"
   | "snapshot_binding_digest_invalid"
   | "snapshot_auth_digest_invalid"
+  | "snapshot_binding_revision_invalid"
+  | "snapshot_auth_revision_invalid"
   | "tool_malformed"
   | "binding_malformed"
   | "binding_missing"
   | "binding_server_mismatch"
   | "binding_duplicate"
   | "binding_identity_invalid"
+  | "binding_digest_mismatch"
   | "effect_invalid"
   | "input_schema_invalid"
   | "output_schema_invalid"
@@ -213,6 +213,8 @@ interface ParsedSnapshot {
   readonly protocolRevision: string;
   readonly bindingDigest?: Sha256Digest;
   readonly authDigest?: Sha256Digest;
+  readonly bindingRevision?: string;
+  readonly authRevision?: string;
   readonly freshness?: {
     readonly observedAt: string;
     readonly validUntil: string;
@@ -249,17 +251,16 @@ interface ParsedBinding {
   readonly bindingDigest: Sha256Digest;
 }
 
+type RejectionStub = Readonly<{
+  readonly capabilityId?: string;
+  readonly revision?: string;
+}>;
+
 interface GlobalIssue {
   readonly code: McpToolCapabilityDiscoveryDiagnosticCode;
   readonly message: string;
   readonly severity: "warning" | "error";
   readonly unavailable: boolean;
-}
-
-interface SchemaValidation {
-  readonly ok: boolean;
-  readonly value?: Readonly<Record<string, unknown>>;
-  readonly reason?: "malformed" | "external-ref" | "limits" | "secret" | "prompt-injection";
 }
 
 /**
@@ -272,6 +273,7 @@ export function discoverMcpToolCapabilities(
   const parsedInput = parseInput(input);
   const diagnostics: McpToolCapabilityDiscoveryDiagnostic[] = [];
   const parsedSnapshot = parseSnapshot(parsedInput.snapshot, diagnostics, parsedInput.evaluatedAt);
+  const rejectionStubs: RejectionStub[] = [];
   const parsedBindings = parseBindings(parsedInput.bindings, diagnostics, parsedSnapshot.serverId);
   const bindingsBySelector = groupBindings(parsedBindings, diagnostics);
   const candidates: CapabilityDescriptorCandidate[] = [];
@@ -283,17 +285,29 @@ export function discoverMcpToolCapabilities(
     const bindingEntries = bindingsBySelector.get(tool.selector) ?? [];
     if (bindingEntries.length === 0) {
       diagnostics.push(diagnostic("binding_missing", tool.selector, undefined, "No explicit local binding exists for this selected MCP tool."));
+      appendRejectionStub(rejectionStubs, Object.freeze({}));
       continue;
     }
     if (bindingEntries.length > 1) {
       // The group diagnostic is emitted in groupBindings; do not choose one
       // binding optimistically.
+      appendRejectionStub(rejectionStubs, Object.freeze({}));
       continue;
     }
 
     const binding = bindingEntries[0]!;
     const declarationChecks = inspectDeclaration(tool, binding, diagnostics);
-    const unavailable = globalUnavailable || declarationChecks.unavailable;
+    const bindingDigestMatches = parsedSnapshot.bindingDigest !== undefined
+      && binding.bindingDigest === parsedSnapshot.bindingDigest;
+    if (!bindingDigestMatches) {
+      diagnostics.push(diagnostic(
+        "binding_digest_mismatch",
+        tool.selector,
+        binding.capabilityId,
+        "The MCP capability binding does not match the exact settled server binding evidence.",
+      ));
+    }
+    const unavailable = globalUnavailable || declarationChecks.unavailable || !bindingDigestMatches;
     candidates.push(deepFreeze(buildCandidate(
       parsedSnapshot,
       tool,
@@ -305,7 +319,10 @@ export function discoverMcpToolCapabilities(
 
   candidates.sort(compareCandidates);
   const frozenCandidates = Object.freeze(candidates);
-  const catalog = buildCapabilityCatalog(frozenCandidates, parsedInput.evaluatedAt);
+  const catalog = buildCapabilityCatalog(
+    catalogEntries(frozenCandidates, rejectionStubs),
+    parsedInput.evaluatedAt,
+  );
   const sortedDiagnostics = diagnostics
     .map((entry) => deepFreeze(entry))
     .sort(compareDiagnostics);
@@ -340,17 +357,20 @@ function parseInput(input: McpToolCapabilityDiscoveryInput): {
 } {
   const record = requirePlainRecord(input, "MCP tool discovery input");
   requireExactKeys(record, ["evaluatedAt", "snapshot", "bindings"], "MCP tool discovery input");
-  if (!isCanonicalTimestamp(record.evaluatedAt)) {
+  const evaluatedAt = dataProperty(record, "evaluatedAt");
+  const snapshot = dataProperty(record, "snapshot");
+  const rawBindings = dataProperty(record, "bindings");
+  if (!isCanonicalTimestamp(evaluatedAt)) {
     throw new TypeError("MCP tool discovery evaluatedAt must be a canonical ISO timestamp.");
   }
-  const bindings = cloneInert(record.bindings, "MCP tool discovery bindings", {
+  const bindings = cloneInert(rawBindings, "MCP tool discovery bindings", {
     maxNodes: MAX_BINDINGS * 32,
-    maxDepth: MAX_SCHEMA_DEPTH,
-    maxStringUnits: MAX_SCHEMA_STRING_UNITS * 2,
+    maxDepth: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxDepth,
+    maxStringUnits: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxStringUnits * 2,
   });
   if (!Array.isArray(bindings)) throw new TypeError("MCP tool discovery bindings must be an array.");
   if (bindings.length > MAX_BINDINGS) throw new TypeError("MCP tool discovery bindings exceed the bounded maximum.");
-  return { evaluatedAt: record.evaluatedAt, snapshot: record.snapshot, bindings };
+  return { evaluatedAt, snapshot, bindings };
 }
 
 function parseSnapshot(
@@ -400,6 +420,19 @@ function parseSnapshot(
     diagnostics.push(diagnostic(issue.code, undefined, undefined, issue.message));
   }
 
+  const bindingRevision = parseRevision(record.bindingRevision);
+  if (bindingRevision !== MCP_SERVER_BINDING_PROJECTION_REVISION) {
+    const issue = globalIssue("snapshot_binding_revision_invalid", "The snapshot has no valid server-binding projection revision.", true);
+    globalIssues.push(issue);
+    diagnostics.push(diagnostic(issue.code, undefined, undefined, issue.message));
+  }
+  const authRevision = parseRevision(record.authRevision);
+  if (authRevision !== MCP_AUTHORIZATION_CONTEXT_PROJECTION_REVISION) {
+    const issue = globalIssue("snapshot_auth_revision_invalid", "The snapshot has no valid authorization-context evidence revision.", true);
+    globalIssues.push(issue);
+    diagnostics.push(diagnostic(issue.code, undefined, undefined, issue.message));
+  }
+
   const freshness = parseFreshness(record.freshness);
   if (!freshness) {
     const issue = globalIssue("snapshot_freshness_invalid", "The MCP snapshot freshness or TTL evidence is malformed.", true);
@@ -424,6 +457,8 @@ function parseSnapshot(
     protocolRevision,
     ...(bindingDigest ? { bindingDigest } : {}),
     ...(authDigest ? { authDigest } : {}),
+    ...(bindingRevision ? { bindingRevision } : {}),
+    ...(authRevision ? { authRevision } : {}),
     ...(freshness ? { freshness } : {}),
     tools,
     globalIssues,
@@ -446,6 +481,8 @@ function cloneSnapshot(value: unknown): Record<string, unknown> {
     "freshness",
     "bindingDigest",
     "authDigest",
+    "bindingRevision",
+    "authRevision",
     "tools",
   ] as const;
   for (const field of fields) {
@@ -458,8 +495,8 @@ function cloneSnapshot(value: unknown): Record<string, unknown> {
       continue;
     }
     const budget = field === "tools"
-      ? { maxNodes: MAX_SNAPSHOT_TOOLS * 32, maxDepth: MAX_SCHEMA_DEPTH * 2, maxStringUnits: MAX_SCHEMA_STRING_UNITS * 4 }
-      : { maxNodes: 8_192, maxDepth: MAX_SCHEMA_DEPTH, maxStringUnits: MAX_SCHEMA_STRING_UNITS * 4 };
+      ? { maxNodes: MAX_SNAPSHOT_TOOLS * 32, maxDepth: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxDepth * 2, maxStringUnits: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxStringUnits * 4 }
+      : { maxNodes: 8_192, maxDepth: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxDepth, maxStringUnits: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxStringUnits * 4 };
     try {
       result[field] = cloneInert(descriptor.value, `MCP snapshot ${field}`, budget);
     } catch {
@@ -494,8 +531,8 @@ function parseTools(
   try {
     inert = cloneInert(value, "MCP tool snapshot tools", {
       maxNodes: MAX_SNAPSHOT_TOOLS * 32,
-      maxDepth: MAX_SCHEMA_DEPTH * 2,
-      maxStringUnits: MAX_SCHEMA_STRING_UNITS * 4,
+      maxDepth: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxDepth * 2,
+      maxStringUnits: DEFAULT_JSON_SCHEMA_SAFETY_LIMITS.maxStringUnits * 4,
     });
   } catch {
     diagnostics.push(diagnostic("snapshot_malformed", undefined, undefined, "The MCP snapshot tools collection is malformed or exceeds limits."));
@@ -631,7 +668,7 @@ function parseBinding(
     return undefined;
   }
   const permissions = parseMembers(record.permissions, PERMISSIONS);
-  const callers = parseMembers(record.supportedCallers, CALLERS);
+  const callers = parseExactMcpSupportedCallers(record.supportedCallers);
   const approval = parseMember(record.approval, APPROVALS);
   const network = parseMember(record.network, NETWORK_POSTURES);
   const data = parseData(record.data);
@@ -640,20 +677,12 @@ function parseBinding(
     diagnostics.push(diagnostic("binding_malformed", selector, capabilityId, "The local MCP capability binding has an incomplete or invalid posture."));
     return undefined;
   }
-  const bindingDigest = parseOptionalDigest(record.bindingDigest);
-  const ownerIdentityDigest = parseOptionalDigest(record.ownerIdentityDigest);
-  const sourceIdentityDigest = parseOptionalDigest(record.sourceIdentityDigest);
-  const implementationIdentityDigest = parseOptionalDigest(record.implementationIdentityDigest);
-  if (bindingDigest.invalid || ownerIdentityDigest.invalid || sourceIdentityDigest.invalid || implementationIdentityDigest.invalid) {
+  const bindingDigest = parseDigest(record.bindingDigest);
+  const ownerIdentityDigest = parseDigest(record.ownerIdentityDigest);
+  const sourceIdentityDigest = parseDigest(record.sourceIdentityDigest);
+  const implementationIdentityDigest = parseDigest(record.implementationIdentityDigest);
+  if (!bindingDigest || !ownerIdentityDigest || !sourceIdentityDigest || !implementationIdentityDigest) {
     diagnostics.push(diagnostic("binding_identity_invalid", selector, capabilityId, "The local MCP binding contains a malformed identity digest."));
-    return undefined;
-  }
-  const resolvedBindingDigest = bindingDigest.value;
-  const resolvedOwnerIdentityDigest = ownerIdentityDigest.value ?? resolvedBindingDigest;
-  const resolvedSourceIdentityDigest = sourceIdentityDigest.value ?? resolvedBindingDigest;
-  const resolvedImplementationIdentityDigest = implementationIdentityDigest.value ?? resolvedBindingDigest;
-  if (!resolvedOwnerIdentityDigest || !resolvedSourceIdentityDigest || !resolvedImplementationIdentityDigest) {
-    diagnostics.push(diagnostic("binding_identity_invalid", selector, capabilityId, "The local MCP binding must carry secret-free identity digests."));
     return undefined;
   }
   const contractRevision = typeof record.contractRevision === "string" && record.contractRevision.length > 0
@@ -681,12 +710,12 @@ function parseBinding(
     data,
     supportedCallers: callers,
     limits,
-    ownerIdentityDigest: resolvedOwnerIdentityDigest,
-    sourceIdentityDigest: resolvedSourceIdentityDigest,
-    implementationIdentityDigest: resolvedImplementationIdentityDigest,
+    ownerIdentityDigest,
+    sourceIdentityDigest,
+    implementationIdentityDigest,
     contractRevision,
     requiresStructuredOutput,
-    bindingDigest: resolvedBindingDigest ?? sha256(stableCanonicalStringify({ selector, capabilityId, kind, ownerKind, implementationKind, effect, permissions, approval, network, data, callers, limits })),
+    bindingDigest,
   };
 }
 
@@ -802,65 +831,11 @@ function inspectAnnotations(
   return diagnostics;
 }
 
-function validateSchema(value: unknown): SchemaValidation {
-  const record = asPlainRecord(value);
-  if (!record) return { ok: false, reason: "malformed" };
-  let cloned: unknown;
-  try {
-    cloned = cloneInert(record, "MCP JSON Schema", {
-      maxNodes: MAX_SCHEMA_NODES,
-      maxDepth: MAX_SCHEMA_DEPTH,
-      maxStringUnits: MAX_SCHEMA_STRING_UNITS,
-    });
-  } catch {
-    return { ok: false, reason: "limits" };
-  }
-  if (!isPlainRecord(cloned)) return { ok: false, reason: "malformed" };
-  const serialized = stableCanonicalStringify(cloned);
-  if (Buffer.byteLength(serialized, "utf8") > MAX_SCHEMA_BYTES) return { ok: false, reason: "limits" };
-  const schema = schemaSafety(cloned, 0, { nodes: 0, stringUnits: 0 });
-  if (schema === "external-ref") return { ok: false, reason: "external-ref" };
-  if (schema === "limits") return { ok: false, reason: "limits" };
-  if (schema === "secret") return { ok: false, reason: "secret" };
-  if (schema === "prompt-injection") return { ok: false, reason: "prompt-injection" };
-  if (cloned.$schema !== undefined && cloned.$schema !== JSON_SCHEMA_2020_12) return { ok: false, reason: "malformed" };
-  if (cloned.type !== "object" || !JSON_SCHEMA_VALIDATOR.validateSchema(cloned)) return { ok: false, reason: "malformed" };
-  return { ok: true, value: cloned };
-}
-
-type SchemaSafetyReason = "external-ref" | "limits" | "secret" | "prompt-injection" | undefined;
-
-function schemaSafety(
-  value: unknown,
-  depth: number,
-  budget: { nodes: number; stringUnits: number },
-): SchemaSafetyReason {
-  if (++budget.nodes > MAX_SCHEMA_NODES || depth > MAX_SCHEMA_DEPTH) return "limits";
-  if (typeof value === "string") {
-    budget.stringUnits += value.length;
-    if (budget.stringUnits > MAX_SCHEMA_STRING_UNITS) return "limits";
-    if (isPromptInjection(value)) return "prompt-injection";
-    if (isSecretValue(value)) return "secret";
-    return undefined;
-  }
-  if (value === null || typeof value === "boolean" || typeof value === "number" || value === undefined) return undefined;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const reason = schemaSafety(entry, depth + 1, budget);
-      if (reason) return reason;
-    }
-    return undefined;
-  }
-  if (!isPlainRecord(value)) return "limits";
-  for (const [key, entry] of Object.entries(value)) {
-    if (key === "$ref" || key === "$dynamicRef") {
-      if (typeof entry !== "string" || !entry.startsWith("#")) return "external-ref";
-    }
-    if (isSecretKey(key)) return "secret";
-    const reason = schemaSafety(entry, depth + 1, budget);
-    if (reason) return reason;
-  }
-  return undefined;
+function validateSchema(value: unknown): JsonSchemaSafetyResult {
+  return validateJsonSchemaSafety(value, {
+    requireObjectType: true,
+    referencePolicy: "internal-only",
+  });
 }
 
 function buildCandidate(
@@ -873,14 +848,19 @@ function buildCandidate(
   const declaration = tool.declaration;
   const inputSchemaDigest = sha256(stableCanonicalStringify(declaration.inputSchema));
   const declarationDigest = tool.declarationDigest;
+  const bindingEvidence = snapshot.bindingDigest ?? "missing";
+  const authEvidence = snapshot.authDigest ?? "missing";
   const revision = sha256(stableCanonicalStringify({
     adapterRevision: MCP_TOOL_CAPABILITY_DISCOVERY_REVISION,
     protocolRevision: MCP_TOOL_PROTOCOL_REVISION,
+    serverBindingProjectionRevision: snapshot.bindingRevision,
+    authorizationContextProjectionRevision: MCP_AUTHORIZATION_CONTEXT_PROJECTION_REVISION,
+    ...(snapshot.authRevision === undefined ? {} : { authorizationContextRevision: snapshot.authRevision }),
     contractRevision: binding.contractRevision,
     serverId: snapshot.serverId,
     selector: tool.selector,
-    bindingDigest: snapshot.bindingDigest ?? binding.bindingDigest,
-    authDigest: snapshot.authDigest ?? binding.bindingDigest,
+    bindingDigest: bindingEvidence,
+    authDigest: authEvidence,
     binding: {
       capabilityId: binding.capabilityId,
       kind: binding.kind,
@@ -938,8 +918,8 @@ function buildCandidate(
       sourceIdentityDigest: binding.sourceIdentityDigest,
       sourceDigest: sha256(stableCanonicalStringify({
         protocolRevision: MCP_TOOL_PROTOCOL_REVISION,
-        bindingDigest: snapshot.bindingDigest ?? binding.bindingDigest,
-        authDigest: snapshot.authDigest ?? binding.bindingDigest,
+        bindingDigest: bindingEvidence,
+        authDigest: authEvidence,
         declarationDigest,
       })),
     },
@@ -957,7 +937,7 @@ function schemaDiagnostic(
   code: "input_schema_invalid" | "output_schema_invalid",
   selector: string,
   capabilityId: string,
-  reason: SchemaValidation["reason"],
+  reason: JsonSchemaSafetyReason | undefined,
 ): McpToolCapabilityDiscoveryDiagnostic {
   const suffix = reason === undefined ? "" : ` (${reason})`;
   return diagnostic(code, selector, capabilityId, `The MCP ${code.startsWith("input") ? "input" : "output"} schema is not admitted${suffix}.`);
@@ -999,6 +979,26 @@ function compareCandidates(left: CapabilityDescriptorCandidate, right: Capabilit
     || compareCodeUnits(left.revision, right.revision);
 }
 
+function appendRejectionStub(stubs: RejectionStub[], stub: RejectionStub): void {
+  if (stubs.length < MAX_CATALOG_ENTRIES) stubs.push(stub);
+}
+
+function catalogEntries(
+  candidates: readonly CapabilityDescriptorCandidate[],
+  rejectionStubs: readonly RejectionStub[],
+): readonly unknown[] {
+  const remaining = Math.max(0, MAX_CATALOG_ENTRIES - candidates.length);
+  const sortedStubs = [...rejectionStubs]
+    .sort(compareRejectionStubs)
+    .slice(0, remaining);
+  return Object.freeze([...candidates, ...sortedStubs]);
+}
+
+function compareRejectionStubs(left: RejectionStub, right: RejectionStub): number {
+  return compareCodeUnits(left.capabilityId ?? "", right.capabilityId ?? "")
+    || compareCodeUnits(left.revision ?? "", right.revision ?? "");
+}
+
 function parseData(value: unknown): CapabilityDataPosture | undefined {
   const record = asPlainRecord(value);
   if (!record || !hasExactKeys(record, ["input", "output", "retention"])) return undefined;
@@ -1028,6 +1028,12 @@ function parseMembers<const T extends readonly string[]>(value: unknown, members
   return members.filter((member) => value.includes(member)) as readonly T[number][];
 }
 
+function parseExactMcpSupportedCallers(value: unknown): readonly ["kiln-runtime"] | undefined {
+  return Array.isArray(value) && value.length === 1 && value[0] === "kiln-runtime"
+    ? ["kiln-runtime"]
+    : undefined;
+}
+
 function parseMember<const T extends readonly string[]>(value: unknown, members: T): T[number] | undefined {
   return isMember(value, members) ? value : undefined;
 }
@@ -1040,10 +1046,11 @@ function parseDigest(value: unknown): Sha256Digest | undefined {
   return typeof value === "string" && DIGEST_PATTERN.test(value) ? value as Sha256Digest : undefined;
 }
 
-function parseOptionalDigest(value: unknown): { readonly value?: Sha256Digest; readonly invalid: boolean } {
-  if (value === undefined) return { invalid: false };
-  const digest = parseDigest(value);
-  return digest === undefined ? { invalid: true } : { value: digest, invalid: false };
+function parseRevision(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 127
+    && !/[\u0000-\u001f\u007f]/u.test(value)
+    ? value
+    : undefined;
 }
 
 function cloneEffect(effect: ActionEffectEnvelope): ActionEffectEnvelope {
@@ -1077,7 +1084,7 @@ function isSecretValue(value: string): boolean {
 
 function isPromptInjection(value: string): boolean {
   return /(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above|system|developer)\s+(?:instructions?|rules?)/iu.test(value)
-    || /(?:reveal| exfiltrat|dump|print)\s+(?:the\s+)?(?:secret|token|credential|system prompt|hidden prompt)/iu.test(value)
+    || /(?:reveal|exfiltrat(?:e|ion|ing)?|dump|print)\s+(?:the\s+)?(?:secret|token|credential|system prompt|hidden prompt)/iu.test(value)
     || /(?:you are now|act as|pretend to be)\s+(?:an?\s+)?(?:system|developer|assistant|admin)/iu.test(value)
     || /<\/?(?:system|developer|assistant|instructions?)\b[^>]*>/iu.test(value)
     || /jailbreak|prompt\s+injection/iu.test(value);
@@ -1095,7 +1102,7 @@ function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!value || typeof value !== "object" || isProxy(value) || Array.isArray(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     return prototype === Object.prototype || prototype === null;
@@ -1112,6 +1119,11 @@ function hasExactKeys(record: Record<string, unknown> | undefined, keys: readonl
   if (!record) return false;
   const actual = Object.keys(record);
   return actual.length === keys.length && keys.every((key) => Object.hasOwn(record, key));
+}
+
+function dataProperty(record: Record<string, unknown>, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  return descriptor && descriptor.enumerable && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function hasAllowedKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -1166,6 +1178,7 @@ function cloneInert(value: unknown, label: string, budget: CloneBudget): unknown
       return current;
     }
     if (typeof current !== "object") throw new TypeError(`${label} contains an executable or symbolic value.`);
+    if (isProxy(current)) throw new TypeError(`${label} contains a proxy object.`);
     if (seen.has(current)) throw new TypeError(`${label} contains a cyclic object graph.`);
     seen.add(current);
     const descriptors = Object.getOwnPropertyDescriptors(current);

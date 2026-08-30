@@ -29,10 +29,10 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Complete the operator-owned MCP binding/auth digest projection into the strict v2 tool adapter; then begin OpenAPI discovery. |
+| 1 | [11 - Capability Fabric](11-capability-fabric.md) | In progress | High | Admit the narrow Roadmap 06 capability-disclosure dependency, then begin Slice 3 deferred search. |
 | 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Normal | Begin Slice 0 when Capability Fabric reaches a blocker or the remote-access need becomes current again. |
 | 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Queued | Normal | Slice 0 is complete; later connectivity slices wait on Roadmap 08 session identity. |
-| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Admit the narrow capability-disclosure dependency when Roadmap 11 Slice 2 completes; broader prompt evaluation remains behind higher-priority Ready work. |
+| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Admit the narrow capability-disclosure dependency for Roadmap 11 Slice 3; broader prompt evaluation remains behind higher-priority Ready work. |
 | 5 | [06.5 - End-To-End Harness Efficiency](06.5-end-to-end-harness-efficiency.md) | Research | Normal | Define the production-path benchmark and attribution contract after higher-priority Ready work; optimization waits on a measured bottleneck. |
 | 6 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract after higher-priority Ready work. |
 | 7 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
@@ -87,8 +87,8 @@ roadmap reorganization.
   then behaviorally equivalent in TUI and native harnesses; GUI components are
   never shared execution authority. Its first implementation vertical is the
   existing verification plane; the narrow Roadmap `06` disclosure work becomes
-  an admitted dependency after Slice 2 rather than a reason to return Connect
-  to the front of the queue.
+  the next bounded dependency after Slice 2 rather than a reason to return
+  Connect to the front of the queue. Slice 3 begins only after that admission.
 - Configuration discoverability, desired intent, effective-value explanation,
   governed mutation, activation planning, and cross-surface settings parity
   are stable architecture. Project-state relocation is tracked by

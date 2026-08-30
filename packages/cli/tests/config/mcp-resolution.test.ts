@@ -87,6 +87,52 @@ describe("Kiln MCP configuration boundary", () => {
     })).toThrow(/admission\.effects\.echo must be a complete valid action-effect envelope/);
   });
 
+  it("admits validated global capability bindings while the project schema rejects them", () => {
+    expect(() => validateGlobalConfig({
+      version: "6",
+      mcp: {
+        servers: {
+          docs: {
+            transport: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+            admission: {
+              state: "admitted",
+              effects: {
+                search: {
+                  operation: "observe",
+                  boundaries: ["network"],
+                  reversibility: "reversible",
+                  dataEgress: "none",
+                  identityUse: "none",
+                  consequences: [],
+                  idempotency: "idempotent",
+                },
+              },
+            },
+            capabilityBindings: { search: capabilityBinding() },
+          },
+        },
+      },
+    })).not.toThrow();
+
+    const root = mkdtempSync(join(tmpdir(), "kiln-mcp-project-binding-"));
+    tempDirectories.push(root);
+    const kilnDir = join(root, ".kiln");
+    mkdirSync(kilnDir);
+    writeFileSync(join(kilnDir, "kiln.yaml"), [
+      'version: "1"',
+      "mcp:",
+      "  servers:",
+      "    docs:",
+      `      capabilityBindings: ${JSON.stringify({ search: capabilityBinding() })}`,
+      "",
+    ].join("\n"));
+
+    expect(() => readKilnYamlFile(join(kilnDir, "kiln.yaml"))).toThrow(
+      /Invalid project config at \/mcp\/servers\/docs\/capabilityBindings: unknown field/u,
+    );
+  });
+
   it("resolves global and project sources without losing provenance", () => {
     const result = resolveKilnMcpConfiguration({
       globalConfig: {
@@ -135,3 +181,25 @@ describe("Kiln MCP configuration boundary", () => {
     }
   });
 });
+
+function capabilityBinding() {
+  return {
+    capabilityId: "mcp.docs.search",
+    kind: "hosted-tool",
+    ownerKind: "service",
+    implementationKind: "provider-tool",
+    contractRevision: "v1",
+    permissions: ["network-access"],
+    approval: "none",
+    network: "restricted",
+    data: { input: "public", output: "public", retention: "ephemeral" },
+    supportedCallers: ["kiln-runtime"],
+    limits: {
+      maxInputBytes: 1_024,
+      maxOutputBytes: 4_096,
+      maxDurationMs: 10_000,
+      maxArtifacts: 0,
+    },
+    requiresStructuredOutput: true,
+  } as const;
+}

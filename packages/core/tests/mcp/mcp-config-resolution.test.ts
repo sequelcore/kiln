@@ -18,6 +18,26 @@ const projectSource = (servers: McpConfigurationSource["servers"]): McpConfigura
   servers,
 });
 
+const searchBinding = {
+  capabilityId: "mcp.docs.search",
+  kind: "hosted-tool",
+  ownerKind: "service",
+  implementationKind: "provider-tool",
+  contractRevision: "v1",
+  permissions: ["network-access"],
+  approval: "none",
+  network: "restricted",
+  data: { input: "public", output: "public", retention: "ephemeral" },
+  supportedCallers: ["kiln-runtime"],
+  limits: {
+    maxInputBytes: 1_024,
+    maxOutputBytes: 4_096,
+    maxDurationMs: 10_000,
+    maxArtifacts: 0,
+  },
+  requiresStructuredOutput: true,
+} as const;
+
 describe("canonical MCP configuration", () => {
   it("adds project-only servers and qualifies capability identity", () => {
     const result = resolveMcpConfiguration({
@@ -87,6 +107,37 @@ describe("canonical MCP configuration", () => {
     expect(result.servers.docs?.provenance.url).toMatchObject({ scope: "global" });
   });
 
+  it("preserves global MCP tool capability bindings and their provenance", () => {
+    const result = resolveMcpConfiguration({
+      global: globalSource({
+        docs: {
+          transport: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+          admission: {
+            state: "admitted",
+            effects: {
+              search: {
+                operation: "observe",
+                boundaries: ["network"],
+                reversibility: "reversible",
+                dataEgress: "none",
+                identityUse: "none",
+                consequences: [],
+                idempotency: "idempotent",
+              },
+            },
+          },
+          capabilityBindings: { search: searchBinding },
+        },
+      }),
+      project: projectSource({}),
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.servers.docs?.capabilityBindings).toEqual({ search: searchBinding });
+    expect(result.servers.docs?.provenance.capabilityBindings).toMatchObject({ scope: "global" });
+  });
+
   it("lets a project narrow admission and override permitted common fields", () => {
     const result = resolveMcpConfiguration({
       global: globalSource({
@@ -114,6 +165,52 @@ describe("canonical MCP configuration", () => {
     expect(result.servers.docs?.provenance.url).toMatchObject({ scope: "global" });
     expect(result.servers.docs?.provenance.requestTimeoutMs).toMatchObject({ scope: "project" });
     expect(result.servers.docs?.provenance.admission).toMatchObject({ scope: "project" });
+  });
+
+  it("retains global capability bindings when a project narrows admission and common fields", () => {
+    const result = resolveMcpConfiguration({
+      global: globalSource({
+        docs: {
+          transport: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+          requestTimeoutMs: 30_000,
+          admission: {
+            state: "admitted",
+            tools: { allow: ["search", "write"] },
+            effects: {
+              search: {
+                operation: "observe",
+                boundaries: ["network"],
+                reversibility: "reversible",
+                dataEgress: "none",
+                identityUse: "none",
+                consequences: [],
+                idempotency: "idempotent",
+              },
+            },
+          },
+          capabilityBindings: { search: searchBinding },
+        },
+      }),
+      project: projectSource({
+        docs: {
+          requestTimeoutMs: 10_000,
+          admission: { state: "admitted", tools: { allow: ["search"] } },
+        },
+      }),
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.servers.docs).toMatchObject({
+      source: "overridden",
+      requestTimeoutMs: 10_000,
+      admission: { state: "admitted", tools: { allow: ["search"] } },
+      capabilityBindings: { search: searchBinding },
+    });
+    expect(result.servers.docs?.provenance.capabilityBindings).toMatchObject({
+      scope: "global",
+      sourcePath: "C:\\Users\\operator\\.kiln\\config.yaml",
+    });
   });
 
   it("disables a global server per project without requiring transport fields", () => {
@@ -199,6 +296,28 @@ describe("canonical MCP configuration", () => {
     ]));
   });
 
+  it("rejects non-string MCP value references before resolving a server", () => {
+    const result = resolveMcpConfiguration({
+      project: projectSource({
+        malformed: {
+          transport: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+          headers: {
+            "X-Test": { value: 42 } as unknown as { readonly value: string },
+          },
+        },
+      }),
+      environment: {},
+    });
+
+    expect(result.servers.malformed).toBeUndefined();
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: "MCP_VALUE_REFERENCE_INVALID",
+      serverId: "malformed",
+      field: "headers.X-Test",
+    }));
+  });
+
   it("rejects a project admission override that widens a global allowlist", () => {
     const result = resolveMcpConfiguration({
       global: globalSource({
@@ -219,6 +338,44 @@ describe("canonical MCP configuration", () => {
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
       code: "MCP_PROJECT_POLICY_WIDENING",
       serverId: "docs",
+    }));
+  });
+
+  it("rejects project capability bindings, including project-only additions", () => {
+    const replacement = resolveMcpConfiguration({
+      global: globalSource({
+        docs: {
+          transport: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+          capabilityBindings: { search: searchBinding },
+        },
+      }),
+      project: projectSource({
+        docs: { capabilityBindings: { search: searchBinding } },
+      }),
+    });
+    expect(replacement.servers.docs).toBeUndefined();
+    expect(replacement.diagnostics).toContainEqual(expect.objectContaining({
+      code: "MCP_PROJECT_POLICY_WIDENING",
+      serverId: "docs",
+      scope: "project",
+      field: "capabilityBindings",
+    }));
+
+    const addition = resolveMcpConfiguration({
+      project: projectSource({
+        docs: {
+          transport: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+          capabilityBindings: { search: searchBinding },
+        },
+      }),
+    });
+    expect(addition.servers.docs).toBeUndefined();
+    expect(addition.diagnostics).toContainEqual(expect.objectContaining({
+      code: "MCP_PROJECT_POLICY_WIDENING",
+      serverId: "docs",
+      scope: "project",
     }));
   });
 

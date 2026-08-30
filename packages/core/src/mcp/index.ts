@@ -3,6 +3,18 @@ import {
   normalizeActionEffectEnvelope,
   type ActionEffectEnvelope,
 } from "../engine/domain/action-effect.js";
+import { isProxy } from "node:util/types";
+import type {
+  CapabilityApprovalPosture,
+  CapabilityCallerId,
+  CapabilityDataPosture,
+  CapabilityImplementationKind,
+  CapabilityKind,
+  CapabilityLimits,
+  CapabilityNetworkPosture,
+  CapabilityOwnerKind,
+  CapabilityPermission,
+} from "../capabilities/capability-catalog.js";
 
 export type McpConfigurationScope = "global" | "project";
 export type McpTransport = "stdio" | "streamable-http";
@@ -33,6 +45,26 @@ export interface McpReconnectPolicy {
   readonly maxDelayMs?: number;
 }
 
+/**
+ * The operator-owned, provider-neutral posture for one MCP tool. The server
+ * identity, selector, and all content-addressed identities are derived only
+ * when Core projects this configuration into the discovery adapter contract.
+ */
+export interface McpToolCapabilityBindingConfiguration {
+  readonly capabilityId: string;
+  readonly kind: CapabilityKind;
+  readonly ownerKind: CapabilityOwnerKind;
+  readonly implementationKind: CapabilityImplementationKind;
+  readonly contractRevision?: string;
+  readonly permissions: readonly CapabilityPermission[];
+  readonly approval: CapabilityApprovalPosture;
+  readonly network: CapabilityNetworkPosture;
+  readonly data: CapabilityDataPosture;
+  readonly supportedCallers: readonly CapabilityCallerId[];
+  readonly limits: CapabilityLimits;
+  readonly requiresStructuredOutput?: boolean;
+}
+
 export interface McpServerConfiguration {
   readonly enabled?: boolean;
   readonly transport?: McpTransport;
@@ -48,6 +80,8 @@ export interface McpServerConfiguration {
   readonly maxCapabilities?: number;
   readonly reconnect?: McpReconnectPolicy;
   readonly admission?: McpServerAdmission;
+  /** Explicit case-sensitive tool bindings owned by global MCP configuration. */
+  readonly capabilityBindings?: Readonly<Record<string, McpToolCapabilityBindingConfiguration>>;
   readonly trust?: "untrusted" | "local" | "verified";
 }
 
@@ -66,6 +100,7 @@ export type McpConfigurationDiagnosticCode =
   | "MCP_CATALOG_LIMIT_INVALID"
   | "MCP_RECONNECT_INVALID"
   | "MCP_EFFECT_POLICY_INVALID"
+  | "MCP_CAPABILITY_BINDING_INVALID"
   | "MCP_VALUE_REFERENCE_INVALID"
   | "MCP_LITERAL_SECRET_FORBIDDEN"
   | "MCP_INCOMPLETE_TRANSPORT_REPLACEMENT"
@@ -115,6 +150,10 @@ export interface ResolveMcpConfigurationInput {
 const SERVER_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const CREDENTIAL_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/;
+const CAPABILITY_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}(?:\.[a-z0-9][a-z0-9_-]{0,62})+$/u;
+const TOOL_NAME_MAX_LENGTH = 127;
+const MAX_CAPABILITY_BINDINGS = 10_000;
+const CONTRACT_REVISION_MAX_LENGTH = 127;
 const STDIO_FIELDS = new Set(["command", "args", "cwd", "env"]);
 const HTTP_FIELDS = new Set(["url", "headers"]);
 const SENSITIVE_HEADER_PATTERN = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)$/i;
@@ -133,8 +172,49 @@ const PROVENANCE_FIELDS = [
   "maxCapabilities",
   "reconnect",
   "admission",
+  "capabilityBindings",
   "trust",
 ] as const;
+const CAPABILITY_KINDS = ["portable-tool", "hosted-tool", "harness-native-tool", "agent-backed"] as const;
+const CAPABILITY_OWNER_KINDS = ["kiln", "provider", "harness", "service", "agent"] as const;
+const CAPABILITY_IMPLEMENTATION_KINDS = ["runtime-tool", "provider-tool", "harness-tool", "agent"] as const;
+const CAPABILITY_PERMISSIONS = [
+  "workspace-read",
+  "workspace-write",
+  "machine-execution",
+  "network-access",
+  "external-state",
+  "credential-use",
+] as const;
+const CAPABILITY_APPROVALS = ["none", "conditional", "required"] as const;
+const CAPABILITY_NETWORK_POSTURES = ["none", "restricted", "open"] as const;
+const CAPABILITY_DATA_CLASSIFICATIONS = ["public", "internal", "sensitive"] as const;
+const CAPABILITY_RETENTIONS = ["none", "ephemeral", "persistent"] as const;
+const CAPABILITY_BINDING_KEYS = [
+  "capabilityId",
+  "kind",
+  "ownerKind",
+  "implementationKind",
+  "contractRevision",
+  "permissions",
+  "approval",
+  "network",
+  "data",
+  "supportedCallers",
+  "limits",
+  "requiresStructuredOutput",
+] as const;
+const CAPABILITY_EFFECT_KEYS = [
+  "operation",
+  "boundaries",
+  "reversibility",
+  "dataEgress",
+  "identityUse",
+  "consequences",
+  "idempotency",
+] as const;
+const CAPABILITY_DATA_KEYS = ["input", "output", "retention"] as const;
+const CAPABILITY_LIMIT_KEYS = ["maxInputBytes", "maxOutputBytes", "maxDurationMs", "maxArtifacts"] as const;
 
 export function formatMcpCapabilitySelector(
   serverId: string,
@@ -187,6 +267,7 @@ export function resolveMcpConfiguration(
       merged.server,
       effectiveValidation,
       merged.server.enabled !== false,
+      { allowInheritedGlobalCapabilityBindings: globalServer !== undefined && projectServer !== undefined },
     );
     diagnostics.push(...effectiveValidation);
     if (effectiveValidation.length > 0) continue;
@@ -268,6 +349,16 @@ function mergeServer(
     return { source: "project", provenance: {}, diagnostics: [], validationSource: fallback };
   }
 
+  const widening = validateProjectNarrowing(globalServer, projectServer);
+  if (widening) {
+    return {
+      source: "overridden",
+      provenance: {},
+      diagnostics: [diagnostic(projectSource, serverId, "MCP_PROJECT_POLICY_WIDENING", widening, "capabilityBindings")],
+      validationSource: projectSource,
+    };
+  }
+
   if (projectServer.enabled === false) {
     return {
       server: { ...globalServer, enabled: false },
@@ -300,26 +391,20 @@ function mergeServer(
     }
     const retainedCommon = commonServerFields(globalServer);
     const server = { ...retainedCommon, ...projectServer };
-    const widening = validateProjectNarrowing(globalServer, projectServer);
     return {
       server,
       source: "overridden",
       provenance: buildProvenance(globalSource, retainedCommon, projectSource, projectServer),
-      diagnostics: widening
-        ? [diagnostic(projectSource, serverId, "MCP_PROJECT_POLICY_WIDENING", widening, "admission")]
-        : [],
+      diagnostics: [],
       validationSource: projectSource,
     };
   }
 
-  const widening = validateProjectNarrowing(globalServer, projectServer);
   return {
     server: { ...globalServer, ...projectServer },
     source: "overridden",
     provenance: buildProvenance(globalSource, globalServer, projectSource, projectServer),
-    diagnostics: widening
-      ? [diagnostic(projectSource, serverId, "MCP_PROJECT_POLICY_WIDENING", widening, "admission")]
-      : [],
+    diagnostics: [],
     validationSource: projectSource,
   };
 }
@@ -332,6 +417,7 @@ function commonServerFields(server: McpServerConfiguration): McpServerConfigurat
     ...(server.maxCapabilities !== undefined ? { maxCapabilities: server.maxCapabilities } : {}),
     ...(server.reconnect !== undefined ? { reconnect: server.reconnect } : {}),
     ...(server.admission !== undefined ? { admission: server.admission } : {}),
+    ...(server.capabilityBindings !== undefined ? { capabilityBindings: server.capabilityBindings } : {}),
     ...(server.trust !== undefined ? { trust: server.trust } : {}),
   };
 }
@@ -340,6 +426,9 @@ function validateProjectNarrowing(
   baseServer: McpServerConfiguration,
   overrideServer: McpServerConfiguration,
 ): string | undefined {
+  if (overrideServer.capabilityBindings !== undefined) {
+    return "Project MCP capability bindings are global-owned and cannot be added or replaced.";
+  }
   if (
     baseServer.maxCapabilities !== undefined
     && overrideServer.maxCapabilities !== undefined
@@ -396,7 +485,19 @@ function validateServerDefinition(
   server: McpServerConfiguration,
   diagnostics: McpConfigurationDiagnostic[],
   requireComplete: boolean,
+  options: { readonly allowInheritedGlobalCapabilityBindings?: boolean } = {},
 ): void {
+  if (source.scope === "project" && server.capabilityBindings !== undefined && !options.allowInheritedGlobalCapabilityBindings) {
+    diagnostics.push(diagnostic(
+      source,
+      serverId,
+      "MCP_PROJECT_POLICY_WIDENING",
+      "Project MCP capability bindings are global-owned and cannot be added or replaced.",
+      "capabilityBindings",
+    ));
+  }
+  validateCapabilityBindings(source, serverId, server.capabilityBindings, diagnostics);
+
   if (server.transport !== undefined && server.transport !== "stdio" && server.transport !== "streamable-http") {
     diagnostics.push(diagnostic(source, serverId, "MCP_TRANSPORT_INVALID", "Unsupported MCP transport.", "transport"));
   }
@@ -462,7 +563,7 @@ function validateServerDefinition(
   }
 
   for (const [toolName, effect] of Object.entries(server.admission?.effects ?? {})) {
-    if (!nonEmpty(toolName) || !normalizeActionEffectEnvelope(effect)) {
+    if (!nonEmpty(toolName) || !isCompleteCapabilityEffect(effect)) {
       diagnostics.push(diagnostic(
         source,
         serverId,
@@ -477,6 +578,133 @@ function validateServerDefinition(
   validateValueMap(source, serverId, "headers", server.headers, diagnostics, true);
 }
 
+function validateCapabilityBindings(
+  source: McpConfigurationSource,
+  serverId: string,
+  values: Readonly<Record<string, McpToolCapabilityBindingConfiguration>> | undefined,
+  diagnostics: McpConfigurationDiagnostic[],
+): void {
+  if (values === undefined) return;
+  if (!isRecord(values)) {
+    diagnostics.push(diagnostic(
+      source,
+      serverId,
+      "MCP_CAPABILITY_BINDING_INVALID",
+      "MCP capability bindings must be a plain object keyed by tool name.",
+      "capabilityBindings",
+    ));
+    return;
+  }
+
+  const entries = Object.entries(values);
+  if (entries.length > MAX_CAPABILITY_BINDINGS) {
+    diagnostics.push(diagnostic(
+      source,
+      serverId,
+      "MCP_CAPABILITY_BINDING_INVALID",
+      `MCP capability bindings cannot contain more than ${MAX_CAPABILITY_BINDINGS} tools.`,
+      "capabilityBindings",
+    ));
+  }
+
+  for (const [toolName, binding] of entries) {
+    const field = `capabilityBindings.${toolName}`;
+    if (!nonEmpty(toolName) || toolName.length > TOOL_NAME_MAX_LENGTH) {
+      diagnostics.push(diagnostic(
+        source,
+        serverId,
+        "MCP_CAPABILITY_BINDING_INVALID",
+        `MCP capability binding tool names must be non-empty and at most ${TOOL_NAME_MAX_LENGTH} characters.`,
+        field,
+      ));
+    }
+    if (!isCompleteCapabilityBinding(binding)) {
+      diagnostics.push(diagnostic(
+        source,
+        serverId,
+        "MCP_CAPABILITY_BINDING_INVALID",
+        "MCP capability bindings require a complete valid posture declaration.",
+        field,
+      ));
+    }
+  }
+}
+
+function isCompleteCapabilityBinding(value: unknown): value is McpToolCapabilityBindingConfiguration {
+  if (!isRecord(value) || !hasExactKeys(value, CAPABILITY_BINDING_KEYS, ["capabilityId", "kind", "ownerKind", "implementationKind", "permissions", "approval", "network", "data", "supportedCallers", "limits"])) {
+    return false;
+  }
+  if (
+    typeof value.capabilityId !== "string"
+    || value.capabilityId.length > CONTRACT_REVISION_MAX_LENGTH
+    || !CAPABILITY_ID_PATTERN.test(value.capabilityId)
+    || !isMember(value.kind, CAPABILITY_KINDS)
+    || !isMember(value.ownerKind, CAPABILITY_OWNER_KINDS)
+    || !isMember(value.implementationKind, CAPABILITY_IMPLEMENTATION_KINDS)
+    || ("contractRevision" in value && (typeof value.contractRevision !== "string" || !nonEmpty(value.contractRevision) || value.contractRevision.length > CONTRACT_REVISION_MAX_LENGTH))
+    || !isUniqueMembers(value.permissions, CAPABILITY_PERMISSIONS, CAPABILITY_PERMISSIONS.length)
+    || !isMember(value.approval, CAPABILITY_APPROVALS)
+    || !isMember(value.network, CAPABILITY_NETWORK_POSTURES)
+    || !isCompleteCapabilityData(value.data)
+    || !isExactMcpSupportedCallers(value.supportedCallers)
+    || !isCompleteCapabilityLimits(value.limits)
+    || ("requiresStructuredOutput" in value && typeof value.requiresStructuredOutput !== "boolean")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isExactMcpSupportedCallers(value: unknown): value is readonly ["kiln-runtime"] {
+  return Array.isArray(value) && value.length === 1 && value[0] === "kiln-runtime";
+}
+
+function isCompleteCapabilityEffect(value: unknown): value is ActionEffectEnvelope {
+  return isRecord(value)
+    && hasExactKeys(value, CAPABILITY_EFFECT_KEYS)
+    && normalizeActionEffectEnvelope(value) !== undefined;
+}
+
+function isCompleteCapabilityData(value: unknown): value is McpToolCapabilityBindingConfiguration["data"] {
+  return isRecord(value)
+    && hasExactKeys(value, CAPABILITY_DATA_KEYS)
+    && isMember(value.input, CAPABILITY_DATA_CLASSIFICATIONS)
+    && isMember(value.output, CAPABILITY_DATA_CLASSIFICATIONS)
+    && isMember(value.retention, CAPABILITY_RETENTIONS);
+}
+
+function isCompleteCapabilityLimits(value: unknown): value is McpToolCapabilityBindingConfiguration["limits"] {
+  return isRecord(value)
+    && hasExactKeys(value, CAPABILITY_LIMIT_KEYS)
+    && isBoundedInteger(value.maxInputBytes, 1, 16 * 1024 * 1024)
+    && isBoundedInteger(value.maxOutputBytes, 1, 64 * 1024 * 1024)
+    && isBoundedInteger(value.maxDurationMs, 1, 24 * 60 * 60 * 1000)
+    && isBoundedInteger(value.maxArtifacts, 0, 256);
+}
+
+function isUniqueMembers<const T extends readonly string[]>(
+  value: unknown,
+  members: T,
+  maximum: number,
+  requireNonEmpty = false,
+): value is readonly T[number][] {
+  if (!Array.isArray(value) || value.length > maximum || (requireNonEmpty && value.length === 0)) return false;
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!isMember(entry, members) || seen.has(entry)) return false;
+    seen.add(entry);
+  }
+  return true;
+}
+
+function isMember<const T extends readonly string[]>(value: unknown, members: T): value is T[number] {
+  return typeof value === "string" && members.includes(value);
+}
+
+function isBoundedInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
+}
+
 function validateValueMap(
   source: McpConfigurationSource,
   serverId: string,
@@ -486,21 +714,33 @@ function validateValueMap(
   rejectSensitiveLiterals: boolean,
 ): void {
   for (const [name, reference] of Object.entries(values ?? {})) {
-    const keys = reference && typeof reference === "object" ? Object.keys(reference) : [];
-    if (keys.length !== 1 || !["value", "fromEnv", "fromCredential"].includes(keys[0] ?? "")) {
+    const referenceRecord = isRecord(reference) ? reference : undefined;
+    const keys = referenceRecord ? Reflect.ownKeys(referenceRecord) : [];
+    if (keys.length !== 1 || typeof keys[0] !== "string"
+      || !["value", "fromEnv", "fromCredential"].includes(keys[0])) {
       diagnostics.push(diagnostic(source, serverId, "MCP_VALUE_REFERENCE_INVALID", `${field}.${name} must declare exactly one value source.`, `${field}.${name}`));
       continue;
     }
-    if ("fromEnv" in reference && !ENVIRONMENT_NAME_PATTERN.test(reference.fromEnv)) {
+    const referenceKey = keys[0];
+    const descriptor = Object.getOwnPropertyDescriptor(referenceRecord, referenceKey);
+    if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
+      diagnostics.push(diagnostic(source, serverId, "MCP_VALUE_REFERENCE_INVALID", `${field}.${name} must contain an inert data value.`, `${field}.${name}`));
+      continue;
+    }
+    const referenceValue = descriptor.value;
+    if (referenceKey === "value" && typeof referenceValue !== "string") {
+      diagnostics.push(diagnostic(source, serverId, "MCP_VALUE_REFERENCE_INVALID", `${field}.${name}.value must be a string.`, `${field}.${name}`));
+    }
+    if (referenceKey === "fromEnv" && (typeof referenceValue !== "string" || !ENVIRONMENT_NAME_PATTERN.test(referenceValue))) {
       diagnostics.push(diagnostic(source, serverId, "MCP_VALUE_REFERENCE_INVALID", `${field}.${name}.fromEnv is invalid.`, `${field}.${name}`));
     }
-    if ("fromCredential" in reference && !CREDENTIAL_ID_PATTERN.test(reference.fromCredential)) {
+    if (referenceKey === "fromCredential" && (typeof referenceValue !== "string" || !CREDENTIAL_ID_PATTERN.test(referenceValue))) {
       diagnostics.push(diagnostic(source, serverId, "MCP_VALUE_REFERENCE_INVALID", `${field}.${name}.fromCredential is invalid.`, `${field}.${name}`));
     }
     const sensitiveLiteral = field === "headers"
       ? SENSITIVE_HEADER_PATTERN.test(name)
       : SENSITIVE_ENVIRONMENT_PATTERN.test(name);
-    if (rejectSensitiveLiterals && sensitiveLiteral && "value" in reference) {
+    if (rejectSensitiveLiterals && sensitiveLiteral && referenceKey === "value") {
       diagnostics.push(diagnostic(source, serverId, "MCP_LITERAL_SECRET_FORBIDDEN", `Sensitive ${field} value ${name} must use an environment or credential reference.`, `${field}.${name}`));
     }
   }
@@ -606,6 +846,26 @@ function assertScope(source: McpConfigurationSource | undefined, expected: McpCo
 
 function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  required: readonly string[] = allowed,
+): boolean {
+  const keys = Reflect.ownKeys(value);
+  return keys.every((key) => typeof key === "string" && allowed.includes(key))
+    && required.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || isProxy(value) || Array.isArray(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
 }
 
 export * from "./client/index.js";

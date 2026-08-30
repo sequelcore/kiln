@@ -69,9 +69,11 @@ the catalog does not maintain a second approval policy. Candidate-specific
 permission and network checks validate descriptor consistency only and do not
 authorize execution.
 
-Rejected content is not retained. Decisions expose only a validated capability
-ID, revision, descriptor digest when safe, and a bounded reason code. A malformed
-or secret-bearing candidate may therefore produce a reason without identity.
+Rejected descriptor content is not retained, but every bounded rejection remains
+visible in the catalog's `decisions` as an `ineligible` status. Decisions expose
+only a validated capability ID, revision, descriptor digest when safe, and a
+bounded reason code. A malformed or secret-bearing candidate may therefore
+produce a visible reason without identity or a descriptor.
 
 Catalog snapshots are deterministic, deeply immutable, content-addressed, and
 branded by Core for their in-process lifetime. Runtime accepts only a branded
@@ -114,6 +116,22 @@ yet. Slice 2 makes the candidates portable and discoverable inside Kiln; the
 deferred-search and portable-execution slices must prove each native harness
 route before those callers can be advertised.
 
+## Harness Compatibility Discovery
+
+The Core harness-compatibility adapter consumes exact, inert v1 compatibility
+records for Codex, Claude, and OpenCode V2. It performs no file, package,
+harness, command, or network discovery. The CLI integration reads the real
+checked-in records and synthetic fixtures, computes caller-supplied record and
+fixture digests, and passes those settled snapshots to Core.
+
+Each declaration produces a deterministic `catalog.decisions` entry with
+`status: "ineligible"`; the adapter produces no capability candidates or
+descriptors. Source-eligible declarations carry `native_route_deferred`
+evidence, while source-ineligible or experimental declarations retain their
+bounded rejection reason. Native search and execution routes remain deferred
+until later slices prove them; compatibility evidence alone never advertises a
+native route.
+
 ## MCP Tool Discovery
 
 The MCP adapter consumes only a settled, plain-data snapshot produced by the
@@ -122,12 +140,57 @@ or execution access. Kiln supports only the exact MCP `2026-07-28` revision:
 clients pin it without negotiation fallback, servers reject legacy traffic,
 and a snapshot without proven modern negotiation is unavailable evidence.
 
-An eligible MCP tool binds an operator-owned server identity, secret-free
-server-binding and authorization-context digests, a complete non-invalidated
-tool-list observation, and current TTL-bounded freshness. Self-reported
-`serverInfo`, tool descriptions, schemas, `_meta`, and annotations are retained
-only as untrusted declaration evidence. They cannot select a capability ID,
-effect, permission, approval, data, network, or ownership posture.
+Productive canonical MCP configuration owns exact, case-sensitive per-tool
+bindings globally. Project configuration can narrow admission but cannot add or
+replace those bindings. The Kiln-owned projection derives a stable,
+secret-free server-binding digest from structural and reference-shaped material
+only. Raw `command`, ordered `args`, `cwd`, and `url` values are not included in
+that digest; only their configured/length markers and environment/header
+reference shapes participate. It then derives separate opaque owner, source,
+and implementation identity digests from that binding digest.
+
+The credential authority captures one process-private keyed authorization
+attestation for a client lifecycle. Its one-time lease binds the raw transport,
+command, ordered arguments, cwd, and URL together with resolved environment and
+header values, freezes the environment view and resolver, and supplies only an
+opaque authorization-context digest and exact revision to the pure adapter.
+Value or key rotation changes that digest without exposing a raw secret, raw
+secret-derived hash, or credential store to the adapter.
+
+The Core MCP client stores that authorization evidence together with the exact
+server-binding digest outside the public snapshot, deeply freezes the settled
+observation, and process-brands it. Productive projection accepts only that
+branded observation and requires both attestations to match the current server
+and authorization lease; copying, serializing, or replaying a snapshot after
+either changes cannot restore eligibility.
+
+An eligible MCP tool binds an operator-owned server identity, both opaque
+projection digests, a complete non-invalidated tool-list observation, and
+current TTL-bounded freshness. The snapshot must carry the exact
+`mcp-authorization-context/v1` authorization revision, and each local binding's
+`bindingDigest` must equal the settled snapshot `bindingDigest`. MCP bindings
+advertise exactly `supportedCallers: ["kiln-runtime"]`; native callers remain
+deferred. Discovery requests a fresh list and list-change notifications
+invalidate the prior catalog. Missing, stale, expired, unknown, or
+contradictory TTL evidence; authorization rotation; binding or protocol
+revision changes; and cross-server snapshot/binding mismatches fail closed.
+Discovery pagination also fails closed on malformed pages, repeated or
+non-progressing cursors, excess pages, oversized pages, or exhaustion of the
+shared tool/resource/prompt capability budget. A partial prefix is never
+stamped complete.
+
+The exact local binding supplies capability identity, kind, postures, limits,
+and opaque identities. `admission.effects` is the sole effect owner: the
+projector copies the complete canonical effect for the case-sensitive tool name
+from that map, and a missing or malformed entry is unavailable. Tool
+declarations, annotations, and any other source cannot override it. Rejected
+or unavailable tools remain visible through bounded ineligible catalog
+decisions and diagnostics, while no rejected descriptor is admitted.
+
+Self-reported `serverInfo`, tool descriptions, schemas, `_meta`, and annotations
+are retained only as untrusted declaration evidence. They cannot select a
+capability ID, effect, permission, approval, data, network, or ownership
+posture.
 
 Provider-neutral capability identity and governance posture come from an
 explicit local binding for the exact case-sensitive tool name. The adapter
@@ -137,6 +200,55 @@ binding, and authorization context in deterministic revision evidence. An
 absent output schema remains absent and visible; it is never replaced by an
 empty schema or inferred from prose. Resources and prompts remain distinct MCP
 contexts and are not synthesized as executable capabilities by this adapter.
+
+## OpenAPI Discovery
+
+The OpenAPI adapter consumes only an inert, already-settled operation snapshot;
+it is not a document parser or execution port. It admits the exact `3.1.x`
+feature line with a canonical `3.1.<patch>` revision, a complete document
+digest, an explicit non-invalidated state, and current bounded freshness. Each
+operation must use the exact `openapi:<source>:<method>:<path>` selector and an
+exact local binding for the same source and selector. The binding supplies the
+capability ID, effect, permissions, approval, network/data posture, limits,
+and explicit owner/source/implementation identities; HTTP method, prose, and
+extensions cannot select policy or identity.
+
+The adapter never resolves `$ref` or related references (including internal
+fragments), parses a document, calls an operation, or accepts an execution
+callback. OpenAPI callbacks and webhooks are observed as event declarations but
+are explicitly ineligible for executable capability candidates. Request and
+response schemas pass the bounded inert JSON Schema 2020-12 safety contract;
+malformed, secret-bearing, instruction-injecting, cyclic, exotic, or oversized
+schemas fail closed. A missing response schema remains visible as unavailable
+evidence rather than being inferred or replaced with an empty schema.
+
+## GraphQL Discovery
+
+The GraphQL adapter consumes only settled root-operation evidence for the exact
+`September2025` specification revision. A complete, non-invalidated, fresh
+snapshot must carry a schema digest. Each operation is qualified by its source,
+root kind and type, field name, exact coordinate, and selector, and carries a
+document digest plus an operation evidence attestation digest. The attestation
+binds the specification and source, schema and operation-document digests,
+root kind/type, field and coordinate, input/output schema digests, deprecation
+evidence, and every custom-scalar resolution and schema digest. Every
+`resolved: true` custom scalar must carry a valid `schemaDigest`; unresolved
+scalars may carry an optional digest. A changed settled field with a reused
+attestation is therefore unavailable.
+
+An exact local binding supplies the capability identity, effect, postures,
+limits, and explicit owner/source/implementation identities. Descriptions,
+directives, and root kind do not choose policy or capability identity.
+Introspection fields are rejected; deprecated fields are ineligible; and
+missing or contradictory deprecation evidence, missing or unresolved custom
+scalar evidence, stale or invalidated snapshots, and attestation mismatches
+fail closed. Input and output schemas use the bounded JSON Schema 2020-12
+safety contract with no reference resolution, secret or instruction-injection
+content, accessors, executable values, proxies, cycles, exotic objects, or unbounded
+data. This boundary performs no network request, introspection call, parser,
+query execution, or schema inference. The legacy `deprecated` and
+`customScalarResolutions` aliases are removed from the contract and rejected;
+no compatibility alias is read or honored.
 
 ## Invariants
 
@@ -154,17 +266,27 @@ contexts and are not synthesized as executable capabilities by this adapter.
 
 - Core catalog: `packages/core/src/capabilities/capability-catalog.ts`
 - Verification discovery: `packages/core/src/capabilities/verification-capability-discovery.ts`
+- Harness compatibility discovery: `packages/core/src/capabilities/harness-compatibility-capability-discovery.ts`
 - MCP tool discovery: `packages/core/src/capabilities/mcp-tool-capability-discovery.ts`
+- MCP configuration and client: `packages/core/src/mcp/index.ts` and `packages/core/src/mcp/client/index.ts`
+- MCP productive projection: `packages/core/src/capabilities/mcp-tool-capability-projection.ts`
+- JSON Schema safety: `packages/core/src/capabilities/capability-json-schema-safety.ts`
+- OpenAPI discovery: `packages/core/src/capabilities/openapi-capability-discovery.ts`
+- GraphQL discovery: `packages/core/src/capabilities/graphql-capability-discovery.ts`
+- Canonical MCP CLI discovery and authorization lease: `packages/cli/src/config/canonical-mcp-capability-discovery.ts` and `packages/cli/src/config/mcp-credentials.ts`
 - CLI evidence projection: `packages/cli/src/config/verification/discovery.ts`
 - Public schema: `packages/gateway-contracts/src/capability-catalog.ts`
 - Runtime projection: `packages/runtime/src/capabilities/capability-catalog-projector.ts`
-- Core behavior tests: `packages/core/tests/capabilities/capability-catalog.test.ts`
+- Core focused tests (8 files): `packages/core/tests/capabilities/capability-catalog.test.ts`, `capability-json-schema-safety.test.ts`, `harness-compatibility-capability-discovery.test.ts`, `mcp-tool-capability-discovery.test.ts`, `mcp-tool-capability-projection.test.ts`, `openapi-capability-discovery.test.ts`, `graphql-capability-discovery.test.ts`, and `packages/core/tests/mcp/mcp-config-resolution.test.ts`
 - Public contract tests: `packages/gateway-contracts/tests/capability-catalog.test.ts`
 - Projection tests: `packages/runtime/tests/capabilities/capability-catalog-projector.test.ts`
+- CLI focused tests (4 files): `packages/cli/tests/commands/mcp-config.test.ts`, `packages/cli/tests/config/mcp-credentials.test.ts`, `packages/cli/tests/config/mcp-resolution.test.ts`, and `packages/cli/tests/research/capability-fabric-baseline.test.ts`
 
-The verification discovery delivery is complete. The exact MCP transport
-migration and pure tool-adapter primitive are complete, but Slice 2 still owns
-the productive projection that supplies operator-owned server-binding and
-authorization-context digests to that adapter. OpenAPI and other protocol
-adapters follow that closure. Execution ports, deferred search, persistence,
-and surface presentation remain owned by later slices.
+Slice 2's verification discovery, harness compatibility adapter, exact MCP
+transport migration, productive MCP binding/authorization projection, OpenAPI
+settled-snapshot adapter, and GraphQL settled-operation adapter are
+implementation-complete. Post-fix focused tests, full Core, workspace
+typechecks, and documentation validation pass. Independent Sol review closed
+with no unresolved high or medium findings.
+Execution ports, deferred search, persistence, and surface
+presentation remain owned by later slices.
