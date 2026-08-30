@@ -246,6 +246,7 @@ export function resolveMcpConfiguration(
     ...(input.project ? validateMcpConfigurationSource(input.project) : []),
   ];
   const servers: Record<string, ResolvedMcpServer> = {};
+  const environment = input.environment ?? {};
   const serverIds = new Set([
     ...Object.keys(input.global?.servers ?? {}),
     ...Object.keys(input.project?.servers ?? {}),
@@ -276,7 +277,7 @@ export function resolveMcpConfiguration(
       merged.validationSource,
       serverId,
       merged.server,
-      input.environment ?? process.env,
+      environment,
       input.credentialExists,
     );
     diagnostics.push(...referenceDiagnostics);
@@ -286,7 +287,7 @@ export function resolveMcpConfiguration(
       merged.validationSource,
       serverId,
       merged.server,
-      input.environment ?? process.env,
+      environment,
     );
     diagnostics.push(...expanded.diagnostics);
     if (expanded.diagnostics.length > 0) continue;

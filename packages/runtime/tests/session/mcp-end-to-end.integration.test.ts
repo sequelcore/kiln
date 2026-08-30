@@ -6,13 +6,14 @@ import { createMcpHandler, Server } from "@modelcontextprotocol/server";
 import type { ProviderAdapter } from "@kilnai/core/agents";
 import { textParts, type AuthorityDescriptor, type ResolvedInvocationEffect, type ToolAuthorizer } from "@kilnai/core/engine";
 import { EventBus } from "@kilnai/core/events";
-import { KilnMcpClient, type ResolvedMcpServer } from "@kilnai/core/mcp";
+import type { KilnMcpClient, ResolvedMcpServer } from "@kilnai/core/mcp";
 import type { AuditLog } from "@kilnai/core/security";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { createKilnMcpClient } from "../../src/mcp/kiln-mcp-client.js";
 import { createFixtureClaimConfig, createFixtureToolPermission } from "./runtime-claim-fixture.js";
 
-const stdioFixture = fileURLToPath(new URL("../../../core/tests/mcp/client/fixtures/stdio-server.mjs", import.meta.url));
+const stdioFixture = fileURLToPath(new URL("../mcp/fixtures/stdio-server.mjs", import.meta.url));
 
 function resolvedServer(id: string, transport: ResolvedMcpServer["transport"], connection: Partial<ResolvedMcpServer>): ResolvedMcpServer {
   return {
@@ -97,7 +98,7 @@ async function runModelToolCall(client: KilnMcpClient, selector: string, allowed
 describe("canonical MCP execution end to end", () => {
   it("discovers, authorizes, executes, transcripts, and audits a real stdio tool call", async () => {
     const server = resolvedServer("stdio-fixture", "stdio", { command: process.execPath, args: [stdioFixture] });
-    const client = new KilnMcpClient(server);
+    const client = createKilnMcpClient(server);
     try {
       const evidence = await runModelToolCall(client, "mcp:stdio-fixture:tool:echo", true);
       expect(evidence.result.toolExecutions).toContainEqual(expect.objectContaining({ toolName: "mcp:stdio-fixture:tool:echo", success: true }));
@@ -112,8 +113,41 @@ describe("canonical MCP execution end to end", () => {
     }
   });
 
+  it("cancels a real stdio request and closes malformed or missing transports safely", async () => {
+    const cancellable = createKilnMcpClient(resolvedServer("stdio-fixture", "stdio", {
+      command: process.execPath,
+      args: [stdioFixture],
+    }));
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+    try {
+      await expect(
+        cancellable.callTool("mcp:stdio-fixture:tool:wait", {}, { signal: controller.signal }),
+      ).rejects.toMatchObject({ code: "MCP_REQUEST_FAILED" });
+    } finally {
+      await cancellable.disconnect();
+    }
+
+    const malformed = createKilnMcpClient(resolvedServer("malformed", "stdio", {
+      command: process.execPath,
+      args: [stdioFixture, "--malformed"],
+    }));
+    try {
+      await expect(malformed.connect()).rejects.toMatchObject({ code: "MCP_STARTUP_TIMEOUT" });
+    } finally {
+      await malformed.disconnect();
+    }
+
+    const missingCommand = "C:\\definitely-missing\\secret-server.exe";
+    const missing = createKilnMcpClient(resolvedServer("missing", "stdio", { command: missingCommand }));
+    const failure = await missing.connect().catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "MCP_CONNECTION_FAILED" });
+    expect((failure as Error).message).not.toContain(missingCommand);
+    await missing.disconnect();
+  });
+
   it("blocks a denied stdio tool before the MCP client performs external execution", async () => {
-    const client = new KilnMcpClient(resolvedServer("stdio-fixture", "stdio", { command: process.execPath, args: [stdioFixture] }));
+    const client = createKilnMcpClient(resolvedServer("stdio-fixture", "stdio", { command: process.execPath, args: [stdioFixture] }));
     try {
       const execute = vi.spyOn(client, "executeCapability");
       const evidence = await runModelToolCall(client, "mcp:stdio-fixture:tool:echo", false);
@@ -126,6 +160,7 @@ describe("canonical MCP execution end to end", () => {
   });
 
   it("executes the equivalent admitted path over Streamable HTTP", async () => {
+    let observedAuthorization: string | undefined;
     const mcpHandler = createMcpHandler(() => {
       const sdkServer = new Server(
         { name: "http-e2e", version: "1.0.0" },
@@ -141,6 +176,7 @@ describe("canonical MCP execution end to end", () => {
       return sdkServer;
     }, { legacy: "reject" });
     const httpServer = createServer(async (request, response) => {
+      observedAuthorization = request.headers.authorization;
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       const headers = new Headers();
@@ -161,16 +197,34 @@ describe("canonical MCP execution end to end", () => {
     await once(httpServer, "listening");
     const address = httpServer.address();
     if (!address || typeof address === "string") throw new Error("HTTP fixture did not bind.");
-    const client = new KilnMcpClient(resolvedServer("http-fixture", "streamable-http", { url: `http://127.0.0.1:${address.port}/mcp` }));
+    const client = createKilnMcpClient(resolvedServer("http-fixture", "streamable-http", {
+      url: `http://127.0.0.1:${address.port}/mcp`,
+      headers: { Authorization: { fromCredential: "fixture-auth" } },
+    }), { credentialResolver: () => "Bearer integration-secret" });
     try {
       const evidence = await runModelToolCall(client, "mcp:http-fixture:tool:echo", true);
       expect(evidence.result.toolExecutions).toContainEqual(expect.objectContaining({ toolName: "mcp:http-fixture:tool:echo", success: true }));
       expect(evidence.append).toHaveBeenCalledWith(expect.objectContaining({ outcome: "success" }));
+      expect(observedAuthorization).toBe("Bearer integration-secret");
     } finally {
       await client.disconnect();
       httpServer.close();
       await once(httpServer, "close");
       await mcpHandler.close();
     }
+  });
+
+  it("redacts unreachable HTTP connection details", async () => {
+    const client = createKilnMcpClient(resolvedServer("unreachable", "streamable-http", {
+      url: "http://127.0.0.1:1/private-path",
+      headers: { Authorization: { value: "Bearer literal-that-must-not-leak" } },
+      startupTimeoutMs: 100,
+    }));
+
+    const failure = await client.connect().catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "MCP_CONNECTION_FAILED" });
+    expect((failure as Error).message).not.toContain("private-path");
+    expect((failure as Error).message).not.toContain("literal-that-must-not-leak");
+    await client.disconnect();
   });
 });

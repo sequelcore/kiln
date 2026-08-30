@@ -10,8 +10,9 @@ import {
   SafetyPipeline,
   MemoryArtifactResourceStore,
   DeterministicDangerousCommandDetector,
-  KilnMcpClient,
+  type KilnMcpClient,
 } from "@kilnai/core";
+import { createKilnMcpClient } from "../mcp/kiln-mcp-client.js";
 import {
   CodexOAuthCredentialPoolService,
   CredentialPoolObservabilityRegistry,
@@ -581,7 +582,7 @@ async function startGatewayWithOwnedResources(configPath: string, options?: Star
         if (!serverConfig) {
           throw new KilnError("CONFIG_INVALID", `App '${loaded.name}' references unavailable canonical MCP server '${serverId}'`);
         }
-        const client = new KilnMcpClient(serverConfig, {
+        const client = createKilnMcpClient(serverConfig, {
           ...(options?.mcpCredentialResolver ? { credentialResolver: options.mcpCredentialResolver } : {}),
         });
         const capabilities = await discoverMcpCapabilitiesWithConfiguredToolRetry({

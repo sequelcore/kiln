@@ -1,11 +1,8 @@
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type {
   CallToolRequest,
   CallToolResult,
   CacheableRequestOptions,
   CallToolRequestOptions,
-  ConnectOptions,
   GetPromptRequest,
   GetPromptResult,
   ListPromptsRequest,
@@ -18,7 +15,6 @@ import type {
   ReadResourceRequest,
   ReadResourceResult,
   RequestOptions,
-  Transport,
 } from "@modelcontextprotocol/client";
 import type { Capability } from "../../engine/domain/capability.js";
 import type { PromptScanner } from "../../security/prompt-scanner.js";
@@ -69,7 +65,7 @@ export class KilnMcpClientError extends Error {
 export type McpRequestOptions = RequestOptions;
 
 export interface McpSdkClient {
-  connect(transport: Transport, options?: ConnectOptions): Promise<void>;
+  connect(transport: McpTransportHandle, options?: { readonly signal?: AbortSignal; readonly timeout?: number }): Promise<void>;
   close(): Promise<void>;
   listTools(params?: ListToolsRequest["params"], options?: CacheableRequestOptions): Promise<ListToolsResult>;
   listResources(params?: ListResourcesRequest["params"], options?: CacheableRequestOptions): Promise<ListResourcesResult>;
@@ -192,8 +188,8 @@ export interface KilnMcpClientOptions {
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly credentialResolver?: (credentialId: string) => string | undefined;
   readonly promptScanner?: PromptScanner;
-  readonly sdkClient?: McpSdkClient;
-  readonly makeTransport?: (descriptor: McpTransportDescriptor) => McpTransportHandle;
+  readonly sdkClient: McpSdkClient;
+  readonly makeTransport: (descriptor: McpTransportDescriptor) => McpTransportHandle;
   readonly installListChangedHandler?: (handler: () => Promise<void>) => void;
   readonly onDiscoveryChanged?: (snapshot: McpDiscoverySnapshot) => void | Promise<void>;
   /** Optional capability evidence captured for this exact client lifecycle. */
@@ -214,14 +210,14 @@ export class KilnMcpClient {
   private catalogInvalidated = false;
   private catalogInvalidationRevision = 0;
 
-  constructor(server: ResolvedMcpServer, options: KilnMcpClientOptions = {}) {
+  constructor(server: ResolvedMcpServer, options: KilnMcpClientOptions) {
     this.server = server;
     this.serverName = server.id;
     this.options = options;
     this.discoveryAttestation = options.discoveryAttestation === undefined
       ? undefined
       : Object.freeze({ ...options.discoveryAttestation });
-    this.sdk = options.sdkClient ?? this.createSdkClient();
+    this.sdk = options.sdkClient;
     options.installListChangedHandler?.(() => this.handleListChanged());
   }
 
@@ -445,24 +441,9 @@ export class KilnMcpClient {
     throw new KilnMcpClientError("MCP_SELECTOR_INVALID", this.server.id, "MCP capability selector is invalid");
   }
 
-  private createSdkClient(): McpSdkClient {
-    return new Client(
-      { name: this.options.clientName ?? "kiln", version: this.options.clientVersion ?? "3.0.0" },
-      {
-        capabilities: {},
-        versionNegotiation: { mode: { pin: MCP_PROTOCOL_REVISION } },
-        listChanged: {
-          tools: { onChanged: () => void this.handleListChanged() },
-          resources: { onChanged: () => void this.handleListChanged() },
-          prompts: { onChanged: () => void this.handleListChanged() },
-        },
-      },
-    ) as unknown as McpSdkClient;
-  }
-
   private async connectOnce(signal?: AbortSignal): Promise<void> {
     const descriptor = this.transportDescriptor();
-    const transport = (this.options.makeTransport ?? makeSdkTransport)(descriptor);
+    const transport = this.options.makeTransport(descriptor);
     this.transport = transport;
     const timeoutMs = this.server.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
     const timeoutController = new AbortController();
@@ -479,7 +460,7 @@ export class KilnMcpClient {
           ));
         }, timeoutMs);
       });
-      await Promise.race([this.sdk.connect(transport as Transport, { signal: combinedSignal, timeout: timeoutMs }), timeout]);
+      await Promise.race([this.sdk.connect(transport, { signal: combinedSignal, timeout: timeoutMs }), timeout]);
       if (
         this.sdk.getNegotiatedProtocolVersion() !== MCP_PROTOCOL_REVISION ||
         this.sdk.getProtocolEra() !== "modern"
@@ -526,7 +507,7 @@ export class KilnMcpClient {
     return Object.fromEntries(Object.entries(values).map(([name, reference]) => {
       if ("value" in reference) return [name, reference.value];
       const value = "fromEnv" in reference
-        ? (this.options.environment ?? process.env)[reference.fromEnv]
+        ? this.options.environment?.[reference.fromEnv]
         : this.options.credentialResolver?.(reference.fromCredential);
       if (value === undefined) {
         throw new KilnMcpClientError(
@@ -705,33 +686,6 @@ export class McpCapabilityRegistry {
     }
     return client;
   }
-}
-
-function makeSdkTransport(descriptor: McpTransportDescriptor): McpTransportHandle {
-  if (descriptor.kind === "stdio") {
-    const transport = new StdioClientTransport({
-      command: descriptor.command,
-      args: [...descriptor.args],
-      ...(descriptor.cwd ? { cwd: descriptor.cwd } : {}),
-      ...(descriptor.env ? { env: { ...getDefaultEnvironment(), ...descriptor.env } } : {}),
-      stderr: "pipe",
-    });
-    transport.stderr?.on("data", (chunk: unknown) => descriptor.onStderr(String(chunk)));
-    return transport;
-  }
-  const reconnect = descriptor.reconnect;
-  return new StreamableHTTPClientTransport(descriptor.url, {
-    protocolVersion: MCP_PROTOCOL_REVISION,
-    ...(descriptor.headers ? { requestInit: { headers: { ...descriptor.headers } } } : {}),
-    ...(reconnect ? {
-      reconnectionOptions: {
-        maxRetries: reconnect.maxAttempts,
-        initialReconnectionDelay: reconnect.initialDelayMs ?? 1_000,
-        maxReconnectionDelay: reconnect.maxDelayMs ?? 30_000,
-        reconnectionDelayGrowFactor: 1.5,
-      },
-    } : {}),
-  });
 }
 
 async function collectPages<T>(

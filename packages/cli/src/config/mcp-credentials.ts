@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import {
-  KilnMcpClient,
+  type KilnMcpClient,
   type McpDiscoverySnapshotAttestation,
   type McpValueReference,
   type ResolvedMcpServer,
@@ -10,7 +10,7 @@ import {
   MCP_AUTHORIZATION_CONTEXT_PROJECTION_REVISION,
   type McpAuthorizationContextEvidence,
 } from "@kilnai/core/capabilities";
-import { createEncryptedSecretStore } from "@kilnai/runtime";
+import { createEncryptedSecretStore, createKilnMcpClient } from "@kilnai/runtime";
 import { resolveKilnHomePath } from "./global-config/path.js";
 
 export const KILN_MCP_SECRET_KEY_ENV = "KILN_MCP_SECRET_KEY";
@@ -83,7 +83,7 @@ export function createCanonicalMcpClient(
   discoveryAttestation?: McpDiscoverySnapshotAttestation,
 ): KilnMcpClient {
   const resolve = credentialResolver ?? createMcpCredentialAccess(environment, kilnHome).resolve;
-  return new KilnMcpClient(server, {
+  return createKilnMcpClient(server, {
     environment,
     credentialResolver: resolve,
     ...(discoveryAttestation ? { discoveryAttestation } : {}),

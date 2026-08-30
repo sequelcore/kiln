@@ -639,6 +639,8 @@ export {
   readSkillMdIndex,
 } from "./skill/filesystem-skill-registry.js";
 export { inspectSkillPackage } from "./skill/package-health.js";
+export type { RuntimeKilnMcpClientOptions } from "./mcp/kiln-mcp-client.js";
+export { createKilnMcpClient } from "./mcp/kiln-mcp-client.js";
 export type {
   SkillPackageHealth,
   SkillPackageHealthOptions,

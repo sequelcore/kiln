@@ -117,6 +117,7 @@ export function loadResolvedKilnMcpConfiguration(
     globalPath,
     projectConfig: readKilnYamlFile(binding.configPath),
     projectPath: binding.configPath,
+    environment: process.env,
     credentialExists: credentials.exists,
   });
 }
