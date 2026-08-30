@@ -4,6 +4,21 @@ import { basename, join, resolve } from "node:path";
 import { resolveProjectRoot } from "../packages/cli/src/application/project-root-resolver.js";
 import { resolveProjectStateBinding } from "../packages/cli/src/application/project-state-root.js";
 
+const startupProfileArgs = process.argv.slice(2);
+if (startupProfileArgs.includes("--cli") || startupProfileArgs.includes("--cli-startup")) {
+  const { parseCliStartupArgs, runCliStartupMeasurement } = await import("./profile-startup-cli.js");
+  try {
+    const cliOptions = parseCliStartupArgs(startupProfileArgs);
+    if (!cliOptions) throw new Error("CLI startup measurement mode was not selected.");
+    const report = await runCliStartupMeasurement(cliOptions);
+    console.log(JSON.stringify(report, null, 2));
+    process.exit(report.summary.failureCount === 0 ? 0 : 1);
+  } catch (error) {
+    console.error(`CLI startup measurement failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+
 type Surface = "gui" | "tui";
 type GuiMode = "dev" | "prod";
 
