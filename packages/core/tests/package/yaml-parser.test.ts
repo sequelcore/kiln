@@ -1,12 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, it, expect } from "vitest";
 import {
   parseDomainPackageYaml,
   parseSkillPackageYaml,
-  loadDomainPackageYaml,
-  loadSkillPackageYaml,
   PackageYamlError,
 } from "../../src/package/yaml-parser.js";
 import { computeContentHash } from "../../src/package/security.js";
@@ -94,36 +89,5 @@ describe("parseSkillPackageYaml", () => {
 
   it("throws for non-skill type", () => {
     expect(() => parseSkillPackageYaml(VALID_DOMAIN_PACKAGE, "/path")).toThrow(PackageYamlError);
-  });
-});
-
-describe("disk loaders", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "kiln-pkg-"));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("loads domain package from disk", () => {
-    const filePath = join(tmpDir, "domain.yaml");
-    writeFileSync(filePath, VALID_DOMAIN_PACKAGE, "utf-8");
-    const manifest = loadDomainPackageYaml(filePath, tmpDir);
-    expect(manifest.config.name).toBe("python");
-    expect(manifest.installPath).toBe(tmpDir);
-  });
-
-  it("loads skill package from disk", () => {
-    const filePath = join(tmpDir, "skill.yaml");
-    writeFileSync(filePath, VALID_SKILL_PACKAGE, "utf-8");
-    const manifest = loadSkillPackageYaml(filePath, tmpDir);
-    expect(manifest.skill.name).toBe("refactor");
-  });
-
-  it("throws for non-existent file", () => {
-    expect(() => loadDomainPackageYaml(join(tmpDir, "missing.yaml"), tmpDir)).toThrow();
   });
 });

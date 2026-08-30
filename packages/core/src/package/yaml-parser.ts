@@ -1,7 +1,6 @@
 // Package YAML parser: loads and validates package YAML into typed manifests
 
 import { parse } from "yaml";
-import { readFileSync } from "node:fs";
 import { KilnError } from "../engine/errors.js";
 import type { DomainConfig } from "../domain/index.js";
 import type { DomainPackageManifest, SkillPackageManifest, PackageToolsConfig } from "./types.js";
@@ -117,22 +116,4 @@ export function parseSkillPackageYaml(
     contentHash: computeContentHash(content),
     skill,
   };
-}
-
-/** Load a domain package YAML from disk */
-export function loadDomainPackageYaml(
-  filePath: string,
-  installPath: string,
-): DomainPackageManifest {
-  const content = readFileSync(filePath, "utf-8");
-  return parseDomainPackageYaml(content, installPath, filePath);
-}
-
-/** Load a skill package YAML from disk */
-export function loadSkillPackageYaml(
-  filePath: string,
-  installPath: string,
-): SkillPackageManifest {
-  const content = readFileSync(filePath, "utf-8");
-  return parseSkillPackageYaml(content, installPath, filePath);
 }

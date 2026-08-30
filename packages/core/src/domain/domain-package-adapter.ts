@@ -3,7 +3,6 @@
 // Domain YAML does not require type/version/author fields (defaults applied).
 
 import { parse } from "yaml";
-import { readFileSync } from "node:fs";
 import type { DomainConfig } from "./index.js";
 import type { DomainYaml } from "./yaml-schema.js";
 import { validateDomainYaml } from "./yaml-schema.js";
@@ -66,19 +65,4 @@ export function parseDomainPackageYaml(
     skills: yaml.skills ?? [],
     tools,
   };
-}
-
-/** Load domain.yaml from disk into a DomainPackageManifest */
-export function loadDomainPackageYaml(
-  filePath: string,
-  installPath: string,
-): DomainPackageManifest {
-  const content = readFileSync(filePath, "utf-8");
-  return parseDomainPackageYaml(content, installPath, filePath);
-}
-
-/** Verify a file on disk has not been tampered with */
-export function verifyContentHash(filePath: string, expectedHash: string): boolean {
-  const content = readFileSync(filePath, "utf-8");
-  return computeContentHash(content) === expectedHash;
 }

@@ -49,7 +49,5 @@ export { validateDomainYaml } from "./yaml-schema.js";
 // These accept domain YAML without requiring type/version/author fields.
 export {
   parseDomainPackageYaml,
-  loadDomainPackageYaml,
-  verifyContentHash,
 } from "./domain-package-adapter.js";
 export type { DomainPackageManifest } from "./domain-package-adapter.js";

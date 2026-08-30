@@ -1,11 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, it, expect } from "vitest";
 import {
   parseDomainPackageYaml,
-  loadDomainPackageYaml,
-  verifyContentHash,
 } from "../../src/domain/domain-package-adapter.js";
 import {
   computeContentHash,
@@ -113,32 +108,6 @@ describe("parseDomainPackageYaml", () => {
   });
 });
 
-describe("loadDomainPackageYaml", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "kiln-mkt-"));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("loads and parses package YAML from disk", () => {
-    const filePath = join(tmpDir, "domain.yaml");
-    writeFileSync(filePath, VALID_PACKAGE_YAML, "utf-8");
-
-    const manifest = loadDomainPackageYaml(filePath, tmpDir);
-    expect(manifest.config.name).toBe("python");
-    expect(manifest.installPath).toBe(tmpDir);
-    expect(manifest.version).toBe("1.2.0");
-  });
-
-  it("throws for non-existent file", () => {
-    expect(() => loadDomainPackageYaml(join(tmpDir, "missing.yaml"), tmpDir)).toThrow();
-  });
-});
-
 describe("computeContentHash", () => {
   it("returns a 64-character hex string (SHA-256)", () => {
     const hash = computeContentHash("test content");
@@ -151,45 +120,6 @@ describe("computeContentHash", () => {
 
   it("differs for different content", () => {
     expect(computeContentHash("a")).not.toBe(computeContentHash("b"));
-  });
-});
-
-describe("verifyContentHash", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "kiln-hash-"));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("returns true when hash matches file content", () => {
-    const content = "test content";
-    const filePath = join(tmpDir, "test.yaml");
-    writeFileSync(filePath, content, "utf-8");
-
-    const hash = computeContentHash(content);
-    expect(verifyContentHash(filePath, hash)).toBe(true);
-  });
-
-  it("returns false when hash does not match", () => {
-    const filePath = join(tmpDir, "test.yaml");
-    writeFileSync(filePath, "original content", "utf-8");
-
-    const wrongHash = computeContentHash("different content");
-    expect(verifyContentHash(filePath, wrongHash)).toBe(false);
-  });
-
-  it("detects tampering after write", () => {
-    const filePath = join(tmpDir, "test.yaml");
-    writeFileSync(filePath, "original", "utf-8");
-    const hash = computeContentHash("original");
-
-    // Tamper with file
-    writeFileSync(filePath, "tampered", "utf-8");
-    expect(verifyContentHash(filePath, hash)).toBe(false);
   });
 });
 

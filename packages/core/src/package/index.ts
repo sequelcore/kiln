@@ -13,7 +13,6 @@ export { validatePackageYaml } from "./yaml-schema.js";
 export {
   PackageYamlError,
   parseSkillPackageYaml,
-  loadSkillPackageYaml,
 } from "./yaml-parser.js";
 
 export type { SecurityValidationResult } from "./security.js";
