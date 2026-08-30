@@ -78,6 +78,7 @@ const coreMocks = vi.hoisted(() => {
 
 const runtimeMocks = vi.hoisted(() => ({
   createSqliteMemoryRepository: vi.fn((options: unknown) => ({ options })),
+  createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
   DevToolsMcpServer: class MockDevToolsMcpServer {
     constructor(options: unknown) {
       expect(options).toEqual({
@@ -114,7 +115,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();
   return {
     ...actual,
-    createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
     projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
   };
 });

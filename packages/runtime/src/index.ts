@@ -1280,6 +1280,11 @@ export type { WebhookHandlerConfig } from "./trigger/webhook-handler.js";
 export { createWebhookHandler, validateWebhookSignature } from "./trigger/webhook-handler.js";
 // Utils
 export { verifyHmacSha256 } from "./utils/hmac.js";
+export { SpawnCommandProcessRunner } from "./tools/spawn-command-process-runner.js";
+export {
+  createDefaultBuiltinToolSurface,
+  createSessionBuiltinToolOptions,
+} from "./tools/default-builtin-tool-surface.js";
 export type { NativeFetchImplementation, NativeWebFetchClientOptions } from "./web/native-web-fetch-client.js";
 export { createNativeWebFetchClient } from "./web/native-web-fetch-client.js";
 export {

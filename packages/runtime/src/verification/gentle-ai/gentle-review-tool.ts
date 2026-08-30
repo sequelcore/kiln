@@ -6,13 +6,13 @@ import {
   type DevTool,
   getBuiltinEffectEnvelope,
   getSandboxContext,
-  SpawnCommandProcessRunner,
   TOOL_SCHEMAS,
   type ToolInput,
   type ToolResult,
   toErrorResult,
   toSuccessResult,
 } from "@kilnai/core";
+import { SpawnCommandProcessRunner } from "../../tools/spawn-command-process-runner.js";
 import { GentleAiClient } from "./gentle-ai-client.js";
 
 export interface GentleReviewToolOptions {

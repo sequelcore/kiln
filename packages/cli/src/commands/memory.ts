@@ -1,9 +1,7 @@
-import {
-  createDefaultBuiltinToolSurface,
-  type DefaultBuiltinToolRegistryOptions,
-} from "@kilnai/core";
-import type { KilnAppConfig } from "../config.js";
+import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { createDefaultBuiltinToolSurface } from "@kilnai/runtime";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import type { KilnAppConfig } from "../config.js";
 
 const MEMORY_RESOURCE_PREFIX = "kiln://memory/";
 

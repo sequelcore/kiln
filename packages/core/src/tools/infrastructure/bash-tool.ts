@@ -12,11 +12,7 @@ import {
   type ToolInput,
   type ToolResult,
 } from "../domain/tool.js";
-import {
-  SpawnCommandProcessRunner,
-  type CommandProcessHandle,
-  type CommandProcessRunner,
-} from "./command-process.js";
+import type { CommandProcessHandle, CommandProcessRunner } from "./command-process.js";
 import {
   getSandboxContext,
   optionalNumber,
@@ -66,7 +62,7 @@ export class BashTool implements DevTool {
 
   constructor(options: BashToolOptions = {}) {
     this.commandRunner = options.commandRunner;
-    this.processRunner = options.processRunner ?? new SpawnCommandProcessRunner();
+    this.processRunner = options.processRunner ?? unavailableCommandProcessRunner;
     this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
     this.platform = options.platform ?? process.platform;
   }
@@ -224,6 +220,13 @@ export class BashTool implements DevTool {
     }
   }
 }
+
+const unavailableCommandProcessRunner: CommandProcessRunner = {
+  start(_request, sink) {
+    sink.finish({ error: new Error("Command execution requires a Runtime-owned process runner") });
+    return { async stop() {} };
+  },
+};
 
 function formatBashOutput(
   rawOutput: string,

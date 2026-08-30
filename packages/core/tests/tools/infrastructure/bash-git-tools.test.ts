@@ -284,26 +284,6 @@ describe("BashTool", () => {
     }
   });
 
-  it("marks real command timeouts without reporting truncation", async () => {
-    const tool = new BashTool();
-    const result = await tool.execute({
-      name: "bash",
-      input: { command: "sleep 1", timeout: 50 },
-    });
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain("bash command timed out");
-    if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
-    expect(result.metadata.timedOut).toBe(true);
-    expect(result.metadata.status).toBe("timed_out");
-    expect(result.metadata.truncated).toBe(false);
-    expect(result.metadata.signal).toBe("SIGTERM");
-    expect(result.metadata.stdout).toBe("");
-    expect(result.metadata.stderr).toBe("");
-    expect(result.metadata.durationMs).toEqual(expect.any(Number));
-    expect(result.metadata.durationMs).toBeGreaterThanOrEqual(0);
-  }, 10_000);
-
   it("marks max buffer failures as truncated without reporting timeout", async () => {
     const maxBufferOutput = "x".repeat(2 * 1024 * 1024);
     const tool = new BashTool({

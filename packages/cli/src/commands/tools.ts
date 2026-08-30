@@ -1,20 +1,17 @@
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import type { McpServer, Server } from "@modelcontextprotocol/server";
+import { projectToolResourceDescriptor } from "@kilnai/core";
 import {
-  createDefaultBuiltinToolSurface,
-  projectToolResourceDescriptor,
-} from "@kilnai/core";
-import { DevToolsMcpServer } from "@kilnai/runtime";
-import {
-  projectOperatorResourceReadPresentation,
-  projectOperatorResourceReadResult,
   type OperatorResourceProviderReadResult,
   type OperatorResourceReadRequest,
+  projectOperatorResourceReadPresentation,
+  projectOperatorResourceReadResult,
 } from "@kilnai/gateway-contracts";
-import type { KilnAppConfig } from "../config.js";
+import { createDefaultBuiltinToolSurface, DevToolsMcpServer } from "@kilnai/runtime";
+import type { McpServer, Server } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveModelFacingPermissionPolicy } from "../config/model-facing-permission-policy.js";
+import type { KilnAppConfig } from "../config.js";
 
 export interface ToolsCommandFlags {
   readonly mcp?: boolean;

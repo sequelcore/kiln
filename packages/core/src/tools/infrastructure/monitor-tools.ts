@@ -2,10 +2,7 @@ import { monitorToolMetadata, type MonitorStatus } from "../domain/tool-result-m
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 import { parseOutputVerbosity } from "./output-verbosity.js";
-import {
-  SpawnCommandProcessRunner,
-  type CommandProcessRunner,
-} from "./command-process.js";
+import type { CommandProcessRunner } from "./command-process.js";
 import {
   getSandboxContext,
   optionalNumber,
@@ -113,7 +110,7 @@ export class MonitorRegistry {
   private nextId = 1;
 
   constructor(options: MonitorRegistryOptions = {}) {
-    this.commandRunner = options.commandRunner ?? new SpawnMonitorCommandRunner(new SpawnCommandProcessRunner());
+    this.commandRunner = options.commandRunner ?? unavailableMonitorCommandRunner;
     this.now = options.now ?? Date.now;
     this.resourceNotifications = options.resourceNotifications;
   }
@@ -454,7 +451,7 @@ export class MonitorListTool implements DevTool {
   }
 }
 
-class SpawnMonitorCommandRunner implements MonitorCommandRunner {
+export class SpawnMonitorCommandRunner implements MonitorCommandRunner {
   constructor(private readonly processRunner: CommandProcessRunner) {}
 
   start(request: MonitorCommandRequest, sink: MonitorOutputSink): MonitorProcessHandle {
@@ -472,6 +469,13 @@ class SpawnMonitorCommandRunner implements MonitorCommandRunner {
     };
   }
 }
+
+const unavailableMonitorCommandRunner: MonitorCommandRunner = {
+  start(_request, sink) {
+    sink.finish({ error: new Error("Monitor execution requires a Runtime-owned process runner") });
+    return { async stop() {} };
+  },
+};
 
 function parseTimeout(input: ToolInput): { ok: true; value: number } | { ok: false; message: string } {
   const timeout = optionalNumber(input, "timeout");

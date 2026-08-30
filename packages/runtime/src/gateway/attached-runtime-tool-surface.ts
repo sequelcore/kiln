@@ -24,8 +24,6 @@ import type {
 } from "@kilnai/core";
 import type { PlanStateStore, SessionPlan, WorkflowProfile } from "@kilnai/core";
 import {
-  createDefaultBuiltinToolSurface,
-  createSessionBuiltinToolOptions,
   isDirectProviderId,
   projectDevToolCapabilities,
   projectDevToolDefinitions,
@@ -38,6 +36,10 @@ import {
   getBuiltinEffectEnvelope,
   knownModelCommunicationCapabilities,
 } from "@kilnai/core";
+import {
+  createDefaultBuiltinToolSurface,
+  createSessionBuiltinToolOptions,
+} from "../tools/default-builtin-tool-surface.js";
 import type {
   OperatorExecutionMode,
   OperatorTurnRequestedAuthority,

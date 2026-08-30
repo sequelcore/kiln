@@ -15,7 +15,6 @@ import {
   getSandboxContext,
   requireString,
   resolvePath,
-  SpawnCommandProcessRunner,
   STATIC_ANALYSIS_PROFILE,
   staticAnalysisToolMetadata,
   TOOL_SCHEMAS,
@@ -25,6 +24,7 @@ import {
   toSuccessResult,
   validateReadPath,
 } from "@kilnai/core";
+import { SpawnCommandProcessRunner } from "../../tools/spawn-command-process-runner.js";
 import { OXLINT_ISOLATED_CONFIG, OXLINT_ISOLATED_CONFIG_FILE, OxlintAnalyzer } from "./oxlint-analyzer.js";
 
 export const STATIC_ANALYZE_CAPABILITY = "verify.static" as const;

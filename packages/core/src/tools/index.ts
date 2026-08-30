@@ -97,7 +97,6 @@ export type {
   CommandProcessRunner,
   CommandProcessSink,
 } from "./infrastructure/command-process.js";
-export { SpawnCommandProcessRunner } from "./infrastructure/command-process.js";
 export { analyzeTypeScriptQuality, TYPESCRIPT_QUALITY_PARSER_VERSION } from "./infrastructure/verification/quality/typescript-quality-analyzer.js";
 export type {
   BinaryInfo,
@@ -391,6 +390,7 @@ export {
   MonitorListTool,
   MonitorReadTool,
   MonitorRegistry,
+  SpawnMonitorCommandRunner,
   MonitorStartTool,
   MonitorStopTool,
 } from "./infrastructure/monitor-tools.js";

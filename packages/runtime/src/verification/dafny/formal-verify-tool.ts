@@ -40,7 +40,6 @@ import {
   normalizeFormalProofSubjects,
   requireString,
   resolvePath,
-  SpawnCommandProcessRunner,
   TOOL_SCHEMAS,
   type ToolInput,
   type ToolResult,
@@ -48,6 +47,7 @@ import {
   toSuccessResult,
   validateReadPath,
 } from "@kilnai/core";
+import { SpawnCommandProcessRunner } from "../../tools/spawn-command-process-runner.js";
 import { DafnyVerifier } from "./dafny-verifier.js";
 
 /** Capability identity this tool implements. Owned by the Capability Fabric catalog. */
