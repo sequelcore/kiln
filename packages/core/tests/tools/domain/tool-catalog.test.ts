@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { DevTool } from "../../../src/tools/contracts.js";
 import { createDefaultBuiltinTools } from "../../../src/tools/default-tool-surface.js";
 import { ToolCatalogIndex } from "../../../src/tools/domain/tool-catalog.js";
+import type { DevTool } from "../../../src/tools/domain/tool.js";
 
 function verificationTool(name: string): DevTool {
   return {
