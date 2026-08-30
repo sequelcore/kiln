@@ -24,6 +24,12 @@ vi.mock("@kilnai/runtime", () => ({
     inputSchema: { type: "object", properties: {}, required: [] },
     execute: vi.fn(async () => ({ output: "ok", isError: false })),
   })),
+  createGentleReviewTool: vi.fn(() => ({
+    name: "gentle_review",
+    description: "Configured Gentle AI review",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    execute: vi.fn(async () => ({ output: "ok", isError: false })),
+  })),
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
     constructor(readonly options?: unknown) {}
   },
@@ -276,12 +282,9 @@ describe("builtin tool surface config", () => {
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
 
-      expect(options.gentleReview).toMatchObject({
-        executable,
-        expectedVersion: "2.5.0-rc.1",
-        expectedExecutableDigest,
-        repositoryRoot: projectPath,
-      });
+      expect(options.verificationTools).toEqual([
+        expect.objectContaining({ name: "gentle_review" }),
+      ]);
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("gentle_review");
       expect(surface.registry.has("gentle_review")).toBe(true);
       expect(surface.toolNames).not.toContain("gentle_review");

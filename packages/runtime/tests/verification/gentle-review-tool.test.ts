@@ -1,16 +1,33 @@
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import type {
   CommandProcessRequest,
   CommandProcessResult,
   CommandProcessRunner,
   CommandProcessSink,
-} from "../../src/tools/infrastructure/command-process.js";
-import { createGentleReviewTool } from "../../src/tools/infrastructure/verification/gentle-ai/gentle-review-tool.js";
-import { isGentleReviewObservation } from "../../src/verification/inferential/gentle-review-observation.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
+} from "@kilnai/core";
+import { isGentleReviewObservation } from "@kilnai/core";
+import { PathValidator, SandboxPolicy } from "@kilnai/core/sandbox";
+import { afterEach, describe, expect, it } from "vitest";
+import { createGentleReviewTool } from "../../src/verification/gentle-ai/gentle-review-tool.js";
+
+async function makeTempDir(): Promise<string> {
+  return await mkdtemp(join(tmpdir(), "kiln-gentle-review-"));
+}
+
+async function removeTempDir(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: true });
+}
+
+function makeSandbox(path: string) {
+  const policy = new SandboxPolicy({
+    config: { fsPolicy: "read-write", netPolicy: "none", allowedPaths: [path], deniedPaths: [], allowedDomains: [] },
+    projectPath: path,
+  });
+  return { cwd: path, policy, pathValidator: new PathValidator({ policy }) };
+}
 
 const baseTree = "3e21a205dd9b55021aeae87965092623807e455f";
 const candidateTree = "1c3325617279b38743f073302ba190fc421b5a09";

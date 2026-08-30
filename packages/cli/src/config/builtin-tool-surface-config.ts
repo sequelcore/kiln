@@ -7,7 +7,7 @@ import {
   type ToolCatalogConfigurationDiagnostic,
 } from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
-import { createQualityAnalyzeTool } from "@kilnai/runtime";
+import { createGentleReviewTool, createQualityAnalyzeTool } from "@kilnai/runtime";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { resolveProjectStateBinding } from "../application/project-state-root.js";
 import type { KilnAppConfig } from "../config.js";
@@ -250,10 +250,10 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(invocationPolicy ? { invocationAdmission: createConfiguredInvocationAdmission(invocationPolicy) } : {}),
     ...(formalVerification.options === undefined ? {} : { formalVerify: formalVerification.options }),
     ...(staticAnalysis.options === undefined ? {} : { staticAnalyze: staticAnalysis.options }),
-    ...(qualityAnalysis.options === undefined
-      ? {}
-      : { verificationTools: [createQualityAnalyzeTool(qualityAnalysis.options)] }),
-    ...(gentleReview.options === undefined ? {} : { gentleReview: gentleReview.options }),
+    verificationTools: [
+      ...(qualityAnalysis.options === undefined ? [] : [createQualityAnalyzeTool(qualityAnalysis.options)]),
+      ...(gentleReview.options === undefined ? [] : [createGentleReviewTool(gentleReview.options)]),
+    ],
     ...(configuredProducerDiagnostics.length > 0 ? { configuredProducerDiagnostics } : {}),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,

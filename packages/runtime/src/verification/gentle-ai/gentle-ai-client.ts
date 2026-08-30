@@ -1,11 +1,12 @@
 import {
+  type CommandProcessResult,
+  type CommandProcessRunner,
   GENTLE_REVIEW_CAPABILITIES_SCHEMA,
   GENTLE_REVIEW_CONTRACT,
   GENTLE_REVIEW_STATUS_SCHEMA,
   type GentleReviewObservation,
   gentleReviewObservation,
-} from "../../../../verification/inferential/gentle-review-observation.js";
-import type { CommandProcessResult, CommandProcessRunner } from "../../command-process.js";
+} from "@kilnai/core";
 
 const MAX_OUTPUT_CHARACTERS = 2_000_000;
 const MANDATORY_FEATURES = new Set([

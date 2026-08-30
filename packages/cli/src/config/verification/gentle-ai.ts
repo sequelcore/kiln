@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { lstatSync, readFileSync } from "node:fs";
-import type { GentleReviewToolOptions } from "@kilnai/core/tools";
+import type { GentleReviewToolOptions } from "@kilnai/runtime";
 import type { KilnGlobalConfig } from "../global-config.js";
 
 export type GentleAiConfigurationDiagnosticCode =

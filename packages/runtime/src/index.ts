@@ -651,6 +651,10 @@ export type {
 export { DevToolsMcpServer } from "./mcp/dev-tools-server.js";
 export type { QualityAnalyzeToolOptions } from "./verification/quality/quality-analyze-tool.js";
 export { createQualityAnalyzeTool } from "./verification/quality/quality-analyze-tool.js";
+export type { GentleAiClientOptions } from "./verification/gentle-ai/gentle-ai-client.js";
+export { GentleAiClient } from "./verification/gentle-ai/gentle-ai-client.js";
+export type { GentleReviewToolOptions } from "./verification/gentle-ai/gentle-review-tool.js";
+export { createGentleReviewTool } from "./verification/gentle-ai/gentle-review-tool.js";
 export type {
   SkillPackageHealth,
   SkillPackageHealthOptions,

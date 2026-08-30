@@ -1,10 +1,18 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { type DevTool, TOOL_SCHEMAS, type ToolInput, type ToolResult } from "../../../domain/tool.js";
-import { getBuiltinEffectEnvelope } from "../../../domain/tool-effect-envelopes.js";
-import { type CommandProcessRunner, SpawnCommandProcessRunner } from "../../command-process.js";
-import { getSandboxContext, toErrorResult, toSuccessResult } from "../../tool-helpers.js";
+import {
+  type CommandProcessRunner,
+  type DevTool,
+  getBuiltinEffectEnvelope,
+  getSandboxContext,
+  SpawnCommandProcessRunner,
+  TOOL_SCHEMAS,
+  type ToolInput,
+  type ToolResult,
+  toErrorResult,
+  toSuccessResult,
+} from "@kilnai/core";
 import { GentleAiClient } from "./gentle-ai-client.js";
 
 export interface GentleReviewToolOptions {

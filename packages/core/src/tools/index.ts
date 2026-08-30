@@ -88,8 +88,16 @@ export {
   ToolCatalogIndex,
 } from "./domain/tool-catalog.js";
 export { BUILTIN_TOOL_EFFECT_ENVELOPES, getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
-export type { GentleReviewToolOptions } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
-export { createGentleReviewTool } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
+export type {
+  CommandOutputChunk,
+  CommandOutputStream,
+  CommandProcessHandle,
+  CommandProcessRequest,
+  CommandProcessResult,
+  CommandProcessRunner,
+  CommandProcessSink,
+} from "./infrastructure/command-process.js";
+export { SpawnCommandProcessRunner } from "./infrastructure/command-process.js";
 export { analyzeTypeScriptQuality, TYPESCRIPT_QUALITY_PARSER_VERSION } from "./infrastructure/verification/quality/typescript-quality-analyzer.js";
 export type {
   BinaryInfo,

@@ -79,7 +79,6 @@ import {
 } from "./infrastructure/specification-state-store.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
 import { createStaticAnalyzeTool, type StaticAnalyzeToolOptions } from "./infrastructure/verification/oxlint/static-analyze-tool.js";
-import { createGentleReviewTool, type GentleReviewToolOptions } from "./infrastructure/verification/gentle-ai/gentle-review-tool.js";
 import {
   TaskListTool,
   TaskStateStore,
@@ -132,8 +131,6 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly staticAnalyze?: StaticAnalyzeToolOptions;
   /** Runtime-owned verification adapters admitted by executable configuration. */
   readonly verificationTools?: readonly DevTool[];
-  /** Read-only, exact-candidate Gentle AI status observer. */
-  readonly gentleReview?: GentleReviewToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly monitor?: MonitorRegistryOptions;
   readonly monitorRegistry?: MonitorRegistry;
@@ -344,7 +341,6 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     ...(options.formalVerify ? [createFormalVerifyTool(options.formalVerify)] : []),
     ...(options.staticAnalyze ? [createStaticAnalyzeTool(options.staticAnalyze)] : []),
     ...(options.verificationTools ?? []),
-    ...(options.gentleReview ? [createGentleReviewTool(options.gentleReview)] : []),
     ...(options.additionalTools ?? []),
   ];
   catalog = ToolCatalogIndex.fromTools(tools, undefined, {
