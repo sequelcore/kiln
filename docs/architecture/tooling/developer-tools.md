@@ -52,6 +52,15 @@ invocation. Runtime also owns composition of the one canonical builtin
 registry. Moving host execution must not move or duplicate Core policy, weaken
 effect-time enforcement, or create a second schema/catalog/metadata owner.
 
+This boundary also applies outside model-callable tools. Core owns quality-gate
+ordering, required-gate aggregation, timeout requests, result shaping, and the
+verification loop; Runtime implements `QualityGateCommandExecutor` and owns the
+actual process lifecycle. Core owns lexical sandbox policy and denial results;
+Runtime implements `PhysicalPathResolver` and owns physical filesystem
+canonicalization, including symlink and missing-target handling. Filesystem
+read and write validation fails closed when that resolver is absent or fails.
+Command validation remains a pure Core policy operation.
+
 CLI is an outer configuration and presentation adapter. It may resolve
 operator configuration and inject Runtime implementations, but it does not
 execute builtin host effects or define another registry.

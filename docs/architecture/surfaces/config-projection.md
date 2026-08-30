@@ -93,6 +93,16 @@ No GUI, TUI, runtime, SDK, or MCP surface may rebuild these rules independently.
 Those surfaces consume resolved config, route health, gateway contracts, or
 runtime tool options.
 
+## Kiln Home Resolution
+
+Kiln home has one precedence rule: an explicit non-empty path wins; otherwise
+`XDG_CONFIG_HOME/kiln` wins; otherwise the host user home supplies `.kiln`.
+Core owns this pure precedence rule and receives already observed values or a
+lazy fallback reader. Runtime owns environment and operating-system discovery.
+CLI composition consumes the Runtime boundary instead of defining a competing
+resolver. Explicit and XDG paths must not probe the host home directory, and
+none of these paths authorizes repository-local `.kiln` state.
+
 Project-instruction status is read-only and classifies each target as `missing`,
 `project-owned`, or `unreadable`. Any regular file is project-owned; diagnostics
 never grant Kiln write authority over it.

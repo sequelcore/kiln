@@ -143,6 +143,18 @@ integration path, collect:
 Until that evidence exists, Rust remains staged behind the TypeScript-owned
 port and outside runtime/surface packages.
 
+### Decision at 2026-08-30
+
+The completed Runtime-ownership and CLI-startup investigation admits no Rust,
+WASM, N-API, or sidecar implementation. Its measured latency is package loading,
+fresh-process startup, and host I/O; its deterministic long-turn fixture is a
+correctness audit, not a CPU profile. No local deterministic kernel on repository
+HEAD is shown to account for both 25% and 100ms of product p95 after direct
+TypeScript cleanup. The benchmark evidence is internal-decision-ready only for
+the bounded TypeScript CLI composition decision. Rust therefore remains gated
+until a module-specific roadmap or ADR supplies the missing hot-path, parity,
+bridge-cost, fallback, and cross-platform evidence below.
+
 ## Research Basis
 
 - Bun is an all-in-one JavaScript/TypeScript runtime/toolkit with fast startup,
