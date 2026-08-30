@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { DomainRegistry } from "../../src/domain/domain-registry.js";
+import { join } from "node:path";
+import { DomainRegistry, type DomainDiscoveryPort } from "../../src/domain/domain-registry.js";
 import { parseDomainYaml } from "../../src/domain/yaml-parser.js";
 import type { DomainConfig } from "../../src/domain/index.js";
 
@@ -110,6 +111,23 @@ const mockReaddirSync = vi.mocked(readdirSync);
 
 const PRIVATE_DOMAINS_DIR = "/private/project/domains";
 
+const testDiscovery: DomainDiscoveryPort = {
+  exists: (projectPath, relativePath) => existsSync(join(projectPath, relativePath)),
+  readYamlFiles: (directory) => {
+    if (!existsSync(directory)) return [];
+    return readdirSync(directory).flatMap((entry) => {
+      const name = String(entry);
+      if (!name.endsWith(".yaml") && !name.endsWith(".yml")) return [];
+      const filePath = join(directory, name);
+      try {
+        return [{ filePath, content: readFileSync(filePath, "utf8") }];
+      } catch {
+        return [];
+      }
+    });
+  },
+};
+
 // Parse configs from YAML (no filesystem needed)
 const builtinConfigs = [
   parseDomainYaml(PYTHON_YAML),
@@ -123,7 +141,7 @@ describe("DomainRegistry", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    registry = new DomainRegistry({ builtinConfigs });
+    registry = new DomainRegistry({ builtinConfigs, discovery: testDiscovery });
   });
 
   describe("constructor", () => {
@@ -397,6 +415,7 @@ describe("DomainRegistry", () => {
       const customRegistry = new DomainRegistry({
         builtinConfigs,
         domainsDir: "/private/custom/domains",
+        discovery: testDiscovery,
       });
       mockExistsSync.mockReturnValue(true);
       mockReaddirSync.mockReturnValue(["rust.yaml"] as any);

@@ -1,5 +1,4 @@
 import { parse } from "yaml";
-import { readFileSync } from "node:fs";
 import { KilnError } from "../engine/errors.js";
 import type { DomainConfig } from "./index.js";
 import type { DomainYaml } from "./yaml-schema.js";
@@ -47,10 +46,4 @@ export function parseDomainYaml(content: string, filePath?: string): DomainConfi
     multishotExamples: yaml.multishotExamples ?? "",
     phaseExamples: yaml.phaseExamples ?? "",
   };
-}
-
-/** Read a YAML file from disk and parse into DomainConfig */
-export function loadDomainYaml(filePath: string): DomainConfig {
-  const content = readFileSync(filePath, "utf-8");
-  return parseDomainYaml(content, filePath);
 }

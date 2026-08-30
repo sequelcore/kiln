@@ -1,8 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { parseDomainYaml, loadDomainYaml, DomainYamlError } from "../../src/domain/yaml-parser.js";
+import { describe, it, expect } from "vitest";
+import { parseDomainYaml, DomainYamlError } from "../../src/domain/yaml-parser.js";
 
 describe("parseDomainYaml", () => {
   const validYaml = `
@@ -157,63 +154,5 @@ qualityGates:
     expect(config.qualityGates[0]!.required).toBe(true);
     expect(config.qualityGates[1]!.required).toBe(false);
     expect(config.qualityGates[2]!.required).toBe(true);
-  });
-});
-
-describe("loadDomainYaml", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "kiln-test-"));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("loads and parses YAML file from disk", () => {
-    const yaml = `
-name: python
-displayName: Python
-detectPatterns:
-  - pyproject.toml
-toolTags:
-  - python
-qualityGates:
-  - name: lint
-    command: "ruff check ."
-    description: Lint
-`;
-    const filePath = join(tmpDir, "python.yaml");
-    writeFileSync(filePath, yaml, "utf-8");
-
-    const config = loadDomainYaml(filePath);
-    expect(config.name).toBe("python");
-    expect(config.displayName).toBe("Python");
-    expect(config.toolTags.has("python")).toBe(true);
-  });
-
-  it("throws for non-existent file", () => {
-    expect(() => loadDomainYaml(join(tmpDir, "missing.yaml"))).toThrow();
-  });
-
-  it("throws DomainYamlError for invalid file content", () => {
-    const filePath = join(tmpDir, "invalid.yaml");
-    writeFileSync(filePath, "not_valid: [", "utf-8");
-
-    expect(() => loadDomainYaml(filePath)).toThrow();
-  });
-
-  it("includes file path in error message", () => {
-    const filePath = join(tmpDir, "bad.yaml");
-    writeFileSync(filePath, "name: test", "utf-8");
-
-    try {
-      loadDomainYaml(filePath);
-      expect.fail("Should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(DomainYamlError);
-      expect((err as DomainYamlError).message).toContain("bad.yaml");
-    }
   });
 });

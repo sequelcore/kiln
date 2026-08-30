@@ -40,8 +40,8 @@ export function mergeDomainConfigs(configs: readonly DomainConfig[]): DomainConf
 }
 
 export { DomainRegistry } from "./domain-registry.js";
-export type { DomainRegistryOptions } from "./domain-registry.js";
-export { parseDomainYaml, loadDomainYaml, DomainYamlError } from "./yaml-parser.js";
+export type { DomainDiscoveryPort, DomainRegistryOptions, DomainYamlSource } from "./domain-registry.js";
+export { parseDomainYaml, DomainYamlError } from "./yaml-parser.js";
 export type { DomainYaml, QualityGateYaml, YamlValidationError } from "./yaml-schema.js";
 export { validateDomainYaml } from "./yaml-schema.js";
 

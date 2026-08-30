@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import type { WrapperConfig } from "../../src/wrapper/index.js";
@@ -42,6 +43,10 @@ const MOCK_CONFIG: WrapperConfig = {
 const MOCK_APP_CONFIG: KilnAppConfig = {
   createRegistry: () => new DomainRegistry({
     builtinConfigs: [PYTHON_CONFIG],
+    discovery: {
+      exists: (projectPath, relativePath) => existsSync(join(projectPath, relativePath)),
+      readYamlFiles: () => [],
+    },
   }),
   buildSystemPrompt: (opts) => {
     const mem = opts.projectedContext?.blocks?.[0]?.content ?? "No prior memory available.";

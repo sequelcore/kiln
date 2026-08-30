@@ -654,8 +654,8 @@ function parseMcpConfigFlags(rawArgs: readonly string[]): {
 }
 
 if (import.meta.main) {
-  const { DomainRegistry } = await import("@kilnai/core");
+  const { createFilesystemDomainRegistry } = await import("@kilnai/runtime");
   void createCli({
-    createRegistry: () => new DomainRegistry(),
+    createRegistry: () => createFilesystemDomainRegistry(),
   });
 }

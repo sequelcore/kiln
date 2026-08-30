@@ -628,6 +628,8 @@ export {
   readTrustedExecutionSemanticLimitationAcceptance,
   revokeTrustedExecutionSemanticLimitation,
 } from "./security/trusted-execution-limitation-receipts.js";
+export type { FilesystemDomainRegistryOptions } from "./domain/filesystem-domain-registry.js";
+export { createFilesystemDomainRegistry } from "./domain/filesystem-domain-registry.js";
 export type {
   AdmittedTurnContext,
   AdmittedTurnResult,
