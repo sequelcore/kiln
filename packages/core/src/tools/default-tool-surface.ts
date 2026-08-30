@@ -78,7 +78,6 @@ import {
   type SpecificationStateStoreOptions,
 } from "./infrastructure/specification-state-store.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
-import { createStaticAnalyzeTool, type StaticAnalyzeToolOptions } from "./infrastructure/verification/oxlint/static-analyze-tool.js";
 import {
   TaskListTool,
   TaskStateStore,
@@ -127,8 +126,6 @@ export interface DefaultBuiltinToolRegistryOptions {
    * only fail is worse than an absent one.
    */
   readonly formalVerify?: FormalVerifyToolOptions;
-  /** Fixed-profile Oxlint producer. Absent unless explicitly configured. */
-  readonly staticAnalyze?: StaticAnalyzeToolOptions;
   /** Runtime-owned verification adapters admitted by executable configuration. */
   readonly verificationTools?: readonly DevTool[];
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
@@ -339,7 +336,6 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     ...(options.formalVerify ? [createFormalVerifyTool(options.formalVerify)] : []),
-    ...(options.staticAnalyze ? [createStaticAnalyzeTool(options.staticAnalyze)] : []),
     ...(options.verificationTools ?? []),
     ...(options.additionalTools ?? []),
   ];

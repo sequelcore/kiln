@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
 import type {
   CommandProcessRequest,
   CommandProcessResult,
   CommandProcessRunner,
   CommandProcessSink,
-} from "../../src/tools/infrastructure/command-process.js";
-import { OxlintAnalyzer } from "../../src/tools/infrastructure/verification/oxlint/oxlint-analyzer.js";
+} from "@kilnai/core";
+import { describe, expect, it } from "vitest";
+import { OxlintAnalyzer } from "../../src/verification/oxlint/oxlint-analyzer.js";
 
 class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;

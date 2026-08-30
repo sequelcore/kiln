@@ -1,4 +1,4 @@
-import type { CommandProcessResult, CommandProcessRunner } from "../../command-process.js";
+import type { CommandProcessResult, CommandProcessRunner } from "@kilnai/core";
 
 const MAX_OUTPUT_CHARACTERS = 2_000_000;
 const MAX_DIAGNOSTICS = 1_000;

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   CommandProcessRequest,
@@ -9,25 +8,9 @@ import type {
   CommandProcessSink,
 } from "@kilnai/core";
 import { isGentleReviewObservation } from "@kilnai/core";
-import { PathValidator, SandboxPolicy } from "@kilnai/core/sandbox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createGentleReviewTool } from "../../src/verification/gentle-ai/gentle-review-tool.js";
-
-async function makeTempDir(): Promise<string> {
-  return await mkdtemp(join(tmpdir(), "kiln-gentle-review-"));
-}
-
-async function removeTempDir(path: string): Promise<void> {
-  await rm(path, { recursive: true, force: true });
-}
-
-function makeSandbox(path: string) {
-  const policy = new SandboxPolicy({
-    config: { fsPolicy: "read-write", netPolicy: "none", allowedPaths: [path], deniedPaths: [], allowedDomains: [] },
-    projectPath: path,
-  });
-  return { cwd: path, policy, pathValidator: new PathValidator({ policy }) };
-}
+import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
 
 const baseTree = "3e21a205dd9b55021aeae87965092623807e455f";
 const candidateTree = "1c3325617279b38743f073302ba190fc421b5a09";

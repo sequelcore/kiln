@@ -439,8 +439,6 @@ export type {
 } from "./infrastructure/specification-state-store.js";
 export { SpecificationStateStore } from "./infrastructure/specification-state-store.js";
 export { StatTool } from "./infrastructure/stat-tool.js";
-export type { StaticAnalyzeToolOptions } from "./infrastructure/verification/oxlint/static-analyze-tool.js";
-export { createStaticAnalyzeTool, STATIC_ANALYZE_CAPABILITY } from "./infrastructure/verification/oxlint/static-analyze-tool.js";
 export type {
   SessionTask,
   TaskStateSnapshot,

@@ -655,6 +655,17 @@ export type { GentleAiClientOptions } from "./verification/gentle-ai/gentle-ai-c
 export { GentleAiClient } from "./verification/gentle-ai/gentle-ai-client.js";
 export type { GentleReviewToolOptions } from "./verification/gentle-ai/gentle-review-tool.js";
 export { createGentleReviewTool } from "./verification/gentle-ai/gentle-review-tool.js";
+export type { OxlintAnalyzerOptions } from "./verification/oxlint/oxlint-analyzer.js";
+export {
+  OXLINT_ISOLATED_CONFIG,
+  OXLINT_ISOLATED_CONFIG_FILE,
+  OxlintAnalyzer,
+} from "./verification/oxlint/oxlint-analyzer.js";
+export type { StaticAnalyzeToolOptions } from "./verification/oxlint/static-analyze-tool.js";
+export {
+  createStaticAnalyzeTool,
+  STATIC_ANALYZE_CAPABILITY,
+} from "./verification/oxlint/static-analyze-tool.js";
 export type {
   SkillPackageHealth,
   SkillPackageHealthOptions,

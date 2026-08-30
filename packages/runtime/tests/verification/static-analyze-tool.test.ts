@@ -2,32 +2,26 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { TOOL_SCHEMAS } from "../../src/tools/domain/tool.js";
-import { BUILTIN_TOOL_EFFECT_ENVELOPES } from "../../src/tools/domain/tool-effect-envelopes.js";
 import {
+  BUILTIN_TOOL_EFFECT_ENVELOPES,
+  type CommandProcessRequest,
+  type CommandProcessRunner,
+  type CommandProcessSink,
   isStaticAnalysisToolResultMetadata,
   parseStaticAnalysisToolResultMetadata,
-} from "../../src/tools/domain/tool-result-metadata.js";
-import type {
-  CommandProcessRequest,
-  CommandProcessRunner,
-  CommandProcessSink,
-} from "../../src/tools/infrastructure/command-process.js";
-import {
-  OXLINT_ISOLATED_CONFIG,
-  OXLINT_ISOLATED_CONFIG_FILE,
-} from "../../src/tools/infrastructure/verification/oxlint/oxlint-analyzer.js";
-import {
-  createStaticAnalyzeTool,
-  STATIC_ANALYZE_CAPABILITY,
-} from "../../src/tools/infrastructure/verification/oxlint/static-analyze-tool.js";
-import {
   STATIC_ANALYSIS_OBSERVATION_SCHEMA,
   STATIC_ANALYSIS_PROFILE,
   STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST,
-} from "../../src/verification/static/observation.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
+  TOOL_SCHEMAS,
+} from "@kilnai/core";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  createStaticAnalyzeTool,
+  OXLINT_ISOLATED_CONFIG,
+  OXLINT_ISOLATED_CONFIG_FILE,
+  STATIC_ANALYZE_CAPABILITY,
+} from "../../src/index.js";
+import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
 
 class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;

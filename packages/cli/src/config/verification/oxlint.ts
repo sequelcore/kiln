@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { StaticAnalyzeToolOptions } from "@kilnai/core/tools";
+import type { StaticAnalyzeToolOptions } from "@kilnai/runtime";
 import { STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST } from "@kilnai/core/verification";
 import { resolveVendoredToolBinary, type ResolvedVendoredToolBinary } from "@kilnai/tools";
 import type { KilnGlobalConfig } from "../global-config.js";

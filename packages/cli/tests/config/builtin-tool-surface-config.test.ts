@@ -30,6 +30,12 @@ vi.mock("@kilnai/runtime", () => ({
     inputSchema: { type: "object", properties: {}, required: [] },
     execute: vi.fn(async () => ({ output: "ok", isError: false })),
   })),
+  createStaticAnalyzeTool: vi.fn(() => ({
+    name: "static_analyze",
+    description: "Configured static analysis",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    execute: vi.fn(async () => ({ output: "ok", isError: false })),
+  })),
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
     constructor(readonly options?: unknown) {}
   },
@@ -242,10 +248,9 @@ describe("builtin tool surface config", () => {
       const projected = withProgressiveRuntimeToolProjection(options, "execute");
       const surface = createDefaultBuiltinToolSurface(projected);
 
-      expect(options.staticAnalyze).toEqual({
-        executable: "C:/tools/oxlint.exe",
-        analyzerVersion: "1.80.0",
-      });
+      expect(options.verificationTools).toEqual([
+        expect.objectContaining({ name: "static_analyze" }),
+      ]);
       expect(options.formalVerify).toBeUndefined();
       expect(projected.toolProjection?.alwaysOnTools).not.toContain("static_analyze");
       expect(surface.registry.has("static_analyze")).toBe(true);
