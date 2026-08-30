@@ -60,6 +60,7 @@ function defineTestRoutedAdmission(input: {
       },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "destructive",

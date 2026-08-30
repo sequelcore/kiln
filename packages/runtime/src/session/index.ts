@@ -9,6 +9,48 @@ export {
   RuntimeSessionOrchestrator,
 } from "./runtime-session-orchestrator.js";
 export {
+  CAPABILITY_DESCRIBE_TOOL_NAME,
+  CAPABILITY_SEARCH_TOOL_NAME,
+  RUNTIME_CAPABILITY_DESCRIBE_TOOL,
+  RUNTIME_CAPABILITY_DISCOVERY_TOOLS,
+  RUNTIME_CAPABILITY_SEARCH_TOOL,
+  RuntimeCapabilityCompositionFactory,
+  assertRuntimeCapabilityAuthorityCandidateProjection,
+  createRuntimeCapabilityAuthorityCandidateProjection,
+  createRuntimeCapabilityAuthorityAdmissionLink,
+  createRuntimeCapabilityCompositionFactory,
+  linkEffectiveAuthorityAdmissionBundleToRuntimeCapabilityGeneration,
+  projectRuntimeCapabilityDiscoveryTools,
+  readRuntimeCapabilityDescribeExecutionMetadata,
+  runtimeCapabilityToolDefinitionDigest,
+} from "../capabilities/runtime-capability-composition.js";
+export type {
+  RuntimeCapabilityDescribeDecision,
+  RuntimeCapabilityDescribeExecutionMetadata,
+  RuntimeCapabilityDescribeResult,
+  RuntimeCapabilityAuthorityAdmissionBindingInput,
+  RuntimeCapabilityAuthorityCandidateProjection,
+  RuntimeCapabilityAuthorityAdmissionLinkage,
+  RuntimeCapabilityAuthorityCandidate,
+  RuntimeCapabilityAuthorityCandidateRequirements,
+  RuntimeCapabilityCompositionFactoryInput,
+  RuntimeCapabilityCompositionScope,
+  RuntimeCapabilityExecutor,
+  RuntimeCapabilityFreshnessGuard,
+  RuntimeCapabilityGeneration,
+  RuntimeCapabilityMaterializationRecord,
+  RuntimeCapabilityMaterializationRequirements,
+  RuntimeCapabilityMaterializedTool,
+  RuntimeCapabilitySearchExecutionMetadata,
+  RuntimeCapabilitySearchEvidence,
+  RuntimeCapabilitySearchResult,
+  RuntimeCapabilitySearchSelector,
+  RuntimeCapabilitySelectionScope,
+  RuntimeCapabilityTurnBinding,
+  RuntimeCapabilityToolExecutor,
+  RuntimeCapabilityToolResult,
+} from "../capabilities/runtime-capability-composition.js";
+export {
   RuntimeTurnConvergenceObservationCollector,
   defaultRuntimeMonotonicClock,
 } from "./runtime-turn-convergence-observation.js";
@@ -110,7 +152,9 @@ export {
 } from "./effective-turn-authority.js";
 export type { EffectiveTurnAuthorityActionability } from "./effective-turn-authority.js";
 export {
+  EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION,
   defineEffectiveAuthorityAdmissionBundle,
+  deriveAuthorityRouteDigest,
   readExecutionBinding,
   readExecutionConfigurationRevision,
   readExecutionOperatorAdoptionDecision,
@@ -123,6 +167,7 @@ export {
   projectToolPermissionAdmissionFromPerCallConfig,
 } from "./effective-authority-admission-bundle.js";
 export type {
+  CapabilityParticipation,
   EconomicCommitmentReference,
   EffectiveAuthorityAdmissionBundle,
   EffectiveAuthorityAdmissionBundleInput,

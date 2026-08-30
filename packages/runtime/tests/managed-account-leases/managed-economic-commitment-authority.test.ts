@@ -133,6 +133,7 @@ function admissionBundle(): EffectiveAuthorityAdmissionBundle {
       authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "economic-test-session" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
         sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative", toolCount: 0,

@@ -85,6 +85,12 @@ const EXTERNAL_TOOL_FAILURE_DIAGNOSTIC_MAX_CHARS = 500;
 const EXTERNAL_TOOL_FAILURE_FALLBACK_DIAGNOSTIC =
   "External tool failed; result withheld because safety verification could not be completed.";
 
+/** Runtime-owned denial evidence for a tool identity that cannot be trusted. */
+export interface RuntimeSessionToolBlock {
+  readonly reason: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
 function parseCommandShell(value: unknown): CommandShell | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
@@ -476,6 +482,7 @@ export class RuntimeSessionToolExecutor {
     ) => Promise<{ approved: boolean; reason?: string }>,
     private readonly emitError: (sessionId: string, message: string) => void,
     private readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>,
+    private readonly blockedTools?: ReadonlyMap<string, RuntimeSessionToolBlock>,
   ) {}
 
   async executeToolCalls(
@@ -616,6 +623,67 @@ export class RuntimeSessionToolExecutor {
             requiresApproval: false,
             reason: "Tool is outside the tenant/session allowlist",
           });
+          continue;
+        }
+
+        const blockedTool = this.blockedTools?.get(normalizedToolCall.name);
+        if (blockedTool) {
+          const authority: AuthorityDescriptor = {
+            level: 4,
+            allowed: false,
+            requiresApproval: false,
+            reason: blockedTool.reason,
+          };
+          const content = `Authorization denied: ${blockedTool.reason}`;
+          const blockedMetadata = blockedTool.metadata === undefined
+            ? undefined
+            : { ...blockedTool.metadata };
+          this.emitToolAuthorized(
+            session.id,
+            normalizedToolCall.name,
+            authority.level,
+            authority.allowed,
+            authority.reason,
+            CONSERVATIVE_UNKNOWN_ENVELOPE,
+            authority,
+          );
+          emitStarted(blockedMetadata, CONSERVATIVE_UNKNOWN_ENVELOPE, authority);
+          this.emitToolResult(
+            session.id,
+            normalizedToolCall.id,
+            normalizedToolCall.name,
+            0,
+            false,
+            content.slice(0, 200),
+            true,
+            undefined,
+            content,
+            blockedMetadata,
+            undefined,
+            this.recordToolUsage(normalizedToolCall.name),
+            CONSERVATIVE_UNKNOWN_ENVELOPE,
+            authority,
+          );
+          resultParts.push({
+            type: "tool_result",
+            toolUseId: normalizedToolCall.id,
+            content,
+            isError: true,
+          });
+          toolExecutions.push({
+            toolCallId: normalizedToolCall.id,
+            toolName: normalizedToolCall.name,
+            input: normalizedToolCall.input,
+            ...(blockedMetadata ? { metadata: blockedMetadata } : {}),
+            resolvedEffect: CONSERVATIVE_UNKNOWN_ENVELOPE,
+            authority,
+            durationMs: 0,
+            success: false,
+            output: content,
+            resultSummary: content.slice(0, 200),
+          });
+          this.emitError(session.id, content);
+          this.appendAudit(normalizedToolCall.name, 0, "error", authority);
           continue;
         }
 

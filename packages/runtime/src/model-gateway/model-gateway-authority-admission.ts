@@ -68,6 +68,7 @@ export function createModelGatewayAuthorityAdmissionPort(
           authority,
           workGovernance: { status: "not-required" as const },
           operatorAdoption: { status: "not-required" as const },
+          capabilityParticipation: { status: "not-requested" as const },
           tools: {
             allowedToolPermissions: [],
             deniedToolNames: [],

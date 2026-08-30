@@ -52,6 +52,7 @@ function admissionBundle(): EffectiveAuthorityAdmissionBundle {
       authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "dispatch-test-session" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",

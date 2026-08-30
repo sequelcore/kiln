@@ -17,6 +17,7 @@ describe("Kiln core builtin skills", () => {
       "codebase-scouting",
       "implementation-planning",
       "tdd-workflow",
+      "verification-evidence",
       "code-review-findings",
       "clean-architecture-boundary-review",
       "ddd-boundary-review",
@@ -51,6 +52,23 @@ describe("Kiln core builtin skills", () => {
     expect(markdown).toContain("kiln.harnessPortability: agnostic");
     expect(markdown).toContain("kiln.disconnectedExecution: supported");
     expect(markdown).toContain("Do not mutate repository guidance");
+  });
+
+  it("projects verification evidence as a provider-neutral permanent skill", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "verification-evidence");
+
+    expect(skill).toBeDefined();
+    expect(skill?.tools).toEqual(["capability.search", "capability.describe"]);
+    expect(skill?.instructions).toContain("Use only the tool definition Runtime materializes");
+    expect(skill?.instructions).toContain("repository-owned verification commands");
+    expect(skill?.instructions).toMatch(/never execution\s+authority/u);
+    expect(skill?.instructions).not.toMatch(/(?:\.exe|\/bin\/|[A-Za-z]:\\\\)/u);
+    expect(readSkillPortability(skill!)).toEqual({
+      status: "declared",
+      harnessPortability: "agnostic",
+      disconnectedExecution: "supported",
+      requiredCapabilities: [],
+    });
   });
 
   it("classifies every builtin independently from harness-specific syntax", () => {

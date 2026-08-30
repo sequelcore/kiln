@@ -43,6 +43,7 @@ export function managedEconomicAdmissionBundle(input: {
       },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: admittedAuthority,

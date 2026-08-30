@@ -189,6 +189,7 @@ function dispatcher(overrides: {
       sessionRevision: { revisionSetId: "R1", revisions: { skills: "s1" } },
       session: { skillCatalog: { catalogId: "operator", revision: "s1", skillIds: ["research"] }, authorityCeiling: { maximumAuthority: "audited", reason: "test" } },
       turn: {
+        capabilityParticipation: { status: "not-requested" },
         authority: { executionMode: "execute", requestedAuthority: "audited", admittedAuthority: "audited", sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
         workGovernance: { status: "not-required" },
         operatorAdoption: { status: "not-required" },

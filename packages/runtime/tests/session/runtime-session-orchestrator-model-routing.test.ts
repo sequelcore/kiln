@@ -383,6 +383,7 @@ function makeFixtureModelRoundAdmission(
       authorityCeiling: { maximumAuthority: "read_only", reason: "Model routing fixture", subjectId: session.id },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",

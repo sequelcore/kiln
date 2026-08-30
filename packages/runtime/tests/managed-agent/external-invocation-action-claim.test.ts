@@ -70,6 +70,7 @@ function bundle(routeRevision = "r1"): EffectiveAuthorityAdmissionBundle {
       authorityCeiling: { maximumAuthority: "audited", reason: "test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "audited",

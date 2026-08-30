@@ -59,6 +59,7 @@ function admissionBundle(): EffectiveAuthorityAdmissionBundle {
       authorityCeiling: { maximumAuthority: "audited", reason: "test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "audited", admittedAuthority: "audited",
         sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative",

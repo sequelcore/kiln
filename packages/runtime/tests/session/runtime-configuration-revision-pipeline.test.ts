@@ -31,6 +31,7 @@ function makeContext(
       authorityCeiling: { maximumAuthority: "read_only", reason: "Revision pipeline fixture", subjectId: sessionId },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",

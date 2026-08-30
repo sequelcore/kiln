@@ -165,6 +165,7 @@ function directTestAdmission(
       authorityCeiling: { maximumAuthority: "destructive", reason: "direct provider test admission" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority,
       workGovernance: { status: "not-required" },
       operatorAdoption: { status: "not-required" },

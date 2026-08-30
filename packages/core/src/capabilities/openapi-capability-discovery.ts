@@ -3,9 +3,11 @@ import { normalizeActionEffectEnvelope } from "../engine/domain/action-effect.js
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 import { isProxy } from "node:util/types";
 import {
-  buildCapabilityCatalog,
+  buildAggregateCapabilityCatalog,
+  createCapabilityCatalogContribution,
   type CapabilityApprovalPosture,
   type CapabilityCatalogSnapshot,
+  type CapabilityCatalogContribution,
   type CapabilityCallerId,
   type CapabilityDataPosture,
   type CapabilityDescriptorCandidate,
@@ -19,10 +21,12 @@ import {
   type Sha256Digest,
 } from "./capability-catalog.js";
 import {
+  CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST,
+  CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
   DEFAULT_JSON_SCHEMA_SAFETY_LIMITS,
+  normalizeAndDigestCapabilityJsonSchema,
+  type CapabilityJsonSchemaDigestResult,
   type JsonSchemaSafetyReason,
-  type JsonSchemaSafetyResult,
-  validateJsonSchemaSafety,
 } from "./capability-json-schema-safety.js";
 
 /** The only OpenAPI feature line admitted by this adapter. */
@@ -32,9 +36,7 @@ export const OPENAPI_SPEC_FEATURE_LINE = "3.1" as const;
 export const OPENAPI_CAPABILITY_DISCOVERY_REVISION = "openapi-capability-discovery/v1" as const;
 
 /** The digest used when an operation has no settled response schema. */
-export const OPENAPI_OUTPUT_SCHEMA_ABSENT_DIGEST = sha256(
-  `${OPENAPI_CAPABILITY_DISCOVERY_REVISION}/output-schema/absent`,
-);
+export const OPENAPI_OUTPUT_SCHEMA_ABSENT_DIGEST = CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST as Sha256Digest;
 
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const OPENAPI_SPEC_REVISION_PATTERN = /^3\.1\.(?:0|[1-9]\d*)$/u;
@@ -192,6 +194,7 @@ export interface OpenApiCapabilityDiscoveryResult {
   readonly specRevision: string;
   readonly candidates: readonly CapabilityDescriptorCandidate[];
   readonly diagnostics: readonly OpenApiCapabilityDiscoveryDiagnostic[];
+  readonly contribution: CapabilityCatalogContribution;
   readonly catalog: CapabilityCatalogSnapshot;
 }
 
@@ -366,10 +369,15 @@ export function discoverOpenApiCapabilities(
 
   candidates.sort(compareCandidates);
   const frozenCandidates = Object.freeze(candidates);
-  const catalog = buildCapabilityCatalog(
-    catalogEntries(frozenCandidates, rejectionStubs),
-    parsedInput.evaluatedAt,
-  );
+  const contribution = createCapabilityCatalogContribution({
+    sourceId: "openapi",
+    candidates: frozenCandidates,
+    rejections: rejectionStubs.map((stub) => ({
+      ...stub,
+      reason: "malformed-descriptor" as const,
+    })),
+  });
+  const catalog = buildAggregateCapabilityCatalog([contribution], parsedInput.evaluatedAt);
   const sortedDiagnostics = diagnostics
     .map((entry) => deepFreeze(entry))
     .sort(compareDiagnostics);
@@ -378,6 +386,7 @@ export function discoverOpenApiCapabilities(
     specRevision: snapshot.specRevision,
     candidates: frozenCandidates,
     diagnostics: Object.freeze(sortedDiagnostics),
+    contribution,
     catalog,
   });
 }
@@ -857,7 +866,7 @@ function inspectOperation(
   diagnostics: OpenApiCapabilityDiscoveryDiagnostic[],
 ): OperationInspection {
   let unavailable = false;
-  const inputSchema = validateSchema(operation.requestSchema);
+  const inputSchema = validateSchema(operation.requestSchema, "input");
   if (!inputSchema.ok) {
     unavailable = true;
     if (inputSchema.reason === "reference") {
@@ -866,7 +875,9 @@ function inspectOperation(
       diagnostics.push(schemaDiagnostic("input_schema_invalid", operation, binding, inputSchema.reason));
     }
   }
-  const outputSchema = operation.responseSchema === undefined ? undefined : validateSchema(operation.responseSchema);
+  const outputSchema = operation.responseSchema === undefined
+    ? undefined
+    : validateSchema(operation.responseSchema, "output");
   if (outputSchema && !outputSchema.ok) {
     unavailable = true;
     if (outputSchema.reason === "reference") {
@@ -881,8 +892,8 @@ function inspectOperation(
   }
   return {
     unavailable,
-    outputSchemaDigest: outputSchema?.ok && outputSchema.value !== undefined
-      ? sha256(stableStringify(outputSchema.value))
+    outputSchemaDigest: outputSchema?.ok && outputSchema.present
+      ? outputSchema.digest as Sha256Digest
       : OPENAPI_OUTPUT_SCHEMA_ABSENT_DIGEST,
   };
 }
@@ -894,7 +905,7 @@ function buildCandidate(
   unavailable: boolean,
   outputSchemaDigest: Sha256Digest,
 ): CapabilityDescriptorCandidate {
-  const inputSchemaDigest = sha256(stableStringify(operation.requestSchema));
+  const inputSchemaDigest = schemaDigest(operation.requestSchema, "input");
   const revision = sha256(stableStringify({
     adapterRevision: OPENAPI_CAPABILITY_DISCOVERY_REVISION,
     specRevision: snapshot.specRevision,
@@ -965,10 +976,21 @@ function buildCandidate(
   };
 }
 
-function validateSchema(value: unknown): JsonSchemaSafetyResult {
-  return validateJsonSchemaSafety(value, {
+function validateSchema(
+  value: unknown,
+  direction: "input" | "output",
+): CapabilityJsonSchemaDigestResult {
+  return normalizeAndDigestCapabilityJsonSchema(value, direction, {
     referencePolicy: "none",
   });
+}
+
+function schemaDigest(value: unknown, direction: "input" | "output"): Sha256Digest {
+  const result = validateSchema(value, direction);
+  if (!result.ok || !result.present) {
+    return direction === "input" ? CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST as Sha256Digest : OPENAPI_OUTPUT_SCHEMA_ABSENT_DIGEST;
+  }
+  return result.digest as Sha256Digest;
 }
 
 function schemaDiagnostic(
@@ -1123,22 +1145,6 @@ function createRejectionStub(
 
 function appendRejectionStub(stubs: RejectionStub[], stub: RejectionStub): void {
   if (stubs.length < MAX_CATALOG_ENTRIES) stubs.push(stub);
-}
-
-function catalogEntries(
-  candidates: readonly CapabilityDescriptorCandidate[],
-  rejectionStubs: readonly RejectionStub[],
-): readonly unknown[] {
-  const remaining = Math.max(0, MAX_CATALOG_ENTRIES - candidates.length);
-  const sortedStubs = [...rejectionStubs]
-    .sort(compareRejectionStubs)
-    .slice(0, remaining);
-  return Object.freeze([...candidates, ...sortedStubs]);
-}
-
-function compareRejectionStubs(left: RejectionStub, right: RejectionStub): number {
-  return compareCodeUnits(left.capabilityId ?? "", right.capabilityId ?? "")
-    || compareCodeUnits(left.revision ?? "", right.revision ?? "");
 }
 
 function canonicalSelector(sourceId: string, method: string, path: string): string {

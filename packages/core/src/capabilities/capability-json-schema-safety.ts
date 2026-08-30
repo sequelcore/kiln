@@ -1,8 +1,23 @@
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { isProxy } from "node:util/types";
+import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 
 /** The JSON Schema dialect used by capability declarations. */
 export const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema" as const;
+
+/** Revision for the canonical capability JSON-Schema digest contract. */
+export const CAPABILITY_JSON_SCHEMA_DIGEST_REVISION = "kiln.capability-json-schema/v1" as const;
+
+/** A schema digest is content identity, not a provider or adapter identity. */
+export type CapabilityJsonSchemaDigest = `sha256:${string}`;
+
+/** Explicit sentinels for schema absence; neither is the digest of `{}`. */
+export const CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST = sha256ContentIdentity(
+  `${CAPABILITY_JSON_SCHEMA_DIGEST_REVISION}/input/absent`,
+) as CapabilityJsonSchemaDigest;
+export const CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST = sha256ContentIdentity(
+  `${CAPABILITY_JSON_SCHEMA_DIGEST_REVISION}/output/absent`,
+) as CapabilityJsonSchemaDigest;
 
 /** Reference handling posture for an already-settled capability schema. */
 export type JsonSchemaReferencePolicy = "internal-only" | "none";
@@ -52,6 +67,22 @@ export interface JsonSchemaSafetyFailure {
 }
 
 export type JsonSchemaSafetyResult = JsonSchemaSafetySuccess | JsonSchemaSafetyFailure;
+
+export type CapabilityJsonSchemaDirection = "input" | "output";
+
+export type CapabilityJsonSchemaDigestResult =
+  | {
+    readonly ok: true;
+    readonly present: true;
+    readonly value: Readonly<Record<string, unknown>>;
+    readonly digest: CapabilityJsonSchemaDigest;
+  }
+  | {
+    readonly ok: true;
+    readonly present: false;
+    readonly digest: CapabilityJsonSchemaDigest;
+  }
+  | JsonSchemaSafetyFailure;
 
 const JSON_SCHEMA_VALIDATOR = new Ajv2020({
   allErrors: false,
@@ -199,6 +230,45 @@ export function validateJsonSchemaSafety(
     return { ok: false, reason: "malformed" };
   }
   return { ok: true, value: cloned };
+}
+
+/**
+ * Validate, normalize, and digest one capability schema through the shared
+ * safety boundary. `present: false` is the only representation of absence;
+ * an explicitly present `undefined` value is malformed. Descriptions and
+ * source-facing tags are annotations and are excluded from the digest while
+ * remaining accepted by the safety validator.
+ */
+export function normalizeAndDigestCapabilityJsonSchema(
+  value: unknown,
+  direction: CapabilityJsonSchemaDirection,
+  options: JsonSchemaSafetyOptions & { readonly present?: boolean } = {},
+): CapabilityJsonSchemaDigestResult {
+  const present = options.present ?? value !== undefined;
+  if (!present) {
+    return {
+      ok: true,
+      present: false,
+      digest: direction === "input"
+        ? CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST
+        : CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
+    };
+  }
+  const checked = validateJsonSchemaSafety(value, options);
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    present: true,
+    value: checked.value,
+    digest: sha256ContentIdentity(canonicalSchemaStringify(checked.value)) as CapabilityJsonSchemaDigest,
+  };
+}
+
+/** Digest a validated schema value without reintroducing adapter-local rules. */
+export function digestNormalizedCapabilityJsonSchema(
+  value: Readonly<Record<string, unknown>>,
+): CapabilityJsonSchemaDigest {
+  return sha256ContentIdentity(canonicalSchemaStringify(value)) as CapabilityJsonSchemaDigest;
 }
 
 function normalizeOptions(options: JsonSchemaSafetyOptions): NormalizedOptions {
@@ -429,6 +499,34 @@ function stableStringify(value: unknown): string {
   const entries = Object.entries(value)
     .sort(([left], [right]) => compareCodeUnits(left, right));
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+}
+
+/**
+ * Canonical schema serialization used only for schema content identity.
+ * Object keys follow UTF-16 code-unit ordering and descriptive source
+ * annotations do not change the schema digest.
+ */
+type CanonicalSchemaContext = "schema" | "schema-map" | "data";
+
+function canonicalSchemaStringify(value: unknown, context: CanonicalSchemaContext = "schema"): string {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalSchemaStringify(entry, context)).join(",")}]`;
+  if (!isPlainRecord(value)) throw new TypeError("JSON Schema value is not plain data.");
+  const entries = Object.entries(value)
+    .filter(([key]) => context !== "schema" || (key !== "description" && key !== "tags"))
+    .sort(([left], [right]) => compareCodeUnits(left, right));
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalSchemaStringify(entry, canonicalSchemaChildContext(context, key))}`).join(",")}}`;
+}
+
+function canonicalSchemaChildContext(context: CanonicalSchemaContext, key: string): CanonicalSchemaContext {
+  if (context !== "schema") return context === "schema-map" ? "schema" : "data";
+  if (SCHEMA_MAP_KEYS.has(key)) return "schema-map";
+  if (ACTUAL_VALUE_KEYS.has(key)) return "data";
+  if (SCHEMA_VALUE_KEYS.has(key) || SCHEMA_ARRAY_KEYS.has(key)) return "schema";
+  return "data";
 }
 
 function byteLength(value: string): number {

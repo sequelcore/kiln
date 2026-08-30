@@ -32,6 +32,16 @@ import {
 } from "../agents/managed-invocation/phase-recovery.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import {
+  projectRuntimeCapabilityDiscoveryTools,
+  readRuntimeCapabilityDescribeExecutionMetadata,
+  RUNTIME_CAPABILITY_DISCOVERY_TOOLS,
+  runtimeCapabilityToolDefinitionDigest,
+  type RuntimeCapabilityDescribeExecutionMetadata,
+  type RuntimeCapabilityGeneration,
+  type RuntimeCapabilityMaterializedTool,
+  type RuntimeCapabilityTurnBinding,
+} from "../capabilities/runtime-capability-composition.js";
+import {
   admitProgressiveTool,
   readProgressiveToolCatalogSearchMetadata,
   type ProgressiveToolAdmissionDecision,
@@ -54,7 +64,10 @@ import {
   assessRuntimeCompletionObligations,
   formatRuntimeCompletionObligationFailure,
 } from "./runtime-completion-obligations.js";
-import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
+import {
+  RuntimeSessionToolExecutor,
+  type RuntimeSessionToolBlock,
+} from "./runtime-session-orchestrator-tool-executor.js";
 import {
   buildRuntimeTurnSystemPrompt,
   appendRuntimeCommunicationPromptManifest,
@@ -281,6 +294,16 @@ export class RuntimeSessionOrchestrator {
       governedContext,
       perCallConfig?.temporalContext,
     );
+    const capabilityBindingResolution = bindCapabilityGenerationForAdmission(
+      this.deps.capabilityGeneration,
+      perCallConfig?.authorityAdmission,
+    );
+    const capabilityBinding = capabilityBindingResolution.binding;
+    const initialTools = projectRuntimeCapabilityToolsForBinding(
+      this._tools,
+      capabilityBinding,
+      capabilityBindingResolution.failure !== undefined,
+    );
     let routing: RuntimeSessionRoutingResolution;
     try {
       routing = await resolveRuntimeSessionRouting(
@@ -288,7 +311,7 @@ export class RuntimeSessionOrchestrator {
         session,
         userParts,
         systemManifest.finalPrompt,
-        this._tools,
+        initialTools,
         perCallConfig,
         (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
         async (sessionId) => this.admitMultimodalEffect(
@@ -316,6 +339,24 @@ export class RuntimeSessionOrchestrator {
     // the admitted turn signal before any route result is converted into a
     // terminal Runtime response.
     throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
+
+    // Routing merges per-call additions after the initial projection. Apply
+    // the reservation again to that final surface so a caller cannot
+    // reintroduce a discovery shadow through additionalTools.
+    const projectedRoutingTools = projectRuntimeCapabilityToolsForBinding(
+      routing.effectiveTools,
+      capabilityBinding,
+      capabilityBindingResolution.failure !== undefined,
+    );
+    const allowlistedRoutingTools = projectedRoutingTools?.filter((tool) =>
+      readExecutionToolAllowlist(perCallConfig).has(tool.name));
+    if (allowlistedRoutingTools !== routing.effectiveTools) {
+      routing = {
+        ...routing,
+        effectiveTools: allowlistedRoutingTools,
+        hasTools: routing.hasTools && (allowlistedRoutingTools?.length ?? 0) > 0,
+      };
+    }
 
     if (routing.convergencePause) {
       session.addUserMessage(userParts);
@@ -416,6 +457,30 @@ export class RuntimeSessionOrchestrator {
         preLlmEscalation: escalation,
       });
     }
+    const runtimeCapabilityExecutors = capabilityBinding?.createDiscoveryToolExecutors();
+    const effectiveBuiltinTools = mergeRuntimeBuiltinTools(
+      callBuiltinTools,
+      runtimeCapabilityExecutors,
+    );
+    // Keep the merged capability map mutable inside this turn. Discovery
+    // executors are installed before the first provider round; a selected
+    // capability's exact private materialization closure is installed only
+    // after its describe evidence has been validated for the next round.
+    const mutableCapabilityExecutors = effectiveBuiltinTools instanceof Map
+      ? effectiveBuiltinTools
+      : undefined;
+    const callerOwnedBuiltinToolNames = new Set<string>([
+      ...(callBuiltinTools?.keys() ?? []),
+      ...(this.deps.builtinTools?.keys() ?? []),
+    ]);
+    const capabilityToolBlocks = buildRuntimeCapabilityToolBlocks({
+      binding: capabilityBinding,
+      bindingFailure: capabilityBindingResolution.failure,
+      baseTools: routing.effectiveTools,
+      materializableTools: this.deps.materializableTools,
+      callerOwnedBuiltinToolNames,
+    });
+    const projectedRoundCapabilityToolBlocks = materializationBlocksForProjectedRound(capabilityToolBlocks);
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
       this.deps.eventBus,
@@ -428,7 +493,8 @@ export class RuntimeSessionOrchestrator {
               "No approval authority is configured for this capability",
             )),
       (sessionId, message) => this.telemetry.emitError(sessionId, message),
-      callBuiltinTools,
+      effectiveBuiltinTools,
+      capabilityToolBlocks,
     );
     const invocationPromptManifest = appendRuntimeCommunicationPromptManifest(
       reconcileRuntimeInvocationPromptManifest(systemManifest, routing.invocationSystem),
@@ -836,13 +902,14 @@ export class RuntimeSessionOrchestrator {
       const projectedRoundToolCalls = partitionProjectedRoundToolCalls(
         governedWorkToolCalls?.allowed ?? transitionAdmittedToolCalls,
         toolsForRound,
+        projectedRoundCapabilityToolBlocks,
       );
       const executableToolCalls = projectedRoundToolCalls.allowed;
       const blockedTransitionOnlyCalls = transitionOnlyToolCalls && transitionOnlyToolCalls.blocked.length > 0
         ? buildManagedInvocationTransitionOnlyBlockedResults(transitionOnlyToolCalls.blocked, pendingTransitionForRound!)
         : undefined;
       const blockedProjectedRoundCalls = projectedRoundToolCalls.blocked.length > 0
-        ? buildProjectedRoundBlockedResults(projectedRoundToolCalls.blocked)
+        ? buildProjectedRoundBlockedResults(projectedRoundToolCalls.blocked, projectedRoundCapabilityToolBlocks)
         : undefined;
       const blockedGovernedWorkCalls = governedWorkToolCalls && governedWorkToolCalls.blocked.length > 0
         ? buildGovernedWorkMaterializationBlockedResults(governedWorkToolCalls.blocked, governedWorkProgress!)
@@ -943,9 +1010,17 @@ export class RuntimeSessionOrchestrator {
         execution.toolExecutions,
         this.deps.materializableTools,
         readExecutionToolAllowlist(perCallConfig),
+        capabilityBinding,
+        perCallConfig?.authorityAdmission,
+        callerOwnedBuiltinToolNames,
       );
       projectedRoundTools = progressiveAdmission.tools;
       pendingMaterializationDecisions = progressiveAdmission.decisions;
+      if (mutableCapabilityExecutors) {
+        for (const [toolName, executor] of progressiveAdmission.capabilityExecutors) {
+          mutableCapabilityExecutors.set(toolName, executor);
+        }
+      }
       round += 1;
     }
 
@@ -1559,6 +1634,7 @@ function sameStringSet(left: readonly string[], right: ReadonlySet<string>): boo
 function partitionProjectedRoundToolCalls(
   toolCalls: readonly ToolCall[],
   toolsForRound: readonly ToolDefinition[] | undefined,
+  capabilityToolBlocks: ReadonlyMap<string, RuntimeSessionToolBlock> | undefined,
 ): {
   readonly allowed: readonly ToolCall[];
   readonly blocked: readonly ToolCall[];
@@ -1571,7 +1647,9 @@ function partitionProjectedRoundToolCalls(
   const allowed: ToolCall[] = [];
   const blocked: ToolCall[] = [];
   for (const toolCall of toolCalls) {
-    if (projectedToolNames.has(toolCall.name)) {
+    if (capabilityToolBlocks?.has(toolCall.name)) {
+      blocked.push(toolCall);
+    } else if (projectedToolNames.has(toolCall.name)) {
       allowed.push(toolCall);
     } else {
       blocked.push(toolCall);
@@ -1613,13 +1691,17 @@ function buildManagedInvocationTransitionOnlyBlockedResults(
 
 function buildProjectedRoundBlockedResults(
   toolCalls: readonly ToolCall[],
+  capabilityToolBlocks: ReadonlyMap<string, RuntimeSessionToolBlock> | undefined,
 ): {
   readonly resultParts: readonly ContentPart[];
   readonly toolExecutions: readonly ToolExecutionSummary[];
 } {
   return {
     resultParts: toolCalls.map((toolCall) => {
-      const content = formatProjectedRoundBlockedToolMessage(toolCall.name);
+      const capabilityBlock = capabilityToolBlocks?.get(toolCall.name);
+      const content = capabilityBlock
+        ? `Authorization denied: ${capabilityBlock.reason}`
+        : formatProjectedRoundBlockedToolMessage(toolCall.name);
       return {
         type: "tool_result" as const,
         toolUseId: toolCall.id,
@@ -1628,11 +1710,15 @@ function buildProjectedRoundBlockedResults(
       };
     }),
     toolExecutions: toolCalls.map((toolCall) => {
-      const content = formatProjectedRoundBlockedToolMessage(toolCall.name);
+      const capabilityBlock = capabilityToolBlocks?.get(toolCall.name);
+      const content = capabilityBlock
+        ? `Authorization denied: ${capabilityBlock.reason}`
+        : formatProjectedRoundBlockedToolMessage(toolCall.name);
       return {
         toolCallId: toolCall.id,
         toolName: toolCall.name,
         input: toolCall.input,
+        ...(capabilityBlock?.metadata === undefined ? {} : { metadata: { ...capabilityBlock.metadata } }),
         durationMs: 0,
         success: false,
         output: content,
@@ -1751,31 +1837,257 @@ function materializableToolsForEvidence(
   return scoped;
 }
 
+function mergeRuntimeBuiltinTools(
+  callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
+  capabilityExecutors: ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined,
+): ReadonlyMap<string, RuntimeBuiltinToolExecutor> | undefined {
+  if (!capabilityExecutors || capabilityExecutors.size === 0) return callBuiltinTools;
+  const merged = new Map(callBuiltinTools ?? []);
+  // The Runtime capability bridge is canonical for its two names. A caller
+  // cannot replace the bound catalog resolver through a per-call map.
+  for (const [name, executor] of capabilityExecutors) merged.set(name, executor);
+  return merged;
+}
+
+interface RuntimeCapabilityBindingFailure {
+  readonly code: "missing-authority-admission" | "generation-invalidated" | "linkage-invalid";
+  readonly reason: string;
+  readonly generationId?: string;
+  readonly authorityAdmissionId?: string;
+}
+
+interface RuntimeCapabilityBindingResolution {
+  readonly binding?: RuntimeCapabilityTurnBinding;
+  readonly failure?: RuntimeCapabilityBindingFailure;
+}
+
+function bindCapabilityGenerationForAdmission(
+  capabilityGeneration: RuntimeCapabilityGeneration | undefined,
+  authorityAdmission: PerCallToolConfig["authorityAdmission"],
+): RuntimeCapabilityBindingResolution {
+  if (!capabilityGeneration) {
+    return {};
+  }
+  if (!authorityAdmission) {
+    return {
+      failure: {
+        code: "missing-authority-admission",
+        reason: "Capability generation requires an authority admission before discovery execution.",
+        generationId: capabilityGeneration.generationId,
+      },
+    };
+  }
+  try {
+    if (capabilityGeneration.isInvalidated()) {
+      return {
+        failure: {
+          code: "generation-invalidated",
+          reason: "Capability generation is invalidated; discovery execution is denied.",
+          generationId: capabilityGeneration.generationId,
+          authorityAdmissionId: authorityAdmission.admissionId,
+        },
+      };
+    }
+  } catch {
+    return {
+      failure: {
+        code: "generation-invalidated",
+        reason: "Capability generation validity could not be verified; discovery execution is denied.",
+        generationId: capabilityGeneration.generationId,
+        authorityAdmissionId: authorityAdmission.admissionId,
+      },
+    };
+  }
+  try {
+    if (authorityAdmission.turn.capabilityParticipation.status !== "generation-linked") {
+      throw new TypeError("Capability generation requires generation-linked capability participation in the authority admission.");
+    }
+    return {
+      binding: capabilityGeneration.bindToExistingEffectiveAuthorityAdmissionBundle({
+        authorityAdmission,
+      }),
+    };
+  } catch {
+    return {
+      failure: {
+        code: "linkage-invalid",
+        reason: "Capability generation could not be bound to the current authority admission; discovery execution is denied.",
+        generationId: capabilityGeneration.generationId,
+        authorityAdmissionId: authorityAdmission.admissionId,
+      },
+    };
+  }
+}
+
+function withoutRuntimeCapabilityDiscoveryTools(
+  tools: readonly ToolDefinition[] | undefined,
+): readonly ToolDefinition[] | undefined {
+  if (tools === undefined) return undefined;
+  return Object.freeze(tools.filter((tool) =>
+    tool.name !== "capability.search" && tool.name !== "capability.describe"));
+}
+
+function projectRuntimeCapabilityToolsForBinding(
+  tools: readonly ToolDefinition[] | undefined,
+  binding: RuntimeCapabilityTurnBinding | undefined,
+  bindingFailed: boolean,
+): readonly ToolDefinition[] | undefined {
+  if (binding !== undefined) return projectRuntimeCapabilityDiscoveryTools(tools, binding);
+  if (!bindingFailed) return tools;
+  const callerTools = withoutRuntimeCapabilityDiscoveryTools(tools) ?? [];
+  return Object.freeze([...callerTools, ...RUNTIME_CAPABILITY_DISCOVERY_TOOLS]);
+}
+
+function buildRuntimeCapabilityToolBlocks(input: {
+  readonly binding: RuntimeCapabilityTurnBinding | undefined;
+  readonly bindingFailure: RuntimeCapabilityBindingFailure | undefined;
+  readonly baseTools: readonly ToolDefinition[] | undefined;
+  readonly materializableTools: ReadonlyMap<string, ToolDefinition> | undefined;
+  readonly callerOwnedBuiltinToolNames: ReadonlySet<string>;
+}): ReadonlyMap<string, RuntimeSessionToolBlock> | undefined {
+  const blocks = new Map<string, RuntimeSessionToolBlock>();
+  if (input.bindingFailure !== undefined) {
+    const metadata: Readonly<Record<string, unknown>> = {
+      kind: "capability",
+      operation: "binding",
+      decision: "denied",
+      reasonCode: input.bindingFailure.code,
+      ...(input.bindingFailure.generationId === undefined ? {} : { generationId: input.bindingFailure.generationId }),
+      ...(input.bindingFailure.authorityAdmissionId === undefined
+        ? {}
+        : { authorityAdmissionId: input.bindingFailure.authorityAdmissionId }),
+    };
+    const blocked: RuntimeSessionToolBlock = {
+      reason: input.bindingFailure.reason,
+      metadata,
+    };
+    blocks.set("capability.search", blocked);
+    blocks.set("capability.describe", blocked);
+  }
+  if (input.binding === undefined) {
+    return blocks.size > 0 ? blocks : undefined;
+  }
+  for (const candidate of input.binding.authorityCandidates) {
+    const toolName = candidate.toolName;
+    if (toolName === undefined) continue;
+    const baseTool = input.baseTools?.find((tool) => tool.name === toolName);
+    const materializableTool = input.materializableTools?.get(toolName);
+    let selectedTool: ToolDefinition | undefined;
+    try {
+      const described = input.binding.describe({
+        capabilityId: candidate.capabilityId,
+        revision: candidate.revision,
+        descriptorDigest: candidate.descriptorDigest,
+      });
+      selectedTool = described.decision === "selected" ? described.tool : undefined;
+    } catch {
+      selectedTool = undefined;
+    }
+    if (baseTool === undefined && materializableTool === undefined
+      && !input.callerOwnedBuiltinToolNames.has(toolName)) {
+      continue;
+    }
+    const collisionReason = capabilityToolCollisionReason({
+      toolName,
+      selectedTool,
+      baseTool,
+      materializableTool,
+      callerOwnedBuiltinToolNames: input.callerOwnedBuiltinToolNames,
+    });
+    if (collisionReason === undefined) continue;
+    blocks.set(toolName, {
+      reason: collisionReason,
+      metadata: {
+        kind: "capability",
+        operation: "materialize",
+        decision: "denied",
+        reasonCode: "tool-name-collision",
+        capabilityId: candidate.capabilityId,
+        revision: candidate.revision,
+        descriptorDigest: candidate.descriptorDigest,
+        materializedToolName: toolName,
+      },
+    });
+  }
+  return blocks.size > 0 ? blocks : undefined;
+}
+
+function capabilityToolCollisionReason(input: {
+  readonly toolName: string;
+  readonly selectedTool: ToolDefinition | undefined;
+  readonly baseTool: ToolDefinition | undefined;
+  readonly materializableTool: ToolDefinition | undefined;
+  readonly callerOwnedBuiltinToolNames: ReadonlySet<string>;
+}): string | undefined {
+  if (input.callerOwnedBuiltinToolNames.has(input.toolName)) {
+    return `Capability materialization denied: selected tool name "${input.toolName}" collides with a caller-owned builtin executor.`;
+  }
+  if (input.selectedTool === undefined) {
+    return "Capability materialization denied: exact selected ToolDefinition identity could not be established.";
+  }
+  try {
+    const selectedDigest = runtimeCapabilityToolDefinitionDigest(input.selectedTool);
+    if (input.baseTool !== undefined
+      && runtimeCapabilityToolDefinitionDigest(input.baseTool) !== selectedDigest) {
+      return `Capability materialization denied: selected tool name "${input.toolName}" collides with a different base ToolDefinition.`;
+    }
+    if (input.materializableTool !== undefined
+      && runtimeCapabilityToolDefinitionDigest(input.materializableTool) !== selectedDigest) {
+      return `Capability materialization denied: selected tool name "${input.toolName}" collides with a different materializable ToolDefinition.`;
+    }
+  } catch {
+    return "Capability materialization denied: colliding ToolDefinition identity could not be canonicalized.";
+  }
+  return undefined;
+}
+
+function materializationBlocksForProjectedRound(
+  blocks: ReadonlyMap<string, RuntimeSessionToolBlock> | undefined,
+): ReadonlyMap<string, RuntimeSessionToolBlock> | undefined {
+  if (blocks === undefined) return undefined;
+  const materializationBlocks = new Map<string, RuntimeSessionToolBlock>();
+  for (const [toolName, block] of blocks) {
+    if (block.metadata?.operation === "materialize") {
+      materializationBlocks.set(toolName, block);
+    }
+  }
+  return materializationBlocks.size > 0 ? materializationBlocks : undefined;
+}
+
 function admitProgressivelyMaterializedTools(
   tools: readonly ToolDefinition[] | undefined,
   executions: readonly ToolExecutionSummary[],
   materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
   turnToolAllowlist: ReadonlySet<string> | undefined,
+  capabilityBinding: RuntimeCapabilityTurnBinding | undefined,
+  authorityAdmission: PerCallToolConfig["authorityAdmission"],
+  callerOwnedBuiltinToolNames: ReadonlySet<string>,
 ): {
   readonly tools: readonly ToolDefinition[] | undefined;
   readonly decisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
+  readonly capabilityExecutors: readonly (readonly [string, RuntimeBuiltinToolExecutor])[];
 } {
-  if (!tools || !materializableTools || materializableTools.size === 0 || !turnToolAllowlist) {
-    return { tools, decisions: [] };
+  const hasCatalogMaterializations = materializableTools !== undefined && materializableTools.size > 0;
+  const hasCapabilityMaterializations = capabilityBinding !== undefined
+    && capabilityBinding.authorityCandidates.some((candidate) => candidate.toolName !== undefined);
+  if (!tools || !turnToolAllowlist || (!hasCatalogMaterializations && !hasCapabilityMaterializations)) {
+    return { tools, decisions: [], capabilityExecutors: [] };
   }
 
   let nextTools = tools;
   const decisions: ProviderRequestToolMaterializationDecisionEvidence[] = [];
+  const capabilityExecutors: Array<readonly [string, RuntimeBuiltinToolExecutor]> = [];
   for (const execution of executions) {
     const catalogMetadata = readProgressiveToolCatalogSearchMetadata(execution.metadata);
-    const admission = admitProgressiveTool(
-      nextTools,
-      materializableTools,
-      turnToolAllowlist,
-      execution.metadata,
-    );
-    nextTools = admission.tools;
     if (catalogMetadata) {
+      if (!materializableTools) continue;
+      const admission = admitProgressiveTool(
+        nextTools,
+        materializableTools,
+        turnToolAllowlist,
+        execution.metadata,
+      );
+      nextTools = admission.tools;
       const decision = materializationDecision(admission.decision);
       const canExposeToolName = decision !== "outside_authority";
       decisions.push({
@@ -1791,9 +2103,159 @@ function admitProgressivelyMaterializedTools(
           ...(canExposeToolName ? { stale: catalogMetadata.stale } : {}),
         },
       });
+      continue;
     }
+
+    const capabilityMetadata = readRuntimeCapabilityDescribeExecutionMetadata(execution.metadata);
+    if (!capabilityMetadata || !capabilityBinding) continue;
+    const admission = admitProgressivelyCapabilityTool(
+      nextTools,
+      capabilityMetadata,
+      capabilityBinding,
+      authorityAdmission,
+      turnToolAllowlist,
+      materializableTools,
+      callerOwnedBuiltinToolNames,
+    );
+    nextTools = admission.tools;
+    const materialized = admission.materialized;
+    if (materialized) {
+      capabilityExecutors.push([
+        materialized.tool.name,
+        async (input) => materialized.invoke(input),
+      ]);
+    }
+    const decision = materializationDecision(admission.decision);
+    const canExposeToolName = decision === "materialized" || decision === "already_materialized";
+    decisions.push({
+      decision,
+      toolName: canExposeToolName
+        ? capabilityMetadata.evidence.materializedToolName ?? "<redacted>"
+        : "<redacted>",
+      ...(execution.toolCallId ? { sourceToolCallId: execution.toolCallId } : {}),
+      sourceToolName: execution.toolName,
+      catalog: canExposeToolName
+        ? {
+            exact: capabilityMetadata.capabilityId,
+            resultCount: 1,
+            totalIndexed: capabilityBinding.authorityCandidates.length,
+            includedSchemas: false,
+            stale: false,
+          }
+        : {},
+    });
   }
-  return { tools: nextTools, decisions };
+  return {
+    tools: nextTools,
+    decisions,
+    capabilityExecutors: Object.freeze(capabilityExecutors),
+  };
+}
+
+function admitProgressivelyCapabilityTool(
+  tools: readonly ToolDefinition[],
+  metadata: RuntimeCapabilityDescribeExecutionMetadata,
+  capabilityBinding: RuntimeCapabilityTurnBinding,
+  authorityAdmission: PerCallToolConfig["authorityAdmission"],
+  turnToolAllowlist: ReadonlySet<string>,
+  materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
+  callerOwnedBuiltinToolNames: ReadonlySet<string>,
+): {
+  readonly tools: readonly ToolDefinition[];
+  readonly decision: ProgressiveToolAdmissionDecision;
+  readonly materialized?: RuntimeCapabilityMaterializedTool;
+} {
+  if (metadata.decision !== "selected" || !authorityAdmission
+    || authorityAdmission.admissionId !== capabilityBinding.authorityAdmissionId) {
+    return { tools, decision: progressiveCapabilityDecision(metadata.decision) };
+  }
+  const descriptorDigest = metadata.evidence.descriptorDigests.length === 1
+    ? metadata.evidence.descriptorDigests[0]
+    : undefined;
+  if (!descriptorDigest || metadata.evaluatedAt !== capabilityBinding.evaluatedAt
+    || metadata.generationId !== capabilityBinding.generationId
+    || metadata.caller !== capabilityBinding.caller
+    || metadata.evidence.runtimeScope.generationId !== capabilityBinding.generationId
+    || metadata.evidence.runtimeScope.surfaceDigest !== capabilityBinding.surfaceDigest
+    || metadata.evidence.runtimeScope.routeDigest !== capabilityBinding.routeDigest
+    || metadata.evidence.runtimeScope.authorityAdmissionId !== capabilityBinding.authorityAdmissionId
+    || (metadata.descriptorDigest !== undefined && metadata.descriptorDigest !== descriptorDigest)) {
+    return { tools, decision: "not_materializable" };
+  }
+
+  let current;
+  try {
+    current = capabilityBinding.describe({
+      capabilityId: metadata.capabilityId,
+      revision: metadata.revision,
+      descriptorDigest,
+    });
+  } catch {
+    return { tools, decision: "not_materializable" };
+  }
+  if (current.decision !== "selected" || !current.tool
+    || !sameCapabilitySelectionEvidence(metadata, current)) {
+    return { tools, decision: progressiveCapabilityDecision(current.decision) };
+  }
+  const toolName = current.tool.name;
+  const collisionReason = capabilityToolCollisionReason({
+    toolName,
+    selectedTool: current.tool,
+    baseTool: tools.find((tool) => tool.name === toolName),
+    materializableTool: materializableTools?.get(toolName),
+    callerOwnedBuiltinToolNames,
+  });
+  if (collisionReason !== undefined) {
+    return { tools, decision: "not_materializable" };
+  }
+  const materialized = capabilityBinding.materialize({
+    capabilityId: metadata.capabilityId,
+    revision: metadata.revision,
+    descriptorDigest,
+  });
+  if (!materialized) {
+    return { tools, decision: "not_materializable" };
+  }
+  if (!turnToolAllowlist.has(toolName)) {
+    return { tools, decision: "outside_authority" };
+  }
+  if (tools.some((tool) => tool.name === toolName)) {
+    return { tools, decision: "already_materialized", materialized };
+  }
+  return { tools: [...tools, current.tool], decision: "admitted", materialized };
+}
+
+function sameCapabilitySelectionEvidence(
+  metadata: RuntimeCapabilityDescribeExecutionMetadata,
+  current: ReturnType<RuntimeCapabilityTurnBinding["describe"]>,
+): boolean {
+  const expected = metadata.evidence;
+  const actual = current.evidence;
+  if (expected.contract !== actual.contract
+    || expected.catalogDigest !== actual.catalogDigest
+    || expected.requestScopeDigest !== actual.requestScopeDigest
+    || expected.materializedToolName !== actual.materializedToolName
+    || expected.descriptorDigests.length !== actual.descriptorDigests.length
+    || expected.descriptorDigests.some((digest, index) => digest !== actual.descriptorDigests[index])) {
+    return false;
+  }
+  if (!expected.runtimeScope || !actual.runtimeScope) return false;
+  return expected.runtimeScope.routeDigest === actual.runtimeScope.routeDigest
+    && expected.runtimeScope.surfaceDigest === actual.runtimeScope.surfaceDigest
+    && expected.runtimeScope.authorityAdmissionId === actual.runtimeScope.authorityAdmissionId;
+}
+
+function progressiveCapabilityDecision(
+  decision: RuntimeCapabilityDescribeExecutionMetadata["decision"] | undefined,
+): ProgressiveToolAdmissionDecision {
+  switch (decision) {
+    case "outside-authority":
+      return "outside_authority";
+    case "not-found":
+      return "not_found";
+    default:
+      return "not_materializable";
+  }
 }
 
 function materializationDecision(

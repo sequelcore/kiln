@@ -190,6 +190,7 @@ function makeRuntime() {
           authorityCeiling: { maximumAuthority: "read_only", reason: "Harness fixture", subjectId: request.sessionId },
         },
         turn: {
+          capabilityParticipation: { status: "not-requested" },
           authority: {
             executionMode: "execute", requestedAuthority: request.requestedAuthority ?? "auto", admittedAuthority: "fail_closed",
             sourcePolicy: "runtime_surface_projection", reason: "Harness fixture", completeness: "authoritative",

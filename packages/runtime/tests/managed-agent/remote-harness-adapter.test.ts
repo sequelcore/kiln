@@ -59,6 +59,7 @@ function externalAdmissionBundle(): EffectiveAuthorityAdmissionBundle {
       authorityCeiling: { maximumAuthority: "audited", reason: "remote test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "audited",

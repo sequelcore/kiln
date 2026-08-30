@@ -570,6 +570,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             candidateToolNames: deriveAttachedRuntimeToolAdmissionProjection(turnBuiltinToolSurface).candidateToolNames,
             workGovernance,
             operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+            capabilityParticipation: { status: "not-requested" },
             skillCatalog: defineOperatorSkillCatalogAdmission([]),
             authorityCeiling: TUI_SESSION_AUTHORITY_CEILING,
           }),

@@ -22,6 +22,7 @@ import {
   type RuntimeSessionTurnBudgetAuthority,
   readRuntimeModelRoundAdmission,
   createRuntimeHostToolEnforcement,
+  createRuntimeCapabilityAuthorityCandidateProjection,
   requireOperatorAdoptionDecisionPersistence,
 } from "@kilnai/runtime";
 import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
@@ -194,7 +195,15 @@ export function createCanonicalRunSessionDispatcher(input: {
         runtimeSessionId: session.id,
         mcpClients,
         mcpToolAllowlist: admittedMcpToolNames,
+        capabilityComposition: {
+          appId: `cli-direct:${provider}`,
+          surfaceId: "cli-direct",
+        },
       });
+      const capabilityGeneration = builder.authorityCapabilityGeneration;
+      const capabilityCandidateProjection = capabilityGeneration === undefined
+        ? undefined
+        : createRuntimeCapabilityAuthorityCandidateProjection(capabilityGeneration);
       const hostToolSandbox = payload.toolSandbox === undefined
         ? undefined
         : assertBoundHostToolSandbox(payload.toolSandbox);
@@ -222,9 +231,53 @@ export function createCanonicalRunSessionDispatcher(input: {
         operatorAdoptionDecision: adoption.operatorAdoptionDecision,
         ...(hostToolSandbox ? { hostToolSandboxAdmission: hostToolSandbox.admission } : {}),
       } satisfies RuntimeAuthorityAdmissionCandidateConfig;
+      if (capabilityGeneration !== undefined) {
+        const toolAllowlist = new Set(perCallConfig.toolAllowlist ?? []);
+        const toolAuthority = new Map(perCallConfig.toolAuthority ?? []);
+        const perCallCapabilities = new Map(perCallConfig.perCallCapabilities ?? []);
+        const discoveryEffect: ActionEffectEnvelope = {
+          operation: "observe", boundaries: [], reversibility: "reversible", dataEgress: "none",
+          identityUse: "none", consequences: [], idempotency: "idempotent",
+        };
+        for (const toolName of capabilityCandidateProjection!.discoveryToolNames) {
+          toolAllowlist.add(toolName);
+          toolAuthority.set(toolName, { level: 1, allowed: true, requiresApproval: false, reason: "Runtime capability discovery" });
+          perCallCapabilities.set(toolName, {
+            name: toolName, description: "Runtime capability discovery", schema: {},
+            tags: ["read-only"], effectEnvelope: discoveryEffect,
+          });
+        }
+        for (const candidate of capabilityGeneration.authorityCandidates) {
+          if (candidate.toolName === undefined || candidate.materializationStatus !== "materializable") continue;
+          toolAllowlist.add(candidate.toolName);
+          toolAuthority.set(candidate.toolName, candidate.candidateAuthority);
+          perCallCapabilities.set(candidate.toolName, {
+            name: candidate.toolName,
+            description: `Deferred capability ${candidate.capabilityId}`,
+            schema: {},
+            tags: ["deferred-capability"],
+            effectEnvelope: candidate.effect,
+          });
+        }
+        perCallConfig = {
+          ...perCallConfig,
+          toolAllowlist,
+          toolAuthority,
+          perCallCapabilities,
+          effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority === undefined
+            ? undefined
+            : {
+                ...perCallConfig.effectiveTurnAuthority,
+                toolCount: toolAllowlist.size,
+                deniedToolCount: 0,
+              },
+        };
+      }
       const candidateToolNames = [...new Set([
         ...builder.capabilities.supportedTools,
         ...discoveredMcpCapabilities.map((capability) => capability.name),
+        ...(capabilityCandidateProjection?.discoveryToolNames ?? []),
+        ...(capabilityGeneration?.authorityCandidates.flatMap((candidate) => candidate.toolName ?? []) ?? []),
       ])];
       const projectedAuthority = perCallConfig.effectiveTurnAuthority;
       const authority =
@@ -275,15 +328,18 @@ export function createCanonicalRunSessionDispatcher(input: {
         },
         workGovernance,
         operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+        capabilityParticipation: { status: "not-requested" },
       });
       return {
         facets,
+        ...(capabilityCandidateProjection === undefined ? {} : { capabilityCandidateProjection }),
         prepared: {
           runtimeSession: session,
           builtinToolSurface: builder.authorityBuiltinToolSurface,
           mcpClients,
           mcpCapabilities,
           perCallConfig,
+          ...(capabilityGeneration === undefined ? {} : { capabilityGeneration }),
           ...(attendedTrustedExecutionSessionAuthority === undefined
             ? {}
             : { attendedTrustedExecutionSessionAuthority }),

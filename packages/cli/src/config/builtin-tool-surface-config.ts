@@ -8,6 +8,11 @@ import {
 } from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 import {
+  discoverVerificationCapabilities,
+  type CapabilityCatalogContribution,
+  type VerificationCapabilityToolSchema,
+} from "@kilnai/core/capabilities";
+import {
   createFormalVerifyTool,
   createGentleReviewTool,
   createQualityAnalyzeTool,
@@ -29,6 +34,7 @@ import {
   resolveStaticAnalysisConfiguration,
 } from "./verification/oxlint.js";
 import { resolveQualityAnalysisConfiguration } from "./verification/quality.js";
+import { projectVerificationDiscoveryInput } from "./verification/discovery.js";
 import {
   type LoadConfiguredWebToolSurfaceOptionsInput,
   loadConfiguredWebToolSurfaceOptions,
@@ -96,6 +102,13 @@ export interface LoadConfiguredBuiltinToolSurfaceOptionsInput extends LoadConfig
   readonly arch?: string;
   readonly resolveManagedOxlintBinary?: ResolveStaticAnalysisConfigurationInput["resolveManagedBinary"];
   readonly runGentleAiVersion?: (executable: string) => string;
+  readonly now?: () => Date;
+}
+
+export interface ConfiguredBuiltinToolSurfaceOptions extends DefaultBuiltinToolRegistryOptions {
+  readonly capabilityEvaluatedAt: string;
+  readonly capabilityContributions: readonly CapabilityCatalogContribution[];
+  readonly capabilityToolSchemas: readonly VerificationCapabilityToolSchema[];
 }
 
 /**
@@ -201,7 +214,7 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
   appConfig: KilnAppConfig,
   projectPath: string,
   options: LoadConfiguredBuiltinToolSurfaceOptionsInput = {},
-): Promise<DefaultBuiltinToolRegistryOptions> {
+): Promise<ConfiguredBuiltinToolSurfaceOptions> {
   const artifactStore = new MemoryArtifactResourceStore();
   const globalConfig = options.globalConfig === undefined ? readGlobalConfig() : options.globalConfig;
   const formalVerification = resolveFormalVerificationConfiguration({
@@ -228,6 +241,16 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     ...(options.platform === undefined ? {} : { platform: options.platform }),
   });
   const qualityAnalysis = resolveQualityAnalysisConfiguration(globalConfig);
+  const observedAt = (options.now ?? (() => new Date()))().toISOString();
+  const validUntil = new Date(Date.parse(observedAt) + 5 * 60_000).toISOString();
+  const verificationDiscovery = discoverVerificationCapabilities(projectVerificationDiscoveryInput({
+    observedAt,
+    validUntil,
+    formal: formalVerification,
+    staticAnalysis,
+    quality: qualityAnalysis,
+    inferential: gentleReview,
+  }));
   const configuredProducerDiagnostics = collectConfiguredProducerDiagnostics([
     { canonicalName: "formal_verify", diagnostic: formalVerification.diagnostic },
     { canonicalName: "static_analyze", diagnostic: staticAnalysis.diagnostic },
@@ -260,6 +283,9 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
       ...(qualityAnalysis.options === undefined ? [] : [createQualityAnalyzeTool(qualityAnalysis.options)]),
       ...(gentleReview.options === undefined ? [] : [createGentleReviewTool(gentleReview.options)]),
     ],
+    capabilityEvaluatedAt: observedAt,
+    capabilityContributions: [verificationDiscovery.contribution],
+    capabilityToolSchemas: verificationDiscovery.toolSchemas,
     ...(configuredProducerDiagnostics.length > 0 ? { configuredProducerDiagnostics } : {}),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,

@@ -610,6 +610,7 @@ function defineHarnessChildAuthorityAdmission(sessionId: string, turnId: string)
         authorityCeiling: { maximumAuthority: "audited", reason: "test harness admission", subjectId: sessionId },
       },
       turn: {
+        capabilityParticipation: { status: "not-requested" },
         authority: {
           executionMode: "execute",
           requestedAuthority: "audited",

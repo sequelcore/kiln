@@ -127,13 +127,14 @@ export async function resolveRuntimeSessionRouting(
   }) => void,
 ): Promise<RuntimeSessionRoutingResolution> {
   const hasBuiltins = (deps.builtinTools?.size ?? 0) > 0;
+  const hasCapabilityGeneration = deps.capabilityGeneration !== undefined;
   const hasMcp = (deps.mcpClients?.length ?? 0) > 0;
   const userText = extractText(userParts);
 
   let mergedTools = mergeAdditionalTools(baseTools, perCallConfig?.additionalTools);
   const admittedToolAllowlist = readExecutionToolAllowlist(perCallConfig);
   mergedTools = mergedTools?.filter((tool) => admittedToolAllowlist.has(tool.name));
-  const hasToolSurface = (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
+  const hasToolSurface = (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp || hasCapabilityGeneration);
   const projectedCompletedTurnDepth = session.messageCount + 2;
   let routingComplexity = scoreComplexity({
     messageText: userText,
@@ -330,7 +331,7 @@ export async function resolveRuntimeSessionRouting(
   return {
     effectiveProvider,
     effectiveTools: mergedTools,
-    hasTools: (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp),
+    hasTools: (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp || hasCapabilityGeneration),
     invocationSystem,
     executionIdentity,
     routingDecision,

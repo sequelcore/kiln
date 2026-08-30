@@ -75,6 +75,7 @@ import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeHostToolEnforcement } from "./runtime-host-tool-enforcement.js";
 import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-authority.js";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
+import type { RuntimeCapabilityGeneration } from "../capabilities/runtime-capability-composition.js";
 
 export type {
   EffectiveTurnAuthorityCompleteness,
@@ -135,6 +136,8 @@ export interface OrchestratorDeps {
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly tools?: readonly ToolDefinition[];
   readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
+  /** Runtime-owned immutable capability generation for deferred selection. */
+  readonly capabilityGeneration?: RuntimeCapabilityGeneration;
   readonly mcpClients?: readonly KilnMcpClient[];
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;

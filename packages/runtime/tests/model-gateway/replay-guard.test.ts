@@ -16,6 +16,7 @@ function bundle() {
     configuration: { sessionRevision: revision, turnRevision: revision },
     session: { skillCatalog: { catalogId: "replay", revision: ("sha256:" + "b".repeat(64)) as `sha256:${string}`, skillIds: [] }, authorityCeiling: { maximumAuthority: "read_only", reason: "fixture" } },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only", sourcePolicy: "runtime_surface_projection", reason: "fixture", completeness: "authoritative", toolCount: 0, deniedToolCount: 0 },
       workGovernance: { status: "not-required" }, operatorAdoption: { status: "not-required" },
       tools: { allowedToolPermissions: [], deniedToolNames: [], callerOwnedToolContract: { names: [], digest: ("sha256:" + "c".repeat(64)) as `sha256:${string}` } },

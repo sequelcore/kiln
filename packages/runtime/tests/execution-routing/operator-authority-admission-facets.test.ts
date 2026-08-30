@@ -23,6 +23,7 @@ describe("defineOperatorAuthorityAdmissionFacets", () => {
       executionId: "turn-1",
       session,
       snapshot: { catalog: {} as never, configurationRevision: { revisionSetId: "R1", revisions: { project: "p1" } } },
+      capabilityParticipation: { status: "not-requested" },
       candidateToolNames: ["write_file", "read_file", "delete_file"],
       skillCatalog: { catalogId: "operator", revision: "skills-r1", skillIds: [] },
       authorityCeiling: { maximumAuthority: "destructive", reason: "test session ceiling" },
@@ -55,6 +56,7 @@ describe("defineOperatorAuthorityAdmissionFacets", () => {
     expect(() => defineOperatorAuthorityAdmissionFacets({
       executionId: "turn-1", session,
       snapshot: { catalog: {} as never, configurationRevision: { revisionSetId: "R1", revisions: { project: "p1" } } },
+      capabilityParticipation: { status: "not-requested" },
       candidateToolNames: [], perCallConfig: {},
       skillCatalog: { catalogId: "operator", revision: "skills-r1", skillIds: [] },
       authorityCeiling: { maximumAuthority: "destructive", reason: "test session ceiling" },

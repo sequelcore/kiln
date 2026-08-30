@@ -610,6 +610,7 @@ function admissionBundle(
       authorityCeiling: { maximumAuthority: "destructive", reason: "attended test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "destructive",

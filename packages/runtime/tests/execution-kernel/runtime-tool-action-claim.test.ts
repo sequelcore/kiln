@@ -37,6 +37,7 @@ function admission(): RuntimeToolActionAdmissionReceipt {
       authorityCeiling: { maximumAuthority: "destructive", reason: "test", subjectId: "session-1" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "destructive",

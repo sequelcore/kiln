@@ -230,6 +230,7 @@ function cliTestAdmission(input: {
       authorityCeiling: { maximumAuthority: "destructive", reason: "CLI direct provider test admission" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",

@@ -644,6 +644,26 @@ describe("native-skill-projection", () => {
     );
   });
 
+  it("projects verification-evidence with capability discovery and disconnected fallback guidance", async () => {
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath.endsWith(join(".kiln", "skills"))) return readdirMissing(targetPath);
+      return readdirFallback(targetPath);
+    });
+
+    const result = await syncNativeSkillProjections("/workspace/project", {
+      projectSkillsDirectory: PRIVATE_PROJECT_SKILLS,
+      skillConfig: { builtin: { include: ["verification-evidence"] } },
+    });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.synced).toBe(3);
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      join("/home/tester", ".codex", "skills", "verification-evidence", "SKILL.md"),
+      expect.stringMatching(/name: verification-evidence[\s\S]*capability\.search[\s\S]*repository-owned verification commands/u),
+      "utf-8",
+    );
+  });
+
   it("plans every builtin skill file without creating directories, files, backups, or install state", async () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       return readdirMissing(targetPath);

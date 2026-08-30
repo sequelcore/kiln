@@ -199,6 +199,19 @@ describe("MCP v2 tool capability discovery", () => {
     expect(discoverMcpToolCapabilities(nonObject).catalog.descriptors).toHaveLength(0);
   });
 
+  it.each([
+    ["array", { type: "array", items: { type: "string" } }],
+    ["scalar", { type: "string" }],
+  ] as const)("accepts a valid %s output schema when structured output is required", (_label, outputSchema) => {
+    const value = input();
+    declaration(value).outputSchema = outputSchema as unknown as Record<string, unknown>;
+
+    const result = discoverMcpToolCapabilities(value);
+
+    expect(result.catalog.descriptors).toHaveLength(1);
+    expect(diagnosticCodes(result)).not.toContain("output_schema_invalid");
+  });
+
   it("meta-validates JSON Schema 2020-12 keyword types", () => {
     const malformed = input();
     declaration(malformed).inputSchema.properties = {

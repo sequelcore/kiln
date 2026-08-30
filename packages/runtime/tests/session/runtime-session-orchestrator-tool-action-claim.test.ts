@@ -67,6 +67,7 @@ function admission(
       authorityCeiling: { maximumAuthority: "destructive", reason: "test", subjectId: sessionId },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "destructive", admittedAuthority: "destructive",
         sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative",

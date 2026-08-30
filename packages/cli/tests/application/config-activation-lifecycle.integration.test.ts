@@ -273,6 +273,7 @@ function admissionBundle(input: {
       },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "audited",

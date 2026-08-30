@@ -1,8 +1,10 @@
 import type { ActionEffectEnvelope } from "../engine/domain/action-effect.js";
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 import {
-  buildCapabilityCatalog,
+  buildAggregateCapabilityCatalog,
+  createCapabilityCatalogContribution,
   type CapabilityCatalogSnapshot,
+  type CapabilityCatalogContribution,
   type CapabilityDescriptorCandidate,
   type CapabilityKind,
   type CapabilityLimits,
@@ -30,6 +32,7 @@ import {
   STATIC_ANALYSIS_OBSERVATION_SCHEMA,
   STATIC_ANALYSIS_PROFILE,
 } from "../verification/static/observation.js";
+import { normalizeAndDigestCapabilityJsonSchema } from "./capability-json-schema-safety.js";
 
 /**
  * Provider-neutral identities frozen for Roadmap 11 Slice 2.
@@ -127,10 +130,21 @@ export interface VerificationCapabilityDiscoveryDiagnostic {
   readonly diagnostic?: VerificationProducerDiagnostic;
 }
 
+/** Exact secret-free schemas Runtime must bind to the selected implementation. */
+export interface VerificationCapabilityToolSchema {
+  readonly capabilityId: VerificationCapabilityId;
+  readonly revision: "v1";
+  readonly toolName: VerificationProducerName;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+  readonly outputSchema: Readonly<Record<string, unknown>>;
+}
+
 export interface VerificationCapabilityDiscoveryResult {
   readonly evaluatedAt: string;
   readonly candidates: readonly CapabilityDescriptorCandidate[];
   readonly diagnostics: readonly VerificationCapabilityDiscoveryDiagnostic[];
+  readonly toolSchemas: readonly VerificationCapabilityToolSchema[];
+  readonly contribution: CapabilityCatalogContribution;
   readonly catalog: CapabilityCatalogSnapshot;
 }
 
@@ -284,12 +298,20 @@ export function discoverVerificationCapabilities(
   const parsedInput = parseDiscoveryInput(input);
   const candidates: CapabilityDescriptorCandidate[] = [];
   const diagnostics: VerificationCapabilityDiscoveryDiagnostic[] = [];
+  const toolSchemas: VerificationCapabilityToolSchema[] = [];
 
   for (const spec of VERIFICATION_PRODUCER_SPECS) {
     const rawResolution = parsedInput.producers[spec.name];
     const parsedResolution = parseResolution(rawResolution, spec);
     const candidate = buildCandidate(spec, parsedResolution);
     candidates.push(deepFreeze(candidate));
+    toolSchemas.push(deepFreeze({
+      capabilityId: spec.capabilityId,
+      revision: REVISION,
+      toolName: spec.name,
+      inputSchema: spec.inputSchema,
+      outputSchema: outputSchemaDescriptor(spec, parsedResolution.profile),
+    }));
     diagnostics.push(deepFreeze({
       producer: spec.name,
       capabilityId: spec.capabilityId,
@@ -301,11 +323,19 @@ export function discoverVerificationCapabilities(
 
   const frozenCandidates = Object.freeze(candidates);
   const frozenDiagnostics = Object.freeze(diagnostics);
-  const catalog = buildCapabilityCatalog(frozenCandidates, parsedInput.evaluatedAt);
+  const frozenToolSchemas = Object.freeze(toolSchemas);
+  const contribution = createCapabilityCatalogContribution({
+    sourceId: "verification",
+    candidates: frozenCandidates,
+    rejections: [],
+  });
+  const catalog = buildAggregateCapabilityCatalog([contribution], parsedInput.evaluatedAt);
   return Object.freeze({
     evaluatedAt: parsedInput.evaluatedAt,
     candidates: frozenCandidates,
     diagnostics: frozenDiagnostics,
+    toolSchemas: frozenToolSchemas,
+    contribution,
     catalog,
   });
 }
@@ -462,8 +492,8 @@ function buildCandidate(
   spec: VerificationProducerSpec,
   resolution: ParsedResolution,
 ): CapabilityDescriptorCandidate {
-  const inputSchemaDigest = schemaDigest(spec.inputSchema);
-  const outputSchemaDigest = schemaDigest(outputSchemaDescriptor(spec, resolution.profile));
+  const inputSchemaDigest = schemaDigest(spec.inputSchema, "input");
+  const outputSchemaDigest = schemaDigest(outputSchemaDescriptor(spec, resolution.profile), "output");
   const ownerIdentityDigest = derivedDigest(`owner/${spec.ownerKind}/${spec.name}`);
   const effect = {
     ...spec.effect,
@@ -528,8 +558,10 @@ function outputSchemaDescriptor(
   };
 }
 
-function schemaDigest(value: unknown): Sha256Digest {
-  return sha256ContentIdentity(stableCanonicalStringify(value)) as Sha256Digest;
+function schemaDigest(value: unknown, direction: "input" | "output"): Sha256Digest {
+  const result = normalizeAndDigestCapabilityJsonSchema(value, direction);
+  if (!result.ok || !result.present) throw new TypeError("Verification schema is not an admitted JSON Schema.");
+  return result.digest as Sha256Digest;
 }
 
 function derivedDigest(identity: string): Sha256Digest {
@@ -654,24 +686,6 @@ function isCanonicalTimestamp(value: unknown): value is string {
   if (typeof value !== "string" || !TIMESTAMP_PATTERN.test(value)) return false;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
-}
-
-function stableCanonicalStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableCanonicalStringify).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entry]) => entry !== undefined)
-    .sort(([left], [right]) => compareCodeUnits(left, right));
-  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableCanonicalStringify(entry)}`).join(",")}}`;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  const sharedLength = Math.min(left.length, right.length);
-  for (let index = 0; index < sharedLength; index += 1) {
-    const difference = left.charCodeAt(index) - right.charCodeAt(index);
-    if (difference !== 0) return difference;
-  }
-  return left.length - right.length;
 }
 
 function deepFreeze<T>(value: T): T {

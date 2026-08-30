@@ -29,6 +29,7 @@ function facets(sessionId: string, turnId = "turn-1"): OperatorSessionAuthorityA
       authorityCeiling: { maximumAuthority: "read_only", reason: "session policy", subjectId: sessionId },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
         sourcePolicy: "runtime_surface_projection", reason: "no tools", completeness: "authoritative",

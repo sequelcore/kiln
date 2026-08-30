@@ -37,6 +37,7 @@ describe("Runtime host tool enforcement", () => {
         authorityCeiling: { maximumAuthority: "read_only", reason: "test" },
       },
       turn: {
+        capabilityParticipation: { status: "not-requested" },
         authority: {
           executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
           sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative", toolCount: 0,

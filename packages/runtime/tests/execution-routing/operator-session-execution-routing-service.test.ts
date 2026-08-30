@@ -96,6 +96,7 @@ function authorityFacets(): OperatorSessionAuthorityAdmissionFacets {
       authorityCeiling: { maximumAuthority: "audited", reason: "operator session policy" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "audited", admittedAuthority: "audited",
         sourcePolicy: "runtime_surface_projection", reason: "admitted", completeness: "authoritative",

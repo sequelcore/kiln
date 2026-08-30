@@ -1,5 +1,8 @@
-import type { EffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
-import { defineEffectiveAuthorityAdmissionBundle } from "./effective-authority-admission-bundle.js";
+import {
+  defineEffectiveAuthorityAdmissionBundle,
+  EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION,
+  type EffectiveAuthorityAdmissionBundle,
+} from "./effective-authority-admission-bundle.js";
 import type { RuntimeSessionAuthorityFacet } from "./runtime-session-authority-facet.js";
 
 /** Mandatory Runtime-owned sink for secret-free full admission evidence. */
@@ -17,8 +20,10 @@ export interface AuthorityAdmissionEvidenceStore {
 
 /** Revalidates values at the persistence boundary before an adapter writes them. */
 export function assertPersistableAuthorityAdmissionBundle(bundle: EffectiveAuthorityAdmissionBundle): EffectiveAuthorityAdmissionBundle {
-  if (!isPlainRecord(bundle) || bundle.schemaRevision !== 1 || !isDeepFrozen(bundle)) {
-    throw new TypeError("Authority admission evidence must be an immutable schema-revision-1 bundle.");
+  if (!isPlainRecord(bundle) || bundle.schemaRevision !== EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION || !isDeepFrozen(bundle)) {
+    throw new TypeError(
+      `Authority admission evidence must be an immutable schema-revision-${EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION} bundle; older revisions are invalid.`,
+    );
   }
   const normalized = defineEffectiveAuthorityAdmissionBundle(bundle);
   if (normalized.admissionId !== bundle.admissionId) throw new TypeError("Authority admission evidence digest does not match its canonical bundle body.");

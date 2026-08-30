@@ -3,9 +3,11 @@ import { normalizeActionEffectEnvelope } from "../engine/domain/action-effect.js
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 import { isProxy } from "node:util/types";
 import {
-  buildCapabilityCatalog,
+  buildAggregateCapabilityCatalog,
+  createCapabilityCatalogContribution,
   type CapabilityApprovalPosture,
   type CapabilityCatalogSnapshot,
+  type CapabilityCatalogContribution,
   type CapabilityCallerId,
   type CapabilityDataPosture,
   type CapabilityDescriptorCandidate,
@@ -19,10 +21,12 @@ import {
   type Sha256Digest,
 } from "./capability-catalog.js";
 import {
+  CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST,
   DEFAULT_JSON_SCHEMA_SAFETY_LIMITS,
+  CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
+  normalizeAndDigestCapabilityJsonSchema,
+  type CapabilityJsonSchemaDigestResult,
   type JsonSchemaSafetyReason,
-  type JsonSchemaSafetyResult,
-  validateJsonSchemaSafety,
 } from "./capability-json-schema-safety.js";
 
 /** The only MCP wire revision admitted by this adapter. */
@@ -38,9 +42,7 @@ export const MCP_SERVER_BINDING_PROJECTION_REVISION = "mcp-server-binding/v1" as
 export const MCP_AUTHORIZATION_CONTEXT_PROJECTION_REVISION = "mcp-authorization-context/v1" as const;
 
 /** The digest used when a tool has no output schema declaration. */
-export const MCP_OUTPUT_SCHEMA_ABSENT_DIGEST = sha256(
-  `${MCP_TOOL_CAPABILITY_DISCOVERY_REVISION}/output-schema/absent`,
-);
+export const MCP_OUTPUT_SCHEMA_ABSENT_DIGEST = CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST as Sha256Digest;
 
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const CAPABILITY_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}(?:\.[a-z0-9][a-z0-9_-]{0,62})+$/u;
@@ -205,6 +207,7 @@ export interface McpToolCapabilityDiscoveryResult {
   readonly protocolRevision: typeof MCP_TOOL_PROTOCOL_REVISION;
   readonly candidates: readonly CapabilityDescriptorCandidate[];
   readonly diagnostics: readonly McpToolCapabilityDiscoveryDiagnostic[];
+  readonly contribution: CapabilityCatalogContribution;
   readonly catalog: CapabilityCatalogSnapshot;
 }
 
@@ -319,10 +322,15 @@ export function discoverMcpToolCapabilities(
 
   candidates.sort(compareCandidates);
   const frozenCandidates = Object.freeze(candidates);
-  const catalog = buildCapabilityCatalog(
-    catalogEntries(frozenCandidates, rejectionStubs),
-    parsedInput.evaluatedAt,
-  );
+  const contribution = createCapabilityCatalogContribution({
+    sourceId: "mcp",
+    candidates: frozenCandidates,
+    rejections: rejectionStubs.map((stub) => ({
+      ...stub,
+      reason: "malformed-descriptor" as const,
+    })),
+  });
+  const catalog = buildAggregateCapabilityCatalog([contribution], parsedInput.evaluatedAt);
   const sortedDiagnostics = diagnostics
     .map((entry) => deepFreeze(entry))
     .sort(compareDiagnostics);
@@ -332,6 +340,7 @@ export function discoverMcpToolCapabilities(
     protocolRevision: MCP_TOOL_PROTOCOL_REVISION,
     candidates: frozenCandidates,
     diagnostics: Object.freeze(sortedDiagnostics),
+    contribution,
     catalog,
   });
 }
@@ -764,14 +773,14 @@ function inspectDeclaration(
   diagnostics: McpToolCapabilityDiscoveryDiagnostic[],
 ): DeclarationInspection {
   let unavailable = false;
-  const inputSchema = validateSchema(tool.declaration.inputSchema);
+  const inputSchema = validateSchema(tool.declaration.inputSchema, "input");
   if (!inputSchema.ok) {
     unavailable = true;
     diagnostics.push(schemaDiagnostic("input_schema_invalid", tool.selector, binding.capabilityId, inputSchema.reason));
   }
   const outputSchema = tool.declaration.outputSchema === undefined
     ? undefined
-    : validateSchema(tool.declaration.outputSchema);
+    : validateSchema(tool.declaration.outputSchema, "output");
   if (outputSchema && !outputSchema.ok) {
     unavailable = true;
     diagnostics.push(schemaDiagnostic("output_schema_invalid", tool.selector, binding.capabilityId, outputSchema.reason));
@@ -795,8 +804,8 @@ function inspectDeclaration(
   diagnostics.push(...annotationIssues);
   return {
     unavailable,
-    outputSchemaDigest: outputSchema?.ok && outputSchema.value !== undefined
-      ? sha256(stableCanonicalStringify(outputSchema.value))
+    outputSchemaDigest: outputSchema?.ok && outputSchema.present
+      ? outputSchema.digest as Sha256Digest
       : MCP_OUTPUT_SCHEMA_ABSENT_DIGEST,
   };
 }
@@ -831,9 +840,12 @@ function inspectAnnotations(
   return diagnostics;
 }
 
-function validateSchema(value: unknown): JsonSchemaSafetyResult {
-  return validateJsonSchemaSafety(value, {
-    requireObjectType: true,
+function validateSchema(
+  value: unknown,
+  direction: "input" | "output",
+): CapabilityJsonSchemaDigestResult {
+  return normalizeAndDigestCapabilityJsonSchema(value, direction, {
+    requireObjectType: direction === "input",
     referencePolicy: "internal-only",
   });
 }
@@ -846,7 +858,7 @@ function buildCandidate(
   outputSchemaDigest: Sha256Digest,
 ): CapabilityDescriptorCandidate {
   const declaration = tool.declaration;
-  const inputSchemaDigest = sha256(stableCanonicalStringify(declaration.inputSchema));
+  const inputSchemaDigest = schemaDigest(declaration.inputSchema, "input");
   const declarationDigest = tool.declarationDigest;
   const bindingEvidence = snapshot.bindingDigest ?? "missing";
   const authEvidence = snapshot.authDigest ?? "missing";
@@ -933,6 +945,14 @@ function buildCandidate(
   };
 }
 
+function schemaDigest(value: unknown, direction: "input" | "output"): Sha256Digest {
+  const result = validateSchema(value, direction);
+  if (!result.ok || !result.present) {
+    return direction === "input" ? CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST as Sha256Digest : MCP_OUTPUT_SCHEMA_ABSENT_DIGEST;
+  }
+  return result.digest as Sha256Digest;
+}
+
 function schemaDiagnostic(
   code: "input_schema_invalid" | "output_schema_invalid",
   selector: string,
@@ -981,22 +1001,6 @@ function compareCandidates(left: CapabilityDescriptorCandidate, right: Capabilit
 
 function appendRejectionStub(stubs: RejectionStub[], stub: RejectionStub): void {
   if (stubs.length < MAX_CATALOG_ENTRIES) stubs.push(stub);
-}
-
-function catalogEntries(
-  candidates: readonly CapabilityDescriptorCandidate[],
-  rejectionStubs: readonly RejectionStub[],
-): readonly unknown[] {
-  const remaining = Math.max(0, MAX_CATALOG_ENTRIES - candidates.length);
-  const sortedStubs = [...rejectionStubs]
-    .sort(compareRejectionStubs)
-    .slice(0, remaining);
-  return Object.freeze([...candidates, ...sortedStubs]);
-}
-
-function compareRejectionStubs(left: RejectionStub, right: RejectionStub): number {
-  return compareCodeUnits(left.capabilityId ?? "", right.capabilityId ?? "")
-    || compareCodeUnits(left.revision ?? "", right.revision ?? "");
 }
 
 function parseData(value: unknown): CapabilityDataPosture | undefined {

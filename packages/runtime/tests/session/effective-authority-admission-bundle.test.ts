@@ -38,6 +38,7 @@ function input(): EffectiveAuthorityAdmissionBundleInput {
       authorityCeiling: { maximumAuthority: "audited", reason: "operator session policy", subjectId: "session-1" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "audited",

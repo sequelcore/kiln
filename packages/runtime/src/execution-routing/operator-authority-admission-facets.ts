@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
+  CapabilityParticipation,
   OperatorAdoptionAdmission,
   SkillCatalogAdmission,
   WorkGovernanceAdmission,
@@ -28,6 +29,7 @@ export function defineOperatorAuthorityAdmissionFacets(input: {
   readonly authorityCeiling: EffectiveTurnAuthorityPolicyBound;
   readonly workGovernance?: WorkGovernanceAdmission;
   readonly operatorAdoption: OperatorAdoptionAdmission;
+  readonly capabilityParticipation: CapabilityParticipation;
   readonly effectCeiling?: ActionEffectEnvelope;
 }): OperatorSessionAuthorityAdmissionFacets {
   const authority = input.perCallConfig.effectiveTurnAuthority;
@@ -53,6 +55,7 @@ export function defineOperatorAuthorityAdmissionFacets(input: {
       authority,
       workGovernance: input.workGovernance ?? { status: "not-required" },
       operatorAdoption: input.operatorAdoption,
+      capabilityParticipation: input.capabilityParticipation,
       tools,
       effectCeiling: input.effectCeiling ?? deriveTurnEffectCeiling(tools),
     },

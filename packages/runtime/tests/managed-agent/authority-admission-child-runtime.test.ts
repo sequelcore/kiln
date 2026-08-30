@@ -173,6 +173,7 @@ function bundle(overrides: Partial<Parameters<typeof defineEffectiveAuthorityAdm
       authorityCeiling: { maximumAuthority: "audited", reason: "parent turn ceiling" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "audited",

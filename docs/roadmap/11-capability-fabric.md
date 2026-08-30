@@ -2,11 +2,13 @@
 
 Status: In progress capability-portability track
 Priority: High
-Execution: In progress - Slice 2 Read-Only Discovery Adapters is
-complete with post-review verification passing and no unresolved high or medium
-findings. The narrow Roadmap 06 capability-disclosure dependency was admitted
-on 2026-08-30. Slice 3 Deferred Tool Search is ready but has not started and is
-held at the operator's instruction. The 2026-08-28 operator priority decision
+Execution: In progress - Slice 3 Deferred Tool Search is complete as of
+2026-08-30. Core owns aggregate contributions and bounded provider-neutral
+search/describe contracts; Runtime owns immutable, authority-linked generations
+and next-round materialization; canonical direct CLI verification is the first
+executable vertical; and the permanent `verification-evidence` builtin projects
+to supported native skill targets with an ordinary-command fallback. The
+2026-08-28 operator priority decision
 moves this track ahead of Roadmap 08; remote pairing remains Ready but is no
 longer the current operational priority.
 Created: 2026-08-14
@@ -460,8 +462,7 @@ evidence.
 
 ### Slice 3 - Deferred Tool Search
 
-Status: Ready; not started. The narrow Roadmap 06 capability-disclosure
-dependency is admitted.
+Status: Complete as of 2026-08-30.
 
 Introduce small provider-neutral `capability.search` and
 `capability.describe` contracts. Resolve candidates against the current route,
@@ -482,9 +483,22 @@ binary, choose Dafny/Oxlint/Gentle directly, or treat skill availability as tool
 authority. Its repository-command fallback remains useful for harnesses that
 cannot reach the fabric and produces ordinary verification evidence only.
 
+Closure evidence: the initial provider projection contains only the two fixed
+discovery schemas regardless of catalog size; Core search is bounded to 64
+results and carries catalog/request/descriptor digests; exact verification
+schemas, implementation identity, and executor are bound into one immutable
+Runtime generation; authority evidence persists generation, catalog,
+candidate-projection, route, surface, caller, and linkage digests; tampering,
+staleness, collision, missing authority, and unsupported native paths fail
+closed; and selected tools enter only the next provider round. Focused Core,
+Runtime, CLI, and native-skill projection tests pass, as do workspace typecheck,
+the full Foundation and Runtime suites, and all surface suites. The full CLI
+suite advanced without a reported test failure but did not terminate during the
+closure run; focused affected CLI tests are the executable Slice 3 oracle.
+
 ### Slice 4 - Portable Tool Execution
 
-Status: Blocked on Slice 3.
+Status: Ready; not started.
 
 Add Runtime execution ports for admitted MCP, OpenAPI, GraphQL, CLI, local
 function, and approved service tools. Keep credentials host-side. Validate

@@ -124,6 +124,7 @@ export function makeGatewayTestAdmission(
           authorityCeiling: { maximumAuthority: "read_only", reason: "gateway route test", subjectId: session.id },
         },
         turn: {
+          capabilityParticipation: { status: "not-requested" },
           authority: {
             executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
             sourcePolicy: "runtime_surface_projection", reason: "Gateway route test has no admitted tools.",

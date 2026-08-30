@@ -22,6 +22,7 @@ function bundle(sessionId = "session", turnId = "turn") {
       authorityCeiling: { maximumAuthority: "read_only", reason: "caller-owned model ingress" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",

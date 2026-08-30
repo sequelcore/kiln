@@ -1,8 +1,10 @@
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 import { isProxy } from "node:util/types";
 import {
-  buildCapabilityCatalog,
+  buildAggregateCapabilityCatalog,
+  createCapabilityCatalogContribution,
   type CapabilityCatalogSnapshot,
+  type CapabilityCatalogContribution,
   type CapabilityDescriptorCandidate,
   type Sha256Digest,
 } from "./capability-catalog.js";
@@ -127,6 +129,7 @@ export interface HarnessCompatibilityCapabilityDiscoveryResult {
   /** Always empty: native search and execution routes are deferred. */
   readonly candidates: readonly CapabilityDescriptorCandidate[];
   readonly diagnostics: readonly HarnessCompatibilityCapabilityDiscoveryDiagnostic[];
+  readonly contribution: CapabilityCatalogContribution;
   readonly catalog: CapabilityCatalogSnapshot;
 }
 
@@ -284,7 +287,15 @@ export function discoverHarnessCompatibilityCapabilities(
   if (stubs.length === 0) stubs.push(Object.freeze({}));
 
   for (const declaration of declarations) diagnostics.push(...declaration.diagnostics);
-  const catalog = buildCapabilityCatalog(stubs, parsedInput.evaluatedAt);
+  const contribution = createCapabilityCatalogContribution({
+    sourceId: "harness-compatibility",
+    candidates: [],
+    rejections: stubs.map((stub) => ({
+      ...stub,
+      reason: "malformed-descriptor" as const,
+    })),
+  });
+  const catalog = buildAggregateCapabilityCatalog([contribution], parsedInput.evaluatedAt);
   const sortedDiagnostics = diagnostics
     .map((entry) => deepFreeze(entry))
     .sort(compareDiagnostics);
@@ -295,6 +306,7 @@ export function discoverHarnessCompatibilityCapabilities(
     ...(state.recordDigest === undefined ? {} : { recordDigest: state.recordDigest }),
     candidates: Object.freeze([]),
     diagnostics: Object.freeze(sortedDiagnostics),
+    contribution,
     catalog,
   });
 }

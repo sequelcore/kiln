@@ -250,6 +250,51 @@ query execution, or schema inference. The legacy `deprecated` and
 `customScalarResolutions` aliases are removed from the contract and rejected;
 no compatibility alias is read or honored.
 
+## Deferred Search And Materialization
+
+Core owns the bounded provider-neutral `capability.search/v1` and
+`capability.describe/v1` contracts. Search accepts a maximum 256-character
+query and returns at most 64 descriptors; the default is 16. Search and
+description expose descriptor and schema digests plus replay evidence, never
+implementation references, callbacks, credentials, commands, endpoints, or
+paths. Adapter observations enter one aggregate catalog as branded
+`CapabilityCatalogContribution` values. Duplicate contribution identities,
+revision drift, stale evidence, and malformed schemas reject rather than
+selecting a partial result.
+
+Runtime prepares one immutable capability generation for an exact catalog,
+evaluation instant, project, application, surface, caller, schema set,
+implementation identity, and process-local executor. A generation initially
+projects only the fixed `capability.search` and `capability.describe` tool
+definitions. Its size is therefore independent of catalog size within the Core
+catalog and search bounds. `capability.describe` can select one exact
+descriptor, but its tool definition and executor are materialized only into the
+next provider round after the current authority bundle admits the same
+generation, catalog, candidate projection, route, surface, and caller.
+
+`EffectiveAuthorityAdmissionBundle` revision 2 requires an explicit
+`capabilityParticipation` state. A participating turn persists generation,
+catalog, candidate-projection, route, surface, caller, and linkage digests.
+Runtime rejects an absent or stale generation, a changed schema or executor
+identity, a name collision, an omitted authority candidate, a widened effect,
+unsupported data/network/retention/budget/artifact evidence, or any linkage
+contradiction. Generations invalidate monotonically; there is no mutable global
+registry and no post-admission reselection.
+
+The first executable vertical is the canonical direct CLI session over the
+configured verification producers. The CLI binds Core's exact verification
+input/output schemas to the attached Runtime executors and prepares a
+generation only when the composing surface explicitly identifies itself.
+Other surfaces do not infer support from shared configuration: an unsupported
+native or surface-local search request remains unavailable or fails closed.
+
+The permanent builtin `verification-evidence` skill is projected through the
+existing native-skill lifecycle to Codex, Claude Code, and OpenCode when enabled.
+It consumes `capability.search` and `capability.describe` when the current
+harness can reach the fabric. Otherwise it permits only repository-owned
+verification commands and labels their results as ordinary command evidence;
+skill presence never grants tool authority or selects a verifier.
+
 ## Invariants
 
 - Discovery is evidence, never execution authority.
@@ -265,6 +310,7 @@ no compatibility alias is read or honored.
 ## Implementation
 
 - Core catalog: `packages/core/src/capabilities/capability-catalog.ts`
+- Core deferred search: `packages/core/src/capabilities/capability-search.ts`
 - Verification discovery: `packages/core/src/capabilities/verification-capability-discovery.ts`
 - Harness compatibility discovery: `packages/core/src/capabilities/harness-compatibility-capability-discovery.ts`
 - MCP tool discovery: `packages/core/src/capabilities/mcp-tool-capability-discovery.ts`
@@ -277,6 +323,9 @@ no compatibility alias is read or honored.
 - CLI evidence projection: `packages/cli/src/config/verification/discovery.ts`
 - Public schema: `packages/gateway-contracts/src/capability-catalog.ts`
 - Runtime projection: `packages/runtime/src/capabilities/capability-catalog-projector.ts`
+- Runtime generation and materialization: `packages/runtime/src/capabilities/runtime-capability-composition.ts`
+- Canonical CLI composition: `packages/cli/src/application/canonical-run-session-dispatcher.ts`
+- Permanent verification skill: `packages/core/src/skill/builtin-skills.ts`
 - Core focused tests (8 files): `packages/core/tests/capabilities/capability-catalog.test.ts`, `capability-json-schema-safety.test.ts`, `harness-compatibility-capability-discovery.test.ts`, `mcp-tool-capability-discovery.test.ts`, `mcp-tool-capability-projection.test.ts`, `openapi-capability-discovery.test.ts`, `graphql-capability-discovery.test.ts`, and `packages/core/tests/mcp/mcp-config-resolution.test.ts`
 - Public contract tests: `packages/gateway-contracts/tests/capability-catalog.test.ts`
 - Projection tests: `packages/runtime/tests/capabilities/capability-catalog-projector.test.ts`

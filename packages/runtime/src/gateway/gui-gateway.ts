@@ -1036,6 +1036,7 @@ function wireOperatorTransport(
             candidateToolNames: deriveAttachedRuntimeToolAdmissionProjection(turnBuiltinToolSurface).candidateToolNames,
             workGovernance,
             operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+            capabilityParticipation: { status: "not-requested" },
             skillCatalog: defineOperatorSkillCatalogAdmission([]),
             authorityCeiling: admittedPerCallConfig.authorityContext!.sessionPolicy!,
           }),

@@ -3,9 +3,11 @@ import { normalizeActionEffectEnvelope } from "../engine/domain/action-effect.js
 import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 import { isProxy } from "node:util/types";
 import {
-  buildCapabilityCatalog,
+  buildAggregateCapabilityCatalog,
+  createCapabilityCatalogContribution,
   type CapabilityApprovalPosture,
   type CapabilityCatalogSnapshot,
+  type CapabilityCatalogContribution,
   type CapabilityCallerId,
   type CapabilityDataPosture,
   type CapabilityDescriptorCandidate,
@@ -19,9 +21,11 @@ import {
   type Sha256Digest,
 } from "./capability-catalog.js";
 import {
+  CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST,
+  CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST,
   DEFAULT_JSON_SCHEMA_SAFETY_LIMITS,
-  type JsonSchemaSafetyResult,
-  validateJsonSchemaSafety,
+  normalizeAndDigestCapabilityJsonSchema,
+  type CapabilityJsonSchemaDigestResult,
 } from "./capability-json-schema-safety.js";
 
 /** The only GraphQL specification revision admitted by this adapter. */
@@ -31,12 +35,8 @@ export const GRAPHQL_SPEC_REVISION = "September2025" as const;
 export const GRAPHQL_CAPABILITY_DISCOVERY_REVISION = "graphql-capability-discovery/v1" as const;
 
 /** Digests retained when a settled operation omits a required schema. */
-export const GRAPHQL_INPUT_SCHEMA_ABSENT_DIGEST = sha256(
-  `${GRAPHQL_CAPABILITY_DISCOVERY_REVISION}/input-schema/absent`,
-);
-export const GRAPHQL_OUTPUT_SCHEMA_ABSENT_DIGEST = sha256(
-  `${GRAPHQL_CAPABILITY_DISCOVERY_REVISION}/output-schema/absent`,
-);
+export const GRAPHQL_INPUT_SCHEMA_ABSENT_DIGEST = CAPABILITY_INPUT_SCHEMA_ABSENT_DIGEST as Sha256Digest;
+export const GRAPHQL_OUTPUT_SCHEMA_ABSENT_DIGEST = CAPABILITY_OUTPUT_SCHEMA_ABSENT_DIGEST as Sha256Digest;
 
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/u;
@@ -272,6 +272,7 @@ export interface GraphqlCapabilityDiscoveryResult {
   readonly specRevision: string;
   readonly candidates: readonly CapabilityDescriptorCandidate[];
   readonly diagnostics: readonly GraphqlCapabilityDiscoveryDiagnostic[];
+  readonly contribution: CapabilityCatalogContribution;
   readonly catalog: CapabilityCatalogSnapshot;
 }
 
@@ -504,10 +505,15 @@ export function discoverGraphqlCapabilities(
 
   candidates.sort(compareCandidates);
   const frozenCandidates = Object.freeze(candidates);
-  const catalog = buildCapabilityCatalog(
-    catalogEntries(frozenCandidates, rejectionStubs),
-    parsedInput.evaluatedAt,
-  );
+  const contribution = createCapabilityCatalogContribution({
+    sourceId: "graphql",
+    candidates: frozenCandidates,
+    rejections: rejectionStubs.map((stub) => ({
+      ...stub,
+      reason: "malformed-descriptor" as const,
+    })),
+  });
+  const catalog = buildAggregateCapabilityCatalog([contribution], parsedInput.evaluatedAt);
   const sortedDiagnostics = diagnostics
     .map((entry) => deepFreeze(entry))
     .sort(compareDiagnostics);
@@ -516,6 +522,7 @@ export function discoverGraphqlCapabilities(
     specRevision: snapshot.specRevision,
     candidates: frozenCandidates,
     diagnostics: Object.freeze(sortedDiagnostics),
+    contribution,
     catalog,
   });
 }
@@ -1149,7 +1156,9 @@ function inspectSchema(
     ));
     return { ok: false, digest: absentDigest };
   }
-  const checked = invalid ? { ok: false as const, reason: "malformed" as const } : validateSchema(value);
+  const checked = invalid
+    ? { ok: false as const, reason: "malformed" as const }
+    : validateSchema(value, direction);
   if (!checked.ok) {
     if (checked.reason === "reference") {
       diagnostics.push(diagnostic("schema_reference_rejected", operation.selector, operation.coordinate, binding.capabilityId, "GraphQL JSON Schema references are not resolved at this boundary."));
@@ -1164,7 +1173,7 @@ function inspectSchema(
     }
     return { ok: false, digest: absentDigest };
   }
-  return { ok: true, digest: sha256(stableStringify(checked.value)) };
+  return { ok: true, digest: checked.digest as Sha256Digest };
 }
 
 function buildCandidate(
@@ -1252,8 +1261,11 @@ function buildCandidate(
   };
 }
 
-function validateSchema(value: unknown): JsonSchemaSafetyResult {
-  return validateJsonSchemaSafety(value, {
+function validateSchema(
+  value: unknown,
+  direction: "input" | "output",
+): CapabilityJsonSchemaDigestResult {
+  return normalizeAndDigestCapabilityJsonSchema(value, direction, {
     referencePolicy: "none",
     requireSchemaDialect: true,
   });
@@ -1459,22 +1471,6 @@ function createRejectionStub(
 
 function appendRejectionStub(stubs: RejectionStub[], stub: RejectionStub): void {
   if (stubs.length < MAX_CATALOG_ENTRIES) stubs.push(stub);
-}
-
-function catalogEntries(
-  candidates: readonly CapabilityDescriptorCandidate[],
-  rejectionStubs: readonly RejectionStub[],
-): readonly unknown[] {
-  const remaining = Math.max(0, MAX_CATALOG_ENTRIES - candidates.length);
-  const sortedStubs = [...rejectionStubs]
-    .sort(compareRejectionStubs)
-    .slice(0, remaining);
-  return Object.freeze([...candidates, ...sortedStubs]);
-}
-
-function compareRejectionStubs(left: RejectionStub, right: RejectionStub): number {
-  return compareCodeUnits(left.capabilityId ?? "", right.capabilityId ?? "")
-    || compareCodeUnits(left.revision ?? "", right.revision ?? "");
 }
 
 function isSafeCapabilityId(value: string | undefined): value is string {

@@ -26,6 +26,7 @@ export function createMediaActionTestContext(): {
       authorityCeiling: { maximumAuthority: "read_only", reason: "media fixture", subjectId: "media-session" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
         sourcePolicy: "runtime_surface_projection", reason: "media fixture", completeness: "authoritative",

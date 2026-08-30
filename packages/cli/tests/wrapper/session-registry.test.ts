@@ -293,6 +293,7 @@ function hostEnforcedProviderConfig(
       authorityCeiling: { maximumAuthority: "read_only", reason: "test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
         sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative",
@@ -351,6 +352,7 @@ function modelOnlyProviderConfig(policy: KilnPermissionPolicy) {
       authorityCeiling: { maximumAuthority: "read_only", reason: "test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",

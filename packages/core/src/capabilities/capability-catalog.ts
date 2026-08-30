@@ -129,6 +129,31 @@ export interface CapabilityCatalogSnapshot {
   readonly decisions: readonly CapabilityCatalogDecision[];
 }
 
+/**
+ * A bounded, inert rejection reported by a discovery producer.
+ *
+ * Rejections are evidence, not authority. A producer can preserve a safe
+ * identity when it has one, but it cannot provide descriptor content for a
+ * rejected candidate. Core folds this evidence together with every candidate
+ * before it decides the aggregate catalog.
+ */
+export interface CapabilityCatalogRejectionEvidence {
+  readonly capabilityId?: string;
+  readonly revision?: string;
+  readonly descriptorDigest?: Sha256Digest;
+  readonly reason: Exclude<CapabilityCatalogReason, "eligible">;
+}
+
+/**
+ * Branded inert input from one discovery producer. The brand is process-local
+ * and deliberately does not survive serialization or copying.
+ */
+export interface CapabilityCatalogContribution {
+  readonly sourceId: string;
+  readonly candidates: readonly unknown[];
+  readonly rejections: readonly CapabilityCatalogRejectionEvidence[];
+}
+
 const CANDIDATE_KEYS = [
   "capabilityId", "revision", "kind", "owner", "inputSchemaDigest", "outputSchemaDigest",
   "artifacts", "effect", "permissions", "approval", "network", "data", "supportedCallers",
@@ -177,13 +202,30 @@ const SECRET_VALUE_PATTERNS = [
   /(?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S+/iu,
 ] as const;
 const AUTHENTIC_SNAPSHOTS = new WeakSet<CapabilityCatalogSnapshot>();
+const AUTHENTIC_CONTRIBUTIONS = new WeakSet<CapabilityCatalogContribution>();
 const MAX_CANDIDATE_INSPECTION_NODES = 1_024;
 const MAX_CANDIDATE_INSPECTION_DEPTH = 32;
 const MAX_CANDIDATE_STRING_UNITS = 16_384;
 const MAX_CATALOG_INSPECTION_NODES = 1_000_000;
 const MAX_CATALOG_STRING_UNITS = 12_000_000;
+const MAX_CATALOG_ENTRIES = 10_000;
+const MAX_CONTRIBUTION_ENTRIES = 10_000;
+const SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$/u;
+const CONTRIBUTION_KEYS = ["sourceId", "candidates", "rejections"] as const;
+const REJECTION_KEYS = ["capabilityId", "revision", "descriptorDigest", "reason"] as const;
+const REJECTION_REASONS = [
+  "duplicate-identity",
+  "revision-drift",
+  "schema-mismatch",
+  "unsupported-effect",
+  "stale-evidence",
+  "unavailable-evidence",
+  "contradictory-evidence",
+  "malformed-descriptor",
+  "secret-bearing-field",
+] as const satisfies readonly Exclude<CapabilityCatalogReason, "eligible">[];
 
-type SafeIdentity = Pick<CapabilityCatalogDecision, "capabilityId" | "revision">;
+type SafeIdentity = Pick<CapabilityCatalogDecision, "capabilityId" | "revision" | "descriptorDigest">;
 interface InspectionBudget {
   remainingNodes: number;
   remainingStringUnits: number;
@@ -198,17 +240,139 @@ type CandidateResult = {
   | { readonly decision: CapabilityCatalogDecision }
 );
 
+type CatalogEntry =
+  | { readonly kind: "candidate"; readonly value: unknown }
+  | { readonly kind: "rejection"; readonly evidence: CapabilityCatalogRejectionEvidence };
+
+/**
+ * Parse and freeze one producer contribution. The copy is made through data
+ * descriptors only, so no accessor, callback, proxy, or exotic object can
+ * cross the Core boundary. Rejected candidate values remain inert evidence and
+ * are evaluated by the aggregate builder, where their safe decision is made.
+ */
+export function createCapabilityCatalogContribution(input: unknown): CapabilityCatalogContribution {
+  let copied: unknown;
+  try {
+    copied = createInertSnapshot(input, {
+      remainingNodes: MAX_CATALOG_INSPECTION_NODES,
+      remainingStringUnits: MAX_CATALOG_STRING_UNITS,
+    }, {
+      maxNodes: MAX_CATALOG_INSPECTION_NODES,
+      maxDepth: MAX_CANDIDATE_INSPECTION_DEPTH,
+      maxStringUnits: MAX_CATALOG_STRING_UNITS,
+      arrayLengthLimit: (path) => path.length === 1
+        && (path[0] === "candidates" || path[0] === "rejections")
+        ? MAX_CONTRIBUTION_ENTRIES
+        : MAX_CANDIDATE_INSPECTION_NODES,
+    });
+  } catch {
+    throw new TypeError("Capability catalog contribution must contain bounded inert data.");
+  }
+  if (!isRecord(copied) || !hasExactKeys(copied, CONTRIBUTION_KEYS)) {
+    throw new TypeError("Capability catalog contribution has an unsupported shape.");
+  }
+  const sourceId = copied.sourceId;
+  if (typeof sourceId !== "string" || !SOURCE_ID_PATTERN.test(sourceId) || containsSecret(sourceId)) {
+    throw new TypeError("Capability catalog contribution sourceId is malformed.");
+  }
+  const candidates = copied.candidates;
+  if (!Array.isArray(candidates) || candidates.length > MAX_CONTRIBUTION_ENTRIES) {
+    throw new TypeError("Capability catalog contribution candidates exceed the bounded maximum.");
+  }
+  const rawRejections = copied.rejections;
+  if (!Array.isArray(rawRejections) || rawRejections.length > MAX_CONTRIBUTION_ENTRIES) {
+    throw new TypeError("Capability catalog contribution rejections exceed the bounded maximum.");
+  }
+  if (candidates.length + rawRejections.length > MAX_CATALOG_ENTRIES) {
+    throw new TypeError("Capability catalog contribution entries exceed the bounded maximum.");
+  }
+  const safeCandidates: unknown[] = [];
+  const rejections = rawRejections.map((value) => parseContributionRejection(value));
+  for (const candidate of candidates) {
+    if (containsSecret(candidate)) {
+      rejections.push({ reason: "secret-bearing-field" });
+    } else {
+      safeCandidates.push(candidate);
+    }
+  }
+  if (safeCandidates.length + rejections.length > MAX_CATALOG_ENTRIES) {
+    throw new TypeError("Capability catalog contribution entries exceed the bounded maximum.");
+  }
+  const sortedCandidates = safeCandidates
+    .sort((left, right) => compareCodeUnits(canonicalEntryKey(left), canonicalEntryKey(right)));
+  const sortedRejections = rejections
+    .sort((left, right) => compareCodeUnits(canonicalEntryKey(left), canonicalEntryKey(right)));
+  const contribution = deepFreeze({
+    sourceId,
+    candidates: sortedCandidates,
+    rejections: sortedRejections,
+  });
+  AUTHENTIC_CONTRIBUTIONS.add(contribution);
+  return contribution;
+}
+
+/** Returns only contributions created by Core's inert contribution parser. */
+export function assertCapabilityCatalogContribution(value: unknown): CapabilityCatalogContribution {
+  if (!value || typeof value !== "object" || !AUTHENTIC_CONTRIBUTIONS.has(value as CapabilityCatalogContribution)) {
+    throw new TypeError("Capability catalog contribution must be a Core-built contribution.");
+  }
+  return value as CapabilityCatalogContribution;
+}
+
+/**
+ * Build one catalog from every producer contribution. Contributions are
+ * ordered by their safe source identity before inspection, making budget
+ * consumption and replay independent of caller ordering.
+ */
+export function buildAggregateCapabilityCatalog(
+  contributions: readonly CapabilityCatalogContribution[],
+  evaluatedAt: string,
+): CapabilityCatalogSnapshot {
+  if (!Array.isArray(contributions)) throw new TypeError("Capability catalog contributions must be an array.");
+  if (contributions.length > MAX_CATALOG_ENTRIES) {
+    throw new TypeError("Capability catalog contributions exceed the bounded maximum.");
+  }
+  const authenticated = contributions.map(assertCapabilityCatalogContribution);
+  const sourceIds = new Set<string>();
+  for (const contribution of authenticated) {
+    if (sourceIds.has(contribution.sourceId)) {
+      throw new TypeError("Capability catalog contributions contain duplicate sourceId.");
+    }
+    sourceIds.add(contribution.sourceId);
+  }
+  const sortedContributions = [...authenticated].sort((left, right) => compareCodeUnits(left.sourceId, right.sourceId));
+  let totalEntries = 0;
+  for (const contribution of sortedContributions) {
+    totalEntries += contribution.candidates.length + contribution.rejections.length;
+    if (totalEntries > MAX_CATALOG_ENTRIES) {
+      throw new TypeError("Capability catalog contributions exceed the bounded maximum.");
+    }
+  }
+  const entries: CatalogEntry[] = [];
+  for (const contribution of sortedContributions) {
+    for (const candidate of contribution.candidates) entries.push({ kind: "candidate", value: candidate });
+    for (const rejection of contribution.rejections) entries.push({ kind: "rejection", evidence: rejection });
+  }
+  return buildCatalogEntries(entries, evaluatedAt);
+}
+
 export function buildCapabilityCatalog(candidates: readonly unknown[], evaluatedAt: string): CapabilityCatalogSnapshot {
+  return buildCatalogEntries(candidates.map((value) => ({ kind: "candidate" as const, value })), evaluatedAt);
+}
+
+function buildCatalogEntries(entries: readonly CatalogEntry[], evaluatedAt: string): CapabilityCatalogSnapshot {
   const evaluatedTime = parseCanonicalInstant(evaluatedAt);
   if (evaluatedTime === undefined) throw new TypeError("Capability catalog evaluatedAt must be a canonical ISO timestamp.");
-  if (!Array.isArray(candidates)) throw new TypeError("Capability catalog candidates must be an array.");
-  if (candidates.length > 10_000) throw new TypeError("Capability catalog candidates exceed the bounded maximum.");
+  if (!Array.isArray(entries)) throw new TypeError("Capability catalog entries must be an array.");
+  if (entries.length > MAX_CATALOG_ENTRIES) throw new TypeError("Capability catalog entries exceed the bounded maximum.");
 
   const inspectionBudget: InspectionBudget = {
     remainingNodes: MAX_CATALOG_INSPECTION_NODES,
     remainingStringUnits: MAX_CATALOG_STRING_UNITS,
   };
-  const parsed = candidates.map((value) => inspectAndParseCandidate(value, evaluatedTime, inspectionBudget));
+  const parsed = entries.map((entry) => entry.kind === "candidate"
+    ? inspectAndParseCandidate(entry.value, evaluatedTime, inspectionBudget)
+    : rejectionResult(entry.evidence));
   const standaloneDecisions: CapabilityCatalogDecision[] = [];
   const groups = new Map<string, CandidateResult[]>();
   for (const result of parsed) {
@@ -228,7 +392,7 @@ export function buildCapabilityCatalog(candidates: readonly unknown[], evaluated
     const first = group[0]!;
     if (group.length > 1) {
       const parsedGroup = group.filter(isParsedCandidate);
-      const reason = parsedGroup.length === group.length
+      const reason = parsedGroup.length > 1
         && new Set(parsedGroup.map((entry) => entry.descriptor.descriptorDigest)).size > 1
         ? "revision-drift"
         : "duplicate-identity";
@@ -292,6 +456,43 @@ function inspectAndParseCandidate(value: unknown, evaluatedTime: number, budget:
       decision: identityIneligible(safeIdentity, "malformed-descriptor"),
     };
   }
+}
+
+function rejectionResult(evidence: CapabilityCatalogRejectionEvidence): CandidateResult {
+  const publicIdentity: SafeIdentity = {
+    ...(evidence.capabilityId === undefined ? {} : { capabilityId: evidence.capabilityId }),
+    ...(evidence.revision === undefined ? {} : { revision: evidence.revision }),
+    ...(evidence.descriptorDigest === undefined ? {} : { descriptorDigest: evidence.descriptorDigest }),
+  };
+  return {
+    groupingKey: groupingKeyFor(publicIdentity),
+    publicIdentity,
+    secretBearing: evidence.reason === "secret-bearing-field",
+    decision: evidence.capabilityId === undefined && evidence.revision === undefined
+      ? bareIneligible(evidence.reason)
+      : identityIneligible(publicIdentity, evidence.reason),
+  };
+}
+
+function parseContributionRejection(value: unknown): CapabilityCatalogRejectionEvidence {
+  if (containsSecret(value)) return { reason: "secret-bearing-field" };
+  if (!isRecord(value) || !hasOnlyKeys(value, REJECTION_KEYS) || !Object.hasOwn(value, "reason")) {
+    return { reason: "malformed-descriptor" };
+  }
+  const capabilityId = value.capabilityId;
+  const revision = value.revision;
+  const descriptorDigest = value.descriptorDigest;
+  const reason = value.reason;
+  return {
+    ...(typeof capabilityId === "string" && CAPABILITY_ID_PATTERN.test(capabilityId) ? { capabilityId } : {}),
+    ...(typeof revision === "string" && REVISION_PATTERN.test(revision) ? { revision } : {}),
+    ...(typeof descriptorDigest === "string" && SHA256_PATTERN.test(descriptorDigest)
+      ? { descriptorDigest: descriptorDigest as Sha256Digest }
+      : {}),
+    reason: typeof reason === "string" && REJECTION_REASONS.includes(reason as typeof REJECTION_REASONS[number])
+      ? reason as Exclude<CapabilityCatalogReason, "eligible">
+      : "malformed-descriptor",
+  };
 }
 
 function parseCandidate(value: unknown, evaluatedTime: number): CandidateResult {
@@ -532,22 +733,37 @@ function groupingKeyFor(identity: SafeIdentity): string | undefined {
     : undefined;
 }
 
-function createInertSnapshot(value: unknown, budget: InspectionBudget): unknown {
+interface InertSnapshotLimits {
+  readonly maxNodes: number;
+  readonly maxDepth: number;
+  readonly maxStringUnits: number;
+  readonly arrayLengthLimit?: (path: readonly (string | number)[]) => number;
+}
+
+function createInertSnapshot(
+  value: unknown,
+  budget: InspectionBudget,
+  limits: InertSnapshotLimits = {
+    maxNodes: MAX_CANDIDATE_INSPECTION_NODES,
+    maxDepth: MAX_CANDIDATE_INSPECTION_DEPTH,
+    maxStringUnits: MAX_CANDIDATE_STRING_UNITS,
+  },
+): unknown {
   const seen = new WeakSet<object>();
   const local = { nodes: 0, stringUnits: 0 };
 
-  const snapshot = (current: unknown, depth: number): unknown => {
+  const snapshot = (current: unknown, depth: number, path: readonly (string | number)[]): unknown => {
     local.nodes += 1;
     budget.remainingNodes -= 1;
     if (budget.remainingNodes < 0) throw new CatalogInspectionBudgetError();
-    if (local.nodes > MAX_CANDIDATE_INSPECTION_NODES || depth > MAX_CANDIDATE_INSPECTION_DEPTH) {
+    if (local.nodes > limits.maxNodes || depth > limits.maxDepth) {
       throw new CandidateInspectionError();
     }
     if (typeof current === "string") {
       local.stringUnits += current.length;
       budget.remainingStringUnits -= current.length;
       if (budget.remainingStringUnits < 0) throw new CatalogInspectionBudgetError();
-      if (local.stringUnits > MAX_CANDIDATE_STRING_UNITS) throw new CandidateInspectionError();
+      if (local.stringUnits > limits.maxStringUnits) throw new CandidateInspectionError();
       return current;
     }
     if (current === null || typeof current === "boolean" || typeof current === "number" || current === undefined) {
@@ -563,8 +779,9 @@ function createInertSnapshot(value: unknown, budget: InspectionBudget): unknown 
       const descriptors = Object.getOwnPropertyDescriptors(current) as unknown as Record<PropertyKey, PropertyDescriptor>;
       const lengthDescriptor = descriptors.length;
       const arrayLength = lengthDescriptor?.value;
+      const maxArrayLength = limits.arrayLengthLimit?.(path) ?? MAX_CANDIDATE_INSPECTION_NODES;
       if (!lengthDescriptor || !("value" in lengthDescriptor) || !Number.isSafeInteger(arrayLength)
-        || typeof arrayLength !== "number" || arrayLength < 0 || arrayLength > MAX_CANDIDATE_INSPECTION_NODES) {
+        || typeof arrayLength !== "number" || arrayLength < 0 || arrayLength > maxArrayLength) {
         throw new CandidateInspectionError();
       }
       const keys = Reflect.ownKeys(descriptors);
@@ -575,7 +792,7 @@ function createInertSnapshot(value: unknown, budget: InspectionBudget): unknown 
       for (let index = 0; index < arrayLength; index++) {
         const descriptor = descriptors[String(index)];
         if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw new CandidateInspectionError();
-        result.push(snapshot(descriptor.value, depth + 1));
+        result.push(snapshot(descriptor.value, depth + 1, [...path, index]));
       }
       if (keys.length !== arrayLength + 1) throw new CandidateInspectionError();
       return result;
@@ -590,7 +807,7 @@ function createInertSnapshot(value: unknown, budget: InspectionBudget): unknown 
       const descriptor = descriptors[key];
       if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw new CandidateInspectionError();
       Object.defineProperty(result, key, {
-        value: snapshot(descriptor.value, depth + 1),
+        value: snapshot(descriptor.value, depth + 1, [...path, key]),
         enumerable: true,
         configurable: true,
         writable: true,
@@ -599,7 +816,7 @@ function createInertSnapshot(value: unknown, budget: InspectionBudget): unknown 
     return result;
   };
 
-  return snapshot(value, 0);
+  return snapshot(value, 0, []);
 }
 
 function containsSecret(value: unknown): boolean {
@@ -690,6 +907,10 @@ function hasExactKeys(value: Record<string, unknown>, allowed: readonly string[]
   return keys.every((key) => allowed.includes(key)) && allowed.every((key) => key in value || key === "schemaDigest");
 }
 
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -703,6 +924,10 @@ function stableStringify(value: unknown): string {
     .filter(([, entry]) => entry !== undefined)
     .sort(([left], [right]) => compareCodeUnits(left, right));
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+}
+
+function canonicalEntryKey(value: unknown): string {
+  return stableStringify(value) ?? "undefined";
 }
 
 function compareCodeUnits(left: string, right: string): number {

@@ -212,6 +212,7 @@ function taskAuthorityAdmission() {
       authorityCeiling: { maximumAuthority: "destructive", reason: "Synthetic operator task test admission." },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "destructive",

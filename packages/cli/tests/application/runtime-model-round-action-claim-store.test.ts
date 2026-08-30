@@ -28,6 +28,7 @@ function admission(): RuntimeModelRoundAdmissionReceipt {
     configuration: { sessionRevision: revision, turnRevision: revision },
     session: { skillCatalog: { catalogId: "test", revision: "test", skillIds: [] }, authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "session-1" } },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: { executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed", sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative", toolCount: 0, deniedToolCount: 0, sandboxProjection: "read_only" },
       workGovernance: { status: "not-required" },
       operatorAdoption: { status: "admitted", decision: createOperatorAdoptionDecisionAuthority({ ownerSessionId: "session-1", operatorTurnId: turnId, actorId: "user-1" }) },

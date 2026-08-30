@@ -23,6 +23,7 @@ function admission(): RuntimeModelRoundAdmissionReceipt {
       authorityCeiling: { maximumAuthority: "read_only", reason: "test", subjectId: "session-1" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
         sourcePolicy: "runtime_surface_projection", reason: "test", completeness: "authoritative",

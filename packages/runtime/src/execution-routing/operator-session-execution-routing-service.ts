@@ -28,6 +28,10 @@ import {
   type TurnBudgetAdmission,
 } from "../session/effective-authority-admission-bundle.js";
 import { evaluateExecutionTargetDataPolicy, type SanitizedExecutionTargetDataPolicyDecision } from "./execution-target-data-policy-authority.js";
+import {
+  createCapabilityParticipationForAuthorityProjection,
+  type RuntimeCapabilityAuthorityCandidateProjection,
+} from "../capabilities/runtime-capability-composition.js";
 
 /** Candidate evidence is prepared without resolving credential material or constructing a provider adapter. */
 export interface OperatorSessionExecutionCandidate {
@@ -94,6 +98,7 @@ export interface OperatorSessionAuthorityAdmissionFacets {
   readonly sessionRevision: RuntimeConfigurationRevisionSnapshot;
   readonly session: EffectiveAuthorityAdmissionBundleInput["session"];
   readonly turn: Omit<EffectiveAuthorityAdmissionBundleInput["turn"], "execution" | "budget">;
+  readonly capabilityCandidateProjection?: RuntimeCapabilityAuthorityCandidateProjection;
   readonly economicCommitment?: EconomicCommitmentReference;
 }
 
@@ -299,10 +304,18 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
         throw new OperatorSessionExecutionRoutingError(`Execution target data policy denied execution: ${dataPolicy.decision.reason}.`);
       }
       const facets = await this.#options.authorityAdmission.prepare({ request, admission, snapshot, binding, dataPolicy });
+      const admittedAt = this.#now().toISOString();
+      const execution = {
+        status: "routed" as const,
+        target: admission,
+        dataPolicy,
+        binding,
+        ...(facets.economicCommitment ? { economicCommitment: facets.economicCommitment } : {}),
+      };
       authorityAdmission = defineEffectiveAuthorityAdmissionBundle({
         sessionId: facets.sessionId,
         turnId: facets.turnId,
-        admittedAt: this.#now().toISOString(),
+        admittedAt,
         configuration: {
           sessionRevision: facets.sessionRevision,
           turnRevision: snapshot.configurationRevision,
@@ -312,16 +325,17 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
           authority: facets.turn.authority,
           workGovernance: facets.turn.workGovernance,
           operatorAdoption: facets.turn.operatorAdoption,
+          capabilityParticipation: facets.capabilityCandidateProjection === undefined
+            ? { status: "not-requested" }
+            : createCapabilityParticipationForAuthorityProjection({
+                projection: facets.capabilityCandidateProjection,
+                admittedAt,
+                execution,
+              }),
           tools: facets.turn.tools,
           effectCeiling: facets.turn.effectCeiling,
           budget: budgetAdmission,
-          execution: {
-            status: "routed",
-            target: admission,
-            dataPolicy,
-            binding,
-            ...(facets.economicCommitment ? { economicCommitment: facets.economicCommitment } : {}),
-          },
+          execution,
         },
       });
       await this.#options.authorityAdmission.persist(authorityAdmission);

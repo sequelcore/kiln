@@ -25,6 +25,7 @@ function makeBundle(turnId = "turn-1", turnRevision = "r2", sessionRevision = "s
       authorityCeiling: { maximumAuthority: "audited", reason: "operator policy", subjectId: "session-1" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "audited", admittedAuthority: "audited",
         sourcePolicy: "runtime_surface_projection", reason: "admitted", completeness: "authoritative",

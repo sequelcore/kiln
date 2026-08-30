@@ -240,6 +240,7 @@ function makePipelineFixtureAdmission(session: RuntimeSession, turnId = resolveC
       authorityCeiling: { maximumAuthority: "read_only", reason: "Message-pipeline fixture admission", subjectId: session.id },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "read_only",
@@ -310,6 +311,7 @@ function makeMediaAdmission(session: RuntimeSession): Pick<AdmittedTurnContext, 
       authorityCeiling: { maximumAuthority: "read_only", reason: "Media test admission", subjectId: session.id },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "read_only",
         sourcePolicy: "runtime_surface_projection", reason: "Media test admission", completeness: "authoritative",
@@ -465,6 +467,7 @@ describe("processAdmittedTurn", () => {
         authorityCeiling: { maximumAuthority: "read_only", reason: "test session ceiling", subjectId: session.id },
       },
       turn: {
+        capabilityParticipation: { status: "not-requested" },
         authority,
         workGovernance: { status: "not-required" },
         operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },

@@ -151,6 +151,7 @@ export class FixedTargetGatewayAuthorityAdmission<Credential = unknown> implemen
             authorityCeiling: { maximumAuthority: "read_only", reason: "App Gateway model-only session ceiling." },
             workGovernance: { status: "not-required" },
             operatorAdoption: { status: "admitted", decision: adoption.operatorAdoptionDecision },
+            capabilityParticipation: { status: "not-requested" },
             effectCeiling: gatewayTurnEffectCeiling(request.payload.channel),
           }),
           prepared: { session, perCallConfig },

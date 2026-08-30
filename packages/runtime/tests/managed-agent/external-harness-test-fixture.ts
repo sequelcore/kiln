@@ -47,6 +47,7 @@ export function externalHarnessTestAdmission(): EffectiveAuthorityAdmissionBundl
       authorityCeiling: { maximumAuthority: "audited", reason: "managed harness test" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "audited",

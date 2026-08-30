@@ -25,6 +25,7 @@ function bundle(): EffectiveAuthorityAdmissionBundle {
       authorityCeiling: { maximumAuthority: "read_only", reason: "channel egress test", subjectId: "session-1" },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute", requestedAuthority: "read_only", admittedAuthority: "fail_closed",
         sourcePolicy: "runtime_surface_projection", reason: "channel egress test", completeness: "authoritative",

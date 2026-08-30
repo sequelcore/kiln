@@ -3,11 +3,13 @@ import type {
   ActionEffectEnvelope,
   AdmittedExecutionTarget,
   AuthorityDescriptor,
+  ExecutionDataClassification,
   EffectiveTurnAuthoritySnapshot,
   ExecutionSessionBindingEvidence,
   OperatorAdoptionDecisionAuthority,
   SessionTokenUsageObservation,
 } from "@kilnai/core";
+import type { CapabilityCallerId, Sha256Digest } from "@kilnai/core/capabilities";
 import type { BoundHostToolSandboxAdmission } from "@kilnai/core/sandbox";
 import {
   deterministicOperatorAdoptionDecisionId,
@@ -235,6 +237,26 @@ export type ExecutionAdmission =
       readonly economicCommitment?: EconomicCommitmentReference;
     };
 
+/**
+ * Capability participation is part of the durable turn authority.  A
+ * generation-linked turn records only the public, content-addressed evidence
+ * needed to prove which prepared generation participated; it never carries a
+ * schema, executor, credential, or another permission source.
+ */
+export type CapabilityParticipation =
+  | { readonly status: "not-requested" }
+  | {
+      readonly schemaRevision: 1;
+      readonly status: "generation-linked";
+      readonly generationId: Sha256Digest;
+      readonly catalogDigest: Sha256Digest;
+      readonly candidateProjectionDigest: Sha256Digest;
+      readonly surfaceDigest: Sha256Digest;
+      readonly routeDigest: Sha256Digest;
+      readonly caller: CapabilityCallerId;
+      readonly evidenceDigest: Sha256Digest;
+    };
+
 export interface EffectiveAuthorityAdmissionBundleInput {
   readonly sessionId: string;
   readonly turnId: string;
@@ -251,6 +273,8 @@ export interface EffectiveAuthorityAdmissionBundleInput {
     readonly authority: EffectiveTurnAuthoritySnapshot;
     readonly workGovernance: WorkGovernanceAdmission;
     readonly operatorAdoption: OperatorAdoptionAdmission;
+    /** Required state describing whether deferred capabilities participate. */
+    readonly capabilityParticipation: CapabilityParticipation;
     readonly tools: ToolPermissionAdmission;
     /** Explicit normalized maximum effect for every admitted tool in this turn. */
     readonly effectCeiling: ActionEffectEnvelope;
@@ -260,9 +284,39 @@ export interface EffectiveAuthorityAdmissionBundleInput {
 }
 
 export interface EffectiveAuthorityAdmissionBundle extends EffectiveAuthorityAdmissionBundleInput {
-  readonly schemaRevision: 1;
+  readonly schemaRevision: typeof EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION;
   /** Digest of the canonical bundle body; never of credential material. */
   readonly admissionId: `sha256:${string}`;
+}
+
+/** Durable replacement revision. Persisted revision 1 admissions are invalid. */
+export const EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION = 2 as const;
+
+/**
+ * Computes the route evidence identity used by capability participation. The
+ * route digest is derived from the already-admitted target and binding; it is
+ * not a route selector and does not grant authority.
+ */
+export function deriveAuthorityRouteDigest(input: {
+  readonly admittedAt: string;
+  readonly execution: ExecutionAdmission;
+}): Sha256Digest {
+  if (!isAuthoritativeRouteEvidence(input)) {
+    throw new TypeError("Capability authority linkage requires current routed authority evidence.");
+  }
+  const execution = input.execution;
+  if (execution.status !== "routed") {
+    throw new TypeError("Capability authority route is not routed.");
+  }
+  return digestCanonical({
+    targetId: execution.target.targetId,
+    providerId: execution.target.providerId,
+    providerModelId: execution.target.providerModelId,
+    routeId: execution.binding.routeId,
+    accountId: execution.binding.accountId,
+    credentialId: execution.binding.credentialId,
+    credentialRevision: execution.binding.credentialRevision,
+  });
 }
 
 /**
@@ -274,6 +328,15 @@ export function defineEffectiveAuthorityAdmissionBundle(
   input: EffectiveAuthorityAdmissionBundleInput,
 ): EffectiveAuthorityAdmissionBundle {
   assertSerializableAdmissionValue(input, "bundle");
+  const suppliedSchemaRevision = isPlainRecord(input)
+    ? input.schemaRevision
+    : undefined;
+  if (suppliedSchemaRevision !== undefined
+    && suppliedSchemaRevision !== EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION) {
+    throw new TypeError(
+      `Authority admission schema revision ${String(suppliedSchemaRevision)} is unsupported; expected ${EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION}.`,
+    );
+  }
   required(input.sessionId, "sessionId");
   required(input.turnId, "turnId");
   instant(input.admittedAt, "admittedAt");
@@ -282,6 +345,7 @@ export function defineEffectiveAuthorityAdmissionBundle(
   const turnRevision = normalizeRuntimeConfigurationRevision(input.configuration.turnRevision);
   const allowedToolPermissions = normalizedToolPermissions(input.turn.tools.allowedToolPermissions);
   const deniedToolNames = normalizedUniqueNames(input.turn.tools.deniedToolNames, "turn.tools.deniedToolNames");
+  const capabilityParticipation = normalizeCapabilityParticipation(input.turn.capabilityParticipation);
   const effectCeiling = normalizeDeclaredEffectEnvelope(input.turn.effectCeiling, "turn");
   const callerOwnedToolContract = input.turn.tools.callerOwnedToolContract === undefined
     ? undefined
@@ -297,6 +361,7 @@ export function defineEffectiveAuthorityAdmissionBundle(
   validateToolPermissions(input.turn.authority, allowedToolPermissions, deniedToolNames, effectCeiling);
   validateOwnerReferences(input);
   const execution = input.turn.execution;
+  validateCapabilityParticipation(capabilityParticipation, execution, input.admittedAt);
   if (execution.status === "routed") {
     if (execution.dataPolicy.decision.status !== "admitted") {
       throw new TypeError("A routed authority admission bundle requires an admitted data-policy decision.");
@@ -309,8 +374,10 @@ export function defineEffectiveAuthorityAdmissionBundle(
     required(execution.binding.credentialRevision, "execution.binding.credentialRevision");
   }
 
-  const body: EffectiveAuthorityAdmissionBundleInput & { readonly schemaRevision: 1 } = {
-    schemaRevision: 1,
+  const body: EffectiveAuthorityAdmissionBundleInput & {
+    readonly schemaRevision: typeof EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION;
+  } = {
+    schemaRevision: EFFECTIVE_AUTHORITY_ADMISSION_SCHEMA_REVISION,
     sessionId: required(input.sessionId, "sessionId"),
     turnId: required(input.turnId, "turnId"),
     admittedAt: input.admittedAt,
@@ -330,6 +397,7 @@ export function defineEffectiveAuthorityAdmissionBundle(
       authority: input.turn.authority,
       workGovernance: input.turn.workGovernance,
       operatorAdoption: input.turn.operatorAdoption,
+      capabilityParticipation,
       tools: {
         allowedToolPermissions,
         deniedToolNames,
@@ -362,6 +430,101 @@ function normalizeHostToolEnforcement(value: unknown): BoundHostToolSandboxAdmis
     throw new TypeError("turn.tools.hostEnforcement must contain canonical secret-free host sandbox evidence.");
   }
   return clonePlain(value) as unknown as BoundHostToolSandboxAdmission;
+}
+
+function normalizeCapabilityParticipation(value: unknown): CapabilityParticipation {
+  if (!isPlainRecord(value)) {
+    throw new TypeError("turn.capabilityParticipation must be an explicit state.");
+  }
+  if (value.status === "not-requested") {
+    if (!hasOnlyKeys(value, ["status"])) {
+      throw new TypeError("turn.capabilityParticipation not-requested state contains unexpected evidence.");
+    }
+    return Object.freeze({ status: "not-requested" });
+  }
+  if (value.status !== "generation-linked"
+    || !hasOnlyKeys(value, [
+      "schemaRevision", "status", "generationId", "catalogDigest", "candidateProjectionDigest",
+      "surfaceDigest", "routeDigest", "caller", "evidenceDigest",
+    ])
+    || value.schemaRevision !== 1
+    || !isDigest(value.generationId)
+    || !isDigest(value.catalogDigest)
+    || !isDigest(value.candidateProjectionDigest)
+    || !isDigest(value.surfaceDigest)
+    || !isDigest(value.routeDigest)
+    || !isCapabilityCaller(value.caller)
+    || !isDigest(value.evidenceDigest)) {
+    throw new TypeError("turn.capabilityParticipation generation-linked state is malformed.");
+  }
+  const body = {
+    schemaRevision: 1 as const,
+    status: "generation-linked" as const,
+    generationId: value.generationId,
+    catalogDigest: value.catalogDigest,
+    candidateProjectionDigest: value.candidateProjectionDigest,
+    surfaceDigest: value.surfaceDigest,
+    routeDigest: value.routeDigest,
+    caller: value.caller,
+  } satisfies Omit<Extract<CapabilityParticipation, { readonly status: "generation-linked" }>, "evidenceDigest">;
+  if (value.evidenceDigest !== digestCanonical(body)) {
+    throw new TypeError("turn.capabilityParticipation evidence digest does not match its linkage.");
+  }
+  return Object.freeze({ ...body, evidenceDigest: value.evidenceDigest });
+}
+
+function validateCapabilityParticipation(
+  participation: CapabilityParticipation,
+  execution: ExecutionAdmission,
+  admittedAt: string,
+): void {
+  if (participation.status === "not-requested") return;
+  const routeDigest = deriveAuthorityRouteDigest({ admittedAt, execution });
+  if (routeDigest !== participation.routeDigest) {
+    throw new TypeError("turn.capabilityParticipation route evidence does not match the admitted execution.");
+  }
+}
+
+function isCapabilityCaller(value: unknown): value is CapabilityCallerId {
+  return value === "kiln-runtime"
+    || value === "kiln-cli"
+    || value === "kiln-gui"
+    || value === "kiln-tui"
+    || value === "kiln-sdk"
+    || value === "kiln-widget"
+    || value === "codex"
+    || value === "claude"
+    || value === "opencode-v2";
+}
+
+function isAuthoritativeRouteEvidence(input: {
+  readonly admittedAt: string;
+  readonly execution: ExecutionAdmission;
+}): boolean {
+  const execution = input.execution;
+  if (execution.status !== "routed" || execution.target.targetId !== execution.binding.routeId) return false;
+  const policy = execution.dataPolicy;
+  const evidence = policy.evidence;
+  return policy.decision.status === "admitted"
+    && policy.decision.freshness === "current"
+    && policy.decision.reason === "policy-admitted"
+    && evidence !== undefined
+    && evidence.providerId === execution.target.providerId
+    && evidence.providerModelId === execution.target.providerModelId
+    && canonicalInstantOrUndefined(evidence.observedAt) !== undefined
+    && canonicalInstantOrUndefined(evidence.expiresAt) !== undefined
+    && Date.parse(evidence.observedAt) <= Date.parse(input.admittedAt)
+    && Date.parse(evidence.expiresAt) > Date.parse(input.admittedAt)
+    && isExecutionDataClassification(evidence.maximumClassification);
+}
+
+function isExecutionDataClassification(value: unknown): value is ExecutionDataClassification {
+  return value === "public" || value === "internal" || value === "confidential" || value === "restricted";
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const allowed = new Set(keys);
+  return Object.keys(value).every((key) => allowed.has(key));
 }
 
 function isDigest(value: unknown): value is `sha256:${string}` {
@@ -598,6 +761,14 @@ function instant(value: string, label: string): void {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new TypeError(`${label} must be an ISO timestamp.`);
 }
 
+function canonicalInstantOrUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
+    || Number.isNaN(Date.parse(value))
+    || new Date(value).toISOString() !== value) return undefined;
+  return value;
+}
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (isPlainRecord(value)) {
@@ -607,6 +778,10 @@ function stableStringify(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function digestCanonical(value: unknown): Sha256Digest {
+  return `sha256:${createHash("sha256").update(stableStringify(value), "utf8").digest("hex")}`;
 }
 
 function clonePlain<T>(value: T): T {

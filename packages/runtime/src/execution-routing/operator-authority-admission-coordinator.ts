@@ -1,4 +1,9 @@
 import type { SessionTurnBudgetDecision } from "@kilnai/core";
+import { isValidNarrowing } from "@kilnai/core/engine";
+import {
+  assertRuntimeCapabilityAuthorityCandidateProjection,
+  type RuntimeCapabilityAuthorityCandidateProjection,
+} from "../capabilities/runtime-capability-composition.js";
 import type { AuthorityAdmissionEvidenceStore } from "../session/authority-admission-evidence.js";
 import {
   assertPersistableAuthorityAdmissionBundle,
@@ -36,9 +41,12 @@ export interface OperatorAuthorityAdmissionCoordinatorOptions<Payload, Prepared>
   ) => {
     readonly facets: OperatorSessionAuthorityAdmissionFacets;
     readonly prepared: Prepared;
+    /** Complete public candidate projection captured before bundle computation. */
+    readonly capabilityCandidateProjection?: RuntimeCapabilityAuthorityCandidateProjection;
   } | Promise<{
     readonly facets: OperatorSessionAuthorityAdmissionFacets;
     readonly prepared: Prepared;
+    readonly capabilityCandidateProjection?: RuntimeCapabilityAuthorityCandidateProjection;
   }>;
   readonly saveSession: (session: RuntimeSession) => void | Promise<void>;
   readonly evidenceStore: AuthorityAdmissionEvidenceStore;
@@ -53,6 +61,7 @@ type AdmissionState<Payload, Prepared> = {
   phase: "reserved" | "prepared" | "persisted";
   facets?: OperatorSessionAuthorityAdmissionFacets;
   prepared?: Prepared;
+  capabilityCandidateProjection?: RuntimeCapabilityAuthorityCandidateProjection;
   admissionId?: string;
   sessionSaved?: boolean;
 };
@@ -104,6 +113,9 @@ implements OperatorSessionAuthorityAdmissionPort<Payload> {
     }
     const result = await this.options.prepare({ ...input, session: state.session });
     state.prepared = result.prepared;
+    state.capabilityCandidateProjection = result.capabilityCandidateProjection === undefined
+      ? undefined
+      : assertRuntimeCapabilityAuthorityCandidateProjection(result.capabilityCandidateProjection);
     try {
       if (result.facets.sessionId !== state.session.id) {
         throw new Error("Prepared authority facets do not belong to the reserved Runtime session.");
@@ -131,7 +143,9 @@ implements OperatorSessionAuthorityAdmissionPort<Payload> {
       state.facets = result.facets;
       state.phase = "prepared";
       this.#executionIdsByTurnId.set(result.facets.turnId, input.request.executionId);
-      return result.facets;
+    return state.capabilityCandidateProjection === undefined
+      ? result.facets
+      : { ...result.facets, capabilityCandidateProjection: state.capabilityCandidateProjection };
     } catch (error) {
       this.#states.delete(input.request.executionId);
       await this.options.discardPrepared?.(result.prepared);
@@ -144,6 +158,7 @@ implements OperatorSessionAuthorityAdmissionPort<Payload> {
     if (!executionId) throw new Error(`Authority admission for canonical turn ${bundle.turnId} is not prepared.`);
     const state = this.#requireState(executionId, "prepared");
     const admitted = assertPersistableAuthorityAdmissionBundle(bundle);
+    validateCapabilityAdmissionProjection(admitted, state.capabilityCandidateProjection);
     if (admitted.sessionId !== state.session.id
       || JSON.stringify(admitted.turn.budget) !== JSON.stringify(state.budget)) {
       throw new Error("Persisted authority bundle does not match its reserved session and budget admission.");
@@ -190,6 +205,49 @@ implements OperatorSessionAuthorityAdmissionPort<Payload> {
     const state = this.#states.get(executionId);
     if (!state || state.phase !== phase) throw new Error(`Authority admission ${executionId} is not ${phase}.`);
     return state;
+  }
+}
+
+function validateCapabilityAdmissionProjection(
+  bundle: EffectiveAuthorityAdmissionBundle,
+  projection: RuntimeCapabilityAuthorityCandidateProjection | undefined,
+): void {
+  const participation = bundle.turn.capabilityParticipation;
+  if (participation.status === "not-requested") {
+    if (projection !== undefined) {
+      throw new Error("A not-requested capability admission cannot carry a candidate projection.");
+    }
+    return;
+  }
+  if (projection === undefined) {
+    throw new Error("A generation-linked capability admission requires its prepared candidate projection.");
+  }
+  if (projection.generationId !== participation.generationId
+    || projection.catalogDigest !== participation.catalogDigest
+    || projection.candidateProjectionDigest !== participation.candidateProjectionDigest
+    || projection.surfaceDigest !== participation.surfaceDigest
+    || projection.caller !== participation.caller) {
+    throw new Error("Prepared capability candidate projection does not match the authority admission linkage.");
+  }
+  const allowedByName = new Map(bundle.turn.tools.allowedToolPermissions.map((entry) => [entry.toolName, entry] as const));
+  const admittedNames = new Set([
+    ...allowedByName.keys(),
+    ...bundle.turn.tools.deniedToolNames,
+  ]);
+  for (const toolName of projection.discoveryToolNames) {
+    if (!admittedNames.has(toolName)) {
+      throw new Error(`Capability discovery tool "${toolName}" is omitted from the authority allowlist projection.`);
+    }
+  }
+  for (const candidate of projection.candidates) {
+    if (candidate.toolName === undefined) continue;
+    if (!admittedNames.has(candidate.toolName)) {
+      throw new Error(`Capability candidate tool "${candidate.toolName}" is omitted from the authority allowlist projection.`);
+    }
+    const permission = allowedByName.get(candidate.toolName);
+    if (permission !== undefined && !isValidNarrowing(candidate.effect, permission.effectEnvelope)) {
+      throw new Error(`Capability candidate tool "${candidate.toolName}" exceeds its admitted effect ceiling.`);
+    }
   }
 }
 

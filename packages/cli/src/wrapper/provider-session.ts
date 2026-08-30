@@ -70,8 +70,20 @@ import {
 import type { DirectProviderCredentialBinding } from "./direct-provider-adapter-factory.js";
 import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
 import type { AttachedRuntimeBuiltinToolSurfaceOptions } from "@kilnai/runtime";
+import {
+  createRuntimeCapabilityCompositionFactory,
+  type RuntimeCapabilityGeneration,
+  type RuntimeCapabilityMaterializationRecord,
+} from "@kilnai/runtime";
+import {
+  buildAggregateCapabilityCatalog,
+  VERIFICATION_CAPABILITY_IDS,
+  type CapabilityCatalogContribution,
+  type VerificationCapabilityToolSchema,
+} from "@kilnai/core/capabilities";
 import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
 import { assertConfiguredInvocationAdmission } from "../config/builtin-tool-surface-config.js";
+import { deriveProjectRuntimeId } from "../application/project-state-root.js";
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
@@ -93,7 +105,16 @@ export interface ProviderSessionConfig {
   readonly executionMode?: DirectProviderExecutionMode;
   readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
   readonly operatorSurface?: OperatorSurfaceController;
-  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions & {
+    readonly capabilityEvaluatedAt?: string;
+    readonly capabilityContributions?: readonly CapabilityCatalogContribution[];
+    readonly capabilityToolSchemas?: readonly VerificationCapabilityToolSchema[];
+  };
+  /** Explicit surface ownership required before this wrapper may prepare a capability generation. */
+  readonly capabilityComposition?: {
+    readonly appId: string;
+    readonly surfaceId: string;
+  };
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly runtimeExecutionMode?: "execute" | "plan";
@@ -110,6 +131,7 @@ export interface ProviderSessionConfig {
     readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
     readonly mcpClients: readonly KilnMcpClient[];
     readonly mcpCapabilities: readonly Capability[];
+    readonly capabilityGeneration?: RuntimeCapabilityGeneration;
     readonly perCallConfig: PerCallToolConfig;
   };
 }
@@ -290,6 +312,7 @@ export class ProviderSession implements IKilnSession {
   private _runtimeModelRoundClaimed = false;
   private _runtimeModelRoundOutcome: "unknown" | undefined;
   private readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
+  private readonly capabilityGeneration?: RuntimeCapabilityGeneration;
   private disposePromise?: Promise<void>;
 
   constructor(config: ProviderSessionConfig) {
@@ -329,12 +352,18 @@ export class ProviderSession implements IKilnSession {
       ...builtinToolSurface.materializableCapabilities,
       ...builtinToolSurface.capabilities,
     ]);
+    this.capabilityGeneration = config.authorityAdmissionContext?.capabilityGeneration
+      ?? createConfiguredCapabilityGeneration(config, builtinToolSurface);
     this.eventBus = new EventBus(100);
     this._capabilities = deriveCapabilities(
       config,
       builtinToolSurface.toolDefinitions,
       this.materializableTools,
     );
+  }
+
+  get authorityCapabilityGeneration(): RuntimeCapabilityGeneration | undefined {
+    return this.capabilityGeneration;
   }
 
   /** Exposes the canonical per-call projection for the admission composition owner. */
@@ -803,6 +832,7 @@ export class ProviderSession implements IKilnSession {
       eventBus: this.eventBus,
       toolAuthorizer: authorizer,
       capabilityMap: isTextOnly ? new Map() : new Map([...this.capabilityMap, ...externalCapabilityMap]),
+      ...(!isTextOnly && this.capabilityGeneration ? { capabilityGeneration: this.capabilityGeneration } : {}),
       ...(!isTextOnly && this.config.mcpClients && this.config.mcpClients.length > 0
         ? { mcpClients: this.config.mcpClients }
         : {}),
@@ -1024,6 +1054,83 @@ export class ProviderSession implements IKilnSession {
       isPreflightCrash: false,
     };
   }
+}
+
+function createConfiguredCapabilityGeneration(
+  config: ProviderSessionConfig,
+  surface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>,
+): RuntimeCapabilityGeneration | undefined {
+  const contributions = config.builtinToolOptions?.capabilityContributions;
+  const evaluatedAt = config.builtinToolOptions?.capabilityEvaluatedAt;
+  const composition = config.capabilityComposition;
+  const toolSchemas = config.builtinToolOptions?.capabilityToolSchemas;
+  if (!contributions || contributions.length === 0 || !evaluatedAt || !composition || !toolSchemas) return undefined;
+  const tools = new Map<string, ToolDefinition>([
+    ...surface.toolDefinitions.map((tool) => [tool.name, tool] as const),
+    ...surface.materializableTools,
+  ]);
+  const materializations: RuntimeCapabilityMaterializationRecord[] = [];
+  const verificationNames = Object.entries(VERIFICATION_CAPABILITY_IDS) as readonly (readonly [string, string])[];
+  const catalog = buildAggregateCapabilityCatalog(contributions, evaluatedAt);
+  for (const descriptor of catalog.descriptors) {
+    const capabilityId = descriptor.capabilityId;
+    const toolName = verificationNames.find(([, id]) => id === capabilityId)?.[0];
+    if (!toolName) continue;
+    const tool = tools.get(toolName);
+    const schemas = toolSchemas.find((candidate) =>
+      candidate.capabilityId === capabilityId
+      && candidate.revision === descriptor.revision
+      && candidate.toolName === toolName);
+    const executor = surface.callBuiltinTools.get(toolName);
+    const implementationReference = descriptor.implementationReferences[0];
+    if (!tool || !schemas || !executor || !implementationReference) continue;
+    const materializedTool: ToolDefinition = {
+      ...tool,
+      inputSchema: { ...schemas.inputSchema },
+      outputSchema: { ...schemas.outputSchema },
+    };
+    materializations.push({
+      capabilityId,
+      revision: descriptor.revision,
+      descriptorDigest: descriptor.descriptorDigest,
+      inputSchemaDigest: descriptor.inputSchemaDigest,
+      outputSchemaDigest: descriptor.outputSchemaDigest,
+      implementationIdentityDigest: implementationReference.identityDigest,
+      implementationReference,
+      toolName,
+      tool: materializedTool,
+      executor: async (input) => normalizeCapabilityToolResult(await executor(input)),
+      requirements: { data: descriptor.data, network: descriptor.network, artifacts: descriptor.artifacts },
+      freshness: descriptor.freshness,
+    });
+  }
+  if (materializations.length === 0) return undefined;
+  return createRuntimeCapabilityCompositionFactory({
+    contributions,
+    evaluatedAt,
+    projectId: deriveProjectRuntimeId(config.cwd ?? process.cwd()),
+    appId: composition.appId,
+    surfaceId: composition.surfaceId,
+    caller: "kiln-runtime",
+    materializations,
+  }).prepare();
+}
+
+function normalizeCapabilityToolResult(value: unknown): {
+  readonly output: string;
+  readonly isError: boolean;
+  readonly metadata: Readonly<Record<string, unknown>>;
+} {
+  if (value && typeof value === "object" && "output" in value && typeof value.output === "string") {
+    return {
+      output: value.output,
+      isError: "isError" in value && value.isError === true,
+      metadata: "metadata" in value && value.metadata && typeof value.metadata === "object"
+        ? value.metadata as Readonly<Record<string, unknown>>
+        : {},
+    };
+  }
+  return { output: typeof value === "string" ? value : JSON.stringify(value), isError: false, metadata: {} };
 }
 
 function projectRuntimeTerminalDisposition(result: OrchestrateResult): RuntimeTurnTerminalDisposition {

@@ -370,6 +370,44 @@ productivity.
 `,
   }),
   defineBuiltinSkill({
+    name: "verification-evidence",
+    description: "Match implementation claims to current verification evidence through Kiln capability discovery, with a repository-command fallback when the fabric is unavailable.",
+    tools: ["capability.search", "capability.describe"],
+    tags: ["kiln", "verification", "evidence", "capability"],
+    instructions: `
+# Verification Evidence
+
+Use this skill when implemented work needs verification evidence or when a
+claim must be matched to an available verification method.
+
+Workflow:
+1. Identify the claim, changed boundary, relevant risk, and the smallest
+   external oracle that could disprove the claim.
+2. When Kiln's capability fabric is reachable, call \`capability.search\` with
+   the required verification outcome and constraints. Then call
+   \`capability.describe\` for the exact selected capability identity and
+   descriptor digest. Use only the tool definition Runtime materializes for the
+   next model turn.
+3. Treat search and description as selection evidence, never execution
+   authority. Do not invoke a tool unless Runtime exposes it for the current
+   admitted turn. Do not choose Dafny, Oxlint, Kiln Quality, Gentle AI, a
+   binary, provider, route, or credential directly.
+4. If \`capability.search\` or \`capability.describe\` is unavailable, use only
+   repository-owned verification commands that the current harness can run.
+   This fallback produces ordinary command evidence; do not claim capability
+   selection, formal assurance, or provider-backed evidence from it.
+5. Run the focused check first and widen verification in proportion to the
+   changed boundary. Preserve the exact command or capability identity, scoped
+   inputs, result, and failures. A retry that passes after a failure is evidence
+   of instability, not an unqualified pass.
+
+Report the claim tested, evidence source, scope, outcome, failures or skipped
+checks, and residual risk. Never infer authority or availability from this
+skill's presence, inspect global configuration for tool selection, embed
+executable paths, or replace unavailable evidence with a stronger claim.
+`,
+  }),
+  defineBuiltinSkill({
     name: "code-review-findings",
     description: "Review completed code changes findings-first with severity, evidence, actionable defect risk, and verification gaps.",
     tools: ["read", "grep", "glob", "bash"],

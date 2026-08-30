@@ -1,16 +1,25 @@
 import { vi } from "vitest";
 import { type ProviderAdapter, type ToolDefinition } from "@kilnai/core/agents";
-import { type ActionEffectEnvelope, type AuthorityDescriptor, type Capability, textParts, type ToolAuthorizer } from "@kilnai/core/engine";
+import { type ActionEffectEnvelope, type AuthorityDescriptor, type Capability, textParts, type InvocationAdmission, type ToolAuthorizer } from "@kilnai/core/engine";
 import { canonicalTurnId, createOperatorAdoptionDecisionAuthority, parseCanonicalTurnId } from "@kilnai/core/events";
 import { getBuiltinEffectEnvelope } from "@kilnai/core/tools";
 import type { AuditLog } from "@kilnai/core/security";
+import { createBoundHostToolSandbox, SandboxPolicy } from "@kilnai/core/sandbox";
 import { RuntimeSessionOrchestrator, type PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { deriveRuntimeConvergencePolicyInput } from "../../src/session/runtime-execution-envelope.js";
 import type { RuntimeExecutionEnvelope } from "../../src/session/runtime-session-orchestrator.types.js";
 import { defineEffectiveAuthorityAdmissionBundle } from "../../src/session/effective-authority-admission-bundle.js";
+import { createRuntimeHostToolEnforcement } from "../../src/session/runtime-host-tool-enforcement.js";
 import type { RuntimeToolActionClaim, RuntimeToolActionClaimPermit, RuntimeToolActionClaimStore } from "../../src/execution-kernel/runtime-tool-action-claim.js";
 import { runtimeModelRoundEffectIdentity, type RuntimeModelRoundActionClaim, type RuntimeModelRoundActionClaimPermit, type RuntimeModelRoundActionClaimStore } from "../../src/execution-kernel/runtime-model-round-action-claim.js";
+import {
+  linkEffectiveAuthorityAdmissionBundleToRuntimeCapabilityGeneration,
+  type RuntimeCapabilityGeneration,
+} from "../../src/capabilities/runtime-capability-composition.js";
+
+const FIXTURE_REVISION_SET_ID = `sha256:${"a".repeat(64)}` as const;
+const FIXTURE_POLICY_DIGEST = `sha256:${"b".repeat(64)}` as const;
 
 export function fixtureAuditLog(append: AuditLog["append"]): AuditLog {
   return {
@@ -374,6 +383,7 @@ export function fixtureToolActionConfig(
     readonly tools?: readonly ToolDefinition[];
     readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
     readonly capabilityMap?: ReadonlyMap<string, Capability>;
+    readonly capabilityGeneration?: RuntimeCapabilityGeneration;
     readonly builtinTools?: ReadonlyMap<string, unknown>;
     readonly toolAuthorizer?: ToolAuthorizer;
   } }).deps;
@@ -387,19 +397,27 @@ export function fixtureToolActionConfig(
     ...(deps.capabilityMap ?? new Map()),
     ...(config?.perCallCapabilities ?? new Map()),
   ]);
+  const capabilityCandidates = new Map(
+    (deps.capabilityGeneration?.authorityCandidates ?? [])
+      .filter((candidate): candidate is typeof candidate & { readonly toolName: string } => candidate.toolName !== undefined)
+      .map((candidate) => [candidate.toolName, candidate] as const),
+  );
   const names = new Set<string>([
     ...(config?.toolAllowlist ?? []),
     ...(config?.toolAllowlist ? [] : (deps.tools ?? []).map((tool) => tool.name)),
     ...(config?.toolAllowlist ? [] : [...(deps.materializableTools?.keys() ?? [])]),
     ...(config?.toolAllowlist ? [] : [...(deps.builtinTools?.keys() ?? [])]),
     ...capabilities.keys(),
+    ...capabilityCandidates.keys(),
     ...(config?.additionalTools ?? []).map((tool) => tool.name),
   ]);
   const projectedToolPermissions = [...names].sort().map((toolName) => {
-    const effectEnvelope = fixtureDeclaredEffect(toolName, capabilities.get(toolName));
+    const capabilityCandidate = capabilityCandidates.get(toolName);
+    const effectEnvelope = capabilityCandidate?.effect ?? fixtureDeclaredEffect(toolName, capabilities.get(toolName));
     return {
       toolName,
-      authority: fixtureAuthorityForTool(toolName, config, deps.toolAuthorizer, effectEnvelope),
+      authority: capabilityCandidate?.candidateAuthority
+        ?? fixtureAuthorityForTool(toolName, config, deps.toolAuthorizer, effectEnvelope),
       effectEnvelope,
     };
   });
@@ -421,8 +439,36 @@ export function fixtureToolActionConfig(
   const configuredOperatorTurnId = config?.authorityAdmission?.turn.operatorAdoption.status === "admitted"
     ? config.authorityAdmission.turn.operatorAdoption.decision.operatorTurnId
     : turnId;
-  const revision = { revisionSetId: "runtime-tool-test-fixture", revisions: { fixture: "runtime-tool-test-fixture" } } as const;
-  const bundle = defineEffectiveAuthorityAdmissionBundle({
+  const revision = { revisionSetId: FIXTURE_REVISION_SET_ID, revisions: { fixture: "runtime-tool-test-fixture" } } as const;
+  const hostBinding = deps.capabilityGeneration
+    ? (() => {
+        const sandbox = createBoundHostToolSandbox({
+          policy: new SandboxPolicy({
+            projectPath: process.cwd(),
+            config: {
+              fsPolicy: "read-only",
+              netPolicy: "full",
+              allowedPaths: [],
+              deniedPaths: [],
+              allowedDomains: ["*"],
+            },
+          }),
+          leaseId: "runtime-tool-test-lease",
+          configurationRevisionId: FIXTURE_REVISION_SET_ID,
+          permissionPolicyDigest: FIXTURE_POLICY_DIGEST,
+        });
+        const invocationAdmission: InvocationAdmission = {
+          authorize: ({ callerBound }) => callerBound ?? {
+            level: 1,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Runtime capability fixture invocation admission",
+          },
+        };
+        return { sandbox, invocationAdmission };
+      })()
+    : undefined;
+  const baseBundle = defineEffectiveAuthorityAdmissionBundle({
     sessionId: session.id,
     turnId,
     admittedAt: "2026-08-22T00:00:00.000Z",
@@ -432,6 +478,7 @@ export function fixtureToolActionConfig(
       authorityCeiling: { maximumAuthority: "destructive", reason: "Runtime tool fixture admission", subjectId: session.id },
     },
     turn: {
+      capabilityParticipation: { status: "not-requested" },
       authority: {
         executionMode: "execute",
         requestedAuthority: "destructive",
@@ -452,7 +499,11 @@ export function fixtureToolActionConfig(
           actorId: "runtime-tool-test-fixture",
         }),
       },
-      tools: { allowedToolPermissions, deniedToolNames },
+      tools: {
+        allowedToolPermissions,
+        deniedToolNames,
+        ...(hostBinding ? { hostEnforcement: hostBinding.sandbox.admission } : {}),
+      },
       effectCeiling: FIXTURE_EFFECT_CEILING,
       budget: { status: "not-configured" },
       execution: {
@@ -463,7 +514,22 @@ export function fixtureToolActionConfig(
           providerModelId: deps.model ?? "unknown",
           accountSelection: { kind: "operator-override", accountPolicyId: "policy-1", accountId: "runtime-tool-test-account" },
         },
-        dataPolicy: { decision: { status: "admitted", freshness: "current", reason: "policy-admitted" } },
+        dataPolicy: {
+          decision: { status: "admitted", freshness: "current", reason: "policy-admitted" },
+          evidence: {
+            providerId: deps.provider.name,
+            providerModelId: deps.model ?? "unknown",
+            sourceIdentity: "runtime-tool-test-source",
+            sourceRevision: "runtime-tool-test-revision",
+            sourceDigest: FIXTURE_POLICY_DIGEST,
+            trainingPosture: "prohibited",
+            retentionPosture: "zero",
+            retentionDays: 0,
+            maximumClassification: "restricted",
+            observedAt: "2026-08-21T00:00:00.000Z",
+            expiresAt: "2026-08-23T00:00:00.000Z",
+          },
+        },
         binding: {
           status: "bound",
           routeId: "runtime-tool-test-route",
@@ -474,6 +540,19 @@ export function fixtureToolActionConfig(
       },
     },
   });
+  const bundle = deps.capabilityGeneration === undefined
+    ? baseBundle
+    : linkEffectiveAuthorityAdmissionBundleToRuntimeCapabilityGeneration({
+        generation: deps.capabilityGeneration,
+        authorityAdmission: baseBundle,
+      });
+  const runtimeHostToolEnforcement = hostBinding
+    ? createRuntimeHostToolEnforcement({
+        bundle,
+        sandbox: hostBinding.sandbox,
+        invocationAdmission: hostBinding.invocationAdmission,
+      })
+    : undefined;
   const store = makeFixtureToolActionStore();
   const modelRoundStore = makeFixtureModelRoundActionStore();
   const modelRoundIntentFingerprint = runtimeModelRoundEffectIdentity({
@@ -484,6 +563,12 @@ export function fixtureToolActionConfig(
   return {
     ...config,
     ...(hasMalformedAuthority ? {} : { authorityAdmission: bundle }),
+    ...(hostBinding ? {
+      sandbox: hostBinding.sandbox,
+      hostToolSandboxAdmission: hostBinding.sandbox.admission,
+      runtimeHostToolEnforcement,
+      toolInvocationAdmission: hostBinding.invocationAdmission,
+    } : {}),
     turnCorrelationId: turnId,
     runtimeModelRoundDispatch: {
       admission: bundle,

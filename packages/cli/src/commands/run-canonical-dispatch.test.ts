@@ -64,6 +64,7 @@ function routedAdmission(input: {
         deniedToolCount: 0,
         sandboxProjection: "workspace_write",
       },
+      capabilityParticipation: { status: "not-requested" },
       workGovernance: { status: "not-required" },
       operatorAdoption: { status: "not-required" },
       tools: { allowedToolPermissions: [], deniedToolNames: [] },
