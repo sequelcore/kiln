@@ -222,14 +222,19 @@ export function createCanonicalRunSessionDispatcher(input: {
         operatorAdoptionDecision: adoption.operatorAdoptionDecision,
         ...(hostToolSandbox ? { hostToolSandboxAdmission: hostToolSandbox.admission } : {}),
       } satisfies RuntimeAuthorityAdmissionCandidateConfig;
+      const candidateToolNames = [...new Set([
+        ...builder.capabilities.supportedTools,
+        ...discoveredMcpCapabilities.map((capability) => capability.name),
+      ])];
       const projectedAuthority = perCallConfig.effectiveTurnAuthority;
       const authority =
         projectedAuthority && isCanonicalAuthorityAdmissible(projectedAuthority)
           ? projectedAuthority
-          : canonicalizeOmittedAuthority(
-              payload.sessionConfig.requestedAuthority,
-              perCallConfig.toolAuthority?.size ?? 0,
-            );
+          : canonicalizeOmittedAuthority({
+              requestedAuthority: payload.sessionConfig.requestedAuthority,
+              admittedToolCount: perCallConfig.toolAuthority?.size ?? 0,
+              candidateToolCount: candidateToolNames.length,
+            });
       if (authority && authority !== projectedAuthority) {
         perCallConfig = {
           ...perCallConfig,
@@ -262,10 +267,7 @@ export function createCanonicalRunSessionDispatcher(input: {
         session,
         snapshot,
         perCallConfig,
-        candidateToolNames: [
-          ...builder.capabilities.supportedTools,
-          ...discoveredMcpCapabilities.map((capability) => capability.name),
-        ],
+        candidateToolNames,
         skillCatalog: defineCanonicalSkillCatalogAdmission([]),
         authorityCeiling: {
           maximumAuthority: canonicalAuthorityCeiling(authority.admittedAuthority),
@@ -510,8 +512,11 @@ export function intersectCanonicalMcpCapabilities(
 }
 
 export function canonicalizeOmittedAuthority(
-  requestedAuthority: string | undefined,
-  admittedToolCount: number,
+  input: {
+    readonly requestedAuthority: string | undefined;
+    readonly admittedToolCount: number;
+    readonly candidateToolCount: number;
+  },
 ):
   | {
       readonly executionMode: "execute";
@@ -522,10 +527,14 @@ export function canonicalizeOmittedAuthority(
       readonly completeness: "authoritative";
       readonly toolCount: 0;
       readonly deniedToolCount: number;
-    }
+  }
   | undefined {
-  if (requestedAuthority !== undefined && requestedAuthority !== "auto") return undefined;
-  if (admittedToolCount > 0)
+  if (input.requestedAuthority !== undefined && input.requestedAuthority !== "auto") return undefined;
+  if (!Number.isSafeInteger(input.admittedToolCount) || input.admittedToolCount < 0
+    || !Number.isSafeInteger(input.candidateToolCount) || input.candidateToolCount < input.admittedToolCount) {
+    throw new Error("Canonical direct run authority counts are invalid.");
+  }
+  if (input.admittedToolCount > 0)
     throw new Error("Canonical direct run requires a concrete authority decision when tools are admitted.");
   return {
     executionMode: "execute",
@@ -535,7 +544,7 @@ export function canonicalizeOmittedAuthority(
     reason: "No tool was authoritatively admitted by the canonical direct-run boundary.",
     completeness: "authoritative",
     toolCount: 0,
-    deniedToolCount: 0,
+    deniedToolCount: input.candidateToolCount,
   };
 }
 

@@ -286,8 +286,11 @@ a provider-native shell or patch tool is disabled.
 Deliberation level identifiers are provider-advertised portable strings, not a
 closed cross-provider enum. Their ordering and meaning are scoped to the exact
 provider/model capability record. Provider-native discovery fields such as
-Codex `supported_reasoning_levels` are translated at this boundary while their
-order and revision evidence are preserved.
+Codex OAuth `supported_reasoning_levels` and Codex app-server
+`supportedReasoningEfforts[].reasoningEffort` are translated at this boundary
+while their order and revision evidence are preserved. A harness adapter may
+normalize field shape; it must not copy levels from another model, provider, or
+harness.
 
 If a selected route's derived model advertises no deliberation capabilities,
 surfaces render no level selector and Runtime follows the intent's explicit
@@ -373,7 +376,13 @@ Wrapper providers:
   admission. Per-model effort capabilities are retained only when the catalog
   reports ordered supported levels and are bound to the resolved Claude Code
   executable version
-- `codex` discovers local Codex CLI models from the local Codex model surface
+- `codex` discovers the complete authenticated Codex CLI catalog through the
+  app-server `model/list` control plane, following `nextCursor` until the
+  catalog is complete. Per-model effort levels and the provider default are
+  retained exactly as reported and capability evidence is bound to the
+  resolved Codex CLI version plus a safe digest of the reported deliberation
+  semantics. Codex CLI discovery does not inherit OAuth or OpenAI API effort
+  metadata
 - `opencode` resolves one exact OpenCode CLI executable and version, starts its
   loopback model service, and reads the structured, account-visible
   `/api/model` catalog. Model IDs remain provider-prefixed exactly as OpenCode
@@ -385,7 +394,10 @@ Wrapper providers:
 
 Subscription-auth providers:
 
-- `codex-oauth` discovers models from the OAuth-backed Codex model endpoint
+- `codex-oauth` discovers models and per-model capability metadata from the
+  OAuth-backed Codex model endpoint. Its capability evidence remains scoped to
+  the OAuth route, includes a safe digest of the reported deliberation
+  semantics, and is not reused as Codex CLI authority
 - `opencode-go` and `opencode-zen` discover models from the authenticated
   OpenCode subscription tier. These are direct Kiln provider IDs and their
   selectable model IDs are the tier endpoint IDs without the harness prefix,

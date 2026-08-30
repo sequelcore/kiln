@@ -892,7 +892,11 @@ async function discoverCodexOauthModelsFromEndpoint(token: string): Promise<GuiC
     const modelId = readCodexOauthModelId(entry);
     return modelId ? [modelId] : [];
   }));
-  const modelCapabilities = extractCodexOauthModelCapabilities(modelEntries, models);
+  const modelCapabilities = extractCodexOauthModelCapabilities(
+    modelEntries,
+    models,
+    codexDeliberationCatalogRevision(modelEntries),
+  );
   return models.length > 0
     ? {
         models,
@@ -914,9 +918,14 @@ function isInvalidatedCodexOauthResponse(body: string): boolean {
 
 function countCodexOauthModelCapabilityEntries(entries: readonly unknown[]): number {
   let count = 0;
+  const sourceRevision = codexDeliberationCatalogRevision(entries);
   for (const entry of entries) {
     const record = asRecord(entry);
-    if (record && Object.keys(readCodexOauthModelCapabilities(record, readCodexOauthModelId(record))).length > 0) {
+    if (record && Object.keys(readCodexModelCapabilities(
+      record,
+      readCodexOauthModelId(record),
+      codexOauthCapabilitySource(sourceRevision),
+    )).length > 0) {
       count += 1;
     }
   }
@@ -926,6 +935,7 @@ function countCodexOauthModelCapabilityEntries(entries: readonly unknown[]): num
 function extractCodexOauthModelCapabilities(
   entries: readonly unknown[],
   models: readonly string[],
+  sourceRevision: string,
 ): Readonly<Record<string, GuiProviderModelCapabilities>> | undefined {
   const discoveredModels = new Set(models);
   const capabilities: Record<string, GuiProviderModelCapabilities> = {};
@@ -934,7 +944,7 @@ function extractCodexOauthModelCapabilities(
     if (!record) continue;
     const model = readCodexOauthModelId(record);
     if (!model || !discoveredModels.has(model)) continue;
-    const capability = readCodexOauthModelCapabilities(record, model);
+    const capability = readCodexModelCapabilities(record, model, codexOauthCapabilitySource(sourceRevision));
     if (Object.keys(capability).length > 0) {
       capabilities[model] = capability;
     }
@@ -948,9 +958,26 @@ function readCodexOauthModelId(entry: unknown): string | undefined {
   return readString(record.slug)?.trim() || readString(record.id)?.trim() || undefined;
 }
 
-function readCodexOauthModelCapabilities(
+interface CodexModelCapabilitySource {
+  readonly provider: string;
+  readonly sourceIdentity: string;
+  readonly sourceRevision: string | undefined;
+  readonly supportsAdaptive: boolean;
+}
+
+function codexOauthCapabilitySource(sourceRevision: string): CodexModelCapabilitySource {
+  return {
+    provider: "codex-oauth",
+    sourceIdentity: "codex-oauth-model-catalog",
+    sourceRevision,
+    supportsAdaptive: true,
+  };
+}
+
+function readCodexModelCapabilities(
   record: Readonly<Record<string, unknown>>,
   model: string | undefined,
+  source: CodexModelCapabilitySource,
 ): GuiProviderModelCapabilities {
   const supportsFunctionTools = readCodexOauthModelSupportsFunctionTools(record);
   const supportsRuntimeTools = supportsFunctionTools;
@@ -976,16 +1003,16 @@ function readCodexOauthModelCapabilities(
     ?? readDeliberationLevelArray(record.supportedReasoningEfforts)
     ?? readDeliberationLevelArray(record.supported_reasoning_levels)
     ?? readDeliberationLevelArray(record.supportedReasoningLevels);
-  const deliberation = model && levels
+  const deliberation = model && levels && source.sourceRevision
     ? {
-        provider: "codex-oauth",
+        provider: source.provider,
         model,
         levels: levels.map((id) => ({ id })),
         ...(defaultLevel && levels.includes(defaultLevel) ? { defaultLevel } : {}),
-        supportsAdaptive: true,
+        supportsAdaptive: source.supportsAdaptive,
         evidence: {
-          sourceIdentity: "codex-oauth-model-catalog",
-          sourceRevision: readString(record.version)?.trim() || model,
+          sourceIdentity: source.sourceIdentity,
+          sourceRevision: source.sourceRevision,
           observedAt: new Date().toISOString(),
         },
       }
@@ -1017,6 +1044,7 @@ function readDeliberationLevelArray(value: unknown): readonly GuiDeliberationLev
   for (const entry of value) {
     const record = asRecord(entry);
     const level = readDeliberationLevelId(entry)
+      ?? readDeliberationLevelId(record?.reasoningEffort)
       ?? readDeliberationLevelId(record?.effort)
       ?? readDeliberationLevelId(record?.value)
       ?? readDeliberationLevelId(record?.id);
@@ -2337,7 +2365,7 @@ export function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderModelDis
 }
 
 async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModelDiscovery> {
-  const executable = findExecutable([
+  const executable = resolveExecutable([
     ...homeExecutableCandidates([
       "AppData\\Roaming\\npm\\codex.cmd",
     ]),
@@ -2345,7 +2373,7 @@ async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModel
     ...homeExecutableCandidates([
       ".codex\\.sandbox-bin\\codex.exe",
     ]),
-  ]);
+  ], () => true);
   if (!executable) {
     return unavailableCliProviderDiscovery(
       "cli_missing",
@@ -2356,14 +2384,18 @@ async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModel
   try {
     const { spawn } = await import("node:child_process");
     return await new Promise<GuiCliProviderModelDiscovery>((resolve) => {
-      const proc = spawn(executable, ["app-server"], {
-        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable),
+      const proc = spawn(executable.path, ["app-server"], {
+        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable.path),
         stdio: ["pipe", "pipe", "ignore"],
         windowsHide: true,
       });
       let buffer = "";
       let initialized = false;
       let settled = false;
+      let nextModelListRequestId = CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID;
+      let pendingModelListRequestId: number | undefined;
+      const modelEntries: unknown[] = [];
+      const requestedCursors = new Set<string>();
       const finish = (result: GuiCliProviderModelDiscovery): void => {
         if (settled) {
           return;
@@ -2386,6 +2418,20 @@ async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModel
             "Codex app-server did not confirm shutdown; further discovery is blocked until it closes.",
             "unknown",
           ));
+        });
+      };
+      const requestModelPage = (cursor?: string): boolean => {
+        const id = nextModelListRequestId;
+        nextModelListRequestId += 1;
+        pendingModelListRequestId = id;
+        return writeJsonLine(proc.stdin, {
+          method: "model/list",
+          id,
+          params: {
+            limit: 100,
+            includeHidden: false,
+            ...(cursor ? { cursor } : {}),
+          },
         });
       };
       const timer = setTimeout(() => {
@@ -2414,11 +2460,7 @@ async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModel
               if (msg.result !== undefined) {
                 initialized = true;
                 const acceptedInitialized = writeJsonLine(proc.stdin, { method: "initialized" });
-                const acceptedModelList = acceptedInitialized && writeJsonLine(proc.stdin, {
-                  method: "model/list",
-                  id: CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID,
-                  params: { limit: 100, includeHidden: false },
-                });
+                const acceptedModelList = acceptedInitialized && requestModelPage();
                 if (!acceptedModelList) {
                   finish(unavailableCliProviderDiscovery(
                     "endpoint_error",
@@ -2430,19 +2472,51 @@ async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModel
               }
               continue;
             }
-            if (msg.id === CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID) {
+            if (msg.id === pendingModelListRequestId) {
               if (isJsonRpcErrorMessage(msg)) {
                 finish(classifyCodexCliAppServerError(msg.error));
                 return;
               }
               if (msg.result !== undefined) {
-                const data = (msg.result as { data?: Array<{ id?: unknown }> }).data ?? [];
-                const models = normalizeModelIds(data.flatMap((model) => (
-                  typeof model.id === "string" ? [model.id] : []
-                )));
+                const result = asRecord(msg.result);
+                const data = Array.isArray(result?.data) ? result.data : [];
+                modelEntries.push(...data);
+                const nextCursor = readString(result?.nextCursor)?.trim();
+                if (nextCursor) {
+                  if (requestedCursors.has(nextCursor)) {
+                    finish(unavailableCliProviderDiscovery(
+                      "endpoint_error",
+                      "Codex app-server returned a repeated model catalog cursor.",
+                      "unknown",
+                    ));
+                    return;
+                  }
+                  requestedCursors.add(nextCursor);
+                  if (!requestModelPage(nextCursor)) {
+                    finish(unavailableCliProviderDiscovery(
+                      "endpoint_error",
+                      "Codex app-server closed before accepting the next model catalog page.",
+                      "unknown",
+                    ));
+                  }
+                  continue;
+                }
+                const models = normalizeModelIds(modelEntries.flatMap((entry) => {
+                  const model = asRecord(entry);
+                  const id = readString(model?.model)?.trim() || readString(model?.id)?.trim();
+                  return id ? [id] : [];
+                }));
+                const modelCapabilities = extractCodexCliModelCapabilities(
+                  modelEntries,
+                  models,
+                  executable.version
+                    ? `${executable.version}:${codexDeliberationCatalogRevision(modelEntries)}`
+                    : undefined,
+                );
                 finish(models.length > 0
                   ? {
                       models,
+                      ...(modelCapabilities ? { modelCapabilities } : {}),
                       status: "available",
                       reason: "Codex CLI models discovered.",
                       authState: "authenticated",
@@ -2503,6 +2577,55 @@ async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModel
       "unknown",
     );
   }
+}
+
+function codexDeliberationCatalogRevision(entries: readonly unknown[]): string {
+  const snapshot = entries.flatMap((entry) => {
+    const record = asRecord(entry);
+    if (!record) return [];
+    const model = readString(record.slug)?.trim()
+      || readString(record.model)?.trim()
+      || readString(record.id)?.trim();
+    if (!model) return [];
+    const levels =
+      readDeliberationLevelArray(record.supported_reasoning_efforts)
+      ?? readDeliberationLevelArray(record.supportedReasoningEfforts)
+      ?? readDeliberationLevelArray(record.supported_reasoning_levels)
+      ?? readDeliberationLevelArray(record.supportedReasoningLevels)
+      ?? [];
+    const defaultLevel =
+      readDeliberationLevelId(record.default_reasoning_effort)
+      ?? readDeliberationLevelId(record.defaultReasoningEffort)
+      ?? readDeliberationLevelId(record.default_reasoning_level)
+      ?? readDeliberationLevelId(record.defaultReasoningLevel);
+    return [{ model, levels, ...(defaultLevel ? { defaultLevel } : {}) }];
+  }).sort((left, right) => left.model.localeCompare(right.model));
+  return `sha256:${createHash("sha256").update(JSON.stringify(snapshot)).digest("hex")}`;
+}
+
+function extractCodexCliModelCapabilities(
+  entries: readonly unknown[],
+  models: readonly string[],
+  executableVersion: string | undefined,
+): Readonly<Record<string, GuiProviderModelCapabilities>> | undefined {
+  const discoveredModels = new Set(models);
+  const capabilities: Record<string, GuiProviderModelCapabilities> = {};
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const model = readString(record.model)?.trim() || readString(record.id)?.trim();
+    if (!model || !discoveredModels.has(model)) continue;
+    const capability = readCodexModelCapabilities(record, model, {
+      provider: "codex",
+      sourceIdentity: "codex-cli-model-catalog",
+      sourceRevision: executableVersion,
+      supportsAdaptive: false,
+    });
+    if (Object.keys(capability).length > 0) {
+      capabilities[model] = capability;
+    }
+  }
+  return Object.keys(capabilities).length > 0 ? capabilities : undefined;
 }
 
 async function stopProviderDiscoveryProcess(proc: ChildProcess): Promise<boolean> {
@@ -2652,10 +2775,6 @@ function resolveExecutable(
     }
   }
   return undefined;
-}
-
-function findExecutable(candidates: readonly string[]): string | undefined {
-  return resolveExecutable(candidates, () => true)?.path;
 }
 
 export function providerRequiresSelectedModelMessage(provider: string): string {

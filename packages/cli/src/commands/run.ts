@@ -476,26 +476,19 @@ interface AdmittedRunRouteCandidate extends RunSessionRouteCandidate {
   readonly provider: ProviderId;
 }
 
-async function resolveAdmittedRunRouteCandidates(input: {
+export async function resolveAdmittedRunRouteCandidates(input: {
   readonly candidates: readonly RunSessionRouteCandidate[];
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly cwd: string;
   readonly env: Record<string, string>;
   readonly routeHealthStore: ProviderModelRouteHealthStore;
-  /** Canonical direct execution already owns route/account admission. */
+  /** Canonical direct execution owns route/account availability, health, and admission. */
   readonly canonicalExecution?: boolean;
 }): Promise<{
   readonly candidates: readonly AdmittedRunRouteCandidate[];
   readonly rejectedReasons: readonly string[];
   readonly routeCapabilities: ReadonlyMap<string, ModelDeliberationCapabilities>;
 }> {
-  if (input.canonicalExecution) {
-    return {
-      candidates: input.candidates as readonly AdmittedRunRouteCandidate[],
-      rejectedReasons: [],
-      routeCapabilities: new Map(),
-    };
-  }
   const rejectedReasons: string[] = [];
   const directCandidates = input.candidates.filter((candidate) => isDirectApiProvider(candidate.provider));
   const directDiscovery =
@@ -536,21 +529,25 @@ async function resolveAdmittedRunRouteCandidates(input: {
   const admitted: AdmittedRunRouteCandidate[] = [];
   const routeCapabilities = new Map<string, ModelDeliberationCapabilities>();
   for (const candidate of input.candidates) {
-    const admission = resolveRunProviderModelAdmission({
-      provider: candidate.provider,
-      model: candidate.model,
-      discovery: providerDiscovery,
-    });
-    if (!admission.ok) {
-      rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${admission.error}`);
-      continue;
-    }
-
-    if (candidate.model) {
-      const health = await input.routeHealthStore.evaluateRouteHealth(candidate.provider, candidate.model);
-      if (!health.healthy) {
-        rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${formatProviderModelRouteCooldown(health)}`);
+    // Deliberation remains provider/model capability evidence, so canonical runs
+    // must retain discovery even though the dispatcher owns route admission.
+    if (!input.canonicalExecution) {
+      const admission = resolveRunProviderModelAdmission({
+        provider: candidate.provider,
+        model: candidate.model,
+        discovery: providerDiscovery,
+      });
+      if (!admission.ok) {
+        rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${admission.error}`);
         continue;
+      }
+
+      if (candidate.model) {
+        const health = await input.routeHealthStore.evaluateRouteHealth(candidate.provider, candidate.model);
+        if (!health.healthy) {
+          rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${formatProviderModelRouteCooldown(health)}`);
+          continue;
+        }
       }
     }
 
@@ -1637,6 +1634,9 @@ export async function runCommand(
     runtimeExecutionMode: flags.plan ? ("plan" as const) : ("execute" as const),
     ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
     model: effectiveModel,
+    ...(admittedRouteCandidates[0]?.deliberationResolution
+      ? { deliberationResolution: admittedRouteCandidates[0].deliberationResolution }
+      : {}),
     requestedAuthority: flags.requestedAuthority,
     communicationIntent: resolveConfiguredCommunication({
       global: globalConfig?.communication,

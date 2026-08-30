@@ -339,6 +339,65 @@ function hostEnforcedProviderConfig(
   };
 }
 
+function modelOnlyProviderConfig(policy: KilnPermissionPolicy) {
+  const revision = { revisionSetId: `sha256:${"2".repeat(64)}`, revisions: { global: "g2" } } as const;
+  const bundle = defineEffectiveAuthorityAdmissionBundle({
+    sessionId: "model-only-session",
+    turnId: "model-only-turn",
+    admittedAt: "2026-08-30T00:00:00.000Z",
+    configuration: { sessionRevision: revision, turnRevision: revision },
+    session: {
+      skillCatalog: { catalogId: "none", revision: "none", skillIds: [] },
+      authorityCeiling: { maximumAuthority: "read_only", reason: "test" },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "fail_closed",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "No tools admitted.",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 0,
+      },
+      workGovernance: { status: "not-required" },
+      operatorAdoption: { status: "not-required" },
+      tools: { allowedToolPermissions: [], deniedToolNames: [] },
+      effectCeiling: {
+        operation: "observe",
+        boundaries: [],
+        reversibility: "reversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
+  return {
+    model: DIRECT_PROVIDER_MODELS.openai,
+    task: "test",
+    permissionPolicy: policy,
+    authorityAdmissionContext: {
+      bundle,
+      runtimeSession: {} as never,
+      builtinToolSurface: {} as never,
+      mcpClients: [],
+      mcpCapabilities: [],
+      perCallConfig: {
+        authorityAdmission: bundle,
+        toolAllowlist: new Set<string>(),
+        toolAuthority: new Map(),
+        additionalTools: [],
+        perCallCapabilities: new Map(),
+      },
+    },
+  };
+}
+
 function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistry {
   return new SessionRegistry(
     ids.map((id) => {
@@ -845,6 +904,20 @@ describe("SessionRegistry", () => {
         task: "test",
         permissionPolicy: GRANULAR_POLICY,
       })).toThrow(/rejected before provider launch/);
+    });
+
+    it("admits a model-only direct turn when canonical authority admits zero tools", () => {
+      const create = vi.fn(() => makeMockSession("openai"));
+      const registry = new SessionRegistry([{
+        id: "openai",
+        deliberationTransport: "none" as const,
+        costTier: "high",
+        capabilities: CAPABILITIES.openai!,
+        create,
+      }]);
+
+      expect(registry.createSession("openai", modelOnlyProviderConfig(GRANULAR_POLICY))).toBeDefined();
+      expect(create).toHaveBeenCalledTimes(1);
     });
 
     it("admits granular direct-provider policy only with the exact bound host capability", () => {

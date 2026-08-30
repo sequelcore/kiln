@@ -1028,7 +1028,8 @@ function assertPreventiveSessionRoute(id: ProviderId, config: ProviderCreateConf
   const directProfile = direct
     ? resolveDirectProviderExecutionProfile({ provider: id, model: config.model })
     : undefined;
-  const directExecutesTools = directProfile?.executionMode === "kiln-executable";
+  const directExecutesTools = directProfile?.executionMode === "kiln-executable"
+    && !hasAuthoritativeModelOnlyAdmission(config);
   const translated = direct
     ? translatePermissionForProvider(config.permissionPolicy, id)
     : translatePermission(config.permissionPolicy, id);
@@ -1052,6 +1053,28 @@ function assertPreventiveSessionRoute(id: ProviderId, config: ProviderCreateConf
       `Session route '${id}' rejected before provider launch: ${admission.reason}`,
     );
   }
+}
+
+/**
+ * A direct-provider profile can support Runtime tools while one concrete turn
+ * authoritatively admits none. Only the exact persisted bundle plus its empty
+ * per-call projection can prove that narrower model-only effect surface.
+ */
+function hasAuthoritativeModelOnlyAdmission(config: ProviderCreateConfig): boolean {
+  const context = config.authorityAdmissionContext;
+  if (!context || context.perCallConfig.authorityAdmission !== context.bundle) return false;
+  const authority = context.bundle.turn.authority;
+  const tools = context.bundle.turn.tools;
+  const perCall = context.perCallConfig;
+  return authority.completeness === "authoritative"
+    && authority.toolCount === 0
+    && tools.allowedToolPermissions.length === 0
+    && tools.hostEnforcement === undefined
+    && (perCall.toolAllowlist?.size ?? 0) === 0
+    && (perCall.toolAuthority?.size ?? 0) === 0
+    && (perCall.additionalTools?.length ?? 0) === 0
+    && (perCall.perCallCapabilities?.size ?? 0) === 0
+    && perCall.runtimeHostToolEnforcement === undefined;
 }
 
 function isHostInvocationEnforcedRule(rule: PermissionTranslationRule): boolean {

@@ -192,16 +192,30 @@ describe("createCanonicalRunSessionDispatcher", () => {
   });
 
   it("converts omitted/auto authority to authoritative fail-closed only for an empty tool set", () => {
-    expect(canonicalizeOmittedAuthority(undefined, 0)).toMatchObject({
+    expect(canonicalizeOmittedAuthority({
+      requestedAuthority: undefined,
+      admittedToolCount: 0,
+      candidateToolCount: 3,
+    })).toMatchObject({
       completeness: "authoritative",
       admittedAuthority: "fail_closed",
       toolCount: 0,
+      deniedToolCount: 3,
     });
-    expect(canonicalizeOmittedAuthority("auto", 0)).toMatchObject({
+    expect(canonicalizeOmittedAuthority({
+      requestedAuthority: "auto",
+      admittedToolCount: 0,
+      candidateToolCount: 3,
+    })).toMatchObject({
       completeness: "authoritative",
       admittedAuthority: "fail_closed",
       toolCount: 0,
+      deniedToolCount: 3,
     });
-    expect(() => canonicalizeOmittedAuthority("auto", 1)).toThrow(/concrete/i);
+    expect(() => canonicalizeOmittedAuthority({
+      requestedAuthority: "auto",
+      admittedToolCount: 1,
+      candidateToolCount: 3,
+    })).toThrow(/concrete/i);
   });
 });

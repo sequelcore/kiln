@@ -1103,6 +1103,7 @@ describe("discoverCodexCliModelDiscovery", () => {
 
   it("initializes Codex app-server before requesting local models", async () => {
     const writes: unknown[] = [];
+    vi.mocked(execFileSync).mockReturnValue("codex-cli 0.151.0");
     vi.mocked(spawn).mockImplementationOnce(() => {
       const proc = new EventEmitter() as EventEmitter & {
         stdout: EventEmitter;
@@ -1133,8 +1134,24 @@ describe("discoverCodexCliModelDiscovery", () => {
                 id: message.id,
                 result: {
                   data: [
-                    { id: "gpt-5.4" },
-                    { id: "gpt-5.4-mini" },
+                    {
+                      id: "gpt-5.6-luna",
+                      model: "gpt-5.6-luna",
+                      supportedReasoningEfforts: [
+                        { reasoningEffort: "low", description: "Fast responses" },
+                        { reasoningEffort: "medium", description: "Balanced responses" },
+                        { reasoningEffort: "high", description: "Thorough responses" },
+                        { reasoningEffort: "xhigh", description: "Very thorough responses" },
+                        { reasoningEffort: "max", description: "Maximum reasoning" },
+                      ],
+                      defaultReasoningEffort: "medium",
+                    },
+                    {
+                      id: "gpt-5.4-mini",
+                      model: "gpt-5.4-mini",
+                      supportedReasoningEfforts: [],
+                      defaultReasoningEffort: "medium",
+                    },
                   ],
                 },
               }) + "\n"));
@@ -1169,11 +1186,82 @@ describe("discoverCodexCliModelDiscovery", () => {
       }),
     ]);
     expect(discovery).toMatchObject({
-      models: ["gpt-5.4", "gpt-5.4-mini"],
+      models: ["gpt-5.6-luna", "gpt-5.4-mini"],
+      modelCapabilities: {
+        "gpt-5.6-luna": {
+          deliberation: {
+            provider: "codex",
+            model: "gpt-5.6-luna",
+            levels: [
+              { id: "low" },
+              { id: "medium" },
+              { id: "high" },
+              { id: "xhigh" },
+              { id: "max" },
+            ],
+            defaultLevel: "medium",
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "codex-cli-model-catalog",
+              sourceRevision: expect.stringMatching(/^0\.151\.0:sha256:[a-f0-9]{64}$/u),
+              observedAt: expect.any(String),
+            },
+          },
+        },
+      },
       status: "available",
       reason: "Codex CLI models discovered.",
       authState: "authenticated",
     });
+  });
+
+  it("reads every Codex app-server model page before publishing the catalog", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    vi.mocked(execFileSync).mockReturnValue("codex-cli 0.151.0");
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          writes.push(message);
+          if (message.method === "initialize") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({ id: message.id, result: {} }) + "\n"));
+            });
+          }
+          if (message.method === "model/list") {
+            const cursor = (message.params as { cursor?: string }).cursor;
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({
+                id: message.id,
+                result: cursor
+                  ? { data: [{ id: "gpt-page-2", model: "gpt-page-2" }], nextCursor: null }
+                  : { data: [{ id: "gpt-page-1", model: "gpt-page-1" }], nextCursor: "page-2" },
+              }) + "\n"));
+            });
+          }
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => {
+        proc.emit("close");
+      });
+      return proc as never;
+    });
+
+    await expect(discoverCodexCliModelDiscovery()).resolves.toMatchObject({
+      models: ["gpt-page-1", "gpt-page-2"],
+      status: "available",
+    });
+    expect(writes.filter((message) => message.method === "model/list")).toEqual([
+      expect.objectContaining({ id: 2, params: { limit: 100, includeHidden: false } }),
+      expect.objectContaining({ id: 3, params: { limit: 100, includeHidden: false, cursor: "page-2" } }),
+    ]);
   });
 
   it("does not finish Codex discovery until the app-server process has closed", async () => {
@@ -2330,7 +2418,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
             supportsAdaptive: true,
             evidence: {
               sourceIdentity: "codex-oauth-model-catalog",
-              sourceRevision: "gpt-5.4",
+              sourceRevision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
               observedAt: expect.any(String),
             },
           },
