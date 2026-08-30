@@ -1,9 +1,9 @@
 import {
   classifyTrustedExecutionIntegrity,
-  readTrustedExecutionSemanticLimitationAcceptance,
   type TrustedExecutionSemanticLimitation,
 } from "@kilnai/core";
 import { type TrustedExecutionIntegrity, TrustedExecutionIntegritySchema } from "@kilnai/gateway-contracts";
+import { readTrustedExecutionSemanticLimitationAcceptance } from "@kilnai/runtime";
 import type { RuntimePermissionEvidencePair } from "../wrapper/runtime-permission-observation.js";
 import { withoutPersistedTrustedExecutionAuthority } from "./persisted-permission-integrity.js";
 

@@ -1,10 +1,10 @@
 import { basename, join } from "node:path";
 import readline from "node:readline";
+import { OPENCODE_NO_FILESYSTEM_SANDBOX } from "@kilnai/core";
 import {
   acceptTrustedExecutionSemanticLimitation,
-  OPENCODE_NO_FILESYSTEM_SANDBOX,
   revokeTrustedExecutionSemanticLimitation,
-} from "@kilnai/core";
+} from "@kilnai/runtime";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { resolveKilnHomePath } from "../config/global-config/path.js";
 import { readGlobalConfig } from "../config/global-config.js";
@@ -74,13 +74,14 @@ async function limitationCommand(args: readonly string[]): Promise<void> {
       return;
     }
   }
+  if (!operatorId) throw new Error("Trusted-execution limitation acceptance requires an operator identity.");
   const now = new Date().toISOString();
   const semanticLimitationDir = join(resolveKilnHomePath(), "trust", "semantic-limitations");
   if (action === "accept-limitation") {
     const acceptance = acceptTrustedExecutionSemanticLimitation({
       projectPath,
       descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX,
-      acceptedBy: operatorId!,
+      acceptedBy: operatorId,
       acceptedAt: now,
       reviewAfter: OPENCODE_NO_FILESYSTEM_SANDBOX.reviewAfter,
       baseDir: semanticLimitationDir,
@@ -92,7 +93,7 @@ async function limitationCommand(args: readonly string[]): Promise<void> {
     revokeTrustedExecutionSemanticLimitation({
       projectPath,
       descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX,
-      revokedBy: operatorId!,
+      revokedBy: operatorId,
       revokedAt: now,
       baseDir: semanticLimitationDir,
     })

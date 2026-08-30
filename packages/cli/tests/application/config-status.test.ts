@@ -6,9 +6,9 @@ import { stringify as stringifyToml } from "smol-toml";
 import { stringify as stringifyYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  acceptTrustedExecutionSemanticLimitation,
   OPENCODE_NO_FILESYSTEM_SANDBOX,
 } from "@kilnai/core/security";
+import { acceptTrustedExecutionSemanticLimitation } from "@kilnai/runtime";
 import {
   readConfigStatusSnapshot as readConfigStatusSnapshotImplementation,
   readConfigStatusView as readConfigStatusViewImplementation,

@@ -620,6 +620,15 @@ export { createEncryptedSecretStore } from "./credentials/encrypted-secret-store
 export type { FileArtifactResourceStoreOptions } from "./artifacts/file-artifact-resource-store.js";
 export { createFileArtifactResourceStore } from "./artifacts/file-artifact-resource-store.js";
 export type {
+  AcceptTrustedExecutionSemanticLimitationInput,
+  RevokeTrustedExecutionSemanticLimitationInput,
+} from "./security/trusted-execution-limitation-receipts.js";
+export {
+  acceptTrustedExecutionSemanticLimitation,
+  readTrustedExecutionSemanticLimitationAcceptance,
+  revokeTrustedExecutionSemanticLimitation,
+} from "./security/trusted-execution-limitation-receipts.js";
+export type {
   AdmittedTurnContext,
   AdmittedTurnResult,
   BudgetDeniedResult,

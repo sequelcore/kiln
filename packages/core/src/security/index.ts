@@ -14,13 +14,17 @@ export type {
 export { SelfAudit } from "./self-audit.js";
 export type { TrustedExecutionEnforcementInput } from "./trusted-execution-enforcement.js";
 export { describeTrustedExecutionEnforcement } from "./trusted-execution-enforcement.js";
-export type { TrustedExecutionLimitationAcceptance, TrustedExecutionSemanticLimitation } from "./trusted-execution-semantic-limitation.js";
+export type {
+  TrustedExecutionLimitationAcceptance,
+  TrustedExecutionLimitationReceipt,
+  TrustedExecutionSemanticLimitation,
+} from "./trusted-execution-semantic-limitation.js";
 export {
+  createTrustedExecutionLimitationAcceptance,
+  createTrustedExecutionLimitationRevocation,
   OPENCODE_NO_FILESYSTEM_SANDBOX,
+  resolveTrustedExecutionLimitationAcceptance,
   TRUSTED_EXECUTION_SEMANTIC_LIMITATIONS,
-  acceptTrustedExecutionSemanticLimitation,
-  readTrustedExecutionSemanticLimitationAcceptance,
-  revokeTrustedExecutionSemanticLimitation,
   validateTrustedExecutionLimitationAcceptance,
   validateTrustedExecutionSemanticLimitation,
 } from "./trusted-execution-semantic-limitation.js";

@@ -19,6 +19,8 @@ vi.mock("@kilnai/core", () => ({
     id: "opencode.no-filesystem-sandbox",
     reviewAfter: "2026-11-13T00:00:00.000Z",
   },
+}));
+vi.mock("@kilnai/runtime", () => ({
   acceptTrustedExecutionSemanticLimitation: mocks.acceptLimitation,
   revokeTrustedExecutionSemanticLimitation: mocks.revokeLimitation,
 }));

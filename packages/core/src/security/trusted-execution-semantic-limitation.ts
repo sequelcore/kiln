@@ -1,8 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { join } from "node:path";
 import type { TrustedExecutionHarness } from "./trusted-execution-lease.js";
-import { resolveCoreKilnHome } from "../kiln-home.js";
 
 export interface TrustedExecutionSemanticLimitation {
   readonly id: string;
@@ -44,7 +40,7 @@ export interface TrustedExecutionLimitationAcceptance {
   readonly revocable: true;
 }
 
-type Receipt =
+export type TrustedExecutionLimitationReceipt =
   | { readonly kind: "accept"; readonly acceptance: TrustedExecutionLimitationAcceptance }
   | { readonly kind: "revoke"; readonly limitationId: string; readonly harness: TrustedExecutionHarness; readonly revokedAt: string; readonly revokedBy: string };
 
@@ -77,58 +73,46 @@ export function validateTrustedExecutionLimitationAcceptance(
   return value;
 }
 
-function receiptsPath(projectPath: string, baseDir?: string): string {
-  const projectIdentity = createHash("sha256").update(projectPath).digest("hex");
-  return join(baseDir ?? join(resolveCoreKilnHome(), "trust", "semantic-limitations"), `${projectIdentity}.jsonl`);
-}
-
-function readReceipts(projectPath: string, baseDir?: string): readonly Receipt[] {
-  const path = receiptsPath(projectPath, baseDir);
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8").split("\n").filter(Boolean).flatMap((line) => {
-    try {
-      const candidate = JSON.parse(line) as Receipt;
-      return candidate && (candidate.kind === "accept" || candidate.kind === "revoke") ? [candidate] : [];
-    } catch { return []; }
-  });
-}
-
-function appendReceipt(projectPath: string, receipt: Receipt, baseDir?: string): void {
-  const path = receiptsPath(projectPath, baseDir);
-  mkdirSync(join(path, ".."), { recursive: true });
-  // One append-only JSONL receipt avoids read/modify/write races and never records the project path in content.
-  appendFileSync(path, `${JSON.stringify(receipt)}\n`, { encoding: "utf8", flush: true });
-}
-
-export function acceptTrustedExecutionSemanticLimitation(input: {
-  readonly projectPath: string; readonly descriptor: TrustedExecutionSemanticLimitation; readonly acceptedBy: string; readonly acceptedAt: string; readonly reviewAfter: string; readonly baseDir?: string;
+export function createTrustedExecutionLimitationAcceptance(input: {
+  readonly descriptor: TrustedExecutionSemanticLimitation;
+  readonly acceptedBy: string;
+  readonly acceptedAt: string;
+  readonly reviewAfter: string;
 }): TrustedExecutionLimitationAcceptance {
-  const acceptance = validateTrustedExecutionLimitationAcceptance(input.descriptor, {
+  return validateTrustedExecutionLimitationAcceptance(input.descriptor, {
     limitationId: input.descriptor.id, harness: input.descriptor.harness, sourceUrl: input.descriptor.sourceUrl,
     upstreamRevision: input.descriptor.upstreamRevision, sourceDigest: input.descriptor.sourceDigest,
     acceptedBy: input.acceptedBy, acceptedAt: input.acceptedAt, reviewAfter: input.reviewAfter, revocable: true,
   });
-  appendReceipt(input.projectPath, { kind: "accept", acceptance }, input.baseDir);
-  return acceptance;
 }
 
-export function revokeTrustedExecutionSemanticLimitation(input: {
-  readonly projectPath: string; readonly descriptor: TrustedExecutionSemanticLimitation; readonly revokedBy: string; readonly revokedAt: string; readonly baseDir?: string;
-}): boolean {
-  const current = readTrustedExecutionSemanticLimitationAcceptance(input.projectPath, input.descriptor, input.revokedAt, input.baseDir);
-  if (!current) return false;
+export function createTrustedExecutionLimitationRevocation(input: {
+  readonly descriptor: TrustedExecutionSemanticLimitation;
+  readonly revokedBy: string;
+  readonly revokedAt: string;
+}): TrustedExecutionLimitationReceipt {
+  validateTrustedExecutionSemanticLimitation(input.descriptor);
   requireDate(input.revokedAt, "revokedAt");
   if (!input.revokedBy) throw new Error("revokedBy is required.");
-  appendReceipt(input.projectPath, { kind: "revoke", limitationId: input.descriptor.id, harness: input.descriptor.harness, revokedAt: input.revokedAt, revokedBy: input.revokedBy }, input.baseDir);
-  return true;
+  return {
+    kind: "revoke",
+    limitationId: input.descriptor.id,
+    harness: input.descriptor.harness,
+    revokedAt: input.revokedAt,
+    revokedBy: input.revokedBy,
+  };
 }
 
-export function readTrustedExecutionSemanticLimitationAcceptance(
-  projectPath: string, descriptor: TrustedExecutionSemanticLimitation, now = new Date().toISOString(), baseDir?: string,
+export function resolveTrustedExecutionLimitationAcceptance(
+  receipts: readonly unknown[],
+  descriptor: TrustedExecutionSemanticLimitation,
+  now = new Date().toISOString(),
 ): TrustedExecutionLimitationAcceptance | undefined {
   validateTrustedExecutionSemanticLimitation(descriptor); requireDate(now, "now");
-  let latest: Receipt | undefined;
-  for (const receipt of readReceipts(projectPath, baseDir)) {
+  let latest: TrustedExecutionLimitationReceipt | undefined;
+  for (const value of receipts) {
+    const receipt = parseReceipt(value);
+    if (!receipt) continue;
     const harness = receipt.kind === "revoke" ? receipt.harness : receipt.acceptance.harness;
     const limitationId = receipt.kind === "revoke" ? receipt.limitationId : receipt.acceptance.limitationId;
     if (harness === descriptor.harness && limitationId === descriptor.id) latest = receipt;
@@ -136,4 +120,64 @@ export function readTrustedExecutionSemanticLimitationAcceptance(
   if (!latest || latest.kind !== "accept") return undefined;
   try { validateTrustedExecutionLimitationAcceptance(descriptor, latest.acceptance, now); } catch { return undefined; }
   return Date.parse(now) <= Date.parse(latest.acceptance.reviewAfter) ? latest.acceptance : undefined;
+}
+
+function parseReceipt(value: unknown): TrustedExecutionLimitationReceipt | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.kind === "accept") {
+    const acceptance = parseAcceptance(value.acceptance);
+    return acceptance ? { kind: "accept", acceptance } : undefined;
+  }
+  if (value.kind !== "revoke") return undefined;
+  const harness = parseHarness(value.harness);
+  return typeof value.limitationId === "string"
+    && harness !== undefined
+    && typeof value.revokedAt === "string"
+    && typeof value.revokedBy === "string"
+    ? {
+        kind: "revoke",
+        limitationId: value.limitationId,
+        harness,
+        revokedAt: value.revokedAt,
+        revokedBy: value.revokedBy,
+      }
+    : undefined;
+}
+
+function parseAcceptance(value: unknown): TrustedExecutionLimitationAcceptance | undefined {
+  if (!isRecord(value)) return undefined;
+  const harness = parseHarness(value.harness);
+  return typeof value.limitationId === "string"
+    && harness !== undefined
+    && typeof value.sourceUrl === "string"
+    && typeof value.upstreamRevision === "string"
+    && isSha256Digest(value.sourceDigest)
+    && typeof value.acceptedBy === "string"
+    && typeof value.acceptedAt === "string"
+    && typeof value.reviewAfter === "string"
+    && value.revocable === true
+    ? {
+        limitationId: value.limitationId,
+        harness,
+        sourceUrl: value.sourceUrl,
+        upstreamRevision: value.upstreamRevision,
+        sourceDigest: value.sourceDigest,
+        acceptedBy: value.acceptedBy,
+        acceptedAt: value.acceptedAt,
+        reviewAfter: value.reviewAfter,
+        revocable: true,
+      }
+    : undefined;
+}
+
+function parseHarness(value: unknown): TrustedExecutionHarness | undefined {
+  return value === "codex" || value === "claude-code" || value === "opencode" ? value : undefined;
+}
+
+function isSha256Digest(value: unknown): value is `sha256:${string}` {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
