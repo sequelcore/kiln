@@ -99,7 +99,6 @@ interface MonitorRecord {
   truncated?: boolean;
   stopRequested?: boolean;
   handle?: MonitorProcessHandle;
-  timeout?: ReturnType<typeof setTimeout>;
 }
 
 export class MonitorRegistry {
@@ -153,12 +152,6 @@ export class MonitorRegistry {
       }, sink);
       record.handle = handle;
       record.pid = handle.pid;
-      if (record.status === "running") {
-        record.timeout = setTimeout(() => {
-          record.timedOut = true;
-          void this.stop(id, "timeout");
-        }, request.timeoutMs);
-      }
     } catch (error) {
       this.finish(record, { error: error instanceof Error ? error : new Error(String(error)) });
     }
@@ -241,10 +234,6 @@ export class MonitorRegistry {
   private finish(record: MonitorRecord, result: MonitorFinishResult): void {
     if (record.status !== "running") {
       return;
-    }
-    if (record.timeout) {
-      clearTimeout(record.timeout);
-      record.timeout = undefined;
     }
     record.completedAtMs = this.now();
     record.exitCode = result.exitCode;
