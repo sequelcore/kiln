@@ -272,9 +272,11 @@ export class MonitorStartTool implements DevTool {
   readonly description = TOOL_SCHEMAS.monitor_start.description;
   readonly inputSchema = TOOL_SCHEMAS.monitor_start.inputSchema;
   private readonly registry: MonitorRegistry;
+  private readonly defaultCwd: string;
 
-  constructor(options: { readonly registry: MonitorRegistry }) {
+  constructor(options: { readonly registry: MonitorRegistry; readonly defaultCwd?: string }) {
     this.registry = options.registry;
+    this.defaultCwd = options.defaultCwd ?? ".";
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -286,7 +288,7 @@ export class MonitorStartTool implements DevTool {
     if (!verbosityInput.ok) return verbosityInput.result;
 
     const sandboxContext = getSandboxContext(sandbox);
-    const cwd = resolvePath(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(), sandbox);
+    const cwd = resolvePath(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? this.defaultCwd, sandbox);
     const cwdError = validateReadPath(cwd, sandbox);
     if (cwdError) {
       return toErrorResult(cwdError, monitorToolMetadata("monitor_start", {

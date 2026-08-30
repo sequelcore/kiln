@@ -53,6 +53,7 @@ export interface JsonQueryToolOptions {
   readonly commandRunner?: JsonQueryCommandRunner;
   readonly environmentProvider?: EnvironmentProvider;
   readonly vendoredToolResolver?: VendoredToolResolver;
+  readonly defaultCwd?: string;
 }
 
 export class JsonQueryTool implements DevTool {
@@ -63,11 +64,13 @@ export class JsonQueryTool implements DevTool {
   private readonly commandRunner: JsonQueryCommandRunner;
   private readonly environmentProvider: EnvironmentProvider;
   private readonly vendoredToolResolver: VendoredToolResolver;
+  private readonly defaultCwd: string;
 
   constructor(options: JsonQueryToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? unavailableJsonQueryCommandRunner;
     this.environmentProvider = options.environmentProvider ?? emptyToolEnvironment;
     this.vendoredToolResolver = options.vendoredToolResolver ?? noVendoredTool;
+    this.defaultCwd = options.defaultCwd ?? ".";
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -84,7 +87,7 @@ export class JsonQueryTool implements DevTool {
       return toErrorResult(maxBytesInput.message, baseMetadata("inline", filterInput.value, verbosityInput.value));
     }
 
-    const source = resolveJsonSource(input, sandbox);
+    const source = resolveJsonSource(input, sandbox, this.defaultCwd);
     if (!source.ok) {
       return toErrorResult(source.message, baseMetadata("inline", filterInput.value, verbosityInput.value));
     }
@@ -202,6 +205,7 @@ const noVendoredTool: VendoredToolResolver = () => undefined;
 function resolveJsonSource(
   input: ToolInput,
   sandbox?: unknown,
+  defaultCwd = ".",
 ): { ok: true; value: JsonQuerySource } | { ok: false; message: string } {
   const inlineJson = optionalString(input, "json");
   const filePath = optionalString(input, "path");
@@ -210,7 +214,7 @@ function resolveJsonSource(
   }
 
   const sandboxContext = getSandboxContext(sandbox);
-  const cwd = sandboxContext?.cwd ?? process.cwd();
+  const cwd = sandboxContext?.cwd ?? defaultCwd;
   if (inlineJson !== undefined) {
     return { ok: true, value: { kind: "inline", json: inlineJson, cwd } };
   }

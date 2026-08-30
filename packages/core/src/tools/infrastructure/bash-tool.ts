@@ -48,6 +48,7 @@ export interface BashToolOptions {
   readonly processRunner?: CommandProcessRunner;
   readonly environmentProvider?: EnvironmentProvider;
   readonly platform?: NodeJS.Platform;
+  readonly defaultCwd?: string;
 }
 
 export class BashTool implements DevTool {
@@ -59,12 +60,14 @@ export class BashTool implements DevTool {
   private readonly processRunner: CommandProcessRunner;
   private readonly environmentProvider: EnvironmentProvider;
   private readonly platform: NodeJS.Platform;
+  private readonly defaultCwd: string;
 
   constructor(options: BashToolOptions = {}) {
     this.commandRunner = options.commandRunner;
     this.processRunner = options.processRunner ?? unavailableCommandProcessRunner;
     this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
     this.platform = options.platform ?? "linux";
+    this.defaultCwd = options.defaultCwd ?? ".";
   }
 
   async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
@@ -84,7 +87,7 @@ export class BashTool implements DevTool {
 
     const sandboxContext = getSandboxContext(sandbox);
     const cwd = resolveShellCwd(
-      optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(),
+      optionalString(input, "cwd") ?? sandboxContext?.cwd ?? this.defaultCwd,
       sandbox,
       this.platform,
     );

@@ -52,15 +52,17 @@ export class TreeTool implements DevTool {
   readonly description = TOOL_SCHEMAS.tree.description;
   readonly inputSchema = TOOL_SCHEMAS.tree.inputSchema;
   private readonly filesystem: BuiltinFilesystem;
+  private readonly defaultCwd: string;
 
-  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem, defaultCwd = ".") {
     this.filesystem = filesystem;
+    this.defaultCwd = defaultCwd;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const context = getSandboxContext(sandbox);
     const rootPath = resolvePath(
-      optionalString(input, "path") ?? context?.cwd ?? process.cwd(),
+      optionalString(input, "path") ?? context?.cwd ?? this.defaultCwd,
       sandbox,
     );
     const depth = clampDepth(optionalNumber(input, "depth"));

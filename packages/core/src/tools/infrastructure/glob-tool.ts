@@ -43,6 +43,7 @@ export interface GlobToolOptions {
   readonly commandRunner?: GlobCommandRunner;
   readonly environmentProvider?: EnvironmentProvider;
   readonly vendoredToolResolver?: VendoredToolResolver;
+  readonly defaultCwd?: string;
 }
 
 export class GlobTool implements DevTool {
@@ -54,10 +55,12 @@ export class GlobTool implements DevTool {
   private readonly environmentProvider: EnvironmentProvider;
   private readonly vendoredToolResolver: VendoredToolResolver;
   private readonly filesystem: BuiltinFilesystem;
+  private readonly defaultCwd: string;
 
   constructor(options: GlobToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? unavailableGlobCommandRunner;
     this.filesystem = options.filesystem ?? unavailableBuiltinFilesystem;
+    this.defaultCwd = options.defaultCwd ?? ".";
     this.environmentProvider = options.environmentProvider ?? emptyToolEnvironment;
     this.vendoredToolResolver = options.vendoredToolResolver ?? noVendoredTool;
   }
@@ -74,7 +77,7 @@ export class GlobTool implements DevTool {
 
     const sandboxContext = getSandboxContext(sandbox);
     const searchRoot = resolvePath(
-      optionalString(input, "path") ?? sandboxContext?.cwd ?? process.cwd(),
+      optionalString(input, "path") ?? sandboxContext?.cwd ?? this.defaultCwd,
       sandbox,
     );
     const rootReadError = validateReadPath(searchRoot, sandbox);

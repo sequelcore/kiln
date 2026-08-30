@@ -69,6 +69,7 @@ export interface GrepToolOptions {
   readonly bundledRgPath?: string;
   readonly configuredRgPath?: string;
   readonly vendoredToolResolver?: VendoredToolResolver;
+  readonly defaultCwd?: string;
 }
 
 export class GrepTool implements DevTool {
@@ -79,10 +80,12 @@ export class GrepTool implements DevTool {
   private readonly commandRunner: GrepCommandRunner;
   private readonly searchRuntimeProvider: SearchRuntimeProvider;
   private readonly filesystem: BuiltinFilesystem;
+  private readonly defaultCwd: string;
 
   constructor(options: GrepToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? unavailableGrepCommandRunner;
     this.filesystem = options.filesystem ?? unavailableBuiltinFilesystem;
+    this.defaultCwd = options.defaultCwd ?? ".";
     this.searchRuntimeProvider = options.searchRuntimeProvider ?? createRipgrepRuntimeProvider({
       bundledPath: options.bundledRgPath,
       configuredPath: options.configuredRgPath,
@@ -104,7 +107,7 @@ export class GrepTool implements DevTool {
 
     const sandboxContext = getSandboxContext(sandbox);
     const searchPath = resolvePath(
-      optionalString(input, "path") ?? sandboxContext?.cwd ?? process.cwd(),
+      optionalString(input, "path") ?? sandboxContext?.cwd ?? this.defaultCwd,
       sandbox,
     );
     const rootReadError = validateReadPath(searchPath, sandbox);

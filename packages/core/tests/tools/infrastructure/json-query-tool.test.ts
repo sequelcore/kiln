@@ -13,6 +13,7 @@ describe("JsonQueryTool", () => {
     }));
     const tool = new JsonQueryTool({
       commandRunner,
+      defaultCwd: process.cwd(),
       vendoredToolResolver: (binary) =>
         binary === "jq" ? { path: "jq-bin", version: "1.8.2" } : undefined,
     });

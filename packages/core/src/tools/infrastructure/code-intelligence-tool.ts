@@ -50,6 +50,7 @@ const OPERATIONS: readonly CodeIntelligenceOperation[] = [
 
 export interface CodeIntelligenceToolOptions {
   readonly adapter?: CodeIntelligenceAdapter;
+  readonly defaultCwd?: string;
 }
 
 export class CodeIntelligenceTool implements DevTool {
@@ -58,9 +59,11 @@ export class CodeIntelligenceTool implements DevTool {
   readonly inputSchema = TOOL_SCHEMAS.code_intelligence.inputSchema;
 
   private readonly adapter?: CodeIntelligenceAdapter;
+  private readonly defaultCwd: string;
 
   constructor(options: CodeIntelligenceToolOptions = {}) {
     this.adapter = options.adapter;
+    this.defaultCwd = options.defaultCwd ?? ".";
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -73,7 +76,7 @@ export class CodeIntelligenceTool implements DevTool {
     if (!verbosityInput.ok) {
       return verbosityInput.result;
     }
-    const workspaceRoot = getSandboxContext(sandbox)?.cwd ?? process.cwd();
+    const workspaceRoot = getSandboxContext(sandbox)?.cwd ?? this.defaultCwd;
     const metadataBase = {
       operation: operation ?? "diagnostics",
       workspaceRoot,

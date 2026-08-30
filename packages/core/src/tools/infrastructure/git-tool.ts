@@ -52,6 +52,7 @@ export type GitCommandRunner = (
 
 export interface GitToolOptions {
   readonly commandRunner?: GitCommandRunner;
+  readonly defaultCwd?: string;
 }
 
 export class GitTool implements DevTool {
@@ -60,9 +61,11 @@ export class GitTool implements DevTool {
   readonly inputSchema = TOOL_SCHEMAS.git.inputSchema;
 
   private readonly commandRunner: GitCommandRunner;
+  private readonly defaultCwd: string;
 
   constructor(options: GitToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? unavailableGitCommandRunner;
+    this.defaultCwd = options.defaultCwd ?? ".";
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -81,7 +84,7 @@ export class GitTool implements DevTool {
     }
 
     const sandboxContext = getSandboxContext(sandbox);
-    const cwd = resolvePath(sandboxContext?.cwd ?? process.cwd(), sandbox);
+    const cwd = resolvePath(sandboxContext?.cwd ?? this.defaultCwd, sandbox);
     const commandString = toCommandString(subcommandInput.value, argsInput.value);
 
     const cwdError = validateReadPath(cwd, sandbox);

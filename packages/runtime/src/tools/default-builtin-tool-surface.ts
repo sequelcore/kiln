@@ -30,42 +30,50 @@ export function createSessionBuiltinToolOptions(
 
 function withRuntimeProcessExecution(options: DefaultBuiltinToolRegistryOptions): DefaultBuiltinToolRegistryOptions {
   const processRunner = new SpawnCommandProcessRunner();
+  const hostFilesystem = options.hostFilesystem ?? nodeBuiltinFilesystem;
+  const hostCwd = options.hostCwd ?? process.cwd();
   return {
     ...options,
-    hostFilesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
+    hostFilesystem,
+    hostCwd,
     bash: {
       processRunner,
       environmentProvider: detectRuntimeToolEnvironment,
       platform: process.platform,
+      defaultCwd: hostCwd,
       ...options.bash,
     },
     git: {
       commandRunner: runNativeGitCommand,
+      defaultCwd: hostCwd,
       ...options.git,
     },
     grep: {
-      filesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
+      filesystem: hostFilesystem,
       commandRunner: runNativeCommand,
       environmentProvider: detectRuntimeToolEnvironment,
       vendoredToolResolver: resolveVendoredToolBinary,
       configuredRgPath: process.env.KILN_RG_PATH,
+      defaultCwd: hostCwd,
       ...options.grep,
     },
     glob: {
-      filesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
+      filesystem: hostFilesystem,
       commandRunner: runNativeCommand,
       environmentProvider: detectRuntimeToolEnvironment,
       vendoredToolResolver: resolveVendoredToolBinary,
+      defaultCwd: hostCwd,
       ...options.glob,
     },
     jsonQuery: {
       commandRunner: runNativeCommand,
       environmentProvider: detectRuntimeToolEnvironment,
       vendoredToolResolver: resolveVendoredToolBinary,
+      defaultCwd: hostCwd,
       ...options.jsonQuery,
     },
     ocrImage: {
-      filesystem: options.hostFilesystem ?? nodeBuiltinFilesystem,
+      filesystem: hostFilesystem,
       ocrRunner: runNativeTesseractOcr,
       ...options.ocrImage,
     },

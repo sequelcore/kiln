@@ -103,6 +103,7 @@ export interface DevToolSchemaProjection {
 
 export interface DefaultBuiltinToolRegistryOptions {
   readonly hostFilesystem?: BuiltinFilesystem;
+  readonly hostCwd?: string;
   /** Outer configured authority; Core meets it with effect and caller bounds. */
   readonly invocationAdmission?: InvocationAdmission;
   readonly additionalTools?: readonly DevTool[];
@@ -280,12 +281,12 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
   const tools = [
     new BashTool(options.bash),
     new ReadTool(options.hostFilesystem),
-    new ReadManyTool(options.hostFilesystem),
+    new ReadManyTool(options.hostFilesystem, options.hostCwd),
     new WriteTool(options.hostFilesystem),
     new EditTool(options.hostFilesystem),
     new PatchTool(options.hostFilesystem),
     new StatTool(options.hostFilesystem),
-    new TreeTool(options.hostFilesystem),
+    new TreeTool(options.hostFilesystem, options.hostCwd),
     new ViewImageTool(options.hostFilesystem),
     new OcrImageTool({
       ...options.ocrImage,
@@ -320,8 +321,11 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     }),
     new JsonQueryTool(options.jsonQuery),
     new GitTool(options.git),
-    new CodeIntelligenceTool(options.codeIntelligence),
-    new MonitorStartTool({ registry: monitorRegistry }),
+    new CodeIntelligenceTool({
+      ...options.codeIntelligence,
+      defaultCwd: options.codeIntelligence?.defaultCwd ?? options.hostCwd,
+    }),
+    new MonitorStartTool({ registry: monitorRegistry, defaultCwd: options.hostCwd }),
     new MonitorReadTool({ registry: monitorRegistry }),
     new MonitorStopTool({ registry: monitorRegistry }),
     new MonitorListTool({ registry: monitorRegistry }),

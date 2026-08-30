@@ -53,9 +53,11 @@ export class ReadManyTool implements DevTool {
   readonly description = TOOL_SCHEMAS.read_many.description;
   readonly inputSchema = TOOL_SCHEMAS.read_many.inputSchema;
   private readonly filesystem: BuiltinFilesystem;
+  private readonly defaultCwd: string;
 
-  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem) {
+  constructor(filesystem: BuiltinFilesystem = unavailableBuiltinFilesystem, defaultCwd = ".") {
     this.filesystem = filesystem;
+    this.defaultCwd = defaultCwd;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -71,7 +73,7 @@ export class ReadManyTool implements DevTool {
     if (!verbosity.ok) return verbosity.result;
 
     const context = getSandboxContext(sandbox);
-    const root = context?.cwd ?? process.cwd();
+    const root = context?.cwd ?? this.defaultCwd;
     const recursive = optionalBoolean(input, "recursive") ?? false;
     const respectGitIgnore = optionalBoolean(input, "respectGitIgnore") ?? false;
     const useDefaultExcludes = optionalBoolean(input, "useDefaultExcludes") ?? true;
