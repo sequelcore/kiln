@@ -697,6 +697,46 @@ Claude Code and OpenCode either gain separately proven enforcement dimensions
 or continue to fail closed with explicit limitations; no surface claims generic
 cross-harness permission or sandbox parity.
 
+### Ready Follow-Up - Native MCP Product Identity
+
+Status: Naming decision accepted; implementation pending.
+
+Decision: the user-visible MCP server identity projected into Codex, Claude
+Code, and OpenCode becomes `kiln`. `kiln-control-plane` exposes internal
+architecture in an operator-facing namespace and produces unnecessarily long
+qualified tool names. “Control plane” remains valid architecture vocabulary;
+it is not part of the product-facing server id.
+
+Scope:
+
+- Replace the one managed native MCP server id with `kiln` in all three harness
+  projections, status contracts, documentation, and conformance fixtures.
+- Keep the internal `control-plane-mcp` command, adapter identifiers, server
+  implementation names, existing `kiln_*` tool names, and
+  `kiln-control-plane-workflow` skill unchanged unless each receives a separate
+  naming decision.
+- Replace the old identity outright. Do not retain an alias, duplicate server,
+  compatibility shim, or two-server transition state.
+
+Migration and recovery:
+
+- Inspect native config and global install-state before mutation. If `kiln` is
+  already present and is not proven to be Kiln-managed, fail closed and leave
+  `kiln-control-plane` untouched.
+- For a proven managed projection, back up the native file, remove only the
+  recorded old field, write `kiln`, and atomically replace install-state with
+  current provenance and hashes.
+- Drifted, malformed, or contradictory ownership evidence blocks migration.
+  Uninstall removes only the currently recorded managed identity.
+- A failed write restores the prior file and install-state; it never leaves
+  both identities installed.
+
+Acceptance: clean install, managed replacement, unmanaged collision, drift,
+malformed config, rollback, status, and uninstall fixtures pass for Codex,
+Claude Code, and OpenCode; a live global sync leaves exactly one managed `kiln`
+declaration per admitted harness; discovered tools and Runtime authority are
+otherwise unchanged.
+
 ## Promotion Gates
 
 - One canonical owner exists for capability identity, eligibility, selection,
