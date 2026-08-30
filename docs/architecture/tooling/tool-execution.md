@@ -83,9 +83,12 @@ Current source-of-truth boundary:
 ## Shared Provider Tool Surface
 
 Kiln has one builtin developer-tool surface. The default builtin registry lives
-in `@kilnai/core` and every runtime-facing projection is derived from that
-registry. The concrete builtin developer-tool catalog and consumer contract are
-documented in `docs/architecture/tooling/developer-tools.md`.
+in Runtime composition and every runtime-facing projection is derived from that
+one registry. Its canonical IDs, schemas, policy, effects, metadata, and
+provider-neutral ports live in `@kilnai/core`; concrete process, filesystem,
+network, SDK, native-helper, and provider invocation live in `@kilnai/runtime`.
+The builtin developer-tool catalog and consumer contract are documented in
+`docs/architecture/tooling/developer-tools.md`.
 
 Canonical tool IDs and operator-facing aliases are separate. The initial
 provider projection, the derived `authorizedMaterializable` view, and later

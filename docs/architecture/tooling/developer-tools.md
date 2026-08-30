@@ -10,10 +10,11 @@ Stable developer-tool doctrine lives here, in `tool-execution.md`, and in
 
 ## Purpose
 
-Kiln has one builtin developer-tool surface. Tools are defined once in
-`@kilnai/core`, projected through MCP and runtime-attached sessions, and
-consumed by CLI, GUI, TUI, SDK, and direct-provider sessions without private
-registries.
+Kiln has one builtin developer-tool surface. Canonical tool contracts are
+defined once in `@kilnai/core`; Runtime materializes their host implementations
+and projects the resulting registry through MCP and runtime-attached sessions.
+CLI, GUI, TUI, SDK, and direct-provider sessions consume that projection
+without private registries.
 
 The developer-tool surface owns concrete local and external developer actions:
 
@@ -36,20 +37,39 @@ deferred discovery, `read_many`, monitors, task state, elicitation, and
 resources, is documented in `shared-tooling-intelligence.md` and
 `context-resource-plane.md`.
 
-## Core Ownership
+## Contract And Host Ownership
 
-The core package owns tool schemas, execution behavior, metadata contracts, and
-projection adapters. Consumers may attach their own operator tools, but they do
-not own alternate developer-tool implementations.
+Core owns canonical tool IDs, schemas, input validation, effect envelopes,
+authority semantics, sandbox-policy contracts, result metadata, deterministic
+result shaping, catalog behavior, and provider-neutral execution ports. In this
+document, "tool behavior" means those observable semantics; it does not mean
+performing host effects inside Core.
+
+Runtime owns every concrete host effect behind those ports: process spawn and
+lifecycle, filesystem access and mutation, native search/runtime discovery,
+network requests, SDK transports, OCR/native helpers, and interactive provider
+invocation. Runtime also owns composition of the one canonical builtin
+registry. Moving host execution must not move or duplicate Core policy, weaken
+effect-time enforcement, or create a second schema/catalog/metadata owner.
+
+CLI is an outer configuration and presentation adapter. It may resolve
+operator configuration and inject Runtime implementations, but it does not
+execute builtin host effects or define another registry.
+
+The migration rule is replace-in-place by tool family: retain the Core contract
+and pure semantics, move its concrete adapter to Runtime, update the canonical
+Runtime composition, move concrete-backed tests with the adapter, and remove
+the old Core path in the same change. Each family must preserve cancellation,
+timeouts, sandbox checks, byte/path bounds, metadata, and failure projection.
 
 Canonical construction paths:
 
-- CLI MCP startup uses `createDefaultBuiltinToolSurface()`.
+- CLI MCP startup asks Runtime to create the default builtin surface.
 - Runtime-attached CLI, GUI, and TUI sessions use
   `createAttachedRuntimeBuiltinToolSurface()`.
 - Runtime per-call execution uses `buildAttachedRuntimePerCallToolConfig()`.
-- Runtime exposes the same builtin registry through `DevToolsMcpServer`; Core
-  does not construct or load the MCP SDK.
+- Runtime exposes that same registry through `DevToolsMcpServer`; Core does not
+  construct or load the MCP SDK.
 - GUI and TUI may add operator-surface tools, but developer tools still come
   from the core surface.
 
@@ -127,9 +147,10 @@ to the monitor tools documented in `shared-tooling-intelligence.md`.
 
 ## File And Search Tools
 
-The core surface owns file read/write/edit and search behavior. Runtime
-file-change evidence reads shared core `file` metadata first, so write and edit
-operations become structured evidence even when provider tool names are aliases.
+Core owns file/search semantics and metadata; Runtime owns their host
+filesystem and process adapters. Runtime file-change evidence reads shared Core
+`file` metadata first, so write and edit operations become structured evidence
+even when provider tool names are aliases.
 
 `grep` and `glob` remain core search tools. `grep` accepts file or directory
 paths and requires a resolved native `rg` runtime; it reports runtime source,
@@ -145,7 +166,7 @@ TUI, CLI, MCP, and managed-agent routes do not disagree about file discovery.
 
 ## Patch Tool
 
-`patch({ patch, dryRun? })` is a core developer tool.
+`patch({ patch, dryRun? })` is a canonical developer tool.
 
 It parses structured patch documents in `@kilnai/core`, validates every target
 path before applying changes, supports dry-run validation, emits per-file
@@ -158,7 +179,7 @@ authority, sandbox, and audit path as other write tools.
 ## File Metadata And Tree Tools
 
 `stat({ path, hash? })` and `tree({ path?, depth?, includeFiles? })` are
-read-only core developer tools.
+read-only canonical developer tools.
 
 `stat` reports path metadata and optional SHA-256 hashes. `tree` reports compact
 deterministic directory shape with bounded depth, bounded entry count, sandbox
@@ -170,7 +191,7 @@ surface.
 ## Image And OCR Tools
 
 `view_image({ path, detail? })` and `ocr_image({ path, language? })` are
-read-only core developer tools.
+read-only canonical developer tools.
 
 `view_image` validates image content by MIME signature, enforces size limits,
 emits MCP-compatible image content, and preserves compact JSON output for
@@ -204,7 +225,7 @@ Resource-linked high-volume outputs are documented in
 
 ## Controlled Web Tools
 
-`web_search`, `web_fetch`, and `web_extract` are read-only/idempotent core
+`web_search`, `web_fetch`, and `web_extract` are read-only/idempotent canonical
 developer tools. They project through the canonical builtin surface and emit
 shared `web` metadata.
 
@@ -271,7 +292,7 @@ Governed research is a higher-level future capability documented in
 `browser_session_stop`, `computer_observe`, `computer_click`, `computer_type`,
 `computer_keypress`, `computer_open_application`,
 `computer_focus_application`, `computer_minimize_application`, and
-`computer_close_application` are cross-surface core developer tools. They
+`computer_close_application` are cross-surface canonical developer tools. They
 project through the canonical builtin surface, emit shared `interactive`
 metadata, and fail closed unless a runtime surface injects an interactive-use
 provider.
@@ -541,15 +562,16 @@ process-list inspection.
 All current consumers must use the shared surface:
 
 - CLI `kiln tools --mcp` constructs Runtime's `DevToolsMcpServer` from the
-  default core surface.
-- Runtime-attached CLI, GUI, and TUI sessions use the attached core surface.
+  default Runtime-composed surface.
+- Runtime-attached CLI, GUI, and TUI sessions use the attached Runtime surface.
 - GUI and TUI operator tools layer on top of the same configured surface.
 - Web policy and search-provider configuration are resolved once from
   `KilnYaml.web`.
 - Browser and computer use providers are injected into the same configured
-  core surface by runtime adapters; consumers do not own private automation
+  canonical surface by Runtime adapters; consumers do not own private automation
   registries.
-- MCP and SDK consumers receive projections of core-owned tools and metadata.
+- MCP and SDK consumers receive projections of Core-owned contracts and
+  Runtime-owned implementations.
 
 The guide-level operator workflow and tool examples live in
 `docs/guides/channels/tool-use.md`. Authority and execution boundaries live in
