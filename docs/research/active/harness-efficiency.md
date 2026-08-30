@@ -2,7 +2,7 @@
 
 Status: incomplete
 
-Evidence cutoff: 2026-08-25.
+Evidence cutoff: 2026-08-30.
 
 Owners:
 
@@ -90,10 +90,129 @@ No inspected source provides a controlled, same-version, same-model,
 same-tool-surface comparison of current Kiln, Pi, Claude Code, Codex, OpenCode,
 and Gemini CLI. The social claim that Pi has the highest cache-hit rate, lowest
 latency, highest performance, smallest bundle, and cleanest code did not include
-a reproducible dataset or method. Kiln has not yet produced the live paired
-provider evidence required below.
+a reproducible dataset or method. Kiln has produced the diagnostic local probe
+recorded below, but not the promotion-quality paired provider evidence required
+by this investigation.
 
 ## Current Kiln Evidence
+
+### Diagnostic Kiln OAuth versus Codex CLI probe, 2026-08-30
+
+#### Claim and evaluated systems
+
+This probe asked whether Kiln reports less fixed input than the native Codex
+CLI for small, tool-free tasks, whether both routes respond consistently to
+added user input, and whether reducing reported input preserved correctness in
+one deterministic reasoning task.
+
+The evaluated objects were complete harness routes, not the model in isolation:
+
+- Kiln at commit `3fa55fdd4f634f73949d862f3fc8c6f5b47a019d`, using
+  the Codex OAuth adapter, `gpt-5.6-luna`, a model-only Kiln tool projection,
+  and governed context selected by `DefaultContextGovernor`;
+- Codex CLI `0.151.0` using `gpt-5.6-luna` with its native harness surface;
+- an additional Codex CLI cohort using `--ignore-user-config --ignore-rules`
+  to isolate the contribution of operator configuration and repository rules.
+
+The host used Bun `1.4.0` and Node.js `24.15.0` on Windows. Trials ran
+sequentially. The worktree also contained unrelated, uncommitted
+capability-search work, so the commit alone is not a complete immutable
+execution identity. No tools were invoked by any successful trial. The Codex
+CLI still owned its native prompt and tool-schema surface; therefore this is an
+out-of-box system comparison, not a same-tool-surface adapter comparison.
+
+#### Protocol 1: fixed input and configuration contribution
+
+Each route received `Reply exactly with: OK` at low reasoning effort for three
+sequential trials. Values below are provider- or harness-reported tokens and
+total observed wall time in milliseconds.
+
+| Cohort | Input tokens | Cached input tokens | Output tokens | Wall time (ms) |
+| --- | --- | --- | --- | --- |
+| Kiln OAuth | 63, 63, 63 | 0, 0, 0 | 5, 5, 5 | 13,103; 10,932; 11,580 |
+| Codex CLI, normal | 18,671, 18,671, 18,671 | 8,960, 8,960, 8,960 | 5, 5, 5 | 6,600; 7,916; 6,095 |
+| Codex CLI, isolated | 18,307, 18,307, 18,307 | 8,960, 8,960, 8,960 | 5, 5, 5 | 3,087; 2,938; 4,539 |
+
+Ignoring operator configuration and repository rules reduced Codex CLI's
+reported fixed input by 364 tokens, about 2% of its isolated total. Most of the
+reported Codex CLI input therefore remained in its native harness surface for
+this environment. Kiln reported much less input, but was slower on every trial;
+the median wall times were 11,580 ms for Kiln, 6,600 ms for normal Codex CLI,
+and 3,087 ms for isolated Codex CLI.
+
+#### Protocol 2: user-input slope
+
+The isolated cohorts repeated the exact-output task after appending 512 copies
+of `alpha`. Three sequential trials were run per route.
+
+| Cohort | Input tokens | Cached input tokens | Output tokens | Wall time (ms) |
+| --- | --- | --- | --- | --- |
+| Kiln OAuth | 582, 582, 582 | 0, 0, 0 | 5, 5, 5 | 12,488; 11,892; 12,606 |
+| Codex CLI, isolated | 18,826, 18,826, 18,826 | 8,960, 8,960, 8,960 | 5, 5, 16 | 3,389; 2,968; 4,564 |
+
+Both routes increased reported input by exactly 519 tokens relative to their
+short-prompt cohorts. Their reported intercept remained 18,244 tokens apart.
+This supports equal sensitivity to added user content in this probe. It does
+not prove that the 18,244-token difference is entirely absent from the model's
+actual context, because the routes may account differently for instructions,
+native harness material, tools, or cached prefixes.
+
+That limitation is material. Kiln's context telemetry estimated approximately
+1,763 selected tokens for the short-prompt run while the Codex OAuth response
+reported only 63 input tokens. Runtime passes the final governed prompt to the
+adapter as `instructions`, and OpenAI defines `instructions` as a system or
+developer message inserted into model context. The observed OAuth usage field
+therefore cannot be treated as a complete, directly comparable measurement of
+Kiln's rendered context until request-level token counting or provider-specific
+usage semantics reconcile the discrepancy.
+
+#### Protocol 3: bounded correctness and reasoning effort
+
+The task was:
+`Find the smallest positive integer n such that n mod 7 = 3, n mod 11 = 5,
+and n mod 13 = 8. Do not use tools. Reply only with the integer.`
+The reference answer was `346`. Each route ran two low-effort and two
+max-effort trials.
+
+| Cohort | Effort | Input tokens | Output tokens | Reasoning tokens | Wall time (ms) | Exact results |
+| --- | --- | --- | --- | --- | --- | --- |
+| Kiln OAuth | low | 102, 102 | 156, 116 | not separately exposed | 14,266; 18,421 | 2/2 |
+| Kiln OAuth | max | 102, 102 | 230, 217 | not separately exposed | 16,526; 16,055 | 2/2 |
+| Codex CLI, isolated | low | 18,346, 18,346 | 116, 129 | 109, 122 | 5,285; 5,718 | 2/2 |
+| Codex CLI, isolated | max | 18,346, 18,346 | 251, 216 | 244, 209 | 7,912; 7,310 | 2/2 |
+
+Codex CLI reported 18,176 cached input tokens in the first low-effort trial and
+8,960 in the other three trials; the cache cohort was therefore not stable.
+Four earlier direct-CLI attempts were invalid because the experiment command
+misquoted the prompt. They are instrument failures, not model failures, and
+were replaced by the four successful trials shown above.
+
+Both systems returned the exact answer in every valid trial, and maximum effort
+increased aggregate output or separately reported reasoning usage. This is a
+small deterministic correctness check only. It does not establish quality
+parity on repository work, tool use, skill discovery, long sessions, safety,
+or authority-sensitive tasks.
+
+#### Readiness verdict
+
+**Diagnostic-only.** The probe supports these bounded observations for the
+tested local routes on 2026-08-30:
+
+- Codex CLI reported substantially more fixed input than Kiln OAuth;
+- removing user configuration and repository rules explained only 364 reported
+  Codex CLI input tokens;
+- both routes counted the added user-input payload with the same 519-token
+  increase;
+- both routes solved the single deterministic task at low and maximum effort;
+- Kiln had materially higher wall time despite reporting less input.
+
+It does not support a claim that Kiln consumed 18,244 fewer actual model-context
+tokens, reduced billed usage or subscription quota, matched Codex CLI quality
+generally, or improved end-to-end efficiency. Raw immutable provider streams,
+request payloads, first-token timestamps, exact command manifests, independent
+token counts, cost or quota observations, and a representative paired task set
+were not retained. The next tier requires the replayable baseline specified in
+`Highest-Value Missing Evidence` below.
 
 ### Existing strengths
 
@@ -297,6 +416,7 @@ projection candidate, progressive tool disclosure, or another harness.
 ### Labs And Provider Documentation
 
 - OpenAI, [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
+- OpenAI, [Responses API: create a model response](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
 - OpenAI, [Latency optimization](https://developers.openai.com/api/docs/guides/latency-optimization).
 - OpenAI, [Data controls by endpoint](https://platform.openai.com/docs/models/default-usage-policies-by-endpoint).
 - Anthropic, [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
