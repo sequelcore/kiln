@@ -10,7 +10,7 @@ vi.mock("../../src/commands/gui.js", () => ({
   guiCommand: mockGuiCommand,
 }));
 
-import { createCli } from "../../src/cli.js";
+import { createCli } from "../../src/index.js";
 
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {

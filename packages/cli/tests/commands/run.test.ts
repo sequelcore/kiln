@@ -18,7 +18,7 @@ import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";
 import { type DomainConfig, DomainRegistry } from "@kilnai/core/domain";
 import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
-import { createCli } from "../../src/cli.js";
+import { createCli } from "../../src/index.js";
 
 const runCommandMock = vi.hoisted(() => vi.fn());
 const managedAgentCommandMock = vi.hoisted(() => vi.fn());

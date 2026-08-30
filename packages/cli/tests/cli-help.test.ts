@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../src/config.js";
-import { createCli } from "../src/cli.js";
+import { createCli } from "../src/index.js";
 
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
