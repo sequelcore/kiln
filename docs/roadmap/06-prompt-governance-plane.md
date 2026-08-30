@@ -346,6 +346,34 @@ leaves no global prompt residue or hidden configuration; legal/distribution
 approval and representative document evals exist before any first-party pack
 is published.
 
+### Open Follow-Up - Global Projection Freshness
+
+Status: Open from the 2026-08-30 global configuration audit.
+
+Owner: this track owns the context inputs; the config-projection surface owns
+atomic projection, install-state, drift, and status reporting.
+
+Risk: a stale private workflow snapshot can describe an older combination of
+instructions, agents, skills, or workflow context even while the native global
+instruction files are current. The snapshot remains non-authoritative, but an
+operator may still rely on it for planning or diagnosis unless every surface
+shows its stale state consistently.
+
+Required outcome:
+
+- Rebuild the snapshot and manifest atomically from current canonical sources.
+- Preserve the previous projection for recovery and never import snapshot bytes
+  back as authority.
+- Make CLI, TUI, GUI, and Gateway status agree on `current`, `stale`, missing,
+  drifted, and unsupported states.
+- Add a regression fixture that changes one canonical input, proves the prior
+  snapshot becomes stale, refreshes it, and verifies current provenance and
+  digest evidence without repository-local `.kiln` state.
+
+Closure evidence: the operator-private project projection reports `current`,
+the stale-to-current fixture passes, and no Runtime prompt or native harness
+loads the private snapshot as a second source of doctrine.
+
 ## Promotion Gates
 
 - One Runtime prompt authority exists for normal, retry, and fallback calls.

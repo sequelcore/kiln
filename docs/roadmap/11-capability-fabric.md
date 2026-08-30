@@ -657,6 +657,46 @@ work-governance contracts pass cross-surface conformance. Projection failure
 leaves executable authority unchanged and reports drift; there is no fallback
 to the former workflow or tool names.
 
+### Open Follow-Up - Native Harness Permission Assurance
+
+Status: Open from the 2026-08-30 global configuration audit.
+
+Owner: this track owns exact harness capability evidence and the integration
+surface owns each native adapter. Prompt or skill projection is not an
+enforcement owner.
+
+Current risks:
+
+- Codex has persisted native permission intent, but its version-bound effective
+  Runtime attestation is stale. Stale proof must not authorize unattended or
+  higher-risk execution.
+- Claude Code permission modes and rules do not yet prove exact approval,
+  filesystem-sandbox, or network enforcement parity with Kiln.
+- OpenCode permission rules govern approval behavior but do not provide a
+  Codex-equivalent filesystem sandbox. This is a durable harness limitation,
+  not a translation detail that Kiln may approximate.
+
+Required outcome:
+
+- Renew Codex evidence through the existing content-free, version-bound Runtime
+  attestation path and invalidate it whenever the executable revision,
+  effective permission configuration, or proof contract changes.
+- Keep approval control, filesystem isolation, network isolation, and
+  authorization as separate evidence dimensions for every harness.
+- Preserve `unsupported-semantic-translation`, `stale-evidence`, and
+  `rules-only` classifications until an exact live proof supports a stronger
+  classification; do not convert operator acceptance into technical proof.
+- Make CLI, TUI, GUI, Gateway, and managed-invocation admission consume the same
+  classification and remediation evidence.
+- Add negative fixtures for stale attestations, unsupported granular rules,
+  absent filesystem isolation, dangerous bypass modes, and conflicting native
+  versus Runtime evidence.
+
+Closure evidence: Codex reports current effective proof for its pinned revision;
+Claude Code and OpenCode either gain separately proven enforcement dimensions
+or continue to fail closed with explicit limitations; no surface claims generic
+cross-harness permission or sandbox parity.
+
 ## Promotion Gates
 
 - One canonical owner exists for capability identity, eligibility, selection,
