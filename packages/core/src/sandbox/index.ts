@@ -15,7 +15,7 @@ export interface SandboxConfig {
 
 export { SandboxPolicy, createPolicy, createTenantSandbox, ROLE_PRESETS } from "./policies.js";
 export { PathValidator, isSubPath } from "./path-validator.js";
-export type { ValidationResult } from "./path-validator.js";
+export type { PhysicalPathResolver, ValidationResult } from "./path-validator.js";
 export {
   assertBoundHostToolSandbox,
   createBoundHostToolSandbox,

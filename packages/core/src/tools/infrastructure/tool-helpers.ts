@@ -1,7 +1,7 @@
 import { basename, resolve } from "node:path";
 import type { BuiltinFilesystem } from "../contracts/builtin-filesystem.js";
 
-import { PathValidator } from "../../sandbox/path-validator.js";
+import { PathValidator, type PhysicalPathResolver } from "../../sandbox/path-validator.js";
 import { SandboxPolicy } from "../../sandbox/policies.js";
 import type { ToolResultMetadata } from "../domain/tool-result-metadata.js";
 import type { ToolInput, ToolResult } from "../domain/tool.js";
@@ -12,6 +12,7 @@ export interface ToolSandboxContext {
   readonly cwd?: string;
   readonly policy?: SandboxPolicy;
   readonly pathValidator?: PathValidator;
+  readonly physicalPathResolver?: PhysicalPathResolver;
   readonly allowedToolNames?: readonly string[];
 }
 
@@ -40,23 +41,37 @@ export function getSandboxContext(sandbox?: unknown): ToolSandboxContext | undef
     cwd?: unknown;
     policy?: unknown;
     pathValidator?: unknown;
+    physicalPathResolver?: unknown;
     allowedToolNames?: unknown;
   };
 
   const policy = context.policy instanceof SandboxPolicy ? context.policy : undefined;
+  const physicalPathResolver = isPhysicalPathResolver(context.physicalPathResolver)
+    ? context.physicalPathResolver
+    : undefined;
   const pathValidator =
     context.pathValidator instanceof PathValidator
       ? context.pathValidator
       : policy
-        ? new PathValidator({ policy })
+        ? new PathValidator({
+            policy,
+            ...(physicalPathResolver ? { physicalPathResolver } : {}),
+          })
         : undefined;
 
   return {
     cwd: typeof context.cwd === "string" ? context.cwd : undefined,
     policy,
     pathValidator,
+    physicalPathResolver,
     allowedToolNames: isStringArray(context.allowedToolNames) ? context.allowedToolNames : undefined,
   };
+}
+
+function isPhysicalPathResolver(value: unknown): value is PhysicalPathResolver {
+  return typeof value === "object"
+    && value !== null
+    && typeof Reflect.get(value, "resolve") === "function";
 }
 
 function isStringArray(value: unknown): value is readonly string[] {

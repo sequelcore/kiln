@@ -38,6 +38,7 @@ import {
   STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
   textParts,
 } from "@kilnai/core";
+import { nodePhysicalPathResolver } from "../../tools/node-physical-path-resolver.js";
 import {
   type RuntimeModelRoundActionClaimStore,
   type RuntimeModelRoundDispatchContext,
@@ -1102,6 +1103,7 @@ function withSandboxContext(
 function createManagedToolSandbox(request: ManagedAgentInvocationRequest): {
   readonly cwd: string;
   readonly policy: SandboxPolicy;
+  readonly physicalPathResolver: typeof nodePhysicalPathResolver;
 } {
   const workingDirectory = request.authority.workingDirectory.path;
   const config: SandboxConfig = {
@@ -1120,6 +1122,7 @@ function createManagedToolSandbox(request: ManagedAgentInvocationRequest): {
       config,
       projectPath: workingDirectory,
     }),
+    physicalPathResolver: nodePhysicalPathResolver,
   };
 }
 

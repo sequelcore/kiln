@@ -1,6 +1,10 @@
-import { lstatSync, realpathSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { SandboxPolicy } from "./policies.js";
+
+/** Runtime-owned physical path canonicalization required for filesystem checks. */
+export interface PhysicalPathResolver {
+  resolve(filePath: string): string | undefined;
+}
 
 export interface ValidationResult {
   allowed: boolean;
@@ -29,9 +33,17 @@ export function isSubPath(child: string, parent: string): boolean {
 
 export class PathValidator {
   private readonly _policy: SandboxPolicy;
+  private readonly _physicalPathResolver: PhysicalPathResolver | undefined;
 
-  constructor({ policy }: { policy: SandboxPolicy }) {
+  constructor({
+    policy,
+    physicalPathResolver,
+  }: {
+    policy: SandboxPolicy;
+    physicalPathResolver?: PhysicalPathResolver;
+  }) {
     this._policy = policy;
+    this._physicalPathResolver = physicalPathResolver;
   }
 
   validateRead(filePath: string): ValidationResult {
@@ -61,30 +73,16 @@ export class PathValidator {
   }
 
   private validatePhysicalPath(filePath: string, operation: "read" | "write"): boolean {
-    const physicalPath = resolvePhysicalCandidate(filePath);
+    if (!this._physicalPathResolver) return false;
+    let physicalPath: string | undefined;
+    try {
+      physicalPath = this._physicalPathResolver.resolve(filePath);
+    } catch {
+      return false;
+    }
     if (physicalPath === undefined) return false;
     return operation === "read"
       ? this._policy.canRead(physicalPath)
       : this._policy.canWrite(physicalPath);
-  }
-}
-
-/** Resolves the nearest existing ancestor so nonexistent write targets remain checkable. */
-function resolvePhysicalCandidate(filePath: string): string | undefined {
-  const target = resolve(filePath);
-  let current = target;
-  for (;;) {
-    try {
-      return resolve(realpathSync.native(current), relative(current, target));
-    } catch {
-      try {
-        if (lstatSync(current).isSymbolicLink()) return undefined;
-      } catch {
-        // A missing component is expected for new write targets.
-      }
-      const parent = dirname(current);
-      if (parent === current) return undefined;
-      current = parent;
-    }
   }
 }

@@ -105,6 +105,7 @@ import {
 } from "../agents/managed-invocation/phase-recovery.js";
 import { authorityFromCapability } from "./tool-authority.js";
 import type { SqliteBoundedWorkAuthority } from "../work-governance/index.js";
+import { nodePhysicalPathResolver } from "../tools/node-physical-path-resolver.js";
 
 export interface AttachedRuntimeBuiltinToolSurface {
   readonly callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
@@ -2267,16 +2268,16 @@ function mergeToolSandboxContext(
   sandbox: unknown,
   allowedToolNames: readonly string[] | undefined,
 ): unknown {
-  if (allowedToolNames === undefined) {
-    return sandbox;
-  }
   if (sandbox && typeof sandbox === "object" && !Array.isArray(sandbox)) {
     return {
       ...(sandbox as Record<string, unknown>),
-      allowedToolNames,
+      physicalPathResolver: nodePhysicalPathResolver,
+      ...(allowedToolNames !== undefined ? { allowedToolNames } : {}),
     };
   }
-  return { allowedToolNames };
+  return allowedToolNames === undefined
+    ? sandbox
+    : { allowedToolNames, physicalPathResolver: nodePhysicalPathResolver };
 }
 
 function formatLinkedOutput(

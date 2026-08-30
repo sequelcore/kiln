@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxConfig } from "@kilnai/core/sandbox";
 import { PathValidator, SandboxPolicy } from "@kilnai/core/sandbox";
+import { nodePhysicalPathResolver } from "../../src/tools/node-physical-path-resolver.js";
 
 export async function makeTempDir(prefix = "kiln-runtime-verification-"): Promise<string> {
   return await mkdtemp(join(tmpdir(), prefix));
@@ -23,5 +24,10 @@ export function makeSandbox(path: string, config: Partial<SandboxConfig> = {}) {
     },
     projectPath: path,
   });
-  return { cwd: path, policy, pathValidator: new PathValidator({ policy }) };
+  return {
+    cwd: path,
+    policy,
+    pathValidator: new PathValidator({ policy, physicalPathResolver: nodePhysicalPathResolver }),
+    physicalPathResolver: nodePhysicalPathResolver,
+  };
 }

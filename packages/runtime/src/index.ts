@@ -1284,6 +1284,10 @@ export { SpawnCommandProcessRunner } from "./tools/spawn-command-process-runner.
 export { nodeQualityGateCommandExecutor } from "./tools/quality-gate-command-executor.js";
 export { nodeBuiltinFilesystem } from "./tools/node-builtin-filesystem.js";
 export {
+  NodePhysicalPathResolver,
+  nodePhysicalPathResolver,
+} from "./tools/node-physical-path-resolver.js";
+export {
   detectRuntimeToolEnvironment,
   runNativeCommand,
   runNativeGitCommand,

@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PathValidator } from "../../../src/sandbox/path-validator.js";
 import { SandboxPolicy } from "../../../src/sandbox/policies.js";
 import type { SandboxConfig } from "../../../src/sandbox/index.js";
@@ -54,6 +54,9 @@ export function makeSandbox(path: string, config?: Partial<SandboxConfig>): {
   return {
     cwd: path,
     policy,
-    pathValidator: new PathValidator({ policy }),
+    pathValidator: new PathValidator({
+      policy,
+      physicalPathResolver: { resolve },
+    }),
   };
 }

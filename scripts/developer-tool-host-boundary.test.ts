@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
 const CORE_TOOLS_ROOT = resolve(REPOSITORY_ROOT, "packages", "core", "src", "tools");
+const CORE_SANDBOX_ROOT = resolve(REPOSITORY_ROOT, "packages", "core", "src", "sandbox");
 
 const FORBIDDEN_HOST_PATTERNS = [
   { label: "host process API", pattern: /\bprocess\.(?:arch|cwd|env|execPath|kill|off|on|pid|platform)\b/u },
@@ -42,6 +43,22 @@ describe("developer tool host boundary", () => {
     expect(
       violations,
       "Core may name Node filesystem types, but concrete filesystem access belongs to Runtime.",
+    ).toEqual([]);
+  });
+
+  it("keeps concrete filesystem modules outside Core sandbox production imports", () => {
+    const violations = listTypeScriptFiles(CORE_SANDBOX_ROOT).flatMap((path) => {
+      const lines = readFileSync(path, "utf8").split(/\r?\n/u);
+      return lines.flatMap((line, index) => {
+        if (!/from\s+["']node:fs(?:\/promises)?["']/u.test(line)) return [];
+        if (/^\s*import\s+type\b/u.test(line)) return [];
+        return [`${relative(REPOSITORY_ROOT, path).replaceAll("\\", "/")}:${index + 1}`];
+      });
+    });
+
+    expect(
+      violations,
+      "Core sandbox policy is provider-neutral; physical path resolution belongs to Runtime.",
     ).toEqual([]);
   });
 });
