@@ -617,6 +617,8 @@ export type { ResolvedOperation } from "./gateway/integration-registry.js";
 export { IntegrationRegistry } from "./gateway/integration-registry.js";
 export { LocalCredentialResolver } from "./gateway/local-credential-resolver.js";
 export { createEncryptedSecretStore } from "./credentials/encrypted-secret-store.js";
+export type { FileArtifactResourceStoreOptions } from "./artifacts/file-artifact-resource-store.js";
+export { createFileArtifactResourceStore } from "./artifacts/file-artifact-resource-store.js";
 export type {
   AdmittedTurnContext,
   AdmittedTurnResult,

@@ -1,100 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   ArtifactResourceProvider,
-  FileArtifactResourceStore,
   MemoryArtifactResourceStore,
   projectMultimodalArtifactResource,
 } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 import type { ToolResourceContent } from "../../../src/tools/domain/tool-resource-registry.js";
-
-describe("FileArtifactResourceStore", () => {
-  it("reopens persisted artifacts with stable ids and sequence", () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "kiln-artifacts-"));
-    try {
-      const first = new FileArtifactResourceStore({
-        rootDir,
-        now: () => "2026-07-02T20:00:00.000Z",
-      });
-      const artifact = first.put({
-        namespace: "benchmark-baselines",
-        title: "Usage evidence",
-        mimeType: "application/json",
-        content: { type: "json", value: { providerRequests: [{ requestIndex: 0 }] } },
-        producer: { kind: "eval", name: "benchmark-baseline-runner" },
-        retention: { scope: "session" },
-      });
-
-      const reopened = new FileArtifactResourceStore({ rootDir });
-      expect(reopened.get("benchmark-baselines", artifact.id)).toMatchObject({
-        id: "artifact_1",
-        sequence: 1,
-        content: { type: "json", value: { providerRequests: [{ requestIndex: 0 }] } },
-      });
-      expect(reopened.listNamespaces()).toEqual([{
-        namespace: "benchmark-baselines",
-        artifactCount: 1,
-        updatedAt: "2026-07-02T20:00:00.000Z",
-        sequence: 1,
-      }]);
-
-      const next = reopened.put({
-        namespace: "benchmark-baselines",
-        title: "Route evidence",
-        mimeType: "application/json",
-        content: { type: "json", value: { provider: "codex-oauth" } },
-        producer: { kind: "eval", name: "benchmark-baseline-runner" },
-        retention: { scope: "session" },
-      });
-      expect(next.id).toBe("artifact_2");
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
-    }
-  });
-
-  it("persists verification retention across reopen and protects evidence from later churn", () => {
-    const rootDir = mkdtempSync(join(tmpdir(), "kiln-artifacts-verification-"));
-    try {
-      const first = new FileArtifactResourceStore({ rootDir, maxArtifactsPerNamespace: 2 });
-      const evidence = first.put({
-        namespace: "context-evidence",
-        title: "Protected evidence",
-        mimeType: "application/json",
-        content: { type: "json", value: { exact: "evidence" } },
-        producer: { kind: "context", name: "reversible-context-projection" },
-        retention: { scope: "verification" },
-      });
-
-      const reopened = new FileArtifactResourceStore({ rootDir, maxArtifactsPerNamespace: 2 });
-      reopened.put({
-        namespace: "context-evidence",
-        title: "Transient one",
-        mimeType: "text/plain",
-        content: { type: "text", text: "one" },
-        producer: { kind: "test", name: "unit" },
-        retention: { scope: "session", maxArtifacts: 1 },
-      });
-      reopened.put({
-        namespace: "context-evidence",
-        title: "Transient two",
-        mimeType: "text/plain",
-        content: { type: "text", text: "two" },
-        producer: { kind: "test", name: "unit" },
-        retention: { scope: "session", maxArtifacts: 1 },
-      });
-
-      expect(reopened.get("context-evidence", evidence.id)).toMatchObject({
-        retention: { scope: "verification" },
-        content: { type: "json", value: { exact: "evidence" } },
-      });
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
-    }
-  });
-});
 
 describe("MemoryArtifactResourceStore", () => {
   it("stores artifacts with explicit retention, provenance, metadata, and sequence", () => {

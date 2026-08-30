@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  FileArtifactResourceStore,
+  MemoryArtifactResourceStore,
   PolicyAdaptationEvidenceService,
   applyPolicyAdaptationControl,
   createPolicyAdaptationState,
@@ -230,16 +227,12 @@ describe("controlled policy adaptation", () => {
       maximumDistributionShift: 0.05,
     }).status).toBe("freeze-recommended");
 
-    const rootDir = mkdtempSync(join(tmpdir(), "kiln-adaptation-evidence-"));
-    try {
-      const first = new FileArtifactResourceStore({ rootDir });
-      const persisted = new PolicyAdaptationEvidenceService(first).persist("monitor", stable);
-      const [namespace, id] = persisted.artifactUri.replace("kiln://artifacts/", "").replace("/content", "").split("/");
-      const reopened = new FileArtifactResourceStore({ rootDir });
-      expect(reopened.get(namespace!, id!)?.retention.scope).toBe("verification");
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
-    }
+    const artifacts = new MemoryArtifactResourceStore();
+    const persisted = new PolicyAdaptationEvidenceService(artifacts).persist("monitor", stable);
+    const path = persisted.artifactUri.replace("kiln://artifacts/", "").replace("/content", "").split("/");
+    const [namespace, id] = path;
+    if (!namespace || !id) throw new Error("Policy adaptation evidence URI is malformed.");
+    expect(artifacts.get(namespace, id)?.retention.scope).toBe("verification");
   });
 });
 

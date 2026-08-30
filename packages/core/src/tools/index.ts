@@ -302,14 +302,14 @@ export type {
   ArtifactResourcePutInput,
   ArtifactResourceStore,
   ArtifactRetentionPolicy,
-  FileArtifactResourceStoreOptions,
   MemoryArtifactResourceStoreOptions,
 } from "./infrastructure/artifact-resource-store.js";
 export {
   ArtifactResourceProvider,
-  FileArtifactResourceStore,
+  isArtifactResourceNamespace,
   MemoryArtifactResourceStore,
   projectMultimodalArtifactResource,
+  restoreArtifactResource,
 } from "./infrastructure/artifact-resource-store.js";
 export type { ArtifactToolResourceLinkerOptions } from "./infrastructure/artifact-tool-resource-linker.js";
 export { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";

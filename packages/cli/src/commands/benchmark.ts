@@ -7,7 +7,6 @@ import {
   BenchmarkBaselineRunner,
   KILN_BENCHMARK_PROFILES,
   KILN_EXTERNAL_BENCHMARK_TRACKS,
-  FileArtifactResourceStore,
   createBenchmarkProfileScorers,
   evaluateFormalVerificationScreening,
   evaluateBenchmarkReadiness,
@@ -23,6 +22,7 @@ import {
   type BenchmarkItemExecutor,
   defineDeliberationLevelId,
 } from "@kilnai/core";
+import { createFileArtifactResourceStore } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
 import type { KilnGlobalConfig } from "../config/global-config.js";
 import {
@@ -397,7 +397,7 @@ async function runInternalBenchmark(
   const artifactRoot = resolve(`${outputPath}.artifacts`);
   const deliberationMembers = readDeliberationLevelMembers(args);
   guardPrivateDirectoryWrite(projectStateBinding, artifactRoot);
-  const artifactStore = new FileArtifactResourceStore({ rootDir: artifactRoot });
+  const artifactStore = createFileArtifactResourceStore({ rootDir: artifactRoot });
   const accountOverrideIds = readAccountPool(args);
   if (formalScreeningProfile && accountOverrideIds.length !== 1) {
     throw new Error("Formal verification screening requires exactly one --accounts id.");
