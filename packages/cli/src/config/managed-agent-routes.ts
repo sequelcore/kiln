@@ -57,7 +57,6 @@ import {
   SqliteManagedAccountLeaseAuthority,
   digestManagedEconomicCandidateProfileAuthority,
   resolveConfiguredManagedInvocationRouteProfile,
-  resolveManagedInvocationRouteProfile,
   type ManagedAgentRuntimeAdapter,
   type ManagedInvocationAgentCatalogEntry,
   type ManagedCommittedInvocationRequest,
@@ -866,11 +865,15 @@ function createManagedEconomicDispatchWithAuthority(
 } {
   const coordinator = new ManagedEconomicDispatchCoordinator({
     authority,
-    resolveLifecycleTimeoutMs: (commitment, admissionProfile) => {
+    resolveLifecycleTimeoutMs: (commitment, admissionProfile, authorityProfileId) => {
       const routeId = commitment.reservation.selectedIdentity.route.routeId;
       const route = routes.find((candidate) => candidate.routeId === routeId);
       if (!route) throw new Error(`Committed managed economic route '${routeId}' is not configured.`);
-      const profile = resolveManagedInvocationRouteProfile(route, admissionProfile);
+      const profile = resolveConfiguredManagedInvocationRouteProfile(
+        route,
+        { authorityProfileId, admissionProfile },
+        admissionProfile,
+      );
       if (!profile) throw new Error(`Committed managed economic route '${routeId}' does not admit '${admissionProfile}'.`);
       return profile.timeoutMs;
     },

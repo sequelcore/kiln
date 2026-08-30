@@ -23,6 +23,8 @@ if (workerRoot && workerKind === "mcp") {
     userHome: workerRoot,
     harnesses: ["claude"],
     launch: { executable: process.execPath, entrypoint: import.meta.path },
+    inspectHarnessVersion: () => "projection-lock-probe",
+    admitsHarnessVersion: () => true,
   });
   process.exit(0);
 }

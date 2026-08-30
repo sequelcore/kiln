@@ -170,9 +170,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       events.push("fence");
       return undefined as never;
     });
+    const resolveLifecycleTimeoutMs = vi.fn(() => 1_000);
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
-      resolveLifecycleTimeoutMs: () => 1_000,
+      resolveLifecycleTimeoutMs,
       createAdapter: async ({
         commitment: selected,
         authorityProfileId,
@@ -200,6 +201,11 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       lifecycleEvents: lifecycleEvents.port,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
+    expect(resolveLifecycleTimeoutMs).toHaveBeenCalledWith(
+      expect.any(Object),
+      "foundation-readonly-plan",
+      AUTHORITY_PROFILE_ID,
+    );
     expect(events).toEqual(["commit:economic-attempt-a", "adapter:account-bound", "fence"]);
     expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced"]);
     events.push("provider-effect");
@@ -232,9 +238,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       ownerGeneration: "managed-economic-owner:test",
       effectIdentity: "managed-economic-dispatch:test",
     };
+    const resolveLifecycleTimeoutMs = vi.fn(() => 1_000);
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
-      resolveLifecycleTimeoutMs: () => 1_000,
+      resolveLifecycleTimeoutMs,
       createAdapter: async () => ({ descriptor: {} }) as never,
     });
 

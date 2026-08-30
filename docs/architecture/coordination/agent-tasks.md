@@ -106,6 +106,31 @@ adapter. The isolated CLI adapter exists only where its unavailable SDK
 semantics are required: ephemeral execution, profile selection, or local
 provider selection. It is not a generic compatibility fallback.
 
+## Operator CLI projection
+
+The authenticated Operator Runtime application protocol is the canonical CLI
+ingress. It does not depend on MCP and exposes the same Runtime-owned lifecycle:
+
+```text
+kiln agent-task submit --profile <id> [--wait] [--json] <objective>
+kiln agent-task status [--json] <job-id>
+kiln agent-task result [--json] <job-id>
+kiln agent-task cancel [--json] <job-id>
+kiln agent-task replay [--json] <job-id>
+```
+
+Operator input stops at the configured profile and bounded objective. Provider,
+model, route, account, authority, and concurrency remain executable Runtime
+policy. For account-bound routes, the economic coordinator selects one healthy,
+eligible account from the route's account policy and holds its lease through
+settlement. This permits an operator on one harness account to submit work that
+runs on another admitted account without sharing credentials with the child or
+making the CLI an account scheduler.
+
+Human-readable output shows lifecycle, selected route, and an available result
+handoff. `--json` is a bounded operator projection rather than a dump of the
+canonical admission bundle or economic evidence.
+
 ## MCP projection
 
 MCP is an optional consultation, configuration, and bounded control-plane

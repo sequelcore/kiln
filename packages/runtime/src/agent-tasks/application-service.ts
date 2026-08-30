@@ -97,6 +97,8 @@ export interface AgentTaskApplicationOptions {
   readonly writeApprovals?: AgentTaskWriteApprovalPort;
   readonly economicDispatch?: ManagedEconomicDispatchCoordinator;
   readonly economicExecution?: AgentTaskEconomicExecutionPort;
+  /** Private diagnostics for failures collapsed into a stable public code. */
+  readonly onEconomicDispatchError?: (error: unknown) => void;
   /** Interactive approval used by ask-before-spend economic intents. */
   readonly requestEconomicApproval?: (
     description: string,
@@ -841,10 +843,12 @@ export class AgentTaskApplicationService {
         };
         return await this.options.store.completeSuccess(job.id, result, execution.completedAt);
       } catch (error) {
+        this.options.onEconomicDispatchError?.(error);
         await preparation.recordExecutionSettlementPending("agent-task-execution-failed");
-        return await this.currentJob(job.id);
+        return await this.transition(job.id, "interrupted", "result_pending");
       }
     } catch (error) {
+      this.options.onEconomicDispatchError?.(error);
       if (preparedClaim !== undefined) {
         await preparedClaim.recordExecutionSettlementPending("agent-task-post-claim-failure").catch(() => undefined);
         return await this.transition(job.id, "interrupted", "result_pending");

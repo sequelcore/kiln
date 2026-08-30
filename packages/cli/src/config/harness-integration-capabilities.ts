@@ -37,6 +37,12 @@ export interface HarnessIntegrationCapability {
   readonly nativeProjection: NativeProjectionCapability;
   readonly nativeConfigImport: boolean;
   readonly mcpRuntimeTools: boolean;
+  readonly controlPlaneMcp: {
+    readonly protocolVersion: "2026-07-28";
+    /** Exact executable versions with a live strict-server handshake proof. */
+    readonly admittedExecutableVersions: readonly string[];
+    readonly requiredFeatures: readonly string[];
+  };
   readonly hooks: boolean;
   /**
    * Whether the selected native route can enforce these scalar constraints
@@ -74,6 +80,11 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeProjection: NATIVE_PROJECTION_CAPABILITY,
     nativeConfigImport: supportsNativeConfigImport("claude"),
     mcpRuntimeTools: true,
+    controlPlaneMcp: {
+      protocolVersion: "2026-07-28",
+      admittedExecutableVersions: [],
+      requiredFeatures: [],
+    },
     hooks: true,
     preventiveEnforcement: { approval: true, sandbox: false },
   },
@@ -88,6 +99,11 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeProjection: NATIVE_PROJECTION_CAPABILITY,
     nativeConfigImport: supportsNativeConfigImport("codex"),
     mcpRuntimeTools: true,
+    controlPlaneMcp: {
+      protocolVersion: "2026-07-28",
+      admittedExecutableVersions: ["0.151.0"],
+      requiredFeatures: ["mcp_2026_07_28"],
+    },
     hooks: true,
     preventiveEnforcement: { approval: true, sandbox: true },
   },
@@ -102,6 +118,11 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeProjection: NATIVE_PROJECTION_CAPABILITY,
     nativeConfigImport: supportsNativeConfigImport("opencode"),
     mcpRuntimeTools: true,
+    controlPlaneMcp: {
+      protocolVersion: "2026-07-28",
+      admittedExecutableVersions: [],
+      requiredFeatures: [],
+    },
     hooks: true,
     preventiveEnforcement: { approval: true, sandbox: false },
   },
@@ -128,6 +149,15 @@ export function listHarnessIntegrationCapabilities(): readonly HarnessIntegratio
 
 export function getHarnessIntegrationCapability(harness: HarnessIntegrationId): HarnessIntegrationCapability {
   return HARNESS_INTEGRATION_CAPABILITIES[harness];
+}
+
+export function admitsControlPlaneMcpExecutableVersion(
+  harness: HarnessIntegrationId,
+  executableVersion: string,
+): boolean {
+  return HARNESS_INTEGRATION_CAPABILITIES[harness].controlPlaneMcp.admittedExecutableVersions.includes(
+    executableVersion,
+  );
 }
 
 export function supportsHarnessIntegration(

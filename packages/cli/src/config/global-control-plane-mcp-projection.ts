@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
@@ -17,6 +18,7 @@ import {
   type NativeProjectionInstallState,
 } from "./native-projection-state.js";
 import { withGlobalNativeProjectionLock } from "./global-native-projection-lock.js";
+import { admitsControlPlaneMcpExecutableVersion } from "./harness-integration-capabilities.js";
 
 export const GLOBAL_CONTROL_PLANE_MCP_ID = "kiln-control-plane";
 const ALL_HARNESSES = ["codex", "claude", "opencode"] as const;
@@ -24,6 +26,7 @@ const ALL_HARNESSES = ["codex", "claude", "opencode"] as const;
 export type GlobalControlPlaneMcpProjectionStatus =
   | "current"
   | "missing"
+  | "unsupported"
   | "incompatible"
   | "drifted"
   | "blocked-malformed"
@@ -66,6 +69,9 @@ export interface SyncGlobalControlPlaneMcpProjectionsInput {
   readonly lifecycleLockTimeoutMs?: number;
   readonly lifecycleLockRetryMs?: number;
   readonly launch?: GlobalControlPlaneMcpLaunchDescriptor;
+  readonly inspectHarnessVersion?: (harness: NativeMcpHarness) => string | undefined;
+  /** Test seam for exact-version admission; production uses canonical capability evidence. */
+  readonly admitsHarnessVersion?: (harness: NativeMcpHarness, executableVersion: string) => boolean;
 }
 
 export function resolveGlobalControlPlaneMcpProjectionPaths(userHome?: string): GlobalControlPlaneMcpProjectionPaths {
@@ -116,6 +122,17 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
         "Global install state claims fields outside the single control-plane MCP identity."));
       continue;
     }
+    if (input.operation !== "uninstall") {
+      const executableVersion = (input.inspectHarnessVersion ?? inspectHarnessVersion)(harness);
+      const admitsVersion = input.admitsHarnessVersion ?? admitsControlPlaneMcpExecutableVersion;
+      if (!executableVersion || !admitsVersion(harness, executableVersion)) {
+        targets.push(result(harness, path, installed ? "incompatible" : "unsupported", false,
+          executableVersion
+            ? `${harness} ${executableVersion} has no admitted MCP 2026-07-28 handshake proof; ${installed ? "update the harness or remove this projection" : "the projection was skipped"}.`
+            : `${harness} executable version is unavailable; ${installed ? "install or repair the harness, or remove this projection" : "the projection was skipped"}.`));
+        continue;
+      }
+    }
 
     let current: Record<string, unknown>;
     try {
@@ -155,6 +172,11 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
         `Managed global MCP field drifted: ${drift.driftedFields.join(", ")}`));
       continue;
     }
+    if (harness === "codex" && codexModernMcpFeature(current) === false && !input.force) {
+      targets.push(result(harness, path, "incompatible", false,
+        "Codex explicitly disables features.mcp_2026_07_28; rerun with --repair to admit the modern MCP client contract."));
+      continue;
+    }
     const field = expectedField;
     if (!installed && hasManagedIdentity(current, harness)) {
       targets.push(result(harness, path, "incompatible", false,
@@ -164,7 +186,7 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
     const base = installed
       ? stripManagedFields({ currentDocument: current, managedFields: installed.managedFields })
       : current;
-    const projected = addServer(base, harness, launch!);
+    const projected = enableRequiredClientCapabilities(addServer(base, harness, launch!), harness);
     const changed = !documentsEqual(projected, current);
     const snapshot = createNativeProjectionSnapshot({
       targetId,
@@ -209,6 +231,10 @@ function statusResult(
       : result(harness, path, "missing", false);
   }
   if (drift) return result(harness, path, "drifted", false, `Managed global MCP field drifted: ${drift.driftedFields.join(", ")}`);
+  if (harness === "codex" && codexModernMcpFeature(current) !== true) {
+    return result(harness, path, "incompatible", false,
+      "Codex requires features.mcp_2026_07_28 = true for the Kiln control-plane MCP contract.");
+  }
   return documentsEqual(getServer(current, harness), expectedServer(harness, launch))
     ? result(harness, path, "current", false)
     : result(harness, path, "drifted", false, "Managed global MCP field is stale.");
@@ -238,12 +264,38 @@ function addServer(
   return result;
 }
 
+/**
+ * Codex owns feature flags as shared client capabilities. Kiln enables the
+ * exact modern MCP prerequisite but deliberately does not claim or remove it
+ * with the server identity because other modern MCP integrations may rely on
+ * the same client capability.
+ */
+function enableRequiredClientCapabilities(
+  document: Record<string, unknown>,
+  harness: NativeMcpHarness,
+): Record<string, unknown> {
+  if (harness !== "codex") return document;
+  const result = structuredClone(document);
+  const features = isRecord(result["features"]) ? structuredClone(result["features"]) : {};
+  features["mcp_2026_07_28"] = true;
+  result["features"] = features;
+  return result;
+}
+
+function codexModernMcpFeature(document: Record<string, unknown>): boolean | undefined {
+  const features = document["features"];
+  if (!isRecord(features)) return undefined;
+  const value = features["mcp_2026_07_28"];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function resolveLaunchDescriptor(
   provided?: GlobalControlPlaneMcpLaunchDescriptor,
 ): GlobalControlPlaneMcpLaunchDescriptor {
+  const ambientEntrypoint = process.argv[1];
   const descriptor = provided ?? {
     executable: process.execPath,
-    entrypoint: process.argv[1] ?? "",
+    entrypoint: ambientEntrypoint ? resolve(ambientEntrypoint) : "",
   };
   return {
     executable: validateLaunchPath(descriptor.executable, "executable"),
@@ -369,6 +421,20 @@ function documentsEqual(left: unknown, right: unknown): boolean {
 
 function safeError(error: unknown): string {
   return error instanceof Error ? error.message.replace(/[\r\n]+/g, " ").slice(0, 240) : "unknown parse error";
+}
+
+function inspectHarnessVersion(harness: NativeMcpHarness): string | undefined {
+  try {
+    const output = execFileSync(harness, ["--version"], {
+      encoding: "utf8",
+      timeout: 5_000,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return output.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/u)?.[0];
+  } catch {
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -73,7 +73,7 @@ describe("config setup actions", () => {
     ]));
   });
 
-  it("installs the control-plane MCP globally while keeping project MCP projection project-specific", async () => {
+  it("installs the control-plane MCP only for compatible harnesses while keeping project MCP projection project-specific", async () => {
     const userHome = join(tempDir, "home");
     mkdirSync(join(userHome, ".kiln", "agents"), { recursive: true });
     writeFileSync(join(userHome, ".kiln", "agents", "synthetic-agent.md"), [
@@ -122,12 +122,9 @@ describe("config setup actions", () => {
     expect(existsSync(join(userHome, ".config", "opencode", "agents", "project-only-agent.md"))).toBe(true);
     expect(existsSync(join(userHome, ".codex", "agents", "adversarial-reviewer.toml"))).toBe(false);
     expect(existsSync(join(tempDir, "ambient-codex", "config.toml"))).toBe(false);
-    const claudeGlobal = JSON.parse(readFileSync(join(userHome, ".claude.json"), "utf8"));
-    expect(claudeGlobal.mcpServers["kiln-control-plane"]).toEqual({
-      type: "stdio",
-      command: process.execPath,
-      args: [process.argv[1], "native-harness", "control-plane-mcp", "--harness", "claude"],
-    });
+    expect(existsSync(join(userHome, ".claude.json"))).toBe(false);
+    const opencodeGlobal = JSON.parse(readFileSync(join(userHome, ".config", "opencode", "opencode.json"), "utf8"));
+    expect(opencodeGlobal.mcp?.["kiln-control-plane"]).toBeUndefined();
     expect(existsSync(join(tempDir, ".mcp.json"))).toBe(false);
   });
 

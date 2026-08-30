@@ -6,6 +6,7 @@ import {
   deriveProviderModelEligibility,
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core/agents";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   defineEffectiveAuthorityAdmissionBundle,
   normalizeRuntimeProviderDiscoveryCatalog,
@@ -64,6 +65,7 @@ const adapterTrace = vi.hoisted(() => ({
   createCalls: 0,
   factoryOptions: [] as Array<Record<string, unknown>>,
   requests: [] as Array<{ readonly route: unknown; readonly credentialBinding: unknown; readonly committedRequest: unknown }>,
+  dispatchErrors: [] as unknown[],
   adapter: {
     descriptor: {
       adapterKind: "direct",
@@ -173,7 +175,15 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
       ) => {
         adapterTrace.createCalls += 1;
         adapterTrace.requests.push({ route, credentialBinding, committedRequest });
-        return adapterTrace.adapter as never;
+        return credentialBinding
+          ? {
+              ...adapterTrace.adapter,
+              executionBinding: {
+                status: "bound",
+                ...credentialBinding,
+              },
+            } as never
+          : adapterTrace.adapter as never;
       };
     }),
   };
@@ -199,9 +209,16 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
 
 function taskAuthorityAdmission() {
+  const sessionId = "agent-task-runtime-config-session";
+  const turnId = canonicalTurnId(sessionId, 1);
+  const operatorAdoptionDecision = createOperatorAdoptionDecisionAuthority({
+    ownerSessionId: sessionId,
+    operatorTurnId: turnId,
+    actorId: "operator-surface:cli-test",
+  });
   return defineEffectiveAuthorityAdmissionBundle({
-    sessionId: "agent-task-runtime-config-session",
-    turnId: "agent-task-runtime-config-session:turn:1",
+    sessionId,
+    turnId,
     admittedAt: FIXTURE_OBSERVED_AT,
     configuration: {
       sessionRevision: { revisionSetId: "agent-task-runtime-config", revisions: { test: "session" } },
@@ -224,8 +241,13 @@ function taskAuthorityAdmission() {
         deniedToolCount: 0,
         sandboxProjection: "workspace_write",
       },
-      workGovernance: { status: "not-required" },
-      operatorAdoption: { status: "not-required" },
+      workGovernance: {
+        status: "required",
+        kind: "work-item",
+        subjectId: operatorAdoptionDecision.decisionId,
+        authorityRevision: operatorAdoptionDecision.decisionId,
+      },
+      operatorAdoption: { status: "admitted", decision: operatorAdoptionDecision },
       tools: {
         allowedToolPermissions: [{
           toolName: "kiln_agent_task_submit",
@@ -537,6 +559,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     adapterTrace.createCalls = 0;
     adapterTrace.factoryOptions.length = 0;
     adapterTrace.requests.length = 0;
+    adapterTrace.dispatchErrors.length = 0;
     adapterTrace.adapter.invoke.mockClear();
   });
 
@@ -817,6 +840,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       projectPath: projectRoot,
       projectStateBinding: projectStateBindings.get(projectRoot),
       authorityAdmission: taskAuthorityAdmission(),
+      onDispatchError: (error) => adapterTrace.dispatchErrors.push(error),
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
@@ -833,11 +857,47 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expect(result.state).toBe("queued");
       await composition.close();
       const debugStatus = await composition.application.getStatus({ callerId: "codex-app" }, result.id);
-      expect(debugStatus).toMatchObject({ state: "succeeded" });
+      expect(debugStatus, JSON.stringify(adapterTrace.dispatchErrors, null, 2)).toMatchObject({ state: "succeeded" });
       expect(adapterTrace.createCalls).toBe(1);
       expect(start).toHaveBeenCalledOnce();
       expect(join).toHaveBeenCalledWith(`agent-task:${result.id}`);
-      expect(start.mock.calls[0]?.[1]).toBe(adapterTrace.adapter);
+      expect(start.mock.calls[0]?.[1]).toMatchObject({
+        executionBinding: {
+          status: "bound",
+          routeId: "codex-standard",
+          accountId: expect.any(String),
+          credentialId: expect.any(String),
+          credentialRevision: expect.any(String),
+        },
+      });
+      expect(start.mock.calls[0]?.[3]).toMatchObject({
+        childAuthorityAdmission: {
+          bundle: {
+            sessionId: `agent-task:${result.id}`,
+            turnId: `agent-task:${result.id}:turn:1`,
+            turn: {
+              execution: {
+                status: "routed",
+                target: {
+                  targetId: "codex-standard",
+                  accountSelection: {
+                    kind: "policy",
+                    accountPolicyId: "codex-standard-policy",
+                  },
+                },
+                binding: {
+                  status: "bound",
+                  routeId: "codex-standard",
+                },
+                economicCommitment: {
+                  commitmentId: expect.any(String),
+                  authorityRevision: expect.any(String),
+                },
+              },
+            },
+          },
+        },
+      });
       const executionIndex = routeCatalogTrace.contexts.findIndex((context) => context.compositionMode === "execution");
       expect(executionIndex).toBeGreaterThan(0);
       expect(routeCatalogTrace.contexts[executionIndex]).toMatchObject({
@@ -932,7 +992,10 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expect(start).toHaveBeenCalledWith(expect.objectContaining({
         invocationId: `agent-task:${accepted.id}`,
         providerRoute: { providerId: "opencode-go", surface: "direct-provider", model: "kimi-k2.6" },
-      }), adapterTrace.adapter, expect.anything(), expect.anything());
+      }), expect.objectContaining({
+        descriptor: adapterTrace.adapter.descriptor,
+        executionBinding: expect.objectContaining({ routeId: "opencode-go-direct", accountId: "opencode-go-account" }),
+      }), expect.anything(), expect.anything());
       expect(join).toHaveBeenCalledWith(`agent-task:${accepted.id}`);
       const projections = JSON.stringify([status, result, replay]);
       expect(projections).not.toContain("credential");
@@ -1028,7 +1091,10 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
           toolAuthority: expect.objectContaining({ writeAllowed: true, networkAllowed: false }),
           writeAuthority: expect.objectContaining({ approval: expect.objectContaining({ mode: "required-before-apply" }) }),
         }),
-      }), adapterTrace.adapter, expect.anything(), expect.objectContaining({
+      }), expect.objectContaining({
+        descriptor: adapterTrace.adapter.descriptor,
+        executionBinding: expect.objectContaining({ routeId: "opencode-go-direct", accountId: "opencode-go-account" }),
+      }), expect.anything(), expect.objectContaining({
         consumedWriteApproval: expect.objectContaining({
           approvalId: expect.any(String),
           consumerId: `agent-task:${accepted.id}`,
@@ -1103,7 +1169,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       });
       await composition.close();
       await expect(composition.application.getStatus({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
-        state: "running",
+        state: "interrupted",
         dispatch: {
           dispatchFenceId: expect.any(String),
           actionClaim: expect.any(Object),
@@ -1115,8 +1181,8 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         return typeof store?.claim === "function" && typeof store.settle === "function";
       })).toBe(true);
       await expect(composition.application.getResult({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
-        availability: "pending",
-        lifecycleState: "running",
+        availability: "unresolved",
+        lifecycleState: "interrupted",
         diagnostic: "result_pending",
       });
     } finally {
@@ -1191,7 +1257,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
-  it("keeps a post-claim execution-authority mismatch pending without starting Runtime", async () => {
+  it("interrupts a post-claim execution-authority mismatch without starting Runtime", async () => {
     useIsolatedGlobalConfigHome();
     persistGlobalConfig(accountBoundEconomicConfig());
     routeCatalogTrace.mutateExecutionProfileAuthority = true;
@@ -1215,15 +1281,15 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expect(result.state).toBe("queued");
       await composition.close();
       await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({
-        state: "running",
+        state: "interrupted",
         dispatch: {
           dispatchFenceId: expect.any(String),
           actionClaim: expect.any(Object),
         },
       });
       await expect(composition.application.getResult({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({
-        availability: "pending",
-        lifecycleState: "running",
+        availability: "unresolved",
+        lifecycleState: "interrupted",
         diagnostic: "result_pending",
       });
       expect(start).not.toHaveBeenCalled();

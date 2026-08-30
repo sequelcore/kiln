@@ -27,6 +27,7 @@ import type {
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
 import {
   createDirectProviderAdapter,
+  directProviderExecutionBinding,
   type DirectProviderCredentialBinding,
   type DirectProviderAdapterOptions,
 } from "../wrapper/direct-provider-adapter-factory.js";
@@ -162,6 +163,7 @@ export function createManagedDirectProviderAdapterFactory(
     const runtimeCapabilities = new Map([...builtinToolSurface.capabilities, ...mcpCapabilityMap]);
     const executionEnvelope = resolveExecutionEnvelope(options.executionEnvelope);
 
+    const executionBinding = directProviderExecutionBinding(providerAdapter);
     return new ManagedDirectProviderRuntimeAdapter({
       providerId: provider,
       model: executionProfile.model,
@@ -176,6 +178,7 @@ export function createManagedDirectProviderAdapterFactory(
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(executionEnvelope ? { executionEnvelope } : {}),
       economicIdentity: committedRequest.commitment.reservation.selectedIdentity,
+      ...(executionBinding ? { executionBinding } : {}),
       ...(profile.writeAllowed === true ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
        runtimeToolActionClaims: options.runtimeToolActionClaims,
        readAuthorityAdmission: options.readAuthorityAdmission,

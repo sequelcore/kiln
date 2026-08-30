@@ -7,6 +7,7 @@ import {
   encodeNativeAgentModel,
   supportsHarnessIntegration,
   admitPreventiveRoute,
+  admitsControlPlaneMcpExecutableVersion,
 } from "../../src/config/harness-integration-capabilities.js";
 
 describe("harness integration capabilities", () => {
@@ -66,6 +67,18 @@ describe("harness integration capabilities", () => {
     expect(supportsHarnessIntegration("codex", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("opencode", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("claude", "runtimeConfigInjection")).toBe(false);
+  });
+
+  it("admits the strict modern control-plane bridge only for live-proven executable versions", () => {
+    expect(getHarnessIntegrationCapability("codex").controlPlaneMcp).toEqual({
+      protocolVersion: "2026-07-28",
+      admittedExecutableVersions: ["0.151.0"],
+      requiredFeatures: ["mcp_2026_07_28"],
+    });
+    expect(admitsControlPlaneMcpExecutableVersion("codex", "0.151.0")).toBe(true);
+    expect(admitsControlPlaneMcpExecutableVersion("codex", "0.152.0")).toBe(false);
+    expect(admitsControlPlaneMcpExecutableVersion("claude", "2.1.251")).toBe(false);
+    expect(admitsControlPlaneMcpExecutableVersion("opencode", "1.18.25")).toBe(false);
   });
 
   it("keeps model encoders transport-only", () => {

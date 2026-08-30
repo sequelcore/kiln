@@ -78,6 +78,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "mcp-config": "Synchronize canonical MCP servers into governed native harness projections",
     "native-harness": "Run an internal native-harness adapter",
     "operator-runtime": "Run or inspect the machine-global operator runtime",
+    "agent-task": "Submit and inspect durable Runtime-governed Agent Tasks",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
     "model-gateway": "Run or inspect the dedicated loopback model gateway",
@@ -258,6 +259,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "operator-runtime") {
     const { operatorRuntimeCommand } = await import("./commands/operator-runtime.js");
     await operatorRuntimeCommand(args.slice(1));
+    return;
+  }
+
+  if (command === "agent-task") {
+    const { agentTaskCommand } = await import("./commands/agent-task.js");
+    await agentTaskCommand(args.slice(1));
     return;
   }
 

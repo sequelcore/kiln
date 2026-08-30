@@ -77,6 +77,14 @@ selection creates no account identity or account lease. Missing, stale,
 contradictory, or unverifiable authority fails closed; there is no implicit
 route, account, overage, or fallback.
 
+The operator or native-harness account is not the managed child's execution
+account. An account policy may deliberately exclude the operator account and
+admit a pool of secondary accounts. Concurrent tasks then compete atomically
+for configured per-account slots; an account with `maxConcurrency: 1` cannot be
+selected by two live commitments, while other eligible accounts may run work in
+parallel. Surfaces do not rotate accounts, infer spare quota, or increase this
+capacity.
+
 Configured account economics owns the stable capacity identity, subscription
 and quota classes, credit posture, and overage posture. Codex provider usage may
 project authoritative percentage windows, exact decimal credits, spend control,

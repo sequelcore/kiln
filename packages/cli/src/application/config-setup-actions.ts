@@ -194,7 +194,7 @@ async function syncNativeProjections(
     ...communicationResult.errors,
     ...skillResult.errors,
     ...mcpErrors,
-    ...globalMcpResult.targets.flatMap((target) => target.status === "current"
+    ...globalMcpResult.targets.flatMap((target) => target.status === "current" || target.status === "unsupported"
       ? []
       : [`${target.harness} global control-plane MCP projection ${target.status}${target.reason ? `: ${target.reason}` : ""}`]),
   ];

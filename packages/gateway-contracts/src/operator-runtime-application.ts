@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/);
 const opaqueRecord = z.record(z.string(), z.unknown());
+const agentTaskObjective = z.string().trim().min(1).max(12_000);
+const agentTaskIdentifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
 const managedEconomicActionClaim = z.object({
   version: z.literal(1),
   attemptId: identifier,
@@ -14,6 +16,20 @@ const managedEconomicActionClaim = z.object({
 
 /** Authenticated application commands for operator surfaces; never an MCP surface. */
 export const OperatorRuntimeApplicationRequestSchema = z.discriminatedUnion("operation", [
+  z.object({
+    schemaVersion: z.literal(1),
+    operation: z.literal("agent-task.submit"),
+    input: z.object({
+      objective: agentTaskObjective,
+      configuredAgentProfileId: agentTaskIdentifier,
+      idempotencyKey: agentTaskIdentifier,
+    }).strict(),
+  }).strict(),
+  ...(["status", "result", "cancel", "replay"] as const).map((operation) => z.object({
+    schemaVersion: z.literal(1),
+    operation: z.literal(`agent-task.${operation}`),
+    jobId: agentTaskIdentifier,
+  }).strict()),
   z.object({
     schemaVersion: z.literal(1),
     operation: z.literal("managed-economic.acquire"),

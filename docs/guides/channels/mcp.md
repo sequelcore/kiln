@@ -122,8 +122,13 @@ owned fields in the global native-projection install state under
 detects drift, and never replaces malformed native files. Repair is explicit;
 uninstall removes only recorded fields.
 
-Codex, Claude Code, and OpenCode projection installs one user-scoped
-`kiln-control-plane` declaration per harness. Each harness starts
+Global projection inspects the exact installed Codex, Claude Code, and OpenCode
+version and installs a user-scoped `kiln-control-plane` declaration only when
+that executable has admitted MCP `2026-07-28` handshake evidence. A current
+but incompatible harness is reported as `unsupported` and skipped without
+failing compatible native projections; an existing managed declaration on a
+now-incompatible harness remains `incompatible` until the harness is upgraded
+or the declaration is explicitly uninstalled. Each compatible harness starts
 `kiln native-harness control-plane-mcp --harness <harness>` as a short-lived
 stdio bridge. The bridge derives the adopted project from its working
 directory and authenticates to one global loopback Operator Runtime. Sessions

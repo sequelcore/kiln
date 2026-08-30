@@ -93,6 +93,7 @@ export interface ManagedEconomicDispatchCoordinatorOptions {
   readonly resolveLifecycleTimeoutMs: (
     commitment: ManagedEconomicCommitment,
     admissionProfile: ManagedAgentAdmissionProfile,
+    authorityProfileId: string,
   ) => number;
   createAdapter(input: {
     readonly commitment: ManagedEconomicCommitment;
@@ -214,7 +215,11 @@ export class ManagedEconomicDispatchCoordinator {
       });
       lifecycle = createManagedEconomicLifecycleDeadline(
         Math.min(
-          this.options.resolveLifecycleTimeoutMs(result.record.commitment, input.admissionProfile),
+          this.options.resolveLifecycleTimeoutMs(
+            result.record.commitment,
+            input.admissionProfile,
+            input.authorityProfileId,
+          ),
           input.workLimitDurationMs ?? Number.POSITIVE_INFINITY,
         ),
         input.abortSignal,

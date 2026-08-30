@@ -311,16 +311,26 @@ describe("createManagedDirectProviderAdapterFactory", () => {
   });
 
   it("constructs a runtime-selected adapter only for the exact committed account binding", async () => {
-    const createProviderAdapter = vi.fn(async () => provider());
-    const factory = createManagedDirectProviderAdapterFactory({ createProviderAdapter });
     const credentialBinding = credentialBindingFor("codex-managed");
+    const createProviderAdapter = vi.fn(async () => Object.assign(provider(), {
+      executionBinding: {
+        status: "bound" as const,
+        ...credentialBinding,
+      },
+    }));
+    const factory = createManagedDirectProviderAdapterFactory({ createProviderAdapter });
 
-    await expect(factory({
+    const adapter = await factory({
       id: "codex-managed",
       kind: "direct",
       authorityProfiles: [],
-    }, credentialBinding, undefined, committedRequestFor("codex-managed", "codex-oauth", "gpt-5.4"), READONLY_PROFILE))
-      .resolves.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+    }, credentialBinding, undefined, committedRequestFor("codex-managed", "codex-oauth", "gpt-5.4"), READONLY_PROFILE);
+
+    expect(adapter).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+    expect(adapter?.executionBinding).toEqual({
+      status: "bound",
+      ...credentialBinding,
+    });
     expect(createProviderAdapter).toHaveBeenCalledWith(expect.objectContaining({
       provider: "codex-oauth",
       model: "gpt-5.4",

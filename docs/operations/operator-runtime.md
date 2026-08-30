@@ -16,6 +16,35 @@ bun packages/cli/src/index.ts operator-runtime doctor --json
 Ready status identifies the exact instance, process ID, start time, and loopback
 port. Diagnostics do not expose runtime credentials.
 
+## Submit and inspect Agent Tasks
+
+The CLI talks to the authenticated Operator Runtime application protocol. It
+does not require a working native-harness MCP client:
+
+```bash
+kiln agent-task submit --profile scout --wait "Inspect this boundary and summarize the evidence."
+kiln agent-task status <job-id>
+kiln agent-task result <job-id>
+kiln agent-task replay <job-id>
+kiln agent-task cancel <job-id>
+```
+
+Omit `--wait` to submit asynchronously. Add `--json` for a bounded machine
+projection. The CLI accepts only a configured profile, objective, and optional
+idempotency key; provider, model, account, route, authority, and concurrency are
+Runtime-owned policy.
+
+For an account-bound route, the selected execution account may differ from the
+account running the operator's native harness. Account-policy eligibility,
+health, quota evidence, and atomic capacity leases determine selection. Use
+`kiln auth codex status --usage --emails` to inspect operator-visible account
+usage; email addresses do not enter Agent Task records or child context.
+
+After a successful task, `result` prints the bounded untrusted child handoff.
+After a post-fence failure or restart, inspect `status` and `replay`: an
+`interrupted` task with `result_pending` is deliberately not redispatched until
+authoritative settlement or reconciliation resolves the external outcome.
+
 ## Restart after rebuilding
 
 A workspace build updates files on disk but cannot replace code already loaded

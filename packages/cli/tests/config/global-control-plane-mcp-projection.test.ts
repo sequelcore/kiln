@@ -5,9 +5,19 @@ import { parse as parseToml } from "smol-toml";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   resolveGlobalControlPlaneMcpProjectionPaths,
-  syncGlobalControlPlaneMcpProjections,
+  syncGlobalControlPlaneMcpProjections as syncGlobalControlPlaneMcpProjectionsImplementation,
 } from "../../src/config/global-control-plane-mcp-projection.js";
 const roots: string[] = [];
+
+function syncGlobalControlPlaneMcpProjections(
+  input: Parameters<typeof syncGlobalControlPlaneMcpProjectionsImplementation>[0],
+) {
+  return syncGlobalControlPlaneMcpProjectionsImplementation({
+    ...input,
+    inspectHarnessVersion: () => "test-version",
+    admitsHarnessVersion: () => true,
+  });
+}
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -27,6 +37,47 @@ function syntheticLaunch(root: string) {
 }
 
 describe("global control-plane MCP projection", () => {
+  it("refuses a projection when the exact harness version has no modern handshake proof", async () => {
+    const userHome = temporaryRoot();
+    const result = await syncGlobalControlPlaneMcpProjectionsImplementation({
+      operation: "install",
+      userHome,
+      harnesses: ["claude", "opencode"],
+      inspectHarnessVersion: (harness) => harness === "claude" ? "2.1.251" : "1.18.25",
+    });
+    expect(result.targets).toEqual([
+      expect.objectContaining({ harness: "claude", status: "unsupported", reason: expect.stringContaining("2026-07-28") }),
+      expect.objectContaining({ harness: "opencode", status: "unsupported", reason: expect.stringContaining("2026-07-28") }),
+    ]);
+    const paths = resolveGlobalControlPlaneMcpProjectionPaths(userHome);
+    expect(existsSync(paths.claude)).toBe(false);
+    expect(existsSync(paths.opencode)).toBe(false);
+  });
+
+  it("requires explicit cleanup when an installed projection loses handshake compatibility", async () => {
+    const userHome = temporaryRoot();
+    const launch = syntheticLaunch(userHome);
+    await syncGlobalControlPlaneMcpProjections({
+      operation: "install",
+      userHome,
+      launch,
+      harnesses: ["claude"],
+    });
+
+    const result = await syncGlobalControlPlaneMcpProjectionsImplementation({
+      operation: "status",
+      userHome,
+      launch,
+      harnesses: ["claude"],
+      inspectHarnessVersion: () => "2.1.251",
+    });
+
+    expect(result.targets).toEqual([
+      expect.objectContaining({ harness: "claude", status: "incompatible", changed: false }),
+    ]);
+    expect(existsSync(resolveGlobalControlPlaneMcpProjectionPaths(userHome).claude)).toBe(true);
+  });
+
   it("serializes concurrent harness subsets without losing install state", async () => {
     const userHome = temporaryRoot();
     const launch = syntheticLaunch(userHome);
@@ -108,6 +159,7 @@ describe("global control-plane MCP projection", () => {
     expect(result.targets.every((target) => target.status === "current" && target.changed)).toBe(true);
     expect(parseToml(readFileSync(paths.codex, "utf8"))).toMatchObject({
       model: "keep",
+      features: { mcp_2026_07_28: true },
       mcp_servers: { "kiln-control-plane": {
         command: launch.executable,
         args: [launch.entrypoint, "native-harness", "control-plane-mcp", "--harness", "codex"],
@@ -130,6 +182,44 @@ describe("global control-plane MCP projection", () => {
       } },
     });
     expect(JSON.stringify(result)).not.toContain("project-root");
+  });
+
+  it("enables Codex modern MCP without claiming or removing the shared client capability", async () => {
+    const userHome = temporaryRoot();
+    const launch = syntheticLaunch(userHome);
+    const paths = resolveGlobalControlPlaneMcpProjectionPaths(userHome);
+    mkdirSync(join(userHome, ".codex"), { recursive: true });
+    writeFileSync(paths.codex, '[features]\nother = true\n', "utf8");
+
+    await syncGlobalControlPlaneMcpProjections({ operation: "install", userHome, launch, harnesses: ["codex"] });
+    expect(parseToml(readFileSync(paths.codex, "utf8"))).toMatchObject({
+      features: { other: true, mcp_2026_07_28: true },
+    });
+
+    await syncGlobalControlPlaneMcpProjections({ operation: "uninstall", userHome, harnesses: ["codex"] });
+    expect(parseToml(readFileSync(paths.codex, "utf8"))).toEqual({
+      features: { other: true, mcp_2026_07_28: true },
+    });
+  });
+
+  it("requires force before overriding an explicit Codex modern MCP opt-out", async () => {
+    const userHome = temporaryRoot();
+    const launch = syntheticLaunch(userHome);
+    const paths = resolveGlobalControlPlaneMcpProjectionPaths(userHome);
+    mkdirSync(join(userHome, ".codex"), { recursive: true });
+    writeFileSync(paths.codex, '[features]\nmcp_2026_07_28 = false\n', "utf8");
+
+    const blocked = await syncGlobalControlPlaneMcpProjections({ operation: "install", userHome, launch, harnesses: ["codex"] });
+    expect(blocked.targets).toEqual([expect.objectContaining({
+      status: "incompatible",
+      changed: false,
+      reason: expect.stringContaining("mcp_2026_07_28"),
+    })]);
+
+    await syncGlobalControlPlaneMcpProjections({ operation: "install", userHome, launch, harnesses: ["codex"], force: true });
+    expect(parseToml(readFileSync(paths.codex, "utf8"))).toMatchObject({
+      features: { mcp_2026_07_28: true },
+    });
   });
 
   it("reports current status, fails closed on drift, and repairs only when forced", async () => {

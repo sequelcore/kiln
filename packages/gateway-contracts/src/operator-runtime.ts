@@ -5,7 +5,7 @@ export const OPERATOR_RUNTIME_PROTOCOL_VERSION = "3" as const;
 export const OPERATOR_RUNTIME_AUDIENCE = "kiln-operator-runtime" as const;
 
 export const OPERATOR_RUNTIME_HARNESSES = ["codex", "claude", "opencode"] as const;
-export const OPERATOR_RUNTIME_SURFACES = ["gui", "tui", "run", "benchmark"] as const;
+export const OPERATOR_RUNTIME_SURFACES = ["cli", "gui", "tui", "run", "benchmark"] as const;
 export const OPERATOR_SUPERVISOR_LIFECYCLES = ["starting", "ready", "degraded", "stopping"] as const;
 export const OPERATOR_SUPERVISOR_DIAGNOSTICS = ["none", "runtime_unavailable", "internal"] as const;
 export const OPERATOR_PROJECT_RUNTIME_LIFECYCLES = ["starting", "ready", "recovering", "unavailable"] as const;

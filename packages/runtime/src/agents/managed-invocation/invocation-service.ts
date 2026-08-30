@@ -11,6 +11,7 @@ import type {
   ManagedEconomicCommitment,
   ManagedEconomicExecutionReport,
   ManagedEconomicSettlement,
+  ExecutionSessionBindingEvidence,
   StructuredExecutionResult,
 } from "@kilnai/core";
 import {
@@ -252,6 +253,8 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
 
 export interface ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
+  /** Exact secret-free binding materialized after account commitment. */
+  readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
   cancel?(input: ManagedAgentRuntimeCancellationInput): Promise<ManagedAgentRuntimeCancellationResult>;
 }

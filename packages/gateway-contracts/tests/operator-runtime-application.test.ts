@@ -61,6 +61,44 @@ describe("operator runtime application protocol", () => {
     }).success).toBe(false);
   });
 
+  it("accepts the closed Agent Task operation set without caller-controlled identity or routing", () => {
+    expect(OperatorRuntimeApplicationRequestSchema.parse({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Review the changed boundary.",
+        configuredAgentProfileId: "reviewer",
+        idempotencyKey: "review-boundary-1",
+      },
+    })).toEqual({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Review the changed boundary.",
+        configuredAgentProfileId: "reviewer",
+        idempotencyKey: "review-boundary-1",
+      },
+    });
+    for (const operation of ["agent-task.status", "agent-task.result", "agent-task.cancel", "agent-task.replay"] as const) {
+      expect(OperatorRuntimeApplicationRequestSchema.parse({
+        schemaVersion: 1,
+        operation,
+        jobId: "job-1",
+      }).operation).toBe(operation);
+    }
+    expect(OperatorRuntimeApplicationRequestSchema.safeParse({
+      schemaVersion: 1,
+      operation: "agent-task.submit",
+      input: {
+        objective: "Review",
+        configuredAgentProfileId: "reviewer",
+        idempotencyKey: "review-1",
+        callerId: "caller-controlled",
+        providerId: "codex-oauth",
+      },
+    }).success).toBe(false);
+  });
+
   it("admits only explicit success or bounded failure responses", () => {
     expect(OperatorRuntimeApplicationResponseSchema.parse({
       schemaVersion: 1,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { ManagedEconomicSettlement } from "@kilnai/core";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   OPERATOR_RUNTIME_AUDIENCE,
   OPERATOR_RUNTIME_PROTOCOL_VERSION,
@@ -15,6 +16,7 @@ import {
 import {
   OPERATOR_SESSION_MAX_LIFETIME_SECONDS,
   ProjectRuntimeRegistry,
+  defineEffectiveAuthorityAdmissionBundle,
   signOperatorSessionCredential,
   type ManagedEconomicCommitmentAcquireInput,
 } from "@kilnai/runtime";
@@ -102,6 +104,8 @@ export interface OperatorRuntimeServiceOptions {
   readonly sessionSecret: Uint8Array;
   readonly nowEpochSeconds?: () => number;
   readonly sessionLifetimeSeconds?: number;
+  /** Operator-private diagnostic sink; errors never cross the application protocol. */
+  readonly onApplicationError?: (error: unknown) => void;
   readonly maxSessions?: number;
   readonly resolveWorkspace?: (context: TrustedProcessContext) => TrustedWorkspaceResolution;
   readonly createComposition?: (options: {
@@ -186,6 +190,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     }
     return createOperatorProjectAgentTaskApplicationComposition({
       projectPath,
+      ...(options.onApplicationError ? { onDispatchError: options.onApplicationError } : {}),
       ...(globalManagedAccountComposition ? { managedAccountComposition: globalManagedAccountComposition } : {}),
     });
   };
@@ -472,18 +477,35 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
         canonicalRoot: session.canonicalRoot,
         binding: session.binding,
       });
-      const authority = composition.economicAuthority;
-      if (!authority) {
-        return applicationError("authority_rejected", "Managed economic authority is not configured for this project.");
-      }
       const request = parsedRequest.data;
+      const callerId = deriveOperatorProjectSurfaceCallerId({
+        projectRuntimeId,
+        principal: session.principal,
+      });
       switch (request.operation) {
+        case "agent-task.submit":
+          return applicationSuccess(await composition.application.accept({
+            ...request.input,
+            callerId,
+          }, { kind: "kiln-runtime", surface: session.principal.surface, attachmentId: callerId },
+          createAgentTaskAuthorityAdmission(session, request.input)));
+        case "agent-task.status":
+          return applicationSuccess(await composition.application.getStatus({ callerId }, request.jobId));
+        case "agent-task.result":
+          return applicationSuccess(await composition.application.getResult({ callerId }, request.jobId));
+        case "agent-task.cancel":
+          return applicationSuccess(await composition.application.cancel({ callerId }, request.jobId));
+        case "agent-task.replay":
+          return applicationSuccess(await composition.application.getReplay({ callerId }, request.jobId));
         case "managed-economic.acquire":
-          return applicationSuccess(authority.acquire(request.input as unknown as ManagedEconomicCommitmentAcquireInput));
+          return applicationSuccess(requireEconomicAuthority(composition).acquire(
+            request.input as unknown as ManagedEconomicCommitmentAcquireInput,
+          ));
         case "managed-economic.release-pre-fence":
-          authority.releasePreFence(request.jobId, request.economicAttemptId);
+          requireEconomicAuthority(composition).releasePreFence(request.jobId, request.economicAttemptId);
           return applicationSuccess(null);
-        case "managed-economic.fence-dispatch":
+        case "managed-economic.fence-dispatch": {
+          const authority = requireEconomicAuthority(composition);
           authority.fenceDispatch(
             request.jobId,
             request.economicAttemptId,
@@ -491,15 +513,18 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
             request.actionClaim as unknown as Parameters<typeof authority.fenceDispatch>[3],
           );
           return applicationSuccess(null);
-        case "managed-economic.read-dispatch":
+        }
+        case "managed-economic.read-dispatch": {
+          const authority = requireEconomicAuthority(composition);
           return applicationSuccess(authority.readDispatch(
             request.jobId,
             request.economicAttemptId,
             request.dispatchFenceId,
             request.actionClaim as unknown as Parameters<typeof authority.readDispatch>[3],
           ));
+        }
         case "managed-economic.settle-execution":
-          authority.settleExecution(
+          requireEconomicAuthority(composition).settleExecution(
             request.jobId,
             request.economicAttemptId,
             request.dispatchFenceId,
@@ -507,7 +532,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
           );
           return applicationSuccess(null);
         case "managed-economic.record-settlement-pending":
-          authority.recordExecutionSettlementPending(
+          requireEconomicAuthority(composition).recordExecutionSettlementPending(
             request.jobId,
             request.economicAttemptId,
             request.dispatchFenceId,
@@ -515,8 +540,14 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
           );
           return applicationSuccess(null);
       }
-    } catch {
-      return applicationError("authority_rejected", "Managed economic authority rejected the operation.");
+    } catch (error) {
+      options.onApplicationError?.(error);
+      return parsedRequest.data.operation.startsWith("agent-task.")
+        ? applicationError(
+            "authority_rejected",
+            `Agent Task application rejected the operation (${safeApplicationDiagnostic(error)}).`,
+          )
+        : applicationError("authority_rejected", "Managed economic authority rejected the operation.");
     } finally {
       const remaining = (activeRequests.get(projectRuntimeId) ?? 1) - 1;
       if (remaining === 0) {
@@ -647,6 +678,31 @@ async function handleMcpRequest(input: {
   }
 }
 
+function safeApplicationDiagnostic(error: unknown): string {
+  if (!isRecord(error) || typeof error["code"] !== "string") return "unavailable";
+  return /^[a-z][a-z0-9_-]{2,79}$/u.test(error["code"]) ? error["code"] : "unavailable";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function deriveOperatorProjectSurfaceCallerId(input: {
+  readonly projectRuntimeId: string;
+  readonly principal: Extract<OperatorRuntimePrincipal, { readonly kind: "operator-surface" }>;
+}): string {
+  return `operator-project:${input.projectRuntimeId}:surface:${input.principal.surface}`;
+}
+
+function requireEconomicAuthority(
+  composition: OperatorProjectAgentTaskApplicationComposition,
+): NonNullable<OperatorProjectAgentTaskApplicationComposition["economicAuthority"]> {
+  if (!composition.economicAuthority) {
+    throw new Error("Managed economic authority is not configured for this project.");
+  }
+  return composition.economicAuthority;
+}
+
 function createLazyAgentTaskPort(
   registry: ProjectRuntimeRegistry<OperatorProjectAgentTaskApplicationComposition>,
   session: OperatorRuntimeSessionRecord,
@@ -657,7 +713,11 @@ function createLazyAgentTaskPort(
       binding: session.binding,
     })).application;
   return {
-    accept: async (value, callerIdentity) => (await application()).accept(value, callerIdentity),
+    accept: async (value, callerIdentity) => (await application()).accept(
+      value,
+      callerIdentity,
+      createAgentTaskAuthorityAdmission(session, value),
+    ),
     getStatus: async (identity, jobId) => (await application()).getStatus(identity, jobId),
     getResult: async (identity, jobId) => (await application()).getResult(identity, jobId),
     cancel: async (identity, jobId) => (await application()).cancel(identity, jobId),
@@ -674,6 +734,98 @@ function isExactResolution(
     && resolution.canonicalRoot === canonicalRoot
     && resolution.projectRuntimeId === binding.projectRuntimeId
     && resolution.compositionRevision === binding.compositionRevision;
+}
+
+export function createAgentTaskAuthorityAdmission(
+  session: OperatorRuntimeSessionRecord,
+  value: unknown,
+): ReturnType<typeof defineEffectiveAuthorityAdmissionBundle> {
+  const input = isRecord(value) ? value : {};
+  const idempotencyKey = typeof input["idempotencyKey"] === "string"
+    ? input["idempotencyKey"]
+    : "invalid-request";
+  const profileId = typeof input["configuredAgentProfileId"] === "string"
+    ? input["configuredAgentProfileId"]
+    : "invalid-profile";
+  const revision = session.binding.compositionRevision;
+  const turnDigest = createHash("sha256")
+    .update(`${session.sessionId}\0${idempotencyKey}\0${profileId}`, "utf8")
+    .digest("hex");
+  const turnId = canonicalTurnId(session.sessionId, Number.parseInt(turnDigest.slice(0, 12), 16) + 1);
+  const principalId = session.principal.kind === "native-harness"
+    ? session.principal.harness
+    : session.principal.surface;
+  const operatorAdoptionDecision = createOperatorAdoptionDecisionAuthority({
+    ownerSessionId: session.sessionId,
+    operatorTurnId: turnId,
+    actorId: `${session.principal.kind}:${principalId}`,
+  });
+  const effectEnvelope = {
+    operation: "mutate" as const,
+    boundaries: ["process", "workspace", "machine", "network", "external-system"] as const,
+    reversibility: "irreversible" as const,
+    dataEgress: "sensitive-data" as const,
+    identityUse: "privileged" as const,
+    consequences: ["local-state", "external-state", "financial", "legal", "security"] as const,
+    idempotency: "non-idempotent" as const,
+  };
+  return defineEffectiveAuthorityAdmissionBundle({
+    sessionId: session.sessionId,
+    turnId,
+    admittedAt: new Date().toISOString(),
+    configuration: {
+      sessionRevision: { revisionSetId: revision, revisions: { project: revision } },
+      turnRevision: { revisionSetId: revision, revisions: { project: revision } },
+    },
+    session: {
+      skillCatalog: { catalogId: "operator-runtime", revision, skillIds: [] },
+      authorityCeiling: {
+        maximumAuthority: "audited",
+        reason: "Authenticated Operator Runtime Agent Task surface.",
+        subjectId: session.binding.projectRuntimeId,
+      },
+    },
+    turn: {
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "audited",
+        admittedAuthority: "audited",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "Explicit authenticated Agent Task submission.",
+        completeness: "authoritative",
+        toolCount: 1,
+        deniedToolCount: 0,
+        sandboxProjection: "workspace_write",
+      },
+      workGovernance: {
+        status: "required",
+        kind: "work-item",
+        subjectId: operatorAdoptionDecision.decisionId,
+        authorityRevision: operatorAdoptionDecision.decisionId,
+      },
+      operatorAdoption: {
+        status: "admitted",
+        decision: operatorAdoptionDecision,
+      },
+      capabilityParticipation: { status: "not-requested" },
+      tools: {
+        allowedToolPermissions: [{
+          toolName: "kiln_agent_task_submit",
+          authority: {
+            level: 3,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Explicit authenticated Agent Task submission.",
+          },
+          effectEnvelope,
+        }],
+        deniedToolNames: [],
+      },
+      effectCeiling: effectEnvelope,
+      budget: { status: "not-configured" },
+      execution: { status: "not-routed" },
+    },
+  });
 }
 
 function readGlobalConfigRevision(

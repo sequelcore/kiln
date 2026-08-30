@@ -3,6 +3,7 @@ import type {
   AuthorityDescriptor,
   Capability,
   ErrorEvent,
+  ExecutionSessionBindingEvidence,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
@@ -91,6 +92,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly economicIdentity?: ManagedEconomicExecutionIdentity;
+  readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
   readonly deliberationCapabilities?: ModelDeliberationCapabilities;
   /** Workload-local durable owner for consequential child tool/MCP effects. */
   readonly runtimeToolActionClaims: RuntimeToolActionClaimStore;
@@ -156,6 +158,7 @@ function managedEconomicUsageUnit(name: ManagedAgentUsageReport["tokenClasses"][
 
 export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor;
+  readonly executionBinding;
   private readonly config: ManagedDirectProviderRuntimeAdapterConfig;
   private readonly providerId: string;
   private readonly model?: string;
@@ -184,6 +187,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.toolAuthority = config.toolAuthority;
     this.executionEnvelope = config.executionEnvelope ?? MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE;
     this.economicIdentity = config.economicIdentity;
+    this.executionBinding = config.executionBinding;
     this.runtimeModelRoundActionClaims = config.runtimeModelRoundActionClaims;
     this.readAuthorityAdmission = config.readAuthorityAdmission;
     this.modelRoundAdapterIdentity =

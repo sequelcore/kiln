@@ -7,6 +7,7 @@ import {
   verifyOperatorSessionCredential,
 } from "@kilnai/runtime";
 import type { OperatorRuntimeHarness, OperatorSessionClaims } from "@kilnai/gateway-contracts";
+import type { AgentTaskRecord } from "@kilnai/runtime";
 import {
   createOperatorRuntimeService,
   deriveOperatorRuntimeCallerId,
@@ -36,6 +37,66 @@ afterEach(() => {
 });
 
 describe("createOperatorRuntimeService", () => {
+  it("routes Agent Task application operations through one stable project CLI caller", async () => {
+    const project = adoptedProject("cli-agent-task");
+    const base = composition();
+    const accepted = { id: "job-1", state: "queued" } as AgentTaskRecord;
+    const status = { id: "job-1", state: "running" } as AgentTaskRecord;
+    const accept = vi.fn(async () => accepted);
+    const getStatus = vi.fn(async () => status);
+    const createComposition = vi.fn(async (): Promise<OperatorProjectAgentTaskApplicationComposition> => ({
+      ...base,
+      application: { ...base.application, accept, getStatus },
+    }));
+    const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
+    const principal = { kind: "operator-surface", surface: "cli" } as const;
+    const opened = await service.onSessionOpen({
+      schemaVersion: 3,
+      canonicalRoot: project.canonicalRoot,
+      binding: project.binding,
+      principal,
+      sessionId: "cli-agent-task-session",
+    });
+    const claims = verifyOperatorSessionCredential(opened.credential, SECRET, {
+      ...project.binding,
+      principal,
+      sessionId: "cli-agent-task-session",
+    }, { nowEpochSeconds: 100 });
+
+    await expect(service.onApplicationRequest({
+      claims,
+      request: {
+        schemaVersion: 1,
+        operation: "agent-task.submit",
+        input: {
+          objective: "Review the boundary.",
+          configuredAgentProfileId: "reviewer",
+          idempotencyKey: "review-1",
+        },
+      },
+    })).resolves.toEqual({ schemaVersion: 1, status: "ok", result: accepted });
+    await expect(service.onApplicationRequest({
+      claims,
+      request: { schemaVersion: 1, operation: "agent-task.status", jobId: "job-1" },
+    })).resolves.toEqual({ schemaVersion: 1, status: "ok", result: status });
+
+    const callerId = `operator-project:${project.binding.projectRuntimeId}:surface:cli`;
+    expect(accept).toHaveBeenCalledWith({
+      objective: "Review the boundary.",
+      configuredAgentProfileId: "reviewer",
+      idempotencyKey: "review-1",
+      callerId,
+    }, { kind: "kiln-runtime", surface: "cli", attachmentId: callerId }, expect.objectContaining({
+      sessionId: "cli-agent-task-session",
+      turn: expect.objectContaining({
+        workGovernance: expect.objectContaining({ status: "required" }),
+        operatorAdoption: expect.objectContaining({ status: "admitted" }),
+      }),
+    }));
+    expect(getStatus).toHaveBeenCalledWith({ callerId }, "job-1");
+    await service.close();
+  });
+
   it("routes managed-economic application commands only for an authenticated operator surface", async () => {
     const project = adoptedProject("surface-application");
     const releasePreFence = vi.fn();
