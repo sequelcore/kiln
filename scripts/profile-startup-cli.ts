@@ -441,7 +441,7 @@ async function measureSample(input: {
     }
     await mkdir(join(stateRoot, "tmp"), { recursive: true });
     const before = await snapshotState(stateRoot, input.state === "cold" ? "empty" : "seeded");
-    const childResult = await (input.dependencies.runChild ?? runFreshChild)({
+    const childResult = await (input.dependencies.runChild ?? runCliStartupChild)({
       executable: process.execPath,
       argv: input.command.argv,
       cwd: input.repositoryRoot,
@@ -490,7 +490,7 @@ async function measureSample(input: {
   }
 }
 
-async function runFreshChild(input: CliChildInput): Promise<CliChildResult> {
+export async function runCliStartupChild(input: CliChildInput): Promise<CliChildResult> {
   const startedAt = performance.now();
   let child: Bun.Subprocess;
   try {
@@ -499,6 +499,9 @@ async function runFreshChild(input: CliChildInput): Promise<CliChildResult> {
       env: input.env,
       stdout: "pipe",
       stderr: "pipe",
+      // A negative PID targets this dedicated process group on POSIX.  The
+      // Windows branch uses taskkill's /T tree operation below.
+      ...(process.platform === "win32" ? {} : { detached: true }),
     });
   } catch (error) {
     return {
@@ -509,8 +512,8 @@ async function runFreshChild(input: CliChildInput): Promise<CliChildResult> {
       stderr: error instanceof Error ? error.message : String(error),
     };
   }
-  const stdoutPromise = new Response(child.stdout as ReadableStream<Uint8Array>).text();
-  const stderrPromise = new Response(child.stderr as ReadableStream<Uint8Array>).text();
+  const stdoutReader = startOutputReader(child.stdout as ReadableStream<Uint8Array>);
+  const stderrReader = startOutputReader(child.stderr as ReadableStream<Uint8Array>);
   const timeoutToken = Symbol("cli-startup-timeout");
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<typeof timeoutToken>((resolveTimeout) => {
@@ -524,10 +527,13 @@ async function runFreshChild(input: CliChildInput): Promise<CliChildResult> {
   }
   const timeout = result === timeoutToken;
   if (timeout) {
-    terminateProcessTree(child.pid);
-    await Promise.race([child.exited, delay(2_000)]);
+    terminateProcessTree(child.pid, child);
   }
-  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  // The drain budget is the remainder of the original sample deadline.  A
+  // timed-out child therefore gets no unbounded post-timeout wait, while a
+  // normally exiting child still gets a bounded chance to flush its pipes.
+  const drainBudgetMs = Math.max(0, input.timeoutMs - (performance.now() - startedAt));
+  const [stdout, stderr] = await finishOutputReaders([stdoutReader, stderrReader], drainBudgetMs);
   return {
     exit: timeout ? null : typeof result === "number" ? result : null,
     timeout,
@@ -535,6 +541,66 @@ async function runFreshChild(input: CliChildInput): Promise<CliChildResult> {
     stdout,
     stderr,
   };
+}
+
+interface OutputReader {
+  readonly promise: Promise<string>;
+  readonly current: () => string;
+  readonly stop: () => void;
+}
+
+function startOutputReader(stream: ReadableStream<Uint8Array>): OutputReader {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  let stopped = false;
+  const promise = (async (): Promise<string> => {
+    try {
+      while (!stopped) {
+        const result = await reader.read();
+        if (result.done) break;
+        if (result.value !== undefined) output += decoder.decode(result.value, { stream: true });
+      }
+      if (!stopped) output += decoder.decode();
+    } catch {
+      // Process termination can close either pipe with a stream error.  The
+      // bytes already observed remain valid startup evidence.
+    }
+    return output;
+  })();
+  return {
+    promise,
+    current: () => output,
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      void reader.cancel().catch(() => undefined);
+    },
+  };
+}
+
+async function finishOutputReaders(
+  readers: readonly [OutputReader, OutputReader],
+  budgetMs: number,
+): Promise<readonly [string, string]> {
+  if (budgetMs <= 0) {
+    readers.forEach((reader) => reader.stop());
+    return [readers[0].current(), readers[1].current()];
+  }
+  const deadline = Symbol("cli-startup-output-drain-deadline");
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    Promise.all(readers.map((reader) => reader.promise)).then((values) => ({ kind: "complete" as const, values })),
+    new Promise<typeof deadline>((resolveDeadline) => {
+      timeoutHandle = setTimeout(() => resolveDeadline(deadline), budgetMs);
+    }),
+  ]);
+  if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+  if (outcome === deadline) {
+    readers.forEach((reader) => reader.stop());
+    return [readers[0].current(), readers[1].current()];
+  }
+  return [outcome.values[0] ?? "", outcome.values[1] ?? ""];
 }
 
 async function seedWarmState(root: string, fixture: CliStateFixture): Promise<void> {
@@ -799,24 +865,24 @@ function readCommit(repositoryRoot: string): string {
   }
 }
 
-function terminateProcessTree(pid: number): void {
+function terminateProcessTree(pid: number, child: Bun.Subprocess): void {
   if (process.platform === "win32") {
-    Bun.spawnSync(["taskkill", "/PID", String(pid), "/T", "/F"], {
+    const result = Bun.spawnSync(["taskkill.exe", "/PID", String(pid), "/T", "/F"], {
       stdout: "ignore",
       stderr: "ignore",
       timeout: 2_000,
     });
+    if (result.exitCode !== 0) {
+      try { child.kill("SIGKILL"); } catch { /* the tree may already be gone */ }
+    }
     return;
   }
   try {
-    process.kill(pid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
   } catch {
-    // The process already exited.
+    // The process group may have exited between the timeout and this signal.
+    try { child.kill("SIGKILL"); } catch { /* the child is already gone */ }
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
 function tail(value: string): string {

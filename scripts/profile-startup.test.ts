@@ -188,6 +188,49 @@ test("counts command failures and excludes them from percentile durations", asyn
   });
 });
 
+test("bounds timed-out output drain when a descendant inherits the pipes", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "kiln-startup-cli-descendant-"));
+  const fixture = resolve(repoRoot, "scripts", "fixtures", "profile-startup-cli-descendant.mjs");
+  const harness = resolve(repoRoot, "scripts", "fixtures", "profile-startup-cli-child-harness.mjs");
+  const pidFile = join(stateRoot, "descendant.pid");
+  try {
+    const startedAt = performance.now();
+    const childInput = {
+      executable: process.execPath,
+      argv: [fixture, "parent"],
+      cwd: repoRoot,
+      stateRoot,
+      env: {
+        PATH: process.env.PATH ?? "",
+        KILN_PROFILE_DESCENDANT_PID_FILE: pidFile,
+      },
+      timeoutMs: 100,
+    } satisfies CliChildInput;
+    const child = await execFile("bun", ["run", harness], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 3_000,
+      maxBuffer: 1_000_000,
+      env: {
+        ...process.env,
+        KILN_PROFILE_CHILD_INPUT: JSON.stringify(childInput),
+      },
+    });
+    const result = JSON.parse(child.stdout.trim()) as CliChildResult;
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(result.timeout).toBe(true);
+    expect(result.exit).toBeNull();
+    expect(result.stdout).toContain("parent-open");
+    expect(elapsedMs).toBeLessThan(2_000);
+    const descendantPid = Number(await readFile(pidFile, "utf8"));
+    expect(Number.isInteger(descendantPid)).toBe(true);
+    expect(isProcessAlive(descendantPid)).toBe(false);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
 test("profiles the first usable GUI interaction when browser measurement is enabled", async () => {
   const gatewayPort = await reservePort();
   const guiPort = await reservePort();
@@ -313,4 +356,13 @@ async function reservePort(): Promise<number> {
     throw new Error("Could not reserve a startup profile port");
   }
   return address.port;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
