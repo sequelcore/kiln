@@ -487,7 +487,7 @@ describe("resolveRipgrepRuntime", () => {
       version: "ripgrep 15.0.0",
       source: "bundled",
     });
-    expect(commandRunner).toHaveBeenCalledWith("bundled-rg", ["--version"], process.cwd(), 1_500);
+    expect(commandRunner).toHaveBeenCalledWith("bundled-rg", ["--version"], ".", 1_500);
   });
 
   it("uses vendored rg as bundled runtime before configured and system runtimes", async () => {
@@ -510,7 +510,7 @@ describe("resolveRipgrepRuntime", () => {
       version: "ripgrep 15.0.0",
       source: "bundled",
     });
-    expect(commandRunner).toHaveBeenCalledWith("vendored-rg", ["--version"], process.cwd(), 1_500);
+    expect(commandRunner).toHaveBeenCalledWith("vendored-rg", ["--version"], ".", 1_500);
   });
 
   it("uses configured rg when no bundled runtime is present", async () => {

@@ -5,6 +5,13 @@ import {
   type DefaultBuiltinToolSurface,
   SpawnMonitorCommandRunner,
 } from "@kilnai/core/tools";
+import { resolveVendoredToolBinary } from "@kilnai/tools";
+import {
+  detectRuntimeToolEnvironment,
+  runNativeCommand,
+  runNativeGitCommand,
+  runNativeTesseractOcr,
+} from "./native-command-execution.js";
 import { SpawnCommandProcessRunner } from "./spawn-command-process-runner.js";
 
 /** Materializes Core's canonical tool contracts with Runtime-owned process execution. */
@@ -26,8 +33,36 @@ function withRuntimeProcessExecution(options: DefaultBuiltinToolRegistryOptions)
     ...options,
     bash: {
       processRunner,
+      environmentProvider: detectRuntimeToolEnvironment,
       platform: process.platform,
       ...options.bash,
+    },
+    git: {
+      commandRunner: runNativeGitCommand,
+      ...options.git,
+    },
+    grep: {
+      commandRunner: runNativeCommand,
+      environmentProvider: detectRuntimeToolEnvironment,
+      vendoredToolResolver: resolveVendoredToolBinary,
+      configuredRgPath: process.env.KILN_RG_PATH,
+      ...options.grep,
+    },
+    glob: {
+      commandRunner: runNativeCommand,
+      environmentProvider: detectRuntimeToolEnvironment,
+      vendoredToolResolver: resolveVendoredToolBinary,
+      ...options.glob,
+    },
+    jsonQuery: {
+      commandRunner: runNativeCommand,
+      environmentProvider: detectRuntimeToolEnvironment,
+      vendoredToolResolver: resolveVendoredToolBinary,
+      ...options.jsonQuery,
+    },
+    ocrImage: {
+      ocrRunner: runNativeTesseractOcr,
+      ...options.ocrImage,
     },
     monitor: {
       commandRunner: new SpawnMonitorCommandRunner(processRunner),

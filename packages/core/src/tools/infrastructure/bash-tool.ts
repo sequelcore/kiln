@@ -64,7 +64,7 @@ export class BashTool implements DevTool {
     this.commandRunner = options.commandRunner;
     this.processRunner = options.processRunner ?? unavailableCommandProcessRunner;
     this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
-    this.platform = options.platform ?? process.platform;
+    this.platform = options.platform ?? "linux";
   }
 
   async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {

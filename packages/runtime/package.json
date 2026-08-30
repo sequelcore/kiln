@@ -56,6 +56,7 @@
     "@kilnai/core": "3.0.0-beta.1",
     "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "@kilnai/operator-appearance": "3.0.0-beta.1",
+    "@kilnai/tools": "3.0.0-beta.1",
     "@kilnai/gui": "3.0.0-beta.1",
     "hono": "^4.7.0",
     "jose": "^5.0.0",

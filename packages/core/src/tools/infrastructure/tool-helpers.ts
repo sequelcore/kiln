@@ -1,4 +1,3 @@
-import { execFile as execFileCallback } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
@@ -163,24 +162,12 @@ export async function runCommand(
   timeoutMs: number,
   stdin?: string,
 ): Promise<CommandResult> {
-  return await new Promise((resolveCommand, rejectCommand) => {
-    const child = execFileCallback(binary, args, {
-      cwd,
-      timeout: timeoutMs,
-      windowsHide: true,
-      maxBuffer: 2 * 1024 * 1024,
-    }, (error, stdout, stderr) => {
-      if (error) {
-        rejectCommand(Object.assign(error, { stdout, stderr }));
-        return;
-      }
-      resolveCommand({ stdout, stderr });
-    });
-
-    if (stdin !== undefined) {
-      child.stdin?.end(stdin);
-    }
-  });
+  void binary;
+  void args;
+  void cwd;
+  void timeoutMs;
+  void stdin;
+  throw new Error("Command execution requires a Runtime-owned command runner");
 }
 
 export async function walkFiles(rootPath: string): Promise<string[]> {

@@ -1,9 +1,5 @@
 import { dirname } from "node:path";
-import { resolveVendoredToolBinary } from "@kilnai/tools";
-import {
-  detectToolEnvironment,
-  type ToolEnvironment,
-} from "../domain/tool-environment.js";
+import type { ToolEnvironment } from "../domain/tool-environment.js";
 import {
   structuredDataToolMetadata,
   type SearchRuntimeSource,
@@ -24,7 +20,6 @@ import {
   optionalString,
   requireString,
   resolvePath,
-  runCommand as defaultRunCommand,
   toErrorResult,
   toSuccessResult,
   validateReadPath,
@@ -70,9 +65,9 @@ export class JsonQueryTool implements DevTool {
   private readonly vendoredToolResolver: VendoredToolResolver;
 
   constructor(options: JsonQueryToolOptions = {}) {
-    this.commandRunner = options.commandRunner ?? defaultRunCommand;
-    this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
-    this.vendoredToolResolver = options.vendoredToolResolver ?? resolveVendoredToolBinary;
+    this.commandRunner = options.commandRunner ?? unavailableJsonQueryCommandRunner;
+    this.environmentProvider = options.environmentProvider ?? emptyToolEnvironment;
+    this.vendoredToolResolver = options.vendoredToolResolver ?? noVendoredTool;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -196,6 +191,13 @@ export class JsonQueryTool implements DevTool {
     }
   }
 }
+
+const unavailableJsonQueryCommandRunner: JsonQueryCommandRunner = async () => {
+  throw new Error("JSON query execution requires a Runtime-owned command runner");
+};
+
+const emptyToolEnvironment: EnvironmentProvider = async () => ({});
+const noVendoredTool: VendoredToolResolver = () => undefined;
 
 function resolveJsonSource(
   input: ToolInput,

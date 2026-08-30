@@ -1,9 +1,6 @@
 import { stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import {
-  detectToolEnvironment,
-  type ToolEnvironment,
-} from "../domain/tool-environment.js";
+import type { ToolEnvironment } from "../domain/tool-environment.js";
 import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
@@ -18,7 +15,6 @@ import {
   optionalString,
   requireString,
   resolvePath,
-  runCommand as defaultRunCommand,
   toErrorResult,
   toSuccessResult,
   validateReadPath,
@@ -83,12 +79,12 @@ export class GrepTool implements DevTool {
   private readonly searchRuntimeProvider: SearchRuntimeProvider;
 
   constructor(options: GrepToolOptions = {}) {
-    this.commandRunner = options.commandRunner ?? defaultRunCommand;
+    this.commandRunner = options.commandRunner ?? unavailableGrepCommandRunner;
     this.searchRuntimeProvider = options.searchRuntimeProvider ?? createRipgrepRuntimeProvider({
       bundledPath: options.bundledRgPath,
-      configuredPath: options.configuredRgPath ?? process.env.KILN_RG_PATH,
+      configuredPath: options.configuredRgPath,
       commandRunner: this.commandRunner,
-      environmentProvider: options.environmentProvider ?? detectToolEnvironment,
+      environmentProvider: options.environmentProvider ?? emptyToolEnvironment,
       vendoredToolResolver: options.vendoredToolResolver,
     });
   }
@@ -244,6 +240,12 @@ export class GrepTool implements DevTool {
     }
   }
 }
+
+const unavailableGrepCommandRunner: GrepCommandRunner = async () => {
+  throw new Error("Grep execution requires a Runtime-owned command runner");
+};
+
+const emptyToolEnvironment: EnvironmentProvider = async () => ({});
 
 interface GrepResultProjection {
   readonly results: readonly string[];

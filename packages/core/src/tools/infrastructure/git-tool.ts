@@ -1,5 +1,3 @@
-import { execFile as execFileCallback } from "node:child_process";
-import { promisify } from "node:util";
 import { commandToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
@@ -12,9 +10,7 @@ import {
   validateReadPath,
 } from "./tool-helpers.js";
 
-const execFile = promisify(execFileCallback);
 const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_BUFFER = 2 * 1024 * 1024;
 const READ_ONLY_GIT_SUBCOMMANDS = new Set([
   "blame",
   "branch",
@@ -48,7 +44,7 @@ type GitCommandResult = {
   readonly stderr: string;
 };
 
-type GitCommandRunner = (
+export type GitCommandRunner = (
   args: readonly string[],
   cwd: string,
   timeoutMs: number,
@@ -66,7 +62,7 @@ export class GitTool implements DevTool {
   private readonly commandRunner: GitCommandRunner;
 
   constructor(options: GitToolOptions = {}) {
-    this.commandRunner = options.commandRunner ?? runGitCommand;
+    this.commandRunner = options.commandRunner ?? unavailableGitCommandRunner;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -177,17 +173,6 @@ function toCommandString(subcommand: string, args: readonly string[]): string {
   return `git ${subcommand} ${args.join(" ")}`;
 }
 
-async function runGitCommand(
-  args: readonly string[],
-  cwd: string,
-  timeoutMs: number,
-): Promise<GitCommandResult> {
-  const { stdout, stderr } = await execFile("git", args, {
-    cwd,
-    timeout: timeoutMs,
-    windowsHide: true,
-    maxBuffer: MAX_BUFFER,
-  });
-
-  return { stdout, stderr };
-}
+const unavailableGitCommandRunner: GitCommandRunner = async () => {
+  throw new Error("Git execution requires a Runtime-owned command runner");
+};

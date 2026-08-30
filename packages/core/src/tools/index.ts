@@ -101,6 +101,8 @@ export { analyzeTypeScriptQuality, TYPESCRIPT_QUALITY_PARSER_VERSION } from "./i
 export type {
   BinaryInfo,
   ToolEnvironment,
+  ToolEnvironmentCommandExecutor,
+  ToolEnvironmentCommandResult,
   ToolEnvironmentOptions,
 } from "./domain/tool-environment.js";
 export {
@@ -338,7 +340,7 @@ export { BashTool } from "./infrastructure/bash-tool.js";
 export type { CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 export { CodeIntelligenceTool } from "./infrastructure/code-intelligence-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
-export type { GitToolOptions } from "./infrastructure/git-tool.js";
+export type { GitCommandRunner, GitToolOptions } from "./infrastructure/git-tool.js";
 export { GitTool } from "./infrastructure/git-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";
 export { GlobTool } from "./infrastructure/glob-tool.js";

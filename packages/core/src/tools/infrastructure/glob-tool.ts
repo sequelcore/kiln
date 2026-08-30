@@ -1,9 +1,5 @@
 import { basename, join, relative } from "node:path";
-import {
-  detectToolEnvironment,
-  type ToolEnvironment,
-} from "../domain/tool-environment.js";
-import { resolveVendoredToolBinary } from "@kilnai/tools";
+import type { ToolEnvironment } from "../domain/tool-environment.js";
 import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
@@ -19,7 +15,6 @@ import {
   optionalString,
   requireString,
   resolvePath,
-  runCommand as defaultRunCommand,
   toErrorResult,
   toSuccessResult,
   validateReadPath,
@@ -58,9 +53,9 @@ export class GlobTool implements DevTool {
   private readonly vendoredToolResolver: VendoredToolResolver;
 
   constructor(options: GlobToolOptions = {}) {
-    this.commandRunner = options.commandRunner ?? defaultRunCommand;
-    this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
-    this.vendoredToolResolver = options.vendoredToolResolver ?? resolveVendoredToolBinary;
+    this.commandRunner = options.commandRunner ?? unavailableGlobCommandRunner;
+    this.environmentProvider = options.environmentProvider ?? emptyToolEnvironment;
+    this.vendoredToolResolver = options.vendoredToolResolver ?? noVendoredTool;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -215,6 +210,13 @@ export class GlobTool implements DevTool {
     }));
   }
 }
+
+const unavailableGlobCommandRunner: GlobCommandRunner = async () => {
+  throw new Error("Glob native execution requires a Runtime-owned command runner");
+};
+
+const emptyToolEnvironment: EnvironmentProvider = async () => ({});
+const noVendoredTool: VendoredToolResolver = () => undefined;
 
 function formatGlobOutput(
   rawOutput: string,

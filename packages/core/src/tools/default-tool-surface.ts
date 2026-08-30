@@ -59,7 +59,7 @@ import {
   MonitorStartTool,
   MonitorStopTool,
 } from "./infrastructure/monitor-tools.js";
-import { OcrImageTool } from "./infrastructure/ocr-image-tool.js";
+import { OcrImageTool, type OcrImageToolOptions } from "./infrastructure/ocr-image-tool.js";
 import {
   OperatorElicitationTool,
   type OperatorElicitationToolOptions,
@@ -120,6 +120,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly verificationTools?: readonly DevTool[];
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly monitor?: MonitorRegistryOptions;
+  readonly ocrImage?: OcrImageToolOptions;
   readonly monitorRegistry?: MonitorRegistry;
   readonly taskState?: TaskStateStoreOptions;
   readonly taskStateStore?: TaskStateStore;
@@ -284,7 +285,7 @@ export function createDefaultBuiltinTools(options: DefaultBuiltinToolRegistryOpt
     new StatTool(),
     new TreeTool(),
     new ViewImageTool(),
-    new OcrImageTool(),
+    new OcrImageTool(options.ocrImage),
     new WebSearchTool(options.webSearch),
     new WebFetchTool(options.webFetch),
     new WebExtractTool(options.webExtract),

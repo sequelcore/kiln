@@ -1282,6 +1282,12 @@ export { createWebhookHandler, validateWebhookSignature } from "./trigger/webhoo
 export { verifyHmacSha256 } from "./utils/hmac.js";
 export { SpawnCommandProcessRunner } from "./tools/spawn-command-process-runner.js";
 export {
+  detectRuntimeToolEnvironment,
+  runNativeCommand,
+  runNativeGitCommand,
+  runNativeTesseractOcr,
+} from "./tools/native-command-execution.js";
+export {
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
 } from "./tools/default-builtin-tool-surface.js";

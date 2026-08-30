@@ -1,5 +1,3 @@
-import { execFile as execFileCallback } from "node:child_process";
-import { promisify } from "node:util";
 import { mediaToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { optionalString, requireString, toErrorResult } from "./tool-helpers.js";
@@ -8,7 +6,6 @@ import {
   readSupportedImageFile,
 } from "./image-tool-helpers.js";
 
-const execFile = promisify(execFileCallback);
 const DEFAULT_OCR_LANGUAGE = "eng";
 
 export interface OcrImageRequest {
@@ -36,7 +33,7 @@ export class OcrImageTool implements DevTool {
   private readonly ocrRunner: OcrImageRunner;
 
   constructor(options: OcrImageToolOptions = {}) {
-    this.ocrRunner = options.ocrRunner ?? runTesseractOcr;
+    this.ocrRunner = options.ocrRunner ?? unavailableOcrRunner;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -109,22 +106,9 @@ export class OcrImageTool implements DevTool {
   }
 }
 
-async function runTesseractOcr(request: OcrImageRequest): Promise<OcrImageResult> {
-  const result = await execFile("tesseract", [
-    request.path,
-    "stdout",
-    "-l",
-    request.language,
-  ], {
-    windowsHide: true,
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: 60_000,
-  });
-  return {
-    text: result.stdout.trim(),
-    source: "tesseract",
-  };
-}
+const unavailableOcrRunner: OcrImageRunner = async () => {
+  throw Object.assign(new Error("OCR execution requires a Runtime-owned runner"), { code: "ENOENT" });
+};
 
 function formatOcrError(error: NodeJS.ErrnoException): string {
   if (error.code === "ENOENT") {

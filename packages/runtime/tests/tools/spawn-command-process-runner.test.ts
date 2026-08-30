@@ -6,6 +6,7 @@ describe("SpawnCommandProcessRunner", () => {
   it("preserves Bash timeout and process-settlement evidence", async () => {
     const tool = new BashTool({
       processRunner: new SpawnCommandProcessRunner(),
+      environmentProvider: async () => ({ bash: { path: "bash", version: "test" } }),
       platform: process.platform,
     });
     const command =

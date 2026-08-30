@@ -1,10 +1,5 @@
-import {
-  detectToolEnvironment,
-  type BinaryInfo,
-  type ToolEnvironment,
-} from "../domain/tool-environment.js";
-import { type CommandResult, runCommand } from "./tool-helpers.js";
-import { resolveVendoredToolBinary } from "@kilnai/tools";
+import type { BinaryInfo, ToolEnvironment } from "../domain/tool-environment.js";
+import type { CommandResult } from "./tool-helpers.js";
 
 export type SearchRuntimeSource = "bundled" | "configured" | "system";
 
@@ -45,14 +40,14 @@ export function createRipgrepRuntimeProvider(
 export async function resolveRipgrepRuntime(
   options: RipgrepRuntimeProviderOptions = {},
 ): Promise<RipgrepRuntime | undefined> {
-  const cwd = options.cwd ?? process.cwd();
+  const cwd = options.cwd ?? ".";
   const timeoutMs = options.verificationTimeoutMs ?? DEFAULT_VERIFICATION_TIMEOUT_MS;
-  const commandRunner = options.commandRunner ?? runCommand;
+  const commandRunner = options.commandRunner ?? unavailableSearchCommandRunner;
   if (options.bundledPath) {
     return verifyRipgrep(options.bundledPath, "bundled", commandRunner, cwd, timeoutMs);
   }
 
-  const vendoredToolResolver = options.vendoredToolResolver ?? resolveVendoredToolBinary;
+  const vendoredToolResolver = options.vendoredToolResolver ?? noVendoredTool;
   const vendoredRipgrep = vendoredToolResolver("rg");
   if (vendoredRipgrep) {
     return verifyRipgrep(vendoredRipgrep.path, "bundled", commandRunner, cwd, timeoutMs);
@@ -62,9 +57,16 @@ export async function resolveRipgrepRuntime(
     return verifyRipgrep(options.configuredPath, "configured", commandRunner, cwd, timeoutMs);
   }
 
-  const environment = await (options.environmentProvider ?? detectToolEnvironment)();
+  const environment = await (options.environmentProvider ?? emptyToolEnvironment)();
   return environment.rg ? fromBinaryInfo(environment.rg, "system") : undefined;
 }
+
+const unavailableSearchCommandRunner: SearchRuntimeCommandRunner = async () => {
+  throw new Error("Search execution requires a Runtime-owned command runner");
+};
+
+const noVendoredTool: VendoredToolResolver = () => undefined;
+const emptyToolEnvironment: EnvironmentProvider = async () => ({});
 
 function fromBinaryInfo(binary: BinaryInfo, source: SearchRuntimeSource): RipgrepRuntime {
   return {
