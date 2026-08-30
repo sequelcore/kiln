@@ -36,3 +36,7 @@ Public claims require the evidence gates defined there.
 - [Formal Verification Screening Retrospective 2026](formal-verification-screening-2026.md)
 - [LemmaScript Qualification Prepilot 2026](lemma-script-qualification-prepilot-2026.md)
 - [Static Analysis Calibration 2026](static-analysis-calibration-2026.md)
+
+## Runtime Evaluations
+
+- [Runtime Ownership And Loading Closeout 2026](runtime-ownership-and-loading-closeout-2026.md)

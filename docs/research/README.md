@@ -64,9 +64,7 @@ attribution.
 Open, owner-backed research lives under [`active/`](active/README.md):
 
 - CI test suite performance — active owner-backed investigation
-- runtime ownership and loading baseline — active owner-backed investigation
 - provider-neutral communication governance — Roadmap 06 / issue 77
-
 - adaptive work governance — issue #94
 - remote operator connection — Roadmaps 08 and 08.5
 - prompt component governance — Roadmap 06
