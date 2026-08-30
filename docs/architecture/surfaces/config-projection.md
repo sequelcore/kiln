@@ -285,6 +285,21 @@ governed by Kiln runtime authority. Native Codex/OpenCode/Claude CLI permission
 files apply only to explicit native harness routes, not to Kiln direct-provider
 execution.
 
+The signed instruction body is self-contained for disconnected native
+continuity: it includes the complete effective global doctrine and carries a
+versioned continuity contract beside target, source-profile, generator, and
+content-digest provenance. References to `~/.kiln` identify the canonical owner;
+they are not imports and the harness must not need to read Kiln state at load
+time. The body also states that native continuity is guidance only and cannot
+establish Runtime authority or enforcement.
+
+Native skill projection follows the same artifact rule. Every admitted file and
+nested resource is copied into the harness skill root, recorded independently in
+global install-state, and checked for drift. Projection must not create symlinks
+or runtime-only imports back to the canonical package. Discoverability does not
+prove activation, behavioral effect, or availability of capabilities named by a
+skill.
+
 ## Native Route Defaults
 
 Kiln projects native default routes only from canonical Kiln config. The
@@ -921,6 +936,13 @@ contract and are preserved by document-field projection.
 Global instruction and communication projections use the global state under
 `<Kiln home>/runtime/native-projections`, so different repositories do not
 compete for ownership of the same user-scoped native harness files or settings.
+
+Continuity status is always derived from this shared evidence and the native
+target bytes. A current instruction target may report
+`native-guidance-available`; current skill targets may report
+`native-skills-discoverable`. Missing, unmanaged, stale, drifted, unreadable, or
+unsupported targets cannot be promoted to those states. Neither state may be
+reported as `runtime-authoritative`; only Runtime admission owns that status.
 
 `kiln import-native <target>` is the explicit path to absorb selected native
 settings into Kiln config. It is not reverse sync. It supports Codex and

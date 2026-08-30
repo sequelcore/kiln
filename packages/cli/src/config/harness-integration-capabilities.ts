@@ -19,8 +19,13 @@ export interface RuntimeConfigInjectionCapability {
 
 export interface NativeProjectionCapability {
   readonly supported: boolean;
-  readonly requiredForStandalone: boolean;
+  readonly requiredForDisconnectedContinuity: boolean;
   readonly managedByInstallState: boolean;
+  readonly disconnectedContinuity: {
+    readonly instructions: "self-contained-guidance";
+    readonly skills: "self-contained-discovery";
+    readonly enforcement: "not-provided";
+  };
 }
 
 export type NativeAgentModelEncoder = (model: string) => string;
@@ -46,8 +51,13 @@ export interface HarnessIntegrationCapability {
 
 const NATIVE_PROJECTION_CAPABILITY: NativeProjectionCapability = {
   supported: true,
-  requiredForStandalone: true,
+  requiredForDisconnectedContinuity: true,
   managedByInstallState: true,
+  disconnectedContinuity: {
+    instructions: "self-contained-guidance",
+    skills: "self-contained-discovery",
+    enforcement: "not-provided",
+  },
 };
 
 function supportsNativeConfigImport(harness: HarnessIntegrationId): boolean {

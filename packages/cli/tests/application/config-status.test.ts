@@ -211,6 +211,7 @@ describe("config-status", () => {
           harness: "codex",
           kind: "global-instruction-shim",
           status: "missing",
+          continuity: "unavailable",
           recommendation: "sync-global-instruction-shims",
         }),
         expect.objectContaining({
@@ -218,6 +219,7 @@ describe("config-status", () => {
           harness: "claude-code",
           kind: "global-instruction-shim",
           status: "missing",
+          continuity: "unavailable",
           recommendation: "sync-global-instruction-shims",
         }),
         expect.objectContaining({
@@ -225,6 +227,7 @@ describe("config-status", () => {
           harness: "opencode",
           kind: "global-instruction-shim",
           status: "missing",
+          continuity: "unavailable",
           recommendation: "sync-global-instruction-shims",
         }),
       ]),

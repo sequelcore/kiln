@@ -162,9 +162,12 @@ describe("global instruction shim projection", () => {
     for (const content of [codex, claude, opencode]) {
       expect(content).toContain("kiln:global-instruction-shim:v1");
       expect(content).toContain("sourceProfiles: sequel-engineering");
-      expect(content).toContain("generator: global-instruction-shims-v2");
+      expect(content).toContain("generator: global-instruction-shims-v3");
+      expect(content).toContain("continuity: disconnected-native-guidance-v1");
       expect(content).toContain("# Global Instructions");
       expect(content).toContain("No dead code.");
+      expect(content).toContain("the harness can load this file without Kiln Runtime, Model Gateway, or MCP being available");
+      expect(content).toContain("This continuity is guidance only");
       expect(content).not.toContain("## Direct Provider Boundary");
       expect(content).not.toContain("codex-oauth");
       expect(content).not.toContain("opencode-go");
@@ -178,6 +181,9 @@ describe("global instruction shim projection", () => {
     expect(claude).toContain("a project may import `@AGENTS.md`");
     expect(opencode).toContain("target: opencode");
     expect(opencode).toContain("OpenCode layers the project-owned `AGENTS.md`");
+
+    const snapshots = await readGlobalInstructionShimProjectionSnapshots(PROJECT_PATH, { userHome: USER_HOME });
+    expect(snapshots.every((snapshot) => snapshot.continuity === "native-guidance-available")).toBe(true);
 
     const state = readNativeProjectionInstallState(GLOBAL_PROJECTION_STATE_DIR);
     expect(Object.keys(state.targets).sort()).toEqual([
@@ -280,6 +286,23 @@ describe("global instruction shim projection", () => {
     expect(readFileSync(targetPath("codex-global-instructions"), "utf-8")).toBe(firstCodex);
   });
 
+  it("leaves each projected instruction file usable when the canonical source is unavailable", async () => {
+    const result = await syncGlobalInstructionShimProjections(PROJECT_PATH, {
+      userHome: USER_HOME,
+      timestamp: FIXED_TIMESTAMP,
+    });
+    expect(result.errors).toEqual([]);
+
+    rmSync(join(KILN_HOME, "instructions"), { recursive: true, force: true });
+
+    for (const target of listGlobalInstructionShimTargets(USER_HOME)) {
+      const content = readFileSync(target.filePath, "utf-8");
+      expect(content).toContain("No dead code.");
+      expect(content).toContain("continuity: disconnected-native-guidance-v1");
+      expect(lstatSync(target.filePath).isSymbolicLink()).toBe(false);
+    }
+  });
+
   it("blocks unmanaged global files until adoption is explicit", async () => {
     mkdirSync(join(USER_HOME, ".codex"), { recursive: true });
     writeFileSync(targetPath("codex-global-instructions"), "# Hand-written Codex guidance", "utf-8");
@@ -320,6 +343,7 @@ describe("global instruction shim projection", () => {
       .toContainEqual(expect.objectContaining({
         targetId: "codex-global-instructions",
         status: "stale",
+        continuity: "stale",
       }));
 
     await syncGlobalInstructionShimProjections(PROJECT_PATH, {

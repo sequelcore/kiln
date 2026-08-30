@@ -157,6 +157,7 @@ describe("formatSetupSnapshot", () => {
           path: "C:/Users/test/.codex/AGENTS.md",
           kind: "global-instruction-shim",
           status: "stale",
+          continuity: "stale",
           recommendation: "sync-global-instruction-shims",
         },
         {
@@ -165,6 +166,7 @@ describe("formatSetupSnapshot", () => {
           path: "C:/Users/test/.claude/CLAUDE.md",
           kind: "global-instruction-shim",
           status: "unmanaged",
+          continuity: "unavailable",
           recommendation: "adopt-or-back-up-global-instructions",
         },
         {
@@ -173,6 +175,7 @@ describe("formatSetupSnapshot", () => {
           path: "C:/Users/test/.config/opencode/AGENTS.md",
           kind: "global-instruction-shim",
           status: "drifted",
+          continuity: "stale",
           recommendation: "review-global-instruction-drift",
         },
       ],
@@ -181,9 +184,9 @@ describe("formatSetupSnapshot", () => {
     expect(output).toContain("C:/Users/test/.codex/AGENTS.md");
     expect(output).toContain("C:/Users/test/.claude/CLAUDE.md");
     expect(output).toContain("C:/Users/test/.config/opencode/AGENTS.md");
-    expect(output).toContain("codex-global-instructions: harness=codex status=stale recommendation=sync global instruction shims");
-    expect(output).toContain("claude-global-instructions: harness=claude-code status=unmanaged recommendation=adopt or back up global instructions");
-    expect(output).toContain("opencode-global-instructions: harness=opencode status=drifted recommendation=review global instruction drift");
+    expect(output).toContain("codex-global-instructions: harness=codex status=stale continuity=stale recommendation=sync global instruction shims");
+    expect(output).toContain("claude-global-instructions: harness=claude-code status=unmanaged continuity=unavailable recommendation=adopt or back up global instructions");
+    expect(output).toContain("opencode-global-instructions: harness=opencode status=drifted continuity=stale recommendation=review global instruction drift");
   });
 
   it("renders an explicit empty global instruction shim state", () => {

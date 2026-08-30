@@ -56,6 +56,39 @@ approval mode and sandbox authority, candidate completion and acceptance, or
 the two comparative clones and Kiln. A capability label never implies those
 claims.
 
+## Disconnected Native Continuity
+
+Kiln follows **disconnected native continuity** for operator-facing harnesses.
+After a successful governed sync, each supported harness must be able to load
+its projected global instructions and discover its admitted projected skills
+without Kiln Runtime, Model Gateway, MCP, or another harness being available.
+This is a continuity guarantee for local artifacts, not an offline-network
+guarantee and not a claim of behavioral parity.
+
+The contract separates four states that surfaces and tests must not collapse:
+
+- `native-guidance-available`: a current, self-contained instruction projection
+  is present for the harness;
+- `native-skills-discoverable`: current projected skill packages are present,
+  while activation remains subject to that harness's own discovery semantics;
+- `runtime-authoritative`: the current session is attached to an admitted Kiln
+  Runtime that owns enforcement, evidence, and terminal settlement; and
+- `unavailable` or `stale`: required projection evidence is missing, drifted,
+  unsupported, or older than its canonical source.
+
+`native-guidance-available` and `native-skills-discoverable` are advisory. They
+do not imply executable enforcement, tool authority, managed-work lifecycle,
+evidence completeness, or equivalent outcomes across harnesses. A direct Codex,
+Claude Code, or OpenCode invocation becomes `runtime-authoritative` only when
+that exact session is attached and admitted; Runtime availability elsewhere on
+the machine does not upgrade it.
+
+The canonical sources remain Kiln instruction profiles and skill packages.
+Native files are versioned, self-contained projections with provenance, digest,
+install-state, drift, backup, and uninstall evidence. Runtime consumes canonical
+sources and must deduplicate equivalent ambient native guidance; it must not
+round-trip native projection files back into authority.
+
 ## Cross-Harness Authority Vocabulary
 
 The cross-harness control-plane contract establishes these terms. They are
@@ -294,6 +327,22 @@ architecture. Kiln uses native projection when:
 
 Native projection must remain governed by install-state, drift detection,
 append-only backups, and explicit uninstall behavior.
+
+Instruction projections contain their effective doctrine in full rather than
+importing `~/.kiln` at harness load time. Skill projection copies each admitted
+package and its resources into the harness-native location rather than linking
+back to Kiln state. Skills whose procedure still requires Runtime, MCP, a tool,
+network access, credentials, or another external capability must declare that
+dependency and must not be described as independently executable merely because
+their package is discoverable.
+
+Built-in skill procedures default to `kiln.harnessPortability: agnostic`, while
+their execution contract is declared independently as `supported`,
+`capability-dependent`, or `kiln-runtime-required`. Projection adapters may
+change native placement and discovery syntax, but they do not fork the
+procedure. `orchestration-workflow`, for example, is agnostic but requires the
+`managed-delegation` capability; `kiln-control-plane-workflow` is agnostic but
+requires `kiln-control-plane-mcp` and therefore is not disconnected-executable.
 
 Native default route projection is supported for Codex, OpenCode, and the
 Claude Messages gateway only when the canonical Kiln provider/model can be

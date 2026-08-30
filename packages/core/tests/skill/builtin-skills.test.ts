@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
   KILN_CORE_BUILTIN_SKILLS,
+  readSkillPortability,
   renderSkillMarkdown,
   resolveKilnCoreBuiltinSkills,
 } from "../../src/skill/index.js";
@@ -47,7 +48,28 @@ describe("Kiln core builtin skills", () => {
 
     expect(markdown).toContain("name: repo-context-review");
     expect(markdown).toContain("description:");
+    expect(markdown).toContain("kiln.harnessPortability: agnostic");
+    expect(markdown).toContain("kiln.disconnectedExecution: supported");
     expect(markdown).toContain("Do not mutate repository guidance");
+  });
+
+  it("classifies every builtin independently from harness-specific syntax", () => {
+    const portability = KILN_CORE_BUILTIN_SKILLS.map((skill) => [skill.name, readSkillPortability(skill)] as const);
+
+    expect(portability.every(([, contract]) => contract.status === "declared"
+      && contract.harnessPortability === "agnostic")).toBe(true);
+    expect(portability.find(([name]) => name === "kiln-control-plane-workflow")?.[1]).toEqual({
+      status: "declared",
+      harnessPortability: "agnostic",
+      disconnectedExecution: "kiln-runtime-required",
+      requiredCapabilities: ["kiln-control-plane-mcp"],
+    });
+    expect(portability.find(([name]) => name === "orchestration-workflow")?.[1]).toEqual({
+      status: "declared",
+      harnessPortability: "agnostic",
+      disconnectedExecution: "capability-dependent",
+      requiredCapabilities: ["managed-delegation"],
+    });
   });
 
   it("requires evidence-backed actionable code review findings", () => {

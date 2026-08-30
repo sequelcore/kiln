@@ -702,6 +702,7 @@ async function readProjectionSnapshots(
         path: shim.filePath,
         kind: "global-instruction-shim",
         status: shim.status,
+        continuity: shim.continuity,
         ...(shim.details ? { details: shim.details } : {}),
         recommendation: globalInstructionShimRecommendationForStatus(shim.status),
       });

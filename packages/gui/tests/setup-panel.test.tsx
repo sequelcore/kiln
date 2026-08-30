@@ -319,6 +319,7 @@ describe("SetupPanel", () => {
               path: "C:/Users/test/.codex/AGENTS.md",
               kind: "global-instruction-shim",
               status: "stale",
+              continuity: "stale",
               recommendation: "sync-global-instruction-shims",
             },
             {
@@ -327,6 +328,7 @@ describe("SetupPanel", () => {
               path: "C:/Users/test/.claude/CLAUDE.md",
               kind: "global-instruction-shim",
               status: "unmanaged",
+              continuity: "unavailable",
               recommendation: "adopt-or-back-up-global-instructions",
             },
             {
@@ -335,6 +337,7 @@ describe("SetupPanel", () => {
               path: "C:/Users/test/.config/opencode/AGENTS.md",
               kind: "global-instruction-shim",
               status: "drifted",
+              continuity: "stale",
               recommendation: "review-global-instruction-drift",
             },
           ],
@@ -365,6 +368,7 @@ describe("SetupPanel", () => {
     expect(inventory).toHaveTextContent("stale");
     expect(inventory).toHaveTextContent("unmanaged");
     expect(inventory).toHaveTextContent("drifted");
+    expect(inventory).toHaveTextContent("unavailable");
     expect(inventory).toHaveTextContent("sync-global-instruction-shims");
     expect(inventory).toHaveTextContent("adopt-or-back-up-global-instructions");
     expect(inventory).toHaveTextContent("review-global-instruction-drift");

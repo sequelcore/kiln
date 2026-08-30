@@ -190,6 +190,26 @@ one-off repository prompt. Project/team guidance belongs in project-owned
 `AGENTS.md`; a project-owned `CLAUDE.md` may import it and add only genuine Claude
 specifics.
 
+### Disconnected baseline and procedures
+
+The global profile owns only the small baseline that must remain available when
+a native harness runs without Kiln Runtime or MCP: bounded scope, preservation
+of unrelated behavior, canonical ownership and repository boundaries, direct
+implementation for current consumers, explicit replanning when a premise or
+scope changes materially, proportional verification, honest unverified status,
+and refusal to invent or weaken authority.
+
+Detailed scouting, planning, TDD, refactoring, research, orchestration, and
+domain workflows remain skills. A skill may improve repeatability, but automatic
+activation is model- and harness-dependent, so a rule required on every task
+must not exist only inside a skill. Conversely, copying a full procedure into an
+always-loaded profile is not a continuity mechanism; it is prompt duplication
+and must pass the prompt-governance evaluation gate.
+
+When Runtime is attached, it consumes the same canonical profile and skill
+sources, then adds executable admission, authority, evidence, and settlement.
+The native projection is not fed back as a second instruction source.
+
 The markdown body is the human-readable doctrine. The optional `doctrine`
 frontmatter is the structured surface contract. It lets GUI, TUI, CLI, SDK,
 managed invocation, and native harness projections expose principles,
@@ -297,6 +317,24 @@ paths or unselected instructions.
 
 Skills are not permissions. A skill may teach an agent how to use a tool, but
 tool authority still comes from Kiln's tool and managed invocation policy.
+Procedure portability and execution availability are separate contracts. A
+built-in skill declares `kiln.harnessPortability` as `agnostic` or
+`harness-specific`, and declares disconnected execution as exactly one of:
+
+- `supported`: the procedure can run through ordinary admitted harness
+  capabilities and names no required external capability;
+- `capability-dependent`: the procedure is portable, but execution requires
+  every capability named by `kiln.requiredCapabilities`; or
+- `kiln-runtime-required`: discovery is useful in a native harness, but the
+  procedure cannot execute disconnected from the named Kiln Runtime or MCP
+  capability.
+
+An agnostic procedure may use harness-specific projection adapters and tool
+names. Agnostic does not mean universally executable, behaviorally equivalent,
+or authorized. Missing or invalid portability metadata is `unknown` and cannot
+be promoted as disconnected support. Projection preserves this metadata in
+each native `SKILL.md`; it does not rewrite the canonical procedure per harness.
+
 Agent default skills are resolved through `SkillRegistry`, loaded as governed
 procedural context, and fail closed when a referenced skill is unavailable.
 Task/model recommended skills are advisory by default. When

@@ -68,6 +68,23 @@ export type {
 } from "./progressive-loading-benchmark.js";
 export { evaluateSkillValuePromotion } from "./skill-value-promotion.js";
 export type { SkillValueObservation, SkillValuePromotionReport } from "./skill-value-promotion.js";
+export {
+  evaluateNativeContinuity,
+  NATIVE_CONTINUITY_COHORTS,
+  NATIVE_CONTINUITY_DECISIONS,
+  scoreNativeContinuityResponse,
+} from "./native-continuity-evaluation.js";
+export type {
+  NativeContinuityCohort,
+  NativeContinuityCohortMetrics,
+  NativeContinuityDecision,
+  NativeContinuityDecisionFields,
+  NativeContinuityEvaluationReport,
+  NativeContinuityObservation,
+  NativeContinuityResponse,
+  NativeContinuityResponseScore,
+  NativeContinuityVerificationScope,
+} from "./native-continuity-evaluation.js";
 export { evaluateWorkflowScenario, WORKFLOW_SCENARIOS } from "./workflow-scenario-evaluation.js";
 export type { WorkflowScenarioEvaluation, WorkflowScenarioId, WorkflowScenarioObservation } from "./workflow-scenario-evaluation.js";
 export { evaluateContextAllocationPromotion } from "./context-allocation-benchmark.js";

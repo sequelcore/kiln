@@ -1,4 +1,16 @@
 export type { SkillIndex, SkillConfig, SkillTrigger } from "./types.js";
+export {
+  createSkillPortabilityMetadata,
+  readSkillPortability,
+  SKILL_PORTABILITY_METADATA_KEYS,
+} from "./skill-portability.js";
+export type {
+  DeclaredSkillPortability,
+  SkillDisconnectedExecution,
+  SkillHarnessPortability,
+  SkillPortability,
+  UnknownSkillPortability,
+} from "./skill-portability.js";
 export { parseSkillMd, parseSkillMdIndex, SkillMdError } from "./md-parser.js";
 export { SkillRegistry } from "./skill-registry.js";
 export type {

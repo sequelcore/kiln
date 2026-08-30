@@ -4,7 +4,7 @@ Status: accepted research basis for minimal prompt assembly, response-profile
 placement, progressive disclosure, and controlled-technical-English
 integration.
 
-Evidence cutoff: 2026-08-25.
+Evidence cutoff: 2026-08-30.
 
 Owner: [Roadmap 06 - Prompt Governance Plane](../../roadmap/06-prompt-governance-plane.md)
 
@@ -193,6 +193,31 @@ the exact provider, model, and use case. These sources can inform fixtures,
 failure taxonomies, and operator workflow; popularity and anecdotal success do
 not satisfy a promotion gate.
 
+### Native continuity is useful, but instruction files are not outcome proof
+
+Codex, Claude Code, Gemini CLI, OpenCode, Cursor, GitHub Copilot, and VS Code all
+expose some combination of persistent instructions and progressively loaded
+skills, but their locations, precedence, cloud availability, activation, and
+hook support differ. AGENTS.md and Agent Skills provide useful portable formats;
+they do not provide one universal runtime or enforcement contract. This supports
+projecting self-contained artifacts per harness while keeping Runtime authority
+separate.
+
+The empirical evidence is deliberately contradictory. CTX-Bench reports that
+repository context files can reduce task success and increase agent cost when
+they add unnecessary requirements. Another controlled study over Codex and
+Claude Code found no measurable correctness improvement from repository context
+files on its task set, while a large observational study associated AGENTS.md
+with lower runtime and output-token usage at comparable completion. Repository
+mining also finds instruction files far more common than skills, so skill-only
+continuity would depend on a less established and less reliable activation path.
+
+Decision consequence: use a small always-on baseline plus optional skills, make
+the projection independently loadable, and claim only availability and
+discoverability until per-harness repeated outcome evaluation earns more. Do not
+call this `offline-first`, because provider access, tools, credentials, and task
+resources may still require a network.
+
 ## Evidence-Backed Decisions
 
 Kiln native runtime owns:
@@ -262,7 +287,18 @@ A prompt component, removal, or response skill becomes a default only when:
 - Anthropic, [Writing effective tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents).
 - Anthropic, [Prompt injection defenses](https://www.anthropic.com/research/prompt-injection-defenses).
 - OpenAI, [Prompt engineering](https://developers.openai.com/api/docs/guides/prompt-engineering).
+- OpenAI, [Codex AGENTS.md guidance](https://developers.openai.com/codex/guides/agents-md).
+- OpenAI, [Codex Agent Skills](https://developers.openai.com/codex/skills).
 - OpenAI, [The Instruction Hierarchy](https://openai.com/index/the-instruction-hierarchy/).
+- Anthropic, [Claude Code memory and CLAUDE.md](https://code.claude.com/docs/en/memory).
+- Anthropic, [Claude Code skills](https://code.claude.com/docs/en/slash-commands).
+- Gemini CLI, [GEMINI.md context files](https://geminicli.com/docs/cli/gemini-md/).
+- Gemini CLI, [Agent Skills](https://geminicli.com/docs/cli/skills/).
+- GitHub, [Copilot custom-instruction support](https://docs.github.com/en/copilot/reference/custom-instructions-support).
+- Visual Studio Code, [Agent customization](https://code.visualstudio.com/docs/agents/concepts/customization).
+- OpenCode, [Rules](https://dev.opencode.ai/docs/rules/) and [Skills](https://opencode.ai/docs/skills).
+- Cursor, [Rules](https://prod.cursor.com/docs/rules) and [Agent Skills](https://prod.cursor.com/docs/skills).
+- AGENTS.md, [open format and ecosystem](https://agents.md/).
 - Agent Skills, [Specification](https://agentskills.io/specification).
 - ASD-STE100, [Simplified Technical English Issue 9](https://www.asd-ste100.org/index.html).
 
@@ -274,6 +310,10 @@ A prompt component, removal, or response skill becomes a default only when:
 - Zheng et al., [Are All Prompt Components Value-Neutral?](https://aclanthology.org/2026.eacl-long.374/), EACL 2026.
 - Liu et al., [Lost in the Middle](https://arxiv.org/abs/2307.03172), TACL 2024.
 - Hsieh et al., [RULER](https://openreview.net/forum?id=kIoBbc76Sy), COLM 2024.
+- [CTX-Bench](https://arxiv.org/abs/2602.11988), arXiv:2602.11988, 2026.
+- [Repository-context controlled study](https://arxiv.org/abs/2607.27250), arXiv:2607.27250, 2026.
+- [AGENTS.md observational study](https://arxiv.org/abs/2601.20404), arXiv:2601.20404, 2026.
+- [Repository-level agent-context mining study](https://arxiv.org/abs/2602.14690), arXiv:2602.14690, 2026.
 
 ### Observability And Practitioner Signals
 
@@ -281,6 +321,8 @@ A prompt component, removal, or response skill becomes a default only when:
 - OpenTelemetry, [GenAI observability and content-capture defaults](https://opentelemetry.io/blog/2026/genai-observability/).
 - Promptfoo, [open-source prompt evaluation and red teaming](https://github.com/promptfoo/promptfoo).
 - Hamel Husain, [What should go in the system prompt vs. the user prompt?](https://hamel.dev/blog/posts/evals-faq/what-should-go-in-the-system-prompt-vs-the-user-prompt.html).
+- Addy Osmani, [Agent Skills: What They Are and How to Use Them](https://addyosmani.com/blog/agent-skills/).
+- HumanLayer, [Writing Software with Force Multipliers](https://github.com/humanlayer/advanced-context-engineering-for-coding-agents/blob/main/wsff.md).
 
 ### Revision-Pinned Harness Source
 

@@ -420,6 +420,7 @@ describe("KilnConfig setup and status permission integrity", () => {
         path: "C:/Users/test/.codex/AGENTS.md",
         kind: "global-instruction-shim",
         status: "missing",
+        continuity: "unavailable",
         recommendation: "sync-global-instruction-shims",
       }],
       nativeProjections: [{
@@ -451,6 +452,7 @@ describe("KilnConfig setup and status permission integrity", () => {
       path: "C:/Users/test/.claude/CLAUDE.md",
       kind: "global-instruction-shim",
       status: "stale",
+      continuity: "stale",
       recommendation: "sync-global-instruction-shims",
     };
 

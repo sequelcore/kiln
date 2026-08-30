@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDatasetJsonl } from "../../src/eval/dataset-loader.js";
+import { NATIVE_CONTINUITY_DECISIONS } from "../../src/eval/native-continuity-evaluation.js";
 
 // Resolve from this module, not process.cwd(): the working directory depends on
 // how Vitest was invoked, and cwd-relative resolution made this read a
@@ -35,5 +36,23 @@ describe("benchmark baseline datasets", () => {
   it("does not publish the private formal-verification screening corpus", () => {
     expect(readdirSync(DATASET_DIR).filter((file) => file.startsWith("kiln-formal-verification-pilot-")))
       .toEqual([]);
+  });
+
+  it("ships the native-continuity fixture with one deterministic oracle per decision", () => {
+    const file = "kiln-native-continuity-v1.jsonl";
+    const dataset = parseDatasetJsonl(file.replace(/\.jsonl$/u, ""), readFileSync(join(DATASET_DIR, file), "utf-8"));
+
+    expect(dataset.items).toHaveLength(NATIVE_CONTINUITY_DECISIONS.length);
+    expect(dataset.items.map((item) => (item.metadata?.expected as { decision?: unknown } | undefined)?.decision))
+      .toEqual(NATIVE_CONTINUITY_DECISIONS);
+    for (const item of dataset.items) {
+      const expected = item.metadata?.expected as Record<string, unknown> | undefined;
+      expect(expected).toMatchObject({
+        preserveUnrelatedBehavior: true,
+        addCompatibilityLayer: false,
+        weakenAuthorityBoundary: false,
+      });
+      expect(item.input).not.toContain(String(expected?.decision));
+    }
   });
 });

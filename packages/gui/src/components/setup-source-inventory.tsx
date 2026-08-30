@@ -252,6 +252,7 @@ function GlobalInstructionShimsCard(props: { readonly projections: KilnConfigSet
                 <TableHead>Target</TableHead>
                 <TableHead>Harness</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Continuity</TableHead>
                 <TableHead>Recommendation</TableHead>
                 <TableHead className="text-right">Path</TableHead>
               </TableRow>
@@ -262,6 +263,7 @@ function GlobalInstructionShimsCard(props: { readonly projections: KilnConfigSet
                   <TableCell className="font-medium text-foreground">{projection.targetId}</TableCell>
                   <TableCell>{projection.harness}</TableCell>
                   <TableCell><Badge variant={STATUS_TONE[projection.status]}>{projection.status}</Badge></TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{projection.continuity}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{projection.recommendation}</TableCell>
                   <TableCell className="text-right">
                     <Button type="button" variant="ghost" size="icon-xs" aria-label={`Copy path for ${projection.targetId}`} onClick={() => void copyText(projection.path)}>

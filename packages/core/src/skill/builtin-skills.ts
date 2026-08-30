@@ -1,5 +1,9 @@
 import { stringify } from "yaml";
 import type { SkillConfig } from "./types.js";
+import {
+  createSkillPortabilityMetadata,
+  type DeclaredSkillPortability,
+} from "./skill-portability.js";
 
 export interface BuiltinSkillPolicy {
   readonly enabled?: boolean;
@@ -14,11 +18,18 @@ function defineBuiltinSkill(input: {
   readonly description: string;
   readonly tools?: readonly string[];
   readonly tags?: readonly string[];
+  readonly portability?: Omit<DeclaredSkillPortability, "status">;
   readonly instructions: string;
 }): SkillConfig {
+  const portability = input.portability ?? {
+    harnessPortability: "agnostic",
+    disconnectedExecution: "supported",
+    requiredCapabilities: [],
+  };
   return {
     name: input.name,
     description: input.description,
+    metadata: createSkillPortabilityMetadata(portability),
     tools: input.tools ?? [],
     triggers: [],
     tags: input.tags ?? [],
@@ -728,6 +739,11 @@ to the appropriate specialist review.
     name: "orchestration-workflow",
     description: "Turn an evidence-backed plan into governed child work, safe parallelism, validated adoption, and honest lifecycle reconciliation.",
     tags: ["orchestration", "delegation", "managed-agents", "work-governance"],
+    portability: {
+      harnessPortability: "agnostic",
+      disconnectedExecution: "capability-dependent",
+      requiredCapabilities: ["managed-delegation"],
+    },
     instructions: `
 # Orchestration Workflow
 
@@ -774,6 +790,11 @@ review to their owning procedures rather than absorbing them here.
     name: "kiln-control-plane-workflow",
     description: "Use discovered Kiln control-plane tools safely across supported harnesses for governance inspection and managed-job lifecycle operations.",
     tags: ["kiln", "control-plane", "mcp", "managed-agents"],
+    portability: {
+      harnessPortability: "agnostic",
+      disconnectedExecution: "kiln-runtime-required",
+      requiredCapabilities: ["kiln-control-plane-mcp"],
+    },
     instructions: `
 # Kiln Control-Plane Workflow
 
@@ -1091,6 +1112,9 @@ export function renderSkillMarkdown(skill: SkillConfig): string {
   const frontmatter = {
     name: skill.name,
     description: skill.description,
+    ...(skill.license ? { license: skill.license } : {}),
+    ...(skill.compatibility ? { compatibility: skill.compatibility } : {}),
+    ...(skill.metadata && Object.keys(skill.metadata).length > 0 ? { metadata: skill.metadata } : {}),
     ...(skill.tools.length > 0 ? { tools: skill.tools } : {}),
     ...(skill.tags.length > 0 ? { tags: skill.tags } : {}),
   };

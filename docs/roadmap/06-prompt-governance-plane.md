@@ -204,6 +204,32 @@ exact-format behavior; score required-content recall and correctness before
 style or length; and retain a no-promotion result when no candidate clears the
 predeclared gate.
 
+Disconnected native continuity is evaluated in this slice, not assumed from a
+successful file copy. Use clean temporary harness homes with no Runtime,
+Gateway, MCP server, or readable `~/.kiln` source. Deterministic fixtures must
+prove independent instruction loading, skill-package discovery, provenance and
+digest reporting, drift refusal, idempotent resync, and exact uninstall. Paired
+behavior cohorts are: no projected baseline, minimal global baseline, baseline
+plus an explicitly selected skill, and attached Runtime.
+
+Run the behavior cohorts per harness, model, and revision over scope-creep,
+unnecessary-framework, speculative-compatibility, unrelated-file, ambiguity,
+security-boundary, refactor, and verification fixtures. Correctness, safety,
+required-content preservation, and scope fidelity are primary; output size,
+tokens, cost, and latency are secondary. Aggregate improvement cannot override
+a material per-harness regression, and `no-promotion` remains a valid outcome.
+Codex is the first live evaluation harness; Claude Code and OpenCode remain
+deterministic projection-only until explicit usage capacity is available.
+
+Implementation checkpoint (2026-08-30): Core now owns the versioned eight-task
+fixture, schema, deterministic scorer, four-cohort pairing gate, and built-in
+skill portability contract. A two-task, one-repeat Codex/Sol pilot validated the
+runner and produced a diagnostic-only result; it did not promote a default.
+Release evidence still requires all eight tasks, at least three paired repeats,
+the attached-Runtime cohort, and later live Claude Code/OpenCode cohorts when
+explicit usage capacity exists. See the
+[Codex native-continuity prepilot](../evaluations/native-continuity-codex-prepilot-2026.md).
+
 ### Slice 2.5 - Provider Cache Topology
 
 Status: Queued behind Slice 2.

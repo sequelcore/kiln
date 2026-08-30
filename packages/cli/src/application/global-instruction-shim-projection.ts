@@ -28,8 +28,9 @@ import {
   type NativeProjectionHarness,
 } from "../config/native-projection-policy.js";
 
-const GENERATOR_VERSION = "global-instruction-shims-v2";
+const GENERATOR_VERSION = "global-instruction-shims-v3";
 const SIGNATURE = "kiln:global-instruction-shim:v1";
+const DISCONNECTED_CONTINUITY_CONTRACT = "disconnected-native-guidance-v1";
 
 export type GlobalInstructionShimHarness = Extract<NativeProjectionHarness, "codex" | "claude" | "opencode">;
 
@@ -48,6 +49,11 @@ export type GlobalInstructionShimStatus =
   | "disabled"
   | "disabled-unmanaged";
 
+export type DisconnectedNativeGuidanceStatus =
+  | "native-guidance-available"
+  | "stale"
+  | "unavailable";
+
 export interface GlobalInstructionShimTarget {
   readonly targetId: string;
   readonly harness: GlobalInstructionShimHarness;
@@ -57,6 +63,7 @@ export interface GlobalInstructionShimTarget {
 
 export interface GlobalInstructionShimSnapshot extends GlobalInstructionShimTarget {
   readonly status: Extract<GlobalInstructionShimStatus, "missing" | "current" | "stale" | "drifted" | "unmanaged">;
+  readonly continuity: DisconnectedNativeGuidanceStatus;
   readonly details?: string;
 }
 
@@ -299,10 +306,10 @@ function classifyTarget(
   const current = existsSync(target.filePath) ? readFileSync(target.filePath, "utf-8") : null;
   const targetState = state.targets[target.targetId];
   if (!current) {
-    return { ...target, status: "missing" };
+    return { ...target, status: "missing", continuity: "unavailable" };
   }
   if (!targetState) {
-    return { ...target, status: "unmanaged" };
+    return { ...target, status: "unmanaged", continuity: "unavailable" };
   }
   const drift = detectNativeProjectionFileDrift({
     targetId: target.targetId,
@@ -310,16 +317,28 @@ function classifyTarget(
     currentContent: current,
   });
   if (drift) {
-    return { ...target, status: "drifted", details: "managed global instruction file changed outside Kiln" };
+    return {
+      ...target,
+      status: "drifted",
+      continuity: "stale",
+      details: "managed global instruction file changed outside Kiln",
+    };
   }
   if (isSymbolicLink(target.filePath)) {
-    return { ...target, status: "stale", details: "global instruction entrypoint is a symlink; Kiln manages independent harness files" };
+    return {
+      ...target,
+      status: "stale",
+      continuity: "stale",
+      details: "global instruction entrypoint is a symlink; Kiln manages independent harness files",
+    };
   }
 
   const expected = renderSignedGlobalInstructionShim(context, target);
+  const status = current === expected ? "current" : "stale";
   return {
     ...target,
-    status: current === expected ? "current" : "stale",
+    status,
+    continuity: status === "current" ? "native-guidance-available" : "stale",
   };
 }
 
@@ -354,6 +373,7 @@ function renderSignedGlobalInstructionShim(
     `target: ${target.harness}`,
     `sourceProfiles: ${context.sourceProfiles.length > 0 ? context.sourceProfiles.join(",") : "-"}`,
     `generator: ${GENERATOR_VERSION}`,
+    `continuity: ${DISCONNECTED_CONTINUITY_CONTRACT}`,
     `contentHash: sha256:${contentHash}`,
     "-->",
     body,
@@ -378,7 +398,9 @@ function renderAuthoritySection(target: GlobalInstructionShimTarget): readonly s
   return [
     "## Authority",
     "",
-    "Canonical durable doctrine lives in `~/.kiln/instructions`; this file is only its managed native projection.",
+    "Canonical durable doctrine lives in `~/.kiln/instructions`; this file is its managed native projection and contains the effective guidance in full.",
+    "After a successful sync, the harness can load this file without Kiln Runtime, Model Gateway, or MCP being available.",
+    "This continuity is guidance only: it does not establish Runtime authority, executable enforcement, or managed-work settlement.",
     harnessProjectGuidance(target.harness),
     "",
   ];

@@ -33,7 +33,7 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     : "  - none";
   const globalInstructionShims = snapshot.globalInstructionShims.length > 0
     ? snapshot.globalInstructionShims.map((shim) => [
-      `  - ${shim.targetId}: harness=${shim.harness} status=${shim.status} recommendation=${SETUP_ACTION_LABELS[shim.recommendation]}`,
+      `  - ${shim.targetId}: harness=${shim.harness} status=${shim.status} continuity=${shim.continuity} recommendation=${SETUP_ACTION_LABELS[shim.recommendation]}`,
       `    target=${shim.path}`,
     ].join("\n")).join("\n")
     : "  - none";

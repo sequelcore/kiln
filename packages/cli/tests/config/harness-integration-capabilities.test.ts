@@ -24,7 +24,7 @@ describe("harness integration capabilities", () => {
     expect(supportsHarnessIntegration("opencode", "nativeConfigImport")).toBe(true);
   });
 
-  it("keeps OpenCode runtime config injection explicit without removing native projection", () => {
+  it("keeps OpenCode runtime config injection explicit without removing disconnected continuity", () => {
     const opencode = getHarnessIntegrationCapability("opencode");
 
     expect(opencode.runtimeConfigInjection).toEqual({
@@ -33,7 +33,18 @@ describe("harness integration capabilities", () => {
       scope: "kiln-launched-process",
     });
     expect(opencode.nativeProjection.supported).toBe(true);
-    expect(opencode.nativeProjection.requiredForStandalone).toBe(true);
+    expect(opencode.nativeProjection.requiredForDisconnectedContinuity).toBe(true);
+    expect(opencode.nativeProjection.disconnectedContinuity).toEqual({
+      instructions: "self-contained-guidance",
+      skills: "self-contained-discovery",
+      enforcement: "not-provided",
+    });
+  });
+
+  it("does not imply Runtime authority from any native continuity projection", () => {
+    for (const capability of listHarnessIntegrationCapabilities()) {
+      expect(capability.nativeProjection.disconnectedContinuity.enforcement).toBe("not-provided");
+    }
   });
 
   it("keeps Codex runtime config injection process-scoped after live proof", () => {

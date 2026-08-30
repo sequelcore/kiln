@@ -694,6 +694,7 @@ export interface KilnProjectionTargetSnapshot {
 export interface KilnGlobalInstructionShimSetupSnapshot extends KilnProjectionTargetSnapshot {
   readonly kind: "global-instruction-shim";
   readonly harness: KilnSetupHarness;
+  readonly continuity: "native-guidance-available" | "stale" | "unavailable";
   readonly recommendation: KilnConfigSetupAction;
 }
 
@@ -1084,6 +1085,7 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
 export const KilnGlobalInstructionShimSetupSnapshotSchema = KilnProjectionTargetSnapshotSchema.extend({
   kind: z.literal("global-instruction-shim"),
   harness: z.enum(KILN_SETUP_HARNESSES),
+  continuity: z.enum(["native-guidance-available", "stale", "unavailable"]),
   recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
 });
 
