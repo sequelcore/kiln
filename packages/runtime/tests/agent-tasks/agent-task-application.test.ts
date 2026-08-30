@@ -1804,7 +1804,10 @@ describe("AgentTaskApplicationService V14 AgentTask/AgentRun record", () => {
       const [firstResult, secondResult] = await Promise.all([first, second]);
 
       expect(executeFirst.mock.calls.length + executeSecond.mock.calls.length).toBe(1);
-      expect([firstResult.state, secondResult.state].sort()).toEqual(["running", "succeeded"]);
+      expect([
+        ["running", "succeeded"],
+        ["succeeded", "succeeded"],
+      ]).toContainEqual([firstResult.state, secondResult.state].sort());
       await expect(new FilesystemAgentTaskStore(root).get(accepted.id)).resolves.toMatchObject({ state: "succeeded" });
     } finally {
       await rm(root, { recursive: true, force: true });

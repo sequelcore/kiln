@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OperatorTurnTerminalDisposition } from "@kilnai/gateway-contracts";
+import { buildGuiDoneFramePayload } from "../../src/gateway/gui-gateway.js";
+import { buildTuiDoneFramePayload } from "../../src/gateway/tui-gateway.js";
 
 vi.mock("hono/bun", () => ({
   createBunWebSocket: () => ({
@@ -111,10 +113,7 @@ describe("operator terminal disposition gateway frames", () => {
     ["no-progress pause", terminalDispositions.noProgress],
     ["required producer not run", terminalDispositions.requiredProducerNotRun],
     ["operator cancellation", terminalDispositions.cancelled],
-  ] as const)("preserves the exact %s disposition for GUI and TUI", async (_label, disposition) => {
-    const { buildGuiDoneFramePayload } = await import("../../src/gateway/gui-gateway.js");
-    const { buildTuiDoneFramePayload } = await import("../../src/gateway/tui-gateway.js");
-
+  ] as const)("preserves the exact %s disposition for GUI and TUI", (_label, disposition) => {
     const expected = {
       type: "done",
       ...commonFrameFields,
