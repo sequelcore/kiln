@@ -14,11 +14,13 @@ vi.mock("../../src/application/project-root-resolver.js", () => ({
   resolveProjectRoot: () => ({ rootPath: mocks.projectRoot }),
 }));
 vi.mock("@kilnai/core", () => ({
-  resolveCoreKilnHome: () => "C:/kiln-test-home",
   OPENCODE_NO_FILESYSTEM_SANDBOX: {
     id: "opencode.no-filesystem-sandbox",
     reviewAfter: "2026-11-13T00:00:00.000Z",
   },
+}));
+vi.mock("@kilnai/runtime/kiln-home", () => ({
+  resolveRuntimeKilnHome: () => "C:/kiln-test-home",
 }));
 vi.mock("@kilnai/runtime", () => ({
   acceptTrustedExecutionSemanticLimitation: mocks.acceptLimitation,

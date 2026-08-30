@@ -41,6 +41,7 @@ import {
   type GlobalConfigMutationError,
   readGlobalConfig,
   resolveGlobalConfigPath,
+  resolveKilnHomePath,
   resolveGlobalDefaultModel,
   resolveGlobalDefaultProvider,
   resolveGlobalModelGatewayConfig,
@@ -153,6 +154,15 @@ describe("global-config", () => {
     const path = resolveGlobalConfigPath();
 
     expect(path).toBe(join("/tmp/xdg", "kiln", "config.yaml"));
+  });
+
+  it("resolveGlobalConfigPath() preserves the explicit-home precedence", () => {
+    process.env.XDG_CONFIG_HOME = "/tmp/xdg";
+
+    const path = resolveGlobalConfigPath("  /tmp/explicit/../kiln-home  ");
+
+    expect(path).toBe(join("/tmp/explicit/../kiln-home", "config.yaml"));
+    expect(resolveKilnHomePath("  /tmp/explicit/../kiln-home  ")).toBe("/tmp/explicit/../kiln-home");
   });
 
   it("readGlobalConfig() returns null when file does not exist", () => {

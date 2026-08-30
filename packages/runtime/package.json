@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./kiln-home": {
+      "types": "./dist/kiln-home.d.ts",
+      "import": "./dist/kiln-home.js"
     }
   },
   "types": "./dist/index.d.ts",

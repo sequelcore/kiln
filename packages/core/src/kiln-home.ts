@@ -1,15 +1,28 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 
+export interface KilnHomeResolutionInput {
+  readonly explicitKilnHome?: string;
+  readonly xdgConfigHome?: string;
+  readonly userHome?: string;
+  readonly readUserHome?: () => string;
+}
+
 /**
- * Resolve the operator Kiln home for Core-owned stores when the CLI seam is
- * not available (for example, a standalone Core adapter). Production CLI and
- * Runtime composition should always supply `explicitKilnHome`.
+ * Resolve a Kiln home from observed values and an optional lazy fallback.
+ *
+ * Host discovery belongs to Runtime. Core owns only the precedence and invokes
+ * the supplied fallback reader when neither explicit nor XDG input resolves.
  */
-export function resolveCoreKilnHome(explicitKilnHome?: string): string {
-  const explicit = explicitKilnHome?.trim();
+export function resolveKilnHome(input: KilnHomeResolutionInput): string {
+  const explicit = input.explicitKilnHome?.trim();
   if (explicit) return explicit;
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+
+  const xdgConfigHome = input.xdgConfigHome?.trim();
   if (xdgConfigHome) return join(xdgConfigHome, "kiln");
-  return join(homedir(), ".kiln");
+
+  const userHome = input.userHome ?? input.readUserHome?.();
+  if (userHome === undefined) {
+    throw new Error("Kiln home resolution requires userHome or readUserHome.");
+  }
+  return join(userHome, ".kiln");
 }

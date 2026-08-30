@@ -1,4 +1,5 @@
-import { resolveCoreKilnHome } from "@kilnai/core";
+import { resolveKilnHome } from "@kilnai/core/kiln-home";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -15,7 +16,11 @@ export interface RuntimeKilnHomeOptions {
 }
 
 export function resolveRuntimeKilnHome(explicitKilnHome?: string): string {
-  return resolveCoreKilnHome(explicitKilnHome);
+  return resolveKilnHome({
+    explicitKilnHome,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
+    readUserHome: homedir,
+  });
 }
 
 export function resolveRuntimeStoreRoot(input: {

@@ -72,6 +72,10 @@
       "types": "./dist/field/index.d.ts",
       "import": "./dist/field/index.js"
     },
+    "./kiln-home": {
+      "types": "./dist/kiln-home.d.ts",
+      "import": "./dist/kiln-home.js"
+    },
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
       "import": "./dist/mcp/index.js"
