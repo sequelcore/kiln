@@ -22,7 +22,6 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileS
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseFormalVerificationToolResultMetadata } from "../packages/core/src/tools/domain/tool-result-metadata.js";
-import { createFormalVerifyTool } from "../packages/core/src/tools/infrastructure/verification/dafny/formal-verify-tool.js";
 import {
   adoptBoundedWorkContractRevision,
   createBoundedWorkCandidateEvidence,
@@ -36,6 +35,7 @@ import {
   resolveCandidateSubjectDigests,
   type CaptureGitWorktreeCandidateResult,
 } from "../packages/runtime/src/work-governance/index.js";
+import { createFormalVerifyTool } from "../packages/runtime/src/verification/dafny/formal-verify-tool.js";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
 const SUBJECT = "packages/core/src/work-governance/bounded-work-scope-policy.ts";
