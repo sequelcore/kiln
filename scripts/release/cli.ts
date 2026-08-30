@@ -183,18 +183,30 @@ async function smoke(): Promise<void> {
         throw new Error(`${tarball.name}: clean install did not contain ${tarball.name}@${bundle.version}`);
       }
     }
+    const cliPackageRoot = join(smokeRoot, "node_modules", "@kilnai", "cli");
     const cliManifest = JSON.parse(
-      await readFile(join(smokeRoot, "node_modules", "@kilnai", "cli", "package.json"), "utf8"),
+      await readFile(join(cliPackageRoot, "package.json"), "utf8"),
     ) as { bin?: Record<string, string> };
-    if (!cliManifest.bin?.kiln) {
-      throw new Error("@kilnai/cli clean install is missing the kiln executable");
+    if (cliManifest.bin?.kiln !== "./dist/executable.js") {
+      throw new Error("@kilnai/cli clean install must bind kiln to ./dist/executable.js");
     }
+    const cliEntry = resolve(cliPackageRoot, cliManifest.bin.kiln);
     await smokePublishedImports(smokeRoot);
-    const versionResult = await runNpm(["exec", "--offline", "--", "kiln", "--version"], smokeRoot);
+    const helpResult = await execFile(process.execPath, [cliEntry, "--help"], {
+      cwd: smokeRoot,
+      encoding: "utf8",
+    });
+    if (!helpResult.stdout.includes("Usage: kiln [command] [options]")) {
+      throw new Error("Packaged kiln --help did not render the CLI command registry");
+    }
+    const versionResult = await execFile(process.execPath, [cliEntry, "--version"], {
+      cwd: smokeRoot,
+      encoding: "utf8",
+    });
     if (!versionResult.stdout.includes(`kiln ${bundle.version}`)) {
       throw new Error(`Packaged kiln --version did not report ${bundle.version}`);
     }
-    await smokePackagedGui(smokeRoot);
+    await smokePackagedGui(smokeRoot, cliEntry);
     console.log(
       `Clean-install and runtime smoke passed for ${installTarballs.length} host-compatible packages on ` +
         `${process.platform}-${process.arch}; all ${bundle.tarballs.length} bundle integrities verified`,
@@ -242,11 +254,10 @@ async function smokePublishedImports(smokeRoot: string): Promise<void> {
   });
 }
 
-async function smokePackagedGui(smokeRoot: string): Promise<void> {
+async function smokePackagedGui(smokeRoot: string, cliEntry: string): Promise<void> {
   const home = join(smokeRoot, "home");
   await mkdir(home, { recursive: true });
   const port = await reservePort();
-  const cliEntry = join(smokeRoot, "node_modules", "@kilnai", "cli", "dist", "index.js");
   const child = spawn(
     process.execPath,
     [cliEntry, "gui", "--prod", "--no-open", "--port", String(port)],

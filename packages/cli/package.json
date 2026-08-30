@@ -4,7 +4,7 @@
   "description": "CLI and MCP surface for the Kiln control plane",
   "type": "module",
   "bin": {
-    "kiln": "./dist/index.js"
+    "kiln": "./dist/executable.js"
   },
   "exports": {
     ".": {

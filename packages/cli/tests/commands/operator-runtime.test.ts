@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OperatorRuntimeChildCredentials, OperatorRuntimeState, OperatorRuntimeSupervisorStatus } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
 import { operatorRuntimeCommand } from "../../src/commands/operator-runtime.js";
-import { createCli } from "../../src/index.js";
+import { createCli } from "../../src/cli.js";
 
 const launch = {
   schemaVersion: 1 as const,

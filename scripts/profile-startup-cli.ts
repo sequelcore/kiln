@@ -11,7 +11,7 @@ export type CliStartupState = "cold" | "warm";
 const DEFAULT_REPETITIONS = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_TAIL_LENGTH = 2_000;
-const CLI_ENTRY_RELATIVE_PATH = "packages/cli/src/index.ts";
+const CLI_ENTRY_RELATIVE_PATH = "packages/cli/src/executable.ts";
 const CLI_STATE_FIXTURE_RELATIVE_PATH = "scripts/fixtures/startup-profile-cli-state.json";
 
 const CLI_STARTUP_COMMANDS = [

@@ -9,7 +9,7 @@ function fixtureFiles(): ReadonlyMap<string, string> {
     ["packages/runtime/package.json", JSON.stringify({ name: "@kilnai/runtime" })],
     ["packages/runtime/src/index.ts", "export const runtimeValue = 1;"],
     ["packages/cli/package.json", JSON.stringify({ name: "@kilnai/cli" })],
-    ["packages/cli/src/index.ts", [
+    ["packages/cli/src/executable.ts", [
       'import { engineValue } from "@kilnai/core";',
       'import type { RuntimeType } from "@kilnai/runtime";',
       "export {",
@@ -79,11 +79,11 @@ describe("architecture baseline report", () => {
         "@kilnai/runtime": 1,
       },
       rootWorkspaceImports: [
+        "packages/cli/src/executable.ts -> @kilnai/core",
         "packages/cli/src/helper.ts -> @kilnai/runtime",
-        "packages/cli/src/index.ts -> @kilnai/core",
       ],
       deferredDynamicImports: [
-        "packages/cli/src/index.ts -> ./commands/heavy.js",
+        "packages/cli/src/executable.ts -> ./commands/heavy.js",
       ],
       externalSpecifiers: [],
       unresolvedWorkspaceEdges: [],

@@ -299,7 +299,7 @@ function buildCommand(input: StartupProfileOptions): { readonly cmd: string; rea
     return {
       cmd: "bun",
       args: [
-        "packages/cli/src/index.ts",
+        "packages/cli/src/executable.ts",
         "tui",
         "--cwd",
         input.cwd,
@@ -312,7 +312,7 @@ function buildCommand(input: StartupProfileOptions): { readonly cmd: string; rea
   return {
     cmd: "bun",
     args: [
-      "packages/cli/src/index.ts",
+      "packages/cli/src/executable.ts",
       "gui",
       input.mode === "dev" ? "--dev" : "--prod",
       input.openBrowser ? "--open" : "--no-open",

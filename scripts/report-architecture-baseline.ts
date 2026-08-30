@@ -116,7 +116,7 @@ function analyzeCliEagerGraph(
   files: ReadonlyMap<string, string>,
   packages: readonly PackageIdentity[],
 ): CliEagerGraphSummary {
-  const entrypoint = "packages/cli/src/index.ts";
+  const entrypoint = "packages/cli/src/executable.ts";
   if (!files.has(entrypoint)) throw new Error(`CLI entrypoint not found: ${entrypoint}`);
 
   const pending = [entrypoint];
