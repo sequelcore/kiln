@@ -10,7 +10,7 @@ Kiln uses the same runtime loop for every tool category: publish the schema,
 authorize the call, execute it inside the runtime boundary, and inject the
 structured result back into the session.
 
-Sources: `packages/core/src/engine/domain/capability.ts`, `packages/core/src/engine/domain/tool-execution.ts`, `packages/core/src/orchestrator/orchestrator.ts`, `packages/core/src/security/annotation-authorizer.ts`, `packages/core/src/tools/default-tool-surface.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-result-metadata.ts`, `packages/core/src/tools/domain/tool-environment.ts`, `packages/core/src/tools/infrastructure/*.ts`, `packages/core/src/tools/tool-executor.ts`, `packages/core/src/tools/mcp/dev-tools-server.ts`, `packages/runtime/src/gateway/attached-runtime-tool-surface.ts`, `packages/cli/src/commands/tools.ts`, `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`
+Sources: `packages/core/src/engine/domain/capability.ts`, `packages/core/src/engine/domain/tool-execution.ts`, `packages/core/src/orchestrator/orchestrator.ts`, `packages/core/src/security/annotation-authorizer.ts`, `packages/core/src/tools/default-tool-surface.ts`, `packages/core/src/tools/domain/tool.ts`, `packages/core/src/tools/domain/tool-registry.ts`, `packages/core/src/tools/domain/tool-result-metadata.ts`, `packages/core/src/tools/domain/tool-environment.ts`, `packages/core/src/tools/infrastructure/*.ts`, `packages/core/src/tools/tool-executor.ts`, `packages/runtime/src/mcp/dev-tools-server.ts`, `packages/runtime/src/gateway/attached-runtime-tool-surface.ts`, `packages/cli/src/commands/tools.ts`, `packages/cli/src/wrapper/session.ts`, `packages/cli/src/wrapper/session-registry.ts`
 
 ---
 
@@ -1291,7 +1291,8 @@ Those events include the resolved invocation effect, authority decision, duratio
 
 ## DevToolsMcpServer
 
-`DevToolsMcpServer` exposes the registered developer tools as MCP tools.
+Runtime's `DevToolsMcpServer` exposes the registered developer tools as MCP
+tools without making Core own SDK loading or MCP server lifecycle.
 
 ### Why it exists
 

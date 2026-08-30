@@ -1,19 +1,19 @@
-import { KilnError } from "../../engine/errors.js";
-import { projectDevToolSchemas } from "../default-tool-surface.js";
-import type { DevTool, ToolResult, ToolResultContentPart } from "../domain/tool.js";
-import type {
-  ToolResourceNotification,
-  ToolResourceNotificationHub,
-} from "../domain/tool-resource-notifications.js";
-import type {
-  ToolResourceDescriptor,
-  ToolResourceListOptions,
-  ToolResourceReadResult,
-  ToolResourceRegistry,
-  ToolResourceTemplateDescriptor,
-} from "../domain/tool-resource-registry.js";
-import type { OperatorElicitationResponder } from "../infrastructure/operator-elicitation-tool.js";
-import { DevToolExecutionBridge } from "../tool-executor.js";
+import {
+  type DevTool,
+  type DevToolExecutionBridge,
+  KilnError,
+  type OperatorElicitationResponder,
+  projectDevToolSchemas,
+  type ToolResourceDescriptor,
+  type ToolResourceListOptions,
+  type ToolResourceNotification,
+  type ToolResourceNotificationHub,
+  type ToolResourceReadResult,
+  type ToolResourceRegistry,
+  type ToolResourceTemplateDescriptor,
+  type ToolResult,
+  type ToolResultContentPart,
+} from "@kilnai/core";
 
 const SERVER_NAME = "kilnai-dev-tools";
 const SERVER_VERSION = "0.1.0";
@@ -23,10 +23,7 @@ const MCP_PROTOCOL_REVISION = "2026-07-28" as const;
 interface McpServerInstance {
   setRequestHandler(
     method: string,
-    handler: (
-      request: { params: Record<string, unknown> },
-      extra?: McpRequestHandlerExtra,
-    ) => unknown,
+    handler: (request: { params: Record<string, unknown> }, extra?: McpRequestHandlerExtra) => unknown,
   ): void;
   sendResourceUpdated(params: { readonly uri: string }): Promise<void>;
   sendResourceListChanged(): Promise<void>;
@@ -36,14 +33,18 @@ interface McpRequestHandlerExtra {
   readonly _meta?: {
     readonly progressToken?: string | number;
   };
-  readonly sendNotification?: (notification: {
-    readonly method: "notifications/progress";
-    readonly params: {
-      readonly progressToken: string | number;
-      readonly progress: number;
-      readonly message: string;
-    };
-  } | ToolResourceNotification) => Promise<void>;
+  readonly sendNotification?: (
+    notification:
+      | {
+          readonly method: "notifications/progress";
+          readonly params: {
+            readonly progressToken: string | number;
+            readonly progress: number;
+            readonly message: string;
+          };
+        }
+      | ToolResourceNotification,
+  ) => Promise<void>;
   readonly sessionId?: string;
   readonly elicit?: OperatorElicitationResponder["elicit"];
   /** v2 context keeps request metadata and notification helpers under mcpReq. */
@@ -51,14 +52,18 @@ interface McpRequestHandlerExtra {
     readonly _meta?: {
       readonly progressToken?: string | number;
     };
-    readonly notify?: (notification: ToolResourceNotification | {
-      readonly method: "notifications/progress";
-      readonly params: {
-        readonly progressToken: string | number;
-        readonly progress: number;
-        readonly message: string;
-      };
-    }) => Promise<void>;
+    readonly notify?: (
+      notification:
+        | ToolResourceNotification
+        | {
+            readonly method: "notifications/progress";
+            readonly params: {
+              readonly progressToken: string | number;
+              readonly progress: number;
+              readonly message: string;
+            };
+          },
+    ) => Promise<void>;
   };
 }
 
@@ -147,7 +152,9 @@ export class DevToolsMcpServer {
   }
 
   listTools(): readonly DevToolsMcpToolSchema[] {
-    return projectDevToolSchemas(this.tools ?? this.bridge.listTools()).filter((tool) => tool.name !== "operator_elicit");
+    return projectDevToolSchemas(this.tools ?? this.bridge.listTools()).filter(
+      (tool) => tool.name !== "operator_elicit",
+    );
   }
 
   listResources(options: Pick<ToolResourceListOptions, "cursor"> = {}): DevToolsMcpListResourcesResult {
@@ -192,7 +199,9 @@ export class DevToolsMcpServer {
       const execution = await this.bridge.execute({
         name,
         input: args,
-        ...(resolveMcpElicitation(extra) ? { sandbox: { operatorElicitation: { elicit: resolveMcpElicitation(extra) } } } : {}),
+        ...(resolveMcpElicitation(extra)
+          ? { sandbox: { operatorElicitation: { elicit: resolveMcpElicitation(extra) } } }
+          : {}),
       });
 
       const payload = {
@@ -217,8 +226,8 @@ export class DevToolsMcpServer {
     const { Server } = this.sdk;
     const resourceCapabilities = this.resources
       ? {
-        ...(this.resourceNotifications ? { listChanged: true } : {}),
-      }
+          ...(this.resourceNotifications ? { listChanged: true } : {}),
+        }
       : {};
     const server = new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
@@ -380,12 +389,16 @@ function resolveMcpSessionId(extra: McpRequestHandlerExtra | undefined): string 
   return extra?.sessionId ?? "stdio";
 }
 
-function resolveMcpNotificationSender(extra: McpRequestHandlerExtra | undefined): McpRequestHandlerExtra["sendNotification"] {
+function resolveMcpNotificationSender(
+  extra: McpRequestHandlerExtra | undefined,
+): McpRequestHandlerExtra["sendNotification"] {
   if (extra?.sendNotification) return extra.sendNotification;
   if (extra?.mcpReq?.notify) return extra.mcpReq.notify;
   return undefined;
 }
 
-function resolveMcpElicitation(extra: McpRequestHandlerExtra | undefined): OperatorElicitationResponder["elicit"] | undefined {
+function resolveMcpElicitation(
+  extra: McpRequestHandlerExtra | undefined,
+): OperatorElicitationResponder["elicit"] | undefined {
   return extra?.elicit;
 }

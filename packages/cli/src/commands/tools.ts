@@ -2,9 +2,9 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import type { McpServer, Server } from "@modelcontextprotocol/server";
 import {
   createDefaultBuiltinToolSurface,
-  DevToolsMcpServer,
   projectToolResourceDescriptor,
 } from "@kilnai/core";
+import { DevToolsMcpServer } from "@kilnai/runtime";
 import {
   projectOperatorResourceReadPresentation,
   projectOperatorResourceReadResult,

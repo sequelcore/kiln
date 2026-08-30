@@ -48,7 +48,8 @@ Canonical construction paths:
 - Runtime-attached CLI, GUI, and TUI sessions use
   `createAttachedRuntimeBuiltinToolSurface()`.
 - Runtime per-call execution uses `buildAttachedRuntimePerCallToolConfig()`.
-- MCP exposes the same builtin registry through `DevToolsMcpServer`.
+- Runtime exposes the same builtin registry through `DevToolsMcpServer`; Core
+  does not construct or load the MCP SDK.
 - GUI and TUI may add operator-surface tools, but developer tools still come
   from the core surface.
 
@@ -539,8 +540,8 @@ process-list inspection.
 
 All current consumers must use the shared surface:
 
-- CLI `kiln tools --mcp` constructs `DevToolsMcpServer` from the default core
-  surface.
+- CLI `kiln tools --mcp` constructs Runtime's `DevToolsMcpServer` from the
+  default core surface.
 - Runtime-attached CLI, GUI, and TUI sessions use the attached core surface.
 - GUI and TUI operator tools layer on top of the same configured surface.
 - Web policy and search-provider configuration are resolved once from

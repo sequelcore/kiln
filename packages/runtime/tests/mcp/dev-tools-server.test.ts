@@ -1,21 +1,31 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  type ActionEffectEnvelope,
   createDefaultBuiltinToolRegistry,
   createDefaultBuiltinToolSurface,
+  type DevTool,
+  DevToolExecutionBridge,
+  DevToolRegistry,
+  MemoryArtifactResourceStore,
   projectDevToolSchemas,
-} from "../../../src/tools/default-tool-surface.js";
-import { DevToolRegistry } from "../../../src/tools/domain/tool-registry.js";
-import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
-import { DevToolExecutionBridge } from "../../../src/tools/tool-executor.js";
-import { DevToolsMcpServer } from "../../../src/tools/mcp/dev-tools-server.js";
-import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
-import type { ActionEffectEnvelope } from "../../../src/engine/domain/action-effect.js";
-import { makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+  type ToolInput,
+  type ToolResult,
+} from "@kilnai/core";
+import { describe, expect, it, vi } from "vitest";
+import { DevToolsMcpServer } from "../../src/mcp/dev-tools-server.js";
 
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
+
+async function makeTempDir(): Promise<string> {
+  return await mkdtemp(join(tmpdir(), "kiln-dev-tools-mcp-"));
+}
+
+async function removeTempDir(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: true });
+}
 
 const READ_ONLY_EFFECT: ActionEffectEnvelope = {
   operation: "observe",
@@ -131,7 +141,9 @@ describe("DevToolsMcpServer", () => {
     const surface = createDefaultBuiltinToolSurface();
     const server = new DevToolsMcpServer({ bridge: surface.bridge, tools: surface.tools });
 
-    expect(server.listTools()).toEqual(projectDevToolSchemas(surface.tools).filter((tool) => tool.name !== "operator_elicit"));
+    expect(server.listTools()).toEqual(
+      projectDevToolSchemas(surface.tools).filter((tool) => tool.name !== "operator_elicit"),
+    );
   });
 
   it("lists MCP resources and templates from the canonical core surface", () => {
@@ -174,9 +186,7 @@ describe("DevToolsMcpServer", () => {
       "kiln://session/tasks",
     ]);
     expect(firstPage.nextCursor).toEqual(expect.any(String));
-    expect(secondPage.resources.map((resource) => resource.uri)).toEqual([
-      "kiln://session/monitors",
-    ]);
+    expect(secondPage.resources.map((resource) => resource.uri)).toEqual(["kiln://session/monitors"]);
     expect(secondPage.nextCursor).toBeUndefined();
   });
 
@@ -196,9 +206,7 @@ describe("DevToolsMcpServer", () => {
       "kiln://tools/catalog/{name}",
     ]);
     expect(firstPage.nextCursor).toEqual(expect.any(String));
-    expect(secondPage.resourceTemplates.map((template) => template.uriTemplate)).toEqual([
-      "kiln://session/tasks/{id}",
-    ]);
+    expect(secondPage.resourceTemplates.map((template) => template.uriTemplate)).toEqual(["kiln://session/tasks/{id}"]);
     expect(secondPage.nextCursor).toEqual(expect.any(String));
   });
 
@@ -256,16 +264,18 @@ describe("DevToolsMcpServer", () => {
       "kiln://artifacts/{namespace}/{id}/content",
     );
     await expect(server.readResource(`kiln://artifacts/test-results/${artifact.id}/content`)).resolves.toEqual({
-      contents: [{
-        uri: `kiln://artifacts/test-results/${artifact.id}/content`,
-        mimeType: "text/plain",
-        text: "passed",
-        _meta: expect.objectContaining({
-          id: artifact.id,
-          namespace: "test-results",
-          relation: "content",
-        }),
-      }],
+      contents: [
+        {
+          uri: `kiln://artifacts/test-results/${artifact.id}/content`,
+          mimeType: "text/plain",
+          text: "passed",
+          _meta: expect.objectContaining({
+            id: artifact.id,
+            namespace: "test-results",
+            relation: "content",
+          }),
+        },
+      ],
     });
   });
 
@@ -280,9 +290,10 @@ describe("DevToolsMcpServer", () => {
     await server.initialize();
     const mcpServer = server.createServer();
     const handlers = (mcpServer as unknown as { _requestHandlers: Map<string, unknown> })._requestHandlers;
-    const handler = handlers.get("resources/list") as (
-      request: { method: "resources/list"; params: Record<string, unknown> },
-    ) => Promise<{ resources: readonly unknown[]; nextCursor?: string }>;
+    const handler = handlers.get("resources/list") as (request: {
+      method: "resources/list";
+      params: Record<string, unknown>;
+    }) => Promise<{ resources: readonly unknown[]; nextCursor?: string }>;
 
     const firstPage = await handler({ method: "resources/list", params: {} });
     const secondPage = await handler({
@@ -375,11 +386,13 @@ describe("DevToolsMcpServer", () => {
     });
 
     await expect(server.readResource("kiln://session/tasks")).resolves.toEqual({
-      contents: [{
-        uri: "kiln://session/tasks",
-        mimeType: "application/json",
-        text: expect.stringContaining("Expose MCP resources"),
-      }],
+      contents: [
+        {
+          uri: "kiln://session/tasks",
+          mimeType: "application/json",
+          text: expect.stringContaining("Expose MCP resources"),
+        },
+      ],
     });
   });
 
@@ -615,7 +628,6 @@ describe("DevToolsMcpServer", () => {
     expect(elicitInput).not.toHaveBeenCalled();
   });
 
-
   it("exposes patch as a destructive MCP tool with dry-run support", async () => {
     const server = createServer();
 
@@ -849,12 +861,14 @@ describe("DevToolsMcpServer", () => {
       });
 
       expect(response.isError).toBeUndefined();
-      expect(response.content).toContainEqual(expect.objectContaining({
-        type: "resource_link",
-        uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
-        name: "read_many full output",
-        mimeType: "text/plain",
-      }));
+      expect(response.content).toContainEqual(
+        expect.objectContaining({
+          type: "resource_link",
+          uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+          name: "read_many full output",
+          mimeType: "text/plain",
+        }),
+      );
       const structured = response.structuredContent as {
         result: {
           metadata?: {
@@ -865,11 +879,13 @@ describe("DevToolsMcpServer", () => {
       const uri = structured.result.metadata?.resourceLinks?.[0]?.uri;
       expect(uri).toEqual(expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/));
       await expect(server.readResource(uri!)).resolves.toMatchObject({
-        contents: [{
-          uri,
-          mimeType: "text/plain",
-          text: expect.stringContaining("resource link"),
-        }],
+        contents: [
+          {
+            uri,
+            mimeType: "text/plain",
+            text: expect.stringContaining("resource link"),
+          },
+        ],
       });
     } finally {
       await removeTempDir(tempDir);

@@ -78,6 +78,18 @@ const coreMocks = vi.hoisted(() => {
 
 const runtimeMocks = vi.hoisted(() => ({
   createSqliteMemoryRepository: vi.fn((options: unknown) => ({ options })),
+  DevToolsMcpServer: class MockDevToolsMcpServer {
+    constructor(options: unknown) {
+      expect(options).toEqual({
+        bridge: coreMocks.bridge,
+        tools: coreMocks.tools,
+        resources: coreMocks.resources,
+        resourceNotifications: coreMocks.resourceNotifications,
+      });
+    }
+    initialize = coreMocks.initialize;
+    createServer = coreMocks.createServer;
+  },
 }));
 
 vi.mock("@kilnai/runtime", () => runtimeMocks);
@@ -104,18 +116,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
     ...actual,
     createDefaultBuiltinToolSurface: coreMocks.createDefaultBuiltinToolSurface,
     projectToolResourceDescriptor: coreMocks.projectToolResourceDescriptor,
-    DevToolsMcpServer: class MockDevToolsMcpServer {
-      constructor(options: unknown) {
-        expect(options).toEqual({
-          bridge: coreMocks.bridge,
-          tools: coreMocks.tools,
-          resources: coreMocks.resources,
-          resourceNotifications: coreMocks.resourceNotifications,
-        });
-      }
-      initialize = coreMocks.initialize;
-      createServer = coreMocks.createServer;
-    },
   };
 });
 

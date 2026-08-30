@@ -642,6 +642,14 @@ export { inspectSkillPackage } from "./skill/package-health.js";
 export type { RuntimeKilnMcpClientOptions } from "./mcp/kiln-mcp-client.js";
 export { createKilnMcpClient } from "./mcp/kiln-mcp-client.js";
 export type {
+  DevToolsMcpCallResult,
+  DevToolsMcpListResourcesResult,
+  DevToolsMcpListResourceTemplatesResult,
+  DevToolsMcpServerOptions,
+  DevToolsMcpToolSchema,
+} from "./mcp/dev-tools-server.js";
+export { DevToolsMcpServer } from "./mcp/dev-tools-server.js";
+export type {
   SkillPackageHealth,
   SkillPackageHealthOptions,
   SkillPackageHealthStatus,

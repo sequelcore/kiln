@@ -476,14 +476,6 @@ export type { WorkspaceResourceProviderOptions } from "./infrastructure/workspac
 export { WorkspaceResourceProvider } from "./infrastructure/workspace-resource-provider.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export type {
-  DevToolsMcpCallResult,
-  DevToolsMcpListResourcesResult,
-  DevToolsMcpListResourceTemplatesResult,
-  DevToolsMcpServerOptions,
-  DevToolsMcpToolSchema,
-} from "./mcp/dev-tools-server.js";
-export { DevToolsMcpServer } from "./mcp/dev-tools-server.js";
-export type {
   AdmittedDevToolExecutionRequest,
   DevToolAuthorizationDecision,
   DevToolExecutionBridgeOptions,
