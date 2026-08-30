@@ -3,7 +3,7 @@ import type {
   CommandProcessResult,
   CommandProcessRunner,
   CommandProcessSink,
-} from "@kilnai/core";
+} from "@kilnai/core/tools";
 import { describe, expect, it } from "vitest";
 import { OxlintAnalyzer } from "../../src/verification/oxlint/oxlint-analyzer.js";
 

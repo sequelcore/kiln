@@ -3,15 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSqliteMemoryRepository } from "../../../src/index.js";
+import { EventBus, type KilnEvent } from "@kilnai/core/events";
 import {
-  EventBus,
-  trustedInternalMemoryAuthority,
   MemoryLifecycleApplicationService,
   MemoryMutationService,
-  type KilnEvent,
+  trustedInternalMemoryAuthority,
   type MemoryLifecycleAction,
   type MemoryRepository,
-} from "@kilnai/core";
+} from "@kilnai/core/memory";
 
 describe("MemoryLifecycleApplicationService", () => {
   let tmpDir: string;

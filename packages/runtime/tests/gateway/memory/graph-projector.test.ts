@@ -8,7 +8,7 @@ import {
   type CreateMemoryRecordInput,
   type MemoryProvenance,
   type MemoryRepository,
-} from "@kilnai/core";
+} from "@kilnai/core/memory";
 
 describe("MemoryGraphProjector", () => {
   let tmpDir: string;

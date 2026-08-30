@@ -3,17 +3,19 @@ import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  STATIC_ANALYSIS_OBSERVATION_SCHEMA,
+  STATIC_ANALYSIS_PROFILE,
+  STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST,
+} from "@kilnai/core/verification";
+import {
   BUILTIN_TOOL_EFFECT_ENVELOPES,
   type CommandProcessRequest,
   type CommandProcessRunner,
   type CommandProcessSink,
   isStaticAnalysisToolResultMetadata,
   parseStaticAnalysisToolResultMetadata,
-  STATIC_ANALYSIS_OBSERVATION_SCHEMA,
-  STATIC_ANALYSIS_PROFILE,
-  STATIC_ANALYSIS_PROFILE_CONFIG_DIGEST,
   TOOL_SCHEMAS,
-} from "@kilnai/core";
+} from "@kilnai/core/tools";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createStaticAnalyzeTool,

@@ -6,8 +6,8 @@ import type {
   CommandProcessResult,
   CommandProcessRunner,
   CommandProcessSink,
-} from "@kilnai/core";
-import { isGentleReviewObservation } from "@kilnai/core";
+} from "@kilnai/core/tools";
+import { isGentleReviewObservation } from "@kilnai/core/verification";
 import { afterEach, describe, expect, it } from "vitest";
 import { createGentleReviewTool } from "../../src/verification/gentle-ai/gentle-review-tool.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";

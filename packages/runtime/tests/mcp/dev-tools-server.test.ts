@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ActionEffectEnvelope } from "@kilnai/core/engine";
 import {
-  type ActionEffectEnvelope,
   createDefaultBuiltinToolRegistry,
   type DevTool,
   DevToolExecutionBridge,
@@ -11,7 +11,7 @@ import {
   projectDevToolSchemas,
   type ToolInput,
   type ToolResult,
-} from "@kilnai/core";
+} from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
 import { DevToolsMcpServer } from "../../src/mcp/dev-tools-server.js";
 import { createDefaultBuiltinToolSurface } from "../../src/tools/default-builtin-tool-surface.js";

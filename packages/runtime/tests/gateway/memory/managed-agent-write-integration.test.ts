@@ -8,13 +8,11 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
-  MemoryArtifactResourceStore,
   storeManagedAgentArtifactWriteProposal,
-} from "@kilnai/core";
-import type {
-  ManagedAgentInvocationRequest,
-  MemoryRepository,
-} from "@kilnai/core";
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core/agents";
+import type { MemoryRepository } from "@kilnai/core/memory";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 
 function makeWriteScope() {
   return defineManagedAgentWriteScope({

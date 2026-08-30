@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { analyzeTypeScriptQuality } from "@kilnai/core";
+import { analyzeTypeScriptQuality } from "@kilnai/core/tools";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQualityAnalyzeTool } from "../../src/verification/quality/quality-analyze-tool.js";
 

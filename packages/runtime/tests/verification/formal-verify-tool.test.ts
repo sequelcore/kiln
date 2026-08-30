@@ -4,6 +4,7 @@ import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { FORMAL_VERIFICATION_OBSERVATION_SCHEMA } from "@kilnai/core/verification";
 import {
   BUILTIN_TOOL_EFFECT_ENVELOPES,
   type CommandProcessRequest,
@@ -11,12 +12,11 @@ import {
   type CommandProcessRunner,
   type CommandProcessSink,
   createDefaultBuiltinTools,
-  FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
   type FormalVerificationToolResultMetadata,
   isFormalVerificationToolResultMetadata,
   parseFormalVerificationToolResultMetadata,
   TOOL_SCHEMAS,
-} from "@kilnai/core";
+} from "@kilnai/core/tools";
 import { afterEach, describe, expect, it } from "vitest";
 import { createFormalVerifyTool, FORMAL_VERIFY_CAPABILITY } from "../../src/verification/dafny/formal-verify-tool.js";
 import { makeTempDir as makePlainTempDir, makeSandbox, removeTempDir } from "./test-utils.js";

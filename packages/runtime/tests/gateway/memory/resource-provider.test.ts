@@ -8,19 +8,21 @@ import {
   defineMemoryAuthorityPolicy,
   governedMemoryAuthority,
   MemoryGraphResourceProvider,
-  ToolCatalogIndex,
-  ToolResourceRegistry,
-  MonitorRegistry,
-  TaskStateStore,
-  ResourceListTool,
-  ResourceReadTool,
-  ResourceTemplateListTool,
   trustedInternalMemoryAuthority,
   type CreateMemoryRecordInput,
   type MemoryLayerKind,
   type MemoryProvenance,
   type MemoryRepository,
-} from "@kilnai/core";
+} from "@kilnai/core/memory";
+import {
+  MonitorRegistry,
+  ResourceListTool,
+  ResourceReadTool,
+  ResourceTemplateListTool,
+  TaskStateStore,
+  ToolCatalogIndex,
+  ToolResourceRegistry,
+} from "@kilnai/core/tools";
 
 describe("MemoryGraphResourceProvider", () => {
   let tmpDir: string;

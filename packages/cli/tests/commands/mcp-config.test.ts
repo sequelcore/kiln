@@ -4,7 +4,7 @@ import {
   type McpDiscoverySnapshotAttestation,
   type McpSdkClient,
   type ResolvedMcpServer,
-} from "@kilnai/core";
+} from "@kilnai/core/mcp";
 import { mcpConfigCommand } from "../../src/commands/mcp-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";

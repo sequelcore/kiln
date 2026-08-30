@@ -3,17 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSqliteMemoryRepository } from "../../../src/index.js";
+import { EventBus, type KilnEvent } from "@kilnai/core/events";
 import {
   defineMemoryAuthorityPolicy,
-  governedMemoryAuthority,
-  EventBus,
   MemoryMutationService,
+  governedMemoryAuthority,
   trustedInternalMemoryAuthority,
   type CreateMemoryRecordInput,
-  type KilnEvent,
   type MemoryLayerKind,
   type MemoryRepository,
-} from "@kilnai/core";
+} from "@kilnai/core/memory";
 
 describe("MemoryMutationService", () => {
   let tmpDir: string;

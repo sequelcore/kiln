@@ -3,13 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSqliteMemoryRepository } from "../../../src/index.js";
-import {
-  DefaultContextGovernor,
-  type CreateMemoryRecordInput,
-  type MemoryProvenance,
-  type ContextAuditBlock,
-  type MemoryRepository,
-} from "@kilnai/core";
+import { DefaultContextGovernor, type ContextAuditBlock } from "@kilnai/core/context";
+import type { CreateMemoryRecordInput, MemoryProvenance, MemoryRepository } from "@kilnai/core/memory";
 
 describe("DefaultContextGovernor memory admission provenance", () => {
   let tmpDir: string;
