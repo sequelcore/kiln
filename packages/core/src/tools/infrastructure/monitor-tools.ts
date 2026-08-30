@@ -450,6 +450,7 @@ export class SpawnMonitorCommandRunner implements MonitorCommandRunner {
       executable: "bash",
       args: ["-c", request.command],
       cwd: request.cwd,
+      timeoutMs: request.timeoutMs,
     }, {
       output: ({ stream, text }) => stream === "stdout" ? sink.stdout(text) : sink.stderr(text),
       finish: sink.finish,
