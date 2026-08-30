@@ -8,8 +8,8 @@ import {
 } from "../../src/session/runtime-session-event-ledger.js";
 import {
   deriveRuntimeConvergencePolicyInput,
-  type RuntimeExecutionEnvelope,
 } from "../../src/session/runtime-execution-envelope.js";
+import type { RuntimeExecutionEnvelope } from "../../src/session/runtime-session-orchestrator.types.js";
 import {
   RuntimeSessionOrchestrator,
   type OrchestrateResult,
@@ -17,7 +17,7 @@ import {
 } from "../../src/session/runtime-session-orchestrator.js";
 import { makeSession } from "./runtime-session-orchestrator-tools-test-fixture.js";
 import { projectCanonicalTurnForTest } from "./canonical-turn-fixture.js";
-import { requireRuntimeConvergence, requireRuntimeCompletionEvidence } from "./runtime-terminal-fixture.js";
+import { requireRuntimeConvergence } from "./runtime-terminal-fixture.js";
 
 type ProviderResponse = Awaited<ReturnType<ProviderAdapter["createMessage"]>>;
 
