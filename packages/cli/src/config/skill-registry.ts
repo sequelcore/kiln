@@ -1,8 +1,12 @@
 import { join } from "node:path";
 import {
   resolveKilnCoreBuiltinSkills,
-  SkillRegistry,
+  type SkillRegistry,
 } from "@kilnai/core";
+import {
+  createFilesystemSkillRegistry,
+  discoverSkillsFromDirectories,
+} from "@kilnai/runtime";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { resolveSkillVisibility } from "./skill-visibility.js";
 import {
@@ -28,13 +32,13 @@ export interface ConfiguredSkillRegistryOptions extends ProjectStateRootOptions 
 export function createConfiguredSkillRegistry(
   options: ConfiguredSkillRegistryOptions,
 ): SkillRegistry {
-  const registry = new SkillRegistry();
+  const registry = createFilesystemSkillRegistry();
   const projectSkillsDirectory = options.projectSkillsDirectory
     ?? options.projectStateBinding?.skillsPath
     ?? resolvePrivateProjectSkillsDirectory(options.projectPath, options);
   const globalSkillsDirectory = options.globalSkillsDirectory
     ?? join(resolveConfiguredKilnHome(options), "skills");
-  registry.discoverAll(projectSkillsDirectory, globalSkillsDirectory);
+  discoverSkillsFromDirectories(registry, [projectSkillsDirectory, globalSkillsDirectory]);
   for (const skill of registry.all()) {
     if (resolveSkillVisibility(skill.name, options.skillConfig) === "disabled") {
       registry.remove(skill.name);

@@ -630,6 +630,21 @@ export {
 } from "./security/trusted-execution-limitation-receipts.js";
 export type { FilesystemDomainRegistryOptions } from "./domain/filesystem-domain-registry.js";
 export { createFilesystemDomainRegistry } from "./domain/filesystem-domain-registry.js";
+export type { FilesystemSkillRegistryOptions } from "./skill/filesystem-skill-registry.js";
+export {
+  createFilesystemSkillRegistry,
+  discoverSkillsFromDirectories,
+  discoverSkillsFromDirectory,
+  readSkillMd,
+  readSkillMdIndex,
+} from "./skill/filesystem-skill-registry.js";
+export { inspectSkillPackage } from "./skill/package-health.js";
+export type {
+  SkillPackageHealth,
+  SkillPackageHealthOptions,
+  SkillPackageHealthStatus,
+  SkillPackageRiskKind,
+} from "./skill/package-health.js";
 export type {
   AdmittedTurnContext,
   AdmittedTurnResult,

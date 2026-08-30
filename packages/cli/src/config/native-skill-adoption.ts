@@ -12,7 +12,8 @@ import {
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
-import { loadSkillMdIndex, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
+import { resolveKilnCoreBuiltinSkills } from "@kilnai/core";
+import { readSkillMdIndex } from "@kilnai/runtime";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { NATIVE_SKILL_TARGETS } from "./native-skill-targets.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
@@ -158,7 +159,7 @@ function discoverNativeSkillCandidates(root: string): readonly NativeSkillCandid
         return [];
       }
       try {
-        const index = loadSkillMdIndex(skillPath);
+        const index = readSkillMdIndex(skillPath);
         if (!isSafeSkillName(index.name) || index.name !== entry.name) {
           return [];
         }

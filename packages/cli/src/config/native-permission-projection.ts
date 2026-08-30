@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type ModelGatewayConfig, loadSkillMdIndex } from "@kilnai/core";
+import { type ModelGatewayConfig } from "@kilnai/core";
+import { readSkillMdIndex } from "@kilnai/runtime";
 import { parse as parseYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
@@ -178,7 +179,7 @@ function discoverClaudeExplicitOnlySkillNames(userHome?: string): readonly strin
         const match = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(raw);
         if (!match) return [];
         const metadata = parseYaml(match[1]!) as Record<string, unknown>;
-        return metadata["disable-model-invocation"] === true ? [loadSkillMdIndex(path).name] : [];
+        return metadata["disable-model-invocation"] === true ? [readSkillMdIndex(path).name] : [];
       } catch { return []; }
     });
   } catch { return []; }

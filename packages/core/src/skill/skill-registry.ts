@@ -1,11 +1,8 @@
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import type { SkillIndex, SkillConfig } from "./types.js";
-import { loadSkillMdIndex, loadSkillMd } from "./md-parser.js";
-import type { DomainPackageManifest } from "../package/types.js";
 
 export interface SkillRegistryOptions {
   readonly builtinSkills?: readonly SkillConfig[];
+  readonly materializationPort?: SkillMaterializationPort;
 }
 
 export type SkillMaterializationSource = "memory-cache" | "filesystem";
@@ -15,11 +12,17 @@ export interface SkillMaterializationResult {
   readonly source: SkillMaterializationSource;
 }
 
+export interface SkillMaterializationPort {
+  materialize(index: SkillIndex): SkillMaterializationResult | undefined;
+}
+
 export class SkillRegistry {
   private readonly indexes = new Map<string, SkillIndex>();
   private readonly fullCache = new Map<string, SkillConfig>();
+  private readonly materializationPort?: SkillMaterializationPort;
 
   constructor(options?: SkillRegistryOptions) {
+    this.materializationPort = options?.materializationPort;
     if (options?.builtinSkills) {
       for (const skill of options.builtinSkills) {
         this.registerFull(skill);
@@ -67,15 +70,12 @@ export class SkillRegistry {
     if (cached) return { skill: cached, source: "memory-cache" };
 
     const index = this.indexes.get(name);
-    if (!index?.filePath) return undefined;
+    if (!index) return undefined;
 
-    try {
-      const config = loadSkillMd(index.filePath);
-      this.fullCache.set(name, config);
-      return { skill: config, source: "filesystem" };
-    } catch {
-      return undefined;
-    }
+    const materialized = this.materializationPort?.materialize(index);
+    if (!materialized) return undefined;
+    this.fullCache.set(name, materialized.skill);
+    return materialized;
   }
 
   /** Resolve skills matching any of the given names or tags. */
@@ -99,64 +99,4 @@ export class SkillRegistry {
     return results;
   }
 
-  /** Discover SKILL.md files from a directory. Returns number of skills loaded. */
-  discoverFrom(dirPath: string): number {
-    if (!existsSync(dirPath)) return 0;
-
-    const entries = readdirSync(dirPath, { withFileTypes: true });
-    let loaded = 0;
-
-    for (const entry of entries) {
-      // Portable Agent Skills are complete directory packages containing SKILL.md.
-      if (entry.isDirectory()) {
-        const skillMdPath = join(dirPath, entry.name, "SKILL.md");
-        if (existsSync(skillMdPath)) {
-          loaded += this.tryLoadIndex(skillMdPath);
-        }
-      }
-    }
-
-    return loaded;
-  }
-
-  /** Discover skills from a domain package manifest. Returns number loaded. */
-  discoverFromPackage(manifest: DomainPackageManifest): number {
-    if (manifest.skills.length === 0) return 0;
-
-    let loaded = 0;
-    for (const skillPath of manifest.skills) {
-      const fullPath = join(manifest.installPath, skillPath);
-      loaded += this.tryLoadIndex(fullPath);
-    }
-    return loaded;
-  }
-
-  /**
-   * Discover skills from the explicit project and user catalog directories.
-   * Builtins are supplied to the constructor and are the lowest-precedence
-   * tier. Earlier directories win (project > user > builtin).
-   *
-   * The core registry deliberately does not derive either directory from a
-   * project root or home directory. The CLI owns project-state binding and
-   * supplies the private project directory at this boundary.
-   */
-  discoverAll(projectSkillsDir?: string, userSkillsDir?: string): number {
-    let total = 0;
-    if (projectSkillsDir) total += this.discoverFrom(projectSkillsDir);
-    if (userSkillsDir) total += this.discoverFrom(userSkillsDir);
-    return total;
-  }
-
-  private tryLoadIndex(filePath: string): number {
-    try {
-      const index = loadSkillMdIndex(filePath);
-      if (!this.indexes.has(index.name)) {
-        this.indexes.set(index.name, index);
-        return 1;
-      }
-    } catch {
-      // Skip invalid files silently
-    }
-    return 0;
-  }
 }

@@ -5,13 +5,13 @@ import { parse } from "yaml";
 import { parse as parseToml } from "smol-toml";
 import {
   KILN_CORE_BUILTIN_SKILLS,
-  loadSkillMdIndex,
   renderSkillMarkdown,
   resolveKilnCoreBuiltinSkills,
   type SkillIndex,
   canonicalSkillIdentity,
   digestSkillPackage,
 } from "@kilnai/core";
+import { readSkillMdIndex } from "@kilnai/runtime";
 import type {
   KilnSkillCatalogProjectionStatus,
   KilnSkillCatalogSnapshot,
@@ -415,7 +415,7 @@ function addSkillDirectory(
 ): void {
   for (const skillPath of readSkillMarkdownPaths(dirPath)) {
     try {
-      const index = loadSkillMdIndex(skillPath);
+      const index = readSkillMdIndex(skillPath);
       if (!isSafeProjectionPathComponent(index.name)) continue;
       const skillDirectory = dirname(skillPath);
       if (skillDirectory !== dirPath

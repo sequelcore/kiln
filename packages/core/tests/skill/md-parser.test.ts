@@ -1,8 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { parseSkillMd, parseSkillMdIndex, loadSkillMd, loadSkillMdIndex, SkillMdError } from "../../src/skill/md-parser.js";
+import { describe, it, expect } from "vitest";
+import { parseSkillMd, parseSkillMdIndex, SkillMdError } from "../../src/skill/md-parser.js";
 
 const fullSkillMd = `---
 name: code-review
@@ -228,7 +225,6 @@ Body.
     expect(config.triggers[0]!.filter).toBeUndefined();
   });
 });
-
 describe("parseSkillMdIndex", () => {
   it("parses only frontmatter, ignores body", () => {
     const index = parseSkillMdIndex(fullSkillMd);
@@ -250,59 +246,5 @@ name: test
 Body.
 `;
     expect(() => parseSkillMdIndex(md)).toThrow(SkillMdError);
-  });
-});
-
-describe("loadSkillMd", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "kiln-skill-md-"));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("loads and parses SKILL.md from disk", () => {
-    const filePath = join(tmpDir, "SKILL.md");
-    writeFileSync(filePath, minimalSkillMd, "utf-8");
-
-    const config = loadSkillMd(filePath);
-    expect(config.name).toBe("summarizer");
-    expect(config.filePath).toBe(filePath);
-    expect(config.instructions).toBe("Summarize the provided content.");
-  });
-
-  it("throws for non-existent file", () => {
-    expect(() => loadSkillMd(join(tmpDir, "missing.md"))).toThrow();
-  });
-
-  it("throws SkillMdError for invalid content", () => {
-    const filePath = join(tmpDir, "bad.md");
-    writeFileSync(filePath, "# No frontmatter", "utf-8");
-    expect(() => loadSkillMd(filePath)).toThrow(SkillMdError);
-  });
-});
-
-describe("loadSkillMdIndex", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "kiln-skill-idx-"));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("loads index only from disk", () => {
-    const filePath = join(tmpDir, "SKILL.md");
-    writeFileSync(filePath, fullSkillMd, "utf-8");
-
-    const index = loadSkillMdIndex(filePath);
-    expect(index.name).toBe("code-review");
-    expect(index.filePath).toBe(filePath);
-    expect("instructions" in index).toBe(false);
   });
 });

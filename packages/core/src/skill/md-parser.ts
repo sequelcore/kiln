@@ -1,5 +1,4 @@
 import { parse } from "yaml";
-import { readFileSync } from "node:fs";
 import { KilnError } from "../engine/errors.js";
 import type { SkillConfig, SkillIndex } from "./types.js";
 import type { EventType } from "../events/index.js";
@@ -201,16 +200,4 @@ export function parseSkillMdIndex(content: string, filePath = ""): SkillIndex {
   if (errors.length > 0) throw new SkillMdError(errors, filePath);
 
   return buildIndex(data as Record<string, unknown>, filePath);
-}
-
-/** Read a SKILL.md file from disk and parse into full SkillConfig */
-export function loadSkillMd(filePath: string): SkillConfig {
-  const content = readFileSync(filePath, "utf-8");
-  return parseSkillMd(content, filePath);
-}
-
-/** Read a SKILL.md file from disk and parse only the index (frontmatter) */
-export function loadSkillMdIndex(filePath: string): SkillIndex {
-  const content = readFileSync(filePath, "utf-8");
-  return parseSkillMdIndex(content, filePath);
 }

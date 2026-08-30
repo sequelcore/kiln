@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join, relative, sep } from "node:path";
-import { loadSkillMdIndex, renderSkillMarkdown, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
+import { renderSkillMarkdown, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
+import { readSkillMdIndex } from "@kilnai/runtime";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
@@ -94,7 +95,7 @@ function isCanonicalSkillDirectory(skillDir: string, directoryName: string): boo
     if (!skillFile) {
       return false;
     }
-    const skillName = loadSkillMdIndex(join(skillDir, skillFile.name)).name;
+    const skillName = readSkillMdIndex(join(skillDir, skillFile.name)).name;
     return isSafeProjectionPathComponent(skillName)
       && canonicalSkillKey(skillName) === canonicalSkillKey(directoryName);
   } catch {
@@ -144,7 +145,7 @@ export function discoverSkillProjectionSources(
     }
     for (const [fileName, sourceFile] of discoverFlatSkillFiles(dir)) {
       try {
-        const skillName = loadSkillMdIndex(sourceFile).name;
+        const skillName = readSkillMdIndex(sourceFile).name;
         if (!isSafeProjectionPathComponent(skillName)) continue;
         const visibility = resolveSkillVisibility(skillName, skillConfig);
         if (visibility === "disabled") continue;
@@ -244,7 +245,7 @@ function readSkillDirectoryName(sourceDir: string): string | undefined {
   try {
     const skillFile = readdirSync(sourceDir, { withFileTypes: true })
       .find((entry) => entry.isFile() && entry.name.toLowerCase() === "skill.md");
-    return skillFile ? loadSkillMdIndex(join(sourceDir, skillFile.name)).name : undefined;
+    return skillFile ? readSkillMdIndex(join(sourceDir, skillFile.name)).name : undefined;
   } catch {
     return undefined;
   }

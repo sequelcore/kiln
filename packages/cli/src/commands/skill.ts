@@ -3,7 +3,8 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { KilnAppConfig } from "../config.js";
-import { digestSkillPackage, inspectSkillPackage, loadSkillMd, loadSkillMdIndex } from "@kilnai/core";
+import { digestSkillPackage } from "@kilnai/core";
+import { inspectSkillPackage, readSkillMd, readSkillMdIndex } from "@kilnai/runtime";
 import { formatSkillList } from "../formatters.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
@@ -153,7 +154,7 @@ function prepareSource(inputPath: string, context: SkillCommandContext): { name:
   if (!stat.isDirectory() && !sourcePath.toLowerCase().endsWith(".md")) return fail("Skill source must be a package directory or SKILL.md file.");
   if (!existsSync(skillFile)) return fail(`No SKILL.md found at ${skillFile}.`);
   let name: string;
-  try { name = loadSkillMdIndex(skillFile).name; } catch (error) { return fail(`Invalid SKILL.md: ${error instanceof Error ? error.message : String(error)}`); }
+  try { name = readSkillMdIndex(skillFile).name; } catch (error) { return fail(`Invalid SKILL.md: ${error instanceof Error ? error.message : String(error)}`); }
   let root = stat.isDirectory() ? sourcePath : "";
   if (!stat.isDirectory()) {
     ensurePrivateStateDirectorySync(context.projectStateBinding.projectStateRoot, context.projectStateBinding.tmpPath);
@@ -360,7 +361,7 @@ function publishSkill(_config: KilnAppConfig, context: SkillCommandContext): voi
   const filePath = join(context.projectPath, "SKILL.md");
   if (!existsSync(filePath)) return fail("No SKILL.md found in current directory.");
   try {
-    const skill = loadSkillMd(filePath); const health = inspectSkillPackage(context.projectPath);
+    const skill = readSkillMd(filePath); const health = inspectSkillPackage(context.projectPath);
     if (health.status === "blocked") return fail(`Skill package is blocked: ${health.diagnostics.map((entry) => entry.code).join(", ")}`);
     console.log(`Skill "${skill.name}" validated successfully.`); console.log(""); console.log("Ready for publishing. Skill details:");
     console.log(`  Name: ${skill.name}`); console.log(`  Description: ${skill.description}`);

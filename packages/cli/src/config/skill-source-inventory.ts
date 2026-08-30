@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, realpathSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { parse } from "yaml";
-import { canonicalSkillIdentity, digestSkillPackage, inspectSkillPackage, loadSkillMdIndex } from "@kilnai/core";
+import { canonicalSkillIdentity, digestSkillPackage } from "@kilnai/core";
+import { inspectSkillPackage, readSkillMdIndex } from "@kilnai/runtime";
 import type {
   KilnSkillInventoryDiagnosticSnapshot,
   KilnSkillSourceCandidateSnapshot,
@@ -226,7 +227,7 @@ function collectRoot(
       continue;
     }
     try {
-      const index = loadSkillMdIndex(result.skillFile.path);
+      const index = readSkillMdIndex(result.skillFile.path);
       const canonicalName = canonicalSkillIdentity(index.name);
       const normalizedSkillPath = normalizeSkillInventoryPath(result.skillFile.path);
       const relationship = candidate.linked

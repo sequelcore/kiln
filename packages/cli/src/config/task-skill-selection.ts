@@ -3,7 +3,6 @@ import { statSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   estimateTextTokens,
-  inspectSkillPackage,
   skillConfigToContextCandidate,
   type ContextCandidate,
   type ModelTaskSuitability,
@@ -12,6 +11,7 @@ import {
   type WorkRecommendedSkillDiagnostic,
   recommendedSkillsForWorkClassification,
 } from "@kilnai/core";
+import { inspectSkillPackage } from "@kilnai/runtime";
 import type {
   KilnModelTaskSuitabilityOverride,
   KilnYamlSkillSelectionConfig,
