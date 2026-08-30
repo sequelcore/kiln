@@ -157,12 +157,12 @@ and proves process/port settlement.
 ## Rust Decision
 
 No Rust, WASM, N-API, or sidecar slice is admitted. The measured startup work
-is dominated by module loading and host/process behavior. The long-turn fixture
-is a semantic audit. No local deterministic kernel on repository HEAD is shown
-to account for both 25% and 100ms of product p95 after TypeScript cleanup.
-Roadmap 09 therefore remains a guardrail; a future candidate still needs a
-module-specific owner, TypeScript port, parity fixtures, bridge-cost evidence,
-fallback behavior, and cross-platform packaging evidence.
+has no runtime trace that attributes latency to a local CPU path. The long-turn
+fixture is a semantic audit. No local deterministic kernel on repository HEAD
+is shown to account for both 25% and 100ms of product p95 after TypeScript
+cleanup. Roadmap 09 therefore remains a guardrail; a future candidate still
+needs a module-specific owner, TypeScript port, parity fixtures, bridge-cost
+evidence, fallback behavior, and cross-platform packaging evidence.
 
 ## Evidence Verdict
 
